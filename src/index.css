@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+/* Custom modern scrollbar styles across multiple browser engines */
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+.dark .scrollbar-thin {
+  scrollbar-color: #334155 #0f172a;
+}
+
+.scrollbar-thin {
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+
+/* Webkit scrollbar overrides for Chrome, Safari, Edge, and iOS engines */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Custom range inputs (sliders) styles that adapt perfectly to dark/light theme */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+/* Webkit track */
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: #e2e8f0; /* light gray track */
+  transition: background-color 0.15s ease-in-out;
+}
+
+.dark input[type="range"]::-webkit-slider-runnable-track {
+  background-color: #334155; /* dark slate track */
+}
+
+/* Firefox track */
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: #e2e8f0;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.dark input[type="range"]::-moz-range-track {
+  background-color: #334155;
+}
+
+/* Webkit thumb (slider knob) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px; /* centers the thumb on Webkit */
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background-color: #4f46e5; /* indigo-600 */
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: background-color 0.15s ease-in-out, transform 0.1s ease-in-out;
+}
+
+.dark input[type="range"]::-webkit-slider-thumb {
+  background-color: #6366f1; /* indigo-500 */
+  border-color: #1e293b; /* dark border */
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background-color: #4338ca; /* Indigo-700 */
+  transform: scale(1.15);
+}
+
+.dark input[type="range"]::-webkit-slider-thumb:hover {
+  background-color: #818cf8; /* Indigo-400 */
+}
+
+/* Firefox thumb */
+input[type="range"]::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background-color: #4f46e5;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: background-color 0.15s ease-in-out, transform 0.1s ease-in-out;
+}
+
+.dark input[type="range"]::-moz-range-thumb {
+  background-color: #6366f1;
+  border-color: #1e293b;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  background-color: #4338ca;
+  transform: scale(1.15);
+}
+
+.dark input[type="range"]::-moz-range-thumb:hover {
+  background-color: #818cf8;
+}
+
+/* Molstar specialized override for sliders/inputs inside controls */
+.msp-control-row input[type="range"],
+.msp-slider-track,
+.msp-slider-thumb {
+  accent-color: #6366f1 !important;
+}
+
+/* Make sure option selections and select fields in Molstar blend gracefully */
+.msp-control-row select {
+  border-radius: 6px !important;
+  color: inherit !important;
+  background-color: transparent !important;
+}
+
+.dark .msp-control-row select option {
+  background-color: #0f172a !important;
+  color: #f1f5f9 !important;
+}
+

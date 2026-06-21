@@ -1,0 +1,32 @@
+# Documentation Index — Missense Structural Explorer
+
+Welcome to the comprehensive documentation repository for the **Missense Structural Explorer**. This folder serves as a centralized hub of knowledge detailing the product designs, tech stack, and biological computing pipelines.
+
+---
+
+## 📂 Navigation Index
+
+### 1. [Product Requirements Document (PRD)](./PRD.md)
+* **Goal**: Outlines the strategic purpose, problem statement, target personas, and clinical workflows of the application.
+* **Key Topics**: User personas, core problems solved, and non-functional requirements.
+
+### 2. [Technical Architecture Design](./ARCHITECTURE.md)
+* **Goal**: Details the physical full-stack network layout, APIs, WebGL graphics engine, and pipeline mechanics.
+* **Key Topics**: Front-end WebGL states, Express API gateway endpoints, and proxy mechanisms.
+
+### 3. [Interactive Feature Catalog](./FEATURES.md)
+* **Goal**: Serves as a user manual mapping out interactive utilities, color themes, and algorithmic analyses.
+* **Key Topics**: Variant presets, Molstar rendering representations, and ACMG criteria codes.
+
+### 4. [Technical Limitations & Constraints](./LIMITATIONS.md)
+* **Goal**: Highlights physical boundaries, API dependencies, cropping systems, and browser limitations.
+* **Key Topics**: Mutational modeling workspace constraints, EBI AlphaFold API versioning, and iframe sandbox restrictions.
+
+---
+
+## 🛠️ Infrastructure Overview
+* **Runtime**: Node.js & Vite (TypeScript)
+* **API Ingress**: Port 3000
+* **Graphics**: HTML5 Canvas with WebGL (Molstar API)
+* **AI Orchestration**: Gemini 3.5 Flash (`@google/genai` model client)
+* **Biological APIs**: EMBL-EBI AlphaFold Database & Mutational Side-Chain Modeling Engine
