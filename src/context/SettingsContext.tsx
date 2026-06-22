@@ -69,6 +69,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<UserSettings>(() => {
     const defaultSettings: UserSettings = {
       residueColor: "#F97316",
+      primaryAccent: "indigo",
+      geminiApiKey: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,
@@ -98,6 +100,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
   });
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-accent", settings.primaryAccent || "indigo");
+  }, [settings.primaryAccent]);
+
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
@@ -118,6 +124,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const resetSettingsToDefault = () => {
     const defaultSettings: UserSettings = {
       residueColor: "#F97316",
+      primaryAccent: "indigo",
+      geminiApiKey: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,

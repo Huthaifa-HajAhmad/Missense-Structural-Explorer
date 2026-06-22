@@ -26,7 +26,7 @@ export interface ClinVarData {
   classification: string;
   lastEvaluated: string;
   reviewStatus: string;
-  alleleFrequencies: { source: string; value: string }[];
+  alleleFrequencies: { source: string; value: any }[];
   trait: string;
   uid: string | null;
 }
@@ -61,6 +61,8 @@ export interface NearestResidue {
 
 export interface UserSettings {
   residueColor: string; // e.g., "#F97316"
+  primaryAccent: "indigo" | "purple" | "rose" | "emerald" | "amber" | "blue";
+  geminiApiKey?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;

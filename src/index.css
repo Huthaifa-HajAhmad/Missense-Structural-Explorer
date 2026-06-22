@@ -145,7 +145,7 @@ input[type="range"]::-moz-range-thumb:hover {
 .msp-control-row input[type="range"],
 .msp-slider-track,
 .msp-slider-thumb {
-  accent-color: #6366f1 !important;
+  accent-color: var(--accent-500) !important;
 }
 
 /* Make sure option selections and select fields in Molstar blend gracefully */
@@ -158,5 +158,92 @@ input[type="range"]::-moz-range-thumb:hover {
 .dark .msp-control-row select option {
   background-color: #0f172a !important;
   color: #f1f5f9 !important;
+}
+
+/* Accent theme mappings */
+:root {
+  /* Default Indigo values */
+  --accent-50: #e0e7ff;
+  --accent-100: #c7d2fe;
+  --accent-400: #818cf8;
+  --accent-500: #6366f1;
+  --accent-550: #5558eb;
+  --accent-600: #4f46e5;
+  --accent-605: #463de0;
+  --accent-700: #4338ca;
+  --accent-705: #3b31be;
+}
+
+:root[data-accent="purple"] {
+  --accent-400: #c084fc;
+  --accent-500: #a855f7;
+  --accent-550: #9d48eb;
+  --accent-600: #9333ea;
+  --accent-605: #8526dc;
+  --accent-700: #7e22ce;
+  --accent-705: #6d1bb5;
+  --accent-50: #f3e8ff;
+  --accent-100: #e9d5ff;
+}
+
+:root[data-accent="rose"] {
+  --accent-400: #fb7185;
+  --accent-500: #f43f5e;
+  --accent-550: #ea2a4b;
+  --accent-600: #e11d48;
+  --accent-605: #cd123b;
+  --accent-700: #be123c;
+  --accent-705: #a40b30;
+  --accent-50: #ffe4e6;
+  --accent-100: #fecdd3;
+}
+
+:root[data-accent="emerald"] {
+  --accent-400: #34d399;
+  --accent-500: #10b981;
+  --accent-550: #0ba370;
+  --accent-600: #059669;
+  --accent-605: #04825b;
+  --accent-700: #047857;
+  --accent-705: #036247;
+  --accent-50: #ecfdf5;
+  --accent-100: #d1fae5;
+}
+
+:root[data-accent="amber"] {
+  --accent-400: #fbbf24;
+  --accent-500: #f59e0b;
+  --accent-550: #e38e07;
+  --accent-600: #d97706;
+  --accent-605: #be6503;
+  --accent-700: #b45309;
+  --accent-705: #9c4505;
+  --accent-50: #fffbeb;
+  --accent-100: #fef3c7;
+}
+
+:root[data-accent="blue"] {
+  --accent-400: #60a5fa;
+  --accent-500: #3b82f6;
+  --accent-550: #2d73eb;
+  --accent-600: #2563eb;
+  --accent-605: #1952d7;
+  --accent-700: #1d4ed8;
+  --accent-705: #143cae;
+  --accent-50: #eff6ff;
+  --accent-100: #dbeafe;
+}
+
+/* Map Tailwind default Indigo properties to our custom accent properties */
+:root {
+  --color-indigo-50: var(--accent-50);
+  --color-indigo-100: var(--accent-100);
+  --color-indigo-400: var(--accent-400);
+  --color-indigo-500: var(--accent-500);
+  --color-indigo-550: var(--accent-550);
+  --color-indigo-600: var(--accent-600);
+  --color-indigo-605: var(--accent-605);
+  --color-indigo-700: var(--accent-700);
+  --color-indigo-705: var(--accent-705);
 }
 
