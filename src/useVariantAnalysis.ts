@@ -341,7 +341,7 @@ export default function useVariantAnalysis() {
   const classHeaderTitle = isDark ? "text-white" : "text-slate-900";
   const classHeaderSub = isDark ? "text-slate-400" : "text-slate-500";
   
-  const classCard = isDark ? "bg-[#1e293b] border border-slate-800 shadow-[0_4px_20px_rgba(0,0,0,0.3)]" : "bg-white border border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)] rounded-xl";
+  const classCard = isDark ? "bg-[#1e293b] border border-slate-800 shadow-[0_4px_20px_rgba(0,0,0,0.3)] rounded-xl" : "bg-white border border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)] rounded-xl";
   const classCardHeader = isDark ? "text-white pb-3 border-b border-slate-800/60" : "text-slate-900 pb-3 border-b border-slate-100";
   const classCardTitle = isDark ? "text-white" : "text-slate-900";
   const classCardSubText = isDark ? "text-slate-400" : "text-slate-500";
