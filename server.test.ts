@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { 
   validateGene, 
   validateVariant, 
@@ -10,7 +10,12 @@ import {
   MUTATION_FOLDX_PATTERN,
   VCF_GENOMIC_PATTERN,
   CDNA_PATTERN
-} from "./server";
+} from "./server/utils.ts";
+import {
+  pdbCache,
+  uniprotCache,
+  fetchClinVarData
+} from "./server/services/external.ts";
 
 describe("Input Validation Patterns & Functions", () => {
   describe("validateGene", () => {
@@ -134,6 +139,103 @@ describe("Input Validation Patterns & Functions", () => {
           details: { extra: 123 }
         }
       });
+    });
+  });
+
+  describe("LRU Cache", () => {
+    it("should allow setting and getting cached PDB structures", () => {
+      pdbCache.set("P00439", "MOCK_PDB_CONTENT");
+      expect(pdbCache.get("P00439")).toBe("MOCK_PDB_CONTENT");
+      expect(pdbCache.has("P00439")).toBe(true);
+      pdbCache.delete("P00439");
+      expect(pdbCache.get("P00439")).toBeUndefined();
+    });
+
+    it("should allow setting and getting cached UniProt mappings", () => {
+      uniprotCache.set("PAH", "P00439");
+      expect(uniprotCache.get("PAH")).toBe("P00439");
+      uniprotCache.delete("PAH");
+      expect(uniprotCache.get("PAH")).toBeUndefined();
+    });
+  });
+
+  describe("fetchClinVarData", () => {
+    it("should return parsed results if variant title matches (exact or mapped AA codes)", async () => {
+      const mockSearchResponse = {
+        esearchresult: {
+          idlist: ["12345"]
+        }
+      };
+
+      const mockSummaryResponse = {
+        result: {
+          "12345": {
+            title: "NM_000277.3(PAH):c.1224C>T (p.Arg408Trp)",
+            germline_classification: {
+              description: "Pathogenic",
+              last_evaluated: "2023-01-01",
+              review_status: "practice guideline",
+              trait_set: [{ trait_name: "Phenylketonuria" }]
+            },
+            allele_freq_set: [
+              { source: "gnomAD", value: "0.0005" }
+            ]
+          }
+        }
+      };
+
+      const fetchSpy = vi.spyOn(global, "fetch");
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSearchResponse
+      } as any);
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSummaryResponse
+      } as any);
+
+      const res = await fetchClinVarData("PAH", "p.Arg408Trp");
+      expect(res.classification).toBe("Pathogenic");
+      expect(res.trait).toBe("Phenylketonuria");
+      expect(res.uid).toBe("12345");
+      expect(res.alleleFrequencies[0].value).toBe("0.0005");
+
+      fetchSpy.mockRestore();
+    });
+
+    it("should not match and return default response if title doesn't match clean variant", async () => {
+      const mockSearchResponse = {
+        esearchresult: {
+          idlist: ["67890"]
+        }
+      };
+
+      const mockSummaryResponse = {
+        result: {
+          "67890": {
+            title: "NM_000277.3(PAH):c.1000G>A (p.Ala123Val)",
+            germline_classification: {
+              description: "Benign"
+            }
+          }
+        }
+      };
+
+      const fetchSpy = vi.spyOn(global, "fetch");
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSearchResponse
+      } as any);
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSummaryResponse
+      } as any);
+
+      const res = await fetchClinVarData("PAH", "p.Arg408Trp");
+      expect(res.classification).toBe("Not found in ClinVar");
+      expect(res.uid).toBeNull();
+
+      fetchSpy.mockRestore();
     });
   });
 });
