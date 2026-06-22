@@ -92,6 +92,17 @@ async function fetchWithRetry(
       
       // If it's a 503 (Cold Start) or 504 (Timeout) and we have retries left:
       if ((response.status === 503 || response.status === 504) && attempt < maxRetries) {
+        // Read body to see if it's an API key missing configuration error
+        try {
+          const clone = response.clone();
+          const text = await clone.text();
+          if (text.includes("API_KEY_MISSING") || text.includes("isConfigError")) {
+            return response; // Bypassing retry for missing/invalid credentials configuration (HIGH-3)
+          }
+        } catch (e) {
+          // ignore error
+        }
+
         attempt++;
         const delay = initialDelay * Math.pow(backoffFactor, attempt - 1);
         console.warn(`[Retry] Endpoint ${url} returned status ${response.status}. Retrying attempt ${attempt}/${maxRetries} after ${delay}ms...`);

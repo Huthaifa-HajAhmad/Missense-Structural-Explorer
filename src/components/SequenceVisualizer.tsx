@@ -61,14 +61,14 @@ export default function SequenceVisualizer({
   const [sequence, setSequence] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [windowSize, setWindowSize] = useState<number>(seqScrollStep); // surrounding window (number of amino acids to display)
+  const [windowSize, setWindowSize] = useState<number>(seqScrollStepProp || settings.seqScrollStep || 31); // surrounding window (number of amino acids to display)
   const [copied, setCopied] = useState<boolean>(false);
   const [hoveredResidue, setHoveredResidue] = useState<{ symbol: string; pos: number; type: "wild" | "mutant" | "normal" } | null>(null);
 
   // Re-adjust windowSize if seqScrollStep prop changes or from settings changes
   useEffect(() => {
-    setWindowSize(seqScrollStep);
-  }, [seqScrollStep]);
+    setWindowSize(seqScrollStepProp || settings.seqScrollStep || 31);
+  }, [seqScrollStepProp, settings.seqScrollStep]);
 
   const getResidueBaseColor = (res: string) => {
     if (seqColorScheme === "minimal") {
@@ -535,8 +535,8 @@ export default function SequenceVisualizer({
                       className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all text-xs ${
                         isTarget
                           ? isDark
-                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/80 ring-2 ring-emerald-500/40 relative scale-110 shadow-md shadow-emerald-950/50 cursor-pointer"
-                            : "bg-emerald-500/10 text-emerald-700 border-emerald-500/40 ring-2 ring-emerald-500/20 relative scale-110 shadow-md shadow-emerald-100/50 cursor-pointer"
+                            ? "bg-emerald-500/35 text-emerald-300 border-emerald-400 border-2 ring-2 ring-emerald-500/50 relative scale-115 shadow-md shadow-emerald-950/70 cursor-pointer animate-pulse z-10"
+                            : "bg-emerald-500/20 text-emerald-800 border-emerald-500 border-2 ring-2 ring-emerald-500/30 relative scale-115 shadow-md shadow-emerald-100/70 cursor-pointer animate-pulse z-10"
                           : isSelected
                             ? isDark
                               ? "bg-indigo-500/30 text-indigo-200 border-indigo-500/80 ring-2 ring-indigo-500/40 relative scale-110 z-10 shadow-md shadow-indigo-950/50 cursor-pointer"
@@ -602,8 +602,8 @@ export default function SequenceVisualizer({
                       className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all text-xs ${
                         isTarget
                           ? isDark
-                            ? "bg-rose-500/20 text-rose-300 border-rose-500/80 ring-2 ring-rose-500/40 relative scale-110 shadow-md shadow-rose-950/50 cursor-pointer"
-                            : "bg-rose-500/10 text-rose-700 border-rose-500/40 ring-2 ring-rose-500/20 relative scale-110 shadow-md shadow-rose-100/50 cursor-pointer"
+                            ? "bg-rose-500/35 text-rose-300 border-rose-400 border-2 ring-2 ring-rose-500/50 relative scale-115 shadow-md shadow-rose-950/70 cursor-pointer animate-pulse z-10"
+                            : "bg-rose-500/20 text-rose-800 border-rose-500 border-2 ring-2 ring-rose-500/30 relative scale-115 shadow-md shadow-rose-100/70 cursor-pointer animate-pulse z-10"
                           : isSelected
                             ? isDark
                               ? "bg-indigo-500/30 text-indigo-200 border-indigo-500/80 ring-2 ring-indigo-500/40 relative scale-110 z-10 shadow-md shadow-indigo-950/50 cursor-pointer"
