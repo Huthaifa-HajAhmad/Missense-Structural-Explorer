@@ -36,7 +36,7 @@ import SequenceVisualizer from "./components/SequenceVisualizer";
 import Header from "./components/Header";
 import VariantSearchPanel from "./components/VariantSearchPanel";
 import ClinicalInsightsCard from "./components/ClinicalInsightsCard";
-import SettingsDrawer from "./components/SettingsDrawer";
+import SettingsModal from "./components/SettingsModal";
 
 import useVariantAnalysis, {
   AMINO_ACID_NAMES_MAP,
@@ -158,7 +158,7 @@ export default function App() {
   } = actions;
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
+    <div className={`min-h-screen lg:h-screen lg:overflow-hidden flex flex-col font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
       {/* Clinician Top Header */}
       <Header
         isDark={isDark}
@@ -170,10 +170,13 @@ export default function App() {
         classBadgeAccent={classBadgeAccent}
       />
 
+      {/* Clinical & Privacy Warning Banner has been integrated into footer disclaimer */}
+
       {/* Main Grid Workspace */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-               {/* LEFT COLUMN: Controls & Insights (spanning 4/12 width) */}
-        <section className={`lg:col-span-5 flex flex-col gap-6 w-full transition-all duration-300 ${settings.bentoLeftControls ? "lg:order-1" : "lg:order-2"}`}>
+      <main className="flex-1 w-full max-w-full p-4 lg:p-6 flex flex-col gap-6 lg:overflow-hidden min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
+          {/* LEFT COLUMN: Controls & Insights (spanning 5/12 width) */}
+          <section className={`lg:col-span-5 flex flex-col gap-6 w-full lg:h-full min-h-0 transition-all duration-300 ${settings.bentoLeftControls ? "lg:order-1" : "lg:order-2"}`}>
           
           {/* SEARCH & CONTROL PANEL */}
           <VariantSearchPanel
@@ -203,7 +206,7 @@ export default function App() {
             history={history}
             clearHistory={clearHistory}
             handleSelectHistoryItem={handleSelectHistoryItem}
-            handleSelectPreset={handleSelectPreset}
+            uniprotId={uniprotId}
           />
 
           {/* CLINICAL INSIGHTS CARD */}
@@ -229,9 +232,9 @@ export default function App() {
           />
         </section>
 
-        {/* RIGHT COLUMN: 3D Molstar viewer (spanning 8/12 width) */}
-        <section className={`lg:col-span-7 flex flex-col gap-6 w-full h-full transition-all duration-300 ${settings.bentoLeftControls ? "lg:order-2" : "lg:order-1"}`}>
-          <div className={`${classCard} p-4 flex flex-col gap-4 transition-all`}>
+        {/* RIGHT COLUMN: 3D Molstar viewer (spanning 7/12 width) */}
+        <section className={`lg:col-span-7 flex flex-col gap-6 w-full lg:h-full min-h-0 transition-all duration-300 ${settings.bentoLeftControls ? "lg:order-2" : "lg:order-1"}`}>
+          <div className={`${classCard} p-4 flex-1 flex flex-col gap-4 transition-all min-h-0`}>
             
             {/* Visualizer header */}
             <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b ${classBorderSec}`}>
@@ -311,7 +314,7 @@ export default function App() {
 
             {/* Custom overlays for active folding or structure display */}
             {viewMode === "mutant" && isFolding && (
-              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
+              <div className={`relative w-full flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
                 isDark 
                   ? "bg-slate-900 border-slate-800 text-white" 
                   : "bg-slate-50 border-slate-200 text-slate-800"
@@ -327,9 +330,9 @@ export default function App() {
             )}
 
             {viewMode === "mutant" && foldingError && (
-              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
+              <div className={`relative w-full flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
                 isDark 
-                  ? "bg-slate-900 border-slate-800 text-rose-400" 
+                  ? "bg-slate-900 border-slate-800 text-rose-455" 
                   : "bg-rose-50/50 border-rose-200 text-rose-700"
               }`}>
                 <AlertTriangle className="w-12 h-12 mb-3 text-rose-500 animate-pulse" />
@@ -508,12 +511,12 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.99, y: -3 }}
                   transition={{ duration: 0.2, ease: "easeInOut" }}
-                  className="w-full"
+                  className="w-full flex-1 flex flex-col min-h-0"
                 >
                   {compareMode && comparisonLayout === "side-by-side" && compareMutantPdb ? (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 min-h-0">
                       {/* Left Viewport: Variant 1 */}
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1.5 flex-1 min-h-0">
                         <div className="text-[10px] font-bold text-amber-500 font-mono px-1 flex items-center justify-between uppercase tracking-wider">
                           <span>Variant 1: {variant}</span>
                           <span className="text-[9px] text-slate-400 opacity-80 lowercase font-normal">Primary Model</span>
@@ -535,26 +538,27 @@ export default function App() {
                           neonHighContrast={settings.neonHighContrast}
                           mutantStatus={foldingStatus}
                           mutantDdG={foldingDdG}
+                          heightClass="flex-1 min-h-0"
                         />
                       </div>
                       
                       {/* Right Viewport: Variant 2 */}
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1.5 flex-1 min-h-0">
                         <div className="text-[10px] font-bold text-pink-500 font-mono px-1 flex items-center justify-between uppercase tracking-wider">
                           <span>Variant 2: {compareVariant}</span>
                           <span className="text-[9px] text-slate-400 opacity-80 lowercase font-normal">Comparison Model</span>
                         </div>
                         {isFoldingCompare ? (
-                          <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
+                          <div className={`relative w-full flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
                             isDark 
                               ? "bg-slate-900 border-slate-800 text-white" 
-                              : "bg-slate-50 border-slate-200 text-slate-850"
+                              : "bg-slate-50 border-slate-200 text-slate-855"
                           }`}>
                             <div className="w-10 h-10 border-3 border-pink-500 border-t-transparent rounded-full animate-spin mb-3"></div>
                             <p className="text-pink-500 font-mono text-xs uppercase tracking-wider animate-pulse">Folding Variant 2 structure...</p>
                           </div>
                         ) : foldingCompareError ? (
-                          <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
+                          <div className={`relative w-full flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
                             isDark ? "bg-slate-900 border-slate-800 text-rose-450" : "bg-rose-50 border-rose-200"
                           }`}>
                             <p className="text-xs font-semibold mb-2 text-rose-550">Simulating Variant 2 Failed</p>
@@ -579,6 +583,7 @@ export default function App() {
                             disruptionWarning={disruptionWarningVariant2}
                             mutantStatus={compareFoldingStatus}
                             mutantDdG={compareFoldingDdG}
+                            heightClass="flex-1 min-h-0"
                           />
                         )}
                       </div>
@@ -605,6 +610,7 @@ export default function App() {
                       disruptionWarning={viewMode === "mutant" ? disruptionWarningVariant1 : null}
                       mutantStatus={foldingStatus}
                       mutantDdG={foldingDdG}
+                      heightClass="flex-1 min-h-0"
                     />
                   )}
                 </motion.div>
@@ -840,24 +846,29 @@ export default function App() {
             }}
           />
         </section>
-
+        </div>
       </main>
 
       {/* Lab footer */}
-      <footer className={`border-t py-4 px-6 text-center text-xs mt-auto flex flex-col sm:flex-row items-center justify-between gap-2 max-w-[1600px] w-full mx-auto transition-colors ${
+      <footer className={`border-t py-4 px-6 text-xs mt-auto flex flex-col md:flex-row items-center justify-between gap-4 w-full max-w-full transition-colors ${
         isDark ? "bg-[#1e293b] border-slate-800 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-500"
       }`}>
-        <p className="flex items-center gap-1.5 justify-center">
-          <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 animate-pulse" />
-          <span>Missense & Fold • Instant 3D biophysical modeling for clinical variant interpretation.</span>
-        </p>
-        <p className={`font-mono text-[10px] ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+        <div className="flex flex-col items-center md:items-start text-center md:text-left max-w-xl">
+          <p className="flex items-center gap-1.5 justify-center md:justify-start">
+            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 animate-pulse" />
+            <span className="font-semibold">Missense & Fold</span>
+          </p>
+          <p className={`text-[10px] mt-1 leading-relaxed ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+            Disclaimer: For research and decision-support only. Not for diagnostic procedures. This application is not HIPAA-compliant; do not input Protected Health Information (PHI) or patient-identifiable data. Variant queries are transmitted to external APIs (including Google Gemini AI, ClinVar, EBI, and Ensembl) for real-time analysis. No clinical action should be taken based solely on this system.
+          </p>
+        </div>
+        <p className={`font-mono text-[10px] text-center md:text-right ${isDark ? "text-slate-500" : "text-slate-400"}`}>
           Computational Engine © 2026 • Powered by Gemini Flash
         </p>
       </footer>
 
-      {/* Settings Panel Slide-out Drawer */}
-      <SettingsDrawer />
+      {/* Settings Panel Slide-out Modal */}
+      <SettingsModal />
     </div>
   );
 }

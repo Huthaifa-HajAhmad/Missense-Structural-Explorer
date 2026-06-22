@@ -4,6 +4,7 @@ import { createPluginUI } from "molstar/lib/mol-plugin-ui";
 import { DefaultPluginUISpec } from "molstar/lib/mol-plugin-ui/spec";
 import "molstar/lib/mol-plugin-ui/skin/light.scss";
 import { useSettings } from "../context/SettingsContext";
+import { pocketFinderResponseSchema } from "../useVariantAnalysis";
 
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
@@ -51,8 +52,9 @@ interface MolstarViewerProps {
   cameraDuration?: number;
   autoZoomOnSelect?: boolean;
   neonHighContrast?: boolean;
-  mutantStatus?: "success" | "fallback" | null;
+  mutantStatus?: "success" | "scwrl" | "fallback" | null;
   mutantDdG?: number | null;
+  heightClass?: string;
 }
 
 export default function MolstarViewer({ 
@@ -74,7 +76,8 @@ export default function MolstarViewer({
   autoZoomOnSelect: autoZoomOnSelectProp,
   neonHighContrast: neonHighContrastProp,
   mutantStatus,
-  mutantDdG
+  mutantDdG,
+  heightClass
 }: MolstarViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pluginRef = useRef<any>(null);
@@ -86,6 +89,8 @@ export default function MolstarViewer({
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pluginsReadyState, setPluginsReadyState] = useState<number>(0);
+  const [showWarningCard, setShowWarningCard] = useState(false);
+  const [warningClicked, setWarningClicked] = useState(false);
 
   const { theme: contextTheme, settings, showPolarContacts: contextShowPolarContacts } = useSettings();
   const isDark = (theme || contextTheme) !== "light";
@@ -121,9 +126,9 @@ export default function MolstarViewer({
     if (customPdbData) {
       setPdbText(customPdbData);
     } else {
-      let pdbUrl = customPdbUrl || `/api/alphafold-pdb/${uniprotId}`;
+      let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}`;
       if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
-        pdbUrl = `/api/alphafold-pdb/${uniprotId}`;
+        pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
       }
       fetch(pdbUrl)
         .then(res => {
@@ -168,7 +173,8 @@ export default function MolstarViewer({
       })
       .then(data => {
         if (active) {
-          setComputedPocket(data);
+          const validatedData = pocketFinderResponseSchema.parse(data);
+          setComputedPocket(validatedData);
         }
       })
       .catch(err => {
@@ -334,9 +340,9 @@ export default function MolstarViewer({
             label: `${gene} (FoldX Biophysical Mutant)`
           });
         } else {
-          let pdbUrl = customPdbUrl || `/api/alphafold-pdb/${uniprotId}`;
+          let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}`;
           if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
-            pdbUrl = `/api/alphafold-pdb/${uniprotId}`;
+            pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
           }
           console.log(`Molstar downloading pdb structure from proxy: ${pdbUrl}`);
 
@@ -756,7 +762,7 @@ export default function MolstarViewer({
   };
 
   return (
-    <div className={`relative w-full h-[650px] bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all ${
+    <div className={`relative w-full ${heightClass || "h-[650px]"} bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all ${
       isDark ? "border-slate-800" : "border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)]"
     }`}>
       {/* Loading Overlay */}
@@ -873,7 +879,7 @@ export default function MolstarViewer({
         mutantStatus === "success" ? (
           <div className={`absolute top-14 left-3 right-3 z-10 p-2 rounded-lg border text-[10px] font-mono shadow-sm flex items-center gap-2 pointer-events-auto select-none ${
             isDark 
-              ? "bg-indigo-950/85 border-indigo-800/60 text-indigo-300" 
+              ? "bg-indigo-950/85 border-indigo-800/60 text-indigo-350" 
               : "bg-indigo-50 border-indigo-250 text-indigo-800 shadow-indigo-100/30"
           }`}>
             <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
@@ -882,17 +888,48 @@ export default function MolstarViewer({
               {mutantDdG !== null && mutantDdG !== undefined ? ` Predicted stability change (ΔΔG): ${mutantDdG.toFixed(2)} kcal/mol.` : ""}
             </span>
           </div>
-        ) : (
-          <div className={`absolute top-14 left-3 right-3 z-10 p-2 rounded-lg border text-[10px] font-mono shadow-sm flex items-center gap-2 pointer-events-auto select-none ${
-            isDark 
-              ? "bg-amber-950/85 border-amber-800/60 text-amber-300" 
-              : "bg-amber-50 border-amber-250 text-amber-800 shadow-amber-100/30"
-          }`}>
-            <Info className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span>
-              <strong>Sequence Annotation Overlay Mode:</strong> Mutant coordinates represent a sequence label change on the wild-type backbone. Structural coordinates do not reflect biophysical side-chain repacking or energy minimization.
-            </span>
-          </div>
+        ) : showWarningCard && (
+          mutantStatus === "scwrl" ? (
+            <div className={`absolute top-14 left-3 right-3 z-10 p-2.5 rounded-xl border text-[10px] font-mono shadow-lg flex items-center justify-between gap-2 pointer-events-auto select-none ${
+              isDark 
+                ? "bg-indigo-950/90 border-indigo-800/70 text-indigo-300" 
+                : "bg-indigo-50/95 border-indigo-200 text-indigo-850 shadow-indigo-100/10"
+            }`}>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
+                <span>
+                  <strong>SCWRL4 Biophysically Packed Model:</strong> Side-chain rotamers have been packed using SCWRL4 as a secondary fallback. Stability energy calculations (ΔΔG) are not available.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWarningCard(false)}
+                className="p-1 text-xs hover:text-white dark:hover:text-indigo-100 font-bold bg-indigo-500/10 hover:bg-indigo-500/20 rounded cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <div className={`absolute top-14 left-3 right-3 z-10 p-2.5 rounded-xl border text-[10px] font-mono shadow-lg flex items-center justify-between gap-2 pointer-events-auto select-none ${
+              isDark 
+                ? "bg-amber-950/90 border-amber-800/70 text-amber-300" 
+                : "bg-amber-50/95 border-amber-250 text-amber-800 shadow-amber-100/30"
+            }`}>
+              <div className="flex items-center gap-2">
+                <Info className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span>
+                  <strong>Sequence Annotation Overlay Mode (Fallback):</strong> Mutant coordinates represent a sequence label change on the wild-type backbone. Structural coordinates do not reflect biophysical side-chain repacking or energy minimization.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWarningCard(false)}
+                className="p-1 text-xs hover:text-white dark:hover:text-amber-100 font-bold bg-amber-500/10 hover:bg-amber-500/20 rounded cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )
         )
       )}
 
@@ -902,22 +939,57 @@ export default function MolstarViewer({
           ? "bg-slate-950/80 border-slate-800/85 text-slate-300" 
           : "bg-white/80 border-slate-200 text-slate-600 shadow-sm"
       }`}>
-        <span className="flex items-center gap-1.5 text-indigo-500 font-semibold">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-          {comparePdbData ? "Superimposed Biophysical Variants" : (customPdbData ? (mutantStatus === "success" ? "FoldX Biophysical Model" : "Sequence Annotation Overlay (Mock)") : `AlphaFold AF-${uniprotId}`)}
+        <span className="flex items-center gap-1.5 text-indigo-500 font-semibold pointer-events-auto">
+          {comparePdbData ? (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+              <span>Superimposed Biophysical Variants</span>
+            </>
+          ) : customPdbData ? (
+            mutantStatus === "success" ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                <span>FoldX Biophysical Model</span>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowWarningCard(prev => !prev);
+                  setWarningClicked(true);
+                }}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition ${
+                  !warningClicked
+                    ? "animate-pulse bg-amber-500/15 border-amber-500/35 text-amber-500 hover:bg-amber-500/25"
+                    : "bg-slate-550/10 border-slate-500/20 text-slate-400 hover:bg-slate-500/20"
+                }`}
+                title="Click to view biophysical fallback warning"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${!warningClicked ? "bg-amber-500 animate-ping" : "bg-slate-400"}`}></span>
+                <span>
+                  {mutantStatus === "scwrl" ? "SCWRL4 Packed Model (Warning)" : "Sequence Annotation Fallback (Warning)"}
+                </span>
+              </button>
+            )
+          ) : (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+              <span>AlphaFold AF-{uniprotId}</span>
+            </>
+          )}
         </span>
-        <span className="text-slate-500">|</span>
-        <span>Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong></span>
+        <span className="text-slate-505 pointer-events-none">|</span>
+        <span className="pointer-events-none">Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong></span>
         {residueIndex !== null && (
           <>
-            <span className="text-slate-500">|</span>
-            <span className="text-amber-500 font-semibold">Residue 1: #{residueIndex}</span>
+            <span className="text-slate-505 pointer-events-none">|</span>
+            <span className="text-amber-500 font-semibold pointer-events-none">Residue 1: #{residueIndex}</span>
           </>
         )}
         {comparePdbData && compareResidueIndex !== null && compareResidueIndex !== undefined && (
           <>
-            <span className="text-slate-500">|</span>
-            <span className="text-pink-500 font-semibold">Residue 2 ({compareVariant || "Compare"}): #{compareResidueIndex}</span>
+            <span className="text-slate-505 pointer-events-none">|</span>
+            <span className="text-pink-500 font-semibold pointer-events-none">Residue 2 ({compareVariant || "Compare"}): #{compareResidueIndex}</span>
           </>
         )}
       </div>

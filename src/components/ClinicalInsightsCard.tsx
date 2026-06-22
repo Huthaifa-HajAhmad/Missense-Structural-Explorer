@@ -20,7 +20,7 @@ import {
   Tooltip 
 } from "recharts";
 import Markdown from "react-markdown";
-import { getNearestResidues } from "../data";
+import { VARIANT_PRESETS, getNearestResidues } from "../data";
 import { AnalysisState, UserSettings } from "../types";
 import { 
   AMINO_ACID_NAMES_MAP, 
@@ -69,8 +69,12 @@ export default function ClinicalInsightsCard({
   classTextMute,
   classBorderSec,
 }: ClinicalInsightsCardProps) {
+  const isPresetData = VARIANT_PRESETS.some(
+    (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
+  );
+
   return (
-    <div className={`${classCard} overflow-hidden flex flex-col min-h-[400px] transition-all`} id="clinical-insights-report-card">
+    <div className={`${classCard} overflow-hidden flex flex-col lg:min-h-0 lg:flex-1 min-h-[400px] transition-all`} id="clinical-insights-report-card">
       {/* Card Header */}
       <div className={`px-5 py-4 border-b flex items-center justify-between transition-colors ${classCardHeader}`}>
         <div className="flex items-center gap-2">
@@ -78,6 +82,11 @@ export default function ClinicalInsightsCard({
           <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
             Clinical Insights Report
           </h3>
+          {analysisState.result && isPresetData && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/25 text-indigo-400 border border-indigo-500/30">
+              Preset Profile
+            </span>
+          )}
         </div>
         
         {/* Copy Report button */}
@@ -130,7 +139,7 @@ export default function ClinicalInsightsCard({
       )}
 
       {/* Card Body */}
-      <div className="p-5 flex-1 flex flex-col justify-center">
+      <div className="p-5 flex-1 flex flex-col min-h-0 overflow-y-auto justify-start">
         {analysisState.isLoading ? (
           /* Multi step loader inside insights card */
           <div className="flex flex-col items-center justify-center py-12 text-center text-slate-505">

@@ -1,7 +1,79 @@
 import { useState, useEffect, useRef } from "react";
+import { z } from "zod";
+
+// Zod validation schemas for server responses (MOD-6)
+export const analyzeVariantResponseSchema = z.object({
+  analysis: z.string(),
+  insights: z.object({
+    biochemicalShift: z.string(),
+    structuralImpact: z.string(),
+    pathogenicity: z.string().optional(),
+    acmgCriteria: z.preprocess(
+      (val) => val ?? [],
+      z.array(z.object({
+        code: z.string(),
+        reason: z.string()
+      }))
+    )
+  }).nullable().optional(),
+  clinvar: z.object({
+    classification: z.string(),
+    lastEvaluated: z.string(),
+    reviewStatus: z.string(),
+    alleleFrequencies: z.array(z.object({
+      source: z.string(),
+      value: z.any()
+    })),
+    trait: z.string(),
+    uid: z.string().nullable()
+  }).nullable().optional(),
+  metadata: z.object({
+    gene: z.string(),
+    variant: z.string(),
+    uniprotId: z.string(),
+    residueIndex: z.number().nullable(),
+    wildType: z.string(),
+    mutant: z.string()
+  })
+});
+
+export const generateMutantResponseSchema = z.object({
+  pdb: z.string(),
+  ddG: z.number().nullable(),
+  status: z.enum(["success", "scwrl", "fallback"]),
+  foldedResidueIndex: z.number()
+});
+
+export const pocketFinderResponseSchema = z.object({
+  pocketResidues: z.array(z.object({
+    index: z.number(),
+    name: z.string(),
+    distance: z.number(),
+    score: z.number(),
+    role: z.string(),
+    type: z.string()
+  })),
+  pocketScore: z.number(),
+  pocketVolume: z.number(),
+  likelyCofactor: z.string(),
+  status: z.enum(["success", "fallback"])
+});
+
+export const resolveGeneResponseSchema = z.object({
+  gene: z.string(),
+  uniprotId: z.string(),
+  pdbUrl: z.string().nullable()
+});
+
+export const translateVariantResponseSchema = z.object({
+  gene: z.string(),
+  variant: z.string(),
+  uniprotId: z.string()
+});
 import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "./data";
-import { AnalysisState, VariantPreset, UserSettings } from "./types";
+import { AnalysisState, VariantPreset, UserSettings, AnalysisResult } from "./types";
 import { useSettings } from "./context/SettingsContext";
+import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3 } from "./aminoAcids";
 
 async function fetchWithRetry(
   url: string,
@@ -347,13 +419,14 @@ export default function useVariantAnalysis() {
 
   const [copied, setCopied] = useState(false);
   const [customPdbUrl, setCustomPdbUrl] = useState<string | null>(null);
+  const [userDirections, setUserDirections] = useState("");
 
   const [viewMode, setViewMode] = useState<"wildtype" | "mutant">("wildtype");
   const [mutantPdb, setMutantPdb] = useState<string | null>(null);
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);
   const [foldingError, setFoldingError] = useState<string | null>(null);
-  const [foldingStatus, setFoldingStatus] = useState<"success" | "fallback" | null>(null);
+  const [foldingStatus, setFoldingStatus] = useState<"success" | "scwrl" | "fallback" | null>(null);
   const [foldingDdG, setFoldingDdG] = useState<number | null>(null);
 
   const [compareMode, setCompareMode] = useState<boolean>(false);
@@ -362,7 +435,7 @@ export default function useVariantAnalysis() {
   const [compareFoldedResidueIndex, setCompareFoldedResidueIndex] = useState<number | null>(null);
   const [isFoldingCompare, setIsFoldingCompare] = useState<boolean>(false);
   const [foldingCompareError, setFoldingCompareError] = useState<string | null>(null);
-  const [compareFoldingStatus, setCompareFoldingStatus] = useState<"success" | "fallback" | null>(null);
+  const [compareFoldingStatus, setCompareFoldingStatus] = useState<"success" | "scwrl" | "fallback" | null>(null);
   const [compareFoldingDdG, setCompareFoldingDdG] = useState<number | null>(null);
   const [comparisonLayout, setComparisonLayout] = useState<"superimposed" | "side-by-side">("superimposed");
 
@@ -516,7 +589,7 @@ export default function useVariantAnalysis() {
         throw new Error(getErrorMessage(data, "Coordinate translation failed."));
       }
 
-      return data as { gene: string; variant: string; uniprotId: string };
+      return translateVariantResponseSchema.parse(data);
     } catch (err: any) {
       if (err.name === "AbortError" || signal.aborted) {
         throw err;
@@ -565,13 +638,24 @@ export default function useVariantAnalysis() {
     }, 2500);
 
     try {
+      // Parallelize fetching of EBI AlphaFold structure to warm cache (HIGH-9)
+      const pdbWarmupPromise = fetch(`/api/v1/alphafold-pdb/${targetUniprot}`, { signal: activeSignal }).catch(err => {
+        console.warn("AlphaFold PDB concurrent pre-fetch request failed or aborted:", err);
+      });
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (settings.geminiApiKey) {
+        headers["X-Gemini-API-Key"] = settings.geminiApiKey;
+      }
+
       const response = await fetchWithRetry("/api/v1/analyze-variant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           gene: targetGene,
           variant: targetVariant,
-          uniprotId: targetUniprot
+          uniprotId: targetUniprot,
+          userDirections: userDirections || undefined
         }),
         signal: activeSignal
       });
@@ -618,15 +702,17 @@ export default function useVariantAnalysis() {
         throw new Error(getErrorMessage(data, "Genomic analysis endpoint failed."));
       }
 
+      const validatedData = analyzeVariantResponseSchema.parse(data);
+
       setAnalysisState({
         isLoading: false,
         error: null,
-        result: data
+        result: validatedData as AnalysisResult
       });
       addToHistory(targetGene, targetVariant, targetUniprot);
 
-      if (data.metadata?.residueIndex) {
-        setSelectedResidueIndex(data.metadata.residueIndex);
+      if (validatedData.metadata?.residueIndex) {
+        setSelectedResidueIndex(validatedData.metadata.residueIndex);
       }
     } catch (err: any) {
       clearTimeout(timer1);
@@ -661,7 +747,7 @@ export default function useVariantAnalysis() {
       } else {
         setAnalysisState({
           isLoading: false,
-          error: `Biophysical calculation failed: ${err.message || "Endpoint error."} Ensure GEMINI_API_KEY is configured under Settings > Secrets.`,
+          error: `Biophysical calculation failed: ${err.message || "Endpoint error."} Ensure Google Gemini API Key is configured in the search panel or Settings.`,
           result: null
         });
       }
@@ -669,10 +755,6 @@ export default function useVariantAnalysis() {
   };
 
   const mapMutationToFoldXFormat = (variantStr: string): string => {
-    const aminoAcidMap: Record<string, string> = {
-      Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
-      Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V"
-    };
     const clean = variantStr.replace(/^p\./i, "");
     
     const normalize3 = (str: string) => {
@@ -685,8 +767,8 @@ export default function useVariantAnalysis() {
       const wt3 = normalize3(match3[1]);
       const pos = parseInt(match3[2], 10);
       const mut3 = normalize3(match3[3]);
-      const wt = aminoAcidMap[wt3];
-      const mut = aminoAcidMap[mut3];
+      const wt = AMINO_ACID_3_TO_1[wt3];
+      const mut = AMINO_ACID_3_TO_1[mut3];
       if (!wt || !mut) {
         throw new Error(`Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'`);
       }
@@ -698,9 +780,8 @@ export default function useVariantAnalysis() {
       const wt = match1[1].toUpperCase();
       const pos = match1[2];
       const mut = match1[3].toUpperCase();
-      const validCodes = Object.values(aminoAcidMap);
-      if (!validCodes.includes(wt) || !validCodes.includes(mut)) {
-        throw new Error(`Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!validCodes.includes(wt) ? wt : mut}'`);
+      if (!AMINO_ACID_1_TO_3[wt] || !AMINO_ACID_1_TO_3[mut]) {
+        throw new Error(`Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!AMINO_ACID_1_TO_3[wt] ? wt : mut}'`);
       }
       return `${wt}A${pos}${mut}`;
     }
@@ -738,7 +819,8 @@ export default function useVariantAnalysis() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wtPdb,
-          mutation
+          mutation,
+          uniprotId: targetUniprot
         }),
         signal: activeSignal
       });
@@ -763,10 +845,11 @@ export default function useVariantAnalysis() {
         throw new Error(`Failed to parse response JSON: ${parseErr.message}. Response: ${resText.slice(0, 300)}`);
       }
 
-      setMutantPdb(data.pdb);
-      setFoldedResidueIndex(data.foldedResidueIndex);
-      setFoldingStatus(data.status);
-      setFoldingDdG(data.ddG);
+      const validatedData = generateMutantResponseSchema.parse(data);
+      setMutantPdb(validatedData.pdb);
+      setFoldedResidueIndex(validatedData.foldedResidueIndex);
+      setFoldingStatus(validatedData.status);
+      setFoldingDdG(validatedData.ddG);
     } catch (err: any) {
       if (err.name === "AbortError" || activeSignal.aborted) {
         console.log("fetchMutantFold aborted/canceled.");
@@ -811,7 +894,8 @@ export default function useVariantAnalysis() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wtPdb,
-          mutation
+          mutation,
+          uniprotId: targetUniprot
         }),
         signal: activeSignal
       });
@@ -836,10 +920,11 @@ export default function useVariantAnalysis() {
         throw new Error(`Failed to parse comparison response JSON: ${parseErr.message}. Response: ${resText.slice(0, 300)}`);
       }
 
-      setCompareMutantPdb(data.pdb);
-      setCompareFoldedResidueIndex(data.foldedResidueIndex);
-      setCompareFoldingStatus(data.status);
-      setCompareFoldingDdG(data.ddG);
+      const validatedData = generateMutantResponseSchema.parse(data);
+      setCompareMutantPdb(validatedData.pdb);
+      setCompareFoldedResidueIndex(validatedData.foldedResidueIndex);
+      setCompareFoldingStatus(validatedData.status);
+      setCompareFoldingDdG(validatedData.ddG);
     } catch (err: any) {
       if (err.name === "AbortError" || activeSignal.aborted) {
         console.log("fetchCompareMutantFold aborted/canceled.");
@@ -941,8 +1026,9 @@ export default function useVariantAnalysis() {
 
         if (activeSignal.aborted) return;
 
-        const resolvedUniprot = resolveData.uniprotId;
-        const resolvedPdbUrl = resolveData.pdbUrl;
+        const validated = resolveGeneResponseSchema.parse(resolveData);
+        const resolvedUniprot = validated.uniprotId;
+        const resolvedPdbUrl = validated.pdbUrl;
 
         setGene(customGene.toUpperCase());
         setVariant(customVariant);
@@ -1068,8 +1154,9 @@ export default function useVariantAnalysis() {
 
           if (activeSignal.aborted) return;
 
-          const resolvedUniprot = resolveData.uniprotId;
-          const resolvedPdbUrl = resolveData.pdbUrl;
+          const validated = resolveGeneResponseSchema.parse(resolveData);
+          const resolvedUniprot = validated.uniprotId;
+          const resolvedPdbUrl = validated.pdbUrl;
 
           setGene(parsedGene);
           setVariant(parsedVariant);
@@ -1224,6 +1311,7 @@ export default function useVariantAnalysis() {
       analysisState,
       loadingStep,
       history,
+      userDirections,
 
       // Styling and computed classes
       classRoot,
@@ -1288,6 +1376,7 @@ export default function useVariantAnalysis() {
       setAnalysisState,
       setLoadingStep,
       setHistory,
+      setUserDirections,
       
       // Functions
       addToHistory,

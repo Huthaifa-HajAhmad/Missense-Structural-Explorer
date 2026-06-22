@@ -9,8 +9,9 @@ import {
   Trash2, 
   Database 
 } from "lucide-react";
-import { VARIANT_PRESETS, FALLBACK_ANALYSES } from "../data";
-import { AnalysisState, VariantPreset, SearchHistoryItem } from "../types";
+import { FALLBACK_ANALYSES } from "../data";
+import { AnalysisState, SearchHistoryItem } from "../types";
+import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
 
 interface VariantSearchPanelProps {
   isDark: boolean;
@@ -33,13 +34,13 @@ interface VariantSearchPanelProps {
   setGene: (val: string) => void;
   variant: string;
   setVariant: (val: string) => void;
+  uniprotId: string;
   setUniprotId: (val: string) => void;
   setSelectedResidueIndex: (val: number | null) => void;
   setAnalysisState: (state: any) => void;
   history: SearchHistoryItem[];
   clearHistory: () => void;
   handleSelectHistoryItem: (item: SearchHistoryItem) => void;
-  handleSelectPreset: (preset: VariantPreset) => void;
 }
 
 export default function VariantSearchPanel({
@@ -63,14 +64,16 @@ export default function VariantSearchPanel({
   setGene,
   variant,
   setVariant,
+  uniprotId,
   setUniprotId,
   setSelectedResidueIndex,
   setAnalysisState,
   history,
   clearHistory,
   handleSelectHistoryItem,
-  handleSelectPreset,
 }: VariantSearchPanelProps) {
+
+
   return (
     <div className={`${classCard} p-5 transition-all`} id="variant-investigator-panel">
       <div className="flex items-center justify-between mb-4">
@@ -228,40 +231,98 @@ export default function VariantSearchPanel({
         </div>
       )}
 
-      {/* Presets Grid */}
-      <div className={`mt-4 pt-4 border-t ${classBorderSec}`}>
-        <span className={`block text-[10px] font-bold uppercase tracking-widest mb-2 font-mono flex items-center gap-1.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-          <Database className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
-          Hotspot Mutation Presets
-        </span>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 block">
-          {VARIANT_PRESETS.map((preset) => (
-            <button
-              key={`${preset.uniprotId}_${preset.variant}`}
-              onClick={() => handleSelectPreset(preset)}
-              className={`text-left p-2 rounded-lg border text-[11px] transition-all flex flex-col justify-between h-14 cursor-pointer ${
-                gene === preset.gene && variant === preset.variant
-                  ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-900/20"
-                  : isDark
-                    ? "bg-slate-900/60 hover:bg-slate-800/80 border-slate-800 text-slate-300"
-                    : "bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-sm"
-              }`}
-            >
-              <div className="flex justify-between items-center w-full">
-                <span className="font-bold tracking-tight">{preset.gene}</span>
-                <span className={`text-[9px] px-1 rounded font-mono ${
-                  gene === preset.gene && variant === preset.variant
-                    ? "bg-indigo-700/50 text-indigo-200"
-                    : isDark
-                      ? "bg-slate-800 text-slate-400"
-                      : "bg-slate-100 text-slate-500"
-                }`}>{preset.uniprotId}</span>
+
+
+      {/* Variant Coordinate Breakdown Cards */}
+      {(() => {
+        const clean = variant.replace(/^p\./i, "");
+        const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
+        const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+        
+        let details = null;
+        if (match3) {
+          const wt3 = match3[1].charAt(0).toUpperCase() + match3[1].slice(1).toLowerCase();
+          const pos = match3[2];
+          const mut3 = match3[3].charAt(0).toUpperCase() + match3[3].slice(1).toLowerCase();
+          const wt1 = AMINO_ACID_3_TO_1[wt3] || "?";
+          const mut1 = AMINO_ACID_3_TO_1[mut3] || "?";
+          details = { wt1, wt3, pos, mut1, mut3 };
+        } else if (match1) {
+          const wt1 = match1[1].toUpperCase();
+          const pos = match1[2];
+          const mut1 = match1[3].toUpperCase();
+          const wt3 = AMINO_ACID_1_TO_3_TITLE[wt1] || wt1;
+          const mut3 = AMINO_ACID_1_TO_3_TITLE[mut1] || mut1;
+          details = { wt1, wt3, pos, mut1, mut3 };
+        }
+
+        if (!details) return null;
+
+        return (
+          <div className={`mt-4 pt-4 border-t ${classBorderSec} space-y-3`}>
+            <span className={`block text-[10px] font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              <Database className="w-3.5 h-3.5 text-indigo-500" />
+              Variant Coordinate Breakdown
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Card 1: Reference Gene */}
+              <div className={`p-3 rounded-xl border flex flex-col justify-between ${
+                isDark ? "bg-slate-900/40 border-slate-800" : "bg-slate-50 border-slate-200 shadow-sm"
+              }`}>
+                <span className="text-[9px] font-bold text-slate-500 uppercase font-mono">Reference Locus</span>
+                <div className="mt-1 flex items-baseline gap-1.5 flex-wrap">
+                  <span className="text-sm font-extrabold tracking-tight">{gene}</span>
+                  <a
+                    href={`https://www.uniprot.org/uniprotkb/${uniprotId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-indigo-550 hover:underline font-mono"
+                    title="View UniProt entry"
+                  >
+                    {uniprotId} ↗
+                  </a>
+                </div>
               </div>
-              <span className="font-mono text-[10px] truncate">{preset.variant}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+
+              {/* Card 2: 3D Residue Position */}
+              <div className={`p-3 rounded-xl border flex flex-col justify-between ${
+                isDark ? "bg-slate-900/40 border-slate-800" : "bg-slate-50 border-slate-200 shadow-sm"
+              }`}>
+                <span className="text-[9px] font-bold text-slate-500 uppercase font-mono">Residue Position</span>
+                <div className="mt-1 text-sm font-extrabold font-mono text-amber-500">
+                  #{details.pos}
+                </div>
+              </div>
+
+              {/* Card 3: Wild-Type Residue */}
+              <div className={`p-3 rounded-xl border flex flex-col justify-between ${
+                isDark ? "bg-slate-900/40 border-slate-800" : "bg-slate-50 border-slate-200 shadow-sm"
+              }`}>
+                <span className="text-[9px] font-bold text-slate-500 uppercase font-mono">Wild-Type Residue</span>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-400">
+                    {details.wt1}
+                  </span>
+                  <span className="font-semibold text-[11px] text-slate-600 dark:text-slate-350">{details.wt3}</span>
+                </div>
+              </div>
+
+              {/* Card 4: Substituted Mutant */}
+              <div className={`p-3 rounded-xl border flex flex-col justify-between ${
+                isDark ? "bg-slate-900/40 border-slate-800" : "bg-slate-50 border-slate-200 shadow-sm"
+              }`}>
+                <span className="text-[9px] font-bold text-slate-500 uppercase font-mono">Substituted Mutant</span>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500">
+                    {details.mut1}
+                  </span>
+                  <span className="font-semibold text-[11px] text-indigo-650 dark:text-indigo-400">{details.mut3}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
