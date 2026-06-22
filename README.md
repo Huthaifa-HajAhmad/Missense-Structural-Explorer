@@ -23,6 +23,18 @@ By unifying GPU-accelerated **3D structural visualization (Molstar)**, **determi
 
 ---
 
+## ⚠️ HIPAA & Data Privacy Disclaimer
+
+> [!IMPORTANT]
+> **RESEARCH USE ONLY — NOT HIPAA COMPLIANT**
+> This application is built for research and educational purposes. It is **not** certified for clinical diagnostic use, nor is it HIPAA-compliant.
+> 
+> * **No Protected Health Information (PHI)**: You must not enter, upload, or process any patient-identifiable data (e.g., patient names, MRNs, patient-linked DNA profiles).
+> * **Third-Party API Disclosures**: Genomic variants, protein designations, and transcript parameters are transmitted to third-party endpoints to perform lookup operations, including **Google Gemini AI**, **NCBI ClinVar**, **EBI AlphaFold**, and **Ensembl VEP** APIs.
+> * **Audit Trails**: Backend security audit logs only record public genomic notations (such as HGVS or UniProt accession IDs) and never ingest patient-identifying data.
+
+---
+
 ## 🗂️ Rare Disease Presets & Fallback Dataset
 
 The application pre-loads three canonical rare disease presets, complete with high-fidelity pre-analyzed fallback profiles for offline/sandbox environments:
