@@ -8,4 +8,9 @@ coverage/
 !.env.example
 logs/
 .antigravity/
+tools/foldx/*.exe
+tools/foldx/yasaraPlugin.zip
+tools/foldx/rotabase.txt
+tools/foldx/molecules/
+temp_jobs/
 

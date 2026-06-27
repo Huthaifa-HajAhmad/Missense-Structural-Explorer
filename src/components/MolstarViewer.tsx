@@ -26,7 +26,29 @@ export interface PocketResult {
   pocketScore: number;
   pocketVolume: number;
   likelyCofactor: string;
+  pocketDistance: number | null;
   status?: string;
+}
+
+function isValidPdbUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.startsWith("/") || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+    return true;
+  }
+  try {
+    const parsed = new URL(url);
+    const allowedDomains = [
+      "alphafold.ebi.ac.uk",
+      "files.rcsb.org",
+      "pdbe.org",
+      "www.ebi.ac.uk"
+    ];
+    return allowedDomains.some(domain => 
+      parsed.hostname === domain || parsed.hostname.endsWith("." + domain)
+    );
+  } catch {
+    return false;
+  }
 }
 
 // Declare custom property to store selection status or custom controls if needed
@@ -52,9 +74,22 @@ interface MolstarViewerProps {
   cameraDuration?: number;
   autoZoomOnSelect?: boolean;
   neonHighContrast?: boolean;
-  mutantStatus?: "success" | "scwrl" | "fallback" | null;
+  mutantStatus?: "success" | "scwrl" | null;
   mutantDdG?: number | null;
   heightClass?: string;
+  variant?: string;
+  energyUnit?: "kcal/mol" | "kJ/mol";
+  fetchNearestResidues?: (
+    uniprotId: string,
+    variant: string,
+    residueIndex: number,
+    pdbText: string,
+    signal?: AbortSignal
+  ) => Promise<void>;
+  onPdbTextLoaded?: (pdbText: string | null) => void;
+  computedPocket?: PocketResult | null;
+  isPocketLoading?: boolean;
+  pocketError?: string | null;
 }
 
 export default function MolstarViewer({ 
@@ -77,7 +112,14 @@ export default function MolstarViewer({
   neonHighContrast: neonHighContrastProp,
   mutantStatus,
   mutantDdG,
-  heightClass
+  heightClass,
+  variant,
+  energyUnit,
+  fetchNearestResidues,
+  onPdbTextLoaded,
+  computedPocket: computedPocketProp,
+  isPocketLoading: isPocketLoadingProp,
+  pocketError: pocketErrorProp
 }: MolstarViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pluginRef = useRef<any>(null);
@@ -89,7 +131,17 @@ export default function MolstarViewer({
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pluginsReadyState, setPluginsReadyState] = useState<number>(0);
+  const [pluginCreated, setPluginCreated] = useState<boolean>(false);
   const [showWarningCard, setShowWarningCard] = useState(false);
+
+  const formatDdG = (val: number | null | undefined, unit?: "kcal/mol" | "kJ/mol") => {
+    if (val === null || val === undefined) return "";
+    if (unit === "kJ/mol") {
+      const kj = val * 4.184;
+      return `${val.toFixed(2)} kcal/mol [~${kj.toFixed(2)} kJ/mol]`;
+    }
+    return `${val.toFixed(2)} kcal/mol`;
+  };
   const [warningClicked, setWarningClicked] = useState(false);
 
   const { theme: contextTheme, settings, showPolarContacts: contextShowPolarContacts } = useSettings();
@@ -117,9 +169,11 @@ export default function MolstarViewer({
   const [isPocketPanelOpen, setIsPocketPanelOpen] = useState<boolean>(false);
   const pocketComponentRefRef = useRef<any[]>([]);
 
-  const [computedPocket, setComputedPocket] = useState<PocketResult | null>(null);
-  const [isPocketLoading, setIsPocketLoading] = useState<boolean>(false);
-  const [pocketError, setPocketError] = useState<string | null>(null);
+  const [pocketErrorLocal, setPocketErrorLocal] = useState<string | null>(null);
+  const setPocketError = setPocketErrorLocal;
+  const computedPocket = computedPocketProp || null;
+  const isPocketLoading = isPocketLoadingProp || false;
+  const pocketError = pocketErrorProp || pocketErrorLocal;
 
   useEffect(() => {
     let active = true;
@@ -130,7 +184,18 @@ export default function MolstarViewer({
       if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
         pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
       }
-      fetch(pdbUrl)
+      if (!isValidPdbUrl(pdbUrl)) {
+        if (import.meta.env.DEV) {
+          console.warn(`Blocked custom PDB URL from unauthorized origin: ${pdbUrl}`);
+        }
+        setPocketError("Custom PDB URL blocked: unauthorized origin.");
+        return;
+      }
+      const headers: Record<string, string> = {};
+      if (settings?.geminiSessionId) {
+        headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+      }
+      fetch(pdbUrl, { headers })
         .then(res => {
           if (!res.ok) throw new Error("Could not fetch raw coordinates");
           return res.text();
@@ -149,50 +214,23 @@ export default function MolstarViewer({
     };
   }, [uniprotId, customPdbUrl, customPdbData]);
 
-  // Fetch pocket-finder results from node backend
+  // Trigger nearest residues calculation when pdbText is loaded
   useEffect(() => {
-    if (residueIndex === null || !pdbText || (!showPocket && !isPocketPanelOpen)) {
-      setComputedPocket(null);
-      return;
+    if (pdbText && uniprotId && residueIndex !== null && variant && fetchNearestResidues) {
+      const controller = new AbortController();
+      fetchNearestResidues(uniprotId, variant, residueIndex, pdbText, controller.signal);
+      return () => {
+        controller.abort();
+      };
     }
+  }, [pdbText, uniprotId, residueIndex, variant, fetchNearestResidues]);
 
-    let active = true;
-    setIsPocketLoading(true);
-    setPocketError(null);
-
-    fetch("/api/v1/pocket-finder", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ pdbText, targetIndex: residueIndex })
-    })
-      .then(res => {
-        if (!res.ok) throw new Error("Could not fetch binding pocket from server");
-        return res.json();
-      })
-      .then(data => {
-        if (active) {
-          const validatedData = pocketFinderResponseSchema.parse(data);
-          setComputedPocket(validatedData);
-        }
-      })
-      .catch(err => {
-        console.error("Pocket finder error:", err);
-        if (active) {
-          setPocketError(err.message || "Failed to load pocket coordinates.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setIsPocketLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [showPocket, isPocketPanelOpen, residueIndex, pdbText]);
+  // Notify parent component when pdbText is loaded/updated
+  useEffect(() => {
+    if (onPdbTextLoaded) {
+      onPdbTextLoaded(pdbText);
+    }
+  }, [pdbText, onPdbTextLoaded]);
 
   // Biophysical Insight alert draggable and closeable states
   const [isAlertClosed, setIsAlertClosed] = useState<boolean>(false);
@@ -281,34 +319,27 @@ export default function MolstarViewer({
     };
   }, [isPocketDragging, pocketDragStart]);
 
+  // 1. Initialize Molstar Plugin UI once on mount
   useEffect(() => {
     let active = true;
     let localPlugin: any = null;
     let hoverSubscription: any = null;
     let clickSubscription: any = null;
 
-    async function initMolstar() {
+    async function initPlugin() {
       if (!containerRef.current) return;
       
-      setLoading(true);
-      setLoadError(null);
-      setIsTransitioning(true);
-
-      // Dynamically clean previous renders and create a brand-new pristine subcontainer
-      // element. This absolutely prevents calling createRoot() on an already-treated element.
       const parent = containerRef.current;
       parent.innerHTML = '';
       const container = document.createElement('div');
-      container.style.width = '100vw'; // Give plenty of width
-      container.style.height = '100vw'; // Give plenty of height
+      container.style.width = '100%';
+      container.style.height = '100%';
       container.style.maxWidth = '100%';
       container.style.maxHeight = '1005px';
       container.className = `w-full h-full ${isDark ? "text-slate-100" : "text-slate-900"}`;
       parent.appendChild(container);
 
       try {
-        // Build customized default spec without some of the heavier panels if required,
-        // or just use the standard spec for a full-power clinical molecular workspace!
         const spec: any = {
           ...DefaultPluginUISpec(),
         };
@@ -330,53 +361,6 @@ export default function MolstarViewer({
         }
 
         pluginRef.current = localPlugin;
-
-        // Load coordinate file (Either raw FoldX biophysical mutant PDB or AlphaFold pdb URL)
-        let data;
-        if (customPdbData) {
-          console.log(`Molstar loading custom raw mutant PDB data for: ${gene}`);
-          data = await localPlugin.builders.data.rawData({
-            data: customPdbData,
-            label: `${gene} (FoldX Biophysical Mutant)`
-          });
-        } else {
-          let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}`;
-          if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
-            pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
-          }
-          console.log(`Molstar downloading pdb structure from proxy: ${pdbUrl}`);
-
-          data = await localPlugin.builders.data.download({ 
-            url: pdbUrl, 
-            isBinary: false,
-            label: `${gene} (AF-${uniprotId})`
-          });
-        }
-
-        // Use precise signatures: parseTrajectory is the correct method, and parameters are passed sequentially.
-        const trajectory = await localPlugin.builders.structure.parseTrajectory(data, "pdb");
-        const model = await localPlugin.builders.structure.createModel(trajectory);
-        const structure = await localPlugin.builders.structure.createStructure(model);
-        structureRef.current = structure;
-
-        // Apply standard auto representation preset for robust loading/coloring representation
-        await localPlugin.builders.structure.representation.applyPreset(structure, 'auto');
-
-        // Load comparison model if available (superimposing)
-        if (comparePdbData) {
-          console.log(`Molstar loading comparison raw mutant PDB data...`);
-          const data2 = await localPlugin.builders.data.rawData({
-            data: comparePdbData,
-            label: `${gene} (Comparison Mutant)`
-          });
-          const trajectory2 = await localPlugin.builders.structure.parseTrajectory(data2, "pdb");
-          const model2 = await localPlugin.builders.structure.createModel(trajectory2);
-          const structure2 = await localPlugin.builders.structure.createStructure(model2);
-          structure2Ref.current = structure2;
-          await localPlugin.builders.structure.representation.applyPreset(structure2, 'auto');
-        } else {
-          structure2Ref.current = null;
-        }
 
         // Subscribe to Molstar interaction events
         hoverSubscription = localPlugin.behaviors.interaction.hover.subscribe((event: any) => {
@@ -409,23 +393,17 @@ export default function MolstarViewer({
           }
         });
 
-        // Trigger dynamic highlighting effect
-        setPluginsReadyState((prev) => prev + 1);
-        setLoading(false);
-        setTimeout(() => {
-          setIsTransitioning(false);
-        }, 150);
+        setPluginCreated(true);
       } catch (err: any) {
-        console.error("Molstar initialization or loading failed:", err);
+        console.error("Molstar initialization failed:", err);
         if (active) {
-          setLoadError(`Failed to load 3D coordinates for AlphaFold model AF-${uniprotId}. Please verify UniProt accession validity.`);
+          setLoadError("Failed to initialize 3D molecular viewer.");
           setLoading(false);
-          setIsTransitioning(false);
         }
       }
     }
 
-    initMolstar();
+    initPlugin();
 
     // Cleanup
     return () => {
@@ -444,12 +422,118 @@ export default function MolstarViewer({
         }
       }
       pluginRef.current = null;
+      setPluginCreated(false);
+    };
+  }, []);
+
+  // 2. Load and update coordinate models dynamically on prop changes
+  useEffect(() => {
+    let active = true;
+    const localPlugin = pluginRef.current;
+    if (!localPlugin || !pluginCreated) return;
+
+    let transitionTimeout: any = null;
+
+    async function loadStructure() {
+      setLoading(true);
+      setLoadError(null);
+      setIsTransitioning(true);
+
+      try {
+        // Clear previous state/models loaded in the workspace
+        await localPlugin.clear();
+
+        // Load coordinate file (Either raw FoldX biophysical mutant PDB or AlphaFold pdb URL)
+        let data;
+        if (customPdbData) {
+          if (import.meta.env.DEV) {
+            console.log(`Molstar loading custom raw mutant PDB data for: ${gene}`);
+          }
+          data = await localPlugin.builders.data.rawData({
+            data: customPdbData,
+            label: `${gene} (FoldX Biophysical Mutant)`
+          });
+        } else {
+          let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}`;
+          if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
+            pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
+          }
+          if (!isValidPdbUrl(pdbUrl)) {
+            if (import.meta.env.DEV) {
+              console.warn(`Blocked custom PDB URL from unauthorized origin: ${pdbUrl}`);
+            }
+            setLoadError("Custom PDB URL blocked: unauthorized origin.");
+            return;
+          }
+          if (import.meta.env.DEV) {
+            console.log(`Molstar downloading pdb structure from proxy: ${pdbUrl}`);
+          }
+
+          data = await localPlugin.builders.data.download({ 
+            url: pdbUrl, 
+            isBinary: false,
+            label: `${gene} (AF-${uniprotId})`
+          });
+        }
+
+        if (!active) return;
+
+        // Use precise signatures: parseTrajectory is the correct method, and parameters are passed sequentially.
+        const trajectory = await localPlugin.builders.structure.parseTrajectory(data, "pdb");
+        const model = await localPlugin.builders.structure.createModel(trajectory);
+        const structure = await localPlugin.builders.structure.createStructure(model);
+        structureRef.current = structure;
+
+        // Apply standard auto representation preset for robust loading/coloring representation
+        await localPlugin.builders.structure.representation.applyPreset(structure, 'auto');
+
+        // Load comparison model if available (superimposing)
+        if (comparePdbData) {
+          if (import.meta.env.DEV) {
+            console.log(`Molstar loading comparison raw mutant PDB data...`);
+          }
+          const data2 = await localPlugin.builders.data.rawData({
+            data: comparePdbData,
+            label: `${gene} (Comparison Mutant)`
+          });
+          const trajectory2 = await localPlugin.builders.structure.parseTrajectory(data2, "pdb");
+          const model2 = await localPlugin.builders.structure.createModel(trajectory2);
+          const structure2 = await localPlugin.builders.structure.createStructure(model2);
+          structure2Ref.current = structure2;
+          await localPlugin.builders.structure.representation.applyPreset(structure2, 'auto');
+        } else {
+          structure2Ref.current = null;
+        }
+
+        // Trigger dynamic highlighting effect
+        setPluginsReadyState((prev) => prev + 1);
+        setLoading(false);
+        transitionTimeout = setTimeout(() => {
+          setIsTransitioning(false);
+        }, 150);
+      } catch (err: any) {
+        console.error("Molstar structure loading failed:", err);
+        if (active) {
+          setLoadError(`Failed to load 3D coordinates for AlphaFold model AF-${uniprotId}. Please verify UniProt accession validity.`);
+          setLoading(false);
+          setIsTransitioning(false);
+        }
+      }
+    }
+
+    loadStructure();
+
+    return () => {
+      active = false;
+      if (transitionTimeout) {
+        clearTimeout(transitionTimeout);
+      }
       structureRef.current = null;
       structure2Ref.current = null;
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [uniprotId, customPdbUrl, customPdbData, gene, comparePdbData]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -466,7 +550,9 @@ export default function MolstarViewer({
         try {
           const cell = localPlugin.state.data.cells.get(componentRefRef.current);
           if (cell) {
-            console.log(`Disposing old custom component state cell: ${componentRefRef.current}`);
+            if (import.meta.env.DEV) {
+              console.log(`Disposing old custom component state cell: ${componentRefRef.current}`);
+            }
             await localPlugin.state.data.build().delete(componentRefRef.current).commit();
           }
         } catch (delErr) {
@@ -480,7 +566,9 @@ export default function MolstarViewer({
         try {
           const cell = localPlugin.state.data.cells.get(componentRefRef2.current);
           if (cell) {
-            console.log(`Disposing old comparison custom component state cell: ${componentRefRef2.current}`);
+            if (import.meta.env.DEV) {
+              console.log(`Disposing old comparison custom component state cell: ${componentRefRef2.current}`);
+            }
             await localPlugin.state.data.build().delete(componentRefRef2.current).commit();
           }
         } catch (delErr) {
@@ -514,7 +602,9 @@ export default function MolstarViewer({
 
       // Build primary highlight
       let lociList: any[] = [];
-      console.log(`Molstar selecting and highlighting residue sequence index: ${residueIndex}`);
+      if (import.meta.env.DEV) {
+        console.log(`Molstar selecting and highlighting residue sequence index: ${residueIndex}`);
+      }
       try {
         const expression = MS.struct.generator.atomGroups({
           'residue-test': MS.core.rel.eq([
@@ -589,7 +679,9 @@ export default function MolstarViewer({
 
       // Build comparison highlight if second structure is valid
       if (structure2 && compareResidueIndex !== null && compareResidueIndex !== undefined) {
-        console.log(`Molstar selecting and highlighting comparison residue sequence index: ${compareResidueIndex}`);
+        if (import.meta.env.DEV) {
+          console.log(`Molstar selecting and highlighting comparison residue sequence index: ${compareResidueIndex}`);
+        }
         try {
           const expression2 = MS.struct.generator.atomGroups({
             'residue-test': MS.core.rel.eq([
@@ -666,7 +758,9 @@ export default function MolstarViewer({
       // Paint and highlight automated pocket finder residues if enabled
       if (showPocket && computedPocket) {
         if (computedPocket.pocketResidues.length > 0) {
-          console.log(`Molstar painting ${computedPocket.pocketResidues.length} binding pocket residues in gold`);
+          if (import.meta.env.DEV) {
+            console.log(`Molstar painting ${computedPocket.pocketResidues.length} binding pocket residues in gold`);
+          }
           const refs: any[] = [];
           for (const res of computedPocket.pocketResidues) {
             try {
@@ -844,7 +938,7 @@ export default function MolstarViewer({
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all pointer-events-auto cursor-pointer shadow-md select-none ${
             isDark 
               ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50" 
-              : "bg-white/95 hover:bg-slate-50 border-slate-250 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+              : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
           }`}
           title="Capture high-resolution PNG image of the current structural visualization"
         >
@@ -865,7 +959,7 @@ export default function MolstarViewer({
               ? "bg-indigo-600 border-indigo-500 text-white"
               : isDark
                 ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50" 
-                : "bg-white/95 hover:bg-slate-50 border-slate-250 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+                : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
           }`}
           title="Run dynamic coordinate and biophysical matching algorithms to render the nearest binding site residues"
         >
@@ -885,7 +979,9 @@ export default function MolstarViewer({
             <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
             <span>
               <strong>FoldX Biophysically Repacked Model:</strong> Structure coordinates reflect local side-chain repacking. 
-              {mutantDdG !== null && mutantDdG !== undefined ? ` Predicted stability change (ΔΔG): ${mutantDdG.toFixed(2)} kcal/mol.` : ""}
+              {mutantDdG !== null && mutantDdG !== undefined 
+                ? ` Predicted stability change (ΔΔG): ${formatDdG(mutantDdG, energyUnit)}.` 
+                : " Predicted stability change (ΔΔG): ΔΔG not computed (FoldX energy output unavailable)."}
             </span>
           </div>
         ) : showWarningCard && (
@@ -909,27 +1005,7 @@ export default function MolstarViewer({
                 ✕
               </button>
             </div>
-          ) : (
-            <div className={`absolute top-14 left-3 right-3 z-10 p-2.5 rounded-xl border text-[10px] font-mono shadow-lg flex items-center justify-between gap-2 pointer-events-auto select-none ${
-              isDark 
-                ? "bg-amber-950/90 border-amber-800/70 text-amber-300" 
-                : "bg-amber-50/95 border-amber-250 text-amber-800 shadow-amber-100/30"
-            }`}>
-              <div className="flex items-center gap-2">
-                <Info className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span>
-                  <strong>Sequence Annotation Overlay Mode (Fallback):</strong> Mutant coordinates represent a sequence label change on the wild-type backbone. Structural coordinates do not reflect biophysical side-chain repacking or energy minimization.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowWarningCard(false)}
-                className="p-1 text-xs hover:text-white dark:hover:text-amber-100 font-bold bg-amber-500/10 hover:bg-amber-500/20 rounded cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-          )
+          ) : null
         )
       )}
 
@@ -961,14 +1037,12 @@ export default function MolstarViewer({
                 className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition ${
                   !warningClicked
                     ? "animate-pulse bg-amber-500/15 border-amber-500/35 text-amber-500 hover:bg-amber-500/25"
-                    : "bg-slate-550/10 border-slate-500/20 text-slate-400 hover:bg-slate-500/20"
+                    : "bg-slate-500/10 border-slate-500/20 text-slate-400 hover:bg-slate-500/20"
                 }`}
                 title="Click to view biophysical fallback warning"
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${!warningClicked ? "bg-amber-500 animate-ping" : "bg-slate-400"}`}></span>
-                <span>
-                  {mutantStatus === "scwrl" ? "SCWRL4 Packed Model (Warning)" : "Sequence Annotation Fallback (Warning)"}
-                </span>
+                <span>SCWRL4 Packed Model (Warning)</span>
               </button>
             )
           ) : (
@@ -978,17 +1052,17 @@ export default function MolstarViewer({
             </>
           )}
         </span>
-        <span className="text-slate-505 pointer-events-none">|</span>
+        <span className="text-slate-500 pointer-events-none">|</span>
         <span className="pointer-events-none">Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong></span>
         {residueIndex !== null && (
           <>
-            <span className="text-slate-505 pointer-events-none">|</span>
+            <span className="text-slate-500 pointer-events-none">|</span>
             <span className="text-amber-500 font-semibold pointer-events-none">Residue 1: #{residueIndex}</span>
           </>
         )}
         {comparePdbData && compareResidueIndex !== null && compareResidueIndex !== undefined && (
           <>
-            <span className="text-slate-505 pointer-events-none">|</span>
+            <span className="text-slate-500 pointer-events-none">|</span>
             <span className="text-pink-500 font-semibold pointer-events-none">Residue 2 ({compareVariant || "Compare"}): #{compareResidueIndex}</span>
           </>
         )}
@@ -1064,28 +1138,36 @@ export default function MolstarViewer({
                   )}
                 </div>
 
-                {/* Pocket Stats Bento Grid */}
-                <div className="grid grid-cols-2 gap-2 text-center font-mono">
-                  <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[7.5px] uppercase text-slate-500 font-bold">Pocket Vol. Space</span>
-                    <strong className="text-xs text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
-                  </div>
-                  <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[7.5px] uppercase text-slate-500 font-bold">Affinity Index</span>
-                    <strong className="text-xs text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
-                  </div>
-                </div>
+                {computedPocket.status === "success" ? (
+                  <>
+                    {/* Pocket Stats Bento Grid */}
+                    <div className="grid grid-cols-2 gap-2 text-center font-mono">
+                      <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                        <span className="block text-[7.5px] uppercase text-slate-500 font-bold">Pocket Vol. Space</span>
+                        <strong className="text-xs text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
+                      </div>
+                      <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                        <span className="block text-[7.5px] uppercase text-slate-500 font-bold">Affinity Index</span>
+                        <strong className="text-xs text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
+                      </div>
+                    </div>
 
-                {/* Predicted Substrate */}
-                <div className={`p-2.5 rounded-lg border ${
-                  isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"
-                }`}>
-                  <span className="block text-[7.5px] uppercase text-slate-500 font-bold font-mono">Target Pocket Specificity</span>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
-                    <span className="text-[10px] font-bold text-slate-250 truncate">{computedPocket.likelyCofactor}</span>
-                  </div>
-                </div>
+                    {/* Predicted Substrate */}
+                    <div className={`p-2.5 rounded-lg border ${
+                      isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <span className="block text-[7.5px] uppercase text-slate-500 font-bold font-mono">Target Pocket Specificity</span>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span className="text-[10px] font-bold text-slate-400 truncate">{computedPocket.likelyCofactor}</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[10px] text-slate-400 opacity-80 mt-1 mb-2 italic">
+                    ML pocket predictor unavailable in this environment; showing proximity-heuristic residue list only.
+                  </p>
+                )}
 
                 {/* Highlight Full Pocket Action */}
                 <div className="flex items-center justify-between border-t border-b border-indigo-500/10 py-2">
@@ -1096,7 +1178,7 @@ export default function MolstarViewer({
                     className={`px-2 py-1 rounded text-[9px] font-mono font-bold transition-all select-none cursor-pointer ${
                       showPocket
                         ? "bg-amber-500 hover:bg-amber-600 text-slate-950"
-                        : isDark ? "bg-slate-800 hover:bg-slate-700 border border-slate-750 text-slate-300" : "bg-slate-100 hover:bg-slate-200 text-slate-800"
+                        : isDark ? "bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300" : "bg-slate-100 hover:bg-slate-200 text-slate-800"
                     }`}
                   >
                     {showPocket ? "Highlight ON" : "Highlight OFF"}
@@ -1117,8 +1199,8 @@ export default function MolstarViewer({
                         onClick={() => focusOnPocketResidue(res.index)}
                         className={`group p-1.5 rounded border flex flex-col gap-0.5 transition-all cursor-pointer ${
                           isDark 
-                            ? "bg-slate-900/60 border-slate-850 hover:bg-indigo-950/20 hover:border-indigo-500/40" 
-                            : "bg-slate-50/50 border-slate-150 hover:bg-indigo-50/20 hover:border-indigo-400/40"
+                            ? "bg-slate-900/60 border-slate-800 hover:bg-indigo-950/20 hover:border-indigo-500/40" 
+                            : "bg-slate-50/50 border-slate-100 hover:bg-indigo-50/20 hover:border-indigo-400/40"
                         }`}
                         title="Click to coordinate center gravity focus on this pocket residue in the 3D workspace"
                       >
@@ -1147,7 +1229,7 @@ export default function MolstarViewer({
           </div>
           
           {/* Footer panel caption */}
-          <div className="p-2 border-t border-indigo-500/10 bg-indigo-500/5 text-center text-[7.5px] font-mono text-slate-550 uppercase select-none">
+          <div className="p-2 border-t border-indigo-500/10 bg-indigo-500/5 text-center text-[7.5px] font-mono text-slate-500 uppercase select-none">
             Spatial Proximity Threshold &lt; 10.0 Å
           </div>
         </div>
@@ -1165,7 +1247,7 @@ export default function MolstarViewer({
           className={`absolute top-3 right-3 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border z-20 shadow-lg transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none ${
             isDark 
               ? "bg-slate-950/85 border-rose-500/30 text-rose-300" 
-              : "bg-white/95 border-rose-250 text-rose-800 shadow-rose-100/30 shadow-[0_4px_16px_rgba(244,63,94,0.08)]"
+              : "bg-white/95 border-rose-300 text-rose-800 shadow-rose-100/30 shadow-[0_4px_16px_rgba(244,63,94,0.08)]"
           }`}
         >
           <div className="flex items-center justify-between gap-4 border-b pb-1.5 border-rose-500/10">

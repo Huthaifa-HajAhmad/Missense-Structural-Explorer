@@ -6,7 +6,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 
-import { requestLogger, authCheck } from "./server/middleware.ts";
+import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
 
 dotenv.config();
@@ -15,19 +15,30 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Set trust proxy to true (or 1) for reverse proxies
+  app.set('trust proxy', 1);
+
   // Fail-closed API token validation on startup
   const apiToken = process.env.APP_API_TOKEN;
   if (!apiToken) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("FATAL: APP_API_TOKEN is not set in production. Refusing to start.");
-      process.exit(1);
-    } else {
-      console.warn("WARNING: APP_API_TOKEN is not set. All endpoints bypass authentication in development.");
-    }
+    console.error("FATAL: APP_API_TOKEN is not set. Refusing to start.");
+    process.exit(1);
+  }
+  if (process.env.NODE_ENV === "production" && (apiToken === "a_secure_arbitrary_api_token" || apiToken.length < 16)) {
+    console.error("FATAL: APP_API_TOKEN is insecure (using the default example or too short) for production. Refusing to start.");
+    process.exit(1);
+  }
+
+  // Fail-closed session secret validation on startup (D-2) (H-1)
+  const sessionSecret = process.env.APP_SESSION_SECRET;
+  if (!sessionSecret || (process.env.NODE_ENV === "production" && sessionSecret === "dev-session-secret-must-be-changed-in-prod")) {
+    console.error("FATAL: APP_SESSION_SECRET is not set or is using the development fallback in production. Refusing to start.");
+    process.exit(1);
   }
 
   // [MOD-12] Global custom request logging middleware
   app.use(requestLogger);
+  app.use(validateContentType);
 
   // Security Middleware (SEC-3, SEC-8)
   app.use(helmet({

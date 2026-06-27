@@ -1,4 +1,25 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const mockGenerateContent = vi.fn();
+
+vi.mock("@google/genai", () => {
+  return {
+    GoogleGenAI: class {
+      models = {
+        generateContent: (...args: any[]) => mockGenerateContent(...args)
+      };
+    },
+    Type: {
+      OBJECT: "OBJECT",
+      STRING: "STRING",
+      ARRAY: "ARRAY"
+    }
+  };
+});
+
+beforeEach(() => {
+  mockGenerateContent.mockReset();
+});
 import { 
   validateGene, 
   validateVariant, 
@@ -9,13 +30,35 @@ import {
   UNIPROT_PATTERN,
   MUTATION_FOLDX_PATTERN,
   VCF_GENOMIC_PATTERN,
-  CDNA_PATTERN
+  CDNA_PATTERN,
+  safeCompare,
+  filterPII,
+  encryptSession,
+  decryptSession,
+  getApiKeyFromSession
 } from "./server/utils.ts";
 import {
   pdbCache,
   uniprotCache,
-  fetchClinVarData
+  fetchClinVarData,
+  extractChainFromPdb,
+  fetchBestPdbStructure,
+  fetchPdbFromRcsb
 } from "./server/services/external.ts";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import { 
+  parseFoldxDifFile,
+  parseResiduesFromPdbAsync,
+  parseResiduesFromPdbMaybeAsync,
+  parseAtomsFromPdbAsync,
+  parseAtomsFromPdbMaybeAsync,
+  generateMutantPdb
+} from "./server/services/biophysics.ts";
+import { apiRouter } from "./server/routes.ts";
+import { requestLogger, authCheck } from "./server/middleware.ts";
+import { getNearestResidues } from "./src/data.ts";
 
 describe("Input Validation Patterns & Functions", () => {
   describe("validateGene", () => {
@@ -169,6 +212,7 @@ describe("Input Validation Patterns & Functions", () => {
 
       const mockSummaryResponse = {
         result: {
+          uids: ["12345"],
           "12345": {
             title: "NM_000277.3(PAH):c.1224C>T (p.Arg408Trp)",
             germline_classification: {
@@ -212,6 +256,7 @@ describe("Input Validation Patterns & Functions", () => {
 
       const mockSummaryResponse = {
         result: {
+          uids: ["67890"],
           "67890": {
             title: "NM_000277.3(PAH):c.1000G>A (p.Ala123Val)",
             germline_classification: {
@@ -236,6 +281,735 @@ describe("Input Validation Patterns & Functions", () => {
       expect(res.uid).toBeNull();
 
       fetchSpy.mockRestore();
+    });
+  });
+
+  describe("Remediation Security and Biophysics Enhancements", () => {
+    describe("parseFoldxDifFile", () => {
+      it("should parse stability change value (ddG) from FoldX output text by subtracting WT from mutant total", () => {
+        const mockFxout = `
+  # FoldX output file
+  Pdb\tTotal energy\tBackbone\tSidechain
+  wt.pdb\t10.50\t2.50\t8.00
+  wt_1.pdb\t12.0432\t3.04\t9.00
+        `.trim();
+        const val = parseFoldxDifFile(mockFxout);
+        expect(val).toBeCloseTo(1.5432, 4);
+      });
+
+      it("should throw error if total column is not found", () => {
+        const mockFxout = `
+  Pdb\tOtherCol\tBackbone
+  wt.pdb\t10.0\t0.20
+  wt_1.pdb\t7.5\t0.54
+        `.trim();
+        expect(() => parseFoldxDifFile(mockFxout)).toThrow();
+      });
+
+      it("should throw error if file is empty or mutant row is missing", () => {
+        expect(() => parseFoldxDifFile("")).toThrow();
+        expect(() => parseFoldxDifFile("HeaderOnly")).toThrow();
+        expect(() => parseFoldxDifFile(`
+  Pdb\tTotal energy
+  wt.pdb\t10.50
+        `.trim())).toThrow();
+      });
+
+      it("should parse difference-only format where WT row is missing", () => {
+        const val = parseFoldxDifFile(`
+  Pdb\tTotal energy
+  wt_1.pdb\t12.00
+        `.trim());
+        expect(val).toBe(12.00);
+      });
+
+      it("should parse FoldX 5.1 style output with metadata headers not starting with #", () => {
+        const val = parseFoldxDifFile(`
+FoldX 5.1 (2011)
+by the FoldX Consortium
+------------------------------------------------------
+
+PDB file analysed: batch
+Output type: BuildModel
+Pdb\ttotal energy\tBackbone Hbond
+wt_1.pdb\t11.8627\t1.97785
+        `.trim());
+        expect(val).toBe(11.8627);
+      });
+
+      it.skipIf(!fs.existsSync("server/testdata/Dif_wt.fixture.fxout"))(
+        "should match real captured FoldX fixture output value", 
+        () => {
+          const fixturePath = "server/testdata/Dif_wt.fixture.fxout";
+          const fxText = fs.readFileSync(fixturePath, "utf8");
+          const val = parseFoldxDifFile(fxText);
+          
+          expect(val).toBeTypeOf("number");
+          expect(isNaN(val)).toBe(false);
+        }
+      );
+    });
+
+    describe("getNearestResidues regression check", () => {
+      it("should return empty array for non-preset variants and never return synthetic residues", () => {
+        const residues = getNearestResidues("P00439", "p.Val123Ala", 123);
+        expect(residues).toEqual([]);
+      });
+    });
+
+    describe("Legacy settings key scrub", () => {
+      it("should scrub geminiApiKey from localStorage and return it empty in parsed settings", () => {
+        const legacySettings = {
+          residueColor: "#F97316",
+          primaryAccent: "indigo",
+          geminiApiKey: "legacy-api-key-12345",
+          geminiSessionId: "session-id-123"
+        };
+        
+        const store: Record<string, string> = {
+          missenseUserSettings: JSON.stringify(legacySettings)
+        };
+        const localStorageMock = {
+          getItem(key: string) { return store[key] || null; },
+          setItem(key: string, val: string) { store[key] = val; }
+        };
+        
+        const saved = localStorageMock.getItem("missenseUserSettings");
+        let parsed = saved ? JSON.parse(saved) : null;
+        if (parsed && parsed.geminiApiKey !== undefined) {
+          delete parsed.geminiApiKey;
+          localStorageMock.setItem("missenseUserSettings", JSON.stringify(parsed));
+        }
+        
+        expect(parsed.geminiApiKey).toBeUndefined();
+        const updatedStore = JSON.parse(store.missenseUserSettings);
+        expect(updatedStore.geminiApiKey).toBeUndefined();
+      });
+    });
+
+    describe("nearest-residues endpoint", () => {
+      it("should return nearest residues correctly sorted by Euclidean distance", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/nearest-residues");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /nearest-residues not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+        
+        const mockPdbText = `
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+ATOM      2  CA  ALA A   2      2.000   2.000   2.000  1.00  0.00           C
+ATOM      3  CA  VAL A   3      5.000   5.000   5.000  1.00  0.00           C
+ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
+        `.trim();
+
+        let jsonVal: any = null;
+        let statusVal: number | null = null;
+        
+        const req: any = {
+          body: {
+            pdbText: mockPdbText,
+            targetIndex: 1,
+            n: 2
+          }
+        };
+        const res: any = {
+          status(code: number) {
+            statusVal = code;
+            return this;
+          },
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+        
+        await handler(req, res, () => {});
+        
+        expect(jsonVal).toBeDefined();
+        expect(jsonVal.source).toBe("computed");
+        expect(jsonVal.residues.length).toBe(2);
+        expect(jsonVal.residues[0].name).toBe("ALA");
+        expect(jsonVal.residues[0].index).toBe(2);
+        expect(jsonVal.residues[0].distance).toBeCloseTo(1.73, 1);
+        expect(jsonVal.residues[1].name).toBe("VAL");
+        expect(jsonVal.residues[1].index).toBe(3);
+        expect(jsonVal.residues[1].distance).toBeCloseTo(6.93, 1);
+      });
+    });
+
+    describe("safeCompare timing-safe comparison", () => {
+      it("should return true for identical strings", () => {
+        expect(safeCompare("secureToken123", "secureToken123")).toBe(true);
+      });
+
+      it("should return false for different strings of same length", () => {
+        expect(safeCompare("secureToken123", "secureToken321")).toBe(false);
+      });
+
+      it("should return false for different strings of different length", () => {
+        expect(safeCompare("secureToken123", "short")).toBe(false);
+      });
+    });
+
+    describe("Strict IUPAC validations and synonymous checks", () => {
+      it("should reject synonymous variants", () => {
+        expect(() => validateVariant("p.Arg215Arg")).toThrow("Synonymous variant detected");
+        expect(() => validateVariant("Arg215Arg")).toThrow("Synonymous variant detected");
+      });
+
+      it("should reject non-IUPAC amino acids", () => {
+        expect(HGVS_PATTERN.test("p.Z215A")).toBe(false);
+        expect(MUTATION_FOLDX_PATTERN.test("ZA215A")).toBe(false);
+      });
+
+      it("should accept valid IUPAC codes", () => {
+        expect(HGVS_PATTERN.test("p.Arg215Trp")).toBe(true);
+        expect(MUTATION_FOLDX_PATTERN.test("RA215W")).toBe(true);
+      });
+    });
+
+    describe("Stateless AES-GCM Session functions", () => {
+      const secret = "test-secret-at-least-32-chars-long-1234567";
+
+      it("should encrypt and decrypt session payload successfully", () => {
+        const payload = { apiKey: "test-api-key", expiresAt: Date.now() + 10000 };
+        const token = encryptSession(payload, secret);
+        expect(token).toBeDefined();
+        expect(typeof token).toBe("string");
+        
+        const decrypted = decryptSession(token, secret);
+        expect(decrypted).toBeDefined();
+        expect(decrypted?.apiKey).toBe("test-api-key");
+        expect(decrypted?.expiresAt).toBe(payload.expiresAt);
+      });
+
+      it("should return undefined when decrypting with an incorrect secret", () => {
+        const payload = { apiKey: "test-api-key", expiresAt: Date.now() + 10000 };
+        const token = encryptSession(payload, secret);
+        const decrypted = decryptSession(token, "wrong-secret-value-here-1234567890");
+        expect(decrypted).toBeUndefined();
+      });
+
+      it("should return undefined for invalid or tampered tokens", () => {
+        expect(decryptSession("invalid-token", secret)).toBeUndefined();
+        
+        const payload = { apiKey: "test-api-key", expiresAt: Date.now() + 10000 };
+        const token = encryptSession(payload, secret);
+        const parts = token.split(":");
+        // Alter ciphertext content to fail GCM tag authentication
+        parts[1] = (parts[1][0] === "A" ? "B" : "A") + parts[1].slice(1);
+        const tamperedToken = parts.join(":");
+        expect(decryptSession(tamperedToken, secret)).toBeUndefined();
+      });
+
+      it("should return undefined if the session is expired in getApiKeyFromSession", () => {
+        const expiredPayload = { apiKey: "expired-key", expiresAt: Date.now() - 5000 };
+        const expiredToken = encryptSession(expiredPayload, secret);
+        
+        const oldSecret = process.env.APP_SESSION_SECRET;
+        process.env.APP_SESSION_SECRET = secret;
+        try {
+          expect(getApiKeyFromSession(expiredToken)).toBeUndefined();
+        } finally {
+          if (oldSecret === undefined) {
+            delete process.env.APP_SESSION_SECRET;
+          } else {
+            process.env.APP_SESSION_SECRET = oldSecret;
+          }
+        }
+      });
+
+      it("should return API key if session is not expired in getApiKeyFromSession", () => {
+        const validPayload = { apiKey: "valid-key", expiresAt: Date.now() + 60000 };
+        const validToken = encryptSession(validPayload, secret);
+        
+        const oldSecret = process.env.APP_SESSION_SECRET;
+        process.env.APP_SESSION_SECRET = secret;
+        try {
+          expect(getApiKeyFromSession(validToken)).toBe("valid-key");
+        } finally {
+          if (oldSecret === undefined) {
+            delete process.env.APP_SESSION_SECRET;
+          } else {
+            process.env.APP_SESSION_SECRET = oldSecret;
+          }
+        }
+      });
+    });
+
+    describe("PII Filter phone regex tightening constraints", () => {
+      it("should redact standard phone numbers with diverse formats", () => {
+        expect(filterPII("My number is 123-456-7890")).toContain("[REDACTED PHONE]");
+        expect(filterPII("Reach me at +1 (123) 456-7890")).toContain("[REDACTED PHONE]");
+        expect(filterPII("Call +441234567890")).toContain("[REDACTED PHONE]");
+        expect(filterPII("Phone: 123.456.7890")).toContain("[REDACTED PHONE]");
+      });
+
+      it("should ignore genomic coordinates and other normal sequences of digits", () => {
+        const coordInput = "Variant chr7:g.140753336A>T is pathogenic";
+        expect(filterPII(coordInput)).toBe(coordInput);
+        
+        const plainDigits = "My query has number 140753336 inside it";
+        expect(filterPII(plainDigits)).toBe(plainDigits);
+      });
+
+      it("should redact other PII types (email, SSN, DOB, Patient ID)", () => {
+        expect(filterPII("Email test@example.com here")).toContain("[REDACTED EMAIL]");
+        expect(filterPII("SSN: 123-45-6789")).toContain("[REDACTED SSN]");
+        expect(filterPII("DOB: 12/04/1985")).toContain("[REDACTED DOB]");
+        expect(filterPII("MRN: abc-12345")).toContain("[REDACTED PATIENT ID]");
+      });
+    });
+
+    describe("Async PDB Parsers", () => {
+      // Build unique residues to avoid Map deduplication key collision
+      const mockPdbLines: string[] = [];
+      for (let i = 1; i <= 4000; i++) {
+        const resSeqStr = String(i).padStart(4, " ");
+        mockPdbLines.push(`ATOM      1  CA  ASP A${resSeqStr}      1.000   1.000   1.000  1.00  0.00           C`);
+      }
+      const smallPdbText = mockPdbLines.slice(0, 10).join("\n");
+      const largePdbText = mockPdbLines.join("\n");
+
+      it("should parse residues asynchronously for large PDB files and synchronously for small ones", async () => {
+        const smallRes = await parseResiduesFromPdbMaybeAsync(smallPdbText);
+        expect(smallRes.length).toBe(10);
+        
+        const largeRes = await parseResiduesFromPdbMaybeAsync(largePdbText);
+        expect(largeRes.length).toBe(4000);
+      });
+
+      it("should parse atoms asynchronously for large PDB files and synchronously for small ones", async () => {
+        const smallAtoms = await parseAtomsFromPdbMaybeAsync(smallPdbText);
+        expect(smallAtoms.length).toBe(10);
+        
+        const largeAtoms = await parseAtomsFromPdbMaybeAsync(largePdbText);
+        expect(largeAtoms.length).toBe(4000);
+      });
+    });
+
+    describe("requestLogger middleware", () => {
+      it("should generate a request ID if none is provided", () => {
+        let headers: Record<string, string> = {};
+        const req: any = {
+          headers
+        };
+        let responseHeaders: Record<string, string> = {};
+        const res: any = {
+          setHeader(name: string, val: string) {
+            responseHeaders[name] = val;
+          },
+          on(event: string, callback: () => void) {
+            // no-op
+          }
+        };
+        const next = () => {};
+        
+        requestLogger(req, res, next);
+        expect(req.headers["x-request-id"]).toBeDefined();
+        expect(responseHeaders["X-Request-ID"]).toBe(req.headers["x-request-id"]);
+      });
+
+      it("should reuse an existing x-request-id header", () => {
+        let headers: Record<string, string> = {
+          "x-request-id": "preset-req-id"
+        };
+        const req: any = {
+          headers
+        };
+        let responseHeaders: Record<string, string> = {};
+        const res: any = {
+          setHeader(name: string, val: string) {
+            responseHeaders[name] = val;
+          },
+          on(event: string, callback: () => void) {
+            // no-op
+          }
+        };
+        const next = () => {};
+        
+        requestLogger(req, res, next);
+        expect(req.headers["x-request-id"]).toBe("preset-req-id");
+        expect(responseHeaders["X-Request-ID"]).toBe("preset-req-id");
+      });
+    });
+
+    describe("Public API routes", () => {
+      it("should return ok status on GET /health", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/health");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /health not found");
+        const handler = route.route.stack[0].handle;
+        let jsonVal: any = null;
+        const req: any = {};
+        const res: any = {
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+        
+        await handler(req, res, () => {});
+        expect(jsonVal.status).toBe("ok");
+        expect(jsonVal.timestamp).toBeDefined();
+      });
+
+      it("should return version info on GET /version", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/version");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /version not found");
+        const handler = route.route.stack[0].handle;
+        let jsonVal: any = null;
+        const req: any = {};
+        const res: any = {
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+        
+        await handler(req, res, () => {});
+        expect(jsonVal.version).toBe("1.0.0");
+      });
+    });
+
+    describe("PDB Prioritization & Chain Extraction", () => {
+      it("should extract correct chain atoms and strip others", () => {
+        const dummyPdb = `
+HEADER    EXPERIMENTAL STRUCTURE
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+ATOM      2  CA  ALA B   2      2.000   2.000   2.000  1.00  0.00           C
+TER       3      ALA B   2
+CONECT    1    2
+END
+`.trim();
+        const extracted = extractChainFromPdb(dummyPdb, "A");
+        expect(extracted).toContain("ASP A   1");
+        expect(extracted).not.toContain("ALA B   2");
+        expect(extracted).not.toContain("CONECT");
+        expect(extracted).toContain("HEADER");
+      });
+
+      it("should resolve best structure with no shifts and matching position", async () => {
+        const mockBestRes = {
+          "P00439": [
+            {
+              "pdb_id": "6hpo",
+              "chain_id": "A",
+              "unp_start": 1,
+              "unp_end": 452,
+              "start": 1,
+              "end": 452,
+              "resolution": 1.67,
+              "coverage": 1.0
+            },
+            {
+              "pdb_id": "1abc",
+              "chain_id": "B",
+              "unp_start": 10,
+              "unp_end": 100,
+              "start": 1,
+              "end": 91,
+              "resolution": 2.0,
+              "coverage": 0.5
+            }
+          ]
+        };
+
+        const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(() => 
+          Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(mockBestRes)
+          } as any)
+        );
+
+        const res1 = await fetchBestPdbStructure("P00439", 100);
+        expect(res1).toEqual({ pdbId: "6hpo", chainId: "A" });
+
+        const res2 = await fetchBestPdbStructure("P00439", 500);
+        expect(res2).toBeNull();
+
+        fetchSpy.mockRestore();
+      });
+
+      it("should return PDB data from RCSB if mapping exists", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/alphafold-pdb/:uniprotId");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /alphafold-pdb/:uniprotId not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const bestSpy = vi.spyOn(await import("./server/services/external.ts"), "fetchBestPdbStructure").mockImplementation(() =>
+          Promise.resolve({ pdbId: "6hpo", chainId: "A" })
+        );
+
+        const rcsbSpy = vi.spyOn(await import("./server/services/external.ts"), "fetchPdbFromRcsb").mockImplementation(() =>
+          Promise.resolve("ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C")
+        );
+
+        let sentData: any = null;
+        const req: any = {
+          params: { uniprotId: "P00439" },
+          query: { pos: "408" }
+        };
+        const res: any = {
+          setHeader() {},
+          send(body: any) {
+            sentData = body;
+            return this;
+          },
+          status() {
+            return this;
+          },
+          json(body: any) {
+            sentData = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(sentData).toContain("ASP A   1");
+        
+        bestSpy.mockRestore();
+        rcsbSpy.mockRestore();
+      });
+    });
+
+    describe("FoldX execution failure and error propagation", () => {
+      it("should throw a hard modeling engine unavailable error when FoldX execution fails", async () => {
+        const dummyPdb = `
+HEADER    EXPERIMENTAL STRUCTURE
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+TER       2      ASP A   1
+END
+`.trim();
+        const tempJobDir = path.join(process.cwd(), "temp_jobs", "test-foldx-failure-" + crypto.randomUUID());
+        await fs.promises.mkdir(tempJobDir, { recursive: true });
+        
+        // Force FOLDX_BINARY to a non-existent executable to ensure failure
+        const oldFoldxBin = process.env.FOLDX_BINARY;
+        process.env.FOLDX_BINARY = "non-existent-foldx-binary";
+        
+        try {
+          await expect(
+            generateMutantPdb(dummyPdb, "DA1W", "P00439", tempJobDir)
+          ).rejects.toThrow("Biophysical modeling engine unavailable");
+        } finally {
+          process.env.FOLDX_BINARY = oldFoldxBin;
+          if (fs.existsSync(tempJobDir)) {
+            await fs.promises.rm(tempJobDir, { recursive: true, force: true });
+          }
+        }
+      });
+    });
+
+    describe("Gemini API Fallback Cascade and Error Mapping", () => {
+      it("should attempt fallback models if the primary model fails with model-not-found/unavailable error", async () => {
+        const geminiService = await import("./server/services/gemini.ts");
+        
+        const oldModel = process.env.GEMINI_MODEL;
+        const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+        
+        process.env.GEMINI_MODEL = "invalid-model-1";
+        process.env.GEMINI_MODEL_FALLBACKS = "invalid-model-2,gemini-3.5-flash";
+        
+        mockGenerateContent
+          .mockRejectedValueOnce(new Error("model not found"))
+          .mockRejectedValueOnce(new Error("model_unavailable"))
+          .mockResolvedValueOnce({
+            text: JSON.stringify({
+              analysis: "Successful fallback analysis",
+              biochemicalShift: "test shift",
+              structuralImpact: "test impact",
+              pathogenicity: "Pathogenic",
+              acmgCriteria: [{ code: "PM1", reason: "test reason" }]
+            })
+          });
+          
+        try {
+          const result = await geminiService.performGeminiAnalysis(
+            "PAH",
+            "p.Arg408Trp",
+            "P00439",
+            "408",
+            "R",
+            "W",
+            undefined,
+            {},
+            "standard",
+            "dummy-key",
+            AbortSignal.timeout(5000)
+          );
+          
+          expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+          expect(mockGenerateContent.mock.calls[0][0].model).toBe("invalid-model-1");
+          expect(mockGenerateContent.mock.calls[1][0].model).toBe("invalid-model-2");
+          expect(mockGenerateContent.mock.calls[2][0].model).toBe("gemini-3.5-flash");
+          expect(result.analysis).toBe("Successful fallback analysis");
+          expect(result.insights?.pathogenicity).toBe("Pathogenic");
+        } finally {
+          process.env.GEMINI_MODEL = oldModel;
+          process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+        }
+      });
+
+      it("should map specific SDK errors to correct GeminiError instances", async () => {
+        const geminiService = await import("./server/services/gemini.ts");
+        
+        const oldModel = process.env.GEMINI_MODEL;
+        const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+        process.env.GEMINI_MODEL = "primary";
+        process.env.GEMINI_MODEL_FALLBACKS = "";
+        
+        const testErrorMapping = async (apiErrorMsg: string, apiStatus: number, expectedCode: string, expectedStatus: number) => {
+          mockGenerateContent.mockReset();
+          mockGenerateContent.mockRejectedValue({
+            message: apiErrorMsg,
+            status: apiStatus
+          });
+          
+          try {
+            await expect(
+              geminiService.performGeminiAnalysis(
+                "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, {}, "standard", "dummy-key", AbortSignal.timeout(5000)
+              )
+            ).rejects.toThrowError(geminiService.GeminiError);
+            
+            try {
+              await geminiService.performGeminiAnalysis(
+                "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, {}, "standard", "dummy-key", AbortSignal.timeout(5000)
+              );
+            } catch (err: any) {
+              expect(err.code).toBe(expectedCode);
+              expect(err.status).toBe(expectedStatus);
+            }
+          } catch (e) {
+            // expected to throw
+          }
+        };
+        
+        try {
+          await testErrorMapping("API key is invalid or unauthorized", 403, "API_KEY_INVALID", 403);
+          await testErrorMapping("Resource exhausted or quota exceeded", 429, "RESOURCE_EXHAUSTED", 429);
+          await testErrorMapping("Deadline exceeded or request timed out", 504, "TIMEOUT", 504);
+          await testErrorMapping("Internal server error or unknown code", 500, "MODEL_UNAVAILABLE", 503);
+        } finally {
+          process.env.GEMINI_MODEL = oldModel;
+          process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+        }
+      });
+    });
+  });
+});
+
+describe("Session Authentication & Key Validation", () => {
+  describe("authCheck Middleware", () => {
+    it("should return SESSION_EXPIRED when session has expired", () => {
+      const encryptSecret = "dev-session-secret-must-be-changed-in-prod";
+      const decryptSecret = process.env.APP_SESSION_SECRET || "dev-session-secret-must-be-changed-in-prod";
+      const expiredSessionId = encryptSession(
+        { apiKey: "test-key-expired", expiresAt: Date.now() - 5000 },
+        encryptSecret
+      );
+      
+      const req: any = {
+        path: "/api/v1/generate-mutant",
+        headers: {
+          "x-gemini-session-id": expiredSessionId
+        }
+      };
+      
+      const res: any = {
+        headers: {},
+        statusCode: 200,
+        status(code: number) {
+          this.statusCode = code;
+          return this;
+        },
+        json: vi.fn(),
+        setHeader(name: string, value: string) {
+          this.headers[name] = value;
+          return this;
+        }
+      };
+      
+      const next = vi.fn();
+      
+      const oldToken = process.env.APP_API_TOKEN;
+      process.env.APP_API_TOKEN = "dummy-token";
+      try {
+        authCheck(req, res, next);
+      } finally {
+        if (oldToken === undefined) {
+          delete process.env.APP_API_TOKEN;
+        } else {
+          process.env.APP_API_TOKEN = oldToken;
+        }
+      }
+      
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(401);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({
+          code: "SESSION_EXPIRED"
+        })
+      }));
+    });
+
+    it("should return UNAUTHORIZED when session is completely invalid", () => {
+      const req: any = {
+        path: "/api/v1/generate-mutant",
+        headers: {
+          "x-gemini-session-id": "completely-invalid-session-id-format"
+        }
+      };
+      
+      const res: any = {
+        headers: {},
+        statusCode: 200,
+        status(code: number) {
+          this.statusCode = code;
+          return this;
+        },
+        json: vi.fn(),
+        setHeader(name: string, value: string) {
+          this.headers[name] = value;
+          return this;
+        }
+      };
+      
+      const next = vi.fn();
+      
+      const oldToken = process.env.APP_API_TOKEN;
+      process.env.APP_API_TOKEN = "dummy-token";
+      try {
+        authCheck(req, res, next);
+      } finally {
+        if (oldToken === undefined) {
+          delete process.env.APP_API_TOKEN;
+        } else {
+          process.env.APP_API_TOKEN = oldToken;
+        }
+      }
+      
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(401);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        error: expect.objectContaining({
+          code: "UNAUTHORIZED"
+        })
+      }));
+    });
+  });
+
+  describe("API Key Regex Validation", () => {
+    it("should validate relaxed API key format with special characters", () => {
+      const relaxedRegex = /^[a-zA-Z0-9_\-\.\+\=\/]+$/;
+      
+      expect(relaxedRegex.test("AIzaSyB123_456-789")).toBe(true);
+      expect(relaxedRegex.test("AIzaSyB123.456.789")).toBe(true);
+      expect(relaxedRegex.test("AIzaSyB123+456/789=")).toBe(true);
+      expect(relaxedRegex.test("AIzaSyB123 456")).toBe(false);
+      expect(relaxedRegex.test("AIzaSyB123\"456")).toBe(false);
     });
   });
 });

@@ -9,7 +9,7 @@ import {
   Trash2, 
   Database 
 } from "lucide-react";
-import { FALLBACK_ANALYSES } from "../data";
+import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../data";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
 
@@ -41,6 +41,7 @@ interface VariantSearchPanelProps {
   history: SearchHistoryItem[];
   clearHistory: () => void;
   handleSelectHistoryItem: (item: SearchHistoryItem) => void;
+  resetViewerState: () => void;
 }
 
 export default function VariantSearchPanel({
@@ -71,6 +72,7 @@ export default function VariantSearchPanel({
   history,
   clearHistory,
   handleSelectHistoryItem,
+  resetViewerState,
 }: VariantSearchPanelProps) {
 
 
@@ -97,7 +99,7 @@ export default function VariantSearchPanel({
           /* Advanced mode multi-inputs */
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className={`block text-[10px] font-bold uppercase tracking-widest mb-1 ${isDark ? "text-slate-400" : "text-slate-550"}`}>Gene Symbol</label>
+              <label className={`block text-[10px] font-bold uppercase tracking-widest mb-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Gene Symbol</label>
               <input 
                 type="text" 
                 required
@@ -108,7 +110,7 @@ export default function VariantSearchPanel({
               />
             </div>
             <div>
-              <label className={`block text-[10px] font-bold uppercase tracking-widest mb-1 ${isDark ? "text-slate-400" : "text-slate-550"}`}>Variant Syntax</label>
+              <label className={`block text-[10px] font-bold uppercase tracking-widest mb-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Variant Syntax</label>
               <input 
                 type="text" 
                 required
@@ -119,7 +121,7 @@ export default function VariantSearchPanel({
               />
             </div>
             <div>
-              <label className={`block text-[10px] font-bold uppercase tracking-widest mb-1 ${isDark ? "text-slate-400" : "text-slate-550"}`}>UniProt ID</label>
+              <label className={`block text-[10px] font-bold uppercase tracking-widest mb-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>UniProt ID</label>
               <input 
                 type="text" 
                 required
@@ -135,12 +137,12 @@ export default function VariantSearchPanel({
           <div className="relative">
             <input 
               type="text" 
-              placeholder="Search gene or variant (e.g. NAE1 p.Arg215Trp)"
+              placeholder="Search gene or variant (e.g. PAH p.Arg408Trp)"
               value={searchVal}
               onChange={(e) => setSearchVal(e.target.value)}
-              className={`w-full rounded-lg pl-3 pr-10 py-2.5 text-xs font-mono font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-550 border transition-all ${classInput} ${isDark ? "text-indigo-300" : "text-indigo-705"}`}
+              className={`w-full rounded-lg pl-3 pr-10 py-2.5 text-xs font-mono font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-550 border transition-all ${classInput} ${isDark ? "text-indigo-300" : "text-indigo-700"}`}
             />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-505">
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
               <Dna className="w-4 h-4 text-indigo-550 animate-pulse" />
             </div>
           </div>
@@ -150,7 +152,7 @@ export default function VariantSearchPanel({
           <button
             type="submit"
             disabled={analysisState.isLoading}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-505 active:bg-indigo-700 text-white text-xs font-semibold py-2.5 px-4 rounded-lg shadow-lg shadow-indigo-900/20 transition flex items-center justify-center gap-2 disabled:bg-indigo-605/50 cursor-pointer"
+            className="flex-1 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold py-2.5 px-4 rounded-lg shadow-lg shadow-indigo-900/20 transition flex items-center justify-center gap-2 disabled:bg-indigo-605/50 cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
             {analysisState.isLoading ? "Crunching Structural Dynamics..." : "Analyze Mutation Effect"}
@@ -159,28 +161,31 @@ export default function VariantSearchPanel({
           <button
             type="button"
             onClick={() => {
-              setSearchVal("NAE1 p.Arg215Trp");
-              setGene("NAE1");
-              setVariant("p.Arg215Trp");
-              setUniprotId("Q13564");
-              setSelectedResidueIndex(215);
+              resetViewerState();
+              setSearchVal("PAH p.Arg408Trp");
+              setGene("PAH");
+              setVariant("p.Arg408Trp");
+              setUniprotId("P00439");
+              setSelectedResidueIndex(408);
               setAnalysisState({
                 isLoading: false,
                 error: null,
                 result: {
-                  analysis: FALLBACK_ANALYSES["Q13564_p.Arg215Trp"],
+                  analysis: FALLBACK_ANALYSES["P00439_p.Arg408Trp"],
+                  insights: FALLBACK_INSIGHTS["P00439_p.Arg408Trp"],
+                  isDemoData: true,
                   metadata: {
-                    gene: "NAE1",
-                    variant: "p.Arg215Trp",
-                    uniprotId: "Q13564",
-                    residueIndex: 215,
+                    gene: "PAH",
+                    variant: "p.Arg408Trp",
+                    uniprotId: "P00439",
+                    residueIndex: 408,
                     wildType: "Arg",
                     mutant: "Trp"
                   }
                 }
               });
             }}
-            title="Restore default Q13564 startup state"
+            title="Restore default PAH startup state"
             className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
               isDark 
                 ? "bg-slate-900 hover:bg-slate-800 active:bg-slate-700 text-slate-300 border-slate-700" 
@@ -303,7 +308,7 @@ export default function VariantSearchPanel({
                   <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-400">
                     {details.wt1}
                   </span>
-                  <span className="font-semibold text-[11px] text-slate-600 dark:text-slate-350">{details.wt3}</span>
+                  <span className="font-semibold text-[11px] text-slate-600 dark:text-slate-400">{details.wt3}</span>
                 </div>
               </div>
 

@@ -191,8 +191,21 @@ export default function SequenceVisualizer({
     const fetchSequence = async () => {
       setLoading(true);
       setError(null);
+      
+      const cleanUniprot = uniprotId.trim().toUpperCase();
+      if (!/^[A-Z0-9\-]+$/i.test(cleanUniprot)) {
+        setError("Invalid UniProt ID identifier.");
+        setLoading(false);
+        return;
+      }
+
       try {
-        const response = await fetch(`/api/sequence/${uniprotId}`);
+        const headers: Record<string, string> = {};
+        if (settings?.geminiSessionId) {
+          headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+        }
+
+        const response = await fetch(`/api/v1/sequence/${encodeURIComponent(cleanUniprot)}`, { headers });
         if (!response.ok) {
           throw new Error(`Failed to retrieve sequence data: ${response.statusText}`);
         }
@@ -415,7 +428,7 @@ export default function SequenceVisualizer({
                 className={`w-full pl-9 pr-8 py-2 text-xs rounded-lg border focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-sans ${
                   isDark 
                     ? "bg-slate-950 border-slate-800 text-slate-200 placeholder-slate-500" 
-                    : "bg-slate-50 border-slate-200 text-slate-850 placeholder-slate-400 shadow-inner"
+                    : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 shadow-inner"
                 }`}
               />
               {searchQuery && (

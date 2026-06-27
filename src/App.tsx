@@ -28,7 +28,6 @@ import {
   Moon
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import Markdown from "react-markdown";
 import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS, getNearestResidues } from "./data";
 import { AnalysisState, VariantPreset, NearestResidue, UserSettings } from "./types";
 import MolstarViewer from "./components/MolstarViewer";
@@ -36,6 +35,7 @@ import SequenceVisualizer from "./components/SequenceVisualizer";
 import Header from "./components/Header";
 import VariantSearchPanel from "./components/VariantSearchPanel";
 import ClinicalInsightsCard from "./components/ClinicalInsightsCard";
+import EvidenceDashboardCard from "./components/EvidenceDashboardCard";
 import SettingsModal from "./components/SettingsModal";
 
 import useVariantAnalysis, {
@@ -69,6 +69,11 @@ export default function App() {
     foldingError,
     foldingStatus,
     foldingDdG,
+    foldingEnergetics,
+    pdbText,
+    computedPocket,
+    isPocketLoading,
+    pocketError,
     compareMode,
     compareVariant,
     compareMutantPdb,
@@ -105,7 +110,8 @@ export default function App() {
     classSubCard,
     disruptionWarningVariant1,
     disruptionWarningVariant2,
-    pathogenicity
+    pathogenicity,
+    computedResiduesCache
   } = state;
 
   const {
@@ -154,7 +160,10 @@ export default function App() {
     fetchMutantFold,
     fetchCompareMutantFold,
     handleSearchSubmit,
-    handleCopyReport
+    handleCopyReport,
+    fetchNearestResidues,
+    resetViewerState,
+    setPdbText
   } = actions;
 
   return (
@@ -206,6 +215,7 @@ export default function App() {
             clearHistory={clearHistory}
             handleSelectHistoryItem={handleSelectHistoryItem}
             uniprotId={uniprotId}
+            resetViewerState={resetViewerState}
           />
 
           {/* CLINICAL INSIGHTS CARD */}
@@ -228,6 +238,25 @@ export default function App() {
             classTextBody={classTextBody}
             classTextMute={classTextMute}
             classBorderSec={classBorderSec}
+            computedResiduesCache={computedResiduesCache}
+          />
+
+          {/* UNIFIED EVIDENCE DASHBOARD */}
+          <EvidenceDashboardCard
+            isDark={isDark}
+            classCard={classCard}
+            classCardHeader={classCardHeader}
+            classCardTitle={classCardTitle}
+            classBorderSec={classBorderSec}
+            classTextBody={classTextBody}
+            classTextMute={classTextMute}
+            analysisState={analysisState}
+            foldingDdG={foldingDdG}
+            foldingStatus={foldingStatus}
+            foldingEnergetics={foldingEnergetics}
+            computedPocket={computedPocket}
+            isPocketLoading={isPocketLoading}
+            pocketError={pocketError}
           />
         </section>
 
@@ -261,95 +290,9 @@ export default function App() {
               </div>
             </div>
 
-            {/* Segmented Control Toggle Switch */}
-            <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-2 rounded-xl border mb-1 transition-all ${
-              isDark 
-                ? "bg-slate-900/60 border-slate-800/85" 
-                : "bg-slate-100 border-slate-200"
-            }`}>
-              <span className={`text-[11px] font-mono pl-1 flex items-center gap-1.5 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
-                <Compass className="w-3.5 h-3.5 text-indigo-500" />
-                Structural State Comparison:
-              </span>
-              <div className={`flex items-center p-1 rounded-lg border transition-all ${
-                isDark 
-                  ? "bg-slate-950 border-slate-800" 
-                  : "bg-white border-slate-200 shadow-sm"
-              }`}>
-                <button
-                  type="button"
-                  id="view-wildtype-btn"
-                  onClick={() => setViewMode("wildtype")}
-                  className={`px-3 py-1.5 rounded-md font-sans text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                    viewMode === "wildtype"
-                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30"
-                      : isDark
-                        ? "text-slate-400 hover:text-slate-200"
-                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                  }`}
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  Wild-Type (AlphaFold)
-                </button>
-                <button
-                  type="button"
-                  id="view-mutant-btn"
-                  onClick={() => setViewMode("mutant")}
-                  className={`px-3 py-1.5 rounded-md font-sans text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                    viewMode === "mutant"
-                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30"
-                      : isDark
-                        ? "text-slate-400 hover:text-slate-200"
-                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  Mutant (FoldX)
-                </button>
-              </div>
-            </div>
-
-            {/* Custom overlays for active folding or structure display */}
-            {viewMode === "mutant" && isFolding && (
-              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
-                isDark 
-                  ? "bg-slate-900 border-slate-800 text-white" 
-                  : "bg-slate-50 border-slate-200 text-slate-800"
-              }`}>
-                <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                <p className="text-indigo-600 dark:text-indigo-400 font-mono text-sm tracking-widest uppercase animate-pulse">
-                  Folding Mutant Protein Structure...
-                </p>
-                <p className={`text-xs mt-2 text-center max-w-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                  FoldX is programmatically simulating side-chain biophysics at position #{selectedResidueIndex || "215"} and optimizing structural geometries. This can take several seconds...
-                </p>
-              </div>
-            )}
-
-            {viewMode === "mutant" && foldingError && (
-              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
-                isDark 
-                  ? "bg-slate-900 border-slate-800 text-rose-455" 
-                  : "bg-rose-50/50 border-rose-200 text-rose-700"
-              }`}>
-                <AlertTriangle className="w-12 h-12 mb-3 text-rose-500 animate-pulse" />
-                <p className={`font-semibold text-lg mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>FoldX Biophysical Simulation Failed</p>
-                <p className={`text-sm max-w-md mb-4 ${isDark ? "text-slate-400" : "text-slate-600"}`}>{foldingError}</p>
-                <button 
-                  type="button"
-                  onClick={() => fetchMutantFold(gene, variant, uniprotId)}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono font-bold text-xs px-4 py-2 rounded-lg transition shadow-md shadow-indigo-600/20 active:scale-95 cursor-pointer"
-                >
-                  Retry Folding
-                </button>
-              </div>
-            )}
-
             {/* Dual Variant Comparison Control Bar */}
             {viewMode === "mutant" && (
-              <div className={`p-4 rounded-xl border flex flex-col gap-3.5 transition-all ${
+              <div className={`p-4 rounded-xl border flex flex-col gap-3.5 mb-3 transition-all ${
                 isDark 
                   ? "bg-slate-900/35 border-slate-800" 
                   : "bg-slate-50 border-slate-200/80 shadow-sm"
@@ -357,7 +300,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-pink-500 animate-pulse" />
-                    <span className={`text-xs font-bold uppercase tracking-wider font-mono ${isDark ? "text-slate-350" : "text-slate-700"}`}>
+                    <span className={`text-xs font-bold uppercase tracking-wider font-mono ${isDark ? "text-slate-400" : "text-slate-700"}`}>
                       Pairwise Variant Superposition & Comparison
                     </span>
                   </div>
@@ -377,7 +320,7 @@ export default function App() {
                         ? "bg-pink-600/10 border-pink-500/30 text-pink-500 hover:bg-pink-600/20 shadow-sm"
                         : isDark
                           ? "bg-slate-700/10 border-slate-700/35 text-slate-400 hover:bg-slate-700/20 hover:text-slate-200"
-                          : "bg-slate-100 border-slate-250 text-slate-600 hover:bg-slate-200 hover:text-slate-900 shadow-sm"
+                          : "bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200 hover:text-slate-900 shadow-sm"
                     }`}
                   >
                     {compareMode ? "Disable Comparison" : "Enable Compare Mode"}
@@ -487,7 +430,7 @@ export default function App() {
                     {isFoldingCompare && (
                       <div className="flex items-center gap-2 text-[11px] font-mono text-purple-400 animate-pulse bg-purple-500/5 px-2.5 py-1.5 rounded-lg border border-purple-500/10">
                         <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping"></span>
-                        <span>FoldX is solving biophysical side-chain mutations for {compareVariant}...</span>
+                        <span>Simulating biophysical side-chain mutations for {compareVariant}...</span>
                       </div>
                     )}
 
@@ -500,6 +443,94 @@ export default function App() {
                 )}
               </div>
             )}
+
+            {/* Segmented Control Toggle Switch */}
+            <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-2 rounded-xl border mb-1 transition-all ${
+              isDark 
+                ? "bg-slate-900/60 border-slate-800/85" 
+                : "bg-slate-100 border-slate-200"
+            }`}>
+              <span className={`text-[11px] font-mono pl-1 flex items-center gap-1.5 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              }`}>
+                <Compass className="w-3.5 h-3.5 text-indigo-500" />
+                Structural State Comparison:
+              </span>
+              <div className={`flex items-center p-1 rounded-lg border transition-all ${
+                isDark 
+                  ? "bg-slate-950 border-slate-800" 
+                  : "bg-white border-slate-200 shadow-sm"
+              }`}>
+                <button
+                  type="button"
+                  id="view-wildtype-btn"
+                  onClick={() => setViewMode("wildtype")}
+                  className={`px-3 py-1.5 rounded-md font-sans text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === "wildtype"
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30"
+                      : isDark
+                        ? "text-slate-400 hover:text-slate-200"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                  }`}
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  Wild-Type (AlphaFold)
+                </button>
+                <button
+                  type="button"
+                  id="view-mutant-btn"
+                  onClick={() => setViewMode("mutant")}
+                  className={`px-3 py-1.5 rounded-md font-sans text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === "mutant"
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30"
+                      : isDark
+                        ? "text-slate-400 hover:text-slate-200"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Mutant (Simulated)
+                </button>
+              </div>
+            </div>
+
+            {/* Custom overlays for active folding or structure display */}
+            {viewMode === "mutant" && isFolding && (
+              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
+                isDark 
+                  ? "bg-slate-900 border-slate-800 text-white" 
+                  : "bg-slate-50 border-slate-200 text-slate-800"
+              }`}>
+                <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-indigo-600 dark:text-indigo-400 font-mono text-sm tracking-widest uppercase animate-pulse">
+                  Folding Mutant Protein Structure...
+                </p>
+                <p className={`text-xs mt-2 text-center max-w-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  Simulating side-chain biophysics at position #{selectedResidueIndex || "408"} and optimizing structural geometries. This can take several seconds...
+                </p>
+              </div>
+            )}
+
+            {viewMode === "mutant" && foldingError && (
+              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
+                isDark 
+                  ? "bg-slate-900 border-slate-800 text-rose-455" 
+                  : "bg-rose-50/50 border-rose-200 text-rose-700"
+              }`}>
+                <AlertTriangle className="w-12 h-12 mb-3 text-rose-500 animate-pulse" />
+                <p className={`font-semibold text-lg mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>FoldX Biophysical Simulation Failed</p>
+                <p className={`text-sm max-w-md mb-4 ${isDark ? "text-slate-400" : "text-slate-600"}`}>{foldingError}</p>
+                <button 
+                  type="button"
+                  onClick={() => fetchMutantFold(gene, variant, uniprotId)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono font-bold text-xs px-4 py-2 rounded-lg transition shadow-md shadow-indigo-600/20 active:scale-95 cursor-pointer"
+                >
+                  Retry Folding
+                </button>
+              </div>
+            )}
+
+
 
             {/* Render viewer when not loading or errored */}
             {!(viewMode === "mutant" && (isFolding || foldingError)) && (
@@ -537,6 +568,13 @@ export default function App() {
                           neonHighContrast={settings.neonHighContrast}
                           mutantStatus={foldingStatus}
                           mutantDdG={foldingDdG}
+                          variant={variant}
+                          energyUnit={settings.energyUnit}
+                          fetchNearestResidues={fetchNearestResidues}
+                          onPdbTextLoaded={setPdbText}
+                          computedPocket={computedPocket}
+                          isPocketLoading={isPocketLoading}
+                          pocketError={pocketError}
                         />
                       </div>
                       
@@ -550,7 +588,7 @@ export default function App() {
                           <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
                             isDark 
                               ? "bg-slate-900 border-slate-800 text-white" 
-                              : "bg-slate-50 border-slate-200 text-slate-855"
+                              : "bg-slate-50 border-slate-200 text-slate-900"
                           }`}>
                             <div className="w-10 h-10 border-3 border-pink-500 border-t-transparent rounded-full animate-spin mb-3"></div>
                             <p className="text-pink-500 font-mono text-xs uppercase tracking-wider animate-pulse">Folding Variant 2 structure...</p>
@@ -559,7 +597,7 @@ export default function App() {
                           <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
                             isDark ? "bg-slate-900 border-slate-800 text-rose-455" : "bg-rose-50 border-rose-200"
                           }`}>
-                            <p className="text-xs font-semibold mb-2 text-rose-550">Simulating Variant 2 Failed</p>
+                            <p className="text-xs font-semibold mb-2 text-rose-500">Simulating Variant 2 Failed</p>
                             <p className="text-[11px] mb-3 opacity-80 max-w-xs">{foldingCompareError}</p>
                             <button
                               type="button"
@@ -581,6 +619,9 @@ export default function App() {
                             disruptionWarning={disruptionWarningVariant2}
                             mutantStatus={compareFoldingStatus}
                             mutantDdG={compareFoldingDdG}
+                            variant={compareVariant}
+                            energyUnit={settings.energyUnit}
+                            fetchNearestResidues={compareFoldedResidueIndex !== foldedResidueIndex ? fetchNearestResidues : undefined}
                           />
                         )}
                       </div>
@@ -607,6 +648,9 @@ export default function App() {
                       disruptionWarning={viewMode === "mutant" ? disruptionWarningVariant1 : null}
                       mutantStatus={foldingStatus}
                       mutantDdG={foldingDdG}
+                      variant={variant}
+                      energyUnit={settings.energyUnit}
+                      fetchNearestResidues={fetchNearestResidues}
                     />
                   )}
                 </motion.div>
@@ -614,16 +658,18 @@ export default function App() {
             )}
 
             {/* Collapsible Info Cards Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4 items-start">
               
               {/* How to Inspect Info Card */}
-              <div className={`rounded-xl border overflow-hidden flex flex-col transition-colors ${
+              <div className={`rounded-xl border overflow-hidden flex flex-col transition-colors self-start w-full ${
                 isDark ? "bg-slate-900/40 border-slate-800" : "bg-slate-50/50 border-slate-200 shadow-sm"
               }`}>
                 <button
                   type="button"
                   onClick={() => setIsHowToInspectCollapsed(!isHowToInspectCollapsed)}
-                  className={`w-full flex items-center justify-between p-4 transition-colors text-left border-b focus:outline-none ${
+                  className={`w-full flex items-center justify-between p-4 transition-colors text-left focus:outline-none ${
+                    !isHowToInspectCollapsed ? "border-b" : ""
+                  } ${
                     isDark 
                       ? "bg-slate-900/60 hover:bg-slate-900 border-slate-800" 
                       : "bg-slate-100 hover:bg-slate-200 border-slate-200"
@@ -642,9 +688,9 @@ export default function App() {
 
                 {!isHowToInspectCollapsed && (
                   <div className="p-4 space-y-3.5 flex-1 select-none animate-slide-in">
-                    <ul className={`space-y-3 text-[11px] pl-4 list-disc marker:text-indigo-500 ${isDark ? "text-slate-300" : "text-slate-650"}`}>
+                    <ul className={`space-y-3 text-[11px] pl-4 list-disc marker:text-indigo-500 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                       <li>
-                        Analyze residue <strong className="text-amber-500 font-mono">#{selectedResidueIndex || "215"}</strong> inside the rendered 3D fold. Use right-click or scroll-wheel to zoom in/out of the atomic density pocket.
+                        Analyze residue <strong className="text-amber-500 font-mono">#{selectedResidueIndex || "408"}</strong> inside the rendered 3D fold. Use right-click or scroll-wheel to zoom in/out of the atomic density pocket.
                       </li>
                       <li>
                         Determine structural state context: whether the mutation site belongs to outer alpha-helices, beta-sheet strands, or unstructured loops.
@@ -653,7 +699,7 @@ export default function App() {
                         Check for steric clashes or broken hydrogen bonds resulting from size/charge differential substitution (e.g. basic Arg replaced with bulk aromatic Trp).
                       </li>
                       <li>
-                        Compare native and simulated structures by toggling between <strong className="text-indigo-600 dark:text-indigo-400 font-bold">Wild-Type</strong> and synthetic <strong className="text-pink-500 dark:text-pink-400">Mutant (FoldX)</strong> views.
+                        Compare native and simulated structures by toggling between <strong className="text-indigo-600 dark:text-indigo-400 font-bold">Wild-Type</strong> and synthetic <strong className="text-pink-500 dark:text-pink-400">Mutant (Simulated)</strong> views.
                       </li>
                     </ul>
                     <div className={`pt-2 border-t rounded ${isDark ? "border-slate-800/50 bg-slate-900/10" : "border-slate-200 bg-slate-100/30"}`}>
@@ -666,13 +712,15 @@ export default function App() {
               </div>
 
               {/* Structural Legend & Interactive Analytical Controls Card */}
-              <div className={`rounded-xl border overflow-hidden flex flex-col transition-colors ${
+              <div className={`rounded-xl border overflow-hidden flex flex-col transition-colors self-start w-full ${
                 isDark ? "bg-slate-900/40 border-slate-800" : "bg-slate-50/50 border-slate-200 shadow-sm"
               }`}>
                 <button
                   type="button"
                   onClick={() => setIsLegendCollapsed(!isLegendCollapsed)}
-                  className={`w-full flex items-center justify-between p-4 transition-colors text-left border-b focus:outline-none ${
+                  className={`w-full flex items-center justify-between p-4 transition-colors text-left focus:outline-none ${
+                    !isLegendCollapsed ? "border-b" : ""
+                  } ${
                     isDark 
                       ? "bg-slate-900/60 hover:bg-slate-900 border-slate-800" 
                       : "bg-slate-100 hover:bg-slate-200 border-slate-200"
@@ -707,7 +755,7 @@ export default function App() {
                         />
                         <div className="flex-1">
                           <span className={`font-bold block text-[11px] uppercase tracking-wide font-mono ${isDark ? "text-white" : "text-slate-800"}`}>Show Polar Contacts</span>
-                          <span className={`text-[10px] block mt-0.5 leading-tight ${isDark ? "text-slate-400" : "text-slate-550"}`}>
+                          <span className={`text-[10px] block mt-0.5 leading-tight ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                             Dynamically calculate and visualize hydrogen bonds formed by target residue {selectedResidueIndex ?? ""}.
                           </span>
                         </div>
@@ -731,7 +779,7 @@ export default function App() {
                                 <span className="font-semibold text-amber-500 block font-mono text-[9px]">
                                   Orange Sidechain
                                 </span>
-                                <span className={`text-[9px] leading-snug block ${isDark ? "text-slate-400" : "text-slate-550"}`}>
+                                <span className={`text-[9px] leading-snug block ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                                   Residue #{selectedResidueIndex ?? "N/A"} rendered in sunset orange (Ball-and-Stick) to reveal orientation.
                                 </span>
                               </div>
@@ -745,7 +793,7 @@ export default function App() {
                             Atomic Elements (CPK)
                           </p>
                           <div className={`grid grid-cols-2 gap-1.5 p-2 rounded-lg border text-[9px] font-mono ${
-                            isDark ? "bg-slate-900/40 border-slate-800/60 text-slate-300" : "bg-white border-slate-200 text-slate-650 shadow-sm"
+                            isDark ? "bg-slate-900/40 border-slate-800/60 text-slate-300" : "bg-white border-slate-200 text-slate-600 shadow-sm"
                           }`}>
                             <div className="flex items-center gap-1.5">
                               <span className="w-2 rounded-full h-2 bg-neutral-400 shrink-0"></span>
@@ -776,7 +824,7 @@ export default function App() {
                               Interactive Contacts
                             </p>
                             <div className={`space-y-1 p-2 rounded-lg border text-[9px] font-mono ${
-                              isDark ? "bg-slate-900/40 border-slate-800/60 text-slate-300" : "bg-white border-slate-200 text-slate-650 shadow-sm"
+                              isDark ? "bg-slate-900/40 border-slate-800/60 text-slate-300" : "bg-white border-slate-200 text-slate-600 shadow-sm"
                             }`}>
                               <div className="flex items-center gap-1.5">
                                 <span className="w-4 h-0.5 border-t border-dashed border-sky-400 shrink-0"></span>
@@ -813,7 +861,11 @@ export default function App() {
                             <div className={`p-2 rounded-lg border text-[9px] leading-relaxed ${
                               isDark ? "bg-slate-900/40 border-slate-800/60 text-slate-400" : "bg-white border-slate-200 text-slate-600 shadow-sm"
                             }`}>
-                              Computed via FoldX biophysical modeling. Geometries represent atomic force-field alignments.
+                              {foldingStatus === "success"
+                                ? "Computed via FoldX biophysical modeling. Geometries represent atomic force-field alignments."
+                                : foldingStatus === "scwrl"
+                                  ? "SCWRL4 side-chain repack (no ΔΔG)."
+                                  : "Structure coordinates represent wild-type backbone."}
                             </div>
                           </div>
                         )}

@@ -1,5 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { z } from "zod";
+
+const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
+const nullableFiniteNumber = z.number().nullable().refine(val => val === null || Number.isFinite(val), { message: "Number must be finite" });
 
 // Zod validation schemas for server responses (MOD-6)
 export const analyzeVariantResponseSchema = z.object({
@@ -22,7 +25,14 @@ export const analyzeVariantResponseSchema = z.object({
     reviewStatus: z.string(),
     alleleFrequencies: z.array(z.object({
       source: z.string(),
-      value: z.any()
+      value: z.preprocess(
+        (val) => {
+          if (val === null || val === undefined) return null;
+          const parsed = typeof val === "number" ? val : parseFloat(String(val));
+          return isNaN(parsed) ? null : parsed;
+        },
+        nullableFiniteNumber
+      )
     })),
     trait: z.string(),
     uid: z.string().nullable()
@@ -31,31 +41,67 @@ export const analyzeVariantResponseSchema = z.object({
     gene: z.string(),
     variant: z.string(),
     uniprotId: z.string(),
-    residueIndex: z.number().nullable(),
+    residueIndex: nullableFiniteNumber,
     wildType: z.string(),
     mutant: z.string()
-  })
+  }),
+  predictorData: z.object({
+    available: z.boolean(),
+    amPathogenicity: nullableFiniteNumber,
+    amClass: z.string().nullable(),
+    caddPhred: nullableFiniteNumber
+  }).nullable().optional(),
+  conservationData: z.object({
+    available: z.boolean(),
+    revel: nullableFiniteNumber,
+    gerp: nullableFiniteNumber,
+    phylop: nullableFiniteNumber,
+    consurf: nullableFiniteNumber
+  }).nullable().optional(),
+  stringInteractions: z.array(z.object({
+    partner: z.string(),
+    score: finiteNumber
+  })).nullable().optional()
 });
 
 export const generateMutantResponseSchema = z.object({
   pdb: z.string(),
-  ddG: z.number().nullable(),
-  status: z.enum(["success", "scwrl", "fallback"]),
-  foldedResidueIndex: z.number()
+  ddG: nullableFiniteNumber,
+  status: z.enum(["success", "scwrl"]),
+  foldedResidueIndex: finiteNumber,
+  energetics: z.object({
+    foldx: nullableFiniteNumber,
+    dynamut2: nullableFiniteNumber,
+    ddgun: nullableFiniteNumber,
+    maestro: nullableFiniteNumber
+  }).optional()
+});
+
+export const nearestResiduesResponseSchema = z.object({
+  residues: z.array(z.object({
+    index: finiteNumber,
+    name: z.string(),
+    distance: finiteNumber,
+    properties: z.string(),
+    role: z.string(),
+    classBadge: z.string()
+  })),
+  source: z.string()
 });
 
 export const pocketFinderResponseSchema = z.object({
   pocketResidues: z.array(z.object({
-    index: z.number(),
+    index: finiteNumber,
     name: z.string(),
-    distance: z.number(),
-    score: z.number(),
+    distance: finiteNumber,
+    score: finiteNumber,
     role: z.string(),
     type: z.string()
   })),
-  pocketScore: z.number(),
-  pocketVolume: z.number(),
+  pocketScore: finiteNumber,
+  pocketVolume: finiteNumber,
   likelyCofactor: z.string(),
+  pocketDistance: nullableFiniteNumber,
   status: z.enum(["success", "fallback"])
 });
 
@@ -71,9 +117,10 @@ export const translateVariantResponseSchema = z.object({
   uniprotId: z.string()
 });
 import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "./data";
-import { AnalysisState, VariantPreset, UserSettings, AnalysisResult } from "./types";
+import { AnalysisState, VariantPreset, UserSettings, AnalysisResult, NearestResidue, PocketResult, EnergeticsData } from "./types";
 import { useSettings } from "./context/SettingsContext";
 import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3 } from "./aminoAcids";
+import { useSearchHistory } from "./hooks/useSearchHistory";
 
 async function fetchWithRetry(
   url: string,
@@ -83,15 +130,32 @@ async function fetchWithRetry(
   backoffFactor = 2
 ): Promise<Response> {
   let attempt = 0;
+  
   while (true) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    
+    const onSignalAbort = () => controller.abort();
+    if (options.signal) {
+      options.signal.addEventListener("abort", onSignalAbort);
+      if (options.signal.aborted) {
+        controller.abort();
+      }
+    }
+    
+    const fetchOptions = { ...options, signal: controller.signal };
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, fetchOptions);
+      clearTimeout(timeoutId);
+      if (options.signal) {
+        options.signal.removeEventListener("abort", onSignalAbort);
+      }
       if (response.ok) {
         return response;
       }
       
-      // If it's a 503 (Cold Start) or 504 (Timeout) and we have retries left:
-      if ((response.status === 503 || response.status === 504) && attempt < maxRetries) {
+      // If it's a 503 (Cold Start) and we have retries left:
+      if (response.status === 503 && attempt < maxRetries) {
         // Read body to see if it's an API key missing configuration error
         try {
           const clone = response.clone();
@@ -109,19 +173,28 @@ async function fetchWithRetry(
         
         await new Promise<void>((resolve, reject) => {
           const onAbort = () => {
-            clearTimeout(timeoutId);
+            clearTimeout(timeoutIdDelay);
             reject(new DOMException("The user aborted a request.", "AbortError"));
           };
-          const timeoutId = setTimeout(() => {
-            options.signal?.removeEventListener("abort", onAbort);
+          const timeoutIdDelay = setTimeout(() => {
+            if (options.signal) {
+              options.signal.removeEventListener("abort", onAbort);
+            }
             resolve();
           }, delay);
-          options.signal?.addEventListener("abort", onAbort, { once: true });
+          if (options.signal) {
+            options.signal.addEventListener("abort", onAbort, { once: true });
+          }
         });
         continue;
       }
       return response;
     } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (options.signal) {
+        options.signal.removeEventListener("abort", onSignalAbort);
+      }
+      
       if (err.name === "AbortError") {
         throw err;
       }
@@ -132,14 +205,18 @@ async function fetchWithRetry(
         
         await new Promise<void>((resolve, reject) => {
           const onAbort = () => {
-            clearTimeout(timeoutId);
+            clearTimeout(timeoutIdDelay);
             reject(new DOMException("The user aborted a request.", "AbortError"));
           };
-          const timeoutId = setTimeout(() => {
-            options.signal?.removeEventListener("abort", onAbort);
+          const timeoutIdDelay = setTimeout(() => {
+            if (options.signal) {
+              options.signal.removeEventListener("abort", onAbort);
+            }
             resolve();
           }, delay);
-          options.signal?.addEventListener("abort", onAbort, { once: true });
+          if (options.signal) {
+            options.signal.addEventListener("abort", onAbort, { once: true });
+          }
         });
         continue;
       }
@@ -155,33 +232,8 @@ function getErrorMessage(data: any, defaultMsg = "Request failed"): string {
   return defaultMsg;
 }
 
-// Simple XOR and Base64 helper for local storage privacy (SEC-7)
-const STORAGE_KEY = "variantHistory_enc";
-const SECRET_SALT = "ClinicalGenomicsObfuscationSalt"; // Simple key for obfuscation
-
-function obfuscate(text: string): string {
-  let result = "";
-  for (let i = 0; i < text.length; i++) {
-    const charCode = text.charCodeAt(i) ^ SECRET_SALT.charCodeAt(i % SECRET_SALT.length);
-    result += String.fromCharCode(charCode);
-  }
-  return btoa(result);
-}
-
-function deobfuscate(encoded: string): string {
-  try {
-    const text = atob(encoded);
-    let result = "";
-    for (let i = 0; i < text.length; i++) {
-      const charCode = text.charCodeAt(i) ^ SECRET_SALT.charCodeAt(i % SECRET_SALT.length);
-      result += String.fromCharCode(charCode);
-    }
-    return result;
-  } catch (err) {
-    console.error("Failed to decrypt local storage history:", err);
-    return "";
-  }
-}
+// Local storage key for non-sensitive public variant history cache (non-PHI)
+const STORAGE_KEY = "variantHistory";
 
 // Coordinate pattern checkers for VCF and cDNA (F-3)
 export function isVcfOrCdnaNotation(input: string): boolean {
@@ -321,6 +373,52 @@ export default function useVariantAnalysis() {
   const analysisAbortRef = useRef<AbortController | null>(null);
   const mutantFoldAbortRef = useRef<AbortController | null>(null);
   const compareFoldAbortRef = useRef<AbortController | null>(null);
+  const pendingResiduesRef = useRef<Set<string>>(new Set());
+
+  const fetchWithAuth = useCallback(async (
+    url: string,
+    options: RequestInit = {}
+  ): Promise<Response> => {
+    const headers = { ...(options.headers as Record<string, string> || {}) };
+    if (settings.geminiSessionId) {
+      headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+    }
+    
+    let response = await fetchWithRetry(url, { ...options, headers });
+    
+    // Attempt re-auth if 401 is returned (e.g., SESSION_EXPIRED) and we have an API key
+    if (response.status === 401 && settings.geminiApiKey) {
+      if (import.meta.env.DEV) {
+        console.warn(`Auth failed (401) for ${url}, attempting transparent re-authentication...`);
+      }
+      try {
+        const sessionRes = await fetch("/api/v1/session/keys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: settings.geminiApiKey }),
+          signal: options.signal
+        });
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json();
+          if (sessionData.sessionId) {
+            updateSetting("geminiSessionId", sessionData.sessionId);
+            updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 3600000));
+            
+            // Retry original request with the new session ID
+            const retryHeaders = {
+              ...headers,
+              "X-Gemini-Session-ID": sessionData.sessionId
+            };
+            response = await fetchWithRetry(url, { ...options, headers: retryHeaders });
+          }
+        }
+      } catch (reauthErr) {
+        console.error("Transparent re-authentication failed:", reauthErr);
+      }
+    }
+    
+    return response;
+  }, [settings.geminiSessionId, settings.geminiApiKey, updateSetting]);
 
   const abortAllPendingRequests = () => {
     if (analysisAbortRef.current) {
@@ -368,54 +466,7 @@ export default function useVariantAnalysis() {
   const classSubCard = isDark ? "bg-slate-950/40 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700";
 
   const [gene, setGene] = useState("PAH");
-  const [history, setHistory] = useState<Array<{ gene: string; variant: string; uniprotId: string }>>(() => {
-    try {
-      const savedEnc = localStorage.getItem(STORAGE_KEY);
-      if (savedEnc) {
-        const decrypted = deobfuscate(savedEnc);
-        if (decrypted) {
-          return JSON.parse(decrypted);
-        }
-      }
-      const savedPlain = localStorage.getItem("variantHistory");
-      if (savedPlain) {
-        const parsed = JSON.parse(savedPlain);
-        localStorage.setItem(STORAGE_KEY, obfuscate(savedPlain));
-        localStorage.removeItem("variantHistory");
-        return parsed;
-      }
-      return [];
-    } catch (e) {
-      return [];
-    }
-  });
-
-  const addToHistory = (g: string, v: string, u: string) => {
-    setHistory((prev) => {
-      const filtered = prev.filter(
-        (item) =>
-          !(item.gene.toUpperCase() === g.toUpperCase() && item.variant.toLowerCase() === v.toLowerCase())
-      );
-      const updated = [{ gene: g.toUpperCase(), variant: v, uniprotId: u }, ...filtered].slice(0, settings.maxHistoryItems);
-      try {
-        const serialized = JSON.stringify(updated);
-        localStorage.setItem(STORAGE_KEY, obfuscate(serialized));
-      } catch (e) {
-        console.error(e);
-      }
-      return updated;
-    });
-  };
-
-  const clearHistory = () => {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem("variantHistory");
-    } catch (e) {
-      console.error(e);
-    }
-    setHistory([]);
-  };
+  const { history, setHistory, addToHistory, clearHistory } = useSearchHistory(settings.maxHistoryItems, settings.saveHistory);
 
   const [variant, setVariant] = useState("p.Arg408Trp");
   const [uniprotId, setUniprotId] = useState("P00439");
@@ -437,18 +488,49 @@ export default function useVariantAnalysis() {
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);
   const [foldingError, setFoldingError] = useState<string | null>(null);
-  const [foldingStatus, setFoldingStatus] = useState<"success" | "scwrl" | "fallback" | null>(null);
+  const [foldingStatus, setFoldingStatus] = useState<"success" | "scwrl" | null>(null);
   const [foldingDdG, setFoldingDdG] = useState<number | null>(null);
+  const [foldingEnergetics, setFoldingEnergetics] = useState<EnergeticsData | null>(null);
 
   const [compareMode, setCompareMode] = useState<boolean>(false);
-  const [compareVariant, setCompareVariant] = useState<string>("p.Arg215Pro");
+  const [compareVariant, setCompareVariant] = useState<string>("p.Arg408Pro");
   const [compareMutantPdb, setCompareMutantPdb] = useState<string | null>(null);
   const [compareFoldedResidueIndex, setCompareFoldedResidueIndex] = useState<number | null>(null);
   const [isFoldingCompare, setIsFoldingCompare] = useState<boolean>(false);
   const [foldingCompareError, setFoldingCompareError] = useState<string | null>(null);
-  const [compareFoldingStatus, setCompareFoldingStatus] = useState<"success" | "scwrl" | "fallback" | null>(null);
+  const [compareFoldingStatus, setCompareFoldingStatus] = useState<"success" | "scwrl" | null>(null);
   const [compareFoldingDdG, setCompareFoldingDdG] = useState<number | null>(null);
+  const [compareFoldingEnergetics, setCompareFoldingEnergetics] = useState<EnergeticsData | null>(null);
   const [comparisonLayout, setComparisonLayout] = useState<"superimposed" | "side-by-side">("superimposed");
+
+  const [pdbText, setPdbText] = useState<string | null>(null);
+  const [computedPocket, setComputedPocket] = useState<PocketResult | null>(null);
+  const [isPocketLoading, setIsPocketLoading] = useState<boolean>(false);
+  const [pocketError, setPocketError] = useState<string | null>(null);
+
+  const resetViewerState = () => {
+    setViewMode("wildtype");
+    setMutantPdb(null);
+    setFoldedResidueIndex(null);
+    setFoldingError(null);
+    setFoldingStatus(null);
+    setFoldingDdG(null);
+    setFoldingEnergetics(null);
+    setCompareMode(false);
+    setCompareVariant("p.Arg408Pro");
+    setCompareMutantPdb(null);
+    setCompareFoldedResidueIndex(null);
+    setIsFolding(false);
+    setIsFoldingCompare(false);
+    setFoldingCompareError(null);
+    setCompareFoldingStatus(null);
+    setCompareFoldingDdG(null);
+    setCompareFoldingEnergetics(null);
+    setPdbText(null);
+    setComputedPocket(null);
+    setIsPocketLoading(false);
+    setPocketError(null);
+  };
 
   const [isHowToInspectCollapsed, setIsHowToInspectCollapsed] = useState<boolean>(false);
   const [isLegendCollapsed, setIsLegendCollapsed] = useState<boolean>(false);
@@ -456,7 +538,7 @@ export default function useVariantAnalysis() {
   const formatEnergyString = (text: string | null | undefined): string => {
     if (!text) return "";
     if (settings.energyUnit === "kcal/mol") return text;
-    return text.replace(/([-+]?\d+(?:\.\d+)?)\s*kcal\/mol/gi, (match, valStr) => {
+    return text.replace(/([-+]?\d+(?:\.\d+)?)\s*kcal\/mol(?!\s*\[~[^\]]*kJ\/mol\])/gi, (match, valStr) => {
       if (valStr) {
         const kcal = parseFloat(valStr);
         const kj = kcal * 4.184;
@@ -466,17 +548,20 @@ export default function useVariantAnalysis() {
     });
   };
 
+  const [computedResiduesCache, setComputedResiduesCache] = useState<Record<string, NearestResidue[]>>({});
+
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
     isLoading: false,
     error: null,
     result: {
-      analysis: FALLBACK_ANALYSES["Q13564_p.Arg215Trp"],
-      insights: FALLBACK_INSIGHTS["Q13564_p.Arg215Trp"],
+      analysis: FALLBACK_ANALYSES["P00439_p.Arg408Trp"],
+      insights: FALLBACK_INSIGHTS["P00439_p.Arg408Trp"],
+      isDemoData: true,
       metadata: {
-        gene: "NAE1",
-        variant: "p.Arg215Trp",
-        uniprotId: "Q13564",
-        residueIndex: 215,
+        gene: "PAH",
+        variant: "p.Arg408Trp",
+        uniprotId: "P00439",
+        residueIndex: 408,
         wildType: "Arg",
         mutant: "Trp"
       }
@@ -502,14 +587,7 @@ export default function useVariantAnalysis() {
     setCustomPdbUrl(null);
 
     // Clear mutant states
-    setViewMode("wildtype");
-    setMutantPdb(null);
-    setFoldedResidueIndex(null);
-    setFoldingError(null);
-    setCompareMode(false);
-    setCompareMutantPdb(null);
-    setCompareFoldedResidueIndex(null);
-    setFoldingCompareError(null);
+    resetViewerState();
 
     const mutMatch = item.variant.match(/\d+/);
     if (mutMatch) {
@@ -531,14 +609,7 @@ export default function useVariantAnalysis() {
     setCustomPdbUrl(null);
     
     // Clear mutant states when switching presets
-    setViewMode("wildtype");
-    setMutantPdb(null);
-    setFoldedResidueIndex(null);
-    setFoldingError(null);
-    setCompareMode(false);
-    setCompareMutantPdb(null);
-    setCompareFoldedResidueIndex(null);
-    setFoldingCompareError(null);
+    resetViewerState();
     
     // Parse residue index if available
     const mutMatch = preset.variant.match(/p\.(?:[a-zA-Z]{3}|\w)(\d+)(?:[a-zA-Z]{3}|\w)/);
@@ -557,6 +628,7 @@ export default function useVariantAnalysis() {
         result: {
           analysis: FALLBACK_ANALYSES[key],
           insights: FALLBACK_INSIGHTS[key] || null,
+          isDemoData: true,
           metadata: {
             gene: preset.gene,
             variant: preset.variant,
@@ -581,7 +653,7 @@ export default function useVariantAnalysis() {
     setLoadingStep("Translating genomic coordinate / cDNA variant notation via Ensembl VEP...");
     
     try {
-      const response = await fetch("/api/v1/translate-variant", {
+      const response = await fetchWithAuth("/api/v1/translate-variant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ variant: notation }),
@@ -602,7 +674,7 @@ export default function useVariantAnalysis() {
 
       return translateVariantResponseSchema.parse(data);
     } catch (err: any) {
-      if (err.name === "AbortError" || signal.aborted) {
+      if (signal.aborted) {
         throw err;
       }
       throw new Error(`Translation Error: ${err.message}`);
@@ -631,7 +703,7 @@ export default function useVariantAnalysis() {
       activeSignal = controller.signal;
     }
 
-    setAnalysisState(prev => ({ ...prev, isLoading: true, error: null }));
+    setAnalysisState({ isLoading: true, error: null, result: null });
     
     // Clear structural model comparison states for fresh run
     setViewMode("wildtype");
@@ -650,23 +722,28 @@ export default function useVariantAnalysis() {
 
     try {
       // Parallelize fetching of EBI AlphaFold structure to warm cache (HIGH-9)
-      const pdbWarmupPromise = fetch(`/api/v1/alphafold-pdb/${targetUniprot}`, { signal: activeSignal }).catch(err => {
+      const posMatch = targetVariant.match(/\d+/);
+      const posQuery = posMatch ? `?pos=${posMatch[0]}` : "";
+      const warmupHeaders: Record<string, string> = {};
+      if (settings.geminiSessionId) {
+        warmupHeaders["X-Gemini-Session-ID"] = settings.geminiSessionId;
+      }
+      const pdbWarmupPromise = fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
+        signal: activeSignal,
+        headers: warmupHeaders
+      }).catch(err => {
         console.warn("AlphaFold PDB concurrent pre-fetch request failed or aborted:", err);
       });
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (settings.geminiApiKey) {
-        headers["X-Gemini-API-Key"] = settings.geminiApiKey;
-      }
-
-      const response = await fetchWithRetry("/api/v1/analyze-variant", {
+      let response = await fetchWithAuth("/api/v1/analyze-variant", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           gene: targetGene,
           variant: targetVariant,
           uniprotId: targetUniprot,
-          userDirections: userDirections || undefined
+          userDirections: userDirections || undefined,
+          acmgWeighting: settings.acmgWeighting
         }),
         signal: activeSignal
       });
@@ -674,42 +751,18 @@ export default function useVariantAnalysis() {
       clearTimeout(timer1);
       clearTimeout(timer2);
 
-      const resText = await response.text();
+      let resText = await response.text();
       let data: any = null;
       try {
         data = JSON.parse(resText);
       } catch (e: any) {
         if (!response.ok) {
-          throw new Error(`Genomic analysis endpoint failed (status: ${response.status}). Response: ${resText.slice(0, 300)}`);
+          throw new Error(`Genomic analysis endpoint failed (status: ${response.status}).`);
         }
-        throw new Error(`Failed to parse response JSON: ${e.message}. Response: ${resText.slice(0, 300)}`);
+        throw new Error("Failed to parse response JSON.");
       }
 
       if (!response.ok) {
-        const isConfigError = data.isConfigError || data.error?.details?.isConfigError;
-        if (response.status === 503 && isConfigError) {
-          const fallbackKey = `${targetUniprot}_${targetVariant}`;
-          if (FALLBACK_ANALYSES[fallbackKey]) {
-            setAnalysisState({
-              isLoading: false,
-              error: null,
-              result: {
-                analysis: FALLBACK_ANALYSES[fallbackKey],
-                insights: FALLBACK_INSIGHTS[fallbackKey] || null,
-                metadata: {
-                  gene: targetGene,
-                  variant: targetVariant,
-                  uniprotId: targetUniprot,
-                  residueIndex: (data.metadata?.residueIndex || null),
-                  wildType: "",
-                  mutant: ""
-                }
-              }
-            });
-            addToHistory(targetGene, targetVariant, targetUniprot);
-            return;
-          }
-        }
         throw new Error(getErrorMessage(data, "Genomic analysis endpoint failed."));
       }
 
@@ -718,7 +771,38 @@ export default function useVariantAnalysis() {
       setAnalysisState({
         isLoading: false,
         error: null,
-        result: validatedData as AnalysisResult
+        result: {
+          analysis: validatedData.analysis,
+          insights: validatedData.insights ? {
+            biochemicalShift: validatedData.insights.biochemicalShift,
+            structuralImpact: validatedData.insights.structuralImpact,
+            acmgCriteria: validatedData.insights.acmgCriteria,
+            pathogenicity: validatedData.insights.pathogenicity
+          } : null,
+          clinvar: validatedData.clinvar ? {
+            classification: validatedData.clinvar.classification,
+            lastEvaluated: validatedData.clinvar.lastEvaluated,
+            reviewStatus: validatedData.clinvar.reviewStatus,
+            alleleFrequencies: validatedData.clinvar.alleleFrequencies.map(af => ({
+              source: af.source,
+              value: af.value
+            })),
+            trait: validatedData.clinvar.trait,
+            uid: validatedData.clinvar.uid
+          } : null,
+          isDemoData: false,
+          metadata: {
+            gene: validatedData.metadata.gene,
+            variant: validatedData.metadata.variant,
+            uniprotId: validatedData.metadata.uniprotId,
+            residueIndex: validatedData.metadata.residueIndex,
+            wildType: validatedData.metadata.wildType,
+            mutant: validatedData.metadata.mutant
+          },
+          predictorData: validatedData.predictorData || null,
+          conservationData: validatedData.conservationData || null,
+          stringInteractions: validatedData.stringInteractions || null
+        }
       });
       addToHistory(targetGene, targetVariant, targetUniprot);
 
@@ -729,32 +813,40 @@ export default function useVariantAnalysis() {
       clearTimeout(timer1);
       clearTimeout(timer2);
       
-      if (err.name === "AbortError" || activeSignal.aborted) {
-        console.log("Analysis execution aborted.");
+      if (activeSignal.aborted) {
+        if (import.meta.env.DEV) {
+          console.log("Analysis execution aborted.");
+        }
         return;
       }
 
-      console.error("Analysis execution error:", err);
+      if (import.meta.env.DEV) {
+        console.error("Analysis execution error:", err);
+      }
       
-      const fallbackKey = `${targetUniprot}_${targetVariant}`;
-      if (FALLBACK_ANALYSES[fallbackKey]) {
+      const key = `${targetUniprot}_${targetVariant}`;
+      if (FALLBACK_ANALYSES[key] && !settings.geminiSessionId) {
+        if (import.meta.env.DEV) {
+          console.log(`[Fallback] API failed or timed out. Gracefully falling back to preconfigured dataset for ${key}...`);
+        }
+        const mutMatch = targetVariant.match(/\d+/);
         setAnalysisState({
           isLoading: false,
           error: null,
           result: {
-            analysis: FALLBACK_ANALYSES[fallbackKey],
-            insights: FALLBACK_INSIGHTS[fallbackKey] || null,
+            analysis: FALLBACK_ANALYSES[key],
+            insights: FALLBACK_INSIGHTS[key] || null,
+            isDemoData: true,
             metadata: {
               gene: targetGene,
               variant: targetVariant,
               uniprotId: targetUniprot,
-              residueIndex: parseInt(targetVariant.replace(/\D/g, ""), 10) || null,
+              residueIndex: mutMatch ? parseInt(mutMatch[0], 10) : null,
               wildType: "",
               mutant: ""
             }
           }
         });
-        addToHistory(targetGene, targetVariant, targetUniprot);
       } else {
         setAnalysisState({
           isLoading: false,
@@ -800,6 +892,103 @@ export default function useVariantAnalysis() {
     throw new Error("Invalid HGVS missense format: Must represent a single amino acid substitution (e.g., p.Arg215Trp or R215W)");
   };
 
+  const fetchPocketData = useCallback(async (
+    targetUniprot: string,
+    residueIndex: number,
+    pdbText: string,
+    signal?: AbortSignal
+  ) => {
+    setIsPocketLoading(true);
+    setPocketError(null);
+    try {
+      const res = await fetchWithAuth("/api/v1/pocket-finder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdbText, targetIndex: residueIndex }),
+        signal
+      });
+      if (!res.ok) throw new Error(`Could not fetch binding pocket (status: ${res.status})`);
+      const data = await res.json();
+      const validatedData = pocketFinderResponseSchema.parse(data);
+      setComputedPocket(validatedData);
+    } catch (err: any) {
+      if (signal?.aborted) return;
+      console.error("Pocket finder error:", err);
+      setPocketError(err.message || "Failed to load pocket coordinates.");
+    } finally {
+      setIsPocketLoading(false);
+    }
+  }, [settings.geminiSessionId]);
+
+  useEffect(() => {
+    if (pdbText && uniprotId && selectedResidueIndex !== null) {
+      const controller = new AbortController();
+      fetchPocketData(uniprotId, selectedResidueIndex, pdbText, controller.signal);
+      return () => {
+        controller.abort();
+      };
+    } else {
+      setComputedPocket(null);
+    }
+  }, [pdbText, uniprotId, selectedResidueIndex, fetchPocketData]);
+
+  const fetchNearestResidues = useCallback(async (
+    targetUniprot: string,
+    targetVariant: string,
+    residueIndex: number,
+    pdbText: string,
+    signal?: AbortSignal
+  ) => {
+    const cacheKey = `${targetUniprot}_${residueIndex}`;
+    
+    // Check in-progress fetches or cache hits
+    if (computedResiduesCache[cacheKey]) return;
+    if (pendingResiduesRef.current.has(cacheKey)) return;
+
+    pendingResiduesRef.current.add(cacheKey);
+    try {
+      const res = await fetchWithAuth("/api/v1/nearest-residues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pdbText,
+          targetIndex: residueIndex,
+          n: 5
+        }),
+        signal
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch nearest residues: ${res.status}`);
+      }
+      const data = await res.json();
+      const validatedData = nearestResiduesResponseSchema.parse(data);
+
+      const mapped = validatedData.residues.map((r: any) => ({
+        name: `${r.name}${r.index}`,
+        distance: `${r.distance} Å`,
+        properties: r.properties,
+        role: r.role,
+        classBadge: r.classBadge,
+        source: "computed" as const
+      }));
+
+      if (!signal?.aborted) {
+        setComputedResiduesCache(prev => ({
+          ...prev,
+          [cacheKey]: mapped
+        }));
+      }
+    } catch (err: any) {
+      if (signal?.aborted) {
+        // Ignored
+      } else {
+        console.error("Error fetching nearest residues:", err);
+      }
+    } finally {
+      pendingResiduesRef.current.delete(cacheKey);
+    }
+  }, [computedResiduesCache]);
+
   const fetchMutantFold = async (targetGene: string, targetVariant: string, targetUniprot: string, signal?: AbortSignal) => {
     let activeSignal = signal;
     if (!activeSignal) {
@@ -816,16 +1005,30 @@ export default function useVariantAnalysis() {
     setFoldingStatus(null);
     setFoldingDdG(null);
     try {
-      const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}`, { signal: activeSignal });
+      const posMatch = targetVariant.match(/\d+/);
+      const posQuery = posMatch ? `?pos=${posMatch[0]}` : "";
+      const wtPdbHeaders: Record<string, string> = {};
+      if (settings.geminiSessionId) {
+        wtPdbHeaders["X-Gemini-Session-ID"] = settings.geminiSessionId;
+      }
+      const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
+        signal: activeSignal,
+        headers: wtPdbHeaders
+      });
       if (!wtPdbRes.ok) {
         throw new Error(`Failed to load wild-type template structure (status: ${wtPdbRes.status})`);
       }
       const wtPdb = await wtPdbRes.text();
+      if (selectedResidueIndex !== null) {
+        fetchNearestResidues(targetUniprot, targetVariant, selectedResidueIndex, wtPdb, activeSignal);
+      }
 
       const mutation = mapMutationToFoldXFormat(targetVariant);
-      console.log(`[Biophysical Modeling] Mapping mutation to FoldX input format: ${mutation}`);
+      if (import.meta.env.DEV) {
+        console.log(`[Biophysical Modeling] Mapping mutation to FoldX input format: ${mutation}`);
+      }
 
-      const response = await fetchWithRetry("/api/v1/generate-mutant", {
+      const response = await fetchWithAuth("/api/v1/generate-mutant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -861,8 +1064,14 @@ export default function useVariantAnalysis() {
       setFoldedResidueIndex(validatedData.foldedResidueIndex);
       setFoldingStatus(validatedData.status);
       setFoldingDdG(validatedData.ddG);
+      setFoldingEnergetics(validatedData.energetics || {
+        foldx: validatedData.ddG,
+        dynamut2: null,
+        ddgun: null,
+        maestro: null
+      });
     } catch (err: any) {
-      if (err.name === "AbortError" || activeSignal.aborted) {
+      if (activeSignal.aborted) {
         console.log("fetchMutantFold aborted/canceled.");
         return;
       }
@@ -891,16 +1100,27 @@ export default function useVariantAnalysis() {
     setCompareFoldingStatus(null);
     setCompareFoldingDdG(null);
     try {
-      const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}`, { signal: activeSignal });
+      const posMatch = targetVariant.match(/\d+/);
+      const posQuery = posMatch ? `?pos=${posMatch[0]}` : "";
+      const wtPdbHeaders: Record<string, string> = {};
+      if (settings.geminiSessionId) {
+        wtPdbHeaders["X-Gemini-Session-ID"] = settings.geminiSessionId;
+      }
+      const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
+        signal: activeSignal,
+        headers: wtPdbHeaders
+      });
       if (!wtPdbRes.ok) {
         throw new Error(`Failed to load wild-type template structure (status: ${wtPdbRes.status})`);
       }
       const wtPdb = await wtPdbRes.text();
 
       const mutation = mapMutationToFoldXFormat(targetVariant);
-      console.log(`[Biophysical Modeling] Mapping comparison mutation to FoldX format: ${mutation}`);
+      if (import.meta.env.DEV) {
+        console.log(`[Biophysical Modeling] Mapping comparison mutation to FoldX format: ${mutation}`);
+      }
 
-      const response = await fetchWithRetry("/api/v1/generate-mutant", {
+      const response = await fetchWithAuth("/api/v1/generate-mutant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -936,8 +1156,14 @@ export default function useVariantAnalysis() {
       setCompareFoldedResidueIndex(validatedData.foldedResidueIndex);
       setCompareFoldingStatus(validatedData.status);
       setCompareFoldingDdG(validatedData.ddG);
+      setCompareFoldingEnergetics(validatedData.energetics || {
+        foldx: validatedData.ddG,
+        dynamut2: null,
+        ddgun: null,
+        maestro: null
+      });
     } catch (err: any) {
-      if (err.name === "AbortError" || activeSignal.aborted) {
+      if (activeSignal.aborted) {
         console.log("fetchCompareMutantFold aborted/canceled.");
         return;
       }
@@ -988,7 +1214,7 @@ export default function useVariantAnalysis() {
           
           executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal);
         } catch (err: any) {
-          if (err.name === "AbortError" || activeSignal.aborted) return;
+          if (activeSignal.aborted) return;
           setAnalysisState({
             isLoading: false,
             error: err.message,
@@ -1013,7 +1239,7 @@ export default function useVariantAnalysis() {
       setLoadingStep("Resolving gene name to UniProt and AlphaFold coordinates...");
 
       try {
-        const resolveRes = await fetch("/api/v1/resolve-gene", {
+        const resolveRes = await fetchWithAuth("/api/v1/resolve-gene", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ gene: customGene }),
@@ -1055,7 +1281,7 @@ export default function useVariantAnalysis() {
 
         executeAnalysis(customGene.toUpperCase(), customVariant, resolvedUniprot, activeSignal);
       } catch (err: any) {
-        if (err.name === "AbortError" || activeSignal.aborted) {
+        if (activeSignal.aborted) {
           console.log("handleSearchSubmit custom search aborted.");
           return;
         }
@@ -1096,7 +1322,7 @@ export default function useVariantAnalysis() {
           
           executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal);
         } catch (err: any) {
-          if (err.name === "AbortError" || activeSignal.aborted) return;
+          if (activeSignal.aborted) return;
           setAnalysisState({
             isLoading: false,
             error: err.message,
@@ -1112,7 +1338,22 @@ export default function useVariantAnalysis() {
       );
 
       if (matchedPreset) {
-        handleSelectPreset(matchedPreset);
+        // NOTE: Do NOT call handleSelectPreset here — it calls abortAllPendingRequests()
+        // which would abort the controller we just created above, causing executeAnalysis
+        // to immediately throw an AbortError and leave isLoading=true forever.
+        // Instead, inline the state updates from handleSelectPreset without the abort.
+        setGene(matchedPreset.gene);
+        setVariant(matchedPreset.variant);
+        setUniprotId(matchedPreset.uniprotId);
+        setSearchVal(`${matchedPreset.gene} ${matchedPreset.variant}`);
+        setCustomPdbUrl(null);
+        resetViewerState();
+        const presetMutMatch = matchedPreset.variant.match(/p\.(?:[a-zA-Z]{3}|\w)(\d+)(?:[a-zA-Z]{3}|\w)/);
+        if (presetMutMatch) {
+          setSelectedResidueIndex(parseInt(presetMutMatch[1], 10));
+        } else {
+          setSelectedResidueIndex(null);
+        }
         executeAnalysis(matchedPreset.gene, matchedPreset.variant, matchedPreset.uniprotId, activeSignal);
       } else {
         const parts = text.split(/\s+/);
@@ -1141,7 +1382,7 @@ export default function useVariantAnalysis() {
         setLoadingStep("Resolving gene name to UniProt and AlphaFold coordinates...");
 
         try {
-          const resolveRes = await fetch("/api/v1/resolve-gene", {
+          const resolveRes = await fetchWithAuth("/api/v1/resolve-gene", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ gene: parsedGene }),
@@ -1183,7 +1424,7 @@ export default function useVariantAnalysis() {
 
           executeAnalysis(parsedGene, parsedVariant, resolvedUniprot, activeSignal);
         } catch (err: any) {
-          if (err.name === "AbortError" || activeSignal.aborted) {
+          if (activeSignal.aborted) {
             console.log("handleSearchSubmit simple search aborted.");
             return;
           }
@@ -1208,10 +1449,8 @@ export default function useVariantAnalysis() {
   const getPathogenicityBadge = (result: any) => {
     if (!result) return null;
     
-    // 1. Try to use deterministic pathogenicity predicted by Gemini in insights (S-2)
-    const geminiPathogenicity = result.insights?.pathogenicity;
-    // 2. If not available, fallback to keyword matching
-    const label = geminiPathogenicity || (result.analysis ? getPathogenicityBadgeFromText(result.analysis) : "VUS (Uncertain)");
+    // Deterministic ClinVar classification or Gemini pathogenicity insights (S-2)
+    const label = result.insights?.pathogenicity || result.clinvar?.classification || "VUS (Uncertain)";
     
     const labelLower = label.toLowerCase();
     if (labelLower.includes("likely pathogenic")) {
@@ -1226,59 +1465,8 @@ export default function useVariantAnalysis() {
     return { label: "VUS (Uncertain)", bg: isDark ? "bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20" : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100" };
   };
 
-  const getPathogenicityBadgeFromText = (analysisText: string): string => {
-    const textLower = analysisText.toLowerCase();
-    if (textLower.includes("pathogenic") && !textLower.includes("likely pathogenic") && !textLower.includes("possibly pathogenic")) {
-      return "Pathogenic";
-    } else if (textLower.includes("likely pathogenic") || textLower.includes("highly disruptive")) {
-      return "Likely Pathogenic";
-    } else if (textLower.includes("benign")) {
-      return "Benign";
-    }
-    return "VUS";
-  };
-
-  const getVariantDisruption = (v: string, designInsights?: any, designAnalysis?: string) => {
-    if (!v) return null;
-    const infoText = (
-      (v) + " " + 
-      (designInsights?.biochemicalShift || "") + " " + 
-      (designInsights?.structuralImpact || "") + " " + 
-      (designAnalysis || "")
-    ).toLowerCase();
-
-    const causesStericClash = infoText.includes("clash") || infoText.includes("steric") || infoText.includes("clashing") || infoText.includes("bulky") || infoText.includes("trp") || infoText.includes("tryptophan") || infoText.includes("indole") || infoText.includes("conformational collapse");
-    const causesHbondLoss = infoText.includes("hydrogen bond") || infoText.includes("h-bond") || infoText.includes("salt-bridge") || infoText.includes("salt bridge") || infoText.includes("coordination") || infoText.includes("ionic") || infoText.includes("stabilizing") || infoText.includes("polar contacts") || infoText.includes("broken bonds");
-
-    if (causesStericClash && causesHbondLoss) {
-      return {
-        type: "both" as const,
-        title: "Steric Clash & H-Bond Loss Identified",
-        description: `Variant ${v} is predicted to trigger severe steric clashing & simultaneously disrupt key h-bond/salt-bridge stabilizing links.`
-      };
-    } else if (causesStericClash) {
-      return {
-        type: "clash" as const,
-        title: "Significant Steric Clash Predicted",
-        description: `Variant ${v} introduces a bulky residue causing major localized steric crowding and volume-displacement conflicts.`
-      };
-    } else if (causesHbondLoss) {
-      return {
-        type: "hbond" as const,
-        title: "Loss of Critical H-Bond/Salt-Bridge",
-        description: `Variant ${v} removes chemical coordinates required for native hydrogen bond or ionic salt-bridge stability.`
-      };
-    }
-    return null;
-  };
-
-  const disruptionWarningVariant1 = viewMode === "mutant" 
-    ? getVariantDisruption(variant, analysisState.result?.insights, analysisState.result?.analysis)
-    : null;
-
-  const disruptionWarningVariant2 = compareMode 
-    ? getVariantDisruption(compareVariant, FALLBACK_INSIGHTS[`${uniprotId}_${compareVariant}`] || {}, "")
-    : null;
+  const disruptionWarningVariant1 = null;
+  const disruptionWarningVariant2 = null;
 
   const pathogenicity = analysisState.result ? getPathogenicityBadge(analysisState.result) : null;
 
@@ -1305,6 +1493,7 @@ export default function useVariantAnalysis() {
       foldingError,
       foldingStatus,
       foldingDdG,
+      foldingEnergetics,
       compareMode,
       compareVariant,
       compareMutantPdb,
@@ -1313,8 +1502,13 @@ export default function useVariantAnalysis() {
       foldingCompareError,
       compareFoldingStatus,
       compareFoldingDdG,
+      compareFoldingEnergetics,
       comparisonLayout,
       showPolarContacts,
+      pdbText,
+      computedPocket,
+      isPocketLoading,
+      pocketError,
       settings,
       isSettingsOpen,
       isHowToInspectCollapsed,
@@ -1347,6 +1541,7 @@ export default function useVariantAnalysis() {
       disruptionWarningVariant1,
       disruptionWarningVariant2,
       pathogenicity,
+      computedResiduesCache,
     },
     actions: {
       setTheme,
@@ -1370,6 +1565,7 @@ export default function useVariantAnalysis() {
       setFoldingError,
       setFoldingStatus,
       setFoldingDdG,
+      setFoldingEnergetics,
       setCompareMode,
       setCompareVariant,
       setCompareMutantPdb,
@@ -1378,8 +1574,13 @@ export default function useVariantAnalysis() {
       setFoldingCompareError,
       setCompareFoldingStatus,
       setCompareFoldingDdG,
+      setCompareFoldingEnergetics,
       setComparisonLayout,
       setShowPolarContacts,
+      setPdbText,
+      setComputedPocket,
+      setIsPocketLoading,
+      setPocketError,
       setSettings,
       setIsSettingsOpen,
       setIsHowToInspectCollapsed,
@@ -1402,6 +1603,8 @@ export default function useVariantAnalysis() {
       fetchCompareMutantFold,
       handleSearchSubmit,
       handleCopyReport,
+      fetchNearestResidues,
+      resetViewerState,
     }
   };
 }

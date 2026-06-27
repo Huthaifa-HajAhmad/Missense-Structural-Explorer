@@ -56,13 +56,13 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 * **Error Resilience**: Intercepts absent Gemini keys and returns a structured configuration error to the front-end, gracefully falling back to preconfigured high-fidelity clinical records (defined in `src/data.ts`) to maintain a fully interactive prototype.
 
 #### B. Biophysical Mutant Modeling Pipeline (`POST /api/generate-mutant`)
-* **Inputs**: `{ wtPdb: string, mutation: string }` (e.g., `wtPdb` coordinate buffer and mutation instruction like `RC215W`)
+* **Inputs**: `{ wtPdb: string, mutation: string }` (e.g., `wtPdb` coordinate buffer and mutation instruction like `RA408W`)
 * **Process**:
   1. Writes the heavy wild-type template coordinate data block to a temporary workspace file (`wt_temp_${timestamp}_${randomId}.pdb`) to allow native CLI processors to access the coordinate matrix.
-  2. Formulates a localized command-line instruction file with standard biophysical mutation descriptions (e.g., `RA215W;` mapping the residue sequence).
+  2. Formulates a localized command-line instruction file with standard biophysical mutation descriptions (e.g., `RA408W;` mapping the residue sequence).
   3. Prepares a child process execution context: `foldx --command=BuildModel --pdb=${wtFile} --mutant-file=${mutFile}`.
   4. In compute environments containing a pre-existing FoldX biophysical modeling binary, the system triggers real-time molecular mechanics modeling, side-chain repackaging, energy minimization, and returns the minimized 3D coordinate set.
-  5. In sandbox/prototype environments lacking native binaries, the server falls back to an atomic AST parser: it processes the PDB sequence, intercepts `ATOM`/`HETATM` coordinates on residue index `215`, mutates the amino acid labels to the corresponding 3-letter IUPAC string (e.g., `ARG` -> `TRP`), and renders the mutant structure.
+  5. In sandbox/prototype environments lacking native binaries, the server falls back to returning the unchanged wild-type PDB coordinates, alongside a `ddG: null` status indicator, allowing the frontend to display the wild-type structure while warning the user that biophysical simulation tools are not installed in the current environment.
   6. **Safe Workspace Cleanup**: Explicitly runs synchronous file unlinking procedures on temporary inputs and outputs to prevent storage pollution in production containers.
 
 #### C. Gene Accessory resolver (`POST /api/resolve-gene`)
@@ -72,14 +72,17 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 #### D. AlphaFold Structural Proxy (`GET /api/alphafold-pdb/:uniprotId`)
 * Bypasses client-side issues with loading heavy bioinformatics files from varying host origins.
 * Interrogates the AlphaFold DB with cascade recovery logic:
-  * Attempts to fetch `https://alphafold.ebi.ac.uk/files/AF-${uniprotId}-F1-model_v4.pdb`.
-  * If v4.pdb returns a 404, it iterates down through `v3.pdb`, `v2.pdb`, and `v1.pdb`.
-  * If these direct CDNs fail, it queries the EMBL-EBI Prediction API to look up redirect links.
+  * First queries the official EMBL-EBI Prediction API (`https://alphafold.ebi.ac.uk/api/prediction/${uniprotId}`) to fetch the official PDB structure URL.
+  * If the API returns a 404, it immediately skips the search to fail fast.
+  * If the API check fails to resolve but does not return a 404, or as a recovery cascade, the server tries sequential candidate URLs generated from common isoform suffixes (`-F1` down to `-1-F1`) and file versions (`v6` down to `v1`).
   * Bypasses CORS headers, pipes the raw PDB string securely back to Mol*, and validates that the payload contains proper `ATOM` structural coordinate segments to prevent corrupt renders.
 
 ---
 
 ## 4. Production Security & Deployment (SEC-5)
 In production, the application is designed to be hosted in a containerized environment (e.g., Google Cloud Run) behind a secure load balancer or reverse proxy:
+* **Token Authentication & Session Keys**: Access to clinical endpoints requires bearer authentication. The `/session/keys` endpoint validates API credentials and creates stateless session tokens encrypted using AES-256-GCM. These tokens contain the API credentials and an expiration time, allowing any server replica to decrypt and validate sessions using a shared `APP_SESSION_SECRET` key, avoiding in-memory session synchronization.
+* **Rate Limiting & Security Headers**: Express middleware enforces standard Helmet security headers (HSTS, CSP, X-Frame-Options) and rate-limiting limits (30 requests/minute per IP) to prevent denial of service.
+* **PII Redaction**: Free-text clinical narrative directions (`userDirections`) undergo regular-expression-based screening to redact phone numbers, emails, SSNs, dates of birth, and patient/medical record IDs before sending to third-party APIs.
 * **HTTPS Enforcement**: The Node.js Express server runs on plain HTTP (port 3000) inside its isolated container or sandbox environment. Secure HTTPS/TLS termination is decoupled from the application layer and must be handled at the ingress or load balancer layer (e.g., GCP HTTPS Load Balancer) to ensure all clinical variant data in transit is encrypted.
 * **Access Controls**: Production access can be secured using GCP Identity-Aware Proxy (IAP) to authenticate users via corporate Single Sign-On (SSO) before they can connect to the application.

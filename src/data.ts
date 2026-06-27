@@ -158,8 +158,8 @@ const PRESET_NEIGHBORS: Record<string, NearestResidue[]> = {
     {
       name: "PO4 Headgroup",
       distance: "4.0 Å",
-      properties: "Negatively Charged Phosphate",
-      role: "The mutated basic Arginine side chain forms strong electrostatic interactions with the lipid bilayer headgroups, locking the dimer state.",
+      properties: "Curated Membrane-Headgroup Marker (Non-residue)",
+      role: "Curated membrane-headgroup marker, not a protein residue. The mutated basic Arginine side chain forms strong electrostatic interactions with the lipid bilayer headgroups, locking the dimer state.",
       classBadge: "bg-purple-500/10 text-purple-300 border-purple-500/20"
     },
     {
@@ -220,38 +220,9 @@ export function getNearestResidues(uniprotId: string, variant: string, residueIn
   const presetKey = `${uniprotId}_p.${cleanVariant}`;
   
   if (PRESET_NEIGHBORS[presetKey]) {
-    return PRESET_NEIGHBORS[presetKey];
+    return PRESET_NEIGHBORS[presetKey].map(item => ({ ...item, source: "curated" }));
   }
   
-  // Clean fallback if residue index is missing
-  const activeIndex = residueIndexNum || parseInt(cleanVariant.replace(/\D/g, ""), 10) || 100;
-  
-  // Dynamically generate 5 highly plausible residues based on residueIndex
-  // We use deterministic modulo mapping to always produce the SAME neighbors for the same position index
-  const relativeOffsets = [-1, +1, -3, +3, +4];
-  const distances = ["3.1 Å", "3.4 Å", "4.0 Å", "4.5 Å", "4.9 Å"];
-  
-  return relativeOffsets.map((offset, i) => {
-    const targetIdx = activeIndex + offset;
-    // Map to a deterministic amino acid index using a basic hash
-    const aaHash = Math.abs((targetIdx * 7) + 13) % AMINO_ACID_TYPES.length;
-    const aaInfo = AMINO_ACID_TYPES[aaHash];
-    
-    // Create detailed descriptions depending on whether they are contiguous or far sequence neighbors
-    let roleText = "";
-    if (Math.abs(offset) === 1) {
-      roleText = `Direct adjacent peptide backbone connector (${offset > 0 ? "C-terminal" : "N-terminal"} side). Stabilizes backbone dynamics around the mutation site.`;
-    } else {
-      roleText = `Helical ${offset > 0 ? "downstream" : "upstream"} neighbor. ${aaInfo.role} Distorted by the local mutation forces.`;
-    }
-    
-    return {
-      name: `${aaInfo.name}${targetIdx > 0 ? targetIdx : 1}`,
-      distance: distances[i],
-      properties: aaInfo.prop,
-      role: roleText,
-      classBadge: aaInfo.badge
-    };
-  });
+  return [];
 }
 

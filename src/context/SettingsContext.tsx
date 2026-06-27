@@ -71,6 +71,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       residueColor: "#F97316",
       primaryAccent: "indigo",
       geminiApiKey: "",
+      geminiSessionId: "",
+      geminiSessionExpiresAt: 0,
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,
@@ -83,18 +85,48 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       maxHistoryItems: 5,
       neonHighContrast: false,
       show3DLabels: true,
+      saveHistory: false,
     };
     try {
       const saved = localStorage.getItem("missenseUserSettings");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...defaultSettings,
-          ...parsed,
-          show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true
-        };
+      let parsed = saved ? JSON.parse(saved) : {};
+      
+      let modified = false;
+      if (parsed.geminiApiKey !== undefined) {
+        delete parsed.geminiApiKey;
+        modified = true;
       }
-      return defaultSettings;
+      if (parsed.geminiSessionId !== undefined) {
+        delete parsed.geminiSessionId;
+        modified = true;
+      }
+      if (parsed.geminiSessionExpiresAt !== undefined) {
+        delete parsed.geminiSessionExpiresAt;
+        modified = true;
+      }
+      if (modified && saved) {
+        try {
+          localStorage.setItem("missenseUserSettings", JSON.stringify(parsed));
+        } catch (e) {}
+      }
+
+      // Load transient credentials from sessionStorage
+      let transient: { geminiApiKey?: string; geminiSessionId?: string; geminiSessionExpiresAt?: number } = {};
+      try {
+        const transSaved = sessionStorage.getItem("missenseTransientCredentials");
+        if (transSaved) {
+          transient = JSON.parse(transSaved);
+        }
+      } catch (e) {}
+
+      return {
+        ...defaultSettings,
+        ...parsed,
+        geminiApiKey: transient.geminiApiKey || "",
+        geminiSessionId: transient.geminiSessionId || "",
+        geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
+        show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true
+      };
     } catch {
       return defaultSettings;
     }
@@ -110,10 +142,29 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setSettings((prev) => {
       const updated = { ...prev, [key]: value };
       try {
-        localStorage.setItem("missenseUserSettings", JSON.stringify(updated));
+        const toSave = { ...updated };
+        delete toSave.geminiApiKey; // Never save raw API key in localStorage
+        delete toSave.geminiSessionId; // Never save session ID in localStorage (XSS-safe stateless token)
+        delete toSave.geminiSessionExpiresAt;
+        localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
       } catch (e) {
         console.error(e);
       }
+
+      // Sync transient credentials to sessionStorage for refresh safety
+      if (key === "geminiApiKey" || key === "geminiSessionId" || key === "geminiSessionExpiresAt") {
+        try {
+          const credentials = {
+            geminiApiKey: updated.geminiApiKey || "",
+            geminiSessionId: updated.geminiSessionId || "",
+            geminiSessionExpiresAt: updated.geminiSessionExpiresAt || 0
+          };
+          sessionStorage.setItem("missenseTransientCredentials", JSON.stringify(credentials));
+        } catch (e) {
+          console.error("[Settings] sessionStorage write error:", e);
+        }
+      }
+
       return updated;
     });
     if (key === "showAtomInteractions") {
@@ -126,6 +177,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       residueColor: "#F97316",
       primaryAccent: "indigo",
       geminiApiKey: "",
+      geminiSessionId: "",
+      geminiSessionExpiresAt: 0,
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,
@@ -138,14 +191,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       maxHistoryItems: 5,
       neonHighContrast: false,
       show3DLabels: true,
+      saveHistory: false,
     };
     setSettings(defaultSettings);
     setShowPolarContacts(true);
     try {
-      localStorage.setItem("missenseUserSettings", JSON.stringify(defaultSettings));
+      const toSave = { ...defaultSettings };
+      delete toSave.geminiApiKey;
+      localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
     } catch (e) {
       console.error(e);
     }
+    try {
+      sessionStorage.removeItem("missenseTransientCredentials");
+    } catch (e) {}
   };
 
   return (

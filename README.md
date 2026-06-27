@@ -50,6 +50,11 @@ The application pre-loads three canonical rare disease presets, complete with hi
 ### Prerequisites
 *   **Node.js** (v20+ recommended)
 *   **Google Gemini API Key**: Anyone with a Google account can obtain a free API key from [Google AI Studio](https://aistudio.google.com/).
+*   **FoldX Local Setup (Required for Biophysical Modeling)**:
+    1. Register and download FoldX 5 from the [FoldX Suite](https://foldxsuite.crg.eu/) (Academic/Non-commercial license is free).
+    2. Place the downloaded Windows executable (e.g. `foldx_1_20270131.exe`) inside the `tools/foldx/` folder.
+    3. Copy the `molecules/` folder containing standard amino acid parameter/rotamer libraries (such as `rotabase.txt`) from your FoldX distribution directly into the `tools/foldx/molecules/` directory.
+    4. (Optional) Alternatively, you can define `FOLDX_BINARY` in your `.env` pointing to the absolute path of the executable.
 
 ### Installation & Execution
 1.  **Clone the Repository**:

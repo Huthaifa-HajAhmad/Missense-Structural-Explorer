@@ -2,9 +2,393 @@ import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import crypto from "crypto";
+import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3 } from "../../src/aminoAcids.ts";
 import { validateUniProt, Semaphore } from "../utils.ts";
-import { fetchUniprotSequence } from "./external.ts";
+import { fetchUniprotSequence, fetchDynaMut2Prediction } from "./external.ts";
+
+const mutantCache = new LRUCache<string, any>({ max: 100 });
+const pocketCache = new LRUCache<string, any>({ max: 100 });
+
+export interface PdbResidue {
+  resSeq: number;
+  insCode: string;
+  resName3: string;
+  chain: string;
+  x?: number;
+  y?: number;
+  z?: number;
+}
+
+export function parseResiduesFromPdb(pdbText: string): PdbResidue[] {
+  const residuesMap = new Map<string, PdbResidue>();
+  const lines = pdbText.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.startsWith("ATOM  ")) {
+      const altLoc = line.charAt(16);
+      if (altLoc === " " || altLoc === "" || altLoc === "A") {
+        const atomName = line.slice(12, 16).trim();
+        if (atomName === "CA") {
+          const resName3 = line.slice(17, 20).trim().toUpperCase();
+          const chain = line.slice(21, 22).trim();
+          const resSeqStr = line.slice(22, 26).trim();
+          const resSeq = parseInt(resSeqStr, 10);
+          const insCode = line.charAt(26).trim();
+          if (!isNaN(resSeq)) {
+            const key = `${chain}_${resSeq}_${insCode}`;
+            if (!residuesMap.has(key)) {
+              let x: number | undefined;
+              let y: number | undefined;
+              let z: number | undefined;
+              try {
+                const xStr = line.slice(30, 38).trim();
+                const yStr = line.slice(38, 46).trim();
+                const zStr = line.slice(46, 54).trim();
+                x = parseFloat(xStr);
+                y = parseFloat(yStr);
+                z = parseFloat(zStr);
+              } catch (e) {}
+              residuesMap.set(key, {
+                resSeq,
+                insCode,
+                resName3,
+                chain,
+                x: isNaN(x as any) ? undefined : x,
+                y: isNaN(y as any) ? undefined : y,
+                z: isNaN(z as any) ? undefined : z
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  return Array.from(residuesMap.values()).sort((a, b) => {
+    if (a.chain !== b.chain) {
+      return a.chain.localeCompare(b.chain);
+    }
+    if (a.resSeq !== b.resSeq) {
+      return a.resSeq - b.resSeq;
+    }
+    return a.insCode.localeCompare(b.insCode);
+  });
+}
+
+export async function parseResiduesFromPdbAsync(pdbText: string): Promise<PdbResidue[]> {
+  const residuesMap = new Map<string, PdbResidue>();
+  const lines = pdbText.split(/\r?\n/);
+  const chunkSize = 1000;
+  for (let i = 0; i < lines.length; i += chunkSize) {
+    const end = Math.min(i + chunkSize, lines.length);
+    for (let j = i; j < end; j++) {
+      const line = lines[j];
+      if (line.startsWith("ATOM  ")) {
+        const altLoc = line.charAt(16);
+        if (altLoc === " " || altLoc === "" || altLoc === "A") {
+          const atomName = line.slice(12, 16).trim();
+          if (atomName === "CA") {
+            const resName3 = line.slice(17, 20).trim().toUpperCase();
+            const chain = line.slice(21, 22).trim();
+            const resSeqStr = line.slice(22, 26).trim();
+            const resSeq = parseInt(resSeqStr, 10);
+            const insCode = line.charAt(26).trim();
+            if (!isNaN(resSeq)) {
+              const key = `${chain}_${resSeq}_${insCode}`;
+              if (!residuesMap.has(key)) {
+                let x: number | undefined;
+                let y: number | undefined;
+                let z: number | undefined;
+                try {
+                  const xStr = line.slice(30, 38).trim();
+                  const yStr = line.slice(38, 46).trim();
+                  const zStr = line.slice(46, 54).trim();
+                  x = parseFloat(xStr);
+                  y = parseFloat(yStr);
+                  z = parseFloat(zStr);
+                } catch (e) {}
+                residuesMap.set(key, {
+                  resSeq,
+                  insCode,
+                  resName3,
+                  chain,
+                  x: isNaN(x as any) ? undefined : x,
+                  y: isNaN(y as any) ? undefined : y,
+                  z: isNaN(z as any) ? undefined : z
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  return Array.from(residuesMap.values()).sort((a, b) => {
+    if (a.chain !== b.chain) {
+      return a.chain.localeCompare(b.chain);
+    }
+    if (a.resSeq !== b.resSeq) {
+      return a.resSeq - b.resSeq;
+    }
+    return a.insCode.localeCompare(b.insCode);
+  });
+}
+
+export async function parseResiduesFromPdbMaybeAsync(pdbText: string): Promise<PdbResidue[]> {
+  if (pdbText.length > 256 * 1024) {
+    return parseResiduesFromPdbAsync(pdbText);
+  }
+  return parseResiduesFromPdb(pdbText);
+}
+
+export interface PdbAtom {
+  resSeq: number;
+  resName: string;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export function parseAtomsFromPdb(pdbText: string): PdbAtom[] {
+  const lines = pdbText.split(/\r?\n/);
+  const atoms: PdbAtom[] = [];
+  for (const line of lines) {
+    if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
+      const altLoc = line.charAt(16);
+      if (altLoc === " " || altLoc === "" || altLoc === "A") {
+        const atomName = line.slice(12, 16).trim();
+        const resName = line.slice(17, 20).trim();
+        const resSeqStr = line.slice(22, 26).trim();
+        const resSeqVal = parseInt(resSeqStr, 10);
+        const xVal = line.slice(30, 38).trim();
+        const yVal = line.slice(38, 46).trim();
+        const zVal = line.slice(46, 54).trim();
+        
+        const x = parseFloat(xVal);
+        const y = parseFloat(yVal);
+        const z = parseFloat(zVal);
+
+        if (!isNaN(resSeqVal) && !isNaN(x) && !isNaN(y) && !isNaN(z)) {
+          atoms.push({ resSeq: resSeqVal, resName, name: atomName, x, y, z });
+        }
+      }
+    }
+  }
+  return atoms;
+}
+
+export async function parseAtomsFromPdbAsync(pdbText: string): Promise<PdbAtom[]> {
+  const lines = pdbText.split(/\r?\n/);
+  const atoms: PdbAtom[] = [];
+  const chunkSize = 1000;
+  for (let i = 0; i < lines.length; i += chunkSize) {
+    const end = Math.min(i + chunkSize, lines.length);
+    for (let j = i; j < end; j++) {
+      const line = lines[j];
+      if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
+        const altLoc = line.charAt(16);
+        if (altLoc === " " || altLoc === "" || altLoc === "A") {
+          const atomName = line.slice(12, 16).trim();
+          const resName = line.slice(17, 20).trim();
+          const resSeqStr = line.slice(22, 26).trim();
+          const resSeqVal = parseInt(resSeqStr, 10);
+          const xVal = line.slice(30, 38).trim();
+          const yVal = line.slice(38, 46).trim();
+          const zVal = line.slice(46, 54).trim();
+          
+          const x = parseFloat(xVal);
+          const y = parseFloat(yVal);
+          const z = parseFloat(zVal);
+
+          if (!isNaN(resSeqVal) && !isNaN(x) && !isNaN(y) && !isNaN(z)) {
+            atoms.push({ resSeq: resSeqVal, resName, name: atomName, x, y, z });
+          }
+        }
+      }
+    }
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  return atoms;
+}
+
+export async function parseAtomsFromPdbMaybeAsync(pdbText: string): Promise<PdbAtom[]> {
+  if (pdbText.length > 256 * 1024) {
+    return parseAtomsFromPdbAsync(pdbText);
+  }
+  return parseAtomsFromPdb(pdbText);
+}
+
+export function getResidueDetails(resName3: string): { properties: string; role: string; classBadge: string } {
+  const upper = resName3.toUpperCase();
+  const map: Record<string, { properties: string; role: string; classBadge: string }> = {
+    ASP: {
+      properties: "Acidic, Negatively Charged",
+      classBadge: "bg-red-500/10 text-red-300 border-red-500/20",
+      role: "Often participates in critical salt bridge partners or positive charge neutralization."
+    },
+    GLU: {
+      properties: "Acidic, Negatively Charged",
+      classBadge: "bg-red-500/10 text-red-300 border-red-500/20",
+      role: "Interacts electrostatically with adjacent basic residues to lock local secondary loop folds."
+    },
+    ARG: {
+      properties: "Basic, Positively Charged",
+      classBadge: "bg-blue-500/10 text-blue-300 border-blue-500/20",
+      role: "Provides outward basic projection, critical for maintaining pocket electrostatics."
+    },
+    LYS: {
+      properties: "Basic, Positively Charged",
+      classBadge: "bg-blue-500/10 text-blue-300 border-blue-500/20",
+      role: "Participates in outward polar networks or coordinating neighboring cofactors."
+    },
+    HIS: {
+      properties: "Basic, Weakly Charged",
+      classBadge: "bg-blue-500/10 text-blue-300 border-blue-500/20",
+      role: "Acts as a catalytic residue or participates in metal-coordination networks."
+    },
+    PHE: {
+      properties: "Hydrophobic, Aromatic",
+      classBadge: "bg-amber-500/10 text-amber-300 border-amber-500/20",
+      role: "Forms rigid aromatic shielding, providing heavy van der Waals interactions."
+    },
+    TYR: {
+      properties: "Hydrophobic, Aromatic",
+      classBadge: "bg-amber-500/10 text-amber-300 border-amber-500/20",
+      role: "Coordinates active site binding with hydrogen bonding through its phenolic hydroxyl group."
+    },
+    TRP: {
+      properties: "Hydrophobic, Aromatic",
+      classBadge: "bg-amber-500/10 text-amber-300 border-amber-500/20",
+      role: "Provides rigid aromatic core packing and heavy local dispersion contacts."
+    },
+    ALA: {
+      properties: "Hydrophobic, Aliphatic",
+      classBadge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+      role: "Forms small hydrophobic packing spacer, facilitating tight secondary structure packaging."
+    },
+    VAL: {
+      properties: "Hydrophobic, Aliphatic",
+      classBadge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+      role: "Provides compact hydrophobic scaffolding within the local lipid or core alignment."
+    },
+    LEU: {
+      properties: "Hydrophobic, Aliphatic",
+      classBadge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+      role: "Supplies stable inner-core hydrophobic surface area and supports local sheet packing."
+    },
+    ILE: {
+      properties: "Hydrophobic, Aliphatic",
+      classBadge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+      role: "Supplies heavy aliphatic packaging inside hydrophobic cores and protein-protein boundaries."
+    },
+    MET: {
+      properties: "Hydrophobic, Sulfur-containing",
+      classBadge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+      role: "Hydrophobic boundary enclosing packing residue containing non-reactive sulfur."
+    },
+    PRO: {
+      properties: "Conformationally Restricted",
+      classBadge: "bg-purple-500/10 text-purple-300 border-purple-500/20",
+      role: "Creates rigid structural loops, imposing strict local conformational constraints."
+    },
+    SER: {
+      properties: "Polar, Uncharged",
+      classBadge: "bg-sky-500/10 text-sky-300 border-sky-500/20",
+      role: "Forms native hydrogen bonding linkages to stabilize the outer peptide boundary."
+    },
+    THR: {
+      properties: "Polar, Uncharged",
+      classBadge: "bg-sky-500/10 text-sky-300 border-sky-500/20",
+      role: "Participates in local hydrogen-bonding networks and hydrophilic surface contacts."
+    },
+    ASN: {
+      properties: "Polar, Amide",
+      classBadge: "bg-sky-500/10 text-sky-300 border-sky-500/20",
+      role: "Forms hydrogen-bonding networks, stabilizing turns and structural loop connections."
+    },
+    GLN: {
+      properties: "Polar, Amide",
+      classBadge: "bg-sky-500/10 text-sky-300 border-sky-500/20",
+      role: "Participates in polar peptide contacts, forming structural locks on solvent boundaries."
+    },
+    CYS: {
+      properties: "Sulfur-reactive",
+      classBadge: "bg-yellow-500/10 text-yellow-300 border-yellow-500/20",
+      role: "Involved in disulfide bridge formation or metal coordination cores."
+    },
+    GLY: {
+      properties: "Conformationally Flexible",
+      classBadge: "bg-slate-500/10 text-slate-300 border-slate-500/20",
+      role: "Allows maximum local backbone flexibility, relieving steric strain in tight loops."
+    }
+  };
+  return map[upper] || {
+    properties: "Unknown",
+    classBadge: "bg-slate-500/10 text-slate-300 border-slate-500/20",
+    role: "Structural packing residue with uncharacterized microenvironment contributions."
+  };
+}
+
+export function parseFoldxDifFile(fxText: string): number {
+  const fxLines = fxText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (fxLines.length === 0) {
+    throw new Error("Invalid FoldX file: empty file.");
+  }
+  
+  // Find header line (first line that contains 'total energy' or starts with 'pdb\t')
+  const headerLineIdx = fxLines.findIndex(line => {
+    const lower = line.toLowerCase();
+    return lower.startsWith("pdb\t") || lower.includes("total energy") || lower.includes("total\t");
+  });
+  if (headerLineIdx === -1) {
+    throw new Error("Invalid FoldX file: no header line found.");
+  }
+  
+  const header = fxLines[headerLineIdx];
+  const headers = header.split('\t').map(h => h.toLowerCase().trim());
+  
+  // Explicit column validation
+  const totalIdx = headers.findIndex(h => h === "total energy" || h === "total" || h.includes("total"));
+  if (totalIdx === -1) {
+    throw new Error("Invalid FoldX file: 'total energy' or 'total' column not found in headers.");
+  }
+
+  let wtTotal: number | null = null;
+  let mutantTotal: number | null = null;
+
+  for (let i = headerLineIdx + 1; i < fxLines.length; i++) {
+    const line = fxLines[i];
+    if (line.startsWith("#")) continue;
+    const parts = line.split('\t').map(p => p.trim());
+    if (parts.length === 0 || parts[0] === "") continue;
+    const filename = parts[0].toLowerCase().trim();
+    
+    // Match wt.pdb or wt_1.pdb filenames
+    if (filename === "wt.pdb" || filename.endsWith("/wt.pdb") || filename.endsWith("\\wt.pdb") || filename === "wt") {
+      if (parts.length > totalIdx) {
+        wtTotal = parseFloat(parts[totalIdx]);
+      }
+    } else if (filename === "wt_1.pdb" || filename.endsWith("/wt_1.pdb") || filename.endsWith("\\wt_1.pdb") || filename === "wt_1") {
+      if (parts.length > totalIdx) {
+        mutantTotal = parseFloat(parts[totalIdx]);
+      }
+    }
+  }
+
+  if (mutantTotal === null || isNaN(mutantTotal)) {
+    throw new Error("Invalid FoldX file: mutant row 'wt_1.pdb' not found or has invalid value.");
+  }
+
+  if (wtTotal !== null && !isNaN(wtTotal)) {
+    // Raw file format: subtract wt energy from mutant energy
+    return mutantTotal - wtTotal;
+  } else {
+    // Difference file format (e.g. Dif_wt.fxout): value is already mutant - wt
+    return mutantTotal;
+  }
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -60,9 +444,29 @@ export async function generateMutantPdb(
   validatedMutation: string,
   uniprotId: string | undefined,
   jobDir: string
-): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl" | "fallback"; foldedResidueIndex: number }> {
+): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; energetics?: any }> {
+  const pdbHash = crypto.createHash("sha256").update(wtPdb).digest("hex");
+  const cacheKey = `${pdbHash}_${validatedMutation}`;
+  const cached = mutantCache.get(cacheKey);
+  if (cached) {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[Biophysical Caching] Cache Hit for mutant mutation: ${validatedMutation}`);
+    }
+    return cached;
+  }
+  const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir);
+  mutantCache.set(cacheKey, result);
+  return result;
+}
+
+async function generateMutantPdbInternal(
+  wtPdb: string,
+  validatedMutation: string,
+  uniprotId: string | undefined,
+  jobDir: string
+): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; energetics?: any }> {
   const fullWtPath = path.join(jobDir, "wt.pdb");
-  const fullMutPath = path.join(jobDir, "mut.txt");
+  const fullMutPath = path.join(jobDir, "individual_list.txt");
 
   // 1. Write WT PDB data to temporary file
   await fs.promises.writeFile(fullWtPath, wtPdb, "utf8");
@@ -80,17 +484,60 @@ export async function generateMutantPdb(
 
   await fs.promises.writeFile(fullMutPath, mutLine, "utf8");
 
+  // 3. Validate pos exists in WT PDB structure
+  const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
+  const targetRes = pdbResidues.find(r => r.resSeq === pos && (chain === "" || r.chain === chain));
+  if (!targetRes) {
+    throw new Error(`Target residue position ${pos} on chain ${chain || "any"} is not found in the PDB structure.`);
+  }
+  const expectedWt3 = AMINO_ACID_1_TO_3[wt1];
+  if (expectedWt3 && targetRes.resName3 !== expectedWt3) {
+    throw new Error(`Mutation mismatch: expected wild-type residue at position ${pos} is ${wt1} (${expectedWt3}), but PDB structure contains ${targetRes.resName3}.`);
+  }
+
+  let foldxBin = process.env.FOLDX_BINARY || "foldx";
+  let foldxDir = "";
+  if (foldxBin === "foldx") {
+    const localToolsDir = path.join(process.cwd(), "tools", "foldx");
+    if (fs.existsSync(localToolsDir)) {
+      const files = fs.readdirSync(localToolsDir);
+      const exeFile = files.find(f => f.toLowerCase().startsWith("foldx") && f.toLowerCase().endsWith(".exe"));
+      if (exeFile) {
+        foldxBin = path.join(localToolsDir, exeFile);
+        foldxDir = localToolsDir;
+        console.log(`[Biophysical Modeling] Auto-detected local FoldX binary: ${foldxBin}`);
+      }
+    }
+  } else {
+    foldxDir = path.dirname(foldxBin);
+  }
+
+  if (foldxDir) {
+    const sourceMolecules = path.join(foldxDir, "molecules");
+    const destMolecules = path.join(jobDir, "molecules");
+    if (fs.existsSync(sourceMolecules)) {
+      console.log(`[Biophysical Modeling] Copying FoldX molecules parameters to workspace...`);
+      fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
+    }
+    const sourceRotabase = path.join(foldxDir, "rotabase.txt");
+    const destRotabase = path.join(jobDir, "rotabase.txt");
+    if (fs.existsSync(sourceRotabase)) {
+      console.log(`[Biophysical Modeling] Copying FoldX rotabase parameters to workspace...`);
+      fs.copyFileSync(sourceRotabase, destRotabase);
+    }
+  }
+
   let foldxSuccess = false;
   let mutantPdbContent = "";
   let ddG: number | null = null;
-  let status: "success" | "scwrl" | "fallback" = "success";
+  let status: "success" | "scwrl" = "success";
 
   try {
-    console.log(`[Biophysical Modeling] Probing FoldX CLI tool on temporary PDB structure...`);
-    const { stdout, stderr } = await execFileAsync("foldx", [
+    console.log(`[Biophysical Modeling] Executing FoldX: ${foldxBin}...`);
+    const { stdout, stderr } = await execFileAsync(foldxBin, [
       "--command=BuildModel",
       "--pdb=wt.pdb",
-      "--mutant-file=mut.txt"
+      "--mutant-file=individual_list.txt"
     ], {
       timeout: 45000,
       cwd: jobDir
@@ -110,101 +557,72 @@ export async function generateMutantPdb(
 
       if (fs.existsSync(foldxOutFx)) {
         const fxText = await fs.promises.readFile(foldxOutFx, "utf8");
-        const fxLines = fxText.split("\n");
-        // Find non-empty line after headers containing calculated energy values
-        for (let i = 0; i < fxLines.length; i++) {
-          const fLine = fxLines[i].trim();
-          if (fLine.startsWith("wt.pdb") || fLine.includes("\t") || fLine.includes(" ")) {
-            const parts = fLine.split(/\s+/);
-            if (parts.length > 1) {
-              const parsedVal = parseFloat(parts[1]);
-              if (!isNaN(parsedVal)) {
-                ddG = parsedVal;
-                console.log(`[Biophysical Modeling] Parsed FoldX stability change (ddG): ${ddG} kcal/mol`);
-              }
-            }
-          }
-        }
+        ddG = parseFoldxDifFile(fxText);
+        console.log(`[Biophysical Modeling] Parsed FoldX stability change (ddG): ${ddG} kcal/mol`);
       }
     }
   } catch (foldxErr: any) {
-    console.warn(`[Biophysical Modeling] FoldX execution failed or not installed. Error:`, foldxErr.message);
-  }
-
-  // Try SCWRL4 as secondary fallback
-  if (!foldxSuccess && uniprotId) {
-    try {
-      console.log(`[Biophysical Modeling] Attempting SCWRL4 secondary fallback...`);
-      const seq = await fetchUniprotSequence(validateUniProt(uniprotId));
-      if (seq && pos > 0 && pos <= seq.length) {
-        const scwrlSeq = seq.split("").map((aa, idx) => {
-          if (idx === pos - 1) {
-            return mut1.toUpperCase();
-          } else {
-            return aa.toLowerCase();
-          }
-        }).join("");
-
-        const scwrlSeqPath = path.join(jobDir, "scwrl_seq.txt");
-        await fs.promises.writeFile(scwrlSeqPath, scwrlSeq, "utf8");
-
-        const scwrlOutPath = path.join(jobDir, "scwrl_out.pdb");
-        const { stdout, stderr } = await execFileAsync("scwrl4", [
-          "-i", "wt.pdb",
-          "-o", "scwrl_out.pdb",
-          "-s", "scwrl_seq.txt"
-        ], {
-          timeout: 25000,
-          cwd: jobDir
-        });
-
-        console.log(`[SCWRL4 STDOUT]:`, stdout);
-        if (stderr) console.warn(`[SCWRL4 STDERR]:`, stderr);
-
-        if (fs.existsSync(scwrlOutPath)) {
-          mutantPdbContent = await fs.promises.readFile(scwrlOutPath, "utf8");
-          foldxSuccess = true;
-          status = "scwrl";
-          console.log(`[Biophysical Modeling] Successfully loaded SCWRL4 mutant structure (${mutantPdbContent.length} bytes).`);
-        }
-      }
-    } catch (scwrlErr: any) {
-      console.warn(`[Biophysical Modeling] SCWRL4 execution failed or not installed. Error:`, scwrlErr.message);
-    }
+    console.warn(`[Biophysical Modeling] FoldX execution failed:`, foldxErr.message);
+    if (foldxErr.stdout) console.log(`[FoldX Failure STDOUT]:`, foldxErr.stdout);
+    if (foldxErr.stderr) console.error(`[FoldX Failure STDERR]:`, foldxErr.stderr);
   }
 
   if (foldxSuccess && mutantPdbContent) {
+    // Note: DynaMut2 consensus energetics are computed by the caller (routes.ts)
+    // AFTER the biophysicalSemaphore is released, to avoid holding the slot during
+    // the DynaMut2 polling period (~20 s max).
     return { pdb: mutantPdbContent, ddG, status, foldedResidueIndex: pos };
   } else {
-    console.log(`[Biophysical Modeling Fallback] Performing sequence annotation overlay for position ${pos}...`);
-    
-    let mut3 = "ALA";
-    mut3 = AMINO_ACID_1_TO_3[mut1] || "ALA";
-
-    const pdbLines = wtPdb.split("\n");
-    const mutatedPdbLines = pdbLines.map(line => {
-      if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
-        const resSeqStr = line.slice(22, 26).trim();
-        const resSeqVal = parseInt(resSeqStr, 10);
-        if (resSeqVal === pos) {
-          const p1 = line.slice(0, 17);
-          const p2 = mut3.padEnd(3).slice(0, 3);
-          const p3 = line.slice(20);
-          return p1 + p2 + p3;
-        }
-      }
-      return line;
-    });
-
-    return { pdb: mutatedPdbLines.join("\n"), ddG: null, status: "fallback", foldedResidueIndex: pos };
+    throw new Error("Biophysical modeling engine unavailable (FoldX is not installed or failed to execute in this environment).");
   }
 }
+
+/**
+ * Computes a consensus energetics object by querying DynaMut2 alongside the
+ * FoldX ΔΔG. Called by routes.ts AFTER the biophysicalSemaphore is released
+ * so that DynaMut2 polling (~20 s max) does not block concurrent FoldX jobs.
+ */
+export async function calculateConsensusEnergetics(
+  foldxDdg: number | null,
+  wtRes: string,
+  mutRes: string,
+  pos: number,
+  pdbText: string
+) {
+  const dynamut2 = await fetchDynaMut2Prediction(pdbText, "A", pos, wtRes, mutRes);
+  return {
+    foldx: foldxDdg,
+    dynamut2,
+    ddgun: null,
+    maestro: null
+  };
+}
+
 
 export async function findBindingPocket(
   pdbText: string,
   targetIndex: number,
   jobDir: string
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback"; pocketDistance?: number | null }> {
+  const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
+  const cacheKey = `${pdbHash}_${targetIndex}`;
+  const cached = pocketCache.get(cacheKey);
+  if (cached) {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[Biophysical Caching] Cache Hit for binding pocket at residue: ${targetIndex}`);
+    }
+    return cached;
+  }
+  const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir);
+  pocketCache.set(cacheKey, result);
+  return result;
+}
+
+async function findBindingPocketInternal(
+  pdbText: string,
+  targetIndex: number,
+  jobDir: string
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback"; pocketDistance?: number | null }> {
   const fullPdbPath = path.join(jobDir, "wt.pdb");
   const fullOutDir = path.join(jobDir, "out");
 
@@ -212,35 +630,23 @@ export async function findBindingPocket(
   await fs.promises.writeFile(fullPdbPath, pdbText, "utf8");
   await fs.promises.mkdir(fullOutDir, { recursive: true });
 
-  const lines = pdbText.split("\n");
-  const atoms: { resSeq: number; resName: string; name: string; x: number; y: number; z: number }[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
-      const atomName = line.slice(12, 16).trim();
-      const resName = line.slice(17, 20).trim();
-      const resSeqStr = line.slice(22, 26).trim();
-      const resSeqVal = parseInt(resSeqStr, 10);
-      const xVal = line.slice(30, 38).trim();
-      const yVal = line.slice(38, 46).trim();
-      const zVal = line.slice(46, 54).trim();
-      
-      const x = parseFloat(xVal);
-      const y = parseFloat(yVal);
-      const z = parseFloat(zVal);
-
-      if (!isNaN(resSeqVal) && !isNaN(x) && !isNaN(y) && !isNaN(z)) {
-        atoms.push({ resSeq: resSeqVal, resName, name: atomName, x, y, z });
-      }
-    }
-  }
+  const atoms = await parseAtomsFromPdbMaybeAsync(pdbText);
 
   if (atoms.length === 0) {
-    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback" };
+    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback", pocketDistance: null };
   }
 
+  let pocketDistance: number | null = null;
+
   const mutIndex = Number(targetIndex);
+  
+  // Validate mutIndex exists in WT PDB structure
+  const pdbResidues = await parseResiduesFromPdbMaybeAsync(pdbText);
+  const hasResidue = pdbResidues.some(r => r.resSeq === mutIndex);
+  if (!hasResidue) {
+    throw new Error(`Target residue position ${mutIndex} is not found in the PDB structure.`);
+  }
+
   const mutAtoms = atoms.filter(a => a.resSeq === mutIndex);
   let mutX = 0, mutY = 0, mutZ = 0;
   if (mutAtoms.length > 0) {
@@ -254,7 +660,7 @@ export async function findBindingPocket(
     mutY /= mutAtoms.length;
     mutZ /= mutAtoms.length;
   } else {
-    return { pocketResidues: [], pocketScore: 30, pocketVolume: 150, likelyCofactor: "General small ligand", status: "fallback" };
+    throw new Error(`Coordinates for target residue position ${mutIndex} could not be extracted.`);
   }
 
   let p2rankSuccess = false;
@@ -294,6 +700,9 @@ export async function findBindingPocket(
       const csvLines = csvText.split("\n").map(l => l.trim()).filter(Boolean);
 
       if (csvLines.length > 1) {
+        const headerCols = csvLines[0].split(",").map(c => c.trim().toLowerCase());
+        const volColIdx = headerCols.findIndex(h => h === "volume" || h === "sas_volume" || h === "volume_sas");
+
         const pockets: any[] = [];
         for (let i = 1; i < csvLines.length; i++) {
           const cols = csvLines[i].split(",").map(c => c.trim());
@@ -302,15 +711,27 @@ export async function findBindingPocket(
             const score = parseFloat(cols[2]);
             const probability = parseFloat(cols[3]);
             const sasPoints = parseInt(cols[4], 10);
-            const centerRes = cols[6]; // residue indices list e.g., "12 13 14"
-            const residueIndices = centerRes.split(/\s+/).map(x => parseInt(x, 10)).filter(x => !isNaN(x));
+            const centerRes = cols[6]; // residue indices list e.g., "A_12 A_13"
+            
+            // Extract numeric sequence index by splitting chain prefix (e.g. A_12 -> 12)
+            const residueIndices = centerRes.split(/\s+/).map(x => {
+              const parts = x.split("_");
+              const numStr = parts[parts.length - 1];
+              return parseInt(numStr, 10);
+            }).filter(x => !isNaN(x));
+
+            let volume = NaN;
+            if (volColIdx !== -1 && cols.length > volColIdx) {
+              volume = parseFloat(cols[volColIdx]);
+            }
 
             pockets.push({
               id: pId,
               score,
               probability,
               sasPoints,
-              residueIndices
+              residueIndices,
+              volume
             });
           }
         }
@@ -340,8 +761,16 @@ export async function findBindingPocket(
           const pocketResiduesMap: Record<number, any> = {};
           const propensities = getAaPropensities();
 
+          // Group atoms by resSeq once for O(1) lookups (M-8)
+          const atomsByResSeq = new Map<number, PdbAtom[]>();
+          for (const a of atoms) {
+            const list = atomsByResSeq.get(a.resSeq) || [];
+            list.push(a);
+            atomsByResSeq.set(a.resSeq, list);
+          }
+
           for (const rIndex of selectedPocket.residueIndices) {
-            const resAtoms = atoms.filter(a => a.resSeq === rIndex);
+            const resAtoms = atomsByResSeq.get(rIndex) || [];
             if (resAtoms.length > 0) {
               let rX = 0, rY = 0, rZ = 0;
               resAtoms.forEach(a => { rX += a.x; rY += a.y; rZ += a.z; });
@@ -373,13 +802,47 @@ export async function findBindingPocket(
             pocketScore = Math.min(98, Math.round(selectedPocket.score * 5));
           }
 
-          pocketVolume = Math.round(selectedPocket.sasPoints * 1.5) || 150;
+          // Dynamic P2Rank Volume calculation
+          if (selectedPocket.volume && !isNaN(selectedPocket.volume)) {
+            pocketVolume = Math.round(selectedPocket.volume);
+          } else {
+            // Geometrical estimate based on pocket residues' coordinates (M-8)
+            const residueIndicesSet = new Set(selectedPocket.residueIndices);
+            const pAtoms = atoms.filter(a => residueIndicesSet.has(a.resSeq));
+            if (pAtoms.length > 0) {
+              let sumPX = 0, sumPY = 0, sumPZ = 0;
+              pAtoms.forEach(a => { sumPX += a.x; sumPY += a.y; sumPZ += a.z; });
+              const pcX = sumPX / pAtoms.length;
+              const pcY = sumPY / pAtoms.length;
+              const pcZ = sumPZ / pAtoms.length;
+              
+              const distances = pAtoms.map(a => Math.sqrt(Math.pow(a.x - pcX, 2) + Math.pow(a.y - pcY, 2) + Math.pow(a.z - pcZ, 2)));
+              const maxDist = Math.max(...distances, 4.0);
+              const sphereVolume = (4/3) * Math.PI * Math.pow(maxDist, 3);
+              const pocketResiduesCount = selectedPocket.residueIndices.length;
+              pocketVolume = Math.round(sphereVolume * (0.8 + (pocketResiduesCount / 100)));
+            } else {
+              pocketVolume = Math.round(selectedPocket.sasPoints * 1.5) || 150;
+            }
+          }
 
           const typesCount = pocketResidues.reduce((acc, curr) => {
             acc[curr.type] = (acc[curr.type] || 0) + 1;
             return acc;
           }, {} as Record<string, number>);
           likelyCofactor = determineLikelyCofactor(typesCount);
+
+          // Calculate distance to selected pocket centroid
+          const pAtoms = atoms.filter(a => selectedPocket.residueIndices.includes(a.resSeq));
+          if (pAtoms.length > 0) {
+            let sumPX = 0, sumPY = 0, sumPZ = 0;
+            pAtoms.forEach(a => { sumPX += a.x; sumPY += a.y; sumPZ += a.z; });
+            const pcX = sumPX / pAtoms.length;
+            const pcY = sumPY / pAtoms.length;
+            const pcZ = sumPZ / pAtoms.length;
+            pocketDistance = parseFloat(Math.sqrt(Math.pow(pcX - mutX, 2) + Math.pow(pcY - mutY, 2) + Math.pow(pcZ - mutZ, 2)).toFixed(2));
+          }
+
           p2rankSuccess = true;
         }
       }
@@ -440,6 +903,21 @@ export async function findBindingPocket(
       return acc;
     }, {} as Record<string, number>);
     likelyCofactor = determineLikelyCofactor(typesCount);
+
+    if (pocketResidues.length > 0) {
+      let sumPX = 0, sumPY = 0, sumPZ = 0;
+      let count = 0;
+      for (const r of pocketResidues) {
+        const resAtoms = atoms.filter(a => a.resSeq === r.index);
+        for (const a of resAtoms) {
+          sumPX += a.x; sumPY += a.y; sumPZ += a.z;
+          count++;
+        }
+      }
+      if (count > 0) {
+        pocketDistance = parseFloat(Math.sqrt(Math.pow(sumPX/count - mutX, 2) + Math.pow(sumPY/count - mutY, 2) + Math.pow(sumPZ/count - mutZ, 2)).toFixed(2));
+      }
+    }
   }
 
   return {
@@ -447,6 +925,7 @@ export async function findBindingPocket(
     pocketScore,
     pocketVolume,
     likelyCofactor,
+    pocketDistance,
     status: isFallback ? "fallback" : "success"
   };
 }

@@ -21,7 +21,7 @@ import {
 } from "recharts";
 import Markdown from "react-markdown";
 import { VARIANT_PRESETS, getNearestResidues } from "../data";
-import { AnalysisState, UserSettings } from "../types";
+import { AnalysisState, UserSettings, NearestResidue } from "../types";
 import { 
   AMINO_ACID_NAMES_MAP, 
   AMINO_ACID_PROPERTIES, 
@@ -47,6 +47,7 @@ interface ClinicalInsightsCardProps {
   classTextBody: string;
   classTextMute: string;
   classBorderSec: string;
+  computedResiduesCache?: Record<string, NearestResidue[]>;
 }
 
 export default function ClinicalInsightsCard({
@@ -68,6 +69,7 @@ export default function ClinicalInsightsCard({
   classTextBody,
   classTextMute,
   classBorderSec,
+  computedResiduesCache
 }: ClinicalInsightsCardProps) {
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
@@ -77,16 +79,21 @@ export default function ClinicalInsightsCard({
     <div className={`${classCard} overflow-hidden flex flex-col min-h-[400px] transition-all`} id="clinical-insights-report-card">
       {/* Card Header */}
       <div className={`px-5 py-4 border-b flex items-center justify-between transition-colors ${classCardHeader}`}>
-        <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-indigo-500" />
-          <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
-            Clinical Insights Report
-          </h3>
-          {analysisState.result && isPresetData && (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/25 text-indigo-400 border border-indigo-500/30">
-              Preset Profile
-            </span>
-          )}
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-indigo-500" />
+            <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
+              Clinical Insights Report
+            </h3>
+            {analysisState.result && analysisState.result.isDemoData && isPresetData && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/25 text-indigo-400 border border-indigo-500/30">
+                Preset Profile
+              </span>
+            )}
+          </div>
+          <span className={`text-[10px] italic mt-0.5 ${isDark ? "text-amber-400/80" : "text-amber-600"}`}>
+            AI narrative suggestions only; not a clinical determination.
+          </span>
         </div>
         
         {/* Copy Report button */}
@@ -115,6 +122,16 @@ export default function ClinicalInsightsCard({
         )}
       </div>
 
+      {analysisState.result?.isDemoData && (
+        <div className={`mx-4 mt-3 mb-1 p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed transition-all flex items-center gap-2 ${
+          isDark 
+            ? "bg-amber-500/10 border-amber-500/20 text-amber-300" 
+            : "bg-amber-50 border-amber-200 text-amber-700"
+        }`}>
+          <span>⚠ Demo data — example preset; not a live backend analysis</span>
+        </div>
+      )}
+
       {/* active metadata strip */}
       {analysisState.result && (
         <div className={`border-b px-5 py-2.5 flex flex-wrap gap-3 items-center justify-between text-xs transition-colors ${
@@ -142,9 +159,9 @@ export default function ClinicalInsightsCard({
       <div className="p-5 flex-1 flex flex-col justify-center">
         {analysisState.isLoading ? (
           /* Multi step loader inside insights card */
-          <div className="flex flex-col items-center justify-center py-12 text-center text-slate-505">
+          <div className="flex flex-col items-center justify-center py-12 text-center text-slate-500">
             <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className={`text-sm font-semibold font-mono mb-2 ${isDark ? "text-slate-200" : "text-slate-850"}`}>Calculating mutation pathogenicity...</p>
+            <p className={`text-sm font-semibold font-mono mb-2 ${isDark ? "text-slate-200" : "text-slate-800"}`}>Calculating mutation pathogenicity...</p>
             <p className={`text-xs max-w-xs font-mono h-5 ${isDark ? "text-indigo-400" : "text-indigo-600 animate-pulse"}`}>{loadingStep}</p>
           </div>
         ) : analysisState.error ? (
@@ -179,7 +196,7 @@ export default function ClinicalInsightsCard({
                 <div className={`pt-3 border-t ${classBorderSec}`}>
                   <div className="flex items-center gap-1.5 text-indigo-500 font-bold font-mono text-[10px] uppercase tracking-wider mb-1">
                     <Layers className="w-3.5 h-3.5" />
-                    <span>Structural Impact ($\Delta\Delta G$ Implications)</span>
+                    <span>Structural Impact (ΔΔG Implications)</span>
                   </div>
                   <p className={`text-[12px] leading-relaxed font-sans pl-5 transition-colors ${classTextBody}`}>
                     {formatEnergyString(analysisState.result.insights.structuralImpact)}
@@ -264,20 +281,20 @@ export default function ClinicalInsightsCard({
                                   <span className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: wtColor }} />
                                   <span className="truncate">Wild Type: {parsed.wt}</span>
                                 </div>
-                                <p className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-505"} truncate`}>
+                                <p className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"} truncate`}>
                                   {AMINO_ACID_NAMES_MAP[parsed.wt] || parsed.wt}
                                 </p>
                                 <div className={`pl-1.5 text-[9px] pt-1 border-t space-y-0.5 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
                                   <div className="flex justify-between">
-                                    <span className={isDark ? "text-slate-500" : "text-slate-505"}>Hydrophobicity:</span>
+                                    <span className={isDark ? "text-slate-500" : "text-slate-400"}>Hydrophobicity:</span>
                                     <span className={`font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>{wtData.hydrophobicity}%</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className={isDark ? "text-slate-505" : "text-slate-505"}>Charge Index:</span>
+                                    <span className={isDark ? "text-slate-500" : "text-slate-400"}>Charge Index:</span>
                                     <span className={`font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>{wtData.charge}%</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className={isDark ? "text-slate-550" : "text-slate-550"}>Side-chain Vol:</span>
+                                    <span className={isDark ? "text-slate-500" : "text-slate-400"}>Side-chain Vol:</span>
                                     <span className={`font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>{wtData.size}%</span>
                                   </div>
                                 </div>
@@ -289,20 +306,20 @@ export default function ClinicalInsightsCard({
                                   <span className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: mutColor }} />
                                   <span className="truncate">Mutant: {parsed.mut}</span>
                                 </div>
-                                <p className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-505"} truncate`}>
+                                <p className={`text-[9px] ${isDark ? "text-slate-400" : "text-slate-500"} truncate`}>
                                   {AMINO_ACID_NAMES_MAP[parsed.mut] || parsed.mut}
                                 </p>
                                 <div className={`pl-1.5 text-[9px] pt-1 border-t space-y-0.5 ${isDark ? "border-slate-800" : "border-slate-200"}`}>
                                   <div className="flex justify-between">
-                                    <span className={isDark ? "text-slate-505" : "text-slate-550"}>Hydrophobicity:</span>
+                                    <span className={isDark ? "text-slate-500" : "text-slate-400"}>Hydrophobicity:</span>
                                     <span className={`font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>{mutData.hydrophobicity}%</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className={isDark ? "text-slate-505" : "text-slate-550"}>Charge Index:</span>
+                                    <span className={isDark ? "text-slate-500" : "text-slate-400"}>Charge Index:</span>
                                     <span className={`font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>{mutData.charge}%</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className={isDark ? "text-slate-555" : "text-slate-555"}>Side-chain Vol:</span>
+                                    <span className={isDark ? "text-slate-500" : "text-slate-400"}>Side-chain Vol:</span>
                                     <span className={`font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>{mutData.size}%</span>
                                   </div>
                                 </div>
@@ -324,43 +341,68 @@ export default function ClinicalInsightsCard({
                 </div>
 
                 {/* Local Microenvironment (5 Nearest Neighboring Residues) */}
-                <div className={`pt-3 border-t ${classBorderSec}`}>
-                  <div className="flex items-center gap-1.5 text-indigo-500 font-bold font-mono text-[10px] uppercase tracking-wider mb-2">
-                    <Atom className="w-3.5 h-3.5" />
-                    <span>Local Microenvironment (5 Nearest Residues)</span>
-                  </div>
-                  <div className="space-y-2 pl-5">
-                    {getNearestResidues(uniprotId, variant, selectedResidueIndex).map((res, index) => (
-                      <div 
-                        key={index} 
-                        className={`rounded-lg p-2.5 transition-all border ${
-                          isDark 
-                            ? "bg-slate-950/40 border-slate-800 hover:border-slate-700" 
-                            : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className={`font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border transition-colors ${
-                            isDark ? "text-white bg-slate-800 border-slate-700/60" : "text-slate-800 bg-slate-100 border-slate-200"
-                          }`}>
-                            {res.name}
-                          </span>
-                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
-                            isDark ? "text-indigo-400 bg-indigo-500/5 border-indigo-500/10" : "text-indigo-600 bg-indigo-50 border-indigo-100/80"
-                          }`}>
-                            {res.distance}
-                          </span>
-                          <span className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${res.classBadge}`}>
-                            {res.properties}
-                          </span>
-                        </div>
-                        <p className={`text-[11px] leading-relaxed transition-colors ${classTextMute}`}>
-                          {res.role}
-                        </p>
+                {(() => {
+                  const presetResidues = getNearestResidues(uniprotId, variant, selectedResidueIndex);
+                  const cacheKey = `${uniprotId}_${selectedResidueIndex}`;
+                  const computedResidues = computedResiduesCache?.[cacheKey] || [];
+                  const nearestResidues = presetResidues.length > 0 ? presetResidues : computedResidues;
+
+                  return (
+                    <div className={`pt-3 border-t ${classBorderSec}`}>
+                      <div className="flex items-center gap-1.5 text-indigo-500 font-bold font-mono text-[10px] uppercase tracking-wider mb-2">
+                        <Atom className="w-3.5 h-3.5" />
+                        <span>Local Microenvironment (5 Nearest Residues)</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      {nearestResidues.length > 0 ? (
+                        <div className="space-y-2 pl-5">
+                          {nearestResidues.map((res, index) => (
+                            <div 
+                              key={index} 
+                              className={`rounded-lg p-2.5 transition-all border ${
+                                isDark 
+                                  ? "bg-slate-950/40 border-slate-800 hover:border-slate-700" 
+                                  : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className={`font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border transition-colors ${
+                                  isDark ? "text-white bg-slate-800 border-slate-700/60" : "text-slate-800 bg-slate-100 border-slate-200"
+                                }`}>
+                                  {res.name}
+                                </span>
+                                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                                  isDark ? "text-indigo-400 bg-indigo-500/5 border-indigo-500/10" : "text-indigo-600 bg-indigo-50 border-indigo-100/80"
+                                }`}>
+                                  {res.distance}
+                                </span>
+                                <span className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${res.classBadge}`}>
+                                  {res.properties}
+                                </span>
+                                {res.source === "curated" && (
+                                  <span className="text-[8px] font-mono uppercase bg-indigo-500/10 text-indigo-455 border border-indigo-500/20 px-1 rounded">
+                                    curated annotation
+                                  </span>
+                                )}
+                                {res.source === "computed" && (
+                                  <span className="text-[8px] font-mono uppercase bg-emerald-500/10 text-emerald-455 border border-emerald-500/20 px-1 rounded">
+                                    computed from coordinates
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-[11px] leading-relaxed transition-colors ${classTextMute}`}>
+                                {res.role}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={`pl-5 text-[11px] font-mono italic ${classTextMute}`}>
+                          Structural neighbors computed on live 3D analysis
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ACMG Criteria Badge list */}
                 {analysisState.result.insights.acmgCriteria && analysisState.result.insights.acmgCriteria.length > 0 && (
@@ -374,7 +416,9 @@ export default function ClinicalInsightsCard({
                             ? "bg-amber-500/15 text-amber-500 border border-amber-500/20" 
                             : "bg-purple-500/15 text-purple-400 border border-purple-500/20"
                         }`}>
-                          {settings.acmgWeighting === "conservative" ? "Conservative Weighting" : "Structural-Strict Weighting"}
+                          {settings.acmgWeighting === "conservative" 
+                            ? "Conservative Weighting (app-defined heuristic; not ACMG/AMP-sanctioned)" 
+                            : "Structural-Strict Weighting (app-defined heuristic; not ACMG/AMP-sanctioned)"}
                         </span>
                       )}
                     </div>
@@ -388,12 +432,17 @@ export default function ClinicalInsightsCard({
                               : "bg-rose-50/50 hover:bg-rose-100/55 border-rose-200"
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="bg-rose-600 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0">
-                              {item.code}
-                            </span>
-                            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isDark ? "text-rose-300" : "text-rose-700"}`}>
-                              Pathogenicity Evidence
+                          <div className="flex items-center justify-between gap-2 w-full">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-rose-600 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0">
+                                {item.code}
+                              </span>
+                              <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${isDark ? "text-rose-300" : "text-rose-700"}`}>
+                                Pathogenicity Evidence
+                              </span>
+                            </div>
+                            <span className="text-[8px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                              AI-Generated
                             </span>
                           </div>
                           <p className={`text-[11px] leading-relaxed ${isDark ? "text-slate-300" : "text-slate-700"}`}>
@@ -415,7 +464,7 @@ export default function ClinicalInsightsCard({
                     <div className="pl-5 space-y-3">
                       {analysisState.result.clinvar.uid ? (
                         <div className={`rounded-lg p-3 border transition-colors ${
-                          isDark ? "bg-slate-955 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+                          isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200 shadow-sm"
                         }`}>
                           {/* Grid of ClinVar metrics */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono mb-2">
@@ -424,7 +473,9 @@ export default function ClinicalInsightsCard({
                               <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold ${
                                 (() => {
                                   const c = analysisState.result.clinvar.classification.toLowerCase();
+                                  if (c.includes("likely pathogenic")) return "bg-orange-500/15 text-orange-450 border border-orange-500/20";
                                   if (c.includes("pathogenic")) return "bg-rose-500/15 text-rose-450 border border-rose-500/20";
+                                  if (c.includes("likely benign")) return "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
                                   if (c.includes("benign")) return "bg-emerald-500/15 text-emerald-450 border border-emerald-500/20";
                                   return "bg-amber-500/15 text-amber-450 border border-amber-500/20";
                                 })()
@@ -434,7 +485,7 @@ export default function ClinicalInsightsCard({
                             </div>
                             <div>
                               <span className="block text-[8px] uppercase text-slate-500 font-bold">Review Status</span>
-                              <span className={`block mt-1 text-[10px] font-semibold ${isDark ? "text-slate-350" : "text-slate-650"}`}>
+                              <span className={`block mt-1 text-[10px] font-semibold ${isDark ? "text-slate-400" : "text-slate-600"}`}>
                                 {analysisState.result.clinvar.reviewStatus || "Not specified"}
                               </span>
                             </div>
@@ -446,8 +497,8 @@ export default function ClinicalInsightsCard({
                             </div>
                             <div>
                               <span className="block text-[8px] uppercase text-slate-500 font-bold">Last Evaluated</span>
-                              <span className={`block mt-1 text-[10px] ${isDark ? "text-slate-400" : "text-slate-505"}`}>
-                                {analysisState.result.clinvar.lastEvaluated ? new Date(analysisState.result.clinvar.lastEvaluated).toLocaleDateString() : "Not specified"}
+                              <span className={`block mt-1 text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                                {analysisState.result.clinvar.lastEvaluated && !isNaN(new Date(analysisState.result.clinvar.lastEvaluated).getTime()) ? new Date(analysisState.result.clinvar.lastEvaluated).toLocaleDateString() : "Not specified"}
                               </span>
                             </div>
                           </div>
@@ -459,8 +510,13 @@ export default function ClinicalInsightsCard({
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                                 {analysisState.result.clinvar.alleleFrequencies.map((freq: any, fIdx: number) => (
                                   <div key={fIdx} className="flex justify-between items-center pr-2">
-                                    <span className="opacity-70 truncate max-w-[140px]">{freq.source.replace("The Genome Aggregation Database ", "")}:</span>
-                                    <span className="font-bold text-indigo-400">{parseFloat(freq.value).toExponential(3)}</span>
+                                    <span className="opacity-70 truncate max-w-[140px]">{/gnomad/i.test(freq.source) ? "gnomAD" : freq.source}:</span>
+                                    <span className="font-bold text-indigo-400">
+                                      {(() => {
+                                        const num = parseFloat(freq.value);
+                                        return isNaN(num) ? "N/A" : num.toExponential(3);
+                                      })()}
+                                    </span>
                                   </div>
                                 ))}
                               </div>
@@ -472,7 +528,7 @@ export default function ClinicalInsightsCard({
                             <a 
                               href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${analysisState.result.clinvar.uid}/`}
                               target="_blank"
-                              rel="noreferrer"
+                              rel="noopener noreferrer"
                               className="text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
                             >
                               NCBI ClinVar Link #{analysisState.result.clinvar.uid} <ExternalLink className="w-3 h-3" />
@@ -481,7 +537,7 @@ export default function ClinicalInsightsCard({
                         </div>
                       ) : (
                         <div className={`rounded-lg p-3 border text-center text-xs font-mono ${
-                          isDark ? "bg-slate-900/20 border-slate-800 text-slate-500" : "bg-slate-50 border-slate-200 text-slate-550"
+                          isDark ? "bg-slate-900/20 border-slate-800 text-slate-500" : "bg-slate-50 border-slate-200 text-slate-600"
                         }`}>
                           No matching variant found in NCBI ClinVar database.
                         </div>
@@ -489,6 +545,15 @@ export default function ClinicalInsightsCard({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {!analysisState.result.insights && (
+              <div className={`p-3 rounded-lg border text-xs leading-relaxed ${
+                isDark ? "bg-amber-950/20 border-amber-900/30 text-amber-300" : "bg-amber-50 border-amber-100 text-amber-800"
+              }`}>
+                <span className="font-bold block uppercase text-[10px] mb-1 tracking-wider text-amber-500">Structured Report Unavailable</span>
+                The AI-generated structured analysis (biochemical shifts, structural impacts, and ACMG criteria classification) could not be parsed or generated. Only the raw clinical narrative is available.
               </div>
             )}
 
@@ -521,7 +586,7 @@ export default function ClinicalInsightsCard({
 
       {/* Card Footer informative links */}
       <div className={`px-5 py-3 border-t text-[11px] flex items-center justify-between transition-colors ${
-        isDark ? "border-slate-800 bg-[#1e293b]/50 text-slate-400" : "border-slate-200 bg-slate-50/50 text-slate-505"
+        isDark ? "border-slate-800 bg-[#1e293b]/50 text-slate-400" : "border-slate-200 bg-slate-50/50 text-slate-500"
       }`}>
         <span className="flex items-center gap-1.5">
           <Database className="w-3.5 h-3.5 text-indigo-500" />
@@ -532,7 +597,7 @@ export default function ClinicalInsightsCard({
         <a 
           href={`https://www.uniprot.org/uniprotkb/${uniprotId}`} 
           target="_blank" 
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5 font-semibold"
         >
           UniProt Portal <ExternalLink className="w-3 h-3" />

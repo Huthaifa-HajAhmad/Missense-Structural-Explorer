@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   Sliders, 
   Activity, 
@@ -27,6 +27,84 @@ export default function SettingsModal() {
 
   const [activeTab, setActiveTab] = useState<TabId>("viewport");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [isLinking, setIsLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsSettingsOpen(false);
+        return;
+      }
+
+      if (e.key === "Tab" && modalRef.current) {
+        const focusableElements = modalRef.current.querySelectorAll(
+          'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, object, embed, [tabindex="0"], [contenteditable]'
+        );
+        if (focusableElements.length === 0) return;
+        const firstElement = focusableElements[0] as HTMLElement;
+        const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            lastElement.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            firstElement.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    // Focus first button (or tab) on open
+    setTimeout(() => {
+      if (modalRef.current) {
+        const firstButton = modalRef.current.querySelector("button");
+        if (firstButton) firstButton.focus();
+      }
+    }, 50);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSettingsOpen, setIsSettingsOpen]);
+
+  const handleLinkApiKey = async () => {
+    if (!settings.geminiApiKey) return;
+    setIsLinking(true);
+    setLinkError(null);
+    try {
+      const response = await fetch("/api/v1/session/keys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ apiKey: settings.geminiApiKey }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || "Failed to link API key.");
+      }
+      const data = await response.json();
+      if (data.sessionId) {
+        updateSetting("geminiSessionId", data.sessionId);
+        updateSetting("geminiSessionExpiresAt", data.expiresAt || (Date.now() + 3600000));
+      } else {
+        throw new Error("No session ID returned from server.");
+      }
+    } catch (err: any) {
+      setLinkError(err.message || "An unexpected error occurred.");
+    } finally {
+      setIsLinking(false);
+    }
+  };
 
   const tabs = [
     { id: "viewport", label: "Viewport", icon: Sliders },
@@ -52,6 +130,10 @@ export default function SettingsModal() {
           {/* Centered Modal Container */}
           <div className="fixed inset-0 flex items-center justify-center p-4 z-50 pointer-events-none">
             <motion.div
+              ref={modalRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="settings-title"
               initial={{ scale: 0.95, opacity: 0, y: 15 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 15 }}
@@ -59,7 +141,7 @@ export default function SettingsModal() {
               className={`w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border pointer-events-auto flex flex-col transition-colors ${
                 isDark 
                   ? "bg-[#0f172a] border-slate-800 text-slate-100" 
-                  : "bg-white border-slate-200 text-slate-850"
+                  : "bg-white border-slate-200 text-slate-800"
               }`}
             >
               {/* Header */}
@@ -67,11 +149,11 @@ export default function SettingsModal() {
                 isDark ? "border-slate-800/60" : "border-slate-100"
               }`}>
                 <div>
-                  <h2 className="text-base font-bold tracking-tight flex items-center gap-2">
+                  <h2 id="settings-title" className="text-base font-bold tracking-tight flex items-center gap-2">
                     <Sliders className="w-5 h-5 text-indigo-500" />
                     System Configuration
                   </h2>
-                  <p className={`text-xs mt-0.5 ${isDark ? "text-slate-400" : "text-slate-550"}`}>
+                  <p className={`text-xs mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                     Personalize 3D graphics, biophysical weights, and API keys.
                   </p>
                 </div>
@@ -143,7 +225,7 @@ export default function SettingsModal() {
                                     ? "border-indigo-550 ring-2 ring-indigo-550/20 font-bold"
                                     : isDark
                                       ? "border-slate-800 bg-slate-900/55 hover:bg-slate-800/80 text-slate-400"
-                                      : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-655"
+                                      : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600"
                                 }`}
                                 title={color.name}
                               >
@@ -175,7 +257,7 @@ export default function SettingsModal() {
                                     ? "border-indigo-550 ring-2 ring-indigo-550/20 font-bold"
                                     : isDark
                                       ? "border-slate-800 bg-slate-900/55 hover:bg-slate-800/80 text-slate-400"
-                                      : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-655"
+                                      : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600"
                                 }`}
                                 title={color.name}
                               >
@@ -209,7 +291,7 @@ export default function SettingsModal() {
                                 ? "border-indigo-550 ring-2 ring-indigo-550/20 font-bold bg-indigo-500/5"
                                 : isDark
                                   ? "border-slate-800 bg-slate-900/55 hover:bg-slate-800/80 text-slate-400"
-                                  : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-655"
+                                  : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600"
                             }`}
                             title={accent.name}
                           >
@@ -292,7 +374,7 @@ export default function SettingsModal() {
                             : "bg-white border-slate-200 text-slate-850 focus:border-indigo-400"
                         }`}
                       >
-                        <option value="standard">Standard (Default Clinician rules)</option>
+                        <option value="standard">Standard (app default)</option>
                         <option value="conservative">Conservative (Downgrade speculative criteria)</option>
                         <option value="strict-structural">Strict-Structural (Strong weight to PM1/PS3 hotspots)</option>
                       </select>
@@ -316,7 +398,7 @@ export default function SettingsModal() {
                                   ? "bg-indigo-600/35 text-indigo-300 border-indigo-500 ring-1 ring-indigo-500/30 font-bold"
                                   : "bg-indigo-50 text-indigo-700 border-indigo-400 font-bold"
                                 : isDark
-                                  ? "bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-850"
+                                  ? "bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800"
                                   : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                             }`}
                           >
@@ -339,7 +421,7 @@ export default function SettingsModal() {
                         className={`w-full p-2 rounded-lg border text-xs focus:ring-indigo-500/30 focus:ring-2 cursor-pointer transition-colors ${
                           isDark 
                             ? "bg-slate-900 border-slate-800 text-slate-200 focus:border-slate-700" 
-                            : "bg-white border-slate-200 text-slate-850 focus:border-indigo-400"
+                            : "bg-white border-slate-200 text-slate-800 focus:border-indigo-400"
                         }`}
                       >
                         <option value="chemical">Chemical Properties (Polar, Acidic, Basic, Aliphatic)</option>
@@ -357,7 +439,7 @@ export default function SettingsModal() {
                         className={`w-full p-2 rounded-lg border text-xs focus:ring-indigo-500/30 focus:ring-2 cursor-pointer transition-colors ${
                           isDark 
                             ? "bg-slate-900 border-slate-800 text-slate-200 focus:border-slate-700" 
-                            : "bg-white border-slate-200 text-slate-850 focus:border-indigo-400"
+                            : "bg-white border-slate-200 text-slate-800 focus:border-indigo-400"
                         }`}
                       >
                         <option value={15}>15 residues viewport</option>
@@ -389,6 +471,22 @@ export default function SettingsModal() {
                       />
                     </label>
 
+                    {/* Save History Toggle */}
+                    <label className="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/40 transition cursor-pointer select-none">
+                      <div className="flex-1 pr-4">
+                        <span className="font-semibold block text-xs">Save Variant Search History</span>
+                        <span className={`text-[10px] block leading-normal ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                          Enable to save variant queries locally for autocomplete and history (Opt-in, stored as obfuscated PHI-at-rest).
+                        </span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={settings.saveHistory || false}
+                        onChange={(e) => updateSetting("saveHistory", e.target.checked)}
+                        className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-500 focus:ring-1 cursor-pointer accent-indigo-500"
+                      />
+                    </label>
+
                     {/* History Limit */}
                     <div className="space-y-1.5 pt-1.5">
                       <label className="font-semibold block">Max Presets History Cache Limit</label>
@@ -398,7 +496,7 @@ export default function SettingsModal() {
                         className={`w-full p-2 rounded-lg border text-xs focus:ring-indigo-500/30 focus:ring-2 cursor-pointer transition-colors ${
                           isDark 
                             ? "bg-slate-900 border-slate-800 text-slate-200 focus:border-slate-700" 
-                            : "bg-white border-slate-200 text-slate-850 focus:border-indigo-400"
+                            : "bg-white border-slate-200 text-slate-800 focus:border-indigo-400"
                         }`}
                       >
                         <option value={5}>5 variants (Minimal)</option>
@@ -418,26 +516,61 @@ export default function SettingsModal() {
                     {/* Gemini API Key input */}
                     <div className="space-y-1.5">
                       <label className="font-semibold block">Google Gemini API Key</label>
-                      <div className="relative">
-                        <input
-                          type={showApiKey ? "text" : "password"}
-                          placeholder={settings.geminiApiKey ? "••••••••••••••••••••••••••••••••" : "Enter GEMINI_API_KEY..."}
-                          value={settings.geminiApiKey || ""}
-                          onChange={(e) => updateSetting("geminiApiKey", e.target.value.trim())}
-                          className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
-                            isDark 
-                              ? "bg-slate-900 border-slate-800 text-indigo-300 placeholder-slate-650 focus:border-slate-700" 
-                              : "bg-slate-50 border-slate-200 text-indigo-705 placeholder-slate-400 focus:border-indigo-400"
-                          }`}
-                        />
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type={showApiKey ? "text" : "password"}
+                            placeholder={settings.geminiApiKey ? "••••••••••••••••••••••••••••••••" : "Enter GEMINI_API_KEY..."}
+                            value={settings.geminiApiKey || ""}
+                            onChange={(e) => {
+                              updateSetting("geminiApiKey", e.target.value.trim());
+                              setLinkError(null);
+                            }}
+                            className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
+                              isDark 
+                                ? "bg-slate-900 border-slate-800 text-indigo-300 placeholder-slate-500 focus:border-slate-700" 
+                                : "bg-slate-50 border-slate-200 text-indigo-705 placeholder-slate-400 focus:border-indigo-400"
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-450 cursor-pointer"
+                          >
+                            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setShowApiKey(!showApiKey)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-450 cursor-pointer"
+                          disabled={!settings.geminiApiKey || isLinking}
+                          onClick={handleLinkApiKey}
+                          className={`px-4 py-2 font-sans font-bold text-xs rounded-lg transition-colors cursor-pointer border ${
+                            settings.geminiApiKey && !isLinking
+                              ? "bg-indigo-600 text-white hover:bg-indigo-550 border-indigo-650"
+                              : isDark
+                                ? "bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed"
+                                : "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                          }`}
                         >
-                          {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {isLinking ? "Linking..." : "Link API Key"}
                         </button>
                       </div>
+                      {settings.geminiSessionId && settings.geminiSessionExpiresAt ? (
+                        Date.now() < settings.geminiSessionExpiresAt ? (
+                          <p className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1 font-medium mt-1">
+                            ✓ Session active. Valid for {Math.max(1, Math.round((settings.geminiSessionExpiresAt - Date.now()) / 60000))} minutes.
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-rose-500 dark:text-rose-400 flex items-center gap-1 font-medium mt-1">
+                            ⚠ Session expired. Please link again.
+                          </p>
+                        )
+                      ) : null}
+                      {linkError && (
+                        <p className="text-[10px] text-rose-500 dark:text-rose-400 font-medium mt-1">
+                          ⚠ {linkError}
+                        </p>
+                      )}
                     </div>
 
                     {/* Directions block */}
@@ -464,7 +597,7 @@ export default function SettingsModal() {
                           Click **"Create API Key"**, choose a project, and copy your generated key.
                         </li>
                         <li>
-                          Paste the key in the input box above. It is stored securely in your browser's local storage and used directly for real-time biophysical interpretation.
+                          Paste the key in the input box above and click **"Link API Key"**. Your key is exchanged for a short-lived (1-hour) session token on the server. Your raw API key is never saved to disk.
                         </li>
                       </ol>
                     </div>
