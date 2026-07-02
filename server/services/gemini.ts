@@ -188,7 +188,7 @@ Explain how this substitution disrupts the structural integrity of the protein:
 Provide specific molecular hypotheses based on peptide chain coordinates.
 
 ### 🏥 Clinical and Pathogenicity Interpretation
-Synthesize an assessment of pathogenicity risk supported by the ClinVar evidence provided above and biological mechanisms. Explain any associated clinical syndromes.
+Synthesize the evidence to discuss the plausibility of pathogenicity (e.g., explaining why the variant might be plausibly pathogenic or benign based on ClinVar, in silico predictors, and biological mechanisms). Discuss any associated clinical syndromes. DO NOT assign a final diagnostic classification label.
 
 ### 🔬 Recommended 3D Visualization Landmarks
 Suggest 2-3 specific features for the clinical investigator to look for in the 3D Mol* viewport:
@@ -212,8 +212,13 @@ For the structured report fields, provide compact, precise, and expert descripti
     }
     try {
       console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName}`);
-      const response = await withTimeout(
-        client.models.generateContent({
+      const attemptController = new AbortController();
+      const signal = timeoutSignal 
+        ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
+        : attemptController.signal;
+
+      const response = await withTimeout<any>(
+        (client.models.generateContent as any)({
           model: modelName,
           contents: prompt,
           config: {
@@ -225,17 +230,9 @@ For the structured report fields, provide compact, precise, and expert descripti
                   type: Type.STRING,
                   description: "Highly detailed clinical and biophysical analysis of this mutation under the specified markdown headers. Must be formatted in markdown."
                 },
-                biochemicalShift: {
+                plausibility: {
                   type: Type.STRING,
-                  description: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
-                },
-                structuralImpact: {
-                  type: Type.STRING,
-                  description: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
-                },
-                pathogenicity: {
-                  type: Type.STRING,
-                  description: "Predicted pathogenicity class (must be exactly one of: Pathogenic, Likely Pathogenic, VUS, Likely Benign, Benign)"
+                  description: "Clinical plausibility statement explaining why the variant might be plausibly pathogenic or benign based on gathered evidence. E.g., 'Plausibly pathogenic because of [reasons]'"
                 },
                 acmgCriteria: {
                   type: Type.ARRAY,
@@ -249,13 +246,18 @@ For the structured report fields, provide compact, precise, and expert descripti
                   }
                 }
               },
-              required: ["analysis", "biochemicalShift", "structuralImpact", "pathogenicity", "acmgCriteria"]
+              required: ["analysis", "plausibility", "acmgCriteria"]
             }
           }
+        }, {
+          signal
         }),
         35000,
         "Google GenAI SDK request timed out"
-      );
+      ).catch(err => {
+        attemptController.abort();
+        throw err;
+      });
       fullText = response.text || "";
       if (fullText) {
         console.log(`[Gemini Analysis] Successfully generated response using model: ${modelName}`);
@@ -333,17 +335,12 @@ For the structured report fields, provide compact, precise, and expert descripti
     };
   }
 
-  // Allow-list-validate pathogenicity and ACMG codes
-  const allowedPathogenicity = ["Pathogenic", "Likely Pathogenic", "VUS", "Likely Benign", "Benign"];
+  // Validate ACMG codes
   const validAcmgCodes = new Set([
     "PVS1", "PS1", "PS2", "PS3", "PS4", "PM1", "PM2", "PM3", "PM4", "PM5", "PM6",
     "PP1", "PP2", "PP3", "PP4", "PP5", "BA1", "BS1", "BS2", "BS3", "BS4",
     "BP1", "BP2", "BP3", "BP4", "BP5", "BP6", "BP7"
   ]);
-
-  let pathogenicity = parsed.pathogenicity || "VUS";
-  const matchedPatho = allowedPathogenicity.find(p => p.toLowerCase() === pathogenicity.toLowerCase());
-  pathogenicity = matchedPatho || "VUS";
 
   const rawAcmgCriteria = parsed.acmgCriteria || [];
   const acmgCriteria: { code: string; reason: string }[] = [];
@@ -359,10 +356,97 @@ For the structured report fields, provide compact, precise, and expert descripti
   return {
     analysis: parsed.analysis || "",
     insights: {
-      biochemicalShift: parsed.biochemicalShift || "",
-      structuralImpact: parsed.structuralImpact || "",
-      pathogenicity,
+      biochemicalShift: "",
+      structuralImpact: "",
+      pathogenicity: "(Clinician Assigned)",
+      plausibility: parsed.plausibility || "",
       acmgCriteria
     }
   };
+}
+
+export async function performGeminiBiophysicalAnalysis(
+  gene: string,
+  variant: string,
+  uniprotId: string,
+  residueIndex: string,
+  wildType: string,
+  mutant: string,
+  customApiKey: string | undefined,
+  timeoutSignal: AbortSignal
+) {
+  const client = getGeminiClient(customApiKey);
+
+  const prompt = `You are an expert computational structural biologist.
+Analyze the following missense variant from a biophysical and biochemical perspective:
+- Gene Symbol: ${gene}
+- Amino Acid Mutation: ${variant}
+- UniProt Accession ID: ${uniprotId}
+${residueIndex ? `- Position of Mutation: Residue #${residueIndex} (Wild-Type: ${wildType}, Mutant: ${mutant})` : ""}
+
+Generate a JSON object with:
+- biochemicalShift: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
+- structuralImpact: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
+`;
+
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+  const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
+  const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
+
+  let lastError: any = null;
+
+  for (const modelName of modelsToTry) {
+    if (timeoutSignal?.aborted) {
+      throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+    }
+    try {
+      console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName}`);
+      const attemptController = new AbortController();
+      const signal = timeoutSignal 
+        ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
+        : attemptController.signal;
+
+      const response = await withTimeout<any>(
+        (client.models.generateContent as any)({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                biochemicalShift: {
+                  type: Type.STRING,
+                  description: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
+                },
+                structuralImpact: {
+                  type: Type.STRING,
+                  description: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
+                }
+              },
+              required: ["biochemicalShift", "structuralImpact"]
+            }
+          }
+        }),
+        30000,
+        "Gemini request timed out"
+      ).catch(err => {
+        attemptController.abort();
+        throw err;
+      });
+
+      if (!response?.text) {
+        throw new Error("Empty response returned from Gemini API");
+      }
+
+      const parsed = JSON.parse(response.text.trim());
+      return parsed;
+
+    } catch (err: any) {
+      console.warn(`[Gemini Biophysical Analysis] Model ${modelName} failed:`, err);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error("Failed to analyze variant biophysical properties with Gemini API");
 }

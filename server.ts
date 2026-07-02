@@ -8,10 +8,14 @@ import { createServer as createViteServer } from "vite";
 
 import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
+import { runTempJobsJanitor } from "./server/utils.ts";
 
 dotenv.config();
 
 async function startServer() {
+  // Start the background temp_jobs janitor (M-8)
+  runTempJobsJanitor();
+
   const app = express();
   const PORT = 3000;
 

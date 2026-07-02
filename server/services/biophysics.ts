@@ -6,10 +6,22 @@ import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3 } from "../../src/aminoAcids.ts";
 import { validateUniProt, Semaphore } from "../utils.ts";
-import { fetchUniprotSequence, fetchDynaMut2Prediction } from "./external.ts";
 
-const mutantCache = new LRUCache<string, any>({ max: 100 });
-const pocketCache = new LRUCache<string, any>({ max: 100 });
+
+const mutantCache = new LRUCache<string, any>({
+  max: 100,
+  maxSize: 100 * 1024 * 1024, // 100MB limit (M-6)
+  sizeCalculation: (value) => (value && typeof value.pdb === "string" ? value.pdb.length : 1000)
+});
+
+const pocketCache = new LRUCache<string, any>({
+  max: 100,
+  maxSize: 50 * 1024 * 1024, // 50MB limit (M-6)
+  sizeCalculation: (value) => {
+    const str = JSON.stringify(value);
+    return str ? str.length : 1000;
+  }
+});
 
 export interface PdbResidue {
   resSeq: number;
@@ -25,7 +37,7 @@ export function parseResiduesFromPdb(pdbText: string): PdbResidue[] {
   const residuesMap = new Map<string, PdbResidue>();
   const lines = pdbText.split(/\r?\n/);
   for (const line of lines) {
-    if (line.startsWith("ATOM  ")) {
+    if (line.startsWith("ATOM")) {
       const altLoc = line.charAt(16);
       if (altLoc === " " || altLoc === "" || altLoc === "A") {
         const atomName = line.slice(12, 16).trim();
@@ -83,7 +95,7 @@ export async function parseResiduesFromPdbAsync(pdbText: string): Promise<PdbRes
     const end = Math.min(i + chunkSize, lines.length);
     for (let j = i; j < end; j++) {
       const line = lines[j];
-      if (line.startsWith("ATOM  ")) {
+      if (line.startsWith("ATOM")) {
         const altLoc = line.charAt(16);
         if (altLoc === " " || altLoc === "" || altLoc === "A") {
           const atomName = line.slice(12, 16).trim();
@@ -155,7 +167,7 @@ export function parseAtomsFromPdb(pdbText: string): PdbAtom[] {
   const lines = pdbText.split(/\r?\n/);
   const atoms: PdbAtom[] = [];
   for (const line of lines) {
-    if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
+    if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
       const altLoc = line.charAt(16);
       if (altLoc === " " || altLoc === "" || altLoc === "A") {
         const atomName = line.slice(12, 16).trim();
@@ -187,7 +199,7 @@ export async function parseAtomsFromPdbAsync(pdbText: string): Promise<PdbAtom[]
     const end = Math.min(i + chunkSize, lines.length);
     for (let j = i; j < end; j++) {
       const line = lines[j];
-      if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
+      if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
         const altLoc = line.charAt(16);
         if (altLoc === " " || altLoc === "" || altLoc === "A") {
           const atomName = line.slice(12, 16).trim();
@@ -444,7 +456,7 @@ export async function generateMutantPdb(
   validatedMutation: string,
   uniprotId: string | undefined,
   jobDir: string
-): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; energetics?: any }> {
+): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const pdbHash = crypto.createHash("sha256").update(wtPdb).digest("hex");
   const cacheKey = `${pdbHash}_${validatedMutation}`;
   const cached = mutantCache.get(cacheKey);
@@ -464,7 +476,7 @@ async function generateMutantPdbInternal(
   validatedMutation: string,
   uniprotId: string | undefined,
   jobDir: string
-): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; energetics?: any }> {
+): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const fullWtPath = path.join(jobDir, "wt.pdb");
   const fullMutPath = path.join(jobDir, "individual_list.txt");
 
@@ -480,20 +492,32 @@ async function generateMutantPdbInternal(
   const chain = mutMatch[2].toUpperCase();
   const pos = parseInt(mutMatch[3], 10);
   const mut1 = mutMatch[4].toUpperCase();
-  const mutLine = `${wt1}${chain}${pos}${mut1};\n`;
 
-  await fs.promises.writeFile(fullMutPath, mutLine, "utf8");
-
-  // 3. Validate pos exists in WT PDB structure
+  // 3. Validate pos exists in WT PDB structure and resolve correct chain
   const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
-  const targetRes = pdbResidues.find(r => r.resSeq === pos && (chain === "" || r.chain === chain));
+  let targetRes = pdbResidues.find(r => r.resSeq === pos && (chain === "" || r.chain === chain));
+  let resolvedChain = chain;
+
   if (!targetRes) {
-    throw new Error(`Target residue position ${pos} on chain ${chain || "any"} is not found in the PDB structure.`);
+    // Fallback: look for the residue position on any chain in the PDB structure
+    const fallbackRes = pdbResidues.find(r => r.resSeq === pos);
+    if (fallbackRes) {
+      console.log(`[Biophysical Modeling] Target residue position ${pos} not found on requested chain ${chain || "any"}, but found on chain ${fallbackRes.chain}. Automatically resolving chain to ${fallbackRes.chain}.`);
+      targetRes = fallbackRes;
+      resolvedChain = fallbackRes.chain;
+    } else {
+      throw new Error(`Target residue position ${pos} on chain ${chain || "any"} is not found in the PDB structure.`);
+    }
   }
+
   const expectedWt3 = AMINO_ACID_1_TO_3[wt1];
   if (expectedWt3 && targetRes.resName3 !== expectedWt3) {
     throw new Error(`Mutation mismatch: expected wild-type residue at position ${pos} is ${wt1} (${expectedWt3}), but PDB structure contains ${targetRes.resName3}.`);
   }
+
+  // Construct mutation list using resolved chain
+  const mutLine = `${wt1}${resolvedChain}${pos}${mut1};\n`;
+  await fs.promises.writeFile(fullMutPath, mutLine, "utf8");
 
   let foldxBin = process.env.FOLDX_BINARY || "foldx";
   let foldxDir = "";
@@ -568,35 +592,24 @@ async function generateMutantPdbInternal(
   }
 
   if (foldxSuccess && mutantPdbContent) {
+    // Inject B-factors from wild-type template structure to keep pLDDT confidence coloring consistent
+    try {
+      mutantPdbContent = injectBFactorsFromWtPdb(wtPdb, mutantPdbContent);
+      console.log(`[Biophysical Modeling] Successfully injected B-factors (pLDDT confidence) from template structure into FoldX mutant PDB.`);
+    } catch (injectErr: any) {
+      console.error(`[Biophysical Modeling] Failed to inject B-factors:`, injectErr.message);
+    }
+
     // Note: DynaMut2 consensus energetics are computed by the caller (routes.ts)
     // AFTER the biophysicalSemaphore is released, to avoid holding the slot during
     // the DynaMut2 polling period (~20 s max).
-    return { pdb: mutantPdbContent, ddG, status, foldedResidueIndex: pos };
+    return { pdb: mutantPdbContent, ddG, status, foldedResidueIndex: pos, resolvedChain };
   } else {
     throw new Error("Biophysical modeling engine unavailable (FoldX is not installed or failed to execute in this environment).");
   }
 }
 
-/**
- * Computes a consensus energetics object by querying DynaMut2 alongside the
- * FoldX ΔΔG. Called by routes.ts AFTER the biophysicalSemaphore is released
- * so that DynaMut2 polling (~20 s max) does not block concurrent FoldX jobs.
- */
-export async function calculateConsensusEnergetics(
-  foldxDdg: number | null,
-  wtRes: string,
-  mutRes: string,
-  pos: number,
-  pdbText: string
-) {
-  const dynamut2 = await fetchDynaMut2Prediction(pdbText, "A", pos, wtRes, mutRes);
-  return {
-    foldx: foldxDdg,
-    dynamut2,
-    ddgun: null,
-    maestro: null
-  };
-}
+
 
 
 export async function findBindingPocket(
@@ -627,6 +640,7 @@ async function findBindingPocketInternal(
   const fullOutDir = path.join(jobDir, "out");
 
   // Write PDB to job folder
+  await fs.promises.mkdir(jobDir, { recursive: true });
   await fs.promises.writeFile(fullPdbPath, pdbText, "utf8");
   await fs.promises.mkdir(fullOutDir, { recursive: true });
 
@@ -644,7 +658,8 @@ async function findBindingPocketInternal(
   const pdbResidues = await parseResiduesFromPdbMaybeAsync(pdbText);
   const hasResidue = pdbResidues.some(r => r.resSeq === mutIndex);
   if (!hasResidue) {
-    throw new Error(`Target residue position ${mutIndex} is not found in the PDB structure.`);
+    console.warn(`[Pocket Finder] Target residue position ${mutIndex} is not found in the PDB structure. Returning fallback.`);
+    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback", pocketDistance: null };
   }
 
   const mutAtoms = atoms.filter(a => a.resSeq === mutIndex);
@@ -660,7 +675,8 @@ async function findBindingPocketInternal(
     mutY /= mutAtoms.length;
     mutZ /= mutAtoms.length;
   } else {
-    throw new Error(`Coordinates for target residue position ${mutIndex} could not be extracted.`);
+    console.warn(`[Pocket Finder] Coordinates for target residue position ${mutIndex} could not be extracted. Returning fallback.`);
+    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback", pocketDistance: null };
   }
 
   let p2rankSuccess = false;
@@ -674,18 +690,46 @@ async function findBindingPocketInternal(
   try {
     console.log(`[Pocket Finder ML] Probing P2Rank CLI tool on temporary PDB structure...`);
     let p2rankCmd = "p2rank";
-    let execArgs = ["predict", "-f", "wt.pdb", "-o", "out"];
+    const localP2rankDir = path.join(process.cwd(), "tools", "p2rank");
+    if (fs.existsSync(localP2rankDir)) {
+      const files = fs.readdirSync(localP2rankDir);
+      let foundCmd = "";
+      for (const f of files) {
+        const subPath = path.join(localP2rankDir, f);
+        if (fs.statSync(subPath).isDirectory()) {
+          const batFile = path.join(subPath, "prank.bat");
+          const shFile = path.join(subPath, "prank");
+          if (process.platform === "win32" && fs.existsSync(batFile)) {
+            foundCmd = batFile;
+            break;
+          } else if (fs.existsSync(shFile)) {
+            foundCmd = shFile;
+            break;
+          }
+        }
+      }
+      if (foundCmd) {
+        p2rankCmd = foundCmd;
+        console.log(`[Pocket Finder ML] Auto-detected local P2Rank binary: ${p2rankCmd}`);
+      }
+    }
+
+    let execArgs = ["predict", "-f", path.resolve(fullPdbPath), "-o", path.resolve(fullOutDir)];
+    let options: any = { timeout: 25000, cwd: jobDir };
+    if (p2rankCmd.endsWith(".bat") || p2rankCmd.endsWith(".cmd")) {
+      options.shell = true;
+    }
     
     let stdout = "";
     try {
-      const runRes = await execFileAsync(p2rankCmd, execArgs, { timeout: 25000, cwd: jobDir });
-      stdout = runRes.stdout;
+      const runRes = await execFileAsync(p2rankCmd, execArgs, options);
+      stdout = typeof runRes.stdout === "string" ? runRes.stdout : (runRes.stdout as any).toString("utf8");
     } catch (execErr: any) {
-      if (execErr.code === "ENOENT") {
+      if (execErr.code === "ENOENT" && p2rankCmd === "p2rank") {
         console.log(`[Pocket Finder ML] 'p2rank' command not recognized. Trying 'prank' as fallback...`);
         p2rankCmd = "prank";
-        const runRes = await execFileAsync(p2rankCmd, execArgs, { timeout: 25000, cwd: jobDir });
-        stdout = runRes.stdout;
+        const runRes = await execFileAsync(p2rankCmd, execArgs, options);
+        stdout = typeof runRes.stdout === "string" ? runRes.stdout : (runRes.stdout as any).toString("utf8");
       } else {
         throw execErr;
       }
@@ -702,6 +746,8 @@ async function findBindingPocketInternal(
       if (csvLines.length > 1) {
         const headerCols = csvLines[0].split(",").map(c => c.trim().toLowerCase());
         const volColIdx = headerCols.findIndex(h => h === "volume" || h === "sas_volume" || h === "volume_sas");
+        const resColIdx = headerCols.findIndex(h => h === "residue_ids" || h === "residues" || h.includes("residue"));
+        const finalResColIdx = resColIdx !== -1 ? resColIdx : 9;
 
         const pockets: any[] = [];
         for (let i = 1; i < csvLines.length; i++) {
@@ -711,7 +757,7 @@ async function findBindingPocketInternal(
             const score = parseFloat(cols[2]);
             const probability = parseFloat(cols[3]);
             const sasPoints = parseInt(cols[4], 10);
-            const centerRes = cols[6]; // residue indices list e.g., "A_12 A_13"
+            const centerRes = cols[finalResColIdx]; // residue indices list e.g., "A_12 A_13"
             
             // Extract numeric sequence index by splitting chain prefix (e.g. A_12 -> 12)
             const residueIndices = centerRes.split(/\s+/).map(x => {
@@ -851,73 +897,8 @@ async function findBindingPocketInternal(
     console.warn(`[Pocket Finder ML] P2Rank execution failed or not installed. Falling back to heuristic. Error:`, p2rankErr.message);
   }
 
-  // Heuristic Fallback
   if (!p2rankSuccess) {
-    isFallback = true;
-    console.log(`[Pocket Finder Fallback] Running custom distance-based density heuristic...`);
-    const residueMap: Record<number, { resSeq: number; resName: string; minDist: number }> = {};
-    
-    for (let i = 0; i < atoms.length; i++) {
-      const a = atoms[i];
-      if (a.resSeq === mutIndex) continue;
-      
-      const dx = a.x - mutX;
-      const dy = a.y - mutY;
-      const dz = a.z - mutZ;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      
-      if (dist < 10.0) { // 10 Angstrom threshold (S-2)
-        if (!residueMap[a.resSeq] || dist < residueMap[a.resSeq].minDist) {
-          residueMap[a.resSeq] = { resSeq: a.resSeq, resName: a.resName, minDist: dist };
-        }
-      }
-    }
-
-    const propensities = getAaPropensities();
-    const candidates = Object.values(residueMap).map(r => {
-      const prop = propensities[r.resName] || { weight: 1.0, role: "Backbone structural spacer", type: "Aliphatic" };
-      return {
-        index: r.resSeq,
-        name: r.resName,
-        distance: parseFloat(r.minDist.toFixed(2)),
-        score: prop.weight,
-        role: prop.role,
-        type: prop.type
-      };
-    });
-
-    candidates.sort((a, b) => a.distance - b.distance);
-    pocketResidues = candidates.slice(0, 7);
-
-    let totalScore = pocketResidues.reduce((sum, r) => sum + r.score, 0);
-    const normalizedPocketScore = Math.min(98, Math.round((totalScore / 185) * 100));
-    pocketScore = normalizedPocketScore === 0 ? 45 : normalizedPocketScore;
-
-    const maxCoreDist = pocketResidues.length > 0 ? Math.max(...pocketResidues.map(r => r.distance)) : 4.0;
-    const rawVolume = (4/3) * Math.PI * Math.pow(maxCoreDist, 3);
-    pocketVolume = Math.round(rawVolume * (1.1 + (totalScore / 300)));
-    pocketVolume = pocketVolume === 0 ? 150 : pocketVolume;
-
-    const typesCount = pocketResidues.reduce((acc, curr) => {
-      acc[curr.type] = (acc[curr.type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    likelyCofactor = determineLikelyCofactor(typesCount);
-
-    if (pocketResidues.length > 0) {
-      let sumPX = 0, sumPY = 0, sumPZ = 0;
-      let count = 0;
-      for (const r of pocketResidues) {
-        const resAtoms = atoms.filter(a => a.resSeq === r.index);
-        for (const a of resAtoms) {
-          sumPX += a.x; sumPY += a.y; sumPZ += a.z;
-          count++;
-        }
-      }
-      if (count > 0) {
-        pocketDistance = parseFloat(Math.sqrt(Math.pow(sumPX/count - mutX, 2) + Math.pow(sumPY/count - mutY, 2) + Math.pow(sumPZ/count - mutZ, 2)).toFixed(2));
-      }
-    }
+    throw new Error("P2Rank pocket detection failed: No high-confidence binding pocket could be resolved for the specified mutation index.");
   }
 
   return {
@@ -926,6 +907,52 @@ async function findBindingPocketInternal(
     pocketVolume,
     likelyCofactor,
     pocketDistance,
-    status: isFallback ? "fallback" : "success"
+    status: "success"
   };
+}
+
+function injectBFactorsFromWtPdb(wtPdb: string, mutPdb: string): string {
+  const wtLines = wtPdb.split(/\r?\n/);
+  // Map key: `${atomName}_${resSeq}_${chain}` -> B-factor string (columns 61-66)
+  const bFactors = new Map<string, string>();
+  
+  for (const line of wtLines) {
+    if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
+      const atomName = line.slice(12, 16).trim();
+      const chain = line.slice(21, 22).trim();
+      const resSeqStr = line.slice(22, 26).trim();
+      const resSeq = parseInt(resSeqStr, 10);
+      const bFactorStr = line.slice(60, 66); // columns 61-66 (0-indexed chars 60 to 66)
+      if (!isNaN(resSeq) && bFactorStr) {
+        const key = `${atomName}_${resSeq}_${chain}`;
+        bFactors.set(key, bFactorStr);
+      }
+    }
+  }
+  
+  const mutLines = mutPdb.split(/\r?\n/);
+  const updatedLines = mutLines.map(line => {
+    if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
+      const atomName = line.slice(12, 16).trim();
+      const chain = line.slice(21, 22).trim();
+      const resSeqStr = line.slice(22, 26).trim();
+      const resSeq = parseInt(resSeqStr, 10);
+      if (!isNaN(resSeq)) {
+        const key = `${atomName}_${resSeq}_${chain}`;
+        let bFactorStr = bFactors.get(key);
+        if (!bFactorStr) {
+          // Fallback to CA atom of the same residue
+          const caKey = `CA_${resSeq}_${chain}`;
+          bFactorStr = bFactors.get(caKey);
+        }
+        if (bFactorStr) {
+          const paddedB = bFactorStr.padEnd(6, " ");
+          return line.slice(0, 60) + paddedB + line.slice(66);
+        }
+      }
+    }
+    return line;
+  });
+  
+  return updatedLines.join("\n");
 }

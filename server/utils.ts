@@ -252,3 +252,39 @@ export function getApiKeyFromSession(sessionId: string): string | undefined {
   }
   return payload.apiKey;
 }
+
+/**
+ * Starts a background janitor that runs periodically to delete job directories in temp_jobs/
+ * that are older than 1 hour (M-8).
+ */
+export function runTempJobsJanitor() {
+  const tempJobsDir = path.join(process.cwd(), "temp_jobs");
+  const ONE_HOUR = 60 * 60 * 1000;
+  const RUN_INTERVAL = 15 * 60 * 1000; // run every 15 minutes
+
+  setInterval(async () => {
+    try {
+      if (!fs.existsSync(tempJobsDir)) return;
+      const files = await fs.promises.readdir(tempJobsDir);
+      const now = Date.now();
+
+      for (const file of files) {
+        const filePath = path.join(tempJobsDir, file);
+        try {
+          const stats = await fs.promises.stat(filePath);
+          if (stats.isDirectory()) {
+            const age = now - stats.mtimeMs;
+            if (age > ONE_HOUR) {
+              console.log(`[Janitor] Deleting expired job directory: ${filePath} (age: ${Math.round(age / 1000 / 60)} mins)`);
+              await fs.promises.rm(filePath, { recursive: true, force: true });
+            }
+          }
+        } catch (fileErr: any) {
+          console.error(`[Janitor] Failed to inspect/delete ${filePath}:`, fileErr.message);
+        }
+      }
+    } catch (err: any) {
+      console.error("[Janitor] Failed to read temp_jobs directory:", err.message);
+    }
+  }, RUN_INTERVAL);
+}

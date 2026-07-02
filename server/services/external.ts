@@ -3,6 +3,12 @@ import { CLINVAR_AA_MAP, CLINVAR_REV_AA_MAP, AMINO_ACID_1_TO_3_TITLE } from "../
 import { validateUniProt } from "../utils.ts";
 import { z } from "zod";
 
+function normalizeGeneSymbol(gene: string): string {
+  const g = gene.trim().toUpperCase();
+  if (g === "GBA1") return "GBA";
+  return g;
+}
+
 async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
   const timeoutMs = options.timeout ?? 15000;
   for (let i = 0; i < retries; i++) {
@@ -113,7 +119,8 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
     uid: null
   };
   
-  const term = `${gene} ${variant}`;
+  const normGene = normalizeGeneSymbol(gene);
+  const term = `${normGene} ${variant}`;
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(term)}&retmode=json`;
   
   const searchRes = await fetchWithRetry(searchUrl, {
@@ -143,33 +150,66 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
   const summaryJson = await summaryRes.json();
   const summaryData = clinvarSummaryResponseSchema.parse(summaryJson);
   const resultObj = summaryData.result || {};
-  const cleanVariant = variant.replace(/^p\./i, "").toLowerCase();
-  
+  const queryNorm = (() => {
+    const clean = variant.replace(/^p\./i, "").trim().toLowerCase();
+    const match3 = clean.match(/^([a-z]{3})(\d+)([a-z]{3})$/);
+    if (match3) {
+      const wt1 = CLINVAR_AA_MAP[match3[1]];
+      const pos = match3[2];
+      const mut1 = CLINVAR_AA_MAP[match3[3]];
+      if (wt1 && mut1) {
+        return `${wt1.toUpperCase()}${pos}${mut1.toUpperCase()}`;
+      }
+    }
+    const match1 = clean.match(/^([a-z])(\d+)([a-z])$/);
+    if (match1) {
+      return `${match1[1].toUpperCase()}${match1[2]}${match1[3].toUpperCase()}`;
+    }
+    return null;
+  })();
+
   for (const id of idList) {
     const entry = resultObj[id];
     if (!entry) continue;
     
     const title = (entry.title || "").toLowerCase();
-    let isMatch = title.includes(cleanVariant);
-    if (!isMatch) {
-      const match3 = cleanVariant.match(/^([a-z]{3})(\d+)([a-z]{3})$/);
-      const match1 = cleanVariant.match(/^([a-z])(\d+)([a-z])$/);
-      
-      if (match3) {
-        const wt1 = CLINVAR_AA_MAP[match3[1]];
-        const pos = match3[2];
-        const mut1 = CLINVAR_AA_MAP[match3[3]];
-        if (wt1 && mut1) {
-          const shortVariant = `${wt1}${pos}${mut1}`;
-          isMatch = title.includes(shortVariant);
+    let isMatch = false;
+
+    if (queryNorm) {
+      // Extract any occurrences of p.XXX from the title and compare normalized values (M-2)
+      const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}/g);
+      if (pChangeMatches) {
+        for (const pMatch of pChangeMatches) {
+          const cleanMatch = pMatch.replace(/^p\./i, "").trim().toLowerCase();
+          const m3 = cleanMatch.match(/^([a-z]{3})(\d+)([a-z]{3})$/);
+          let matchNorm: string | null = null;
+          if (m3) {
+            const wt1 = CLINVAR_AA_MAP[m3[1]];
+            const pos = m3[2];
+            const mut1 = CLINVAR_AA_MAP[m3[3]];
+            if (wt1 && mut1) {
+              matchNorm = `${wt1.toUpperCase()}${pos}${mut1.toUpperCase()}`;
+            }
+          } else {
+            const m1 = cleanMatch.match(/^([a-z])(\d+)([a-z])$/);
+            if (m1) {
+              matchNorm = `${m1[1].toUpperCase()}${m1[2]}${m1[3].toUpperCase()}`;
+            }
+          }
+          if (matchNorm === queryNorm) {
+            isMatch = true;
+            break;
+          }
         }
-      } else if (match1) {
-        const wt3 = CLINVAR_REV_AA_MAP[match1[1]];
-        const pos = match1[2];
-        const mut3 = CLINVAR_REV_AA_MAP[match1[3]];
-        if (wt3 && mut3) {
-          const longVariant = `${wt3}${pos}${mut3}`;
-          isMatch = title.includes(longVariant);
+      }
+
+      // Fallback: check exact word boundary substring match to handle titles without p. notation
+      if (!isMatch) {
+        const cleanVariant = variant.replace(/^p\./i, "").toLowerCase();
+        const escaped = cleanVariant.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+        if (regex.test(title)) {
+          isMatch = true;
         }
       }
     }
@@ -284,21 +324,16 @@ export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | nul
     console.warn("AlphaFold API prediction lookup failed:", apiErr);
   }
   
-  // 2. Build candidate URLs to try in order
+  // 2. Build candidate URLs to try in order (M-4)
   const candidates: string[] = [];
   if (pdbUrlFromApi) {
     candidates.push(pdbUrlFromApi);
   }
-  
-  // Generate combinations of common isoform suffixes and file versions
-  const suffixes = ["-F1", "-4-F1", "-3-F1", "-2-F1", "-1-F1"];
-  const versions = ["v6", "v4", "v3", "v2", "v1"];
-  for (const suffix of suffixes) {
-    for (const v of versions) {
-      const candidateUrl = `https://alphafold.ebi.ac.uk/files/AF-${validatedUniprot}${suffix}-model_${v}.pdb`;
-      if (!candidates.includes(candidateUrl)) {
-        candidates.push(candidateUrl);
-      }
+  // Try latest v6 first, then fall back to older versions sequentially
+  for (const v of ["v6", "v4", "v3", "v2", "v1"]) {
+    const candidateUrl = `https://alphafold.ebi.ac.uk/files/AF-${validatedUniprot}-F1-model_${v}.pdb`;
+    if (!candidates.includes(candidateUrl)) {
+      candidates.push(candidateUrl);
     }
   }
 
@@ -456,7 +491,8 @@ export interface StringInteraction {
 
 export async function fetchPredictorData(gene: string, variant: string): Promise<PredictorData> {
   const cleanVar = normalizeVariantTo3Letter(variant);
-  const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(gene)}:p.${encodeURIComponent(cleanVar)}?content-type=application/json&AlphaMissense=1&CADD=1`;
+  const normGene = normalizeGeneSymbol(gene);
+  const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(normGene)}:p.${encodeURIComponent(cleanVar)}?content-type=application/json&AlphaMissense=1&CADD=1`;
   
   try {
     const res = await fetchWithRetry(url, {
@@ -490,7 +526,10 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
 
 export async function fetchConservationData(gene: string, variant: string): Promise<ConservationData> {
   const cleanVar = normalizeVariantTo3Letter(variant);
-  const url = `https://myvariant.info/v1/query?q=dbnsfp.hgvsp:"${encodeURIComponent(gene)}:p.${encodeURIComponent(cleanVar)}"&fields=dbnsfp.revel,dbnsfp.gerp,dbnsfp.phylop`;
+  const normGene = normalizeGeneSymbol(gene);
+  // Correctly query dbnsfp by filtering genename and hgvsp separately to resolve MyVariant.info schema mismatch
+  const queryStr = `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
+  const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp`;
   
   try {
     const res = await fetchWithRetry(url, {
@@ -503,17 +542,30 @@ export async function fetchConservationData(gene: string, variant: string): Prom
         const hit = data.hits[0];
         const dbnsfp = hit.dbnsfp;
         if (dbnsfp) {
-          let revel = dbnsfp.revel;
-          if (Array.isArray(revel)) revel = revel[0];
-          revel = revel !== undefined ? parseFloat(revel) : null;
+          // Parse REVEL score (handles both object formats with score arrays/values, and direct numeric values)
+          let revel: any = null;
+          if (dbnsfp.revel) {
+            let rVal = dbnsfp.revel.score !== undefined ? dbnsfp.revel.score : dbnsfp.revel;
+            if (Array.isArray(rVal)) rVal = rVal[0];
+            revel = rVal !== undefined && rVal !== null ? parseFloat(rVal) : null;
+          }
 
-          let gerp = dbnsfp.gerp?.elements || dbnsfp.gerp?.["gerp++_rs"] || null;
-          if (Array.isArray(gerp)) gerp = gerp[0];
-          gerp = gerp !== undefined ? parseFloat(gerp) : null;
+          // Parse GERP score (handles multiple schema keys: gerp++, gerp++_rs, gerp.elements)
+          let gerp: any = null;
+          const gerpObj = dbnsfp["gerp++"] || dbnsfp.gerp || {};
+          let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : (gerpObj.elements || gerpObj["gerp++_rs"] || null);
+          if (Array.isArray(gerpVal)) gerpVal = gerpVal[0];
+          gerp = gerpVal !== undefined && gerpVal !== null ? parseFloat(gerpVal) : null;
 
-          let phylop = dbnsfp.phylop?.vertebrate || dbnsfp.phylop?.["phylop100way_vertebrate"] || null;
-          if (Array.isArray(phylop)) phylop = phylop[0];
-          phylop = phylop !== undefined ? parseFloat(phylop) : null;
+          // Parse PhyloP score (handles multiple schema keys: 100way_vertebrate, phylop100way_vertebrate, vertebrate)
+          let phylop: any = null;
+          if (dbnsfp.phylop) {
+            let phylopVal = dbnsfp.phylop["100way_vertebrate"]?.score !== undefined 
+              ? dbnsfp.phylop["100way_vertebrate"].score 
+              : (dbnsfp.phylop.vertebrate || dbnsfp.phylop["phylop100way_vertebrate"] || null);
+            if (Array.isArray(phylopVal)) phylopVal = phylopVal[0];
+            phylop = phylopVal !== undefined && phylopVal !== null ? parseFloat(phylopVal) : null;
+          }
 
           let consurfEstimated: number | null = null;
           let derived = false;
@@ -528,7 +580,7 @@ export async function fetchConservationData(gene: string, variant: string): Prom
             revel, 
             gerp, 
             phylop, 
-            consurf: null, 
+            consurf: consurfEstimated !== null ? Math.round(consurfEstimated * 8) + 1 : null, 
             consurfEstimated, 
             derived 
           };
@@ -551,7 +603,8 @@ export async function fetchConservationData(gene: string, variant: string): Prom
 }
 
 export async function fetchStringInteractions(gene: string): Promise<StringInteraction[]> {
-  const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(gene)}&species=9606`;
+  const normGene = normalizeGeneSymbol(gene);
+  const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606`;
   
   try {
     const res = await fetchWithRetry(url, { timeout: 15000 });
@@ -583,13 +636,13 @@ export async function fetchStringInteractions(gene: string): Promise<StringInter
   return [];
 }
 
-export async function fetchDynaMut2Prediction(
+export async function submitDynaMut2Job(
   pdbText: string,
   chain: string,
   pos: number,
   wtRes: string,
   mutRes: string
-): Promise<number | null> {
+): Promise<string | null> {
   const url = "https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single";
   const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
   console.log(`[DynaMut2 API] Preparing to submit single mutation job for ${mutationCode} on chain ${chain}...`);
@@ -616,43 +669,50 @@ export async function fetchDynaMut2Prediction(
       throw new Error("API response did not contain a job_id.");
     }
     console.log(`[DynaMut2 API] Job submitted successfully. Job ID: ${jobId}`);
-
-    // Poll for results (max ~20 s: 8 attempts × 2 s interval)
-    const maxAttempts = 8;
-    const pollIntervalMs = 2000;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-      console.log(`[DynaMut2 API] Polling status (attempt ${attempt}/${maxAttempts})...`);
-
-      const pollUrl = `${url}?job_id=${jobId}`;
-      const pollRes = await fetchWithRetry(pollUrl, {
-        method: "GET",
-        timeout: 10000
-      });
-
-      if (!pollRes.ok) {
-        console.warn(`[DynaMut2 API] Polling request failed on attempt ${attempt}`);
-        continue;
-      }
-
-      const pollJson = await pollRes.json() as any;
-      // API returns { status: "RUNNING" } — also guard legacy { message: "RUNNING" } format
-      if (pollJson.status === "RUNNING" || pollJson.message === "RUNNING") {
-        continue;
-      }
-
-      if (pollJson.prediction !== undefined) {
-        const ddG = parseFloat(pollJson.prediction);
-        console.log(`[DynaMut2 API] Prediction completed: ${ddG} kcal/mol`);
-        return isNaN(ddG) ? null : ddG;
-      }
-
-      console.warn(`[DynaMut2 API] Unexpected response format:`, pollJson);
-      break;
-    }
-    console.warn(`[DynaMut2 API] Job ${jobId} timed out or failed to complete prediction.`);
+    return String(jobId);
   } catch (err: any) {
-    console.error(`[DynaMut2 API] Error during prediction:`, err.message);
+    console.error(`[DynaMut2 API] Error during submission:`, err.message);
+    return null;
   }
-  return null;
+}
+
+export async function pollDynaMut2Job(
+  jobId: string
+): Promise<{ status: "RUNNING" | "DONE" | "ERROR"; prediction: number | null } | null> {
+  const url = "https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single";
+  try {
+    const pollUrl = `${url}?job_id=${jobId}`;
+    const pollRes = await fetchWithRetry(pollUrl, {
+      method: "GET",
+      timeout: 10000
+    });
+
+    if (!pollRes.ok) {
+      console.warn(`[DynaMut2 API] Polling request failed for job ${jobId} (status: ${pollRes.status})`);
+      return { status: "ERROR", prediction: null };
+    }
+
+    const pollJson = await pollRes.json() as any;
+    if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
+      const ddG = parseFloat(pollJson.prediction);
+      console.log(`[DynaMut2 API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
+      return { status: "DONE", prediction: isNaN(ddG) ? null : ddG };
+    }
+
+    // Check if explicitly running, queued, or missing prediction/error
+    if (
+      pollJson.status === "RUNNING" ||
+      pollJson.message === "RUNNING" ||
+      pollJson.status === "QUEUED" ||
+      (pollJson.prediction === undefined && !pollJson.error)
+    ) {
+      return { status: "RUNNING", prediction: null };
+    }
+
+    console.warn(`[DynaMut2 API] Polling returned error or unexpected format:`, pollJson);
+    return { status: "ERROR", prediction: null };
+  } catch (err: any) {
+    console.error(`[DynaMut2 API] Error polling job ${jobId}:`, err.message);
+    return { status: "ERROR", prediction: null };
+  }
 }

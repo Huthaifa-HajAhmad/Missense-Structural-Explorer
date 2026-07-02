@@ -27,6 +27,7 @@ import {
 
 import {
   performGeminiAnalysis,
+  performGeminiBiophysicalAnalysis,
   GeminiError
 } from "./services/gemini.ts";
 
@@ -40,17 +41,21 @@ import {
   fetchPdbFromRcsb,
   fetchPredictorData,
   fetchConservationData,
-  fetchStringInteractions
+  fetchStringInteractions,
+  submitDynaMut2Job,
+  pollDynaMut2Job
 } from "./services/external.ts";
+import { AMINO_ACID_1_TO_3 } from "../src/aminoAcids.ts";
 
 import {
   biophysicalSemaphore,
   generateMutantPdb,
-  calculateConsensusEnergetics,
   findBindingPocket,
   parseResiduesFromPdbMaybeAsync,
   getResidueDetails
 } from "./services/biophysics.ts";
+import { computeRuleBasedACMG } from "./services/acmg.ts";
+import { AMINO_ACID_3_TO_1 } from "../src/aminoAcids.ts";
 
 export const apiRouter = express.Router();
 
@@ -87,6 +92,104 @@ apiRouter.get("/version", (req, res) => {
 // Apply authCheck and apiLimiter globally to the API Router
 apiRouter.use(authCheck);
 apiRouter.use(apiLimiter);
+
+apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
+  const { jobId } = req.params;
+  const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
+
+  if (!jobId || !/^\d{1,20}$/.test(jobId)) {
+    sendError(res, 400, "BAD_REQUEST", "Invalid DynaMut2 Job ID format: must be numeric digits.");
+    return;
+  }
+
+  try {
+    const result = await pollDynaMut2Job(jobId);
+    if (!result) {
+      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
+      res.json({ jobId, status: "ERROR", prediction: null });
+      return;
+    }
+
+    await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
+    res.json({ jobId, status: result.status, prediction: result.prediction });
+  } catch (err: any) {
+    console.error(`[Route Error] DynaMut2 job polling failed for ${jobId}:`, err.message);
+    await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
+    res.json({ jobId, status: "ERROR", prediction: null });
+  }
+});
+
+const geminiCache = new Map<string, any>();
+const CACHE_DIR = path.join(process.cwd(), "logs", "gemini_cache");
+
+if (!fs.existsSync(CACHE_DIR)) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+}
+
+function getCacheFilename(cacheKey: string): string {
+  const hash = crypto.createHash("sha256").update(cacheKey).digest("hex");
+  return path.join(CACHE_DIR, `${hash}.json`);
+}
+
+function getFromCache(cacheKey: string): any | null {
+  if (geminiCache.has(cacheKey)) {
+    return geminiCache.get(cacheKey);
+  }
+  try {
+    const filename = getCacheFilename(cacheKey);
+    if (fs.existsSync(filename)) {
+      const raw = fs.readFileSync(filename, "utf-8");
+      const parsed = JSON.parse(raw);
+      geminiCache.set(cacheKey, parsed);
+      return parsed;
+    }
+  } catch (err) {
+    console.error("Error reading disk cache:", err);
+  }
+  return null;
+}
+
+function writeToCache(cacheKey: string, data: any) {
+  try {
+    geminiCache.set(cacheKey, data);
+    if (geminiCache.size > 200) {
+      const firstKey = geminiCache.keys().next().value;
+      if (firstKey) {
+        geminiCache.delete(firstKey);
+      }
+    }
+    const filename = getCacheFilename(cacheKey);
+    fs.writeFileSync(filename, JSON.stringify(data), "utf-8");
+  } catch (err) {
+    console.error("Error writing disk cache:", err);
+  }
+}
+
+function generateAltVariants(sequence: string): string[] {
+  // We want to generate 4 valid, non-overlapping mutations
+  // Pick positions at 15%, 35%, 55%, 75% of length
+  const fractions = [0.15, 0.35, 0.55, 0.75];
+  const alts: string[] = [];
+  
+  for (const frac of fractions) {
+    const pos = Math.max(1, Math.min(sequence.length, Math.round(sequence.length * frac)));
+    const wtLetter = sequence[pos - 1]; // 1-letter wildtype
+    const wt3 = AMINO_ACID_1_TO_3[wtLetter]; // 3-letter wt
+    
+    if (wt3) {
+      // Pick a mutant residue that is different from wtLetter
+      const possibleMutants = ["A", "V", "L", "I", "S", "T", "P", "G", "R", "K", "D", "E", "N", "Q"];
+      const mutLetter = possibleMutants.find(m => m !== wtLetter) || "A";
+      const mut3 = AMINO_ACID_1_TO_3[mutLetter] || "Ala";
+      
+      // format: p.Val8Met -> e.g. p.Ala40Val
+      alts.push(`p.${wt3}${pos}${mut3}`);
+    }
+  }
+  
+  // Return generated list, fallback to default if empty
+  return alts.length > 0 ? alts : ["p.Ala40Val", "p.Leu100Pro", "p.Glu150Lys"];
+}
 
 apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
   try {
@@ -137,6 +240,44 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       mutant = mutMatch[3];
     }
 
+    // 1. Fetch UniProt sequence and validate residue presence & identity (M-1)
+    let sequence: string;
+    try {
+      sequence = await fetchUniprotSequence(uniprotId);
+    } catch (seqErr: any) {
+      sendError(res, 424, "SEQUENCE_UNAVAILABLE", `Failed to retrieve protein sequence from UniProt: ${seqErr.message}`);
+      return;
+    }
+
+    const pos = parseInt(residueIndex, 10);
+    if (isNaN(pos) || pos < 1 || pos > sequence.length) {
+      sendError(
+        res,
+        422,
+        "UNPROCESSABLE_ENTITY",
+        `Mutation residue index ${residueIndex} is out of bounds for protein ${uniprotId} (sequence length: ${sequence.length}).`
+      );
+      return;
+    }
+
+    const wtUpper = wildType.toUpperCase();
+    const wt1Letter = AMINO_ACID_3_TO_1[wildType] || (wildType.length === 1 ? wtUpper : null);
+    if (!wt1Letter) {
+      sendError(res, 400, "BAD_REQUEST", `Invalid wild-type residue notation: ${wildType}`);
+      return;
+    }
+
+    const actualWt = sequence[pos - 1];
+    if (actualWt !== wt1Letter) {
+      sendError(
+        res,
+        422,
+        "UNPROCESSABLE_ENTITY",
+        `Wild-type residue mismatch at position ${pos} for ${uniprotId}. Expected ${actualWt}, but query specified ${wt1Letter} (${wildType}).`
+      );
+      return;
+    }
+
     let clinvar = null;
     let predictorData = null;
     let conservationData = null;
@@ -163,6 +304,8 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       return;
     }
 
+    const ruleBasedInsights = computeRuleBasedACMG(gene, variant, clinvar, predictorData, conservationData);
+
     const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
     let customApiKey: string | undefined;
     if (customSessionId) {
@@ -172,69 +315,12 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         return;
       }
     }
-    
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`Analyzing variant ${gene} ${variant} using gemini-3.5-flash (Markdown Narrative & JSON Insights in parallel)...`);
-    } else {
-      console.log("Analyzing variant using gemini-3.5-flash...");
-    }
-    
-    const timeoutSignal = AbortSignal.timeout(120000); // 120 second timeout (Fix 4)
-    const reqId = req.headers["x-request-id"] as string;
-    
-    let analysisResult;
-    try {
-      analysisResult = await performGeminiAnalysis(
-        gene,
-        variant,
-        uniprotId,
-        residueIndex,
-        wildType,
-        mutant,
-        userDirections,
-        clinvar,
-        acmgWeighting,
-        customApiKey,
-        timeoutSignal,
-        predictorData,
-        conservationData,
-        stringInteractions
-      );
-    } catch (err: any) {
-      console.warn("Gemini client execution failed:", err.message);
-      if (err instanceof GeminiError) {
-        await AuditLogger.log("ANALYZE_VARIANT_FAILED", {
-          reqId,
-          code: err.code,
-          message: err.message
-        });
-        sendError(res, err.status, err.code, err.message, { isConfigError: err.code === "API_KEY_INVALID" || err.code === "API_KEY_MISSING" });
-      } else {
-        await AuditLogger.log("ANALYZE_VARIANT_FAILED", {
-          reqId,
-          code: "INTERNAL_ERROR",
-          message: err.message
-        });
-        sendError(res, 500, "INTERNAL_ERROR", err.message || "An error occurred during Gemini analysis.");
-      }
-      return;
-    }
-
-    if (analysisResult.insights) {
-      (analysisResult.insights as any).source = "ai_inference";
-      (analysisResult.insights as any).model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-    }
 
     res.json({
-      analysis: analysisResult.analysis,
-      insights: analysisResult.insights,
+      analysis: null,
+      insights: null,
+      ruleBasedInsights,
       disclaimer: "This analysis is automatically generated by an artificial intelligence model for research purposes only. It does not constitute a clinical diagnosis or validated medical recommendation.",
-      authoritativeEvidence: {
-        clinvar,
-        predictorData,
-        conservationData,
-        stringInteractions
-      },
       clinvar, // Real ClinVar & gnomAD data (S-1)
       predictorData,
       conservationData,
@@ -245,12 +331,166 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         uniprotId,
         residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
         wildType,
-        mutant
+        mutant,
+        alternativeVariants: generateAltVariants(sequence)
       }
     });
   } catch (error: any) {
     console.error("Endpoint analysis failure:", error);
     sendError(res, 500, "INTERNAL_ERROR", error.message || "An error occurred during variant analysis.");
+  }
+});
+apiRouter.post("/analyze-variant-biophysical", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
+  try {
+    const gene = validateGene(req.body.gene);
+    const variant = validateVariant(req.body.variant);
+    const uniprotId = validateUniProt(req.body.uniprotId);
+
+    const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
+    if (!mutMatch) {
+      sendError(res, 400, "BAD_REQUEST", `Invalid protein variant format: ${variant}`);
+      return;
+    }
+    const wildType = mutMatch[1];
+    const residueIndex = mutMatch[2];
+    const mutant = mutMatch[3];
+
+    const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
+    let customApiKey: string | undefined;
+    if (customSessionId) {
+      customApiKey = getApiKeyFromSession(customSessionId);
+      if (!customApiKey) {
+        sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate in Settings.");
+        return;
+      }
+    }
+
+    const timeoutSignal = AbortSignal.timeout(60000);
+    const cacheKey = `biophysical_${uniprotId}_${variant}`;
+
+    const cached = getFromCache(cacheKey);
+    if (cached) {
+      console.log(`[Cache Hit] Serving cached biophysical Gemini insights for ${cacheKey}`);
+      res.json(cached);
+      return;
+    }
+
+    const result = await performGeminiBiophysicalAnalysis(
+      gene,
+      variant,
+      uniprotId,
+      residueIndex,
+      wildType,
+      mutant,
+      customApiKey,
+      timeoutSignal
+    );
+
+    writeToCache(cacheKey, result);
+    res.json(result);
+
+  } catch (error: any) {
+    console.error("Biophysical endpoint narrative failure:", error);
+    sendError(res, 500, "INTERNAL_ERROR", error.message || "Failed to generate biophysical insights.");
+  }
+});
+
+apiRouter.post("/analyze-variant-narrative", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
+  try {
+    const gene = validateGene(req.body.gene);
+    const variant = validateVariant(req.body.variant);
+    const uniprotId = validateUniProt(req.body.uniprotId);
+    const userDirections = req.body.userDirections ? String(req.body.userDirections) : undefined;
+    
+    let acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard";
+    if (req.body.acmgWeighting !== undefined) {
+      if (req.body.acmgWeighting === "standard" || req.body.acmgWeighting === "conservative" || req.body.acmgWeighting === "strict-structural") {
+        acmgWeighting = req.body.acmgWeighting;
+      } else {
+        throw new Error("acmgWeighting must be one of: standard, conservative, strict-structural");
+      }
+    }
+
+    const { clinvar, predictorData, conservationData, stringInteractions } = req.body;
+
+    const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
+    if (!mutMatch) {
+      sendError(res, 400, "BAD_REQUEST", `Invalid protein variant format: ${variant}`);
+      return;
+    }
+    const wildType = mutMatch[1];
+    const residueIndex = mutMatch[2];
+    const mutant = mutMatch[3];
+
+    const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
+    let customApiKey: string | undefined;
+    if (customSessionId) {
+      customApiKey = getApiKeyFromSession(customSessionId);
+      if (!customApiKey) {
+        sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate in Settings.");
+        return;
+      }
+    }
+
+    const timeoutSignal = AbortSignal.timeout(120000);
+    const reqId = req.headers["x-request-id"] as string;
+
+    let analysisResult;
+    const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}`;
+
+    const cached = getFromCache(cacheKey);
+    if (cached) {
+      console.log(`[Cache Hit] Serving cached clinical Gemini narrative for ${cacheKey}`);
+      analysisResult = cached;
+    } else {
+      try {
+        analysisResult = await performGeminiAnalysis(
+          gene,
+          variant,
+          uniprotId,
+          residueIndex,
+          wildType,
+          mutant,
+          userDirections,
+          clinvar,
+          acmgWeighting,
+          customApiKey,
+          timeoutSignal,
+          predictorData,
+          conservationData,
+          stringInteractions
+        );
+        writeToCache(cacheKey, analysisResult);
+      } catch (err: any) {
+        console.warn("[Graceful Fallback] Gemini narrative execution failed:", err.message);
+        await AuditLogger.log("ANALYZE_VARIANT_FAILED", {
+          reqId,
+          code: err instanceof GeminiError ? err.code : "INTERNAL_ERROR",
+          message: err.message
+        });
+        analysisResult = {
+          analysis: `⚠️ **AI Narrative Explanation Unavailable**\n\nThe Gemini AI explanation service is currently experiencing service limits or could not be reached (${err.message}). Standard database metrics, predictions, and sequence conservation details have been loaded and are fully functional in the dashboard below.`,
+          insights: {
+            biochemicalShift: "Unavailable (AI Service Offline)",
+            structuralImpact: "Unavailable (AI Service Offline)",
+            acmgCriteria: []
+          }
+        };
+      }
+    }
+
+    if (analysisResult.insights) {
+      (analysisResult.insights as any).source = "ai_inference";
+      (analysisResult.insights as any).model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+    }
+
+    res.json({
+      analysis: analysisResult.analysis,
+      insights: analysisResult.insights
+    });
+  } catch (error: any) {
+    console.error("Endpoint narrative analysis failure:", error);
+    sendError(res, 500, "INTERNAL_ERROR", error.message || "An error occurred during narrative analysis.");
   }
 });
 
@@ -305,7 +545,7 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
     // foldxResult holds the core result from the semaphore-gated FoldX phase.
     // energetics is computed separately, outside the semaphore, to avoid
     // blocking concurrent FoldX jobs during DynaMut2 polling (~20 s max).
-    let foldxResult: { pdb: string; ddG: number | null; status: string; foldedResidueIndex: number } | null = null;
+    let foldxResult: { pdb: string; ddG: number | null; status: string; foldedResidueIndex: number; resolvedChain?: string } | null = null;
     let routeError: any = null;
 
     try {
@@ -361,18 +601,39 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       return;
     }
 
-    // Semaphore is already released. Now compute DynaMut2 energetics without
-    // blocking other FoldX jobs.
+    // Semaphore is already released. Now submit DynaMut2 job asynchronously and return immediately.
     const posNum = foldxResult.foldedResidueIndex;
-    const energetics = await calculateConsensusEnergetics(
-      foldxResult.ddG,
-      wtLetter,
-      mutLetter,
-      posNum,
-      wtPdb
-    );
+    const chain = foldxResult.resolvedChain || mutTrimmed[1].toUpperCase();
+    let dynamut2JobId: string | null = null;
+    let dynamut2Status: "pending" | "unavailable" = "unavailable";
 
-    res.json({ ...foldxResult, energetics });
+    const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
+    try {
+      dynamut2JobId = await submitDynaMut2Job(wtPdb, chain, posNum, wtLetter, mutLetter);
+      if (dynamut2JobId) {
+        dynamut2Status = "pending";
+      }
+    } catch (submitErr: any) {
+      console.warn(`[DynaMut2 Submission Fail] Failed to submit job:`, submitErr.message);
+    }
+
+    await AuditLogger.log("DYNAMUT2_SUBMIT", {
+      reqId,
+      dynamut2JobId,
+      status: dynamut2Status
+    });
+
+    res.json({
+      ...foldxResult,
+      dynamut2JobId,
+      dynamut2Status,
+      energetics: {
+        foldx: foldxResult.ddG,
+        dynamut2: null,
+        ddgun: null,
+        maestro: null
+      }
+    });
   } catch (outerErr: any) {
     sendError(res, 500, "INTERNAL_ERROR", outerErr.message || "An unexpected error occurred.");
   }
@@ -607,17 +868,7 @@ apiRouter.post("/nearest-residues", jsonParserPdb, async (req, res) => {
       n = 20;
     }
 
-    let acquired = false;
-    try {
-      await biophysicalSemaphore.acquire();
-      acquired = true;
-    } catch (semErr: any) {
-      sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Please try again later.");
-      return;
-    }
-
-    try {
-      const residues = await parseResiduesFromPdbMaybeAsync(pdbText);
+    const residues = await parseResiduesFromPdbMaybeAsync(pdbText);
       const targetRes = residues.find(r => r.resSeq === targetIndexNum);
       if (!targetRes) {
         sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${targetIndexNum} is not found in the PDB structure.`);
@@ -657,12 +908,7 @@ apiRouter.post("/nearest-residues", jsonParserPdb, async (req, res) => {
         residues: sliced,
         source: "computed"
       });
-    } finally {
-      if (acquired) {
-        biophysicalSemaphore.release();
-      }
-    }
-  } catch (err: any) {
+    } catch (err: any) {
     console.error("Nearest residues calculation failure:", err);
     sendError(res, 500, "INTERNAL_ERROR", err.message || "An error occurred while computing nearest residues.");
   }

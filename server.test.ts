@@ -58,6 +58,7 @@ import {
 } from "./server/services/biophysics.ts";
 import { apiRouter } from "./server/routes.ts";
 import { requestLogger, authCheck } from "./server/middleware.ts";
+import * as externalServices from "./server/services/external.ts";
 import { getNearestResidues } from "./src/data.ts";
 
 describe("Input Validation Patterns & Functions", () => {
@@ -820,7 +821,7 @@ END
               analysis: "Successful fallback analysis",
               biochemicalShift: "test shift",
               structuralImpact: "test impact",
-              pathogenicity: "Pathogenic",
+              plausibility: "Plausibly pathogenic because of something",
               acmgCriteria: [{ code: "PM1", reason: "test reason" }]
             })
           });
@@ -845,7 +846,8 @@ END
           expect(mockGenerateContent.mock.calls[1][0].model).toBe("invalid-model-2");
           expect(mockGenerateContent.mock.calls[2][0].model).toBe("gemini-3.5-flash");
           expect(result.analysis).toBe("Successful fallback analysis");
-          expect(result.insights?.pathogenicity).toBe("Pathogenic");
+          expect(result.insights?.pathogenicity).toBe("(Clinician Assigned)");
+          expect(result.insights?.plausibility).toBe("Plausibly pathogenic because of something");
         } finally {
           process.env.GEMINI_MODEL = oldModel;
           process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
@@ -898,106 +900,237 @@ END
         }
       });
     });
+
+    describe("DynaMut2 two-phase polling", () => {
+      it("should return 400 for non-numeric Job ID format", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /dynamut2-job/:jobId not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        let statusVal: number | null = null;
+        let jsonVal: any = null;
+        const req: any = {
+          params: { jobId: "abc" },
+          headers: {}
+        };
+        const res: any = {
+          status(code: number) {
+            statusVal = code;
+            return this;
+          },
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(statusVal).toBe(400);
+        expect(jsonVal.error.code).toBe("BAD_REQUEST");
+      });
+
+      it("should correctly call pollDynaMut2Job and return status & prediction", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /dynamut2-job/:jobId not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const pollSpy = vi.spyOn(externalServices, "pollDynaMut2Job").mockResolvedValue({
+          status: "DONE",
+          prediction: -0.426
+        });
+
+        let jsonVal: any = null;
+        const req: any = {
+          params: { jobId: "12345" },
+          headers: {}
+        };
+        const res: any = {
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(pollSpy).toHaveBeenCalledWith("12345");
+        expect(jsonVal.status).toBe("DONE");
+        expect(jsonVal.prediction).toBe(-0.426);
+        
+        pollSpy.mockRestore();
+      });
+
+      it("should return foldx result and dynamut2JobId immediately when calling /generate-mutant", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const biophysics = await import("./server/services/biophysics.ts");
+        const mutantSpy = vi.spyOn(biophysics, "generateMutantPdb").mockResolvedValue({
+          pdb: "ATOM  1  CA  VAL A   1 ...",
+          ddG: 1.25,
+          status: "success",
+          foldedResidueIndex: 1
+        });
+
+        const submitSpy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("98765");
+
+        let jsonVal: any = null;
+        let statusVal: number | null = null;
+        
+        const dummyPdb = `
+HEADER    EXPERIMENTAL STRUCTURE
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+TER       2      ASP A   1
+END
+        `.trim();
+
+        const req: any = {
+          body: {
+            wtPdb: dummyPdb,
+            mutation: "DA1V",
+            uniprotId: "P00439"
+          },
+          headers: {
+            "x-request-id": "test-req-id"
+          }
+        };
+        const res: any = {
+          status(code: number) {
+            statusVal = code;
+            return this;
+          },
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        
+        expect(mutantSpy).toHaveBeenCalled();
+        expect(submitSpy).toHaveBeenCalledWith(dummyPdb, "A", 1, "D", "V");
+        expect(jsonVal).toBeDefined();
+        expect(jsonVal.dynamut2JobId).toBe("98765");
+        expect(jsonVal.dynamut2Status).toBe("pending");
+        expect(jsonVal.energetics.foldx).toBe(1.25);
+        expect(jsonVal.energetics.dynamut2).toBeNull();
+
+        mutantSpy.mockRestore();
+        submitSpy.mockRestore();
+      });
+    });
   });
 });
 
 describe("Session Authentication & Key Validation", () => {
-  describe("authCheck Middleware", () => {
-    it("should return SESSION_EXPIRED when session has expired", () => {
+  describe("/analyze-variant Session Validation", () => {
+    it("should return SESSION_EXPIRED when session has expired on /analyze-variant", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /analyze-variant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("./server/services/external.ts");
+      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M");
+      const clinvarSpy = vi.spyOn(externalServices, "fetchClinVarData").mockResolvedValue({} as any);
+      const predSpy = vi.spyOn(externalServices, "fetchPredictorData").mockResolvedValue({} as any);
+      const consSpy = vi.spyOn(externalServices, "fetchConservationData").mockResolvedValue({} as any);
+      const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
+
       const encryptSecret = "dev-session-secret-must-be-changed-in-prod";
-      const decryptSecret = process.env.APP_SESSION_SECRET || "dev-session-secret-must-be-changed-in-prod";
       const expiredSessionId = encryptSession(
         { apiKey: "test-key-expired", expiresAt: Date.now() - 5000 },
         encryptSecret
       );
       
       const req: any = {
-        path: "/api/v1/generate-mutant",
+        body: {
+          gene: "PAH",
+          variant: "p.Met1Val",
+          uniprotId: "P00439"
+        },
         headers: {
+          "authorization": "Bearer dummy-token",
           "x-gemini-session-id": expiredSessionId
         }
       };
       
+      let statusCode = 200;
+      let jsonVal: any = null;
       const res: any = {
-        headers: {},
-        statusCode: 200,
         status(code: number) {
-          this.statusCode = code;
+          statusCode = code;
           return this;
         },
-        json: vi.fn(),
-        setHeader(name: string, value: string) {
-          this.headers[name] = value;
+        json(body: any) {
+          jsonVal = body;
           return this;
         }
       };
       
-      const next = vi.fn();
+      await handler(req, res, () => {});
       
-      const oldToken = process.env.APP_API_TOKEN;
-      process.env.APP_API_TOKEN = "dummy-token";
-      try {
-        authCheck(req, res, next);
-      } finally {
-        if (oldToken === undefined) {
-          delete process.env.APP_API_TOKEN;
-        } else {
-          process.env.APP_API_TOKEN = oldToken;
-        }
-      }
-      
-      expect(next).not.toHaveBeenCalled();
-      expect(res.statusCode).toBe(401);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-        error: expect.objectContaining({
-          code: "SESSION_EXPIRED"
-        })
-      }));
+      expect(statusCode).toBe(401);
+      expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
+
+      seqSpy.mockRestore();
+      clinvarSpy.mockRestore();
+      predSpy.mockRestore();
+      consSpy.mockRestore();
+      strSpy.mockRestore();
     });
 
-    it("should return UNAUTHORIZED when session is completely invalid", () => {
+    it("should return SESSION_EXPIRED when session is completely invalid on /analyze-variant", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /analyze-variant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("./server/services/external.ts");
+      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M");
+      const clinvarSpy = vi.spyOn(externalServices, "fetchClinVarData").mockResolvedValue({} as any);
+      const predSpy = vi.spyOn(externalServices, "fetchPredictorData").mockResolvedValue({} as any);
+      const consSpy = vi.spyOn(externalServices, "fetchConservationData").mockResolvedValue({} as any);
+      const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
+
       const req: any = {
-        path: "/api/v1/generate-mutant",
+        body: {
+          gene: "PAH",
+          variant: "p.Met1Val",
+          uniprotId: "P00439"
+        },
         headers: {
+          "authorization": "Bearer dummy-token",
           "x-gemini-session-id": "completely-invalid-session-id-format"
         }
       };
       
+      let statusCode = 200;
+      let jsonVal: any = null;
       const res: any = {
-        headers: {},
-        statusCode: 200,
         status(code: number) {
-          this.statusCode = code;
+          statusCode = code;
           return this;
         },
-        json: vi.fn(),
-        setHeader(name: string, value: string) {
-          this.headers[name] = value;
+        json(body: any) {
+          jsonVal = body;
           return this;
         }
       };
       
-      const next = vi.fn();
+      await handler(req, res, () => {});
       
-      const oldToken = process.env.APP_API_TOKEN;
-      process.env.APP_API_TOKEN = "dummy-token";
-      try {
-        authCheck(req, res, next);
-      } finally {
-        if (oldToken === undefined) {
-          delete process.env.APP_API_TOKEN;
-        } else {
-          process.env.APP_API_TOKEN = oldToken;
-        }
-      }
-      
-      expect(next).not.toHaveBeenCalled();
-      expect(res.statusCode).toBe(401);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-        error: expect.objectContaining({
-          code: "UNAUTHORIZED"
-        })
-      }));
+      expect(statusCode).toBe(401);
+      expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
+
+      seqSpy.mockRestore();
+      clinvarSpy.mockRestore();
+      predSpy.mockRestore();
+      consSpy.mockRestore();
+      strSpy.mockRestore();
     });
   });
 

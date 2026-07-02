@@ -21,6 +21,7 @@ export interface ClinicalInsight {
   structuralImpact: string;
   acmgCriteria: ACMGCriteriaItem[];
   pathogenicity?: string;
+  plausibility?: string;
 }
 
 export interface ClinVarData {
@@ -33,8 +34,9 @@ export interface ClinVarData {
 }
 
 export interface AnalysisResult {
-  analysis: string;
+  analysis?: string | null;
   insights?: ClinicalInsight | null;
+  ruleBasedInsights?: { plausibility: string; acmgCriteria: ACMGCriteriaItem[] } | null;
   clinvar?: ClinVarData | null;
   predictorData?: {
     amPathogenicity: number | null;
@@ -54,6 +56,9 @@ export interface AnalysisResult {
     score: number;
   }[] | null;
   isDemoData?: boolean;
+  dynamut2?: number | null;
+  dynamut2Status?: string | null;
+  dynamut2JobId?: string | null;
   metadata: {
     gene: string;
     variant: string;
@@ -86,6 +91,7 @@ export interface UserSettings {
   geminiApiKey?: string;
   geminiSessionId?: string;
   geminiSessionExpiresAt?: number;
+  appApiToken?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;

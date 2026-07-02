@@ -31,10 +31,7 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
   // 1. Allow public metadata/session endpoints to bypass auth
   const PUBLIC_ENDPOINTS = [
     "/health",
-    "/version",
-    "/session/keys",
-    "/alphafold-pdb",
-    "/sequence"
+    "/version"
   ];
   
   const pathToCheck = req.path;
@@ -61,23 +58,8 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
     }
   }
 
-  // 4. Try Session ID authentication (for the web application)
-  const sessionId = req.headers["x-gemini-session-id"] as string | undefined;
-  if (sessionId) {
-    const secret = process.env.APP_SESSION_SECRET || "dev-session-secret-must-be-changed-in-prod";
-    const payload = decryptSession(sessionId, secret);
-    if (payload) {
-      if (Date.now() > payload.expiresAt) {
-        sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate.");
-        return;
-      }
-      next();
-      return;
-    }
-  }
-
-  // 5. If both failed, return 401 Unauthorized
-  sendError(res, 401, "UNAUTHORIZED", "Unauthorized: Invalid or missing API token / session.");
+  // 4. If Bearer token fails, return 401 Unauthorized
+  sendError(res, 401, "UNAUTHORIZED", "Unauthorized: Invalid or missing API token.");
 };
 
 // Rate Limiting Middleware (CRIT-5)
@@ -102,8 +84,8 @@ export const analyzeVariantLimiter = rateLimit({
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
-    const sessionId = (req.headers["x-gemini-session-id"] || "") as string;
-    return sessionId || req.ip || "";
+    // Key strictly on client IP to prevent session rotation rate-limiting bypass (C-2)
+    return req.ip || "";
   },
   message: {
     error: {
