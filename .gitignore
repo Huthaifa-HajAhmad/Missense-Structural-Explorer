@@ -8,9 +8,20 @@ coverage/
 !.env.example
 logs/
 .antigravity/
-tools/foldx/*.exe
-tools/foldx/yasaraPlugin.zip
-tools/foldx/rotabase.txt
-tools/foldx/molecules/
 temp_jobs/
+
+# Third-party / licensed tools (do not commit binaries or downloads)
+tools/foldx/
+tools/p2rank/
+
+# Dev scratch scripts
+scratch/
+
+# OS / editor cruft
+Thumbs.db
+Desktop.ini
+
+# Build artifacts (root-level esbuild output removed by `npm run clean`, Vite cache)
+/server.js
+.vite/
 
