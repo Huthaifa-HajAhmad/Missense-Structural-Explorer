@@ -8,8 +8,13 @@ import { pocketFinderResponseSchema } from "../useVariantAnalysis";
 
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
-import { StructureSelection, StructureElement, StructureProperties } from "molstar/lib/mol-model/structure";
-import { Layers, ChevronDown, ChevronUp, Sparkles, HelpCircle, Eye, Info, Settings, Camera, X, Activity, Cpu } from "lucide-react";
+import { StructureSelection, StructureElement, StructureProperties, Unit, Bond } from "molstar/lib/mol-model/structure";
+import { Layers, ChevronDown, ChevronUp, Sparkles, HelpCircle, Eye, Info, Settings, Camera, X, Activity, Cpu, Download, ClipboardCopy, Maximize2, Minimize2 } from "lucide-react";
+import { Vec3 } from "molstar/lib/mol-math/linear-algebra/3d/vec3";
+import { Color } from "molstar/lib/mol-util/color";
+import { ColorTheme } from "molstar/lib/mol-theme/color";
+import { TableLegend } from "molstar/lib/mol-util/legend";
+import { ColorThemeCategory } from "molstar/lib/mol-theme/color/categories";
 
 // Pocket coordinate-level structures
 export interface PocketResidue {
@@ -29,6 +34,74 @@ export interface PocketResult {
   pocketDistance: number | null;
   status?: string;
 }
+
+const CustomPLDDTColors = {
+  'No Score': Color(0xaaaaaa),
+  'Very Low': Color(0xff7d45),
+  'Low': Color(0xffdb13),
+  'Confident': Color(0x65cbf3),
+  'Very High': Color(0x0053d6)
+};
+
+const CustomPLDDTLegend = TableLegend(Object.entries(CustomPLDDTColors) as any);
+
+export function CustomPLDDTColorTheme(ctx: any, props: any) {
+  let color = (location: any) => Color(0xaaaaaa);
+  
+  if (ctx.structure) {
+    const l = StructureElement.Location.create(ctx.structure.root);
+    
+    const getColor = (location: any) => {
+      const { unit, element } = location;
+      if (!Unit.isAtomic(unit)) return Color(0xaaaaaa);
+      
+      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
+      
+      if (score < 0 || typeof score !== 'number') {
+        return Color(0xaaaaaa);
+      } else if (score <= 50) {
+        return Color(0xff7d45); // Orange/Red
+      } else if (score <= 70) {
+        return Color(0xffdb13); // Yellow
+      } else if (score <= 90) {
+        return Color(0x65cbf3); // Cyan
+      } else {
+        return Color(0x0053d6); // Blue
+      }
+    };
+    
+    color = (location: any) => {
+      if (StructureElement.Location.is(location)) {
+        return getColor(location);
+      } else if (Bond.isLocation(location)) {
+        l.unit = location.aUnit;
+        l.element = location.aUnit.elements[location.aIndex];
+        return getColor(l);
+      }
+      return Color(0xaaaaaa);
+    };
+  }
+  
+  return {
+    factory: CustomPLDDTColorTheme,
+    granularity: 'group' as any,
+    preferSmoothing: true,
+    color,
+    props,
+    description: 'Custom pLDDT confidence coloring based on PDB B-factors',
+    legend: CustomPLDDTLegend
+  };
+}
+
+export const CustomPLDDTColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: 'plddt-confidence',
+  label: 'pLDDT Confidence (B-factor)',
+  category: ColorThemeCategory.Validation,
+  factory: CustomPLDDTColorTheme,
+  getParams: () => ({}),
+  defaultValues: {},
+  isApplicable: (ctx: any) => !!ctx.structure
+};
 
 function isValidPdbUrl(url: string): boolean {
   if (!url) return false;
@@ -133,6 +206,10 @@ export default function MolstarViewer({
   const [pluginsReadyState, setPluginsReadyState] = useState<number>(0);
   const [pluginCreated, setPluginCreated] = useState<boolean>(false);
   const [showWarningCard, setShowWarningCard] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [captureMenuOpen, setCaptureMenuOpen] = useState<boolean>(false);
+  const [foldxBannerCollapsed, setFoldxBannerCollapsed] = useState<boolean>(false);
+  const captureMenuRef = useRef<HTMLDivElement>(null);
 
   const formatDdG = (val: number | null | undefined, unit?: "kcal/mol" | "kJ/mol") => {
     if (val === null || val === undefined) return "";
@@ -180,9 +257,11 @@ export default function MolstarViewer({
     if (customPdbData) {
       setPdbText(customPdbData);
     } else {
-      let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}`;
+      const match = variant ? variant.match(/\d+/) : null;
+      const posQuery = match ? `?pos=${match[0]}` : "";
+      let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}${posQuery}`;
       if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
-        pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
+        pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}${posQuery}`;
       }
       if (!isValidPdbUrl(pdbUrl)) {
         if (import.meta.env.DEV) {
@@ -194,6 +273,9 @@ export default function MolstarViewer({
       const headers: Record<string, string> = {};
       if (settings?.geminiSessionId) {
         headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+      }
+      if (settings?.appApiToken) {
+        headers["Authorization"] = `Bearer ${settings.appApiToken}`;
       }
       fetch(pdbUrl, { headers })
         .then(res => {
@@ -212,7 +294,7 @@ export default function MolstarViewer({
     return () => {
       active = false;
     };
-  }, [uniprotId, customPdbUrl, customPdbData]);
+  }, [uniprotId, customPdbUrl, customPdbData, variant]);
 
   // Trigger nearest residues calculation when pdbText is loaded
   useEffect(() => {
@@ -238,11 +320,240 @@ export default function MolstarViewer({
   const [alertPosition, setAlertPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // FoldX banner draggable states
+  const [isFoldXDragging, setIsFoldXDragging] = useState<boolean>(false);
+  const [foldXPosition, setFoldXPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [foldXDragStart, setFoldXDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const handleFoldXMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    setIsFoldXDragging(true);
+    setFoldXDragStart({
+      x: e.clientX - foldXPosition.x,
+      y: e.clientY - foldXPosition.y,
+    });
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    if (!isFoldXDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      setFoldXPosition({
+        x: e.clientX - foldXDragStart.x,
+        y: e.clientY - foldXDragStart.y,
+      });
+    };
+    const handleMouseUp = () => {
+      setIsFoldXDragging(false);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isFoldXDragging, foldXDragStart]);
+
   // Reset alert dismissed state and clear reposition coordinates whenever warning details alter
   useEffect(() => {
     setIsAlertClosed(false);
     setAlertPosition({ x: 0, y: 0 });
   }, [disruptionWarning]);
+
+  // Reset FoldX banner collapse state and position when mutant status changes
+  useEffect(() => {
+    setFoldxBannerCollapsed(false);
+    setFoldXPosition({ x: 0, y: 0 });
+  }, [mutantStatus, mutantDdG]);
+
+  // Close capture menu when clicking outside
+  useEffect(() => {
+    if (!captureMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (captureMenuRef.current && !captureMenuRef.current.contains(e.target as Node)) {
+        setCaptureMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, [captureMenuOpen]);
+
+  // Track fullscreen changes (e.g. user presses Escape to exit)
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  // Trackpad horizontal/vertical swipe → camera pan & pinch zoom interceptor (Capture Phase)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        // Pinch gesture for zooming
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const plugin = pluginRef.current;
+        if (!plugin) return;
+        try {
+          const camera = plugin.canvas3d?.camera;
+          if (!camera) return;
+          const state = camera.state;
+          if (state) {
+            const target = Vec3.clone(state.target);
+            const position = Vec3.clone(state.position);
+            const forward = Vec3.zero();
+            Vec3.sub(forward, target, position);
+            
+            // Fixed-displacement unit-vector zooming to prevent slowing down near target
+            const zoomSensitivity = 0.15; // Angstroms per scroll tick
+            const step = e.deltaY * zoomSensitivity;
+            
+            const normForward = Vec3.zero();
+            Vec3.normalize(normForward, forward);
+            
+            const offset = Vec3.zero();
+            Vec3.scale(offset, normForward, step);
+            
+            const newPosition = Vec3.zero();
+            Vec3.add(newPosition, position, offset);
+            
+            // Prevent zooming past target (Zeno-safe clamping)
+            const newForward = Vec3.zero();
+            Vec3.sub(newForward, target, newPosition);
+            if (Vec3.dot(forward, newForward) < 0 || Vec3.magnitude(newForward) < 2.0) {
+              return;
+            }
+            
+            camera.setState({
+              position: newPosition
+            }, 0);
+          }
+        } catch (err) {
+          console.warn("Trackpad zoom error:", err);
+        }
+      } else {
+        // Pan gesture: trackpad scroll/swipe
+        // Heuristic: trackpad scroll events have deltaX, or small deltaY (< 50)
+        const isTrackpadSwipe = Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < 50;
+        
+        if (isTrackpadSwipe && (Math.abs(e.deltaX) > 1 || Math.abs(e.deltaY) > 1)) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const plugin = pluginRef.current;
+          if (!plugin) return;
+          try {
+            const camera = plugin.canvas3d?.camera;
+            if (!camera) return;
+            const state = camera.state;
+            if (state) {
+              const target = Vec3.clone(state.target);
+              const position = Vec3.clone(state.position);
+              const up = Vec3.clone(state.up);
+              
+              const forward = Vec3.zero();
+              Vec3.sub(forward, target, position);
+              Vec3.normalize(forward, forward);
+              
+              const right = Vec3.zero();
+              Vec3.cross(right, forward, up);
+              Vec3.normalize(right, right);
+              
+              const distance = Vec3.distance(position, target);
+              const speedFactor = distance * 0.0015;
+              
+              const dx = e.deltaX * speedFactor;
+              const dy = e.deltaY * speedFactor;
+              
+              const translation = Vec3.zero();
+              const transX = Vec3.zero();
+              Vec3.scale(transX, right, dx);
+              
+              const transY = Vec3.zero();
+              Vec3.scale(transY, up, -dy);
+              
+              Vec3.add(translation, transX, transY);
+              
+              const newTarget = Vec3.zero();
+              Vec3.add(newTarget, target, translation);
+              
+              const newPosition = Vec3.zero();
+              Vec3.add(newPosition, position, translation);
+              
+              camera.setState({
+                target: newTarget,
+                position: newPosition
+              }, 0);
+            }
+          } catch (err) {
+            console.warn("Trackpad pan error:", err);
+          }
+        }
+      }
+    };
+    container.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+    return () => container.removeEventListener('wheel', handleWheel, { capture: true });
+  }, [pluginCreated]);
+
+  // Helper: capture canvas as blob
+  const captureCanvasBlob = (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      const canvas = containerRef.current?.querySelector('canvas');
+      if (!canvas) { resolve(null); return; }
+      canvas.toBlob((blob) => resolve(blob), 'image/png');
+    });
+  };
+
+  const handleDownloadCapture = async () => {
+    setCaptureMenuOpen(false);
+    const helper = pluginRef.current?.helpers?.viewportScreenshot || pluginRef.current?.viewportScreenshot;
+    if (helper) {
+      try {
+        await helper.download(`structural-snapshot-${gene}-${uniprotId}.png`);
+        return;
+      } catch (err) {
+        console.warn('Molstar screenshot helper failed, falling back:', err);
+      }
+    }
+    const blob = await captureCanvasBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = `structural-snapshot-${gene}-${uniprotId}.png`;
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleCopyCapture = async () => {
+    setCaptureMenuOpen(false);
+    try {
+      const blob = await captureCanvasBlob();
+      if (blob && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      } else {
+        console.warn('Clipboard write not supported in this browser.');
+      }
+    } catch (err) {
+      console.warn('Failed to copy image to clipboard:', err);
+    }
+  };
+
+  const handleToggleFullscreen = async () => {
+    const el = containerRef.current?.closest('.molstar-viewer-card') as HTMLElement | null
+      || containerRef.current?.parentElement?.parentElement as HTMLElement | null;
+    if (!document.fullscreenElement && el) {
+      try { await el.requestFullscreen(); } catch (e) {}
+    } else {
+      try { await document.exitFullscreen(); } catch (e) {}
+    }
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Only drag with primary mouse click and prevent dragging if clicking buttons inside the header
@@ -362,6 +673,9 @@ export default function MolstarViewer({
 
         pluginRef.current = localPlugin;
 
+        // Register custom pLDDT theme provider
+        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomPLDDTColorThemeProvider);
+
         // Subscribe to Molstar interaction events
         hoverSubscription = localPlugin.behaviors.interaction.hover.subscribe((event: any) => {
           const current = event.current;
@@ -432,6 +746,12 @@ export default function MolstarViewer({
     const localPlugin = pluginRef.current;
     if (!localPlugin || !pluginCreated) return;
 
+    if (!uniprotId && !customPdbData) {
+      setLoading(false);
+      setLoadError(null);
+      return;
+    }
+
     let transitionTimeout: any = null;
 
     async function loadStructure() {
@@ -454,9 +774,11 @@ export default function MolstarViewer({
             label: `${gene} (FoldX Biophysical Mutant)`
           });
         } else {
-          let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}`;
+          const match = variant ? variant.match(/\d+/) : null;
+          const posQuery = match ? `?pos=${match[0]}` : "";
+          let pdbUrl = customPdbUrl || `/api/v1/alphafold-pdb/${uniprotId}${posQuery}`;
           if (pdbUrl.includes("alphafold.ebi.ac.uk")) {
-            pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}`;
+            pdbUrl = `/api/v1/alphafold-pdb/${uniprotId}${posQuery}`;
           }
           if (!isValidPdbUrl(pdbUrl)) {
             if (import.meta.env.DEV) {
@@ -469,9 +791,22 @@ export default function MolstarViewer({
             console.log(`Molstar downloading pdb structure from proxy: ${pdbUrl}`);
           }
 
-          data = await localPlugin.builders.data.download({ 
-            url: pdbUrl, 
-            isBinary: false,
+          // Fetch PDB coordinates using authenticated headers first
+          const headers: Record<string, string> = {};
+          if (settings?.geminiSessionId) {
+            headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+          }
+          if (settings?.appApiToken) {
+            headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+          }
+          const fetchRes = await fetch(pdbUrl, { headers });
+          if (!fetchRes.ok) {
+            throw new Error(`Failed to load PDB from proxy (status: ${fetchRes.status})`);
+          }
+          const pdbText = await fetchRes.text();
+
+          data = await localPlugin.builders.data.rawData({ 
+            data: pdbText, 
             label: `${gene} (AF-${uniprotId})`
           });
         }
@@ -485,7 +820,10 @@ export default function MolstarViewer({
         structureRef.current = structure;
 
         // Apply standard auto representation preset for robust loading/coloring representation
-        await localPlugin.builders.structure.representation.applyPreset(structure, 'auto');
+        // utilizing the built-in 'plddt-confidence' color theme (AlphaFold uses B-factor for pLDDT)
+        await localPlugin.builders.structure.representation.applyPreset(structure, 'auto', {
+          theme: { globalName: 'plddt-confidence' }
+        });
 
         // Load comparison model if available (superimposing)
         if (comparePdbData) {
@@ -500,7 +838,9 @@ export default function MolstarViewer({
           const model2 = await localPlugin.builders.structure.createModel(trajectory2);
           const structure2 = await localPlugin.builders.structure.createStructure(model2);
           structure2Ref.current = structure2;
-          await localPlugin.builders.structure.representation.applyPreset(structure2, 'auto');
+          await localPlugin.builders.structure.representation.applyPreset(structure2, 'auto', {
+            theme: { globalName: 'plddt-confidence' }
+          });
         } else {
           structure2Ref.current = null;
         }
@@ -533,7 +873,7 @@ export default function MolstarViewer({
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -856,7 +1196,7 @@ export default function MolstarViewer({
   };
 
   return (
-    <div className={`relative w-full ${heightClass || "h-[650px]"} bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all ${
+    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all ${
       isDark ? "border-slate-800" : "border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)]"
     }`}>
       {/* Loading Overlay */}
@@ -894,188 +1234,311 @@ export default function MolstarViewer({
         </div>
       )}
 
+      {/* Onboarding Welcome Overlay */}
+      {!uniprotId && !customPdbData && (
+        <div className={`absolute inset-0 z-20 flex flex-col items-center justify-center p-8 text-center transition-all ${
+          isDark 
+            ? "bg-[#0b0f19] text-slate-300" 
+            : "bg-[#f8fafc] text-slate-600"
+        }`}>
+          <div className="relative mb-6 group cursor-default">
+            <div className="absolute inset-0 bg-indigo-500/20 rounded-full blur-2xl group-hover:bg-indigo-500/30 transition-all duration-750 scale-125"></div>
+            <div className="relative p-6 rounded-2xl border bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border-indigo-500/20 shadow-lg shadow-indigo-500/5 group-hover:scale-105 group-hover:-rotate-3 transition-all duration-500 ease-out">
+              <svg className="w-16 h-16 text-indigo-500 animate-[spin_10s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
+            </div>
+          </div>
+          
+          <h3 className={`text-xl font-bold font-sans mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+            Interactive 3D Structure Viewer
+          </h3>
+          
+          <p className="text-sm max-w-md mb-6 leading-relaxed">
+            Welcome to the Missense Structural Explorer. Please select one of the high-impact <span className="font-semibold text-indigo-500">Presets</span> above or input a Gene and Missense Variant to resolve and simulate the wild-type and mutant protein structures.
+          </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+              isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500 shadow-sm"
+            }`}>
+              ⚡ AlphaFold 3D Structures
+            </span>
+            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+              isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500 shadow-sm"
+            }`}>
+              🧪 FoldX Biophysics Engine
+            </span>
+            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+              isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500 shadow-sm"
+            }`}>
+              🧬 Variant Mutagenesis
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Actual Mol* Canvas Container */}
       <div 
          ref={containerRef} 
-         id="molstar-viewer-container" 
+      id="molstar-viewer-container" 
          className={`w-full h-full text-slate-900 transition-all duration-700 ease-out ${
            isTransitioning ? "opacity-35 scale-[0.985] blur-[1px]" : "opacity-100 scale-100 blur-0"
          }`}
       />
-
-      {/* Floating Viewport Toolbar for custom actions */}
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={async () => {
-            const helper = pluginRef.current?.helpers?.viewportScreenshot || pluginRef.current?.viewportScreenshot;
-            if (helper) {
-              try {
-                // Trigger customized Molstar high-res screenshot download
-                await helper.download(`structural-snapshot-${gene}-${uniprotId}.png`);
-              } catch (err) {
-                console.warn("Screenshot download helper failed, falling back to WebGL stream:", err);
-                // Canvas fallback
-                const canvas = containerRef.current?.querySelector('canvas');
-                if (canvas) {
-                  const link = document.createElement('a');
-                  link.download = `structural-snapshot-${gene}-${uniprotId}.png`;
-                  link.href = canvas.toDataURL("image/png");
-                  link.click();
-                }
-              }
-            } else {
-              // Standard webgl download fallback
-              const canvas = containerRef.current?.querySelector('canvas');
-              if (canvas) {
-                const link = document.createElement('a');
-                link.download = `structural-snapshot-${gene}-${uniprotId}.png`;
-                link.href = canvas.toDataURL("image/png");
-                link.click();
-              }
-            }
-          }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all pointer-events-auto cursor-pointer shadow-md select-none ${
-            isDark 
-              ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50" 
-              : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+      {/* FoldX / SCWRL4 result — top-left collapsible draggable badge */}
+      {customPdbData && mutantStatus && (
+        <div
+          className={`absolute z-20 max-w-[300px] pointer-events-auto select-none transition-shadow rounded-xl border border-l-4 border-l-indigo-500 overflow-hidden backdrop-blur-md ${
+            isFoldXDragging ? "shadow-2xl" : "shadow-md"
+          } ${
+            isDark
+              ? "bg-slate-900/95 border-slate-800 text-slate-100"
+              : "bg-white/95 border-slate-200 text-slate-800"
           }`}
-          title="Capture high-resolution PNG image of the current structural visualization"
-        >
-          <Camera className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Capture View</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setIsPocketPanelOpen(prev => !prev);
-            if (!isPocketPanelOpen) {
-              setShowPocket(true);
-            }
+          onMouseDown={handleFoldXMouseDown}
+          style={{
+            top: `calc(0.75rem + ${foldXPosition.y}px)`,
+            left: `calc(0.75rem + ${foldXPosition.x}px)`,
+            cursor: isFoldXDragging ? 'grabbing' : 'grab'
           }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all pointer-events-auto cursor-pointer shadow-md select-none ${
-            isPocketPanelOpen
-              ? "bg-indigo-600 border-indigo-500 text-white"
-              : isDark
-                ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50" 
-                : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
-          }`}
-          title="Run dynamic coordinate and biophysical matching algorithms to render the nearest binding site residues"
         >
-          <Cpu className={`w-3.5 h-3.5 ${isPocketPanelOpen ? "text-amber-300 animate-pulse font-bold" : "text-indigo-500"}`} />
-          <span>Pocket-Finder Suite</span>
-        </button>
-      </div>
-
-      {/* Warning/Success banner for mutant coordinates (F-2) */}
-      {customPdbData && (
-        mutantStatus === "success" ? (
-          <div className={`absolute top-14 left-3 right-3 z-10 p-2 rounded-lg border text-[10px] font-mono shadow-sm flex items-center gap-2 pointer-events-auto select-none ${
-            isDark 
-              ? "bg-indigo-950/85 border-indigo-800/60 text-indigo-350" 
-              : "bg-indigo-50 border-indigo-250 text-indigo-800 shadow-indigo-100/30"
-          }`}>
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
-            <span>
-              <strong>FoldX Biophysically Repacked Model:</strong> Structure coordinates reflect local side-chain repacking. 
-              {mutantDdG !== null && mutantDdG !== undefined 
-                ? ` Predicted stability change (ΔΔG): ${formatDdG(mutantDdG, energyUnit)}.` 
-                : " Predicted stability change (ΔΔG): ΔΔG not computed (FoldX energy output unavailable)."}
-            </span>
-          </div>
-        ) : showWarningCard && (
-          mutantStatus === "scwrl" ? (
-            <div className={`absolute top-14 left-3 right-3 z-10 p-2.5 rounded-xl border text-[10px] font-mono shadow-lg flex items-center justify-between gap-2 pointer-events-auto select-none ${
-              isDark 
-                ? "bg-indigo-950/90 border-indigo-800/70 text-indigo-300" 
-                : "bg-indigo-50/95 border-indigo-200 text-indigo-850 shadow-indigo-100/10"
-            }`}>
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0 animate-pulse" />
-                <span>
-                  <strong>SCWRL4 Biophysically Packed Model:</strong> Side-chain rotamers have been packed using SCWRL4 as a secondary fallback. Stability energy calculations (ΔΔG) are not available.
-                </span>
-              </div>
+          {mutantStatus === "success" ? (
+            <div>
+              {/* Collapsed header / pill */}
               <button
                 type="button"
-                onClick={() => setShowWarningCard(false)}
-                className="p-1 text-xs hover:text-white dark:hover:text-indigo-100 font-bold bg-indigo-500/10 hover:bg-indigo-500/20 rounded cursor-pointer"
+                onClick={() => setFoldxBannerCollapsed(p => !p)}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors ${
+                  isDark ? "hover:bg-slate-800/55" : "hover:bg-slate-100/50"
+                }`}
               >
-                ✕
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 text-indigo-500 shrink-0 animate-pulse" />
+                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider">
+                    FoldX Model
+                  </span>
+                  {mutantDdG !== null && mutantDdG !== undefined && (
+                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                      isDark ? "bg-slate-850 text-indigo-400" : "bg-indigo-50 text-indigo-600 border border-indigo-100/50"
+                    }`}>
+                      ΔΔG: {mutantDdG.toFixed(2)} kcal/mol
+                    </span>
+                  )}
+                </div>
+                {foldxBannerCollapsed
+                  ? <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                  : <ChevronUp className="w-3 h-3 text-slate-400 shrink-0" />}
               </button>
+              {/* Expanded body */}
+              {!foldxBannerCollapsed && (
+                <div className={`px-3 pb-2.5 pt-0 text-[10px] font-mono border-t ${
+                  isDark ? "border-slate-800/40 text-slate-350" : "border-slate-200/60 text-slate-650"
+                }`}>
+                  <p className="leading-relaxed mt-1.5">
+                    <strong>Biophysically Repacked:</strong> Side-chain coordinates reflect local FoldX force-field energy minimisation.
+                    {mutantDdG !== null && mutantDdG !== undefined
+                      ? ` Predicted ΔΔG: ${formatDdG(mutantDdG, energyUnit)}.`
+                      : " ΔΔG unavailable."}
+                  </p>
+                </div>
+              )}
             </div>
-          ) : null
-        )
+          ) : mutantStatus === "scwrl" && showWarningCard ? (
+            <div>
+              <button
+                type="button"
+                onClick={() => setFoldxBannerCollapsed(p => !p)}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors ${
+                  isDark ? "hover:bg-slate-800/55" : "hover:bg-slate-100/50"
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 text-amber-500 shrink-0 animate-pulse" />
+                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-amber-500">SCWRL4 Fallback</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {foldxBannerCollapsed
+                    ? <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                    : <ChevronUp className="w-3 h-3 text-slate-400 shrink-0" />}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowWarningCard(false); }}
+                    className="ml-1 p-0.5 rounded hover:bg-slate-500/20 cursor-pointer"
+                  >
+                    <X className="w-3 h-3 text-slate-400" />
+                  </button>
+                </div>
+              </button>
+              {!foldxBannerCollapsed && (
+                <div className={`px-3 pb-2.5 pt-0 text-[10px] font-mono border-t ${
+                  isDark ? "border-slate-800/40 text-slate-350" : "border-slate-200/60 text-slate-650"
+                }`}>
+                  <p className="leading-relaxed mt-1.5">
+                    <strong>SCWRL4 Packed:</strong> Side-chain rotamers packed as fallback. Stability energy (ΔΔG) not available.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
       )}
 
-      {/* Mini Controls overlay */}
-      <div className={`absolute bottom-3 left-3 backdrop-blur-sm px-3 py-1.5 rounded-lg text-[11px] font-mono z-1 pointer-events-none flex flex-wrap items-center gap-3 border transition-colors ${
-        isDark 
-          ? "bg-slate-950/80 border-slate-800/85 text-slate-300" 
-          : "bg-white/80 border-slate-200 text-slate-600 shadow-sm"
-      }`}>
-        <span className="flex items-center gap-1.5 text-indigo-500 font-semibold pointer-events-auto">
-          {comparePdbData ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-              <span>Superimposed Biophysical Variants</span>
-            </>
-          ) : customPdbData ? (
-            mutantStatus === "success" ? (
+      {/* Bottom bar: Model Status info + actions all in one aligned bar next to capture */}
+      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 pointer-events-none">
+        {/* Model Info bar - now moved next to action buttons */}
+        <div className={`backdrop-blur-md px-3 py-1.5 rounded-lg text-[11px] font-mono flex items-center gap-2.5 border pointer-events-auto shadow-md transition-colors ${
+          isDark
+            ? "bg-slate-900/90 border-slate-800 text-slate-300"
+            : "bg-white/95 border-slate-200 text-slate-650"
+        }`}>
+          <span className="flex items-center gap-1.5 text-indigo-505 font-bold">
+            {comparePdbData ? (
               <>
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-                <span>FoldX Biophysical Model</span>
+                <span>Superimposed</span>
+              </>
+            ) : customPdbData ? (
+              mutantStatus === "success" ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                  <span>FoldX</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                  <span className="text-amber-400 font-bold">SCWRL4</span>
+                </>
+              )
+            ) : uniprotId ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                <span>AlphaFold AF-{uniprotId}</span>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowWarningCard(prev => !prev);
-                  setWarningClicked(true);
-                }}
-                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition ${
-                  !warningClicked
-                    ? "animate-pulse bg-amber-500/15 border-amber-500/35 text-amber-500 hover:bg-amber-500/25"
-                    : "bg-slate-500/10 border-slate-500/20 text-slate-400 hover:bg-slate-500/20"
-                }`}
-                title="Click to view biophysical fallback warning"
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${!warningClicked ? "bg-amber-500 animate-ping" : "bg-slate-400"}`}></span>
-                <span>SCWRL4 Packed Model (Warning)</span>
-              </button>
-            )
-          ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                <span>No Structure Loaded</span>
+              </>
+            )}
+          </span>
+          {gene && (
             <>
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-              <span>AlphaFold AF-{uniprotId}</span>
+              <span className="text-slate-500">|</span>
+              <span>Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong></span>
             </>
           )}
-        </span>
-        <span className="text-slate-500 pointer-events-none">|</span>
-        <span className="pointer-events-none">Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong></span>
-        {residueIndex !== null && (
-          <>
-            <span className="text-slate-500 pointer-events-none">|</span>
-            <span className="text-amber-500 font-semibold pointer-events-none">Residue 1: #{residueIndex}</span>
-          </>
-        )}
-        {comparePdbData && compareResidueIndex !== null && compareResidueIndex !== undefined && (
-          <>
-            <span className="text-slate-500 pointer-events-none">|</span>
-            <span className="text-pink-500 font-semibold pointer-events-none">Residue 2 ({compareVariant || "Compare"}): #{compareResidueIndex}</span>
-          </>
-        )}
+          {residueIndex !== null && (
+            <>
+              <span className="text-slate-500">|</span>
+              <span className="text-amber-500 font-bold">#{residueIndex}</span>
+            </>
+          )}
+          {comparePdbData && compareResidueIndex !== null && compareResidueIndex !== undefined && (
+            <>
+              <span className="text-slate-500">|</span>
+              <span className="text-pink-500 font-bold">#{compareResidueIndex} ({compareVariant || "Compare"})</span>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 pointer-events-auto">
+          {/* Fullscreen Button */}
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all cursor-pointer shadow-md select-none ${
+              isDark
+                ? "bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-600"
+                : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400"
+            }`}
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Capture View split button */}
+          <div className="relative" ref={captureMenuRef}>
+            <button
+              type="button"
+              onClick={() => setCaptureMenuOpen(p => !p)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all cursor-pointer shadow-md select-none ${
+                captureMenuOpen
+                  ? isDark
+                    ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300"
+                    : "bg-indigo-50 border-indigo-300 text-indigo-700"
+                  : isDark
+                    ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50"
+                    : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+              }`}
+              title="Capture view options"
+            >
+              <Camera className="w-3.5 h-3.5 text-indigo-505" />
+              <span>Capture View</span>
+              <ChevronUp className={`w-3 h-3 transition-transform ${captureMenuOpen ? "" : "rotate-180"}`} />
+            </button>
+            {/* Dropdown menu — pops upward */}
+            {captureMenuOpen && (
+              <div className={`absolute bottom-full right-0 mb-1.5 w-44 rounded-xl border shadow-2xl overflow-hidden z-30 animate-slide-in ${
+                isDark
+                  ? "bg-slate-900 border-slate-700 text-slate-200"
+                  : "bg-white border-slate-200 text-slate-800"
+              }`}>
+                <button
+                  type="button"
+                  onClick={handleDownloadCapture}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold transition-colors cursor-pointer ${
+                    isDark ? "hover:bg-indigo-600/15 hover:text-indigo-300" : "hover:bg-indigo-50 hover:text-indigo-700"
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5 text-indigo-505 shrink-0" />
+                  Download PNG
+                </button>
+                <div className={`h-px mx-2 ${ isDark ? "bg-slate-800" : "bg-slate-100" }`} />
+                <button
+                  type="button"
+                  onClick={handleCopyCapture}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold transition-colors cursor-pointer ${
+                    isDark ? "hover:bg-indigo-600/15 hover:text-indigo-300" : "hover:bg-indigo-50 hover:text-indigo-700"
+                  }`}
+                >
+                  <ClipboardCopy className="w-3.5 h-3.5 text-indigo-505 shrink-0" />
+                  Copy to Clipboard
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Pocket Finder button */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsPocketPanelOpen(prev => !prev);
+              if (!isPocketPanelOpen) setShowPocket(true);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all cursor-pointer shadow-md select-none ${
+              isPocketPanelOpen
+                ? "bg-indigo-600 border-indigo-500 text-white"
+                : isDark
+                  ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50"
+                  : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+            }`}
+            title="Run binding pocket analysis"
+          >
+            <Cpu className={`w-3.5 h-3.5 ${isPocketPanelOpen ? "text-amber-300 animate-pulse" : "text-indigo-505"}`} />
+            <span>Pocket Finder</span>
+          </button>
+        </div>
       </div>
 
       {/* Slide-out Automated Pocket Control Panel */}
       {isPocketPanelOpen && (
-        <div 
-          id="pocket-finder-suite-panel" 
-          className={`absolute top-14 right-3 bottom-14 w-[310px] z-20 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden shadow-2xl animate-fade-in pointer-events-auto transition-all ${
-            isDark 
-              ? "bg-slate-950/90 border-indigo-500/30 text-slate-100" 
-              : "bg-white/95 border-indigo-250 text-slate-900 shadow-indigo-100/30"
+        <div
+          id="pocket-finder-suite-panel"
+          className={`absolute top-14 right-3 bottom-16 w-[310px] z-20 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden shadow-2xl animate-fade-in pointer-events-auto transition-all ${
+            isDark
+              ? "bg-slate-900/95 border-slate-800 text-slate-100"
+              : "bg-white/95 border-slate-200 text-slate-900 shadow-indigo-100/30"
           }`}
           style={{
             transform: `translate(${pocketPosition.x}px, ${pocketPosition.y}px)`,
@@ -1098,7 +1561,7 @@ export default function MolstarViewer({
               type="button"
               onClick={() => setIsPocketPanelOpen(false)}
               className={`p-1 rounded-md transition-colors hover:bg-slate-500/10 cursor-pointer ${
-                isDark ? "text-slate-450 hover:text-slate-200" : "text-slate-500 hover:text-slate-950"
+                isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-950"
               }`}
             >
               <X className="w-3 h-3" />
@@ -1138,34 +1601,38 @@ export default function MolstarViewer({
                   )}
                 </div>
 
-                {computedPocket.status === "success" ? (
-                  <>
-                    {/* Pocket Stats Bento Grid */}
-                    <div className="grid grid-cols-2 gap-2 text-center font-mono">
-                      <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                        <span className="block text-[7.5px] uppercase text-slate-500 font-bold">Pocket Vol. Space</span>
-                        <strong className="text-xs text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
-                      </div>
-                      <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                        <span className="block text-[7.5px] uppercase text-slate-500 font-bold">Affinity Index</span>
-                        <strong className="text-xs text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
-                      </div>
-                    </div>
+                {/* Pocket Stats Bento Grid */}
+                <div className="grid grid-cols-2 gap-2 text-center font-mono">
+                  <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="block text-[7.5px] uppercase text-slate-500 font-bold">
+                      {computedPocket.status === "success" ? "Pocket Vol. Space" : "Estimated Vol. Space"}
+                    </span>
+                    <strong className="text-xs text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
+                  </div>
+                  <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="block text-[7.5px] uppercase text-slate-500 font-bold">
+                      {computedPocket.status === "success" ? "Affinity Index" : "Density Score"}
+                    </span>
+                    <strong className="text-xs text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
+                  </div>
+                </div>
 
-                    {/* Predicted Substrate */}
-                    <div className={`p-2.5 rounded-lg border ${
-                      isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"
-                    }`}>
-                      <span className="block text-[7.5px] uppercase text-slate-500 font-bold font-mono">Target Pocket Specificity</span>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
-                        <span className="text-[10px] font-bold text-slate-400 truncate">{computedPocket.likelyCofactor}</span>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-[10px] text-slate-400 opacity-80 mt-1 mb-2 italic">
-                    ML pocket predictor unavailable in this environment; showing proximity-heuristic residue list only.
+                {/* Predicted Substrate */}
+                <div className={`p-2.5 rounded-lg border ${
+                  isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"
+                }`}>
+                  <span className="block text-[7.5px] uppercase text-slate-500 font-bold font-mono">
+                    {computedPocket.status === "success" ? "Target Pocket Specificity" : "Est. Substrate Specificity"}
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span className="text-[10px] font-bold text-slate-400 truncate">{computedPocket.likelyCofactor}</span>
+                  </div>
+                </div>
+
+                {computedPocket.status !== "success" && (
+                  <p className="text-[9px] text-slate-400 opacity-80 mt-1 mb-2 italic text-center">
+                    * Values derived via spatial density fallback.
                   </p>
                 )}
 
@@ -1237,17 +1704,17 @@ export default function MolstarViewer({
 
       {/* Disruption Warning Overlay Badge - Draggable and Closeable */}
       {disruptionWarning && !isAlertClosed && (
-        <div 
-          id="disruption-warning-badge" 
+        <div
+          id="disruption-warning-badge"
           onMouseDown={handleMouseDown}
           style={{
             transform: `translate(${alertPosition.x}px, ${alertPosition.y}px)`,
             cursor: isDragging ? 'grabbing' : 'grab'
           }}
-          className={`absolute top-3 right-3 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border z-20 shadow-lg transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none ${
-            isDark 
-              ? "bg-slate-950/85 border-rose-500/30 text-rose-300" 
-              : "bg-white/95 border-rose-300 text-rose-800 shadow-rose-100/30 shadow-[0_4px_16px_rgba(244,63,94,0.08)]"
+          className={`absolute top-3 right-12 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border border-l-4 border-l-rose-500 z-20 shadow-xl transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none ${
+            isDark
+              ? "bg-slate-900/95 border-slate-800 text-slate-200"
+              : "bg-white/95 border-slate-200 text-slate-800"
           }`}
         >
           <div className="flex items-center justify-between gap-4 border-b pb-1.5 border-rose-500/10">

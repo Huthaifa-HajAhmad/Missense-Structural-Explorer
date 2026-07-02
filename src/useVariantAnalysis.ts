@@ -6,11 +6,12 @@ const nullableFiniteNumber = z.number().nullable().refine(val => val === null ||
 
 // Zod validation schemas for server responses (MOD-6)
 export const analyzeVariantResponseSchema = z.object({
-  analysis: z.string(),
+  analysis: z.string().nullable().optional(),
   insights: z.object({
     biochemicalShift: z.string(),
     structuralImpact: z.string(),
     pathogenicity: z.string().optional(),
+    plausibility: z.string().optional(),
     acmgCriteria: z.preprocess(
       (val) => val ?? [],
       z.array(z.object({
@@ -18,6 +19,13 @@ export const analyzeVariantResponseSchema = z.object({
         reason: z.string()
       }))
     )
+  }).nullable().optional(),
+  ruleBasedInsights: z.object({
+    plausibility: z.string(),
+    acmgCriteria: z.array(z.object({
+      code: z.string(),
+      reason: z.string()
+    }))
   }).nullable().optional(),
   clinvar: z.object({
     classification: z.string(),
@@ -74,7 +82,9 @@ export const generateMutantResponseSchema = z.object({
     dynamut2: nullableFiniteNumber,
     ddgun: nullableFiniteNumber,
     maestro: nullableFiniteNumber
-  }).optional()
+  }).optional(),
+  dynamut2JobId: z.string().nullable().optional(),
+  dynamut2Status: z.string().nullable().optional()
 });
 
 export const nearestResiduesResponseSchema = z.object({
@@ -348,8 +358,11 @@ export const getAlternativeVariants = (currentGene: string): string[] => {
   if (normalized === "FGFR3") {
     return ["p.Gly380Arg", "p.Ala391Glu", "p.Lys650Glu", "p.Asn540Lys"];
   }
-  if (normalized === "GBA1") {
+  if (normalized === "GBA1" || normalized === "GBA") {
     return ["p.Leu483Pro", "p.Asn409Ser", "p.Asp448His", "p.Glu365Lys"];
+  }
+  if (normalized === "KIF1A") {
+    return ["p.Arg254Trp", "p.Val8Met", "p.Ala255Val", "p.Thr99Met"];
   }
   return ["p.Ala40Val", "p.Leu100Pro", "p.Glu150Lys"];
 };
@@ -383,6 +396,9 @@ export default function useVariantAnalysis() {
     if (settings.geminiSessionId) {
       headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
     }
+    if (settings.appApiToken) {
+      headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+    }
     
     let response = await fetchWithRetry(url, { ...options, headers });
     
@@ -392,9 +408,13 @@ export default function useVariantAnalysis() {
         console.warn(`Auth failed (401) for ${url}, attempting transparent re-authentication...`);
       }
       try {
+        const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
+        if (settings.appApiToken) {
+          reauthHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
+        }
         const sessionRes = await fetch("/api/v1/session/keys", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: reauthHeaders,
           body: JSON.stringify({ apiKey: settings.geminiApiKey }),
           signal: options.signal
         });
@@ -404,11 +424,14 @@ export default function useVariantAnalysis() {
             updateSetting("geminiSessionId", sessionData.sessionId);
             updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 3600000));
             
-            // Retry original request with the new session ID
-            const retryHeaders = {
+            // Retry original request with the new session ID and bearer token
+            const retryHeaders: Record<string, string> = {
               ...headers,
               "X-Gemini-Session-ID": sessionData.sessionId
             };
+            if (settings.appApiToken) {
+              retryHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
+            }
             response = await fetchWithRetry(url, { ...options, headers: retryHeaders });
           }
         }
@@ -421,6 +444,8 @@ export default function useVariantAnalysis() {
   }, [settings.geminiSessionId, settings.geminiApiKey, updateSetting]);
 
   const abortAllPendingRequests = () => {
+    clearDynaMutPoll();
+    clearDynaMutComparePoll();
     if (analysisAbortRef.current) {
       try {
         analysisAbortRef.current.abort();
@@ -465,15 +490,15 @@ export default function useVariantAnalysis() {
   const classBadgeAccent = isDark ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-indigo-50 text-indigo-600 border border-indigo-100/80";
   const classSubCard = isDark ? "bg-slate-950/40 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700";
 
-  const [gene, setGene] = useState("PAH");
+  const [gene, setGene] = useState("");
   const { history, setHistory, addToHistory, clearHistory } = useSearchHistory(settings.maxHistoryItems, settings.saveHistory);
 
-  const [variant, setVariant] = useState("p.Arg408Trp");
-  const [uniprotId, setUniprotId] = useState("P00439");
-  const [selectedResidueIndex, setSelectedResidueIndex] = useState<number | null>(408);
+  const [variant, setVariant] = useState("");
+  const [uniprotId, setUniprotId] = useState("");
+  const [selectedResidueIndex, setSelectedResidueIndex] = useState<number | null>(null);
   const [hoveredResidueIndex, setHoveredResidueIndex] = useState<number | null>(null);
 
-  const [searchVal, setSearchVal] = useState("PAH p.Arg408Trp");
+  const [searchVal, setSearchVal] = useState("");
   const [customGene, setCustomGene] = useState("");
   const [customVariant, setCustomVariant] = useState("");
   const [customUniprot, setCustomUniprot] = useState("");
@@ -493,7 +518,7 @@ export default function useVariantAnalysis() {
   const [foldingEnergetics, setFoldingEnergetics] = useState<EnergeticsData | null>(null);
 
   const [compareMode, setCompareMode] = useState<boolean>(false);
-  const [compareVariant, setCompareVariant] = useState<string>("p.Arg408Pro");
+  const [compareVariant, setCompareVariant] = useState<string>("");
   const [compareMutantPdb, setCompareMutantPdb] = useState<string | null>(null);
   const [compareFoldedResidueIndex, setCompareFoldedResidueIndex] = useState<number | null>(null);
   const [isFoldingCompare, setIsFoldingCompare] = useState<boolean>(false);
@@ -503,12 +528,55 @@ export default function useVariantAnalysis() {
   const [compareFoldingEnergetics, setCompareFoldingEnergetics] = useState<EnergeticsData | null>(null);
   const [comparisonLayout, setComparisonLayout] = useState<"superimposed" | "side-by-side">("superimposed");
 
+  const [dynamut2Status, setDynamut2Status] = useState<"pending" | "unavailable" | "done" | null>(null);
+  const [compareDynamut2Status, setCompareDynamut2Status] = useState<"pending" | "unavailable" | "done" | null>(null);
+
+  const [notifications, setNotifications] = useState<{ id: string; type: "success" | "info" | "error"; message: string }[]>([]);
+
+  const addNotification = useCallback((type: "success" | "info" | "error", message: string) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setNotifications(prev => [...prev, { id, type, message }]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 6000);
+  }, []);
+
+  const removeNotification = useCallback((id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  const dynamutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
+  const dynamutComparePollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
+
+  const clearDynaMutPoll = useCallback(() => {
+    if (dynamutPollIntervalRef.current) {
+      clearInterval(dynamutPollIntervalRef.current as any);
+      dynamutPollIntervalRef.current = null;
+    }
+  }, []);
+
+  const clearDynaMutComparePoll = useCallback(() => {
+    if (dynamutComparePollIntervalRef.current) {
+      clearInterval(dynamutComparePollIntervalRef.current as any);
+      dynamutComparePollIntervalRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearDynaMutPoll();
+      clearDynaMutComparePoll();
+    };
+  }, [clearDynaMutPoll, clearDynaMutComparePoll]);
+
   const [pdbText, setPdbText] = useState<string | null>(null);
   const [computedPocket, setComputedPocket] = useState<PocketResult | null>(null);
   const [isPocketLoading, setIsPocketLoading] = useState<boolean>(false);
   const [pocketError, setPocketError] = useState<string | null>(null);
 
   const resetViewerState = () => {
+    clearDynaMutPoll();
+    clearDynaMutComparePoll();
     setViewMode("wildtype");
     setMutantPdb(null);
     setFoldedResidueIndex(null);
@@ -516,6 +584,7 @@ export default function useVariantAnalysis() {
     setFoldingStatus(null);
     setFoldingDdG(null);
     setFoldingEnergetics(null);
+    setDynamut2Status(null);
     setCompareMode(false);
     setCompareVariant("p.Arg408Pro");
     setCompareMutantPdb(null);
@@ -526,6 +595,7 @@ export default function useVariantAnalysis() {
     setCompareFoldingStatus(null);
     setCompareFoldingDdG(null);
     setCompareFoldingEnergetics(null);
+    setCompareDynamut2Status(null);
     setPdbText(null);
     setComputedPocket(null);
     setIsPocketLoading(false);
@@ -553,22 +623,12 @@ export default function useVariantAnalysis() {
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
     isLoading: false,
     error: null,
-    result: {
-      analysis: FALLBACK_ANALYSES["P00439_p.Arg408Trp"],
-      insights: FALLBACK_INSIGHTS["P00439_p.Arg408Trp"],
-      isDemoData: true,
-      metadata: {
-        gene: "PAH",
-        variant: "p.Arg408Trp",
-        uniprotId: "P00439",
-        residueIndex: 408,
-        wildType: "Arg",
-        mutant: "Trp"
-      }
-    }
+    result: null
   });
 
   const [loadingStep, setLoadingStep] = useState<string>("Initiating molecular analysis...");
+  const [isBiophysicalLoading, setIsBiophysicalLoading] = useState<boolean>(false);
+  const [isClinicalLoading, setIsClinicalLoading] = useState<boolean>(false);
 
   const handleSelectHistoryItem = (item: { gene: string; variant: string; uniprotId: string }) => {
     abortAllPendingRequests();
@@ -704,6 +764,8 @@ export default function useVariantAnalysis() {
     }
 
     setAnalysisState({ isLoading: true, error: null, result: null });
+    setIsBiophysicalLoading(true);
+    setIsClinicalLoading(true);
     
     // Clear structural model comparison states for fresh run
     setViewMode("wildtype");
@@ -728,11 +790,105 @@ export default function useVariantAnalysis() {
       if (settings.geminiSessionId) {
         warmupHeaders["X-Gemini-Session-ID"] = settings.geminiSessionId;
       }
+      if (settings.appApiToken) {
+        warmupHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
+      }
       const pdbWarmupPromise = fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
         signal: activeSignal,
         headers: warmupHeaders
       }).catch(err => {
         console.warn("AlphaFold PDB concurrent pre-fetch request failed or aborted:", err);
+      });
+
+      let biophysicalResult: any = null;
+
+      // Concurrently kick off the biophysical description query so it resolves quickly in parallel
+      const biophysicalPromise = fetchWithAuth("/api/v1/analyze-variant-biophysical", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gene: targetGene,
+          variant: targetVariant,
+          uniprotId: targetUniprot
+        }),
+        signal: activeSignal
+      }).then(async (res) => {
+        setIsBiophysicalLoading(false);
+        if (res.ok) {
+          const bpData = await res.json();
+          biophysicalResult = bpData;
+          setAnalysisState(prev => {
+            if (!prev.result) return prev;
+            const prevInsights = prev.result.insights || {
+              biochemicalShift: "",
+              structuralImpact: "",
+              acmgCriteria: [],
+              plausibility: ""
+            };
+            return {
+              ...prev,
+              result: {
+                ...prev.result,
+                insights: {
+                  ...prevInsights,
+                  biochemicalShift: bpData.biochemicalShift,
+                  structuralImpact: bpData.structuralImpact
+                }
+              }
+            };
+          });
+        } else {
+          let errorMsg = "The biophysical analysis request failed.";
+          try {
+            const errData = await res.json();
+            if (errData?.error?.message) {
+              errorMsg = errData.error.message;
+            }
+          } catch (_) {}
+          setAnalysisState(prev => {
+            if (!prev.result) return prev;
+            const prevInsights = prev.result.insights || {
+              biochemicalShift: "",
+              structuralImpact: "",
+              acmgCriteria: [],
+              plausibility: ""
+            };
+            return {
+              ...prev,
+              result: {
+                ...prev.result,
+                insights: {
+                  ...prevInsights,
+                  biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\n${errorMsg}`,
+                  structuralImpact: `⚠️ **Structural Impact Unavailable**\n\n${errorMsg}`
+                }
+              }
+            };
+          });
+        }
+      }).catch(err => {
+        setIsBiophysicalLoading(false);
+        console.warn("Parallel biophysical insights pre-fetch failed:", err);
+        setAnalysisState(prev => {
+          if (!prev.result) return prev;
+          const prevInsights = prev.result.insights || {
+            biochemicalShift: "",
+            structuralImpact: "",
+            acmgCriteria: [],
+            plausibility: ""
+          };
+          return {
+            ...prev,
+            result: {
+              ...prev.result,
+              insights: {
+                ...prevInsights,
+                biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\nThe request encountered a connection error: ${err.message || "Unknown network error."}`,
+                structuralImpact: `⚠️ **Structural Impact Unavailable**\n\nThe request encountered a connection error: ${err.message || "Unknown network error."}`
+              }
+            }
+          };
+        });
       });
 
       let response = await fetchWithAuth("/api/v1/analyze-variant", {
@@ -772,12 +928,16 @@ export default function useVariantAnalysis() {
         isLoading: false,
         error: null,
         result: {
-          analysis: validatedData.analysis,
-          insights: validatedData.insights ? {
-            biochemicalShift: validatedData.insights.biochemicalShift,
-            structuralImpact: validatedData.insights.structuralImpact,
-            acmgCriteria: validatedData.insights.acmgCriteria,
-            pathogenicity: validatedData.insights.pathogenicity
+          analysis: null,
+          insights: biophysicalResult ? {
+            biochemicalShift: biophysicalResult.biochemicalShift,
+            structuralImpact: biophysicalResult.structuralImpact,
+            acmgCriteria: [],
+            plausibility: ""
+          } : null,
+          ruleBasedInsights: validatedData.ruleBasedInsights ? {
+            plausibility: validatedData.ruleBasedInsights.plausibility,
+            acmgCriteria: validatedData.ruleBasedInsights.acmgCriteria
           } : null,
           clinvar: validatedData.clinvar ? {
             classification: validatedData.clinvar.classification,
@@ -809,9 +969,106 @@ export default function useVariantAnalysis() {
       if (validatedData.metadata?.residueIndex) {
         setSelectedResidueIndex(validatedData.metadata.residueIndex);
       }
+
+      // Asynchronously fetch narrative to avoid blocking UI dashboard render
+      (async () => {
+        try {
+          const narrativeResponse = await fetchWithAuth("/api/v1/analyze-variant-narrative", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              gene: targetGene,
+              variant: targetVariant,
+              uniprotId: targetUniprot,
+              userDirections: userDirections || undefined,
+              acmgWeighting: settings.acmgWeighting,
+              clinvar: validatedData.clinvar,
+              predictorData: validatedData.predictorData,
+              conservationData: validatedData.conservationData,
+              stringInteractions: validatedData.stringInteractions
+            }),
+            signal: activeSignal
+          });
+          if (narrativeResponse.ok) {
+            const narrativeData = await narrativeResponse.json();
+            setAnalysisState(prev => {
+              if (!prev.result) return prev;
+              const prevInsights = prev.result.insights || {
+                biochemicalShift: "",
+                structuralImpact: "",
+                acmgCriteria: [],
+                plausibility: ""
+              };
+              return {
+                ...prev,
+                result: {
+                  ...prev.result,
+                  analysis: narrativeData.analysis,
+                  insights: {
+                    ...prevInsights,
+                    acmgCriteria: narrativeData.insights?.acmgCriteria || [],
+                    pathogenicity: narrativeData.insights?.pathogenicity || prevInsights.pathogenicity,
+                    plausibility: narrativeData.insights?.plausibility || ""
+                  }
+                }
+              };
+            });
+          } else {
+            console.error("Narrative analysis response not ok:", narrativeResponse.status);
+            setAnalysisState(prev => {
+              if (!prev.result) return prev;
+              const prevInsights = prev.result.insights || {
+                biochemicalShift: "",
+                structuralImpact: "",
+                acmgCriteria: [],
+                plausibility: ""
+              };
+              return {
+                ...prev,
+                result: {
+                  ...prev.result,
+                  analysis: "⚠️ **AI Narrative Explanation Unavailable**\n\nThe Gemini AI explanation service could not be loaded. Please retry.",
+                  insights: {
+                    ...prevInsights,
+                    acmgCriteria: []
+                  }
+                }
+              };
+            });
+          }
+          setIsClinicalLoading(false);
+        } catch (narrativeErr: any) {
+          if (activeSignal.aborted) return;
+          console.error("Narrative analysis request failed:", narrativeErr);
+          setAnalysisState(prev => {
+            if (!prev.result) return prev;
+            const prevInsights = prev.result.insights || {
+              biochemicalShift: "",
+              structuralImpact: "",
+              acmgCriteria: [],
+              plausibility: ""
+            };
+            return {
+              ...prev,
+              result: {
+                ...prev.result,
+                analysis: `⚠️ **AI Narrative Explanation Unavailable**\n\nThe Gemini AI explanation service request failed (${narrativeErr.message}).`,
+                insights: {
+                  ...prevInsights,
+                  acmgCriteria: []
+                }
+              }
+            };
+          });
+        } finally {
+          setIsClinicalLoading(false);
+        }
+      })();
     } catch (err: any) {
       clearTimeout(timer1);
       clearTimeout(timer2);
+      setIsBiophysicalLoading(false);
+      setIsClinicalLoading(false);
       
       if (activeSignal.aborted) {
         if (import.meta.env.DEV) {
@@ -1011,6 +1268,9 @@ export default function useVariantAnalysis() {
       if (settings.geminiSessionId) {
         wtPdbHeaders["X-Gemini-Session-ID"] = settings.geminiSessionId;
       }
+      if (settings.appApiToken) {
+        wtPdbHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
+      }
       const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
         signal: activeSignal,
         headers: wtPdbHeaders
@@ -1070,6 +1330,64 @@ export default function useVariantAnalysis() {
         ddgun: null,
         maestro: null
       });
+      const returnedStatus = validatedData.dynamut2Status;
+      setDynamut2Status(
+        returnedStatus === "pending" || returnedStatus === "unavailable" || returnedStatus === "done"
+          ? returnedStatus
+          : null
+      );
+
+      if (validatedData.dynamut2JobId) {
+        clearDynaMutPoll();
+        let attempts = 0;
+        const maxAttempts = 100;
+        const jobId = validatedData.dynamut2JobId;
+        addNotification("info", `DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
+        
+        const poll = async () => {
+          attempts++;
+          try {
+            const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}`, {
+              method: "GET",
+              signal: activeSignal
+            });
+            if (!pollRes.ok) {
+              throw new Error(`Poll request failed (status: ${pollRes.status})`);
+            }
+            const pollData = await pollRes.json();
+            if (pollData.status === "DONE" && pollData.prediction !== null) {
+              setFoldingEnergetics(prev => ({
+                foldx: prev ? prev.foldx : validatedData.ddG,
+                ddgun: prev ? prev.ddgun : null,
+                maestro: prev ? prev.maestro : null,
+                dynamut2: pollData.prediction
+              }));
+              setDynamut2Status("done");
+              clearDynaMutPoll();
+              addNotification("success", `DynaMut2 prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+            } else if (pollData.status === "ERROR") {
+              setDynamut2Status("unavailable");
+              clearDynaMutPoll();
+              addNotification("error", `DynaMut2 prediction failed for ${targetGene} ${targetVariant}.`);
+            }
+          } catch (pollErr: any) {
+            if (activeSignal?.aborted) return;
+            console.error("[DynaMut2 Polling Error]:", pollErr);
+            setDynamut2Status("unavailable");
+            clearDynaMutPoll();
+            addNotification("error", `DynaMut2 polling encountered an error: ${pollErr.message || pollErr}.`);
+          }
+          
+          if (attempts >= maxAttempts) {
+            setDynamut2Status("unavailable");
+            clearDynaMutPoll();
+            addNotification("error", `DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+          }
+        };
+
+        const intervalId = setInterval(poll, 3000);
+        dynamutPollIntervalRef.current = intervalId;
+      }
     } catch (err: any) {
       if (activeSignal.aborted) {
         console.log("fetchMutantFold aborted/canceled.");
@@ -1105,6 +1423,9 @@ export default function useVariantAnalysis() {
       const wtPdbHeaders: Record<string, string> = {};
       if (settings.geminiSessionId) {
         wtPdbHeaders["X-Gemini-Session-ID"] = settings.geminiSessionId;
+      }
+      if (settings.appApiToken) {
+        wtPdbHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
       }
       const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
         signal: activeSignal,
@@ -1162,6 +1483,64 @@ export default function useVariantAnalysis() {
         ddgun: null,
         maestro: null
       });
+      const returnedStatus = validatedData.dynamut2Status;
+      setCompareDynamut2Status(
+        returnedStatus === "pending" || returnedStatus === "unavailable" || returnedStatus === "done"
+          ? returnedStatus
+          : null
+      );
+
+      if (validatedData.dynamut2JobId) {
+        clearDynaMutComparePoll();
+        let attempts = 0;
+        const maxAttempts = 100;
+        const jobId = validatedData.dynamut2JobId;
+        addNotification("info", `Comparison DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
+        
+        const poll = async () => {
+          attempts++;
+          try {
+            const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}`, {
+              method: "GET",
+              signal: activeSignal
+            });
+            if (!pollRes.ok) {
+              throw new Error(`Poll request failed (status: ${pollRes.status})`);
+            }
+            const pollData = await pollRes.json();
+            if (pollData.status === "DONE" && pollData.prediction !== null) {
+              setCompareFoldingEnergetics(prev => ({
+                foldx: prev ? prev.foldx : validatedData.ddG,
+                ddgun: prev ? prev.ddgun : null,
+                maestro: prev ? prev.maestro : null,
+                dynamut2: pollData.prediction
+              }));
+              setCompareDynamut2Status("done");
+              clearDynaMutComparePoll();
+              addNotification("success", `Comparison DynaMut2 prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+            } else if (pollData.status === "ERROR") {
+              setCompareDynamut2Status("unavailable");
+              clearDynaMutComparePoll();
+              addNotification("error", `Comparison DynaMut2 prediction failed for ${targetGene} ${targetVariant}.`);
+            }
+          } catch (pollErr: any) {
+            if (activeSignal?.aborted) return;
+            console.error("[DynaMut2 Polling Error]:", pollErr);
+            setCompareDynamut2Status("unavailable");
+            clearDynaMutComparePoll();
+            addNotification("error", `Comparison DynaMut2 polling encountered an error: ${pollErr.message || pollErr}.`);
+          }
+          
+          if (attempts >= maxAttempts) {
+            setCompareDynamut2Status("unavailable");
+            clearDynaMutComparePoll();
+            addNotification("error", `Comparison DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+          }
+        };
+
+        const intervalId = setInterval(poll, 3000);
+        dynamutComparePollIntervalRef.current = intervalId;
+      }
     } catch (err: any) {
       if (activeSignal.aborted) {
         console.log("fetchCompareMutantFold aborted/canceled.");
@@ -1185,7 +1564,6 @@ export default function useVariantAnalysis() {
       controller.abort();
     };
   }, [viewMode, mutantPdb, gene, variant, uniprotId]);
-
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     abortAllPendingRequests();
@@ -1194,247 +1572,124 @@ export default function useVariantAnalysis() {
     analysisAbortRef.current = controller;
     const activeSignal = controller.signal;
 
-    if (showCustomInputs) {
-      if (!customGene || !customVariant) return;
+    const targetGene = (customGene || "").trim().toUpperCase();
+    const targetVariant = (customVariant || "").trim();
+    const targetUniprot = (customUniprot || "").trim().toUpperCase();
 
-      if (isVcfOrCdnaNotation(customVariant)) {
-        try {
-          const resolved = await translateVariantNotation(customVariant, activeSignal);
-          
-          setGene(resolved.gene);
-          setVariant(resolved.variant);
-          setUniprotId(resolved.uniprotId);
-          setSearchVal(`${resolved.gene} ${resolved.variant}`);
-          setCustomGene(resolved.gene);
-          setCustomVariant(resolved.variant);
-          setCustomUniprot(resolved.uniprotId);
-          
-          const resMatch = resolved.variant.match(/\d+/);
-          setSelectedResidueIndex(resMatch ? parseInt(resMatch[0], 10) : null);
-          
-          executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal);
-        } catch (err: any) {
-          if (activeSignal.aborted) return;
-          setAnalysisState({
-            isLoading: false,
-            error: err.message,
-            result: null
-          });
-        }
-        return;
-      }
-      
+    if (!targetGene || !targetVariant) return;
+
+    if (isVcfOrCdnaNotation(targetVariant)) {
       try {
-        parseMutationResidues(customVariant);
-      } catch (err: any) {
-        setAnalysisState({
-          isLoading: false,
-          error: `Validation Error: ${err.message}`,
-          result: null
-        });
-        return;
-      }
-      
-      setAnalysisState(prev => ({ ...prev, isLoading: true, error: null }));
-      setLoadingStep("Resolving gene name to UniProt and AlphaFold coordinates...");
-
-      try {
-        const resolveRes = await fetchWithAuth("/api/v1/resolve-gene", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ gene: customGene }),
-          signal: activeSignal
-        });
-
-        const resText = await resolveRes.text();
-        let resolveData;
-        try {
-          resolveData = JSON.parse(resText);
-        } catch (resolveErr: any) {
-          if (!resolveRes.ok) {
-            throw new Error(`Failed to resolve gene (status: ${resolveRes.status}). Response: ${resText.slice(0, 300)}`);
-          }
-          throw new Error(`Failed to parse gene resolution JSON: ${resolveErr.message}. Response: ${resText.slice(0, 300)}`);
-        }
-
-        if (!resolveRes.ok) {
-          throw new Error(getErrorMessage(resolveData, "Failed to resolve gene."));
-        }
-
-        if (activeSignal.aborted) return;
-
-        const validated = resolveGeneResponseSchema.parse(resolveData);
-        const resolvedUniprot = validated.uniprotId;
-        const resolvedPdbUrl = validated.pdbUrl;
-
-        setGene(customGene.toUpperCase());
-        setVariant(customVariant);
-        setUniprotId(resolvedUniprot);
-        setCustomPdbUrl(resolvedPdbUrl);
+        const resolved = await translateVariantNotation(targetVariant, activeSignal);
         
-        const resMatch = customVariant.match(/\d+/);
-        if (resMatch) {
-          setSelectedResidueIndex(parseInt(resMatch[0], 10));
-        } else {
-          setSelectedResidueIndex(null);
-        }
-
-        executeAnalysis(customGene.toUpperCase(), customVariant, resolvedUniprot, activeSignal);
+        setGene(resolved.gene);
+        setVariant(resolved.variant);
+        setUniprotId(resolved.uniprotId);
+        setSearchVal(`${resolved.gene} ${resolved.variant}`);
+        setCustomGene(resolved.gene);
+        setCustomVariant(resolved.variant);
+        setCustomUniprot(resolved.uniprotId);
+        
+        const resMatch = resolved.variant.match(/\d+/);
+        setSelectedResidueIndex(resMatch ? parseInt(resMatch[0], 10) : null);
+        
+        executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal);
       } catch (err: any) {
-        if (activeSignal.aborted) {
-          console.log("handleSearchSubmit custom search aborted.");
-          return;
-        }
+        if (activeSignal.aborted) return;
         setAnalysisState({
           isLoading: false,
-          error: `Gene resolution failed: ${err.message}`,
+          error: err.message,
           result: null
         });
       }
-    } else {
-      const text = searchVal.trim();
-      if (!text) return;
+      return;
+    }
+    
+    try {
+      parseMutationResidues(targetVariant);
+    } catch (err: any) {
+      setAnalysisState({
+        isLoading: false,
+        error: `Validation Error: ${err.message}`,
+        result: null
+      });
+      return;
+    }
+    
+    setAnalysisState(prev => ({ ...prev, isLoading: true, error: null }));
+    
+    // If UniProt ID is already provided, skip resolution
+    if (targetUniprot) {
+      setGene(targetGene);
+      setVariant(targetVariant);
+      setUniprotId(targetUniprot);
+      setCustomPdbUrl(null);
+      
+      const resMatch = targetVariant.match(/\d+/);
+      if (resMatch) {
+        setSelectedResidueIndex(parseInt(resMatch[0], 10));
+      } else {
+        setSelectedResidueIndex(null);
+      }
+      executeAnalysis(targetGene, targetVariant, targetUniprot, activeSignal);
+      return;
+    }
 
-      let notationToTranslate = "";
-      const parts = text.split(/\s+/);
-      if (isVcfOrCdnaNotation(text)) {
-        notationToTranslate = text;
-      } else if (parts.length >= 2 && isVcfOrCdnaNotation(parts[parts.length - 1])) {
-        notationToTranslate = parts[parts.length - 1];
-      } else if (parts.length === 1 && isVcfOrCdnaNotation(parts[0])) {
-        notationToTranslate = parts[0];
+    setLoadingStep("Resolving gene name to UniProt and AlphaFold coordinates...");
+
+    try {
+      const resolveRes = await fetchWithAuth("/api/v1/resolve-gene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gene: targetGene }),
+        signal: activeSignal
+      });
+
+      const resText = await resolveRes.text();
+      let resolveData;
+      try {
+        resolveData = JSON.parse(resText);
+      } catch (resolveErr: any) {
+        if (!resolveRes.ok) {
+          throw new Error(`Failed to resolve gene (status: ${resolveRes.status}). Response: ${resText.slice(0, 300)}`);
+        }
+        throw new Error(`Failed to parse gene resolution JSON: ${resolveErr.message}. Response: ${resText.slice(0, 300)}`);
       }
 
-      if (notationToTranslate) {
-        try {
-          const resolved = await translateVariantNotation(notationToTranslate, activeSignal);
-          
-          setGene(resolved.gene);
-          setVariant(resolved.variant);
-          setUniprotId(resolved.uniprotId);
-          setSearchVal(`${resolved.gene} ${resolved.variant}`);
-          setCustomGene(resolved.gene);
-          setCustomVariant(resolved.variant);
-          setCustomUniprot(resolved.uniprotId);
-          
-          const resMatch = resolved.variant.match(/\d+/);
-          setSelectedResidueIndex(resMatch ? parseInt(resMatch[0], 10) : null);
-          
-          executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal);
-        } catch (err: any) {
-          if (activeSignal.aborted) return;
-          setAnalysisState({
-            isLoading: false,
-            error: err.message,
-            result: null
-          });
-        }
+      if (!resolveRes.ok) {
+        throw new Error(getErrorMessage(resolveData, "Failed to resolve gene."));
+      }
+
+      if (activeSignal.aborted) return;
+
+      const validated = resolveGeneResponseSchema.parse(resolveData);
+      const resolvedUniprot = validated.uniprotId;
+      const resolvedPdbUrl = validated.pdbUrl;
+
+      setGene(targetGene);
+      setVariant(targetVariant);
+      setUniprotId(resolvedUniprot);
+      setCustomPdbUrl(resolvedPdbUrl);
+      setCustomUniprot(resolvedUniprot);
+      
+      const resMatch = targetVariant.match(/\d+/);
+      if (resMatch) {
+        setSelectedResidueIndex(parseInt(resMatch[0], 10));
+      } else {
+        setSelectedResidueIndex(null);
+      }
+
+      executeAnalysis(targetGene, targetVariant, resolvedUniprot, activeSignal);
+    } catch (err: any) {
+      if (activeSignal.aborted) {
+        console.log("handleSearchSubmit custom search aborted.");
         return;
       }
-
-      const matchedPreset = VARIANT_PRESETS.find(p => 
-        text.toLowerCase().includes(p.gene.toLowerCase()) || 
-        text.toLowerCase().includes(p.uniprotId.toLowerCase())
-      );
-
-      if (matchedPreset) {
-        // NOTE: Do NOT call handleSelectPreset here — it calls abortAllPendingRequests()
-        // which would abort the controller we just created above, causing executeAnalysis
-        // to immediately throw an AbortError and leave isLoading=true forever.
-        // Instead, inline the state updates from handleSelectPreset without the abort.
-        setGene(matchedPreset.gene);
-        setVariant(matchedPreset.variant);
-        setUniprotId(matchedPreset.uniprotId);
-        setSearchVal(`${matchedPreset.gene} ${matchedPreset.variant}`);
-        setCustomPdbUrl(null);
-        resetViewerState();
-        const presetMutMatch = matchedPreset.variant.match(/p\.(?:[a-zA-Z]{3}|\w)(\d+)(?:[a-zA-Z]{3}|\w)/);
-        if (presetMutMatch) {
-          setSelectedResidueIndex(parseInt(presetMutMatch[1], 10));
-        } else {
-          setSelectedResidueIndex(null);
-        }
-        executeAnalysis(matchedPreset.gene, matchedPreset.variant, matchedPreset.uniprotId, activeSignal);
-      } else {
-        const parts = text.split(/\s+/);
-        let parsedGene = gene;
-        let parsedVariant = variant;
-
-        if (parts.length >= 2) {
-          parsedGene = parts[0].toUpperCase();
-          parsedVariant = parts[1];
-        } else if (parts.length === 1 && parts[0].includes("p.")) {
-          parsedVariant = parts[0];
-        }
-
-        try {
-          parseMutationResidues(parsedVariant);
-        } catch (err: any) {
-          setAnalysisState({
-            isLoading: false,
-            error: `Validation Error: ${err.message}`,
-            result: null
-          });
-          return;
-        }
-
-        setAnalysisState(prev => ({ ...prev, isLoading: true, error: null }));
-        setLoadingStep("Resolving gene name to UniProt and AlphaFold coordinates...");
-
-        try {
-          const resolveRes = await fetchWithAuth("/api/v1/resolve-gene", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ gene: parsedGene }),
-            signal: activeSignal
-          });
-
-          const resText = await resolveRes.text();
-          let resolveData;
-          try {
-            resolveData = JSON.parse(resText);
-          } catch (resolveErr: any) {
-            if (!resolveRes.ok) {
-              throw new Error(`Failed to resolve gene (status: ${resolveRes.status}). Response: ${resText.slice(0, 300)}`);
-            }
-            throw new Error(`Failed to parse gene resolution JSON: ${resolveErr.message}. Response: ${resText.slice(0, 300)}`);
-          }
-
-          if (!resolveRes.ok) {
-            throw new Error(getErrorMessage(resolveData, "Failed to resolve gene."));
-          }
-
-          if (activeSignal.aborted) return;
-
-          const validated = resolveGeneResponseSchema.parse(resolveData);
-          const resolvedUniprot = validated.uniprotId;
-          const resolvedPdbUrl = validated.pdbUrl;
-
-          setGene(parsedGene);
-          setVariant(parsedVariant);
-          setUniprotId(resolvedUniprot);
-          setCustomPdbUrl(resolvedPdbUrl);
-
-          const resMatch = parsedVariant.match(/\d+/);
-          if (resMatch) {
-            setSelectedResidueIndex(parseInt(resMatch[0], 10));
-          } else {
-            setSelectedResidueIndex(null);
-          }
-
-          executeAnalysis(parsedGene, parsedVariant, resolvedUniprot, activeSignal);
-        } catch (err: any) {
-          if (activeSignal.aborted) {
-            console.log("handleSearchSubmit simple search aborted.");
-            return;
-          }
-          setAnalysisState({
-            isLoading: false,
-            error: `Gene resolution failed: ${err.message}`,
-            result: null
-          });
-        }
-      }
+      setAnalysisState({
+        isLoading: false,
+        error: `Gene resolution failed: ${err.message}`,
+        result: null
+      });
     }
   };
 
@@ -1445,30 +1700,8 @@ export default function useVariantAnalysis() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Pathogenicity severity calculation
-  const getPathogenicityBadge = (result: any) => {
-    if (!result) return null;
-    
-    // Deterministic ClinVar classification or Gemini pathogenicity insights (S-2)
-    const label = result.insights?.pathogenicity || result.clinvar?.classification || "VUS (Uncertain)";
-    
-    const labelLower = label.toLowerCase();
-    if (labelLower.includes("likely pathogenic")) {
-      return { label: "Likely Pathogenic", bg: isDark ? "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20" : "bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100" };
-    } else if (labelLower.includes("pathogenic")) {
-      return { label: "Pathogenic", bg: isDark ? "bg-rose-500/10 border-rose-500/20 text-rose-400 hover:bg-rose-500/20" : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100" };
-    } else if (labelLower.includes("likely benign")) {
-      return { label: "Likely Benign", bg: isDark ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-450 hover:bg-emerald-500/20" : "bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100" };
-    } else if (labelLower.includes("benign") || labelLower.includes("tolerated")) {
-      return { label: "Benign / Tolerated", bg: isDark ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-450 hover:bg-emerald-500/20" : "bg-emerald-50 border-emerald-200 text-emerald-750 hover:bg-emerald-100" };
-    }
-    return { label: "VUS (Uncertain)", bg: isDark ? "bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20" : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100" };
-  };
-
   const disruptionWarningVariant1 = null;
   const disruptionWarningVariant2 = null;
-
-  const pathogenicity = analysisState.result ? getPathogenicityBadge(analysisState.result) : null;
 
   return {
     state: {
@@ -1504,11 +1737,15 @@ export default function useVariantAnalysis() {
       compareFoldingDdG,
       compareFoldingEnergetics,
       comparisonLayout,
+      dynamut2Status,
+      compareDynamut2Status,
       showPolarContacts,
       pdbText,
       computedPocket,
       isPocketLoading,
       pocketError,
+      isBiophysicalLoading,
+      isClinicalLoading,
       settings,
       isSettingsOpen,
       isHowToInspectCollapsed,
@@ -1517,6 +1754,7 @@ export default function useVariantAnalysis() {
       loadingStep,
       history,
       userDirections,
+      notifications,
 
       // Styling and computed classes
       classRoot,
@@ -1540,12 +1778,13 @@ export default function useVariantAnalysis() {
       // Warnings & computed pathogenicity
       disruptionWarningVariant1,
       disruptionWarningVariant2,
-      pathogenicity,
       computedResiduesCache,
     },
     actions: {
       setTheme,
       toggleTheme,
+      addNotification,
+      removeNotification,
       setGene,
       setVariant,
       setUniprotId,

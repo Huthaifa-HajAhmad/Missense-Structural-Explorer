@@ -27,6 +27,7 @@ export default function SettingsModal() {
 
   const [activeTab, setActiveTab] = useState<TabId>("viewport");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showAppToken, setShowAppToken] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
@@ -81,11 +82,15 @@ export default function SettingsModal() {
     setIsLinking(true);
     setLinkError(null);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (settings.appApiToken) {
+        headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+      }
       const response = await fetch("/api/v1/session/keys", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({ apiKey: settings.geminiApiKey }),
       });
       if (!response.ok) {
@@ -513,6 +518,37 @@ export default function SettingsModal() {
 
                 {activeTab === "api" && (
                   <div className="space-y-4">
+                    {/* Application API Token input */}
+                    <div className="space-y-1.5">
+                      <label className="font-semibold block text-xs">Application / Lab API Token</label>
+                      <div className="relative">
+                        <input
+                          type={showAppToken ? "text" : "password"}
+                          placeholder={settings.appApiToken ? "••••••••••••••••••••••••••••••••" : "Enter APP_API_TOKEN..."}
+                          value={settings.appApiToken || ""}
+                          onChange={(e) => {
+                            updateSetting("appApiToken", e.target.value.trim());
+                            setLinkError(null);
+                          }}
+                          className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
+                            isDark 
+                              ? "bg-slate-900 border-slate-800 text-indigo-300 placeholder-slate-500 focus:border-slate-700" 
+                              : "bg-slate-55 border-slate-200 text-indigo-705 placeholder-slate-400 focus:border-indigo-400"
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAppToken(!showAppToken)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-450 cursor-pointer"
+                        >
+                          {showAppToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <p className={`text-[9px] leading-normal ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                        Required to authorize structural mutations, AlphaFold proxies, and session creation on this private lab server.
+                      </p>
+                    </div>
+
                     {/* Gemini API Key input */}
                     <div className="space-y-1.5">
                       <label className="font-semibold block">Google Gemini API Key</label>

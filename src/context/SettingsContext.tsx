@@ -73,6 +73,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       geminiApiKey: "",
       geminiSessionId: "",
       geminiSessionExpiresAt: 0,
+      appApiToken: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,
@@ -91,6 +92,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       const saved = localStorage.getItem("missenseUserSettings");
       let parsed = saved ? JSON.parse(saved) : {};
       
+      // One-time migration to upgrade old default window size to 31 residues standard
+      const migrated = localStorage.getItem("missenseWindowSizeMigrated31");
+      if (!migrated) {
+        parsed.seqScrollStep = 31;
+        try {
+          localStorage.setItem("missenseWindowSizeMigrated31", "true");
+          localStorage.setItem("missenseUserSettings", JSON.stringify(parsed));
+        } catch (e) {}
+      }
+      
       let modified = false;
       if (parsed.geminiApiKey !== undefined) {
         delete parsed.geminiApiKey;
@@ -104,6 +115,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         delete parsed.geminiSessionExpiresAt;
         modified = true;
       }
+      if (parsed.appApiToken !== undefined) {
+        delete parsed.appApiToken;
+        modified = true;
+      }
       if (modified && saved) {
         try {
           localStorage.setItem("missenseUserSettings", JSON.stringify(parsed));
@@ -111,7 +126,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Load transient credentials from sessionStorage
-      let transient: { geminiApiKey?: string; geminiSessionId?: string; geminiSessionExpiresAt?: number } = {};
+      let transient: { geminiApiKey?: string; geminiSessionId?: string; geminiSessionExpiresAt?: number; appApiToken?: string } = {};
       try {
         const transSaved = sessionStorage.getItem("missenseTransientCredentials");
         if (transSaved) {
@@ -125,6 +140,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         geminiApiKey: transient.geminiApiKey || "",
         geminiSessionId: transient.geminiSessionId || "",
         geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
+        appApiToken: transient.appApiToken || "",
         show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true
       };
     } catch {
@@ -146,18 +162,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         delete toSave.geminiApiKey; // Never save raw API key in localStorage
         delete toSave.geminiSessionId; // Never save session ID in localStorage (XSS-safe stateless token)
         delete toSave.geminiSessionExpiresAt;
+        delete toSave.appApiToken; // Never save raw App API Token in localStorage
         localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
       } catch (e) {
         console.error(e);
       }
 
       // Sync transient credentials to sessionStorage for refresh safety
-      if (key === "geminiApiKey" || key === "geminiSessionId" || key === "geminiSessionExpiresAt") {
+      if (key === "geminiApiKey" || key === "geminiSessionId" || key === "geminiSessionExpiresAt" || key === "appApiToken") {
         try {
           const credentials = {
             geminiApiKey: updated.geminiApiKey || "",
             geminiSessionId: updated.geminiSessionId || "",
-            geminiSessionExpiresAt: updated.geminiSessionExpiresAt || 0
+            geminiSessionExpiresAt: updated.geminiSessionExpiresAt || 0,
+            appApiToken: updated.appApiToken || ""
           };
           sessionStorage.setItem("missenseTransientCredentials", JSON.stringify(credentials));
         } catch (e) {
@@ -179,6 +197,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       geminiApiKey: "",
       geminiSessionId: "",
       geminiSessionExpiresAt: 0,
+      appApiToken: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,
@@ -198,6 +217,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       const toSave = { ...defaultSettings };
       delete toSave.geminiApiKey;
+      delete toSave.appApiToken;
       localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
     } catch (e) {
       console.error(e);

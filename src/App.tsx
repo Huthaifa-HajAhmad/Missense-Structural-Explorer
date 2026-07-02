@@ -70,10 +70,13 @@ export default function App() {
     foldingStatus,
     foldingDdG,
     foldingEnergetics,
+    dynamut2Status,
     pdbText,
     computedPocket,
     isPocketLoading,
     pocketError,
+    isBiophysicalLoading,
+    isClinicalLoading,
     compareMode,
     compareVariant,
     compareMutantPdb,
@@ -110,7 +113,6 @@ export default function App() {
     classSubCard,
     disruptionWarningVariant1,
     disruptionWarningVariant2,
-    pathogenicity,
     computedResiduesCache
   } = state;
 
@@ -192,30 +194,39 @@ export default function App() {
             classCard={classCard}
             classInput={classInput}
             classBorderSec={classBorderSec}
-            showCustomInputs={showCustomInputs}
-            setShowCustomInputs={setShowCustomInputs}
             customGene={customGene}
             setCustomGene={setCustomGene}
             customVariant={customVariant}
             setCustomVariant={setCustomVariant}
             customUniprot={customUniprot}
             setCustomUniprot={setCustomUniprot}
-            searchVal={searchVal}
-            setSearchVal={setSearchVal}
             analysisState={analysisState}
             handleSearchSubmit={handleSearchSubmit}
             gene={gene}
-            setGene={setGene}
             variant={variant}
-            setVariant={setVariant}
-            setUniprotId={setUniprotId}
-            setSelectedResidueIndex={setSelectedResidueIndex}
-            setAnalysisState={setAnalysisState}
+            uniprotId={uniprotId}
             history={history}
             clearHistory={clearHistory}
             handleSelectHistoryItem={handleSelectHistoryItem}
-            uniprotId={uniprotId}
-            resetViewerState={resetViewerState}
+          />
+
+          {/* UNIFIED EVIDENCE DASHBOARD — directly below variant card */}
+          <EvidenceDashboardCard
+            isDark={isDark}
+            classCard={classCard}
+            classCardHeader={classCardHeader}
+            classCardTitle={classCardTitle}
+            classBorderSec={classBorderSec}
+            classTextBody={classTextBody}
+            classTextMute={classTextMute}
+            analysisState={analysisState}
+            foldingDdG={foldingDdG}
+            foldingStatus={foldingStatus}
+            foldingEnergetics={foldingEnergetics}
+            dynamut2Status={dynamut2Status}
+            computedPocket={computedPocket}
+            isPocketLoading={isPocketLoading}
+            pocketError={pocketError}
           />
 
           {/* CLINICAL INSIGHTS CARD */}
@@ -230,7 +241,6 @@ export default function App() {
             gene={gene}
             variant={variant}
             uniprotId={uniprotId}
-            pathogenicity={pathogenicity}
             loadingStep={loadingStep}
             formatEnergyString={formatEnergyString}
             selectedResidueIndex={selectedResidueIndex}
@@ -239,24 +249,8 @@ export default function App() {
             classTextMute={classTextMute}
             classBorderSec={classBorderSec}
             computedResiduesCache={computedResiduesCache}
-          />
-
-          {/* UNIFIED EVIDENCE DASHBOARD */}
-          <EvidenceDashboardCard
-            isDark={isDark}
-            classCard={classCard}
-            classCardHeader={classCardHeader}
-            classCardTitle={classCardTitle}
-            classBorderSec={classBorderSec}
-            classTextBody={classTextBody}
-            classTextMute={classTextMute}
-            analysisState={analysisState}
-            foldingDdG={foldingDdG}
-            foldingStatus={foldingStatus}
-            foldingEnergetics={foldingEnergetics}
-            computedPocket={computedPocket}
-            isPocketLoading={isPocketLoading}
-            pocketError={pocketError}
+            isBiophysicalLoading={isBiophysicalLoading}
+            isClinicalLoading={isClinicalLoading}
           />
         </section>
 
@@ -290,209 +284,176 @@ export default function App() {
               </div>
             </div>
 
-            {/* Dual Variant Comparison Control Bar */}
-            {viewMode === "mutant" && (
-              <div className={`p-4 rounded-xl border flex flex-col gap-3.5 mb-3 transition-all ${
-                isDark 
-                  ? "bg-slate-900/35 border-slate-800" 
-                  : "bg-slate-50 border-slate-200/80 shadow-sm"
-              }`}>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-pink-500 animate-pulse" />
-                    <span className={`text-xs font-bold uppercase tracking-wider font-mono ${isDark ? "text-slate-400" : "text-slate-700"}`}>
-                      Pairwise Variant Superposition & Comparison
-                    </span>
-                  </div>
+            {/* Compact Structural State Controls */}
+            <div className={`flex flex-wrap items-center justify-between gap-2.5 py-2 border-b mb-3 ${classBorderSec}`}>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-mono font-semibold flex items-center gap-1.5 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  <Compass className="w-3.5 h-3.5 text-indigo-505" />
+                  Structural State:
+                </span>
+                
+                <div className={`flex items-center p-0.5 rounded-lg border transition-all text-[11px] ${
+                  isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("wildtype")}
+                    className={`px-2.5 py-1 rounded font-sans font-semibold tracking-wide transition-all flex items-center gap-1 cursor-pointer ${
+                      viewMode === "wildtype"
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-650 hover:text-slate-800"
+                    }`}
+                  >
+                    Wild-Type
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("mutant")}
+                    className={`px-2.5 py-1 rounded font-sans font-semibold tracking-wide transition-all flex items-center gap-1 cursor-pointer ${
+                      viewMode === "mutant"
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-650 hover:text-slate-800"
+                    }`}
+                  >
+                    Mutant
+                  </button>
+                </div>
+
+                {viewMode === "mutant" && (
                   <button
                     type="button"
                     onClick={() => {
                       const next = !compareMode;
                       setCompareMode(next);
-                      if (next && !compareMutantPdb && !isFoldingCompare) {
-                        const defaultAlt = getAlternativeVariants(gene)[0];
-                        setCompareVariant(defaultAlt);
-                        fetchCompareMutantFold(gene, defaultAlt, uniprotId);
+                      if (next) {
+                        setCompareVariant("wildtype");
+                        setCompareMutantPdb(pdbText);
                       }
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all border shrink-0 cursor-pointer ${
+                    className={`px-2.5 py-1 rounded font-mono text-[11px] font-bold transition-all border cursor-pointer ${
                       compareMode
-                        ? "bg-pink-600/10 border-pink-500/30 text-pink-500 hover:bg-pink-600/20 shadow-sm"
+                        ? "bg-pink-600/10 border-pink-500/30 text-pink-500 hover:bg-pink-600/20"
                         : isDark
-                          ? "bg-slate-700/10 border-slate-700/35 text-slate-400 hover:bg-slate-700/20 hover:text-slate-200"
-                          : "bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200 hover:text-slate-900 shadow-sm"
+                          ? "bg-slate-700/10 border-slate-700/35 text-slate-450 hover:bg-slate-700/20 hover:text-slate-200"
+                          : "bg-slate-100 border-slate-300 text-slate-650 hover:bg-slate-200 hover:text-slate-900"
                     }`}
                   >
-                    {compareMode ? "Disable Comparison" : "Enable Compare Mode"}
+                    ⇄ Compare {compareMode ? "ON" : "OFF"}
                   </button>
+                )}
+              </div>
+            </div>
+
+            {/* Compare controls row — compact and inline */}
+            {viewMode === "mutant" && compareMode && (
+              <div className={`p-2 rounded-lg border flex flex-wrap items-center gap-3 mb-3 text-xs transition-all ${
+                isDark ? "bg-slate-900/25 border-slate-800" : "bg-slate-50 border-slate-200 shadow-sm"
+              }`}>
+                {/* Variant selection */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-slate-400">Variant 2:</span>
+                  <select
+                    value={compareVariant}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value;
+                      setCompareVariant(selectedVal);
+                      if (selectedVal === "wildtype") {
+                        setCompareMutantPdb(pdbText);
+                      } else if (selectedVal !== "custom") {
+                        fetchCompareMutantFold(gene, selectedVal, uniprotId);
+                      }
+                    }}
+                    className={`text-xs px-2 py-1 rounded border focus:outline-none cursor-pointer ${classInput}`}
+                  >
+                    <option value="wildtype">Wild-Type (Template)</option>
+                    {(() => {
+                      const dynamicAlts = (analysisState.result?.metadata as any)?.alternativeVariants || getAlternativeVariants(gene);
+                      return dynamicAlts.map((alt: string) => (
+                        <option key={alt} value={alt}>{alt}</option>
+                      ));
+                    })()}
+                    <option value="custom">Custom...</option>
+                  </select>
                 </div>
 
-                {compareMode && (
-                  <div className="flex flex-col gap-3.5 pt-2.5 border-t border-dashed border-slate-700/30">
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                      
-                      {/* Variant Selection Field */}
-                      <div className="md:col-span-4 flex flex-col gap-1">
-                        <label className="text-[10px] font-semibold font-mono text-slate-400 uppercase">Select Comparison Variant</label>
-                        <select
-                          value={compareVariant}
-                          onChange={(e) => {
-                            const selectedVal = e.target.value;
-                            setCompareVariant(selectedVal);
-                            if (selectedVal !== "custom") {
-                              fetchCompareMutantFold(gene, selectedVal, uniprotId);
-                            }
-                          }}
-                          className={`w-full text-xs px-2.5 py-1.5 rounded-lg border focus:ring-1 focus:ring-pink-500 focus:outline-none cursor-pointer ${classInput}`}
-                        >
-                          {getAlternativeVariants(gene).map((alt) => (
-                            <option key={alt} value={alt}>{alt}</option>
-                          ))}
-                          <option value="custom">Custom Mutation...</option>
-                        </select>
-                      </div>
+                {/* Custom variant field */}
+                {compareVariant === "custom" && (
+                  <input
+                    type="text"
+                    placeholder="e.g. p.Gly300Ser"
+                    className={`px-2 py-1 text-xs rounded border focus:outline-none w-28 ${classInput}`}
+                    onBlur={(e) => {
+                      if (e.target.value) {
+                        let val = e.target.value.trim();
+                        if (!val.startsWith("p.")) val = "p." + val;
+                        setCompareVariant(val);
+                      }
+                    }}
+                  />
+                )}
 
-                      {/* Custom variant text box if dropdown is set to custom */}
-                      {compareVariant === "custom" && (
-                        <div className="md:col-span-3 flex flex-col gap-1">
-                          <label className="text-[10px] font-semibold font-mono text-slate-400 uppercase">Mutation (e.g. p.Gly300Ser)</label>
-                          <input
-                            type="text"
-                            placeholder="p.Gly300Ser"
-                            className={`px-2.5 py-1 text-xs w-full rounded-lg border focus:ring-1 focus:ring-pink-500 focus:outline-none ${classInput}`}
-                            onBlur={(e) => {
-                              if (e.target.value) {
-                                let val = e.target.value.trim();
-                                if (!val.startsWith("p.")) {
-                                  val = "p." + val;
-                                }
-                                setCompareVariant(val);
-                              }
-                            }}
-                          />
-                        </div>
-                      )}
+                {/* Layout selection */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-slate-400">Layout:</span>
+                  <div className="flex items-center p-0.5 rounded border bg-slate-950/20 border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setComparisonLayout("superimposed")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
+                        comparisonLayout === "superimposed"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-slate-450 hover:text-slate-200"
+                      }`}
+                    >
+                      Superimposed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComparisonLayout("side-by-side")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
+                        comparisonLayout === "side-by-side"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-slate-450 hover:text-slate-200"
+                      }`}
+                    >
+                      Side-by-Side
+                    </button>
+                  </div>
+                </div>
 
-                      {/* Layout Type Selection */}
-                      <div className={`${compareVariant === "custom" ? "md:col-span-3" : "md:col-span-5"} flex flex-col gap-1`}>
-                        <label className="text-[10px] font-semibold font-mono text-slate-400 uppercase font-bold">Workspace Layout Mode</label>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setComparisonLayout("superimposed")}
-                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                              comparisonLayout === "superimposed"
-                                ? "bg-indigo-600 border-indigo-500 text-white"
-                                : isDark
-                                  ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
-                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            Superimposed
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setComparisonLayout("side-by-side")}
-                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                              comparisonLayout === "side-by-side"
-                                ? "bg-indigo-600 border-indigo-500 text-white"
-                                : isDark
-                                  ? "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
-                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            Side-by-Side
-                          </button>
-                        </div>
-                      </div>
+                {/* Simulation button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const actualVal = compareVariant === "custom" ? "p.Gly300Ser" : compareVariant;
+                    fetchCompareMutantFold(gene, actualVal, uniprotId);
+                  }}
+                  disabled={isFoldingCompare}
+                  className={`ml-auto px-2.5 py-1 rounded text-xs font-bold font-mono transition-all border shadow-sm cursor-pointer ${
+                    isFoldingCompare
+                      ? "bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed"
+                      : "bg-pink-600 hover:bg-pink-500 text-white border-pink-700"
+                  }`}
+                >
+                  {isFoldingCompare ? "Folding..." : "Fold Variant 2"}
+                </button>
 
-                      {/* Run Simulation button */}
-                      <div className="md:col-span-3 flex flex-col justify-end">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const actualVal = compareVariant === "custom" ? "p.Gly300Ser" : compareVariant;
-                            fetchCompareMutantFold(gene, actualVal, uniprotId);
-                          }}
-                          disabled={isFoldingCompare}
-                          className={`w-full py-1.5 rounded-lg text-xs font-bold font-mono transition-all border shadow-sm cursor-pointer ${
-                            isFoldingCompare
-                              ? "bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed"
-                              : "bg-pink-600 hover:bg-pink-500 text-white border-pink-700 hover:border-pink-600"
-                          }`}
-                        >
-                          {isFoldingCompare ? "Developing Model..." : "Fold Variant 2"}
-                        </button>
-                      </div>
-                    </div>
+                {isFoldingCompare && (
+                  <div className="w-full flex items-center gap-2 text-[10px] font-mono text-purple-400 animate-pulse mt-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping"></span>
+                    <span>Simulating biophysical side-chain mutations for {compareVariant}...</span>
+                  </div>
+                )}
 
-                    {/* Progress tracking under simulations */}
-                    {isFoldingCompare && (
-                      <div className="flex items-center gap-2 text-[11px] font-mono text-purple-400 animate-pulse bg-purple-500/5 px-2.5 py-1.5 rounded-lg border border-purple-500/10">
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping"></span>
-                        <span>Simulating biophysical side-chain mutations for {compareVariant}...</span>
-                      </div>
-                    )}
-
-                    {foldingCompareError && (
-                      <div className="text-[11px] font-mono text-rose-500 bg-rose-500/5 px-2.5 py-1.5 rounded-lg border border-rose-500/10">
-                        <span>Failed to simulate comparison structure: {foldingCompareError}</span>
-                      </div>
-                    )}
+                {foldingCompareError && (
+                  <div className="w-full text-[10px] font-mono text-rose-500 mt-1">
+                    <span>Failed: {foldingCompareError}</span>
                   </div>
                 )}
               </div>
             )}
-
-            {/* Segmented Control Toggle Switch */}
-            <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-2 rounded-xl border mb-1 transition-all ${
-              isDark 
-                ? "bg-slate-900/60 border-slate-800/85" 
-                : "bg-slate-100 border-slate-200"
-            }`}>
-              <span className={`text-[11px] font-mono pl-1 flex items-center gap-1.5 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
-                <Compass className="w-3.5 h-3.5 text-indigo-500" />
-                Structural State Comparison:
-              </span>
-              <div className={`flex items-center p-1 rounded-lg border transition-all ${
-                isDark 
-                  ? "bg-slate-950 border-slate-800" 
-                  : "bg-white border-slate-200 shadow-sm"
-              }`}>
-                <button
-                  type="button"
-                  id="view-wildtype-btn"
-                  onClick={() => setViewMode("wildtype")}
-                  className={`px-3 py-1.5 rounded-md font-sans text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                    viewMode === "wildtype"
-                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30"
-                      : isDark
-                        ? "text-slate-400 hover:text-slate-200"
-                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                  }`}
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  Wild-Type (AlphaFold)
-                </button>
-                <button
-                  type="button"
-                  id="view-mutant-btn"
-                  onClick={() => setViewMode("mutant")}
-                  className={`px-3 py-1.5 rounded-md font-sans text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5 cursor-pointer ${
-                    viewMode === "mutant"
-                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/30"
-                      : isDark
-                        ? "text-slate-400 hover:text-slate-200"
-                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  Mutant (Simulated)
-                </button>
-              </div>
-            </div>
 
             {/* Custom overlays for active folding or structure display */}
             {viewMode === "mutant" && isFolding && (
@@ -581,7 +542,7 @@ export default function App() {
                       {/* Right Viewport: Variant 2 */}
                       <div className="flex flex-col gap-1.5">
                         <div className="text-[10px] font-bold text-pink-500 font-mono px-1 flex items-center justify-between uppercase tracking-wider">
-                          <span>Variant 2: {compareVariant}</span>
+                          <span>Variant 2: {compareVariant === "wildtype" ? "Wild-Type (Template)" : compareVariant}</span>
                           <span className="text-[9px] text-slate-400 opacity-80 lowercase font-normal">Comparison Model</span>
                         </div>
                         {isFoldingCompare ? (
@@ -651,6 +612,10 @@ export default function App() {
                       variant={variant}
                       energyUnit={settings.energyUnit}
                       fetchNearestResidues={fetchNearestResidues}
+                      onPdbTextLoaded={setPdbText}
+                      computedPocket={computedPocket}
+                      isPocketLoading={isPocketLoading}
+                      pocketError={pocketError}
                     />
                   )}
                 </motion.div>
@@ -885,6 +850,8 @@ export default function App() {
             residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex} 
             hoveredResidueIndex={hoveredResidueIndex}
             gene={gene} 
+            predictorData={analysisState.result?.predictorData}
+            conservationData={analysisState.result?.conservationData}
             onResidueClick={(idx) => {
               if (viewMode === "mutant") {
                 setFoldedResidueIndex(idx);
@@ -916,6 +883,42 @@ export default function App() {
 
       {/* Settings Panel Slide-out Modal */}
       <SettingsModal />
+
+      {/* Floating Notifications */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        {state.notifications?.map((notif: any) => (
+          <div
+            key={notif.id}
+            className={`pointer-events-auto p-3.5 rounded-xl shadow-xl border flex items-start gap-3 transition-all duration-300 transform translate-y-0 scale-100 animate-slide-in backdrop-blur-md ${
+              state.isDark
+                ? "bg-slate-900/90 border-slate-805 text-white"
+                : "bg-white/95 border-slate-200 text-slate-900"
+            }`}
+          >
+            {notif.type === "success" && (
+              <span className="text-emerald-500 text-sm mt-0.5 font-bold">✓</span>
+            )}
+            {notif.type === "error" && (
+              <span className="text-rose-500 text-sm mt-0.5">⚠️</span>
+            )}
+            {notif.type === "info" && (
+              <span className="text-blue-500 text-sm mt-0.5">ℹ️</span>
+            )}
+            <div className="flex-1">
+              <p className="text-[9px] leading-none font-extrabold tracking-wider uppercase opacity-45 mb-1 font-mono">
+                {notif.type === "success" ? "Analysis Ready" : notif.type === "error" ? "Notification Error" : "System Update"}
+              </p>
+              <p className="text-[11px] leading-normal font-medium">{notif.message}</p>
+            </div>
+            <button
+              onClick={() => actions.removeNotification(notif.id)}
+              className="text-slate-400 hover:text-slate-200 text-xs px-1 mt-0.5 font-bold transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
