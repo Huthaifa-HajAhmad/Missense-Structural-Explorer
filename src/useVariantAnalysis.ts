@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { z } from "zod";
 
 const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
@@ -16,16 +16,28 @@ export const analyzeVariantResponseSchema = z.object({
       (val) => val ?? [],
       z.array(z.object({
         code: z.string(),
-        reason: z.string()
+        reason: z.string(),
+        source: z.enum(["database_verified", "ai_suggested"]).optional()
       }))
-    )
+    ),
+    acmgVerdict: z.string().optional(),
+    partialEvidence: z.object({
+      available: z.array(z.string()),
+      unavailable: z.array(z.string())
+    }).optional()
   }).nullable().optional(),
   ruleBasedInsights: z.object({
     plausibility: z.string(),
+    acmgVerdict: z.string(),
     acmgCriteria: z.array(z.object({
       code: z.string(),
-      reason: z.string()
-    }))
+      reason: z.string(),
+      source: z.enum(["database_verified", "ai_suggested"]).optional()
+    })),
+    partialEvidence: z.object({
+      available: z.array(z.string()),
+      unavailable: z.array(z.string())
+    }).optional()
   }).nullable().optional(),
   clinvar: z.object({
     classification: z.string(),
@@ -51,13 +63,18 @@ export const analyzeVariantResponseSchema = z.object({
     uniprotId: z.string(),
     residueIndex: nullableFiniteNumber,
     wildType: z.string(),
-    mutant: z.string()
+    mutant: z.string(),
+    pdbId: z.string().nullable().optional(),
+    pdbSource: z.string().nullable().optional()
   }),
   predictorData: z.object({
     available: z.boolean(),
     amPathogenicity: nullableFiniteNumber,
     amClass: z.string().nullable(),
-    caddPhred: nullableFiniteNumber
+    caddPhred: nullableFiniteNumber,
+    eveScore: nullableFiniteNumber.optional(),
+    eveClass: z.string().nullable().optional(),
+    proteinName: z.string().nullable().optional()
   }).nullable().optional(),
   conservationData: z.object({
     available: z.boolean(),
@@ -66,10 +83,57 @@ export const analyzeVariantResponseSchema = z.object({
     phylop: nullableFiniteNumber,
     consurf: nullableFiniteNumber
   }).nullable().optional(),
+  landscapeData: z.array(z.object({
+    residx: z.number(),
+    revelMax: z.number().nullable(),
+    amMax: z.number().nullable(),
+    gerp: z.number().nullable(),
+    phylop: z.number().nullable()
+  })).nullable().optional(),
   stringInteractions: z.array(z.object({
     partner: z.string(),
     score: finiteNumber
-  })).nullable().optional()
+  })).nullable().optional(),
+  disruptionPredictor: z.object({
+    level: z.enum(["high", "low"]),
+    reason: z.string(),
+    plddt: z.number(),
+    burialStatus: z.enum(["core", "surface", "boundary"]).optional(),
+    neighborCount: z.number().optional()
+  }).optional(),
+  uniprotFeatures: z.object({
+    features: z.array(z.object({
+      type: z.string(),
+      description: z.string(),
+      start: z.number(),
+      end: z.number()
+    })),
+    geneName: z.string().optional()
+  }).nullable().optional(),
+  gnomadConstraint: z.object({
+    missense_z: z.number().nullable(),
+    oe_mis: z.number().nullable(),
+    pli: z.number().nullable(),
+    isPP2Constrained: z.boolean()
+  }).nullable().optional(),
+  transcriptId: z.string().optional(),
+  isCanonical: z.boolean().optional(),
+  transcriptWarning: z.string().optional(),
+  gnomadFrequency: z.object({
+    maxAF: z.number().nullable(),
+    genomeAF: z.number().nullable(),
+    exomeAF: z.number().nullable(),
+    genomeAC: z.number().nullable().optional(),
+    exomeAC: z.number().nullable().optional(),
+    genomeAN: z.number().nullable().optional(),
+    exomeAN: z.number().nullable().optional(),
+    nHomozygous: z.number().nullable(),
+    dataset: z.string()
+  }).nullable().optional(),
+  esm2: z.object({
+    llr: z.number().nullable(),
+    verdict: z.string().nullable()
+  }).nullable().optional()
 });
 
 export const generateMutantResponseSchema = z.object({
@@ -79,9 +143,16 @@ export const generateMutantResponseSchema = z.object({
   foldedResidueIndex: finiteNumber,
   energetics: z.object({
     foldx: nullableFiniteNumber,
+    foldxMean: nullableFiniteNumber.optional(),
+    foldxSd: nullableFiniteNumber.optional(),
+    vdw: nullableFiniteNumber.optional(),
+    electrostatics: nullableFiniteNumber.optional(),
+    stericClashWarning: z.boolean().optional(),
+    localSidechainRmsd: nullableFiniteNumber.optional(),
     dynamut2: nullableFiniteNumber,
     ddgun: nullableFiniteNumber,
-    maestro: nullableFiniteNumber
+    maestro: nullableFiniteNumber.optional(),
+    consensusVerdict: z.string().nullable().optional()
   }).optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional()
@@ -441,7 +512,7 @@ export default function useVariantAnalysis() {
     }
     
     return response;
-  }, [settings.geminiSessionId, settings.geminiApiKey, updateSetting]);
+  }, [settings.geminiSessionId, settings.geminiApiKey, settings.appApiToken, updateSetting]);
 
   const abortAllPendingRequests = () => {
     clearDynaMutPoll();
@@ -469,26 +540,42 @@ export default function useVariantAnalysis() {
     }
   };
 
-  // Styling Classes
-  const classRoot = isDark ? "bg-[#0f172a] text-slate-200" : "bg-slate-50 text-slate-800";
-  const classHeader = isDark ? "bg-[#1e293b] border-slate-800" : "bg-white border-slate-200 shadow-sm";
-  const classHeaderTitle = isDark ? "text-white" : "text-slate-900";
-  const classHeaderSub = isDark ? "text-slate-400" : "text-slate-500";
-  
-  const classCard = isDark ? "bg-[#1e293b] border border-slate-800 shadow-[0_4px_20px_rgba(0,0,0,0.3)] rounded-xl" : "bg-white border border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)] rounded-xl";
-  const classCardHeader = isDark ? "text-white pb-3 border-b border-slate-800/60" : "text-slate-900 pb-3 border-b border-slate-100";
-  const classCardTitle = isDark ? "text-white" : "text-slate-900";
-  const classCardSubText = isDark ? "text-slate-400" : "text-slate-500";
-  const classTextMute = isDark ? "text-slate-400" : "text-slate-500";
-  const classTextBody = isDark ? "text-slate-300" : "text-slate-600";
-  const classTextBright = isDark ? "text-white" : "text-slate-900 font-bold";
-  const classBorderSec = isDark ? "border-slate-800/60" : "border-slate-200/80";
-  const classBorderCardSep = isDark ? "border-slate-800" : "border-slate-200";
-  
-  const classInput = isDark ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500" : "bg-slate-50 border-slate-200 text-slate-950 placeholder-slate-400 focus:bg-white";
-  const classInputLabel = isDark ? "text-white" : "text-slate-800";
-  const classBadgeAccent = isDark ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-indigo-50 text-indigo-600 border border-indigo-100/80";
-  const classSubCard = isDark ? "bg-slate-950/40 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700";
+  // Styling Classes — Claude Science Design System
+  // Light: warm cream bg (#F9F8F6), white cards, warm borders (#E5E1DC), clay accent (#C46849)
+  // Dark:  warm charcoal bg (#191816), surface (#2A2724), border (#3C3934)
+  const classRoot = isDark
+    ? "bg-[#191816] text-[#F9F8F6]"
+    : "bg-[#F9F8F6] text-[#191816]";
+  const classHeader = isDark
+    ? "bg-[#2A2724] border-[#3C3934]"
+    : "bg-white border-[#E5E1DC] shadow-[0_1px_0_0_#E5E1DC]";
+  const classHeaderTitle = isDark ? "text-[#F9F8F6]" : "text-[#191816]";
+  const classHeaderSub   = isDark ? "text-[#827B70]" : "text-[#8F897E]";
+
+  const classCard = isDark
+    ? "bg-[#2A2724] border border-[#3C3934] shadow-[0_2px_8px_rgba(0,0,0,0.5)] rounded-xl"
+    : "bg-white border border-[#E5E1DC] shadow-[0_1px_3px_rgba(25,24,22,0.04)] rounded-xl";
+  const classCardHeader = isDark
+    ? "text-[#F9F8F6] pb-3 border-b border-[#3C3934]"
+    : "text-[#191816] pb-3 border-b border-[#ECEAE4]";
+  const classCardTitle    = isDark ? "text-[#F9F8F6]" : "text-[#191816]";
+  const classCardSubText  = isDark ? "text-[#B2ABA0]" : "text-[#666055]";
+  const classTextMute     = isDark ? "text-[#827B70]" : "text-[#8F897E]";
+  const classTextBody     = isDark ? "text-[#B2ABA0]" : "text-[#666055]";
+  const classTextBright   = isDark ? "text-[#F9F8F6] font-bold" : "text-[#191816] font-bold";
+  const classBorderSec    = isDark ? "border-[#3C3934]/60" : "border-[#ECEAE4]";
+  const classBorderCardSep = isDark ? "border-[#3C3934]" : "border-[#E5E1DC]";
+
+  const classInput = isDark
+    ? "bg-[#201E1B] border-[#3C3934] text-[#F9F8F6] placeholder-[#827B70] focus:border-[#C46849]"
+    : "bg-white border-[#E5E1DC] text-[#191816] placeholder-[#8F897E] focus:border-[#C46849] focus:bg-white";
+  const classInputLabel  = isDark ? "text-[#F9F8F6]" : "text-[#191816]";
+  const classBadgeAccent = isDark
+    ? "bg-[#C46849]/10 text-[#D4836A] border border-[#C46849]/20"
+    : "bg-[#FBF0EB] text-[#C46849] border border-[#F5DDD3]";
+  const classSubCard = isDark
+    ? "bg-[#201E1B]/60 border-[#3C3934]/60 text-[#B2ABA0]"
+    : "bg-[#FAF9F6] border-[#ECEAE4] text-[#666055]";
 
   const [gene, setGene] = useState("");
   const { history, setHistory, addToHistory, clearHistory } = useSearchHistory(settings.maxHistoryItems, settings.saveHistory);
@@ -509,6 +596,8 @@ export default function useVariantAnalysis() {
   const [userDirections, setUserDirections] = useState("");
 
   const [viewMode, setViewMode] = useState<"wildtype" | "mutant">("wildtype");
+  const [disruptionPredictor, setDisruptionPredictor] = useState<{ level: "high" | "low"; reason: string; plddt: number } | null>(null);
+  const [triageOverride, setTriageOverride] = useState<boolean>(false);
   const [mutantPdb, setMutantPdb] = useState<string | null>(null);
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);
@@ -602,8 +691,8 @@ export default function useVariantAnalysis() {
     setPocketError(null);
   };
 
-  const [isHowToInspectCollapsed, setIsHowToInspectCollapsed] = useState<boolean>(false);
-  const [isLegendCollapsed, setIsLegendCollapsed] = useState<boolean>(false);
+  const [isHowToInspectOpen, setIsHowToInspectOpen] = useState<boolean>(false);
+  const [isLegendOpen, setIsLegendOpen] = useState<boolean>(false);
 
   const formatEnergyString = (text: string | null | undefined): string => {
     if (!text) return "";
@@ -769,6 +858,8 @@ export default function useVariantAnalysis() {
     
     // Clear structural model comparison states for fresh run
     setViewMode("wildtype");
+    setDisruptionPredictor(null);
+    setTriageOverride(false);
     setMutantPdb(null);
     setFoldedResidueIndex(null);
     setFoldingError(null);
@@ -801,6 +892,7 @@ export default function useVariantAnalysis() {
       });
 
       let biophysicalResult: any = null;
+      let biophysicalError: string | null = null;
 
       // Concurrently kick off the biophysical description query so it resolves quickly in parallel
       const biophysicalPromise = fetchWithAuth("/api/v1/analyze-variant-biophysical", {
@@ -845,6 +937,7 @@ export default function useVariantAnalysis() {
               errorMsg = errData.error.message;
             }
           } catch (_) {}
+          biophysicalError = errorMsg;
           setAnalysisState(prev => {
             if (!prev.result) return prev;
             const prevInsights = prev.result.insights || {
@@ -868,6 +961,8 @@ export default function useVariantAnalysis() {
         }
       }).catch(err => {
         setIsBiophysicalLoading(false);
+        const errorMsg = err.message || "Unknown network error.";
+        biophysicalError = errorMsg;
         console.warn("Parallel biophysical insights pre-fetch failed:", err);
         setAnalysisState(prev => {
           if (!prev.result) return prev;
@@ -883,8 +978,8 @@ export default function useVariantAnalysis() {
               ...prev.result,
               insights: {
                 ...prevInsights,
-                biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\nThe request encountered a connection error: ${err.message || "Unknown network error."}`,
-                structuralImpact: `⚠️ **Structural Impact Unavailable**\n\nThe request encountered a connection error: ${err.message || "Unknown network error."}`
+                biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\nThe request encountered a connection error: ${errorMsg}`,
+                structuralImpact: `⚠️ **Structural Impact Unavailable**\n\nThe request encountered a connection error: ${errorMsg}`
               }
             }
           };
@@ -923,21 +1018,39 @@ export default function useVariantAnalysis() {
       }
 
       const validatedData = analyzeVariantResponseSchema.parse(data);
+      const predictorVal = validatedData.disruptionPredictor || { level: "low" as const, reason: "PDB structure mapping not resolved", plddt: 100 };
+      setDisruptionPredictor(predictorVal);
+      setTriageOverride(false);
+
+      // Build initial insights incorporating buffered biophysical results or error messages to prevent data race drops (FE-2)
+      let initialInsights: any = null;
+      if (biophysicalResult) {
+        initialInsights = {
+          biochemicalShift: biophysicalResult.biochemicalShift,
+          structuralImpact: biophysicalResult.structuralImpact,
+          acmgCriteria: [],
+          plausibility: ""
+        };
+      } else if (biophysicalError) {
+        initialInsights = {
+          biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\n${biophysicalError}`,
+          structuralImpact: `⚠️ **Structural Impact Unavailable**\n\n${biophysicalError}`,
+          acmgCriteria: [],
+          plausibility: ""
+        };
+      }
 
       setAnalysisState({
         isLoading: false,
         error: null,
         result: {
           analysis: null,
-          insights: biophysicalResult ? {
-            biochemicalShift: biophysicalResult.biochemicalShift,
-            structuralImpact: biophysicalResult.structuralImpact,
-            acmgCriteria: [],
-            plausibility: ""
-          } : null,
+          insights: initialInsights,
           ruleBasedInsights: validatedData.ruleBasedInsights ? {
             plausibility: validatedData.ruleBasedInsights.plausibility,
-            acmgCriteria: validatedData.ruleBasedInsights.acmgCriteria
+            acmgVerdict: validatedData.ruleBasedInsights.acmgVerdict,
+            acmgCriteria: validatedData.ruleBasedInsights.acmgCriteria,
+            partialEvidence: validatedData.ruleBasedInsights.partialEvidence
           } : null,
           clinvar: validatedData.clinvar ? {
             classification: validatedData.clinvar.classification,
@@ -961,10 +1074,32 @@ export default function useVariantAnalysis() {
           },
           predictorData: validatedData.predictorData || null,
           conservationData: validatedData.conservationData || null,
-          stringInteractions: validatedData.stringInteractions || null
+          landscapeData: validatedData.landscapeData || null,
+          stringInteractions: validatedData.stringInteractions || null,
+          disruptionPredictor: predictorVal,
+          uniprotFeatures: validatedData.uniprotFeatures,
+          gnomadConstraint: validatedData.gnomadConstraint,
+          transcriptId: validatedData.transcriptId,
+          isCanonical: validatedData.isCanonical,
+          transcriptWarning: validatedData.transcriptWarning,
+          gnomadFrequency: validatedData.gnomadFrequency ? {
+            maxAF: validatedData.gnomadFrequency.maxAF,
+            genomeAF: validatedData.gnomadFrequency.genomeAF,
+            exomeAF: validatedData.gnomadFrequency.exomeAF,
+            nHomozygous: validatedData.gnomadFrequency.nHomozygous,
+            dataset: validatedData.gnomadFrequency.dataset,
+            genomeAC: validatedData.gnomadFrequency.genomeAC ?? null,
+            exomeAC: validatedData.gnomadFrequency.exomeAC ?? null,
+            genomeAN: validatedData.gnomadFrequency.genomeAN ?? null,
+            exomeAN: validatedData.gnomadFrequency.exomeAN ?? null
+          } : null,
+          esm2: validatedData.esm2 || null
         }
       });
       addToHistory(targetGene, targetVariant, targetUniprot);
+
+      // Trigger FoldX/DynaMut2 calculation silently in the background immediately
+      fetchMutantFold(targetGene, targetVariant, targetUniprot, activeSignal);
 
       if (validatedData.metadata?.residueIndex) {
         setSelectedResidueIndex(validatedData.metadata.residueIndex);
@@ -985,7 +1120,9 @@ export default function useVariantAnalysis() {
               clinvar: validatedData.clinvar,
               predictorData: validatedData.predictorData,
               conservationData: validatedData.conservationData,
-              stringInteractions: validatedData.stringInteractions
+              stringInteractions: validatedData.stringInteractions,
+              gnomadConstraint: validatedData.gnomadConstraint,
+              gnomadFrequency: validatedData.gnomadFrequency
             }),
             signal: activeSignal
           });
@@ -1007,6 +1144,8 @@ export default function useVariantAnalysis() {
                   insights: {
                     ...prevInsights,
                     acmgCriteria: narrativeData.insights?.acmgCriteria || [],
+                    acmgVerdict: narrativeData.insights?.acmgVerdict || prev.result.ruleBasedInsights?.acmgVerdict || "",
+                    partialEvidence: narrativeData.insights?.partialEvidence || prev.result.ruleBasedInsights?.partialEvidence,
                     pathogenicity: narrativeData.insights?.pathogenicity || prevInsights.pathogenicity,
                     plausibility: narrativeData.insights?.plausibility || ""
                   }
@@ -1230,10 +1369,16 @@ export default function useVariantAnalysis() {
       }));
 
       if (!signal?.aborted) {
-        setComputedResiduesCache(prev => ({
-          ...prev,
-          [cacheKey]: mapped
-        }));
+        setComputedResiduesCache(prev => {
+          const next = { ...prev, [cacheKey]: mapped };
+          const keys = Object.keys(next);
+          if (keys.length > 200) {
+            // Evict oldest (first) key to enforce eviction bounds and prevent memory leaks
+            const oldestKey = keys[0];
+            delete next[oldestKey];
+          }
+          return next;
+        });
       }
     } catch (err: any) {
       if (signal?.aborted) {
@@ -1340,7 +1485,7 @@ export default function useVariantAnalysis() {
       if (validatedData.dynamut2JobId) {
         clearDynaMutPoll();
         let attempts = 0;
-        const maxAttempts = 100;
+        const maxAttempts = 30; // 30 attempts at 10s interval = 5 minutes timeout
         const jobId = validatedData.dynamut2JobId;
         addNotification("info", `DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
@@ -1351,15 +1496,22 @@ export default function useVariantAnalysis() {
               method: "GET",
               signal: activeSignal
             });
+            if (pollRes.status === 429) {
+              console.warn(`[DynaMut2 Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
+              return;
+            }
             if (!pollRes.ok) {
               throw new Error(`Poll request failed (status: ${pollRes.status})`);
             }
             const pollData = await pollRes.json();
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setFoldingEnergetics(prev => ({
-                foldx: prev ? prev.foldx : validatedData.ddG,
-                ddgun: prev ? prev.ddgun : null,
-                maestro: prev ? prev.maestro : null,
+                ...(prev || {
+                  foldx: validatedData.ddG,
+                  ddgun: null,
+                  maestro: null,
+                  dynamut2: null
+                }),
                 dynamut2: pollData.prediction
               }));
               setDynamut2Status("done");
@@ -1385,7 +1537,7 @@ export default function useVariantAnalysis() {
           }
         };
 
-        const intervalId = setInterval(poll, 3000);
+        const intervalId = setInterval(poll, 10000);
         dynamutPollIntervalRef.current = intervalId;
       }
     } catch (err: any) {
@@ -1493,7 +1645,7 @@ export default function useVariantAnalysis() {
       if (validatedData.dynamut2JobId) {
         clearDynaMutComparePoll();
         let attempts = 0;
-        const maxAttempts = 100;
+        const maxAttempts = 30; // 30 attempts at 10s interval = 5 minutes timeout
         const jobId = validatedData.dynamut2JobId;
         addNotification("info", `Comparison DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
@@ -1504,15 +1656,22 @@ export default function useVariantAnalysis() {
               method: "GET",
               signal: activeSignal
             });
+            if (pollRes.status === 429) {
+              console.warn(`[DynaMut2 Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
+              return;
+            }
             if (!pollRes.ok) {
               throw new Error(`Poll request failed (status: ${pollRes.status})`);
             }
             const pollData = await pollRes.json();
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setCompareFoldingEnergetics(prev => ({
-                foldx: prev ? prev.foldx : validatedData.ddG,
-                ddgun: prev ? prev.ddgun : null,
-                maestro: prev ? prev.maestro : null,
+                ...(prev || {
+                  foldx: validatedData.ddG,
+                  ddgun: null,
+                  maestro: null,
+                  dynamut2: null
+                }),
                 dynamut2: pollData.prediction
               }));
               setCompareDynamut2Status("done");
@@ -1538,7 +1697,7 @@ export default function useVariantAnalysis() {
           }
         };
 
-        const intervalId = setInterval(poll, 3000);
+        const intervalId = setInterval(poll, 10000);
         dynamutComparePollIntervalRef.current = intervalId;
       }
     } catch (err: any) {
@@ -1557,13 +1716,13 @@ export default function useVariantAnalysis() {
 
   useEffect(() => {
     const controller = new AbortController();
-    if (viewMode === "mutant" && !mutantPdb && !isFolding && gene && variant && uniprotId) {
+    if (!mutantPdb && !isFolding && gene && variant && uniprotId) {
       fetchMutantFold(gene, variant, uniprotId, controller.signal);
     }
     return () => {
       controller.abort();
     };
-  }, [viewMode, mutantPdb, gene, variant, uniprotId]);
+  }, [mutantPdb, gene, variant, uniprotId]);
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     abortAllPendingRequests();
@@ -1700,8 +1859,50 @@ export default function useVariantAnalysis() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const disruptionWarningVariant1 = null;
-  const disruptionWarningVariant2 = null;
+  const getDisruptionWarning = useCallback((energetics: EnergeticsData | null) => {
+    if (!energetics) return null;
+    
+    // 1. Steric clash threshold: vdw > 2.0 kcal/mol or stericClashWarning is true
+    const vdwVal = energetics.vdw ?? 0;
+    const isClash = !!(energetics.stericClashWarning || vdwVal > 2.0);
+    
+    // 2. Repacking threshold: localSidechainRmsd > 1.5 Å
+    const rmsdVal = energetics.localSidechainRmsd ?? 0.0;
+    const isRepackWarning = rmsdVal > 1.5;
+    
+    // 3. Destabilization threshold: foldxMean > 1.5 kcal/mol
+    const foldxMean = energetics.foldxMean ?? energetics.foldx ?? 0.0;
+    const isSevereDestab = foldxMean > 1.5;
+    
+    if (isClash) {
+      return {
+        type: 'clash' as const,
+        title: 'Severe Steric Clash Alert',
+        description: `Variant introduces a steric clash delta of ${vdwVal.toFixed(2)} kcal/mol. This is expected to push surrounding atoms, disrupting local sidechain packing.`
+      };
+    }
+    
+    if (isRepackWarning) {
+      return {
+        type: 'clash' as const,
+        title: 'Sidechain Repack Alert',
+        description: `Local sidechain repacking shows a structural displacement (RMSD) of ${rmsdVal.toFixed(2)} Å, indicating high conformational rearrangement.`
+      };
+    }
+    
+    if (isSevereDestab) {
+      return {
+        type: 'clash' as const,
+        title: 'Severe Destabilization Alert',
+        description: `Free energy calculation predicts a severe destabilization of +${foldxMean.toFixed(2)} kcal/mol, indicating a high probability of fold collapse.`
+      };
+    }
+    
+    return null;
+  }, []);
+
+  const disruptionWarningVariant1 = useMemo(() => getDisruptionWarning(foldingEnergetics), [foldingEnergetics, getDisruptionWarning]);
+  const disruptionWarningVariant2 = useMemo(() => getDisruptionWarning(compareFoldingEnergetics), [compareFoldingEnergetics, getDisruptionWarning]);
 
   return {
     state: {
@@ -1720,6 +1921,8 @@ export default function useVariantAnalysis() {
       copied,
       customPdbUrl,
       viewMode,
+      disruptionPredictor,
+      triageOverride,
       mutantPdb,
       foldedResidueIndex,
       isFolding,
@@ -1748,8 +1951,8 @@ export default function useVariantAnalysis() {
       isClinicalLoading,
       settings,
       isSettingsOpen,
-      isHowToInspectCollapsed,
-      isLegendCollapsed,
+      isHowToInspectOpen,
+      isLegendOpen,
       analysisState,
       loadingStep,
       history,
@@ -1798,6 +2001,7 @@ export default function useVariantAnalysis() {
       setCopied,
       setCustomPdbUrl,
       setViewMode,
+      setTriageOverride,
       setMutantPdb,
       setFoldedResidueIndex,
       setIsFolding,
@@ -1822,8 +2026,8 @@ export default function useVariantAnalysis() {
       setPocketError,
       setSettings,
       setIsSettingsOpen,
-      setIsHowToInspectCollapsed,
-      setIsLegendCollapsed,
+      setIsHowToInspectOpen,
+      setIsLegendOpen,
       setAnalysisState,
       setLoadingStep,
       setHistory,
