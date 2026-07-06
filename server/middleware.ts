@@ -65,7 +65,7 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
 // Rate Limiting Middleware (CRIT-5)
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 30, // Limit each IP to 30 requests per minute
+  max: 120, // Limit each IP to 120 requests per minute (accommodates job status polling)
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -85,7 +85,9 @@ export const analyzeVariantLimiter = rateLimit({
   validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
     // Key strictly on client IP to prevent session rotation rate-limiting bypass (C-2)
-    return req.ip || "";
+    // Fallback to remoteAddress or randomUUID to prevent sharing a bucket for unidentifiable clients
+    const ip = req.ip || req.socket?.remoteAddress;
+    return ip || `fallback_${crypto.randomUUID()}`;
   },
   message: {
     error: {

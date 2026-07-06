@@ -196,8 +196,8 @@ export interface SessionPayload {
  * Output format: "ivBase64:ciphertextBase64:tagBase64"
  */
 export function encryptSession(payload: SessionPayload, secret: string): string {
-  // Derive a key of exactly 32 bytes from the secret string via SHA-256
-  const key = crypto.createHash("sha256").update(secret).digest();
+  // Derive a key of exactly 32 bytes from the secret string via PBKDF2
+  const key = crypto.pbkdf2Sync(secret, "session-secret-salt-string", 10000, 32, "sha256");
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   
@@ -220,7 +220,7 @@ export function decryptSession(token: string, secret: string): SessionPayload | 
     if (parts.length !== 3) return undefined;
     const [ivB64, ciphertextB64, tagB64] = parts;
     
-    const key = crypto.createHash("sha256").update(secret).digest();
+    const key = crypto.pbkdf2Sync(secret, "session-secret-salt-string", 10000, 32, "sha256");
     const iv = Buffer.from(ivB64, "base64");
     const ciphertext = Buffer.from(ciphertextB64, "base64");
     const tag = Buffer.from(tagB64, "base64");
@@ -244,7 +244,10 @@ export function decryptSession(token: string, secret: string): SessionPayload | 
 }
 
 export function getApiKeyFromSession(sessionId: string): string | undefined {
-  const secret = process.env.APP_SESSION_SECRET || "dev-session-secret-must-be-changed-in-prod";
+  const secret = process.env.APP_SESSION_SECRET;
+  if (!secret) {
+    throw new Error("APP_SESSION_SECRET is not configured in the environment.");
+  }
   const payload = decryptSession(sessionId, secret);
   if (!payload) return undefined;
   if (Date.now() > payload.expiresAt) {
