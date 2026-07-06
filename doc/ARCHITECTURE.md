@@ -50,20 +50,23 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 
 #### A. Variant Analysis Pipeline (`POST /api/analyze-variant`)
 * **Inputs**: `{ gene: string, variant: string, uniprotId: string }`
-* **Orchestration**: Executes two parallel/sequential queries to Gemini AI:
-  1. **Narrative Generation**: Calls `gemini-3.5-flash` with a tailored biophysical prompt to obtain detailed, professional clinical markdown.
-  2. **Structured JSON Validation**: Calls the model with a defined JSON schema request, extracting `biochemicalShift`, `structuralImpact`, and structural pathogenicity `acmgCriteria` arrays containing clinical codes and reasoning.
+* **Orchestration**: Executes parallel and cascade processing streams:
+  1. **Structural Triage**: Runs a local, fast rule-based classifier (`predictStructuralDisruption`) in parallel to assess secondary structure patterns, volume changes in the hydrophobic core, and residue chemical indices.
+  2. **Narrative Generation**: Calls `gemini-2.5-flash` (falling back to `gemini-2.0-flash`) with a tailored biophysical prompt to obtain detailed, professional clinical markdown.
+  3. **Structured JSON Validation**: Calls the model with a defined JSON schema request, extracting `biochemicalShift`, `structuralImpact`, and structural pathogenicity `acmgCriteria` arrays containing clinical codes and reasoning.
 * **Error Resilience**: Intercepts absent Gemini keys and returns a structured configuration error to the front-end, gracefully falling back to preconfigured high-fidelity clinical records (defined in `src/data.ts`) to maintain a fully interactive prototype.
 
 #### B. Biophysical Mutant Modeling Pipeline (`POST /api/generate-mutant`)
-* **Inputs**: `{ wtPdb: string, mutation: string }` (e.g., `wtPdb` coordinate buffer and mutation instruction like `RA408W`)
+* **Inputs**: `{ wtPdb: string, mutation: string, uniprotId?: string }`
 * **Process**:
   1. Writes the heavy wild-type template coordinate data block to a temporary workspace file (`wt_temp_${timestamp}_${randomId}.pdb`) to allow native CLI processors to access the coordinate matrix.
-  2. Formulates a localized command-line instruction file with standard biophysical mutation descriptions (e.g., `RA408W;` mapping the residue sequence).
-  3. Prepares a child process execution context: `foldx --command=BuildModel --pdb=${wtFile} --mutant-file=${mutFile}`.
-  4. In compute environments containing a pre-existing FoldX biophysical modeling binary, the system triggers real-time molecular mechanics modeling, side-chain repackaging, energy minimization, and returns the minimized 3D coordinate set.
-  5. In sandbox/prototype environments lacking native binaries, the server falls back to returning the unchanged wild-type PDB coordinates, alongside a `ddG: null` status indicator, allowing the frontend to display the wild-type structure while warning the user that biophysical simulation tools are not installed in the current environment.
-  6. **Safe Workspace Cleanup**: Explicitly runs synchronous file unlinking procedures on temporary inputs and outputs to prevent storage pollution in production containers.
+  2. Formulates localized command-line instruction files with standard biophysical mutation descriptions (e.g., `RA408W;` mapping the residue sequence).
+  3. Prepares a child process execution context to run FoldX `BuildModel` across **3 independent runs** for stochastic averaging (extracting mean $\Delta\Delta G$ and standard deviation).
+  4. Runs a Python-based sequence predictor (`tools/ddgun/ddgun_seq.py`) to fetch sequence-based evolutionary $\Delta\Delta G$ scores.
+  5. Computes a **2/3 majority consensus verdict** based on predefined destabilization thresholds for FoldX, DynaMut2, and DDGun-Seq.
+  6. Calculates local sidechain packing RMSD using a physical alignment algorithm on wild-type and mutant rotamers.
+  7. **Fails Loud**: In environments lacking FoldX binaries or where execution fails, the engine throws a hard `503` error instead of falling back to silent wild-type coordinate returns, ensuring data integrity.
+  8. **Safe Workspace Cleanup**: Explicitly runs recursive file deletion on temporary job directories to prevent storage pollution in production containers.
 
 #### C. Gene Accessory resolver (`POST /api/resolve-gene`)
 * Maps inputted gene symbols (e.g., PAH, FGFR3, GBA1, NAE1) to their canonical accession codes.

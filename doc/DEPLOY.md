@@ -34,8 +34,8 @@ This document outlines the step-by-step procedure to deploy the Missense & Fold 
 Create a production `.env` file in the project root:
 ```ini
 # Primary Gemini model
-GEMINI_MODEL="gemini-3.5-flash"
-GEMINI_MODEL_FALLBACKS="gemini-2.5-flash,gemini-2.0-flash"
+GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL_FALLBACKS="gemini-2.0-flash"
 
 # Path to FoldX binary (or leave blank to auto-detect from tools/foldx)
 FOLDX_BINARY=""

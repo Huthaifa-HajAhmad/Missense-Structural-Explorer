@@ -56,3 +56,15 @@ To ensure multi-replica security and horizontal scaling across server clusters, 
 The server implements a regular-expression-based PII (Personally Identifiable Information) filtering helper (`filterPII`) to screen user-supplied directions for sensitive information like emails, phone numbers, SSNs, dates of birth, and patient/medical record IDs.
 * **Best-effort Constraint**: This is a regex-based helper and acts as a secondary mitigation control. It cannot guarantee the detection of arbitrary patient names or unique custom identifiers.
 * **Primary Control**: The primary clinical safety control is the user policy: researchers must **never** input real Patient Health Information (PHI) or identifiable clinical notes into the custom narrative directions field.
+
+---
+
+## 7. Modified ACMG Framework Rules
+
+The ACMG rule suggester uses standard Richards et al. 2015 rules, with the following modifications:
+* **BS1_Supp (Benign Supporting)**: We introduced a custom supporting evidence level for variants with intermediate allele frequencies ($0.01\% - 1.0\%$). This fills the gap between strong benign frequency ($>1.0\%$) and pathogenic rarity ($<0.01\%$) per ClinGen's recommendations for clinical pipelines.
+* **PP5 / BP6 (ClinVar Mapping)**: ClinVar pathogenicity assertions are mapped directly to `PP5` / `BP6` (suggesting reputable source evidence) rather than `PS1` / `BS2`, ensuring strict alignment with modern ACMG guidelines.
+* **ACMG Weighting Models**: The rule-based suggester engine respects the selected weighting model:
+  - **Conservative Mode**: Omit computational and population frequency criteria (`PM2`, `PP3`, `BP4`, `BS1_Supp`, `PP2`) unless strongly corroborated by a corresponding ClinVar classification.
+  - **Strict-Structural Mode**: Omit non-structural computational/frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`) in the rule-based engine entirely, relying instead on ClinVar databases and structural hotspot criteria (`PM1`/`PS3`) generated during model analysis.
+

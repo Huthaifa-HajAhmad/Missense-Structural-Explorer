@@ -62,11 +62,14 @@ Provides automated screening for several variant rules based on the ACMG guideli
 
 ---
 
-## 5. Biophysical Mutant Modeling Engine
+## 5. Biophysical Mutant Modeling Engine & Consensus Stability Verdicts
 This advanced research feature models mutated coordinate structures on the fly:
 
-* Users can submit a custom mutation and request a 3D overlay structure.
-* The server retrieves the base wild-type structural template and processes side-chain substitutions to perform energy-minimized molecular modeling (integrated with FoldX mechanics / 3D structural mapping).
+* **Stochastic Multi-Run Folding**: Runs FoldX `BuildModel` 3 times to calculate average stability ($\Delta\Delta G$ Mean $\pm$ SD) to ensure rotamer sampling reproducibility and clamp severe outliers.
+* **Smart Triage Classification**: Evaluates secondary structure patterns (e.g. Proline/Glycine substitutions in helices/sheets), volume expansion in hydrophobic cores, and pLDDT structure confidence to classify variants before executing heavy simulations.
+- **Triage Override**: Allows researchers to force-enable mutant structure modeling even for low-disruption variants where WT and Mutant rigid backbones are identical, preventing misleading structural comparisons.
+- **Evolutionary/Sequence Delta-Delta G**: Computes sequence-based stability predictions via a local DDGun-Seq sidecar.
+- **2/3 Biophysical Consensus**: Aggregates FoldX, DynaMut2, and DDGun-Seq predictions to determine a consolidated stability verdict (High-Risk, Moderate-Risk, or Low-Risk).
 * The 3D viewer displays the mutated structure overlay, enabling direct visual comparison of how a sequence change affects the local spatial pocket architecture.
 
 ---

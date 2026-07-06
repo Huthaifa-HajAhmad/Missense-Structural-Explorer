@@ -87,6 +87,11 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
       "conservationData": { ... },
       "stringInteractions": [ ... ]
     },
+    "disruptionPredictor": {
+      "level": "high",
+      "reason": "Severe core steric expansion (volume increase of +139 Å³ from R to W at position 408), expected to cause steric clashes in the packed hydrophobic core.",
+      "plddt": 92.5
+    },
     "metadata": {
       "gene": "PAH",
       "variant": "p.Arg408Trp",
@@ -109,12 +114,12 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Request Body**: (JSON payload containing PDB text)
   ```json
   {
-    "pdbText": "ATOM      1  CA...",
+    "wtPdb": "ATOM      1  CA...",
     "mutation": "RA408W",
     "uniprotId": "P00439"
   }
   ```
-* **Description**: Writes PDB to temporary file and runs FoldX `BuildModel` command-line biophysical simulation. If FoldX is not installed or fails, the API does **not** fall back to WT coordinates; instead, it fails-loud and throws a hard error.
+* **Description**: Writes PDB to temporary file and runs FoldX `BuildModel` command-line biophysical simulation across 3 runs. It computes sample standard deviation, VdW clash deltas, electrostatic interactions, and sidechain packaging RMSD. If FoldX is not installed or fails, the API does **not** fall back to WT coordinates; instead, it fails-loud and throws a hard error.
 * **Response**:
   ```json
   {
@@ -124,9 +129,15 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     "foldedResidueIndex": 408,
     "energetics": {
       "foldx": 1.54,
-      "dynamut2": 1.24,
-      "ddgun": null,
-      "maestro": null
+      "foldxMean": 1.54,
+      "foldxSd": 0.12,
+      "vdw": 2.15,
+      "electrostatics": -0.45,
+      "stericClashWarning": false,
+      "localSidechainRmsd": 1.12,
+      "dynamut2": null,
+      "ddgun": 1.10,
+      "consensusVerdict": "High-Risk Pathogenic (Consensus)"
     }
   }
   ```

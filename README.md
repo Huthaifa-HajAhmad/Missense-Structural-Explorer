@@ -55,6 +55,9 @@ The application pre-loads three canonical rare disease presets, complete with hi
     2. Place the downloaded Windows executable (e.g. `foldx_1_20270131.exe`) inside the `tools/foldx/` folder.
     3. Copy the `molecules/` folder containing standard amino acid parameter/rotamer libraries (such as `rotabase.txt`) from your FoldX distribution directly into the `tools/foldx/molecules/` directory.
     4. (Optional) Alternatively, you can define `FOLDX_BINARY` in your `.env` pointing to the absolute path of the executable.
+*   **Python 3 (Required for Sequence-Based Stability predictions)**:
+    1. Ensure Python 3 is installed and executable on the local system path.
+    2. The application utilizes a python-based sidecar (`tools/ddgun/ddgun_seq.py`) to run evolutionary sequence checks.
 
 ### Installation & Execution
 1.  **Clone the Repository**:
