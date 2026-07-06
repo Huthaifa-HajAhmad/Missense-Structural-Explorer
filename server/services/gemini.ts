@@ -222,6 +222,7 @@ For the structured report fields, provide compact, precise, and expert descripti
           model: modelName,
           contents: prompt,
           config: {
+            temperature: 0.1,
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
@@ -411,6 +412,7 @@ Generate a JSON object with:
           model: modelName,
           contents: prompt,
           config: {
+            temperature: 0.1,
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
