@@ -163,6 +163,8 @@ interface MolstarViewerProps {
   computedPocket?: PocketResult | null;
   isPocketLoading?: boolean;
   pocketError?: string | null;
+  pdbId?: string | null;
+  pdbSource?: string | null;
 }
 
 export default function MolstarViewer({ 
@@ -190,9 +192,11 @@ export default function MolstarViewer({
   energyUnit,
   fetchNearestResidues,
   onPdbTextLoaded,
-  computedPocket: computedPocketProp,
-  isPocketLoading: isPocketLoadingProp,
-  pocketError: pocketErrorProp
+  computedPocket,
+  isPocketLoading,
+  pocketError,
+  pdbId,
+  pdbSource
 }: MolstarViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pluginRef = useRef<any>(null);
@@ -203,6 +207,7 @@ export default function MolstarViewer({
   
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [plddtFilter, setPlddtFilter] = useState<"none" | "50" | "70">("none");
   const [pluginsReadyState, setPluginsReadyState] = useState<number>(0);
   const [pluginCreated, setPluginCreated] = useState<boolean>(false);
   const [showWarningCard, setShowWarningCard] = useState(false);
@@ -248,9 +253,6 @@ export default function MolstarViewer({
 
   const [pocketErrorLocal, setPocketErrorLocal] = useState<string | null>(null);
   const setPocketError = setPocketErrorLocal;
-  const computedPocket = computedPocketProp || null;
-  const isPocketLoading = isPocketLoadingProp || false;
-  const pocketError = pocketErrorProp || pocketErrorLocal;
 
   useEffect(() => {
     let active = true;
@@ -410,7 +412,14 @@ export default function MolstarViewer({
             Vec3.sub(forward, target, position);
             
             // Fixed-displacement unit-vector zooming to prevent slowing down near target
-            const zoomSensitivity = 0.15; // Angstroms per scroll tick
+            // Dynamically scale sensitivity for trackpad pinch gestures (small deltaY) vs physical mouse wheels
+            let zoomSensitivity = 0.15;
+            const absDelta = Math.abs(e.deltaY);
+            if (absDelta > 0 && absDelta < 8) {
+              zoomSensitivity = 1.6; // Scale up for pinch gesture events
+            } else if (absDelta < 40) {
+              zoomSensitivity = 0.75;
+            }
             const step = e.deltaY * zoomSensitivity;
             
             const normForward = Vec3.zero();
@@ -429,8 +438,10 @@ export default function MolstarViewer({
               return;
             }
             
+            const newRadius = Vec3.distance(newPosition, target);
             camera.setState({
-              position: newPosition
+              position: newPosition,
+              radius: newRadius
             }, 0);
           }
         } catch (err) {
@@ -511,7 +522,9 @@ export default function MolstarViewer({
 
   const handleDownloadCapture = async () => {
     setCaptureMenuOpen(false);
-    const helper = pluginRef.current?.helpers?.viewportScreenshot || pluginRef.current?.viewportScreenshot;
+    const helper = pluginRef.current?.managers?.viewportScreenshot 
+      || pluginRef.current?.helpers?.viewportScreenshot 
+      || pluginRef.current?.viewportScreenshot;
     if (helper) {
       try {
         await helper.download(`structural-snapshot-${gene}-${uniprotId}.png`);
@@ -646,13 +659,18 @@ export default function MolstarViewer({
       container.style.width = '100%';
       container.style.height = '100%';
       container.style.maxWidth = '100%';
-      container.style.maxHeight = '1005px';
+      container.style.maxHeight = '100%';
       container.className = `w-full h-full ${isDark ? "text-slate-100" : "text-slate-900"}`;
       parent.appendChild(container);
 
       try {
         const spec: any = {
           ...DefaultPluginUISpec(),
+          canvas3d: {
+            webgl: {
+              preserveDrawingBuffer: true
+            }
+          }
         };
 
         // Initialize Molstar Viewer
@@ -819,9 +837,29 @@ export default function MolstarViewer({
         const structure = await localPlugin.builders.structure.createStructure(model);
         structureRef.current = structure;
 
+        let targetStructure = structure;
+        if (plddtFilter !== "none") {
+          const threshold = parseInt(plddtFilter, 10);
+          const expression = MS.struct.generator.atomGroups({
+            'atom-test': MS.core.rel.gre([
+              MS.struct.atomProperty.macromolecular.B_iso_or_equiv(),
+              threshold
+            ])
+          });
+          const filteredComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+            structure,
+            expression,
+            'filtered-structure',
+            { label: `pLDDT >= ${threshold}` }
+          );
+          if (filteredComponent) {
+            targetStructure = filteredComponent;
+          }
+        }
+
         // Apply standard auto representation preset for robust loading/coloring representation
         // utilizing the built-in 'plddt-confidence' color theme (AlphaFold uses B-factor for pLDDT)
-        await localPlugin.builders.structure.representation.applyPreset(structure, 'auto', {
+        await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
           theme: { globalName: 'plddt-confidence' }
         });
 
@@ -838,7 +876,28 @@ export default function MolstarViewer({
           const model2 = await localPlugin.builders.structure.createModel(trajectory2);
           const structure2 = await localPlugin.builders.structure.createStructure(model2);
           structure2Ref.current = structure2;
-          await localPlugin.builders.structure.representation.applyPreset(structure2, 'auto', {
+
+          let targetStructure2 = structure2;
+          if (plddtFilter !== "none") {
+            const threshold = parseInt(plddtFilter, 10);
+            const expression2 = MS.struct.generator.atomGroups({
+              'atom-test': MS.core.rel.gre([
+                MS.struct.atomProperty.macromolecular.B_iso_or_equiv(),
+                threshold
+              ])
+            });
+            const filteredComponent2 = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+              structure2,
+              expression2,
+              'filtered-structure-compare',
+              { label: `pLDDT >= ${threshold}` }
+            );
+            if (filteredComponent2) {
+              targetStructure2 = filteredComponent2;
+            }
+          }
+
+          await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
             theme: { globalName: 'plddt-confidence' }
           });
         } else {
@@ -873,7 +932,7 @@ export default function MolstarViewer({
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -1196,7 +1255,7 @@ export default function MolstarViewer({
   };
 
   return (
-    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all ${
+    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all flex flex-col ${
       isDark ? "border-slate-800" : "border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)]"
     }`}>
       {/* Loading Overlay */}
@@ -1229,7 +1288,13 @@ export default function MolstarViewer({
           <div className={`text-xs p-3 rounded text-left font-mono max-w-md w-full overflow-hidden border ${
             isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500"
           }`}>
-            Source: <span className="text-rose-500 break-all font-semibold">{customPdbData ? "Target FoldX Mutated Output" : `AlphaFold DB v4 (AF-${uniprotId})`}</span>
+             Source: <span className="text-rose-500 break-all font-semibold">
+              {customPdbData 
+                ? "Target FoldX Mutated Output" 
+                : pdbSource === "RCSB PDB" && pdbId 
+                  ? `RCSB PDB (ID: ${pdbId.toUpperCase()})` 
+                  : `AlphaFold DB v4 (AF-${uniprotId})`}
+            </span>
           </div>
         </div>
       )}
@@ -1250,12 +1315,13 @@ export default function MolstarViewer({
             </div>
           </div>
           
-          <h3 className={`text-xl font-bold font-sans mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
-            Interactive 3D Structure Viewer
+          <h3 className={`text-sm font-semibold font-mono uppercase tracking-wider text-indigo-500 mb-3`} style={{ color: "var(--cs-accent-clay)" }}>
+            3D Molecular Workspace Ready
           </h3>
+          <div className="w-16 h-[1px] bg-slate-800/10 dark:bg-slate-800/60 mx-auto mb-4"></div>
           
-          <p className="text-sm max-w-md mb-6 leading-relaxed">
-            Welcome to the Missense Structural Explorer. Please select one of the high-impact <span className="font-semibold text-indigo-500">Presets</span> above or input a Gene and Missense Variant to resolve and simulate the wild-type and mutant protein structures.
+          <p className="text-xs max-w-sm mb-6 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
+            Submit a genetic variant search query to load and inspect 3D protein structures. You can simulate mutation side-chains, calculate structural pockets, and analyze local structural disruptions.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
@@ -1278,11 +1344,10 @@ export default function MolstarViewer({
         </div>
       )}
 
-      {/* Actual Mol* Canvas Container */}
       <div 
          ref={containerRef} 
       id="molstar-viewer-container" 
-         className={`w-full h-full text-slate-900 transition-all duration-700 ease-out ${
+         className={`w-full flex-1 min-h-0 text-slate-900 transition-all duration-700 ease-out ${
            isTransitioning ? "opacity-35 scale-[0.985] blur-[1px]" : "opacity-100 scale-100 blur-0"
          }`}
       />
@@ -1383,16 +1448,18 @@ export default function MolstarViewer({
           ) : null}
         </div>
       )}
-
-      {/* Bottom bar: Model Status info + actions all in one aligned bar next to capture */}
-      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 pointer-events-none">
-        {/* Model Info bar - now moved next to action buttons */}
-        <div className={`backdrop-blur-md px-3 py-1.5 rounded-lg text-[11px] font-mono flex items-center gap-2.5 border pointer-events-auto shadow-md transition-colors ${
-          isDark
-            ? "bg-slate-900/90 border-slate-800 text-slate-300"
-            : "bg-white/95 border-slate-200 text-slate-650"
-        }`}>
-          <span className="flex items-center gap-1.5 text-indigo-505 font-bold">
+      {/* Bottom bar: Model Status info + actions all in one aligned bar below the viewport */}
+      <div className={`flex flex-col md:flex-row items-center justify-between gap-3 px-4 py-3 border-t z-10 transition-colors pointer-events-auto ${
+        isDark 
+          ? "bg-[#0b0f19] border-slate-800/80 text-slate-350" 
+          : "bg-slate-50 border-slate-200 text-slate-650"
+      }`}>
+        {/* Left: Model Info (Pills/Capsules style instead of vertical dividers) */}
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+          {/* Status badge pill */}
+          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
+            isDark ? "bg-indigo-950/40 border-indigo-500/25 text-indigo-400" : "bg-indigo-50 border-indigo-100 text-indigo-700"
+          }`}>
             {comparePdbData ? (
               <>
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
@@ -1407,125 +1474,152 @@ export default function MolstarViewer({
               ) : (
                 <>
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
-                  <span className="text-amber-400 font-bold">SCWRL4</span>
+                  <span className="text-amber-500">SCWRL4</span>
                 </>
               )
             ) : uniprotId ? (
               <>
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-                <span>AlphaFold AF-{uniprotId}</span>
+                <span>{pdbSource === "RCSB PDB" && pdbId ? `PDB: ${pdbId.toUpperCase()}` : `AF-${uniprotId}`}</span>
               </>
             ) : (
               <>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                <span>No Structure Loaded</span>
+                <span>No Structure</span>
               </>
             )}
           </span>
+
+          {/* Gene symbol pill */}
           {gene && (
-            <>
-              <span className="text-slate-500">|</span>
-              <span>Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong></span>
-            </>
+            <span className={`px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
+              isDark ? "bg-slate-900/60 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-600"
+            }`}>
+              Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong>
+            </span>
           )}
+
+          {/* Residue position pill */}
           {residueIndex !== null && (
-            <>
-              <span className="text-slate-500">|</span>
-              <span className="text-amber-500 font-bold">#{residueIndex}</span>
-            </>
+            <span className={`px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
+              isDark ? "bg-amber-950/20 border-amber-500/20 text-amber-500" : "bg-amber-50 border-amber-100 text-amber-600"
+            }`}>
+              Residue: <strong>#{residueIndex}</strong>
+            </span>
           )}
+
+          {/* Comparison Variant pill */}
           {comparePdbData && compareResidueIndex !== null && compareResidueIndex !== undefined && (
-            <>
-              <span className="text-slate-500">|</span>
-              <span className="text-pink-500 font-bold">#{compareResidueIndex} ({compareVariant || "Compare"})</span>
-            </>
+            <span className={`px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
+              isDark ? "bg-pink-950/20 border-pink-500/20 text-pink-400" : "bg-pink-50 border-pink-100 text-pink-600"
+            }`}>
+              Variant 2: <strong>#{compareResidueIndex} ({compareVariant || "Compare"})</strong>
+            </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 pointer-events-auto">
+        {/* Right: Actions (PLDDT Filter, Fullscreen, Capture, Pocket Finder) */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* pLDDT Filter Selection */}
+          <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono hidden md:inline">pLDDT Filter:</span>
+            <select
+              value={plddtFilter}
+              onChange={(e) => setPlddtFilter(e.target.value as "none" | "50" | "70")}
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
+                isDark 
+                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
+                  : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+              }`}
+            >
+              <option value="none">Show All</option>
+              <option value="50">pLDDT &ge; 50</option>
+              <option value="70">pLDDT &ge; 70</option>
+            </select>
+          </div>
+
           {/* Fullscreen Button */}
           <button
             type="button"
             onClick={handleToggleFullscreen}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all cursor-pointer shadow-md select-none ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none ${
               isDark
-                ? "bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-600"
-                : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-500 hover:text-slate-800 hover:border-slate-400"
+                ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white"
+                : "bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-slate-900"
             }`}
             title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
           >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
 
           {/* Capture View split button */}
-          <div className="relative" ref={captureMenuRef}>
+          <div className="relative flex" ref={captureMenuRef}>
             <button
               type="button"
               onClick={() => setCaptureMenuOpen(p => !p)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all cursor-pointer shadow-md select-none ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none ${
                 captureMenuOpen
                   ? isDark
-                    ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-300"
-                    : "bg-indigo-50 border-indigo-300 text-indigo-700"
+                    ? "bg-indigo-900/30 border-indigo-500/50 text-indigo-300"
+                    : "bg-indigo-50 border-indigo-355 text-indigo-700"
                   : isDark
-                    ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50"
-                    : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+                    ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white"
+                    : "bg-white hover:bg-slate-50 border-slate-300 text-slate-750 hover:text-slate-900"
               }`}
               title="Capture view options"
             >
-              <Camera className="w-3.5 h-3.5 text-indigo-505" />
+              <Camera className="w-4 h-4 text-indigo-500" />
               <span>Capture View</span>
-              <ChevronUp className={`w-3 h-3 transition-transform ${captureMenuOpen ? "" : "rotate-180"}`} />
+              <ChevronUp className={`w-3.5 h-3.5 transition-transform ${captureMenuOpen ? "" : "rotate-180"}`} />
             </button>
-            {/* Dropdown menu — pops upward */}
+            
+            {/* Themed Dropdown menu — pops upward */}
             {captureMenuOpen && (
-              <div className={`absolute bottom-full right-0 mb-1.5 w-44 rounded-xl border shadow-2xl overflow-hidden z-30 animate-slide-in ${
-                isDark
-                  ? "bg-slate-900 border-slate-700 text-slate-200"
-                  : "bg-white border-slate-200 text-slate-800"
-              }`}>
+              <div 
+                className="absolute bottom-full right-0 mb-1.5 w-44 rounded-xl border overflow-hidden z-30 animate-slide-in font-mono"
+                style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+              >
                 <button
                   type="button"
                   onClick={handleDownloadCapture}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold transition-colors cursor-pointer ${
-                    isDark ? "hover:bg-indigo-600/15 hover:text-indigo-300" : "hover:bg-indigo-50 hover:text-indigo-700"
-                  }`}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors cursor-pointer text-left`}
+                  style={{ color: "var(--cs-text-primary)" }}
                 >
-                  <Download className="w-3.5 h-3.5 text-indigo-505 shrink-0" />
-                  Download PNG
+                  <Download className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>Download PNG</span>
                 </button>
-                <div className={`h-px mx-2 ${ isDark ? "bg-slate-800" : "bg-slate-100" }`} />
+                <div className="h-px" style={{ background: "var(--cs-border-subtle)" }} />
                 <button
                   type="button"
                   onClick={handleCopyCapture}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold transition-colors cursor-pointer ${
-                    isDark ? "hover:bg-indigo-600/15 hover:text-indigo-300" : "hover:bg-indigo-50 hover:text-indigo-700"
-                  }`}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors cursor-pointer text-left`}
+                  style={{ color: "var(--cs-text-primary)" }}
                 >
-                  <ClipboardCopy className="w-3.5 h-3.5 text-indigo-505 shrink-0" />
-                  Copy to Clipboard
+                  <ClipboardCopy className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>Copy Image</span>
                 </button>
               </div>
             )}
           </div>
 
-          {/* Pocket Finder button */}
+          {/* Binding pocket identifier button */}
           <button
             type="button"
             onClick={() => {
-              setIsPocketPanelOpen(prev => !prev);
-              if (!isPocketPanelOpen) setShowPocket(true);
+              const next = !isPocketPanelOpen;
+              setIsPocketPanelOpen(next);
+              setShowPocket(next);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border transition-all cursor-pointer shadow-md select-none ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none ${
               isPocketPanelOpen
-                ? "bg-indigo-600 border-indigo-500 text-white"
+                ? "bg-amber-500 border-amber-600 text-slate-950 font-bold"
                 : isDark
-                  ? "bg-slate-900/90 hover:bg-indigo-600/20 border-slate-800 text-slate-200 hover:text-indigo-400 hover:border-indigo-500/50"
-                  : "bg-white/95 hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300"
+                  ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white"
+                  : "bg-white hover:bg-slate-50 border-slate-300 text-slate-750 hover:text-slate-900"
             }`}
             title="Run binding pocket analysis"
           >
-            <Cpu className={`w-3.5 h-3.5 ${isPocketPanelOpen ? "text-amber-300 animate-pulse" : "text-indigo-505"}`} />
+            <Cpu className={`w-4 h-4 ${isPocketPanelOpen ? "text-slate-950 animate-pulse" : "text-indigo-500"}`} />
             <span>Pocket Finder</span>
           </button>
         </div>
@@ -1535,7 +1629,7 @@ export default function MolstarViewer({
       {isPocketPanelOpen && (
         <div
           id="pocket-finder-suite-panel"
-          className={`absolute top-14 right-3 bottom-16 w-[310px] z-20 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden shadow-2xl animate-fade-in pointer-events-auto transition-all ${
+          className={`absolute top-14 right-3 max-h-[calc(100%-80px)] h-fit w-[310px] z-20 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden shadow-2xl animate-fade-in pointer-events-auto transition-all ${
             isDark
               ? "bg-slate-900/95 border-slate-800 text-slate-100"
               : "bg-white/95 border-slate-200 text-slate-900 shadow-indigo-100/30"
@@ -1546,14 +1640,14 @@ export default function MolstarViewer({
         >
           {/* Header */}
           <div 
-            className="flex items-center justify-between p-3 border-b border-indigo-500/10 bg-indigo-500/5 cursor-grab active:cursor-grabbing select-none"
+            className="flex items-center justify-between p-3.5 border-b border-indigo-500/10 bg-indigo-500/5 cursor-grab active:cursor-grabbing select-none"
             onMouseDown={handlePocketMouseDown}
           >
-            <div className="flex items-center gap-2">
-              <Cpu className="w-3.5 h-3.5 text-amber-500 animate-bounce" />
+            <div className="flex items-center gap-2.5">
+              <Activity className="w-4 h-4 text-amber-500 animate-pulse" />
               <div>
-                <h3 className="text-[10px] font-bold uppercase tracking-wider font-mono">Bound Pocket Suite</h3>
-                <p className="text-[8px] opacity-65 font-mono">Automated 3D Proximity Scanner</p>
+                <h3 className="text-[11.5px] font-bold uppercase tracking-wider font-mono">Active Site Cavity Solver</h3>
+                <p className="text-[8.5px] opacity-75 font-mono">3D Spatial Proximity & Pocket Analysis</p>
               </div>
             </div>
             
@@ -1569,7 +1663,7 @@ export default function MolstarViewer({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 custom-scrollbar">
             {residueIndex === null ? (
               <div className="text-center py-6">
                 <p className="text-xs text-slate-500 font-mono">Select a residue to run coordinate calculations.</p>
@@ -1588,32 +1682,34 @@ export default function MolstarViewer({
               </div>
             ) : computedPocket ? (
               <>
-                {/* P2Rank / Heuristic Validation Status Badge */}
-                <div className="mb-2">
-                  {computedPocket.status === "success" ? (
-                    <div className="text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded text-center">
-                      Validated ML Predictor: P2Rank Active
-                    </div>
-                  ) : (
-                    <div className="text-[9px] font-mono font-bold bg-amber-500/10 text-amber-450 border border-amber-500/20 px-2 py-0.5 rounded text-center" title="P2Rank CLI was not detected. Used proximity density fallback.">
-                      Spatial Density Heuristic (Fallback)
-                    </div>
-                  )}
-                </div>
-
                 {/* Pocket Stats Bento Grid */}
-                <div className="grid grid-cols-2 gap-2 text-center font-mono">
-                  <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[7.5px] uppercase text-slate-500 font-bold">
-                      {computedPocket.status === "success" ? "Pocket Vol. Space" : "Estimated Vol. Space"}
-                    </span>
-                    <strong className="text-xs text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
+                <div className="grid grid-cols-2 gap-2.5 text-center font-mono">
+                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Pocket Volume</span>
+                    <strong className="text-[13.5px] text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
                   </div>
-                  <div className={`p-2 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[7.5px] uppercase text-slate-500 font-bold">
-                      {computedPocket.status === "success" ? "Affinity Index" : "Density Score"}
-                    </span>
-                    <strong className="text-xs text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
+                  
+                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Affinity Prob.</span>
+                    <strong className="text-[13.5px] text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
+                  </div>
+
+                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Centroid Dist.</span>
+                    <strong className={`text-[13.5px] block mt-0.5 ${
+                      computedPocket.pocketDistance !== null && computedPocket.pocketDistance < 10
+                        ? "text-rose-455"
+                        : "text-indigo-400"
+                    }`}>
+                      {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
+                        ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
+                        : "N/A"}
+                    </strong>
+                  </div>
+
+                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Lining residues</span>
+                    <strong className="text-[13.5px] text-emerald-450 block mt-0.5">{computedPocket.pocketResidues?.length || 0}</strong>
                   </div>
                 </div>
 
@@ -1621,71 +1717,39 @@ export default function MolstarViewer({
                 <div className={`p-2.5 rounded-lg border ${
                   isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"
                 }`}>
-                  <span className="block text-[7.5px] uppercase text-slate-500 font-bold font-mono">
-                    {computedPocket.status === "success" ? "Target Pocket Specificity" : "Est. Substrate Specificity"}
+                  <span className="block text-[9.5px] uppercase text-slate-500 font-bold font-mono">
+                    Likely Target Co-Factor
                   </span>
                   <div className="flex items-center gap-1.5 mt-1">
-                    <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
-                    <span className="text-[10px] font-bold text-slate-400 truncate">{computedPocket.likelyCofactor}</span>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="text-[11.5px] font-bold text-slate-400 truncate">{computedPocket.likelyCofactor}</span>
                   </div>
                 </div>
 
-                {computedPocket.status !== "success" && (
-                  <p className="text-[9px] text-slate-400 opacity-80 mt-1 mb-2 italic text-center">
-                    * Values derived via spatial density fallback.
-                  </p>
-                )}
-
                 {/* Highlight Full Pocket Action */}
-                <div className="flex items-center justify-between border-t border-b border-indigo-500/10 py-2">
-                  <span className="text-[9px] font-bold font-mono text-slate-500 uppercase">Interactive HIGHLIGHTS</span>
+                <div className="flex items-center justify-between border-t border-b border-indigo-500/10 py-2.5">
+                  <span className="text-[11px] font-bold font-mono text-slate-500 uppercase">3D Highlights</span>
+                  
                   <button
                     type="button"
                     onClick={() => setShowPocket(p => !p)}
-                    className={`px-2 py-1 rounded text-[9px] font-mono font-bold transition-all select-none cursor-pointer ${
+                    className={`px-3 py-1 rounded text-[10px] font-mono font-bold transition-all select-none cursor-pointer ${
                       showPocket
                         ? "bg-amber-500 hover:bg-amber-600 text-slate-950"
                         : isDark ? "bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300" : "bg-slate-100 hover:bg-slate-200 text-slate-800"
                     }`}
                   >
-                    {showPocket ? "Highlight ON" : "Highlight OFF"}
+                    {showPocket ? " Cavity ON" : " Cavity OFF"}
                   </button>
                 </div>
 
-                {/* Coordinating Residues List */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[8px] font-mono font-bold text-slate-500">
-                    <span>COORDINATED POCKET RESIDUES</span>
-                    <span>{computedPocket.pocketResidues.length} FOUND</span>
-                  </div>
-                  
-                  <div className="space-y-1 max-h-[220px] overflow-y-auto pr-0.5 custom-scrollbar">
-                    {computedPocket.pocketResidues.map(res => (
-                      <div 
-                        key={res.index}
-                        onClick={() => focusOnPocketResidue(res.index)}
-                        className={`group p-1.5 rounded border flex flex-col gap-0.5 transition-all cursor-pointer ${
-                          isDark 
-                            ? "bg-slate-900/60 border-slate-800 hover:bg-indigo-950/20 hover:border-indigo-500/40" 
-                            : "bg-slate-50/50 border-slate-100 hover:bg-indigo-50/20 hover:border-indigo-400/40"
-                        }`}
-                        title="Click to coordinate center gravity focus on this pocket residue in the 3D workspace"
-                      >
-                        <div className="flex items-center justify-between text-[10px] font-mono">
-                          <span className="font-bold text-amber-500">{res.name}</span>
-                          <span className="text-[9px] text-slate-450 group-hover:text-indigo-400 transition-colors">
-                            {res.distance.toFixed(1)} Å
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-[8px] text-slate-450 font-mono">
-                          <span className="truncate max-w-[170px] text-[8px]">{res.role}</span>
-                          <span className="font-bold bg-indigo-500/10 text-indigo-400 px-0.5 rounded shrink-0">
-                            {res.score}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                {/* Info redirect block instead of crowded list */}
+                <div className={`p-3 rounded-lg border flex flex-col gap-1.5 leading-relaxed text-[11px] text-slate-500 ${
+                  isDark ? "bg-indigo-950/10 border-indigo-500/10" : "bg-indigo-50/20 border-indigo-100/50"
+                }`}>
+                  <p>
+                    💡 Detailed spatial lining residue metrics, distance calculations, and curated functional site annotations are available under the <strong>Function</strong> tab in the evidence dashboard.
+                  </p>
                 </div>
               </>
             ) : (
