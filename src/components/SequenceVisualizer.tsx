@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings } from "lucide-react";
+import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings, ChevronDown, ChevronUp, Atom } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
+import { NearestResidue } from "../types";
+import { getNearestResidues } from "../data";
 
 interface SequenceVisualizerProps {
   uniprotId: string;
@@ -14,6 +16,10 @@ interface SequenceVisualizerProps {
   seqScrollStep?: number;
   predictorData?: any;
   conservationData?: any;
+  landscapeData?: any[] | null;
+  computedResiduesCache?: Record<string, NearestResidue[]>;
+  disruptionPredictor?: any;
+  uniprotFeatures?: any[];
 }
 
 const AMINO_ACID_MAP_FULL: Record<string, { name: string; property: string; color: string }> = {
@@ -44,6 +50,37 @@ const AMINO_ACID_MAP_3_TO_1: Record<string, string> = {
   LEU: "L", LYS: "K", MET: "M", PHE: "F", PRO: "P", SER: "S", THR: "T", TRP: "W", TYR: "Y", VAL: "V"
 };
 
+const getSubstitutionGroup = (aa: string): string => {
+  if (["D", "E", "K", "R", "H"].includes(aa)) return "Charged";
+  if (["S", "T", "N", "Q", "C"].includes(aa)) return "Polar";
+  if (["A", "V", "I", "L", "M", "F", "Y", "W"].includes(aa)) return "Hydrophobic";
+  if (["P", "G"].includes(aa)) return "Conformational";
+  return "";
+};
+
+const PathogenicitySlider = ({ expectedRange, color }: { expectedRange: string; color: string }) => {
+  const match = expectedRange.match(/([\d\.]+)\s*-\s*([\d\.]+)/);
+  if (!match) return <span className="text-[9px] font-mono">{expectedRange}</span>;
+  const min = parseFloat(match[1]);
+  const max = parseFloat(match[2]);
+  const left = min * 100;
+  const width = (max - min) * 100;
+
+  return (
+    <div className="flex items-center gap-1.5 w-full">
+      <span className="text-[8px] font-mono w-5 text-right opacity-60">0.0</span>
+      <div className="flex-grow h-2 bg-slate-200 dark:bg-slate-800 rounded relative overflow-hidden">
+        <div 
+          className={`h-full absolute rounded ${color}`} 
+          style={{ left: `${left}%`, width: `${width}%` }} 
+        />
+      </div>
+      <span className="text-[8px] font-mono w-5 text-left opacity-60">1.0</span>
+      <span className="text-[9px] font-mono font-bold ml-1">{expectedRange}</span>
+    </div>
+  );
+};
+
 export default function SequenceVisualizer({ 
   uniprotId, 
   variant, 
@@ -55,10 +92,14 @@ export default function SequenceVisualizer({
   seqColorScheme: seqColorSchemeProp,
   seqScrollStep: seqScrollStepProp,
   predictorData,
-  conservationData
+  conservationData,
+  landscapeData,
+  computedResiduesCache,
+  disruptionPredictor,
+  uniprotFeatures
 }: SequenceVisualizerProps) {
-  const { theme: contextTheme, settings } = useSettings();
-  const isDark = (theme || contextTheme) !== "light";
+  const { theme: contextTheme, settings, isDark: contextIsDark } = useSettings();
+  const isDark = theme ? theme === "dark" : contextIsDark;
   const seqColorScheme = seqColorSchemeProp || settings.seqColorScheme;
   const seqScrollStep = seqScrollStepProp !== undefined ? seqScrollStepProp : settings.seqScrollStep;
 
@@ -68,6 +109,7 @@ export default function SequenceVisualizer({
   const [windowSize, setWindowSize] = useState<number>(seqScrollStepProp || settings.seqScrollStep || 31); // surrounding window (number of amino acids to display)
   const [copied, setCopied] = useState<boolean>(false);
   const [hoveredResidue, setHoveredResidue] = useState<{ symbol: string; pos: number; type: "wild" | "mutant" | "normal" } | null>(null);
+  const [isWindowDropdownOpen, setIsWindowDropdownOpen] = useState<boolean>(false);
 
   // Re-adjust windowSize if seqScrollStep prop changes or from settings changes
   useEffect(() => {
@@ -338,26 +380,258 @@ export default function SequenceVisualizer({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const getSimulatedRevelScore = (pos: number) => {
+  const getRevelScore = (pos: number) => {
     if (pos === mutationIndex) {
       return conservationData?.revel !== undefined && conservationData?.revel !== null
         ? parseFloat(conservationData.revel)
         : null;
     }
-    const seed = pos * 17 + (uniprotId ? uniprotId.charCodeAt(0) * 3 : 0);
-    const rawVal = Math.abs(Math.sin(seed));
-    return 0.05 + rawVal * 0.70;
+    const match = landscapeData?.find((item: any) => item.residx === pos);
+    return match?.revelMax !== undefined && match?.revelMax !== null ? match.revelMax : null;
   };
 
-  const getSimulatedAmScore = (pos: number) => {
+  const getAmScore = (pos: number) => {
     if (pos === mutationIndex) {
       return predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null
         ? parseFloat(predictorData.amPathogenicity)
         : null;
     }
-    const seed = pos * 23 + (uniprotId ? uniprotId.charCodeAt(1) * 7 : 0);
-    const rawVal = Math.abs(Math.cos(seed));
-    return 0.02 + rawVal * 0.93;
+    const match = landscapeData?.find((item: any) => item.residx === pos);
+    return match?.amMax !== undefined && match?.amMax !== null ? match.amMax : null;
+  };
+
+  const getGerpScore = (pos: number) => {
+    if (pos === mutationIndex) {
+      return conservationData?.gerp !== undefined && conservationData?.gerp !== null
+        ? parseFloat(conservationData.gerp)
+        : null;
+    }
+    const match = landscapeData?.find((item: any) => item.residx === pos);
+    return match?.gerp !== undefined && match?.gerp !== null ? match.gerp : null;
+  };
+
+  const getPhyloPScore = (pos: number) => {
+    if (pos === mutationIndex) {
+      return conservationData?.phylop !== undefined && conservationData?.phylop !== null
+        ? parseFloat(conservationData.phylop)
+        : null;
+    }
+    const match = landscapeData?.find((item: any) => item.residx === pos);
+    return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
+  };
+
+  const getBiophysicalConsequence = (symbol: string, pos: number) => {
+    const wtProp = AMINO_ACID_MAP_FULL[symbol]?.property || "Neutral";
+    const isTarget = pos === mutationIndex;
+    
+    // Parse local features from uniprotFeatures prop
+    const localFeatures = uniprotFeatures?.filter((f: any) => pos >= f.start && pos <= f.end) || [];
+    const activeSite = localFeatures.find((f: any) => f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("binding") || f.type.toLowerCase().includes("metal"));
+    const interfaceSite = localFeatures.find((f: any) => f.type.toLowerCase().includes("region") || f.type.toLowerCase().includes("site") || f.type.toLowerCase().includes("dimer") || f.type.toLowerCase().includes("interface"));
+
+    if (isTarget) {
+      return `Queried mutation site: Swapping wild-type ${mutation.wt} (${wtProp}) with mutant ${mutation.mut} changes the local microenvironment, potentially disrupting critical tertiary packing or pocket contacts.`;
+    }
+    if (activeSite) {
+      return `Curated Site: Mutating this residue is highly likely to disrupt functional catalysis or ligand docking (annotated as ${activeSite.type}: ${activeSite.description}).`;
+    }
+    if (interfaceSite) {
+      return `Curated Interface: This residue lies in a binding interface region (${interfaceSite.description}). Substitutions here present a high-risk of disrupting macromolecular assembly.`;
+    }
+    if (wtProp.includes("Hydrophobic")) {
+      return `Buried Core: Hydrophobic residues at this position contribute to the packing of the protein core. Polar or charged mutations here will break packing and cause misfolding.`;
+    }
+    return `Boundary/Surface residue: Solvent-exposed residues are generally tolerant of missense changes unless they overlap with active sites or binding interfaces.`;
+  };
+
+  interface SubstitutionGroup {
+    name: string;
+    residues: string[];
+    badgeColor: string;
+    expectedRevel: string;
+    expectedAm: string;
+    consequence: string;
+    severity: "high" | "medium" | "low";
+  }
+
+  const getSubstitutionalConsequences = (symbol: string, pos: number): SubstitutionGroup[] => {
+    const wtProp = AMINO_ACID_MAP_FULL[symbol]?.property || "Neutral";
+    
+    // Check if we have UniProt features for this position
+    const localFeatures = uniprotFeatures?.filter((f: any) => pos >= f.start && pos <= f.end) || [];
+    const isActiveSite = localFeatures.some((f: any) => f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("binding") || f.type.toLowerCase().includes("metal"));
+    const isInterface = localFeatures.some((f: any) => f.type.toLowerCase().includes("region") || f.type.toLowerCase().includes("site") || f.type.toLowerCase().includes("dimer") || f.type.toLowerCase().includes("interface"));
+    
+    let burial: "core" | "surface" | "boundary" = "boundary";
+    if (pos === mutationIndex && disruptionPredictor?.burialStatus) {
+      burial = disruptionPredictor.burialStatus;
+    } else if (wtProp.includes("Hydrophobic")) {
+      burial = "core";
+    } else {
+      burial = "surface";
+    }
+
+    if (isActiveSite) {
+      return [
+        {
+          name: "Charged (D, E, K, R, H)",
+          residues: ["D", "E", "K", "R", "H"],
+          badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
+          expectedRevel: "0.80 - 0.95",
+          expectedAm: "0.85 - 0.98",
+          consequence: "Severe catalytic disruption. Alters pocket electrostatics directly.",
+          severity: "high"
+        },
+        {
+          name: "Polar (S, T, N, Q, C)",
+          residues: ["S", "T", "N", "Q", "C"],
+          badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+          expectedRevel: "0.75 - 0.90",
+          expectedAm: "0.80 - 0.95",
+          consequence: "Disrupts hydrogen bonding network in catalytic cleft.",
+          severity: "high"
+        },
+        {
+          name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
+          residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
+          badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+          expectedRevel: "0.70 - 0.90",
+          expectedAm: "0.75 - 0.95",
+          consequence: "Steric pocket occlusion. Blocks ligand entry / binding.",
+          severity: "high"
+        },
+        {
+          name: "Conformational (P, G)",
+          residues: ["P", "G"],
+          badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+          expectedRevel: "0.85 - 0.98",
+          expectedAm: "0.90 - 0.99",
+          consequence: "Collapses pocket geometry. Completely inactivates function.",
+          severity: "high"
+        }
+      ];
+    }
+
+    if (isInterface) {
+      return [
+        {
+          name: "Charged (D, E, K, R, H)",
+          residues: ["D", "E", "K", "R", "H"],
+          badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
+          expectedRevel: "0.60 - 0.85",
+          expectedAm: "0.70 - 0.90",
+          consequence: "Introduces charge repulsion, blocking complex assembly.",
+          severity: "high"
+        },
+        {
+          name: "Polar (S, T, N, Q, C)",
+          residues: ["S", "T", "N", "Q", "C"],
+          badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+          expectedRevel: "0.40 - 0.70",
+          expectedAm: "0.45 - 0.75",
+          consequence: "Alters hydrogen bonding contacts with binding partner.",
+          severity: "medium"
+        },
+        {
+          name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
+          residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
+          badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+          expectedRevel: "0.40 - 0.80",
+          expectedAm: "0.50 - 0.85",
+          consequence: "Disrupts hydrophobic interface packing or causes steric overlap.",
+          severity: "medium"
+        },
+        {
+          name: "Conformational (P, G)",
+          residues: ["P", "G"],
+          badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+          expectedRevel: "0.70 - 0.90",
+          expectedAm: "0.75 - 0.95",
+          consequence: "Disrupts local secondary structure essential for docking.",
+          severity: "high"
+        }
+      ];
+    }
+
+    if (burial === "core") {
+      return [
+        {
+          name: "Charged (D, E, K, R, H)",
+          residues: ["D", "E", "K", "R", "H"],
+          badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
+          expectedRevel: "0.75 - 0.90",
+          expectedAm: "0.80 - 0.95",
+          consequence: "Severe packing crash. Introducing charges in the core causes misfolding.",
+          severity: "high"
+        },
+        {
+          name: "Polar (S, T, N, Q, C)",
+          residues: ["S", "T", "N", "Q", "C"],
+          badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+          expectedRevel: "0.50 - 0.75",
+          expectedAm: "0.55 - 0.80",
+          consequence: "Unsatisfied hydrogen bonds in core. Moderately destabilizing.",
+          severity: "medium"
+        },
+        {
+          name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
+          residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
+          badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+          expectedRevel: "0.20 - 0.50",
+          expectedAm: "0.25 - 0.55",
+          consequence: "Conservative changes. Minor volume shifts are generally well-packed.",
+          severity: "low"
+        },
+        {
+          name: "Conformational (P, G)",
+          residues: ["P", "G"],
+          badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+          expectedRevel: "0.75 - 0.95",
+          expectedAm: "0.80 - 0.98",
+          consequence: "Backbone conformation breach. High risk of local sheet/helix collapse.",
+          severity: "high"
+        }
+      ];
+    }
+
+    return [
+      {
+        name: "Charged (D, E, K, R, H)",
+        residues: ["D", "E", "K", "R", "H"],
+        badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
+        expectedRevel: "0.05 - 0.20",
+        expectedAm: "0.08 - 0.25",
+        consequence: "Highly tolerated on solvent-exposed protein surfaces.",
+        severity: "low"
+      },
+      {
+        name: "Polar (S, T, N, Q, C)",
+        residues: ["S", "T", "N", "Q", "C"],
+        badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+        expectedRevel: "0.05 - 0.15",
+        expectedAm: "0.05 - 0.20",
+        consequence: "Highly tolerated. Maintains polar solvent interactions.",
+        severity: "low"
+      },
+      {
+        name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
+        residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
+        badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+        expectedRevel: "0.15 - 0.40",
+        expectedAm: "0.20 - 0.45",
+        consequence: "Surface hydrophobicity increase; may prompt aggregation.",
+        severity: "low"
+      },
+      {
+        name: "Conformational (P, G)",
+        residues: ["P", "G"],
+        badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+        expectedRevel: "0.30 - 0.60",
+        expectedAm: "0.35 - 0.65",
+        consequence: "Proline can disrupt loops. Glycine can introduce excessive flexibility.",
+        severity: "medium"
+      }
+    ];
   };
 
   return (
@@ -365,13 +639,13 @@ export default function SequenceVisualizer({
       id="sequence-alignment-visualizer-card" 
       className={`rounded-xl p-5 flex flex-col gap-4 animate-slide-in border transition-all ${
         isDark 
-          ? "bg-[#1e293b] border-slate-800 shadow-[0_4px_20px_rgba(0,0,0,0.3)] text-slate-200" 
-          : "bg-white border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)] text-slate-800"
+          ? "bg-[#2A2724] border-[#3C3934] shadow-[0_4px_20px_rgba(0,0,0,0.3)] text-slate-200" 
+          : "bg-white border-[#E5E1DC] shadow-[0_4px_16px_rgba(0,0,0,0.06)] text-slate-800"
       }`}
     >
       {/* Visualizer header */}
       <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b transition-colors ${
-        isDark ? "border-slate-800" : "border-slate-200"
+        isDark ? "border-[#3C3934]" : "border-[#ECEAE4]"
       }`}>
         <div className="flex items-center gap-2.5">
           <div className={`p-1.5 rounded-lg border transition ${
@@ -391,51 +665,86 @@ export default function SequenceVisualizer({
           </div>
         </div>
 
-        {/* Adjust visual setting parameters */}
-        <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-colors ${
-            isDark ? "bg-slate-950 border-slate-800/80 text-slate-300" : "bg-slate-100 border-slate-200 text-slate-800"
+        {/* Adjust visual setting parameters & Legend */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Legend */}
+          <div className={`flex items-center gap-3 text-[10px] font-mono mr-1 border-r pr-3 h-5 ${
+            isDark ? "border-[#3C3934]/60 text-slate-400" : "border-[#ECEAE4] text-slate-500"
           }`}>
-            <span className={`text-[10px] font-mono uppercase ${isDark ? "text-slate-500" : "text-slate-500"}`}>Window:</span>
-            <select
-              value={windowSize}
-              onChange={(e) => setWindowSize(parseInt(e.target.value, 10))}
-              className={`bg-transparent text-[11px] font-sans font-semibold outline-none border-none py-0.5 pr-1 cursor-pointer ${
-                isDark ? "text-slate-300" : "text-slate-700"
-              }`}
-            >
-              <option value={15} className={isDark ? "bg-slate-950 text-white" : "bg-white text-slate-900"}>15 residues</option>
-              <option value={21} className={isDark ? "bg-slate-950 text-white" : "bg-white text-slate-900"}>21 residues</option>
-              <option value={31} className={isDark ? "bg-slate-950 text-white" : "bg-white text-slate-900"}>31 residues</option>
-              <option value={41} className={isDark ? "bg-slate-950 text-white" : "bg-white text-slate-900"}>41 residues</option>
-            </select>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded bg-emerald-500/10 border border-emerald-500/40"></span>
+              <span>Wild-Type</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded bg-rose-500/10 border border-rose-500/40"></span>
+              <span>Mutant</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2.5 h-2.5 rounded border ${isDark ? "bg-[#191816]/60 border-[#3C3934]/40" : "bg-white border-slate-200"}`}></span>
+              <span>Rest</span>
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleCopyFasta}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] transition font-sans font-medium hover:scale-[1.02] cursor-pointer ${
-              isDark 
-                ? "bg-slate-800 hover:bg-slate-700 border-slate-700/80 text-slate-300 hover:text-white" 
-                : "bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700 hover:text-slate-900"
-            }`}
-          >
-            {copied ? (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsWindowDropdownOpen(!isWindowDropdownOpen)}
+              className={`flex items-center justify-between gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-sans font-semibold transition cursor-pointer ${
+                isDark
+                  ? "bg-[#201E1B] hover:bg-[#2A2724] border-[#3C3934] text-[#B2ABA0]"
+                  : "bg-[#FAF9F6] hover:bg-[#ECEAE4] border-[#ECEAE4] text-[#666055]"
+              }`}
+            >
+              <span className={`text-[10px] font-mono uppercase ${isDark ? "text-[#827B70]" : "text-[#8F897E]"}`}>Window:</span>
+              <span>{windowSize} residues</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+            </button>
+
+            {isWindowDropdownOpen && (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy className={`w-3.5 h-3.5 ${isDark ? "text-slate-400" : "text-slate-500"}`} />
-                <span>Copy FASTA alignment</span>
+                <div 
+                  className="fixed inset-0 z-30" 
+                  onClick={() => setIsWindowDropdownOpen(false)} 
+                />
+                <div className={`absolute right-0 mt-1.5 w-32 rounded-lg border shadow-lg py-1 z-40 transition-all ${
+                  isDark
+                    ? "bg-[#2A2724] border-[#3C3934] text-slate-200"
+                    : "bg-white border-[#ECEAE4] text-slate-800"
+                }`}>
+                  {[15, 21, 31, 41].map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => {
+                        setWindowSize(size);
+                        setIsWindowDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                        windowSize === size
+                          ? "bg-[#C46849] text-white"
+                          : (isDark ? "hover:bg-[#3C3934]" : "hover:bg-slate-50")
+                      }`}
+                    >
+                      {size} residues
+                    </button>
+                  ))}
+                </div>
               </>
             )}
-          </button>
+          </div>
         </div>
       </div>
 
-      {loading ? (
+      {!sequence ? (
+        <div className="text-center py-12 text-slate-500">
+          <Dna className="w-10 h-10 mx-auto text-indigo-500 stroke-[1.5] mb-2 animate-pulse" />
+          <p className="text-sm font-semibold font-mono uppercase tracking-wider text-indigo-500" style={{ color: "var(--cs-accent-clay)" }}>Pathogenicity Landscape Ready</p>
+          <div className="w-16 h-[1px] bg-slate-800/10 dark:bg-slate-800/60 mx-auto my-3"></div>
+          <p className="text-xs max-w-sm mx-auto mt-1 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
+            Select a variant above and press <strong style={{ color: "var(--cs-accent-clay)" }}>Analyze Mutation Effect</strong> to view REVEL, AlphaMissense, GERP++, and PhyloP scores surrounding your mutation of interest.
+          </p>
+        </div>
+      ) : loading ? (
         <div className="h-28 flex flex-col items-center justify-center text-slate-400 text-xs">
           <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2"></div>
           <span>Aligning protein sequence strings...</span>
@@ -462,8 +771,8 @@ export default function SequenceVisualizer({
                 onFocus={() => setShowSearchResults(true)}
                 className={`w-full pl-9 pr-8 py-2 text-xs rounded-lg border focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-sans ${
                   isDark 
-                    ? "bg-slate-950 border-slate-800 text-slate-200 placeholder-slate-500" 
-                    : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 shadow-inner"
+                    ? "bg-[#201E1B] border-[#3C3934] text-slate-200 placeholder-[#827B70]" 
+                    : "bg-[#FAF9F6] border-[#ECEAE4] text-slate-800 placeholder-[#8F897E] shadow-inner"
                 }`}
               />
               {searchQuery && (
@@ -473,7 +782,7 @@ export default function SequenceVisualizer({
                     setSearchQuery("");
                     setShowSearchResults(false);
                   }}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-250 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -486,13 +795,13 @@ export default function SequenceVisualizer({
             {showSearchResults && searchQuery.trim() && (
               <div className={`absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-xl border p-1 shadow-xl z-50 backdrop-blur-md transition-all ${
                 isDark 
-                  ? "bg-slate-900/95 border-slate-800 text-slate-200" 
-                  : "bg-white border-slate-200 text-slate-800 shadow-slate-200/50"
+                  ? "bg-[#2A2724]/95 border-[#3C3934] text-slate-200" 
+                  : "bg-white border-[#E5E1DC] text-slate-800 shadow-slate-200/50"
               }`}>
                 {searchMatches.length > 0 ? (
                   <div className="flex flex-col">
                     <div className={`text-[9px] font-bold font-mono px-2 py-1 uppercase tracking-wider border-b mb-1 ${
-                      isDark ? "text-slate-500 border-slate-800" : "text-slate-400 border-slate-100"
+                      isDark ? "text-[#827B70] border-[#3C3934]/60" : "text-[#8F897E] border-[#ECEAE4]"
                     }`}>
                       Found {searchMatches.length} Residue Matches - Click to jump
                     </div>
@@ -508,7 +817,7 @@ export default function SequenceVisualizer({
                           setShowSearchResults(false);
                         }}
                         className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-left cursor-pointer transition-colors ${
-                          isDark ? "hover:bg-slate-800/80" : "hover:bg-slate-100"
+                          isDark ? "hover:bg-[#3C3934]/50" : "hover:bg-slate-100"
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -539,7 +848,7 @@ export default function SequenceVisualizer({
           
           {/* Main Visualizer Window */}
           <div className={`relative overflow-x-auto rounded-xl border p-4 min-h-[140px] flex flex-col justify-center scrollbar-thin select-none transition-colors ${
-            isDark ? "bg-slate-950 border-slate-900" : "bg-slate-50 border-slate-200"
+            isDark ? "bg-[#201E1B]/80 border-[#3C3934]/60" : "bg-[#FAF9F6] border-[#ECEAE4]"
           }`}>
             
             {/* Top Coordinate indexes */}
@@ -591,8 +900,8 @@ export default function SequenceVisualizer({
                               : "bg-indigo-500/10 text-indigo-700 border-indigo-500/50 ring-2 ring-indigo-500/20 relative scale-110 z-10 shadow-md shadow-indigo-150/50 cursor-pointer"
                             : isHovered
                               ? isDark
-                                ? "bg-slate-800 text-slate-100 border-slate-600 relative scale-105 z-10 cursor-pointer"
-                                : "bg-slate-100 text-slate-800 border-slate-300 relative scale-105 z-10 cursor-pointer"
+                                ? "bg-[#3C3934] text-slate-100 border-[#3C3934] relative scale-105 z-10 cursor-pointer"
+                                : "bg-[#ECEAE4] text-slate-800 border-[#E5E1DC] relative scale-105 z-10 cursor-pointer"
                               : getResidueBaseColor(residue)
                       }`}
                     >
@@ -605,17 +914,19 @@ export default function SequenceVisualizer({
 
             {/* REVEL Score Row */}
             <div className="flex items-center font-mono text-xs pl-2 mb-1.5 mt-2">
-              <span className="w-[82px] text-[10px] font-semibold text-indigo-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="REVEL Pathogenicity Score">
+              <span className="w-[82px] text-[10px] font-semibold text-indigo-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="REVEL Pathogenicity Score (Peak Constraint)">
                 REVEL
               </span>
               <div className="flex">
                 {wildWindow.map((_, i) => {
                   const absolutePos = relativeStartIndex + i;
-                  const score = getSimulatedRevelScore(absolutePos);
+                  const score = getRevelScore(absolutePos);
                   const isTarget = absolutePos === mutationIndex;
                   const isSelected = absolutePos === residueIndex;
                   
-                  let colorClass = "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400";
+                  let colorClass = isDark 
+                    ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
+                    : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
                   if (score !== null) {
                     if (score >= 0.5) {
                       colorClass = isDark ? "bg-rose-500/25 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-200";
@@ -649,18 +960,20 @@ export default function SequenceVisualizer({
             </div>
 
             {/* AlphaMissense Score Row */}
-            <div className="flex items-center font-mono text-xs pl-2">
-              <span className="w-[82px] text-[10px] font-semibold text-purple-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="AlphaMissense Pathogenicity Score">
+            <div className="flex items-center font-mono text-xs pl-2 mb-1.5">
+              <span className="w-[82px] text-[10px] font-semibold text-purple-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="AlphaMissense Pathogenicity Score (Peak Constraint)">
                 ALPHA_MS
               </span>
               <div className="flex">
                 {wildWindow.map((_, i) => {
                   const absolutePos = relativeStartIndex + i;
-                  const score = getSimulatedAmScore(absolutePos);
+                  const score = getAmScore(absolutePos);
                   const isTarget = absolutePos === mutationIndex;
                   const isSelected = absolutePos === residueIndex;
                   
-                  let colorClass = "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400";
+                  let colorClass = isDark 
+                    ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
+                    : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
                   if (score !== null) {
                     if (score >= 0.56) {
                       colorClass = isDark ? "bg-rose-500/25 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-200";
@@ -693,13 +1006,107 @@ export default function SequenceVisualizer({
               </div>
             </div>
 
+            {/* GERP++ Score Row */}
+            <div className="flex items-center font-mono text-xs pl-2 mb-1.5">
+              <span className="w-[82px] text-[10px] font-semibold text-emerald-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="GERP++ Conservation Score">
+                GERP++
+              </span>
+              <div className="flex">
+                {wildWindow.map((_, i) => {
+                  const absolutePos = relativeStartIndex + i;
+                  const score = getGerpScore(absolutePos);
+                  const isTarget = absolutePos === mutationIndex;
+                  const isSelected = absolutePos === residueIndex;
+                  
+                  let colorClass = isDark 
+                    ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
+                    : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
+                  if (score !== null) {
+                    if (score >= 4.0) {
+                      colorClass = isDark ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-200";
+                    } else if (score >= 2.0) {
+                      colorClass = isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-100 text-amber-800 border-amber-200";
+                    } else {
+                      colorClass = isDark ? "bg-[#191816]/30 text-[#827B70]/80 border-[#3C3934]/20" : "bg-slate-50 text-slate-500 border-slate-200/50";
+                    }
+                  }
+
+                  const formatted = score !== null ? score.toFixed(1) : "N/A";
+                  
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => onResidueClick && onResidueClick(absolutePos)}
+                      className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
+                        isTarget
+                          ? "ring-2 ring-emerald-500 scale-105 z-10 font-black"
+                          : isSelected
+                            ? "ring-1 ring-slate-400 scale-102 z-10"
+                            : ""
+                      }`}
+                      title={`GERP++ Score: ${score !== null ? score.toFixed(3) : "N/A"} at residue #${absolutePos}`}
+                    >
+                      {formatted}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* PhyloP Score Row */}
+            <div className="flex items-center font-mono text-xs pl-2">
+              <span className="w-[82px] text-[10px] font-semibold text-teal-505 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="PhyloP Conservation Score">
+                PHYLOP
+              </span>
+              <div className="flex">
+                {wildWindow.map((_, i) => {
+                  const absolutePos = relativeStartIndex + i;
+                  const score = getPhyloPScore(absolutePos);
+                  const isTarget = absolutePos === mutationIndex;
+                  const isSelected = absolutePos === residueIndex;
+                  
+                  let colorClass = isDark 
+                    ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
+                    : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
+                  if (score !== null) {
+                    if (score >= 4.0) {
+                      colorClass = isDark ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-200";
+                    } else if (score >= 1.5) {
+                      colorClass = isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-100 text-amber-800 border-amber-200";
+                    } else {
+                      colorClass = isDark ? "bg-[#191816]/30 text-[#827B70]/80 border-[#3C3934]/20" : "bg-slate-50 text-slate-505 border-slate-200/50";
+                    }
+                  }
+
+                  const formatted = score !== null ? score.toFixed(1) : "N/A";
+                  
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => onResidueClick && onResidueClick(absolutePos)}
+                      className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
+                        isTarget
+                          ? "ring-2 ring-teal-500 scale-105 z-10 font-black"
+                          : isSelected
+                            ? "ring-1 ring-slate-400 scale-102 z-10"
+                            : ""
+                      }`}
+                      title={`PhyloP Score: ${score !== null ? score.toFixed(3) : "N/A"} at residue #${absolutePos}`}
+                    >
+                      {formatted}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
 
           {/* Interactive details or contextual details of the selected alignment coordinate */}
           <div className={`flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 p-3 rounded-lg border transition-colors ${
-            isDark ? "bg-slate-950/40 border-slate-800/60" : "bg-slate-50 border-slate-200"
+            isDark ? "bg-[#201E1B]/45 border-[#3C3934]/60" : "bg-[#FAF9F6]/80 border-[#ECEAE4]"
           }`}>
-            <div className="flex items-center gap-3 w-full">
+            <div className="flex items-start gap-3 w-full">
               {(() => {
                 const activeResOpt = hoveredResidue 
                   ? { symbol: hoveredResidue.symbol, pos: hoveredResidue.pos, type: hoveredResidue.type }
@@ -709,12 +1116,22 @@ export default function SequenceVisualizer({
                         pos: hoveredResidueIndex, 
                         type: (hoveredResidueIndex === mutationIndex) ? "wild" as const : "normal" as const
                       }
-                    : null;
+                    : (residueIndex !== null && residueIndex !== undefined && sequence && (residueIndex - 1 >= 0) && (residueIndex - 1 < sequence.length))
+                      ? {
+                          symbol: sequence[residueIndex - 1],
+                          pos: residueIndex,
+                          type: (residueIndex === mutationIndex) ? "wild" as const : "normal" as const
+                        }
+                      : {
+                          symbol: mutation.wt,
+                          pos: mutationIndex,
+                          type: "wild" as const
+                        };
 
                 return (
                   <>
                     <div className={`h-11 w-11 rounded-xl shrink-0 flex flex-col items-center justify-center font-mono font-bold text-base shadow-inner border transition-colors ${
-                      isDark ? "border-slate-800 bg-slate-900/85" : "border-slate-200 bg-white shadow-sm"
+                      isDark ? "border-[#3C3934] bg-[#201E1B]/85" : "border-[#E5E1DC] bg-white shadow-sm"
                     } ${
                       activeResOpt?.type === "wild" ? "text-emerald-500 border-emerald-500/20 bg-emerald-500/5" :
                       activeResOpt?.type === "mutant" ? "text-rose-500 border-rose-500/20 bg-rose-500/5" :
@@ -723,22 +1140,162 @@ export default function SequenceVisualizer({
                       {activeResOpt ? activeResOpt.symbol : mutation.wt}
                     </div>
 
-                    <div>
-                      <span className={`text-[10px] font-mono uppercase tracking-wider block ${isDark ? "text-slate-500" : "text-slate-500"}`}>
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-[10px] font-mono uppercase tracking-wider block ${isDark ? "text-[#827B70]" : "text-[#8F897E]"}`}>
                         {activeResOpt ? `Residue Position #${activeResOpt.pos} Info` : "Mutation Substitution Summary"}
                       </span>
 
                       {activeResOpt ? (
-                        <div className="space-y-0.5">
-                          <span className={`text-xs font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
-                            {AMINO_ACID_MAP_FULL[activeResOpt.symbol]?.name || "Unknown Amino Acid"}
-                          </span>
-                          <span className={`text-[11px] block ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                            Properties: <strong className="text-indigo-500 font-semibold">{AMINO_ACID_MAP_FULL[activeResOpt.symbol]?.property || "N/A"}</strong>
-                          </span>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                              {AMINO_ACID_MAP_FULL[activeResOpt.symbol]?.name || "Unknown Amino Acid"}
+                            </span>
+                            {activeResOpt.pos === mutationIndex ? (
+                              <span className="text-[8px] font-mono uppercase bg-rose-500/15 text-rose-400 border border-rose-500/20 px-1 rounded font-bold">
+                                Target Mutation Site ({mutation.wt} → {mutation.mut})
+                              </span>
+                            ) : (
+                              <span className="text-[8px] font-mono uppercase bg-slate-500/10 text-slate-400 border border-slate-500/10 px-1 rounded">
+                                Landscape Context
+                              </span>
+                            )}
+                          </div>
+                          <div className={`text-xs ${isDark ? "text-slate-400" : "text-slate-555"} flex flex-wrap gap-x-4 gap-y-1 py-1`}>
+                            <span>Properties: <strong className="text-indigo-500 font-semibold">{AMINO_ACID_MAP_FULL[activeResOpt.symbol]?.property || "N/A"}</strong></span>
+                            {(() => {
+                              const revel = getRevelScore(activeResOpt.pos);
+                              const am = getAmScore(activeResOpt.pos);
+                              const gerp = getGerpScore(activeResOpt.pos);
+                              const phylop = getPhyloPScore(activeResOpt.pos);
+                              
+                              return (
+                                <>
+                                  {revel !== null && (
+                                    <span>REVEL (Peak): <strong className="text-indigo-500 font-mono font-bold">{revel.toFixed(3)}</strong></span>
+                                  )}
+                                  {am !== null && (
+                                    <span>AM (Peak): <strong className="text-purple-500 font-mono font-bold">{am.toFixed(3)}</strong></span>
+                                  )}
+                                  {gerp !== null && (
+                                    <span>GERP++: <strong className="text-emerald-505 font-mono font-bold">{gerp.toFixed(2)}</strong></span>
+                                  )}
+                                  {phylop !== null && (
+                                    <span>PhyloP: <strong className="text-teal-505 font-mono font-bold">{phylop.toFixed(2)}</strong></span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                           <p className={`text-[11px] leading-relaxed max-w-3xl border-t pt-2 mt-1 transition-colors ${
+                            isDark ? "text-[#B2ABA0] border-[#3C3934]" : "text-slate-650 border-[#ECEAE4]"
+                          }`}>
+                            {getBiophysicalConsequence(activeResOpt.symbol, activeResOpt.pos)}
+                          </p>
+
+                          {/* 3D Local Microenvironment (5 Nearest spatial neighbors) */}
+                          {(() => {
+                            const presetResidues = getNearestResidues(uniprotId, variant, activeResOpt.pos);
+                            const cacheKey = `${uniprotId}_${activeResOpt.pos}`;
+                            const computedResidues = computedResiduesCache?.[cacheKey] || [];
+                            const nearestResidues = presetResidues.length > 0 ? presetResidues : computedResidues;
+
+                            if (nearestResidues.length === 0) return null;
+
+                            return (
+                              <div className="mt-3 pt-3 border-t border-[#ECEAE4] dark:border-[#3C3934]/60">
+                                <span className="text-[10px] font-bold font-mono text-[#C46849] uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                                  <Atom className="w-3.5 h-3.5" />
+                                  <span>Local 3D Microenvironment (5 Spatial Neighbors)</span>
+                                </span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 w-full">
+                                  {nearestResidues.map((res, index) => (
+                                    <div 
+                                      key={index} 
+                                      className={`p-2 rounded-lg border text-[10px] flex flex-col gap-1 transition-all ${
+                                        isDark 
+                                          ? "bg-[#201E1B]/60 border-[#3C3934]/60 text-[#B2ABA0] hover:bg-[#2A2724]/80" 
+                                          : "bg-[#FAF9F6] border-[#ECEAE4] text-[#666055] hover:bg-[#ECEAE4]"
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                                        <span className="font-mono font-bold text-[10.5px] text-indigo-500">{res.name}</span>
+                                        <span className={`font-mono text-[8px] px-1.5 py-0.5 rounded ${
+                                          isDark ? "bg-[#C46849]/15 text-[#D4836A] border border-[#C46849]/20" : "bg-[#FBF0EB] text-[#C46849] border border-[#F5DDD3]"
+                                        }`}>
+                                          {res.distance}
+                                        </span>
+                                      </div>
+                                      <span className={`text-[8.5px] font-medium opacity-85 truncate`} title={res.properties}>
+                                        {res.properties}
+                                      </span>
+                                      <p className="text-[8.5px] leading-snug opacity-75 truncate" title={res.role}>
+                                        {res.role}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          <div className="mt-4 pt-3 border-t border-[#ECEAE4] dark:border-[#3C3934]/60">
+                            <span className="text-[10px] font-bold font-mono text-indigo-500 uppercase tracking-wider block mb-3">
+                              Substitutional Class Impact Profiles (Expected Predictor Ranges)
+                            </span>
+                            <div className="flex flex-col gap-2 w-full">
+                              {getSubstitutionalConsequences(activeResOpt.symbol, activeResOpt.pos).map((g, idx) => {
+                                const isTestedClass = activeResOpt.pos === mutationIndex && g.name.startsWith(getSubstitutionGroup(mutation.mut));
+                                const barColor = g.severity === "high" ? "bg-rose-500/70" : g.severity === "medium" ? "bg-amber-500/70" : "bg-emerald-500/70";
+                                 const borderClass = isTestedClass 
+                                  ? (isDark ? "border-indigo-500 bg-indigo-950/20 shadow-inner" : "border-indigo-400 bg-indigo-50/40 shadow-inner") 
+                                  : (isDark ? "border-[#3C3934]/60 bg-[#201E1B]/40" : "border-[#ECEAE4] bg-white");
+
+                                return (
+                                  <div 
+                                    key={idx} 
+                                    className={`p-3 rounded-lg border text-[11px] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition-all ${borderClass}`}
+                                  >
+                                    <div className="flex flex-col gap-1 min-w-[150px] flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-xs tracking-wide">{g.name}</span>
+                                        <span className={`font-mono text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                          g.severity === "high" ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
+                                          g.severity === "medium" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                                          "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                        }`}>
+                                          {g.severity}
+                                        </span>
+                                        {isTestedClass && (
+                                          <span className="text-[8px] font-mono font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/25 px-1.5 py-0.5 rounded shadow-sm animate-pulse">
+                                            Tested Swap
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className={`text-[10.5px] leading-snug mt-0.5 ${isDark ? "text-[#827B70]" : "text-slate-500"}`}>
+                                        {g.consequence}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex flex-col gap-1.5 w-full md:w-[260px] shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-[#ECEAE4] dark:border-[#3C3934]/60">
+                                      <div className="flex items-center justify-between text-[8.5px] font-mono opacity-80">
+                                        <span>REVEL Range</span>
+                                      </div>
+                                      <PathogenicitySlider expectedRange={g.expectedRevel} color={barColor} />
+                                      
+                                      <div className="flex items-center justify-between text-[8.5px] font-mono opacity-80 mt-1">
+                                        <span>AlphaMissense Range</span>
+                                      </div>
+                                      <PathogenicitySlider expectedRange={g.expectedAm} color={barColor} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
                       ) : (
-                        <p className={`text-xs ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                        <p className={`text-xs ${isDark ? "text-[#B2ABA0]" : "text-slate-650"}`}>
                           Wild-type <strong className="text-emerald-500 font-semibold">{AMINO_ACID_MAP_FULL[mutation.wt]?.name || mutation.wt}</strong> at index #{mutationIndex} substituted with <strong className="text-rose-500 font-semibold">{AMINO_ACID_MAP_FULL[mutation.mut]?.name || mutation.mut}</strong>.
                         </p>
                       )}
@@ -746,22 +1303,6 @@ export default function SequenceVisualizer({
                   </>
                 );
               })()}
-            </div>
-
-            {/* Color guide / Legend */}
-            <div className={`flex items-center gap-4 flex-wrap text-[10px] font-mono shrink-0 pl-1 border-t md:border-t-0 pt-2.5 md:pt-0 ${isDark ? "border-slate-800/40 text-slate-400" : "border-slate-200 text-slate-500"}`}>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-emerald-500/10 border border-emerald-500/40"></span>
-                <span>Wild-Type</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-rose-500/10 border border-rose-500/40"></span>
-                <span>Mutant</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className={`w-2.5 h-2.5 rounded border ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}></span>
-                <span>Rest of Protein</span>
-              </div>
             </div>
 
           </div>

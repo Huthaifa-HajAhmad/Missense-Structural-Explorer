@@ -1,274 +1,517 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-/* Custom modern scrollbar styles across multiple browser engines */
-.scrollbar-thin {
+/* ============================================================
+   CLAUDE SCIENCE DESIGN SYSTEM
+   Tokens extracted from claude.com/product/claude-science
+   Background: warm cream neutrals (#F9F8F6)
+   Cards: white #FFFFFF with hairline borders
+   Accent: magenta/pink #D946AA (pathogenic), clay #C46849 (brand)
+   ============================================================ */
+
+:root {
+  /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
+  --cs-bg:            #F9F8F6;   /* warm paper-white background */
+  --cs-bg-subtle:     #F3F0EA;   /* subtle hover state background */
+  --cs-surface:       #FFFFFF;   /* clean white card surfaces */
+  --cs-surface-2:     #FAF9F6;   /* nested panel sub-surface */
+
+  --cs-border:        #E5E1DC;   /* hairline border color */
+  --cs-border-subtle: #ECEAE4;   /* divider line color */
+
+  --cs-text-primary:  #191816;   /* near-black ink color */
+  --cs-text-secondary:#666055;   /* elegant charcoal secondary text */
+  --cs-text-muted:    #8F897E;   /* dimmed label colors */
+
+  --cs-accent-clay:   #C46849;   /* Anthropic brand terracotta / clay */
+  --cs-accent-mag:    #D946AA;   /* variant marker hot pink */
+  --cs-accent-mag-soft: #FDF2F9; /* light pink background */
+
+  --cs-good:          #16A34A;   /* benign green */
+  --cs-good-soft:     #DCFCE7;
+  --cs-warn:          #D97706;   /* VUS amber */
+  --cs-warn-soft:     #FEF3C7;
+  --cs-danger:        #DC2626;   /* pathogenic red */
+  --cs-danger-soft:   #FEE2E2;
+
+  /* pLDDT quality colors (matching Claude Science screenshot) */
+  --cs-plddt-vhigh:   #2055FF;   /* ≥90 — deep blue */
+  --cs-plddt-high:    #00CFCF;   /* 70-90 — cyan */
+  --cs-plddt-low:     #F5D900;   /* 50-70 — yellow */
+  --cs-plddt-vlow:    #FF7D45;   /* <50 — orange */
+
+  --cs-radius-card:   12px;
+  --cs-radius-input:  8px;
+  --cs-radius-badge:  6px;
+  --cs-radius-pill:   999px;
+
+  --cs-shadow-card:   0 1px 3px rgba(25, 24, 22, 0.04), 0 0 0 1px var(--cs-border);
+  --cs-shadow-sm:     0 1px 2px rgba(25, 24, 22, 0.03);
+}
+
+/* === DARK MODE OVERRIDES === */
+.dark {
+  --cs-bg:            #191816;   /* deep ink-black background */
+  --cs-bg-subtle:     #23211E;
+  --cs-surface:       #2A2724;   /* dark card surfaces */
+  --cs-surface-2:     #201E1B;
+
+  --cs-border:        #3C3934;
+  --cs-border-subtle: #322F2A;
+
+  --cs-text-primary:  #F9F8F6;
+  --cs-text-secondary:#B2ABA0;
+  --cs-text-muted:    #827B70;
+
+  --cs-shadow-card:   0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px var(--cs-border);
+}
+/* ============================================================ */
+
+/* ============================================================
+   BASE RESETS
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--cs-bg);
+  color: var(--cs-text-primary);
+}
+
+/* ============================================================
+   SCROLLBARS — invisible like Claude Science
+   ============================================================ */
+* {
   scrollbar-width: thin;
+  scrollbar-color: var(--cs-border) transparent;
 }
 
-.dark .scrollbar-thin {
-  scrollbar-color: #334155 #0f172a;
-}
-
-.scrollbar-thin {
-  scrollbar-color: #cbd5e1 #f8fafc;
-}
-
-/* Webkit scrollbar overrides for Chrome, Safari, Edge, and iOS engines */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.dark ::-webkit-scrollbar-track {
-  background: #0f172a;
-}
-
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  background: var(--cs-border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--cs-text-muted); }
+
+/* ============================================================
+   SELECT DROPDOWNS — Premium themed dropdown styles
+   ============================================================ */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238F897E' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px;
+  padding-right: 24px !important;
+  cursor: pointer;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-
-
-/* Custom range inputs (sliders) styles that adapt perfectly to dark/light theme */
+/* ============================================================
+   RANGE SLIDERS
+   ============================================================ */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
   background: transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
-
-input[type="range"]:focus {
-  outline: none;
-}
-
-/* Webkit track */
 input[type="range"]::-webkit-slider-runnable-track {
-  width: 100%;
-  height: 6px;
-  border-radius: 9999px;
-  background-color: #e2e8f0; /* light gray track */
-  transition: background-color 0.15s ease-in-out;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--cs-border);
 }
-
-.dark input[type="range"]::-webkit-slider-runnable-track {
-  background-color: #334155; /* dark slate track */
-}
-
-/* Firefox track */
-input[type="range"]::-moz-range-track {
-  width: 100%;
-  height: 6px;
-  border-radius: 9999px;
-  background-color: #e2e8f0;
-  transition: background-color 0.15s ease-in-out;
-}
-
-.dark input[type="range"]::-moz-range-track {
-  background-color: #334155;
-}
-
-/* Webkit thumb (slider knob) */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  appearance: none;
-  margin-top: -5px; /* centers the thumb on Webkit */
-  height: 16px;
-  width: 16px;
-  border-radius: 9999px;
-  background-color: #4f46e5; /* indigo-600 */
-  border: 2px solid #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  transition: background-color 0.15s ease-in-out, transform 0.1s ease-in-out;
+  height: 14px;
+  width: 14px;
+  border-radius: 999px;
+  background: var(--cs-accent-clay);
+  margin-top: -5px;
+  border: 2px solid var(--cs-surface);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  transition: transform 0.1s ease;
 }
-
-.dark input[type="range"]::-webkit-slider-thumb {
-  background-color: #6366f1; /* indigo-500 */
-  border-color: #1e293b; /* dark border */
-}
-
-input[type="range"]::-webkit-slider-thumb:hover {
-  background-color: #4338ca; /* Indigo-700 */
-  transform: scale(1.15);
-}
-
-.dark input[type="range"]::-webkit-slider-thumb:hover {
-  background-color: #818cf8; /* Indigo-400 */
-}
-
-/* Firefox thumb */
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 999px; background: var(--cs-border); }
 input[type="range"]::-moz-range-thumb {
-  height: 16px;
-  width: 16px;
-  border-radius: 9999px;
-  background-color: #4f46e5;
-  border: 2px solid #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  transition: background-color 0.15s ease-in-out, transform 0.1s ease-in-out;
+  height: 14px; width: 14px; border-radius: 999px;
+  background: var(--cs-accent-clay); border: 2px solid var(--cs-surface);
 }
 
-.dark input[type="range"]::-moz-range-thumb {
-  background-color: #6366f1;
-  border-color: #1e293b;
-}
-
-input[type="range"]::-moz-range-thumb:hover {
-  background-color: #4338ca;
-  transform: scale(1.15);
-}
-
-.dark input[type="range"]::-moz-range-thumb:hover {
-  background-color: #818cf8;
-}
-
-/* Molstar specialized override for sliders/inputs inside controls */
+/* ============================================================
+   MOLSTAR OVERRIDES
+   ============================================================ */
 .msp-control-row input[type="range"],
 .msp-slider-track,
 .msp-slider-thumb {
-  accent-color: var(--accent-500) !important;
+  accent-color: var(--cs-accent-clay) !important;
 }
-
-/* Make sure option selections and select fields in Molstar blend gracefully */
 .msp-control-row select {
   border-radius: 6px !important;
   color: inherit !important;
   background-color: transparent !important;
 }
+.msp-viewport-controls { justify-content: flex-end !important; }
+.msp-viewport-controls-bottom { justify-content: flex-end !important; }
+.msp-viewport-controls-buttons { justify-content: flex-end !important; }
 
-.dark .msp-control-row select option {
-  background-color: #0f172a !important;
-  color: #f1f5f9 !important;
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes cs-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
-/* Push Mol* footer logo / banner to the right side */
-.msp-viewport-controls {
-  justify-content: flex-end !important;
-}
-.msp-viewport-controls-bottom {
-  justify-content: flex-end !important;
-}
-/* Compact Molstar controls bar */
-.msp-viewport-controls-buttons {
-  justify-content: flex-end !important;
-}
-
-/* Slide-in animation for capture menu dropdown */
-@keyframes slide-in-up {
+@keyframes cs-slide-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.animate-slide-in {
-  animation: slide-in-up 0.15s ease-out forwards;
+@keyframes cs-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
 }
 
-/* Fade-in animation for pocket panel */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+.cs-fade-in  { animation: cs-fade-in  0.2s ease-out forwards; }
+.cs-slide-in { animation: cs-slide-in 0.15s ease-out forwards; }
+.animate-slide-in { animation: cs-slide-in 0.15s ease-out forwards; }
+.animate-fade-in  { animation: cs-fade-in  0.18s ease-out forwards; }
+
+/* ============================================================
+   CLAUDE SCIENCE COMPONENT PRIMITIVES
+   ============================================================ */
+
+/* Gene stat pill (like "189 aa", "91.5 mean pLDDT") */
+.cs-stat-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-shadow-sm);
 }
-.animate-fade-in {
-  animation: fade-in 0.18s ease-out forwards;
+.cs-stat-pill-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cs-text-primary);
+  line-height: 1.2;
+}
+.cs-stat-pill-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--cs-text-muted);
+  text-transform: lowercase;
+  letter-spacing: 0.01em;
 }
 
+/* Card surface */
+.cs-card {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
+  box-shadow: var(--cs-shadow-card);
+}
 
-/* Accent theme mappings */
+/* Card section header */
+.cs-card-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cs-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+  margin-bottom: 12px;
+}
+
+/* Sub-card (nested surface) */
+.cs-sub-card {
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+}
+
+/* Input field */
+.cs-input {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  color: var(--cs-text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: 'Inter', sans-serif;
+}
+.cs-input::placeholder { color: var(--cs-text-muted); }
+.cs-input:focus {
+  border-color: var(--cs-accent-clay);
+  box-shadow: 0 0 0 3px rgba(196, 104, 73, 0.12);
+}
+
+/* Primary button (clay / brand) */
+.cs-btn-primary {
+  background: var(--cs-accent-clay);
+  color: #fff;
+  border: none;
+  border-radius: var(--cs-radius-input);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Inter', sans-serif;
+}
+.cs-btn-primary:hover { background: #b55a3e; }
+.cs-btn-primary:active { transform: scale(0.98); }
+.cs-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Ghost button */
+.cs-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  color: var(--cs-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'Inter', sans-serif;
+}
+.cs-btn-ghost:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+
+/* Segmented control (Wild-Type / Mutant) */
+.cs-seg-control {
+  display: inline-flex;
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  padding: 2px;
+  gap: 2px;
+}
+.cs-seg-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-secondary);
+  transition: background 0.12s, color 0.12s;
+  font-family: 'Inter', sans-serif;
+}
+.cs-seg-btn:hover { color: var(--cs-text-primary); }
+.cs-seg-btn.active {
+  background: var(--cs-surface);
+  color: var(--cs-text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(80,40,120,0.1);
+}
+
+/* History chip */
+.cs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-pill);
+  background: var(--cs-surface);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  color: var(--cs-text-secondary);
+}
+.cs-chip:hover {
+  background: var(--cs-bg-subtle);
+  border-color: var(--cs-accent-clay);
+  color: var(--cs-text-primary);
+}
+.cs-chip.active {
+  background: var(--cs-accent-mag-soft);
+  border-color: var(--cs-accent-mag);
+  color: var(--cs-text-primary);
+}
+
+/* Badge variants */
+.cs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: var(--cs-radius-badge);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.cs-badge-path  { background: var(--cs-danger-soft);  color: var(--cs-danger);  }
+.cs-badge-vus   { background: var(--cs-warn-soft);    color: var(--cs-warn);    }
+.cs-badge-ben   { background: var(--cs-good-soft);    color: var(--cs-good);    }
+.cs-badge-mag   { background: var(--cs-accent-mag-soft); color: var(--cs-accent-mag); }
+.cs-badge-clay  { background: #FBF0EB; color: var(--cs-accent-clay); }
+.cs-badge-muted { background: var(--cs-surface-2); color: var(--cs-text-muted); border: 1px solid var(--cs-border-subtle); }
+
+/* Source chip (database citation) */
+.cs-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  color: var(--cs-text-muted);
+}
+
+/* pLDDT legend segment */
+.cs-plddt-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  gap: 1px;
+}
+.cs-plddt-vhigh { background: var(--cs-plddt-vhigh); }
+.cs-plddt-high  { background: var(--cs-plddt-high); }
+.cs-plddt-low   { background: var(--cs-plddt-low); }
+.cs-plddt-vlow  { background: var(--cs-plddt-vlow); }
+
+/* Live indicator dot */
+.cs-live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: cs-pulse-soft 2s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* Divider */
+.cs-divider {
+  height: 1px;
+  background: var(--cs-border-subtle);
+  margin: 12px 0;
+}
+
+/* ============================================================
+   ACCENT THEME SYSTEM (preserved — now maps to clay by default)
+   ============================================================ */
 :root {
-  /* Default Indigo values */
-  --accent-50: #e0e7ff;
-  --accent-100: #c7d2fe;
-  --accent-400: #818cf8;
-  --accent-500: #6366f1;
-  --accent-550: #5558eb;
-  --accent-600: #4f46e5;
-  --accent-605: #463de0;
-  --accent-700: #4338ca;
-  --accent-705: #3b31be;
+  --accent-50:   #FBF0EB;
+  --accent-100:  #F5DDD3;
+  --accent-400:  #D4836A;
+  --accent-500:  #C46849;
+  --accent-550:  #B55C3E;
+  --accent-600:  #A84F33;
+  --accent-605:  #9C4429;
+  --accent-700:  #8F3A1F;
+  --accent-705:  #7D2F15;
+}
+
+:root[data-accent="indigo"] {
+  --accent-50:   #e0e7ff;
+  --accent-100:  #c7d2fe;
+  --accent-400:  #818cf8;
+  --accent-500:  #6366f1;
+  --accent-550:  #5558eb;
+  --accent-600:  #4f46e5;
+  --accent-605:  #463de0;
+  --accent-700:  #4338ca;
+  --accent-705:  #3b31be;
 }
 
 :root[data-accent="purple"] {
-  --accent-400: #c084fc;
-  --accent-500: #a855f7;
-  --accent-550: #9d48eb;
-  --accent-600: #9333ea;
-  --accent-605: #8526dc;
-  --accent-700: #7e22ce;
-  --accent-705: #6d1bb5;
-  --accent-50: #f3e8ff;
-  --accent-100: #e9d5ff;
+  --accent-400:  #c084fc;
+  --accent-500:  #a855f7;
+  --accent-550:  #9d48eb;
+  --accent-600:  #9333ea;
+  --accent-605:  #8526dc;
+  --accent-700:  #7e22ce;
+  --accent-705:  #6d1bb5;
+  --accent-50:   #f3e8ff;
+  --accent-100:  #e9d5ff;
 }
 
 :root[data-accent="rose"] {
-  --accent-400: #fb7185;
-  --accent-500: #f43f5e;
-  --accent-550: #ea2a4b;
-  --accent-600: #e11d48;
-  --accent-605: #cd123b;
-  --accent-700: #be123c;
-  --accent-705: #a40b30;
-  --accent-50: #ffe4e6;
-  --accent-100: #fecdd3;
+  --accent-400:  #fb7185;
+  --accent-500:  #f43f5e;
+  --accent-550:  #ea2a4b;
+  --accent-600:  #e11d48;
+  --accent-605:  #cd123b;
+  --accent-700:  #be123c;
+  --accent-705:  #a40b30;
+  --accent-50:   #ffe4e6;
+  --accent-100:  #fecdd3;
 }
 
 :root[data-accent="emerald"] {
-  --accent-400: #34d399;
-  --accent-500: #10b981;
-  --accent-550: #0ba370;
-  --accent-600: #059669;
-  --accent-605: #04825b;
-  --accent-700: #047857;
-  --accent-705: #036247;
-  --accent-50: #ecfdf5;
-  --accent-100: #d1fae5;
+  --accent-400:  #34d399;
+  --accent-500:  #10b981;
+  --accent-550:  #0ba370;
+  --accent-600:  #059669;
+  --accent-605:  #04825b;
+  --accent-700:  #047857;
+  --accent-705:  #036247;
+  --accent-50:   #ecfdf5;
+  --accent-100:  #d1fae5;
 }
 
 :root[data-accent="amber"] {
-  --accent-400: #fbbf24;
-  --accent-500: #f59e0b;
-  --accent-550: #e38e07;
-  --accent-600: #d97706;
-  --accent-605: #be6503;
-  --accent-700: #b45309;
-  --accent-705: #9c4505;
-  --accent-50: #fffbeb;
-  --accent-100: #fef3c7;
+  --accent-400:  #fbbf24;
+  --accent-500:  #f59e0b;
+  --accent-550:  #e38e07;
+  --accent-600:  #d97706;
+  --accent-605:  #be6503;
+  --accent-700:  #b45309;
+  --accent-705:  #9c4505;
+  --accent-50:   #fffbeb;
+  --accent-100:  #fef3c7;
 }
 
 :root[data-accent="blue"] {
-  --accent-400: #60a5fa;
-  --accent-500: #3b82f6;
-  --accent-550: #2d73eb;
-  --accent-600: #2563eb;
-  --accent-605: #1952d7;
-  --accent-700: #1d4ed8;
-  --accent-705: #143cae;
-  --accent-50: #eff6ff;
-  --accent-100: #dbeafe;
+  --accent-400:  #60a5fa;
+  --accent-500:  #3b82f6;
+  --accent-550:  #2d73eb;
+  --accent-600:  #2563eb;
+  --accent-605:  #1952d7;
+  --accent-700:  #1d4ed8;
+  --accent-705:  #143cae;
+  --accent-50:   #eff6ff;
+  --accent-100:  #dbeafe;
 }
 
-/* Map Tailwind default Indigo properties to our custom accent properties */
+/* Map Tailwind indigo to accent tokens */
 :root {
-  --color-indigo-50: var(--accent-50);
-  --color-indigo-100: var(--accent-100);
-  --color-indigo-400: var(--accent-400);
-  --color-indigo-500: var(--accent-500);
-  --color-indigo-550: var(--accent-550);
-  --color-indigo-600: var(--accent-600);
-  --color-indigo-605: var(--accent-605);
-  --color-indigo-700: var(--accent-700);
-  --color-indigo-705: var(--accent-705);
+  --color-indigo-50:   var(--accent-50);
+  --color-indigo-100:  var(--accent-100);
+  --color-indigo-400:  var(--accent-400);
+  --color-indigo-500:  var(--accent-500);
+  --color-indigo-550:  var(--accent-550);
+  --color-indigo-600:  var(--accent-600);
+  --color-indigo-605:  var(--accent-605);
+  --color-indigo-700:  var(--accent-700);
+  --color-indigo-705:  var(--accent-705);
 }
-
