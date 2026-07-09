@@ -44,6 +44,8 @@ import {
   fetchStringInteractions,
   submitDynaMut2Job,
   pollDynaMut2Job,
+  submitDdmutJob,
+  pollDdmutJob,
   fetchGnomadGeneConstraint,
   fetchGnomadVariantFrequency,
   fetchUniprotFeatures,
@@ -58,11 +60,14 @@ import {
   parseResiduesFromPdbMaybeAsync,
   getResidueDetails,
   predictStructuralDisruption,
-  runDdgunSeq,
   computeStructuralDiff,
-  runEsm2Eval
+  runEsm2Eval,
+  extractSequenceFromPdb,
+  runDdgunSeq,
+  runRaspLocal
 } from "./services/biophysics.ts";
 import { computeRuleBasedACMG, type RuleBasedInsights, type ACMGItem } from "./services/acmg.ts";
+import { THRESHOLDS } from "../src/shared/thresholds.ts";
 import { AMINO_ACID_3_TO_1 } from "../src/aminoAcids.ts";
 
 // ---------------------------------------------------------------------------
@@ -114,6 +119,30 @@ apiRouter.get("/version", (req, res) => {
   res.json({ version: "1.0.0", env: process.env.NODE_ENV || "development" });
 });
 
+export function computeServerConsensusVerdict(
+  foldx: number | null,
+  dynamut2: number | null,
+  ddmut: number | null,
+  rasp: number | null,
+  ddgun: number | null
+): string {
+  const foldxDestab = foldx !== null && foldx >= 1.5;
+  const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
+  const ddmutDestab = ddmut !== null && ddmut <= -1.0;
+  const raspDestab = rasp !== null && rasp <= -1.0;
+  const ddgunDestab = ddgun !== null && ddgun <= -1.0;
+
+  const destabCount = [foldxDestab, dynamutDestab, ddmutDestab, raspDestab, ddgunDestab].filter(Boolean).length;
+  const availableCount = [foldx, dynamut2, ddmut, rasp, ddgun].filter(v => v !== null).length;
+
+  if (destabCount >= 2) {
+    return "High-Risk Destabilizing (Consensus)";
+  } else if (destabCount === 1 && availableCount >= 2) {
+    return "Moderate-Risk Conflicting Stability";
+  }
+  return "Low-Risk (Neutral Stability)";
+}
+
 // Apply authCheck and apiLimiter globally to the API Router
 apiRouter.use(authCheck);
 apiRouter.use(apiLimiter);
@@ -127,16 +156,32 @@ apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
     return;
   }
 
+  // Parse other scores from query parameters to dynamically compute consensusVerdict
+  const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
+  const ddgun = req.query?.ddgun ? parseFloat(req.query.ddgun as string) : null;
+  const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
+  const ddmut = req.query?.ddmut ? parseFloat(req.query.ddmut as string) : null;
+
   try {
     const result = await pollDynaMut2Job(jobId);
     if (!result) {
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
-      res.json({ jobId, status: "ERROR", prediction: null });
+      res.json({ jobId, status: "ERROR", prediction: null, consensusVerdict: null });
       return;
     }
 
     await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
-    res.json({ jobId, status: result.status, prediction: result.prediction });
+
+    const consensusVerdict = result.status === "DONE" && result.prediction !== null
+      ? computeServerConsensusVerdict(foldx, result.prediction, ddmut, rasp, ddgun)
+      : null;
+
+    res.json({
+      jobId,
+      status: result.status,
+      prediction: result.prediction,
+      consensusVerdict
+    });
   } catch (err: any) {
     console.error(`[Route Error] DynaMut2 job polling failed for ${jobId}:`, err.message);
     await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
@@ -144,7 +189,53 @@ apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
       res.status(429).json({ error: "Upstream DynaMut2 API rate limit reached." });
       return;
     }
-    res.json({ jobId, status: "ERROR", prediction: null });
+    res.json({ jobId, status: "ERROR", prediction: null, consensusVerdict: null });
+  }
+});
+
+apiRouter.get("/ddmut-job/:jobId", async (req, res) => {
+  const { jobId } = req.params;
+  const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
+
+  if (!jobId || !/^\d{1,20}$/.test(jobId)) {
+    sendError(res, 400, "BAD_REQUEST", "Invalid DDMut Job ID format: must be numeric digits.");
+    return;
+  }
+
+  // Parse other scores from query parameters to dynamically compute consensusVerdict
+  const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
+  const ddgun = req.query?.ddgun ? parseFloat(req.query.ddgun as string) : null;
+  const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
+  const dynamut2 = req.query?.dynamut2 ? parseFloat(req.query.dynamut2 as string) : null;
+
+  try {
+    const result = await pollDdmutJob(jobId);
+    if (!result) {
+      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
+      res.json({ jobId, status: "ERROR", prediction: null, consensusVerdict: null });
+      return;
+    }
+
+    await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
+
+    const consensusVerdict = result.status === "DONE" && result.prediction !== null
+      ? computeServerConsensusVerdict(foldx, dynamut2, result.prediction, rasp, ddgun)
+      : null;
+
+    res.json({
+      jobId,
+      status: result.status,
+      prediction: result.prediction,
+      consensusVerdict
+    });
+  } catch (err: any) {
+    console.error(`[Route Error] DDMut job polling failed for ${jobId}:`, err.message);
+    await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
+    if (err.statusCode === 429) {
+      res.status(429).json({ error: "Upstream DDMut API rate limit reached." });
+      return;
+    }
+    res.json({ jobId, status: "ERROR", prediction: null, consensusVerdict: null });
   }
 });
 
@@ -376,7 +467,7 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
 
       const results = await Promise.all([
         fetchClinVarData(gene, variant),
-        fetchConservationData(gene, variant),
+        fetchConservationData(gene, variant, pdbMapping?.pdbId, pdbMapping?.chainId, pos),
         fetchStringInteractions(gene),
         fetchGnomadVariantFrequency(predictorData?.gnomadVariantId || null),
         (async () => {
@@ -441,7 +532,7 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
     const gnomadConstraintData = gnomadConstraint as any;
 
     const ruleBasedInsights = computeRuleBasedACMG(
-      gene, variant, clinvar, predictorData, conservationData, gnomadConstraintData, gnomadFrequency, acmgWeighting
+      gene, variant, clinvar, predictorData, conservationData, gnomadConstraintData, gnomadFrequency, acmgWeighting, esm2, uniprotFeatures
     );
 
     const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
@@ -473,10 +564,6 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
               console.log(`[Pre-warm Cache] Silently launching FoldX mutant simulation in background for ${gene} ${variant}`);
               await generateMutantPdb(wtPdbText, mutation, uniprotId, prewarmJobDir);
               console.log(`[Pre-warm Cache] FoldX simulation completed and cached for ${gene} ${variant}`);
-              
-              // Also run and cache DDGun-Seq
-              await runDdgunSeq(wt1, mut1);
-              console.log(`[Pre-warm Cache] DDGun-Seq calculation completed and cached for ${gene} ${variant}`);
             }
           }
         } catch (prewarmErr: any) {
@@ -598,7 +685,7 @@ apiRouter.post("/analyze-variant-biophysical", jsonParserRegular, async (req, re
   }
 });
 
-apiRouter.post("/api/v1/structural-diff", jsonParserPdb, async (req, res) => {
+apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {
   try {
     const { wtPdb, mutPdb, pos, chain } = req.body;
     if (!wtPdb || !mutPdb || pos === undefined || !chain) {
@@ -628,7 +715,9 @@ function handleNarrativeResponse(
   conservationData: any,
   gnomadConstraint: any,
   gnomadFrequency: any,
-  acmgWeighting: "standard" | "conservative" | "strict-structural"
+  acmgWeighting: "standard" | "conservative" | "strict-structural",
+  esm2?: { llr: number | null; verdict: string } | null,
+  uniprotFeatures?: any | null
 ) {
   if (analysisResult.insights) {
     (analysisResult.insights as any).source = "ai_inference";
@@ -639,7 +728,7 @@ function handleNarrativeResponse(
   // Rule-based items (database-evidenced) take precedence for overlapping codes.
   const aiCriteria: ACMGItem[] = (analysisResult.insights?.acmgCriteria ?? []) as ACMGItem[];
   const ruleInsights = computeRuleBasedACMG(
-    gene, variant, clinvar, predictorData, conservationData, gnomadConstraint, gnomadFrequency, acmgWeighting
+    gene, variant, clinvar, predictorData, conservationData, gnomadConstraint, gnomadFrequency, acmgWeighting, esm2, uniprotFeatures
   );
   const ruleCodesSet = new Set(ruleInsights.acmgCriteria.map((c: ACMGItem) => c.code));
 
@@ -688,7 +777,7 @@ apiRouter.post("/analyze-variant-narrative", jsonParserRegular, async (req, res)
       return;
     }
 
-    const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency } = req.body;
+    const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures } = req.body;
 
     const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
     if (!mutMatch) {
@@ -714,7 +803,9 @@ apiRouter.post("/analyze-variant-narrative", jsonParserRegular, async (req, res)
         conservationData,
         gnomadConstraint,
         gnomadFrequency,
-        acmgWeighting
+        acmgWeighting,
+        null,
+        uniprotFeatures
       );
     }
 
@@ -780,7 +871,9 @@ apiRouter.post("/analyze-variant-narrative", jsonParserRegular, async (req, res)
           conservationData,
           gnomadConstraint,
           gnomadFrequency,
-          acmgWeighting
+          acmgWeighting,
+          null,
+          uniprotFeatures
         );
       } catch (innerError: any) {
         console.error("Narrative inner execution failure:", innerError);
@@ -834,8 +927,9 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
     const posNum = parseInt(mutMatch[3], 10);
 
     let resolvedChain = chainParam;
+    let pdbResidues: any[] | null = null;
     try {
-      const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
+      pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
       const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain === chainParam));
       if (targetRes) {
         resolvedChain = targetRes.chain;
@@ -870,7 +964,11 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
     let dynamut2JobId: string | null = null;
     let dynamut2Status: "pending" | "unavailable" = "unavailable";
 
+    let ddmutJobId: string | null = null;
+    let ddmutStatus: "pending" | "unavailable" = "unavailable";
+
     let ddgun: number | null = null;
+    let rasp: number | null = null;
 
     const runFoldX = async () => {
       let acquired = false;
@@ -912,19 +1010,39 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       }
     };
 
+    const runDdmut = async () => {
+      try {
+        ddmutJobId = await submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
+        if (ddmutJobId) {
+          ddmutStatus = "pending";
+        }
+      } catch (submitErr: any) {
+        console.warn(`[DDMut Submission Fail] Failed to submit job:`, submitErr.message);
+      }
+    };
+
     const runDDGun = async () => {
       try {
-        ddgun = await runDdgunSeq(wtLetter, mutLetter);
+        let seq = "";
+        let minPos = 1;
+        if (pdbResidues) {
+          const seqInfo = extractSequenceFromPdb(wtPdb, resolvedChainUpper);
+          seq = seqInfo.sequence;
+          minPos = seqInfo.minPos;
+        }
+        const seqPos = posNum - minPos + 1;
+        ddgun = await runDdgunSeq(wtLetter, mutLetter, seq, seqPos);
       } catch (err: any) {
         console.warn("[DDGun-Seq Warning] Failed to run:", err.message);
       }
     };
 
-    // Run FoldX, DynaMut2, and DDGun-Seq in parallel
+    // Run FoldX, DynaMut2, DDGun-Seq, and DDMut in parallel
     await Promise.all([
       runFoldX(),
       runDynaMut(),
-      runDDGun()
+      runDDGun(),
+      runDdmut()
     ]);
 
     // Handle FoldX-phase errors that should abort the request (input errors / residue mismatch)
@@ -952,11 +1070,40 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       status: dynamut2Status
     });
 
+    await AuditLogger.log("DDMUT_SUBMIT", {
+      reqId,
+      ddmutJobId,
+      status: ddmutStatus
+    });
+
+    // Run RaSP sequentially after FoldX (requires mutant PDB text from foldxResult)
+    const foldxResForRasp = foldxResult as any;
+    if (foldxResForRasp?.pdb) {
+      try {
+        const wtPdbPath = path.join(jobDir, "wt_for_rasp.pdb");
+        const mutPdbPath = path.join(jobDir, "mut_for_rasp.pdb");
+        await fs.promises.mkdir(jobDir, { recursive: true });
+        await fs.promises.writeFile(wtPdbPath, wtPdb, "utf8");
+        await fs.promises.writeFile(mutPdbPath, foldxResForRasp.pdb, "utf8");
+        rasp = await runRaspLocal(wtPdbPath, mutPdbPath, resolvedChainUpper, posNum, wtLetter, mutLetter);
+        if (rasp !== null) {
+          console.log(`[RaSP] ΔΔG prediction: ${rasp} kcal/mol`);
+        }
+        // Clean up temp files
+        await Promise.allSettled([
+          fs.promises.unlink(wtPdbPath),
+          fs.promises.unlink(mutPdbPath)
+        ]);
+      } catch (raspErr: any) {
+        console.warn(`[RaSP] Failed to compute prediction:`, raspErr.message);
+      }
+    }
+
     // If FoldX succeeded, use its outputs; otherwise, fallback to WT structures and nulls
     const foldxRes = foldxResult as any;
     const finalPdb = foldxRes ? foldxRes.pdb : wtPdb;
     const finalDdG = foldxRes ? foldxRes.ddG : null;
-    const finalStatus = foldxRes ? foldxRes.status : "success";
+    const finalStatus = foldxRes ? foldxRes.status : "failed";
 
     const foldxMean = foldxRes?.energetics?.foldxMean ?? finalDdG;
     const foldxSd = foldxRes?.energetics?.foldxSd ?? null;
@@ -965,14 +1112,7 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
     const stericClashWarning = foldxRes?.energetics?.stericClashWarning ?? false;
     const localSidechainRmsd = foldxRes?.energetics?.localSidechainRmsd ?? null;
 
-    let consensusVerdict = "Low-Risk (Neutral Consensus)";
-    const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-    const ddgunDestab = ddgun !== null && ddgun >= 1.0;
-    if (foldxDestab && ddgunDestab) {
-      consensusVerdict = "High-Risk Pathogenic (Consensus)";
-    } else if (foldxDestab || ddgunDestab) {
-      consensusVerdict = "Moderate-Risk Conflicting Support";
-    }
+    const consensusVerdict = computeServerConsensusVerdict(foldxMean, null, null, rasp, ddgun);
 
     res.json({
       pdb: finalPdb,
@@ -982,6 +1122,8 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       resolvedChain: resolvedChainUpper,
       dynamut2JobId,
       dynamut2Status,
+      ddmutJobId,
+      ddmutStatus,
       energetics: {
         foldx: finalDdG,
         foldxMean,
@@ -991,6 +1133,8 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
         stericClashWarning,
         localSidechainRmsd,
         dynamut2: null,
+        ddmut: null,
+        rasp,
         ddgun,
         consensusVerdict
       }
@@ -1006,6 +1150,7 @@ const ensemblResponseSchema = z.array(
       z.object({
         transcript_id: z.string().optional(),
         canonical: z.union([z.number(), z.boolean()]).optional(),
+        mane_select: z.string().optional(),
         hgvsp: z.string().optional(),
         gene_symbol: z.string().optional(),
         swissprot: z.array(z.string()).optional()
@@ -1038,7 +1183,7 @@ apiRouter.post("/translate-variant", jsonParserRegular, async (req, res) => {
       variant: trimmed
     });
 
-    const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(trimmed)}?content-type=application/json&hgvs=1&canonical=1&uniprot=1`;
+    const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(trimmed)}?content-type=application/json&hgvs=1&canonical=1&uniprot=1&mane=1`;
     const response = await fetch(url, {
       headers: { "Accept": "application/json" },
       signal: AbortSignal.timeout(15000)
@@ -1063,9 +1208,11 @@ apiRouter.post("/translate-variant", jsonParserRegular, async (req, res) => {
     }
 
     const consequences = data[0].transcript_consequences;
-    // Find canonical transcript first
-    let selectedTc = consequences.find((t) => t.canonical === 1 || t.canonical === true);
-    // Fallback to first one with hgvsp
+    // Find MANE Select first, then canonical, then fallback to first with hgvsp
+    let selectedTc = consequences.find((t) => t.mane_select && !!t.hgvsp);
+    if (!selectedTc) {
+      selectedTc = consequences.find((t) => (t.canonical === 1 || t.canonical === true) && !!t.hgvsp);
+    }
     if (!selectedTc) {
       selectedTc = consequences.find((t) => !!t.hgvsp);
     }
@@ -1371,6 +1518,7 @@ apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
           console.log(`[Cache Hit] Serving RCSB PDB for ${pdbId} chain ${chainId} from memory cache.`);
         }
         res.setHeader("Content-Type", "text/plain");
+        res.setHeader("X-Template-Source", "experimental");
         res.send(pdbCache.get(cacheKey));
         return;
       }
@@ -1378,6 +1526,7 @@ apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
       const pdbData = await fetchPdbFromRcsb(pdbId, chainId);
       if (pdbData) {
         res.setHeader("Content-Type", "text/plain");
+        res.setHeader("X-Template-Source", "experimental");
         res.send(pdbData);
         return;
       }
@@ -1392,6 +1541,7 @@ apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
       console.log(`[Cache Hit] Serving AlphaFold PDB for ${validatedUniprot} from memory cache.`);
     }
     res.setHeader("Content-Type", "text/plain");
+    res.setHeader("X-Template-Source", "alphafold");
     res.send(pdbCache.get(validatedUniprot));
     return;
   }
@@ -1407,6 +1557,7 @@ apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
     if (pdbData) {
       pdbCache.set(validatedUniprot, pdbData);
       res.setHeader("Content-Type", "text/plain");
+      res.setHeader("X-Template-Source", "alphafold");
       res.send(pdbData);
     } else {
       sendError(res, 502, "BAD_GATEWAY", `Could not load AlphaFold PDB for accession: ${validatedUniprot}. EBI server returned failure.`);

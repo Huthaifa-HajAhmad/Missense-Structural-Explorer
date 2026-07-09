@@ -107,12 +107,32 @@ export function validateVariant(variant: any): string {
   if (!match) {
     throw new Error(`Invalid variant format: "${trimmed}". Must match HGVS protein nomenclature (e.g., p.Arg215Trp or R215W).`);
   }
-  const wt = to1Letter(match[1]);
-  const mut = to1Letter(match[3]);
-  if (wt && mut && wt === mut) {
-    throw new Error(`Synonymous variant detected: "${trimmed}". The wild-type and mutant residues are identical.`);
+  
+  let wt = match[1];
+  const pos = match[2];
+  let mut = match[3];
+  
+  if (wt.length === 3) {
+    wt = wt.charAt(0).toUpperCase() + wt.slice(1).toLowerCase();
+  } else {
+    wt = wt.toUpperCase();
   }
-  return trimmed;
+  
+  if (mut.length === 3) {
+    mut = mut.charAt(0).toUpperCase() + mut.slice(1).toLowerCase();
+  } else {
+    mut = mut.toUpperCase();
+  }
+  
+  const hasP = trimmed.toLowerCase().startsWith("p.");
+  const normalized = (hasP ? "p." : "") + wt + pos + mut;
+  
+  const wt1 = to1Letter(wt);
+  const mut1 = to1Letter(mut);
+  if (wt1 && mut1 && wt1 === mut1) {
+    throw new Error(`Synonymous variant detected: "${normalized}". The wild-type and mutant residues are identical.`);
+  }
+  return normalized;
 }
 
 export function validateUniProt(uniprotId: any): string {

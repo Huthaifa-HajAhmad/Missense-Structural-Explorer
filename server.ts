@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { spawn, ChildProcess } from "child_process";
 import helmet from "helmet";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -12,9 +13,21 @@ import { runTempJobsJanitor } from "./server/utils.ts";
 
 dotenv.config();
 
+let modelServerProcess: ChildProcess | null = null;
+
 async function startServer() {
   // Start the background temp_jobs janitor (M-8)
   runTempJobsJanitor();
+
+  // Spawn the local ML model server sidecar
+  console.log("[Startup] Launching local ML model server sidecar...");
+  const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
+  modelServerProcess = spawn("python", ["-m", "uv", "run", modelServerScript], {
+    stdio: "inherit"
+  });
+  modelServerProcess.on("error", (err) => {
+    console.error("[Model Server] Failed to start sidecar:", err.message);
+  });
 
   const app = express();
   const PORT = 3000;
@@ -85,6 +98,12 @@ async function startServer() {
 
   const shutdown = async (signal: string) => {
     console.log(`[Shutdown] Received ${signal}. Starting graceful shutdown...`);
+    
+    if (modelServerProcess) {
+      console.log("[Shutdown] Terminating model server sidecar...");
+      modelServerProcess.kill();
+    }
+
     serverInstance.close(async () => {
       console.log("[Shutdown] HTTP server closed.");
       try {

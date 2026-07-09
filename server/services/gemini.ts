@@ -195,8 +195,11 @@ Suggest 2-3 specific features for the clinical investigator to look for in the 3
 - Which secondary structure element includes residue ${residueIndex || "the mutation site"}?
 - Is this residue solvent-exposed (surface) or buried (core)?
 - Is it near a known active site, interface, or lipid-membrane anchoring boundary?
-
-For the structured report fields, provide compact, precise, and expert descriptions.`;
+For the structured report fields, provide compact, precise, and expert descriptions.
+[ACMG CRITERIA SELECTION RULE]:
+Only select valid ACMG/AMP criteria codes from the following whitelist: PVS1, PS1, PS2, PS3, PS4, PM1, PM2, PM3, PM4, PM5, PM6, PP1, PP2, PP3, PP4, BA1, BS1, BS2, BS3, BS4, BP1, BP2, BP3, BP4, BP5, BP7.
+DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working group due to significant double-counting risks and clinical safety concerns.
+`;
 
 
   const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
@@ -339,8 +342,8 @@ For the structured report fields, provide compact, precise, and expert descripti
   // Validate ACMG codes
   const validAcmgCodes = new Set([
     "PVS1", "PS1", "PS2", "PS3", "PS4", "PM1", "PM2", "PM3", "PM4", "PM5", "PM6",
-    "PP1", "PP2", "PP3", "PP4", "PP5", "BA1", "BS1", "BS2", "BS3", "BS4",
-    "BP1", "BP2", "BP3", "BP4", "BP5", "BP6", "BP7"
+    "PP1", "PP2", "PP3", "PP4", "BA1", "BS1", "BS2", "BS3", "BS4",
+    "BP1", "BP2", "BP3", "BP4", "BP5", "BP7"
   ]);
 
   const rawAcmgCriteria = parsed.acmgCriteria || [];
