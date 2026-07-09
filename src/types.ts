@@ -61,6 +61,7 @@ export interface AnalysisResult {
     gerp: number | null;
     phylop: number | null;
     consurf: number | null;
+    bayesdel?: number | null;
     available?: boolean;
   } | null;
   landscapeData?: {
@@ -78,6 +79,10 @@ export interface AnalysisResult {
   dynamut2?: number | null;
   dynamut2Status?: string | null;
   dynamut2JobId?: string | null;
+  ddmut?: number | null;
+  ddmutStatus?: string | null;
+  ddmutJobId?: string | null;
+  rasp?: number | null;
   metadata: {
     gene: string;
     variant: string;
@@ -94,6 +99,8 @@ export interface AnalysisResult {
     plddt: number;
     burialStatus?: "core" | "surface" | "boundary";
     neighborCount?: number;
+    rsa?: number;
+    sasa?: number;
   };
   uniprotFeatures?: {
     features: {
@@ -116,6 +123,7 @@ export interface AnalysisResult {
   transcriptWarning?: string;
   gnomadFrequency?: {
     maxAF: number | null;
+    groupMaxAF: number | null;
     genomeAF: number | null;
     exomeAF: number | null;
     genomeAC: number | null;
@@ -196,9 +204,21 @@ export interface EnergeticsData {
   stericClashWarning?: boolean;
   localSidechainRmsd?: number | null;
   dynamut2: number | null;
-  ddgun: number | null;
-  maestro?: number | null;
+  ddmut?: number | null;
+  rasp?: number | null;
+  ddgun?: number | null;
   consensusVerdict?: string | null;
+}
+
+export interface StructuralDiffResult {
+  rmsd: number;
+  localRmsd: number | null;
+  windowDisplacements: { resSeq: number; resName: string; displacement: number }[];
+  clashes: {
+    wtClashCount: number;
+    mutClashCount: number;
+    diff: number;
+  };
 }
 
 

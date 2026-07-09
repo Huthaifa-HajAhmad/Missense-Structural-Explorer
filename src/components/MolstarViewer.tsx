@@ -103,6 +103,62 @@ export const CustomPLDDTColorThemeProvider: ColorTheme.Provider<any, any> = {
   isApplicable: (ctx: any) => !!ctx.structure
 };
 
+export function CustomBFactorColorTheme(ctx: any, props: any) {
+  let color = (location: any) => Color(0xaaaaaa);
+  if (ctx.structure) {
+    const l = StructureElement.Location.create(ctx.structure.root);
+    const getColor = (location: any) => {
+      const { unit, element } = location;
+      if (!Unit.isAtomic(unit)) return Color(0xaaaaaa);
+      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
+      if (score === null || score === undefined || typeof score !== 'number') {
+        return Color(0xaaaaaa);
+      } else if (score < 20) {
+        return Color(0x0053d6); // Blue (Highly Rigid)
+      } else if (score < 40) {
+        return Color(0x65cbf3); // Cyan (Stable)
+      } else if (score < 60) {
+        return Color(0xffdb13); // Yellow (Moderately Mobile)
+      } else {
+        return Color(0xff7d45); // Orange/Red (Highly Mobile)
+      }
+    };
+    color = (location: any) => {
+      if (StructureElement.Location.is(location)) return getColor(location);
+      if (Bond.isLocation(location)) {
+        l.unit = location.aUnit;
+        l.element = location.aUnit.elements[location.aIndex];
+        return getColor(l);
+      }
+      return Color(0xaaaaaa);
+    };
+  }
+  return {
+    factory: CustomBFactorColorTheme,
+    granularity: 'group' as any,
+    preferSmoothing: true,
+    color,
+    props,
+    description: 'Custom B-factor mobility coloring based on PDB temperature factors',
+    legend: TableLegend(Object.entries({
+      'Highly Rigid (<20)': Color(0x0053d6),
+      'Stable (20-40)': Color(0x65cbf3),
+      'Moderately Mobile (40-60)': Color(0xffdb13),
+      'Highly Mobile (>60)': Color(0xff7d45),
+    }) as any)
+  };
+}
+
+export const CustomBFactorColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: 'bfactor-mobility',
+  label: 'B-factor / Mobility',
+  category: ColorThemeCategory.Validation,
+  factory: CustomBFactorColorTheme,
+  getParams: () => ({}),
+  defaultValues: {},
+  isApplicable: (ctx: any) => !!ctx.structure
+};
+
 function isValidPdbUrl(url: string): boolean {
   if (!url) return false;
   if (url.startsWith("/") || (!url.startsWith("http://") && !url.startsWith("https://"))) {
@@ -208,6 +264,7 @@ export default function MolstarViewer({
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [plddtFilter, setPlddtFilter] = useState<"none" | "50" | "70">("none");
+  const [templateSource, setTemplateSource] = useState<"experimental" | "alphafold" | null>(null);
   const [pluginsReadyState, setPluginsReadyState] = useState<number>(0);
   const [pluginCreated, setPluginCreated] = useState<boolean>(false);
   const [showWarningCard, setShowWarningCard] = useState(false);
@@ -279,14 +336,22 @@ export default function MolstarViewer({
       if (settings?.appApiToken) {
         headers["Authorization"] = `Bearer ${settings.appApiToken}`;
       }
+      let templateSrc: "experimental" | "alphafold" | null = null;
       fetch(pdbUrl, { headers })
         .then(res => {
           if (!res.ok) throw new Error("Could not fetch raw coordinates");
+          const sourceHeader = res.headers.get("X-Template-Source");
+          if (sourceHeader === "experimental" || sourceHeader === "alphafold") {
+            templateSrc = sourceHeader;
+          }
           return res.text();
         })
         .then(text => {
           if (active && text && text.indexOf("ATOM") !== -1) {
             setPdbText(text);
+            if (templateSrc) {
+              setTemplateSource(templateSrc);
+            }
           }
         })
         .catch(err => {
@@ -693,6 +758,7 @@ export default function MolstarViewer({
 
         // Register custom pLDDT theme provider
         localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomPLDDTColorThemeProvider);
+        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomBFactorColorThemeProvider);
 
         // Subscribe to Molstar interaction events
         hoverSubscription = localPlugin.behaviors.interaction.hover.subscribe((event: any) => {
@@ -860,7 +926,7 @@ export default function MolstarViewer({
         // Apply standard auto representation preset for robust loading/coloring representation
         // utilizing the built-in 'plddt-confidence' color theme (AlphaFold uses B-factor for pLDDT)
         await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
-          theme: { globalName: 'plddt-confidence' }
+          theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
         });
 
         // Load comparison model if available (superimposing)
@@ -898,7 +964,7 @@ export default function MolstarViewer({
           }
 
           await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
-            theme: { globalName: 'plddt-confidence' }
+            theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
           });
         } else {
           structure2Ref.current = null;
@@ -932,7 +998,7 @@ export default function MolstarViewer({
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -1406,6 +1472,15 @@ export default function MolstarViewer({
                       ? ` Predicted ΔΔG: ${formatDdG(mutantDdG, energyUnit)}.`
                       : " ΔΔG unavailable."}
                   </p>
+                  {templateSource === "alphafold" ? (
+                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-bold w-fit font-sans">
+                      confidence: inherited from WT
+                    </div>
+                  ) : templateSource === "experimental" ? (
+                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold w-fit font-sans">
+                      no AF confidence (experimental template)
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1442,6 +1517,15 @@ export default function MolstarViewer({
                   <p className="leading-relaxed mt-1.5">
                     <strong>SCWRL4 Packed:</strong> Side-chain rotamers packed as fallback. Stability energy (ΔΔG) not available.
                   </p>
+                  {templateSource === "alphafold" ? (
+                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-bold w-fit font-sans">
+                      confidence: inherited from WT
+                    </div>
+                  ) : templateSource === "experimental" ? (
+                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold w-fit font-sans">
+                      no AF confidence (experimental template)
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1520,23 +1604,24 @@ export default function MolstarViewer({
 
         {/* Right: Actions (PLDDT Filter, Fullscreen, Capture, Pocket Finder) */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* pLDDT Filter Selection */}
-          <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono hidden md:inline">pLDDT Filter:</span>
-            <select
-              value={plddtFilter}
-              onChange={(e) => setPlddtFilter(e.target.value as "none" | "50" | "70")}
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
-                isDark 
-                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
-                  : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
-              }`}
-            >
-              <option value="none">Show All</option>
-              <option value="50">pLDDT &ge; 50</option>
-              <option value="70">pLDDT &ge; 70</option>
-            </select>
-          </div>
+          {templateSource === "alphafold" && (
+            <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none font-mono">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden md:inline">pLDDT Filter:</span>
+              <select
+                value={plddtFilter}
+                onChange={(e) => setPlddtFilter(e.target.value as "none" | "50" | "70")}
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
+                  isDark 
+                    ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
+                    : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                <option value="none">Show All</option>
+                <option value="50">pLDDT &ge; 50</option>
+                <option value="70">pLDDT &ge; 70</option>
+              </select>
+            </div>
+          )}
 
           {/* Fullscreen Button */}
           <button

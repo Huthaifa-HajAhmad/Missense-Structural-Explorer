@@ -74,6 +74,8 @@ export default function App() {
     foldingDdG,
     foldingEnergetics,
     dynamut2Status,
+    ddmutStatus,
+    structuralDiff,
     pdbText,
     computedPocket,
     isPocketLoading,
@@ -190,11 +192,11 @@ export default function App() {
       {/* ── Claude Science Gene/Protein Stats Bar ── */}
       {(gene || analysisState.result) && (
         <div className={`border-b px-5 py-3 flex flex-wrap items-center gap-4 transition-colors ${
-          isDark ? "bg-[#261E35] border-[#362B4A]" : "bg-white border-[#DDD6ED]"
+          isDark ? "bg-[#201E1B] border-[#322F2A]" : "bg-white border-[#DDD6ED]"
         }`}>
           {/* Gene name + protein info */}
           <div className="flex items-baseline gap-3 min-w-0">
-            <h2 className={`text-2xl font-bold tracking-tight leading-none ${isDark ? "text-[#F0EBFA]" : "text-[#1A1523]"}`}>
+            <h2 className={`text-2xl font-bold tracking-tight leading-none ${isDark ? "text-[#F9F8F6]" : "text-[#1A1523]"}`}>
               {gene || "—"}
             </h2>
             {analysisState.result?.predictorData && (
@@ -294,12 +296,14 @@ export default function App() {
             foldingStatus={foldingStatus}
             foldingEnergetics={foldingEnergetics}
             dynamut2Status={dynamut2Status}
+            ddmutStatus={ddmutStatus}
             computedPocket={computedPocket}
             isPocketLoading={isPocketLoading}
             pocketError={pocketError}
             disruptionPredictor={disruptionPredictor}
             isFolding={isFolding}
             foldingError={foldingError}
+            structuralDiff={structuralDiff}
           />
 
           {/* CLINICAL INSIGHTS CARD */}
@@ -437,7 +441,7 @@ export default function App() {
                   className="w-full flex items-center justify-between p-3.5 text-left focus:outline-none cursor-pointer"
                   id="structural-analysis-alerts-toggle"
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
                     <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
                     <h4 className={`font-bold font-mono text-[11px] uppercase tracking-wider ${isDark ? "text-amber-305" : "text-amber-800"}`}>
                       Structural Analysis Alerts
@@ -448,10 +452,25 @@ export default function App() {
                         : "1 alert active"})
                     </span>
                   </div>
+
+                  {disruptionPredictor?.level === "low" && !triageOverride && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTriageOverride(true);
+                        setViewMode("mutant");
+                      }}
+                      className="mr-3 bg-[#C46849] hover:bg-[#A95738] text-white font-mono font-bold text-[8.5px] uppercase tracking-wider px-2 py-0.5 rounded transition active:scale-95 cursor-pointer shrink-0"
+                    >
+                      View simulated mutant anyway
+                    </button>
+                  )}
+
                   {isLowDisruptionWarningCollapsed ? (
-                    <ChevronDown className={`w-4 h-4 ${isDark ? "text-slate-400" : "text-slate-550"}`} />
+                    <ChevronDown className={`w-4 h-4 ${isDark ? "text-slate-400" : "text-slate-555"}`} />
                   ) : (
-                    <ChevronUp className={`w-4 h-4 ${isDark ? "text-slate-400" : "text-slate-550"}`} />
+                    <ChevronUp className={`w-4 h-4 ${isDark ? "text-slate-400" : "text-slate-555"}`} />
                   )}
                 </button>
 
@@ -462,27 +481,15 @@ export default function App() {
                     {/* Alert 1: Low Disruption */}
                     {disruptionPredictor?.level === "low" && !triageOverride && (
                       <div className="flex flex-col gap-2">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h5 className="font-bold font-mono text-[10.5px] uppercase tracking-wider text-[#C46849]">
-                              Low Structural Disruption Predicted
-                            </h5>
-                            {disruptionPredictor.reason && (
-                              <span className="text-[9.5px] font-sans font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(196,104,73,0.12)", color: "var(--cs-accent-clay)" }}>
-                                {disruptionPredictor.reason.replace(/^Fallback:\s*/i, "")}
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTriageOverride(true);
-                              setViewMode("mutant");
-                            }}
-                            className="bg-[#C46849] hover:bg-[#A95738] text-white font-mono font-bold text-[8.5px] uppercase tracking-wider px-2 py-0.5 rounded transition active:scale-95 cursor-pointer"
-                          >
-                            View simulated mutant anyway
-                          </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h5 className="font-bold font-mono text-[10.5px] uppercase tracking-wider text-[#C46849]">
+                            Low Structural Disruption Predicted
+                          </h5>
+                          {disruptionPredictor.reason && (
+                            <span className="text-[9.5px] font-sans font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(196,104,73,0.12)", color: "var(--cs-accent-clay)" }}>
+                              {disruptionPredictor.reason.replace(/^Fallback:\s*/i, "")}
+                            </span>
+                          )}
                         </div>
                         <div className="space-y-2 leading-relaxed text-slate-700 dark:text-slate-350">
                           <p className="opacity-75 text-[10.5px] font-sans">
@@ -841,7 +848,7 @@ export default function App() {
 
       {/* Lab footer */}
       <footer className={`border-t py-3 px-5 text-xs mt-auto flex flex-col md:flex-row items-center justify-between gap-4 w-full max-w-full transition-colors ${
-        isDark ? "bg-[#261E35] border-[#362B4A] text-[#7A6F90]" : "bg-white border-[#DDD6ED] text-[#8E82A0]"
+        isDark ? "bg-[#201E1B] border-[#322F2A] text-[#827B70]" : "bg-white border-[#DDD6ED] text-[#8E82A0]"
       }`}>
         <div className="flex flex-col items-center md:items-start text-center md:text-left max-w-2xl">
           <p className="flex items-center gap-1.5 justify-center md:justify-start">

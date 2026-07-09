@@ -10,13 +10,14 @@ import {
   TrendingUp,
   Percent,
   Layers,
-  Info
+  Info,
+  ExternalLink
 } from "lucide-react";
-import { AnalysisState, PocketResult, EnergeticsData } from "../types";
+import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult } from "../types";
 import { AMINO_ACID_PROPERTIES, AMINO_ACID_NAMES_MAP } from "../useVariantAnalysis";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { useSettings } from "../context/SettingsContext";
-import { THRESHOLDS } from "../thresholds";
+import { THRESHOLDS, countPredictorConcordance } from "../shared/thresholds";
 
 interface EvidenceDashboardCardProps {
   isDark: boolean;
@@ -28,18 +29,144 @@ interface EvidenceDashboardCardProps {
   classTextMute: string;
   analysisState: AnalysisState;
   foldingDdG: number | null;
-  foldingStatus: "success" | "scwrl" | null;
+  foldingStatus: "success" | "scwrl" | "failed" | null;
   foldingEnergetics?: EnergeticsData | null;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
+  ddmutStatus?: "pending" | "unavailable" | "done" | null;
   computedPocket?: PocketResult | null;
   isPocketLoading?: boolean;
   pocketError?: string | null;
   disruptionPredictor?: { level: "high" | "low"; reason: string; plddt: number } | null;
   isFolding?: boolean;
   foldingError?: string | null;
+  structuralDiff?: StructuralDiffResult | null;
 }
 
 type TabType = "clinical" | "predictors" | "conservation" | "structure" | "function" | "energetics" | "interactions" | "guidelines";
+
+interface MetricExplanation {
+  name: string;
+  category: string;
+  description: string;
+  interpretation: string;
+  paperTitle: string;
+  paperUrl: string;
+}
+
+const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
+  am: {
+    name: "AlphaMissense",
+    category: "AI Pathogenicity Predictor",
+    description: "AlphaMissense adapts AlphaFold structural representation learning to predict the pathogenicity of missense variants. It leverages an unsupervised protein language model trained on evolutionary sequences alongside structural embeddings to score candidate substitutions.",
+    interpretation: "Scores range from 0 (benign) to 1 (pathogenic). Classifications include 'likely_benign' (≤ 0.340), 'uncertain', and 'likely_pathogenic' (≥ 0.564). ClinGen-calibrated thresholds are 0.983 (pathogenic) and 0.063 (benign).",
+    paperTitle: "Cheng et al. Science (2023)",
+    paperUrl: "https://doi.org/10.1126/science.adg7492"
+  },
+  cadd: {
+    name: "CADD PHRED",
+    category: "Genomic Annotation Integrator",
+    description: "Combined Annotation Dependent Depletion (CADD) is a framework for integrating diverse genomic annotations (conservation, epigenetic, functional) into a single score of relative deleteriousness.",
+    interpretation: "PHRED-scaled scores range from 0 to 99. A score ≥ 20 indicates the variant is predicted to be in the top 1% of most deleterious substitutions; ≥ 30 indicates the top 0.1%.",
+    paperTitle: "Kircher et al. Nat Genet (2014)",
+    paperUrl: "https://doi.org/10.1038/ng.2892"
+  },
+  revel: {
+    name: "REVEL",
+    category: "Ensemble Pathogenicity Predictor",
+    description: "Rare Exome Variant Ensemble Learner (REVEL) is an ensemble method that integrates pathogenicity predictions from 13 individual in-silico predictors (including SIFT, PolyPhen, MutationTaster, and GERP++).",
+    interpretation: "Scores range from 0 to 1. ClinGen SVI guidelines recommend REVEL ≥ 0.75 as strong evidence of pathogenicity (PP3_Strong), and < 0.15 as benign evidence (BP4).",
+    paperTitle: "Ioannidis et al. Am J Hum Genet (2016)",
+    paperUrl: "https://doi.org/10.1016/j.ajhg.2016.08.016"
+  },
+  eve: {
+    name: "EVE Model",
+    category: "Evolutionary Generative Model",
+    description: "Evolutionary Model of Variant Effect (EVE) uses deep generative models (variational autoencoders) trained on evolutionary sequence families to model the fitness landscape and predict pathogenicity.",
+    interpretation: "Continuous score from 0 (benign) to 1 (pathogenic), alongside classification classes: 'Benign' (≤ 0.25), 'Uncertain', or 'Pathogenic' (≥ 0.75).",
+    paperTitle: "Frazer et al. Nature (2021)",
+    paperUrl: "https://doi.org/10.1038/s41586-021-04043-8"
+  },
+  esm2: {
+    name: "VESM Co-distilled LLR (SOTA)",
+    category: "Protein Language Model",
+    description: "VESM (Variant Effect ESM) is a co-distilled protein language model that compresses the collective knowledge of the ESM family. It computes a log-likelihood ratio (LLR) reflecting SOTA variant effect predictions on ProteinGym without external structural or evolutionary inputs.",
+    interpretation: "LLR values range from -20 to +5. Negative scores indicate disruption; LLR ≤ -3.0 is a typical threshold indicating functional defect.",
+    paperTitle: "Ntranos Lab, Nature Methods (2026)",
+    paperUrl: "https://github.com/ntranoslab/vesm"
+  },
+  foldx: {
+    name: "FoldX ddG",
+    category: "Force-Field Biophysics",
+    description: "FoldX uses an empirical atomic force field to estimate the change in free energy (ΔΔG) upon mutation. It performs local sidechain repacking on a rigid backbone approximation of the protein structure.",
+    interpretation: "ΔΔG > 1.5 kcal/mol indicates strong structural destabilization (high risk of misfolding/degradation). Note that gain-of-function variants may not be destabilizing.",
+    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
+    paperUrl: "https://doi.org/10.1093/nar/gki387"
+  },
+  dynamut2: {
+    name: "DynaMut2",
+    category: "Normal Mode Analysis / Machine Learning",
+    description: "DynaMut2 predicts stability changes (ΔΔG) by combining normal mode analysis (NMA) metrics of protein flexibility and dynamics (using ENM models) with machine learning models trained on experimental stability data.",
+    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
+    paperTitle: "Rodrigues et al. Bioinformatics (2020)",
+    paperUrl: "https://doi.org/10.1093/bioinformatics/btaa784"
+  },
+  ddmut: {
+    name: "DDMut (Deep Learning)",
+    category: "Graph Deep Learning / Transformers",
+    description: "DDMut uses a Siamese neural network combining graph-based structural representations, convolutional layers, and Transformer encoders to predict free energy changes (ΔΔG) for single and multiple point mutations.",
+    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
+    paperTitle: "Zhou et al. Nucleic Acids Res (2022)",
+    paperUrl: "https://doi.org/10.1093/nar/gkac394"
+  },
+  rasp: {
+    name: "RaSP (Rapid Stability Prediction)",
+    category: "Structural Embeddings / MLP Stability Head",
+    description: "RaSP predicts thermodynamic stability changes (ΔΔG) using ESM-IF1 structural embeddings combined with a pre-trained multi-layer perceptron head trained on ~350k experimental stability datapoints. It operates directly on 3D structure.",
+    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
+    paperTitle: "Blaabjerg et al. Cell Systems (2023)",
+    paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
+  },
+  bayesdel: {
+    name: "BayesDel (noAF)",
+    category: "Meta-Predictor Integration",
+    description: "BayesDel is a meta-predictor that integrates multiple individual in-silico tools (including conservation and functional annotations) using a Bayesian approach. We use the version without allele frequency (noAF) to prevent double-counting frequency evidence.",
+    interpretation: "Scores range from -1.0 to 1.0. A score ≥ 0.133 indicates pathogenic support (PP3_Supporting), and ≤ -0.0404 indicates benign support (BP4).",
+    paperTitle: "Feng et al. Hum Mutat (2021)",
+    paperUrl: "https://doi.org/10.1002/humu.24155"
+  },
+  rmsd: {
+    name: "Sidechain RMSD",
+    category: "Structural Packing Deviation",
+    description: "Root-Mean-Square Deviation (RMSD) of the mutated sidechain relative to the wildtype conformation. It reflects the degree of local packing adjustments and steric displacement needed to accommodate the mutant residue.",
+    interpretation: "Values in Angstroms (Å). RMSD > 1.5 Å indicates substantial conformational repacking or steric displacements, signaling local structural rearrangement.",
+    paperTitle: "Guerois et al. J Mol Biol (2002)",
+    paperUrl: "https://doi.org/10.1006/jmbi.2002.5729"
+  },
+  vdw: {
+    name: "VdW Clash Delta",
+    category: "Steric Interaction Energy",
+    description: "Van der Waals (VdW) Clash Delta measures the change in steric repulsion (Lennard-Jones potentials) upon sidechain repacking. It identifies clashes when larger or bulkier residues are introduced into confined spaces.",
+    interpretation: "Delta values > 2.0 kcal/mol indicate significant steric clashes, suggesting local backbone distortion may be required to accommodate the mutant residue.",
+    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
+    paperUrl: "https://doi.org/10.1093/nar/gki387"
+  },
+  electrostatics: {
+    name: "Electrostatic Delta",
+    category: "Coulombic Interaction Energy",
+    description: "Electrostatic Delta calculates changes in Coulombic electrostatic interactions (such as salt bridges, hydrogen bonds, and charge-charge interactions) resulting from the mutation.",
+    interpretation: "Significant negative/positive deviations indicate disrupted salt bridges or altered local hydrogen bonding networks.",
+    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
+    paperUrl: "https://doi.org/10.1093/nar/gki387"
+  },
+  contact_density: {
+    name: "Cα Contact Density",
+    category: "Local Structural Density",
+    description: "Contact density counts the number of Cα atoms within a 10Å radius of the mutation site. This quantifies whether the residue is located in a densely packed core or a flexible surface loop.",
+    interpretation: "Core residues have ≥ 15 neighbors, boundary residues have 8-14, and surface residues have < 8 neighbors.",
+    paperTitle: "Pejaver et al. Nat Methods (2020)",
+    paperUrl: "https://doi.org/10.1038/s41592-020-0962-8"
+  }
+};
 
 export default function EvidenceDashboardCard({
   isDark,
@@ -54,14 +181,17 @@ export default function EvidenceDashboardCard({
   foldingStatus,
   foldingEnergetics,
   dynamut2Status,
+  ddmutStatus,
   computedPocket,
   isPocketLoading,
   pocketError,
   disruptionPredictor,
   isFolding = false,
-  foldingError = null
+  foldingError = null,
+  structuralDiff = null
 }: EvidenceDashboardCardProps) {
   const [activeTab, setActiveTab] = useState<TabType>("clinical");
+  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const { settings } = useSettings();
   const energyUnit = settings.energyUnit;
 
@@ -104,53 +234,49 @@ export default function EvidenceDashboardCard({
   // Score badge helpers
   const getAMBadge = (pathogenicity: number | null, cls: string | null) => {
     if (pathogenicity === null && !cls) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
-    const scoreStr = pathogenicity !== null ? ` (${pathogenicity.toFixed(3)})` : "";
-    const label = cls ? `${cls.replace(/_/g, " ")}${scoreStr}` : `Score: ${pathogenicity?.toFixed(3)}`;
-    const score = pathogenicity ?? 0;
+    const scoreStr = pathogenicity !== null ? ` (AM: ${pathogenicity.toFixed(3)})` : "";
     
-    const isPathogenic = cls?.toLowerCase().includes(THRESHOLDS.alphaMissense.pathogenicClass) ||
-      (pathogenicity !== null && pathogenicity >= THRESHOLDS.alphaMissense.pathogenicSupporting);
-    const isBenign = cls?.toLowerCase().includes(THRESHOLDS.alphaMissense.benignClass) ||
-      (pathogenicity !== null && pathogenicity <= THRESHOLDS.alphaMissense.benign);
+    // ClinGen SVI: path >= 0.983 (Supporting), benign <= 0.063 (Benign Supporting)
+    const isPathogenic = cls?.toLowerCase().includes("pathogenic") || (pathogenicity !== null && pathogenicity >= 0.983);
+    const isBenign = cls?.toLowerCase().includes("benign") || (pathogenicity !== null && pathogenicity <= 0.063);
 
     if (isPathogenic) {
-      return { label, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+      return { label: `Supporting Path.${scoreStr}`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
     }
     if (isBenign) {
-      return { label, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `Supporting Benign${scoreStr}`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
     }
-    return { label, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+    return { label: `VUS${scoreStr}`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
   };
 
   const getCADDBadge = (phred: number | null) => {
     if (phred === null) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
-    if (phred >= THRESHOLDS.cadd.pathogenicStrong) {
-      return { label: `PHRED: ${phred.toFixed(1)} (Strong Path.)`, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+    // ClinGen SVI: >= 25.3 -> Moderate, >= 15.0 -> Supporting, <= 10 -> Supporting Benign
+    if (phred >= 25.3) {
+      return { label: `Moderate Path. (PHRED: ${phred.toFixed(1)})`, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
     }
-    if (phred >= THRESHOLDS.cadd.pathogenicSupporting) {
-      return { label: `PHRED: ${phred.toFixed(1)} (Path. Supp.)`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+    if (phred >= 15.0) {
+      return { label: `Supporting Path. (PHRED: ${phred.toFixed(1)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
     }
-    if (phred >= THRESHOLDS.cadd.moderate) {
-      return { label: `PHRED: ${phred.toFixed(1)} (Moderate)`, style: "bg-amber-500/15 text-amber-450 border border-amber-500/20 font-bold" };
+    if (phred <= 10.0) {
+      return { label: `Supporting Benign (PHRED: ${phred.toFixed(1)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
     }
-    if (phred <= THRESHOLDS.cadd.benign) {
-      return { label: `PHRED: ${phred.toFixed(1)} (Benign)`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
-    }
-    return { label: `PHRED: ${phred.toFixed(1)} (Intermediate)`, style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-bold" };
+    return { label: `VUS (PHRED: ${phred.toFixed(1)})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
   };
 
   const getREVELBadge = (score: number | null) => {
     if (score === null) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
-    if (score >= THRESHOLDS.revel.pathogenicStrong) {
-      return { label: `Score: ${score.toFixed(3)} (Strong Path.)`, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+    // ClinGen SVI: >= 0.77 -> Moderate, >= 0.65 -> Supporting, <= 0.15 -> Supporting Benign
+    if (score >= 0.77) {
+      return { label: `Moderate Path. (Score: ${score.toFixed(3)})`, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
     }
-    if (score >= THRESHOLDS.revel.pathogenicSupporting) {
-      return { label: `Score: ${score.toFixed(3)} (Path. Supp.)`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+    if (score >= 0.65) {
+      return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
     }
-    if (score <= THRESHOLDS.revel.benign) {
-      return { label: `Score: ${score.toFixed(3)} (Benign)`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+    if (score <= 0.15) {
+      return { label: `Supporting Benign (Score: ${score.toFixed(3)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
     }
-    return { label: `Score: ${score.toFixed(3)} (VUS)`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
+    return { label: `VUS (Score: ${score.toFixed(3)})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
   };
 
   const getEVEBadge = (score: number | null | undefined, cls: string | null | undefined) => {
@@ -162,29 +288,36 @@ export default function EvidenceDashboardCard({
     const isBenign = cls?.toLowerCase().includes(THRESHOLDS.eve.benignClass) || score <= THRESHOLDS.eve.benign;
 
     if (isPathogenic) {
-      return { label, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+      return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
     }
     if (isBenign) {
-      return { label, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `Supporting Benign (Score: ${score.toFixed(3)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
     }
-    return { label, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+    return { label, style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
   };
 
-  const getESM2Badge = (llr: number | null | undefined, verdict: string | null | undefined) => {
+  const getESM2Badge = (llr: number | null | undefined) => {
     if (llr === null || llr === undefined) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
-    const verdictStr = verdict ? ` (${verdict})` : "";
-    const label = `LLR: ${llr.toFixed(2)}${verdictStr}`;
-
-    const isPathogenic = verdict?.toLowerCase().includes("pathogenic") || verdict?.toLowerCase().includes("damaged") || llr < -6.0;
-    const isBenign = verdict?.toLowerCase().includes("benign") || verdict?.toLowerCase().includes("neutral") || llr > -3.0;
-
-    if (isPathogenic) {
-      return { label, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+    // VESM SVI calibration: <= -5.0 -> Supporting Pathogenic, >= -2.0 -> Supporting Benign
+    if (llr <= -5.0) {
+      return { label: `Supporting Path. (LLR: ${llr.toFixed(2)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
     }
-    if (isBenign) {
-      return { label, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+    if (llr >= -2.0) {
+      return { label: `Supporting Benign (LLR: ${llr.toFixed(2)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
     }
-    return { label, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+    return { label: `VUS (LLR: ${llr.toFixed(2)})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
+  };
+
+  const getBayesdelBadge = (score: number | null | undefined) => {
+    if (score === null || score === undefined) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    const label = `Score: ${score.toFixed(3)}`;
+    if (score >= THRESHOLDS.bayesdel.pathogenic) {
+      return { label: `Supporting Path. (${label})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+    }
+    if (score <= THRESHOLDS.bayesdel.benign) {
+      return { label: `Supporting Benign (${label})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+    }
+    return { label: `VUS (${label})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
   };
 
   const getGERPBadge = (score: number | null) => {
@@ -269,7 +402,10 @@ export default function EvidenceDashboardCard({
     stericClashWarning: foldingEnergetics?.stericClashWarning ?? false,
     localSidechainRmsd: foldingEnergetics?.localSidechainRmsd ?? 0.0,
     dynamut2: foldingEnergetics?.dynamut2 ?? result.dynamut2 ?? null,
+    ddmut: foldingEnergetics?.ddmut ?? result.ddmut ?? null,
+    rasp: foldingEnergetics?.rasp ?? result.rasp ?? null,
     ddgun: foldingEnergetics?.ddgun ?? null,
+    bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null
   };
 
@@ -510,6 +646,47 @@ export default function EvidenceDashboardCard({
               );
             })()}
 
+            {(() => {
+              const cadd = result.predictorData?.caddPhred;
+              const revel = result.conservationData?.revel;
+              const amScore = result.predictorData?.amPathogenicity;
+              const amClass = result.predictorData?.amClass;
+              const eveScore = result.predictorData?.eveScore;
+              const eveClass = result.predictorData?.eveClass;
+
+              const concordance = countPredictorConcordance(cadd, revel, amScore, amClass, eveScore, eveClass);
+              const total = concordance.available.length;
+              if (total === 0) return null;
+
+              let verdictClass = "bg-slate-500/10 text-slate-400 border-slate-500/20";
+              let verdictText = "VUS / Conflicting Evidence";
+              
+              if (concordance.nPathogenic > total / 2) {
+                verdictClass = "bg-rose-500/10 text-rose-400 border-rose-500/20";
+                verdictText = `Concordant Pathogenic (${concordance.nPathogenic}/${total} tools)`;
+              } else if (concordance.nBenign > total / 2) {
+                verdictClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                verdictText = `Concordant Benign (${concordance.nBenign}/${total} tools)`;
+              } else {
+                verdictText = `Conflicting Evidence (${concordance.nPathogenic} pathogenic, ${concordance.nBenign} benign, ${concordance.nVus} VUS)`;
+              }
+
+              return (
+                <div className={`p-3.5 mb-3 rounded-lg border ${verdictClass} leading-relaxed text-xs animate-fade-in`}>
+                  <div className="font-bold flex items-center gap-1.5 uppercase tracking-wider text-[10px] font-mono">
+                    <span>🧬 In-Silico Pathogenicity Consensus</span>
+                  </div>
+                  <p className="mt-1 font-bold text-sm">
+                    {verdictText}
+                  </p>
+                  <p className="mt-1 text-[10px] opacity-80">
+                    Calculated from available predictors: {concordance.available.join(", ") || "None"}.
+                    {concordance.unavailable.length > 0 && ` Unavailable tools: ${concordance.unavailable.join(", ")}.`}
+                  </p>
+                </div>
+              );
+            })()}
+
             <div className="overflow-x-auto border rounded-lg animate-fade-in" style={{ borderColor: "var(--cs-border)" }}>
               <table className="w-full text-[11px] font-sans border-collapse">
                 <thead>
@@ -524,7 +701,16 @@ export default function EvidenceDashboardCard({
                 <tbody>
                   {/* AlphaMissense Row */}
                   <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold" style={{ color: "var(--cs-text-primary)" }}>AlphaMissense (EBI)</td>
+                    <td className="p-2.5 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMetric("am")}
+                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                      >
+                        <span>AlphaMissense (EBI)</span>
+                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      </button>
+                    </td>
                     <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>AI deep learning structure score</td>
                     <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 1</td>
                     <td className="p-2.5 text-center font-mono font-bold">
@@ -550,7 +736,16 @@ export default function EvidenceDashboardCard({
 
                   {/* CADD Row */}
                   <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold" style={{ color: "var(--cs-text-primary)" }}>CADD PHRED</td>
+                    <td className="p-2.5 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMetric("cadd")}
+                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                      >
+                        <span>CADD PHRED</span>
+                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      </button>
+                    </td>
                     <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Genomic annotation integration</td>
                     <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 99</td>
                     <td className="p-2.5 text-center font-mono font-bold">
@@ -576,7 +771,16 @@ export default function EvidenceDashboardCard({
 
                   {/* REVEL Row */}
                   <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold" style={{ color: "var(--cs-text-primary)" }}>REVEL</td>
+                    <td className="p-2.5 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMetric("revel")}
+                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                      >
+                        <span>REVEL</span>
+                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      </button>
+                    </td>
                     <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Ensemble pathogenicity score</td>
                     <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 1</td>
                     <td className="p-2.5 text-center font-mono font-bold">
@@ -602,7 +806,16 @@ export default function EvidenceDashboardCard({
 
                   {/* EVE Row */}
                   <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold" style={{ color: "var(--cs-text-primary)" }}>EVE Model (Frazer 2021)</td>
+                    <td className="p-2.5 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMetric("eve")}
+                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                      >
+                        <span>EVE Model (Frazer 2021)</span>
+                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      </button>
+                    </td>
                     <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Evolutionary model of variant effect</td>
                     <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 1</td>
                     <td className="p-2.5 text-center font-mono font-bold">
@@ -628,8 +841,17 @@ export default function EvidenceDashboardCard({
 
                   {/* ESM2 Row */}
                   <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
-                    <td className="p-2.5 font-bold" style={{ color: "var(--cs-text-primary)" }}>ESMv2 Zero-Shot (Meta)</td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Transformer language model LLR</td>
+                    <td className="p-2.5 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMetric("esm2")}
+                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                      >
+                        <span>VESM Co-distilled (SOTA)</span>
+                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      </button>
+                    </td>
+                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Co-distilled language model LLR</td>
                     <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>−20 to +5</td>
                     <td className="p-2.5 text-center font-mono font-bold">
                       {result.esm2 === undefined || result.esm2 === null || result.esm2.llr === null
@@ -642,7 +864,42 @@ export default function EvidenceDashboardCard({
                           Data unavailable (upstream)
                         </span>
                       ) : (() => {
-                        const badge = getESM2Badge(result.esm2.llr, result.esm2.verdict);
+                        const badge = getESM2Badge(result.esm2.llr);
+                        return (
+                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                  </tr>
+
+                  {/* BayesDel Row */}
+                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
+                    <td className="p-2.5 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMetric("bayesdel")}
+                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                      >
+                        <span>BayesDel (noAF)</span>
+                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      </button>
+                    </td>
+                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Meta-predictor of deleteriousness</td>
+                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>−1.0 to 1.0</td>
+                    <td className="p-2.5 text-center font-mono font-bold">
+                      {result.conservationData?.available === false || result.conservationData?.bayesdel === null || result.conservationData?.bayesdel === undefined
+                        ? "N/A"
+                        : result.conservationData.bayesdel.toFixed(3)}
+                    </td>
+                    <td className="p-2.5 text-center">
+                      {result.conservationData?.available === false || result.conservationData?.bayesdel === null || result.conservationData?.bayesdel === undefined ? (
+                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
+                          Data unavailable (upstream)
+                        </span>
+                      ) : (() => {
+                        const badge = getBayesdelBadge(result.conservationData.bayesdel);
                         return (
                           <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
                             {badge.label}
@@ -715,7 +972,7 @@ export default function EvidenceDashboardCard({
             {/* ConSurf Highlights */}
             <div className={`space-y-2 mt-4 pt-3 border-t transition-opacity ${!consurfVal ? "opacity-60" : ""}`} style={{ borderColor: "var(--cs-border-subtle)" }}>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Locally-Derived Conservation Index (GERP++/phyloP consensus):</span>
+                <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Real ConSurf Grade (ConSurf-DB):</span>
                 <span className={`text-xs px-2.5 py-1 rounded-lg font-bold border ${
                   result.conservationData?.available === false
                     ? "bg-slate-500/10 text-slate-400 border-slate-500/20"
@@ -747,7 +1004,7 @@ export default function EvidenceDashboardCard({
                       <div 
                         key={val} 
                         className={`h-full rounded-sm transition-all duration-300 ${colorClass} ${opacityVal}`}
-                        title={`Conservation Index ${val}`}
+                        title={`ConSurf Grade ${val}`}
                       />
                     );
                   })}
@@ -762,11 +1019,11 @@ export default function EvidenceDashboardCard({
               </div>
               {!consurfVal && result.conservationData?.available !== false && (
                 <div className="p-2 mt-2 rounded border text-[9px] leading-normal" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-                  ⚠️ **Consensus Index Unavailable**: Derived from normalized GERP++ (mammalian genomic constraint) and phyloP (vertebrate base-wise constraint). One of these scores is missing for this variant's genomic coordinate.
+                  ⚠️ **ConSurf Grade Unavailable**: No precalculated conservation grade is available for this resolved PDB structure and chain in ConSurf-DB.
                 </div>
               )}
               <p className="text-[8px] opacity-80 leading-normal mt-1.5 italic" style={{ color: "var(--cs-text-muted)" }}>
-                * Locally-derived conservation index calculated via GERP++ and phyloP normalization (not fetched from ConSurf DB).
+                * ConSurf Grade represents the true evolutionary conservation score fetched from ConSurf-DB (1=Variable, 9=Conserved).
               </p>
             </div>
           </div>
@@ -845,41 +1102,71 @@ export default function EvidenceDashboardCard({
 
             {/* Burial Status & Neighbor Density */}
             {result.disruptionPredictor && (
-              <div className="p-4 rounded-lg border grid grid-cols-1 sm:grid-cols-2 gap-4" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <div className="space-y-1">
-                  <span className="block text-[8px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Burial / Exposure Status</span>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${
-                      result.disruptionPredictor.burialStatus === "core"
-                        ? "bg-rose-500/15 text-rose-455 border border-rose-500/25"
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetric("contact_density")}
+                  className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[#C46849]/50 transition-all cursor-pointer focus:outline-none w-full"
+                  style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+                >
+                  <div className="w-full">
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="block text-[8px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Burial / Exposure Status</span>
+                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${
+                        result.disruptionPredictor.burialStatus === "core"
+                          ? "bg-rose-500/15 text-rose-455 border border-rose-500/25"
+                          : result.disruptionPredictor.burialStatus === "boundary"
+                          ? "bg-amber-500/15 text-amber-455 border border-amber-500/20"
+                          : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                      }`}>
+                        {result.disruptionPredictor.burialStatus ?? "Unknown"}
+                      </span>
+                      {result.disruptionPredictor.rsa !== undefined && result.disruptionPredictor.rsa !== null && (
+                        <span className="text-[10px] font-mono opacity-80" style={{ color: "var(--cs-text-secondary)" }}>
+                          RSA: {(result.disruptionPredictor.rsa * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] leading-normal mt-2" style={{ color: "var(--cs-text-secondary)" }}>
+                      {result.disruptionPredictor.burialStatus === "core"
+                        ? "Deeply buried core residue. High structural stability role; mutations highly likely to cause misfolding."
                         : result.disruptionPredictor.burialStatus === "boundary"
-                        ? "bg-amber-500/15 text-amber-455 border border-amber-500/20"
-                        : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                    }`}>
-                      {result.disruptionPredictor.burialStatus ?? "Unknown"}
-                    </span>
+                        ? "Boundary/intermediate exposure. Moderate tolerance to hydrophobic-to-polar shifts."
+                        : "Surface-exposed residue. High tolerance to substitution unless in active sites or binding interfaces."}
+                      {result.disruptionPredictor.sasa !== undefined && result.disruptionPredictor.sasa !== null && (
+                        <span className="block mt-1 text-[8.5px] italic text-slate-500 font-sans">
+                          SASA: {result.disruptionPredictor.sasa.toFixed(1)} Å² (Calculated locally via Shrake-Rupley algorithm)
+                        </span>
+                      )}
+                    </p>
                   </div>
-                  <p className="text-[10px] leading-normal" style={{ color: "var(--cs-text-secondary)" }}>
-                    {result.disruptionPredictor.burialStatus === "core"
-                      ? "Deeply buried core residue. High structural stability role; mutations highly likely to cause misfolding."
-                      : result.disruptionPredictor.burialStatus === "boundary"
-                      ? "Boundary/intermediate exposure. Moderate tolerance to hydrophobic-to-polar shifts."
-                      : "Surface-exposed residue. High tolerance to substitution unless in active sites or binding interfaces."}
-                  </p>
-                </div>
+                </button>
 
-                <div className="space-y-1">
-                  <span className="block text-[8px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Cα Contact Density</span>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className="text-lg font-black" style={{ color: "var(--cs-accent-clay)" }}>
-                      {result.disruptionPredictor.neighborCount ?? "N/A"}
-                    </span>
-                    <span className="text-[10px] font-medium" style={{ color: "var(--cs-text-muted)" }}>neighbors (&lt;10Å)</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetric("contact_density")}
+                  className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[#C46849]/50 transition-all cursor-pointer focus:outline-none w-full"
+                  style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+                >
+                  <div className="w-full">
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="block text-[8px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Cα Contact Density</span>
+                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-lg font-black" style={{ color: "var(--cs-accent-clay)" }}>
+                        {result.disruptionPredictor.neighborCount ?? "N/A"}
+                      </span>
+                      <span className="text-[10px] font-medium" style={{ color: "var(--cs-text-muted)" }}>neighbors (&lt;10Å)</span>
+                    </div>
+                    <p className="text-[10px] leading-normal mt-2" style={{ color: "var(--cs-text-secondary)" }}>
+                      Quantifies local packing density. Core is defined as &ge; 15 neighbors, boundary as 8-14, and surface as &lt; 8.
+                    </p>
                   </div>
-                  <p className="text-[10px] leading-normal" style={{ color: "var(--cs-text-secondary)" }}>
-                    Quantifies local packing density. Core is defined as &ge; 15 neighbors, boundary as 8-14, and surface as &lt; 8.
-                  </p>
-                </div>
+                </button>
               </div>
             )}
           </div>
@@ -1065,14 +1352,14 @@ export default function EvidenceDashboardCard({
                 </p>
               </div>
             )}
-            {energetics.dynamut2 === null && dynamut2Status === "unavailable" && (
+            {((energetics.dynamut2 === null && dynamut2Status === "unavailable") || (energetics.ddmut === null && ddmutStatus === "unavailable")) && (
               <div className="p-3 rounded-lg border flex flex-col gap-1" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
                 <div className="flex items-center gap-1.5 font-bold text-xs">
                   <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>ΔΔG Evidence Partial (DynaMut2 Unavailable)</span>
+                  <span>ΔΔG Evidence Partial (Asynchronous Services Offline)</span>
                 </div>
                 <p className="text-[10px] leading-relaxed">
-                  DynaMut2 calculation service is currently offline or failed. Displaying force-field based FoldX and sequence-based DDGun-Seq predictions only.
+                  One or more background biophysical services (DynaMut2 or DDMut) are currently offline or failed. Displaying all available predictions.
                 </p>
               </div>
             )}
@@ -1084,7 +1371,7 @@ export default function EvidenceDashboardCard({
                   <span>Biophysical Simulation In Progress</span>
                 </div>
                 <p className="text-xs leading-relaxed opacity-90">
-                  FoldX mutant minimization and DynaMut2 simulations are currently calculating in the background. Generating mutated structures and running atomic force fields. Please wait...
+                  FoldX mutant minimization, DynaMut2, and DDMut simulations are currently calculating in the background. Generating mutated structures and running atomic force fields. Please wait...
                 </p>
               </div>
             )}
@@ -1120,7 +1407,7 @@ export default function EvidenceDashboardCard({
                   <span>FoldX Modeling Unavailable</span>
                 </div>
                 <p className="text-xs leading-relaxed opacity-90">
-                  The local FoldX structural calculation engine is currently unavailable or failed in this environment. Displaying sequence-based (DDGun-Seq) and normal mode analysis (DynaMut2) fallback energetics only.
+                  The local FoldX structural calculation engine is currently unavailable or failed in this environment. Displaying sequence-based (DDGun-Seq) and structural-based (DynaMut2 / DDMut) fallback energetics only.
                 </p>
               </div>
             )}
@@ -1137,9 +1424,11 @@ export default function EvidenceDashboardCard({
                 </thead>
                 <tbody>
                   {[
-                    { name: "FoldX (Mean ± SD)", type: "Force Field Repacking (3 runs)", val: energetics.foldxMean },
-                    { name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2 },
-                    { name: "DDGun-Seq", type: "Sequence/Evolution Integration", val: energetics.ddgun }
+                    { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (3 runs)", val: energetics.foldxMean, invertSign: false },
+                    { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true },
+                    { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true },
+                    { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: true },
+                    { key: "ddgun", name: "DDGun-Seq", type: "Sequence/Evolution Integration", val: energetics.ddgun, invertSign: true }
                   ].map((item, idx) => {
                     let scoreText = "N/A";
                     let badge = { label: "N/A", category: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
@@ -1156,15 +1445,21 @@ export default function EvidenceDashboardCard({
                       } else {
                         scoreText = formatDdGValue(item.val, energyUnit);
                       }
-                      badge = getDdGBadge(item.val);
+                      // For structural methods (DynaMut2/DDMut/RaSP/DDGun): negative = destabilizing
+                      // For FoldX: positive = destabilizing
+                      const badgeVal = item.invertSign ? -item.val : item.val;
+                      badge = getDdGBadge(badgeVal);
                       if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70) {
                         badge = {
                           ...badge,
                           category: `${badge.category} (Speculative)`,
-                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold"
+                          style: "bg-amber-500/10 text-amber-450 border border-amber-500/20 font-semibold"
                         };
                       }
                     } else if (item.name === "DynaMut2" && dynamut2Status === "pending") {
+                      scoreText = "Calculating...";
+                      badge = { label: "Calculating", category: "Calculating", style: "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse font-bold" };
+                    } else if (item.name.includes("DDMut") && ddmutStatus === "pending") {
                       scoreText = "Calculating...";
                       badge = { label: "Calculating", category: "Calculating", style: "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse font-bold" };
                     } else {
@@ -1173,8 +1468,17 @@ export default function EvidenceDashboardCard({
                     }
 
                     return (
-                      <tr key={idx} className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: idx < 2 ? "1px solid var(--cs-border-subtle)" : "none" }}>
-                        <td className="p-2.5 font-bold">{item.name}</td>
+                      <tr key={idx} className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: idx < 4 ? "1px solid var(--cs-border-subtle)" : "none" }}>
+                        <td className="p-2.5 font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMetric(item.key)}
+                            className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
+                          >
+                            <span>{item.name}</span>
+                            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          </button>
+                        </td>
                         <td className="p-2.5" style={{ color: "var(--cs-text-secondary)" }}>{item.type}</td>
                         <td className="p-2.5 font-bold">{scoreText}</td>
                         <td className="p-2.5">
@@ -1192,18 +1496,32 @@ export default function EvidenceDashboardCard({
             {/* Extended Biophysical Details & Consensus Verdict */}
             {energetics.foldxMean !== null && (
               <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                {/* Clinical Safety Warning Banner: Destabilization ≠ Pathogenicity */}
+                <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-amber-500/5 text-amber-500/90" style={{ borderColor: "rgba(245, 158, 11, 0.15)" }}>
+                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block mb-0.5 font-sans">Clinical Guidance: Destabilization ≠ Pathogenicity</span>
+                    Thermodynamic destabilization (ΔΔG) measures misfolding risk but does not equal clinical pathogenicity. Gain-of-function (GOF) or neomorphic variants (e.g. <i>FGFR3</i> p.Gly380Arg) can cause severe disease while remaining structurally stable or neutral.
+                  </div>
+                </div>
                 {(() => {
                   const foldxMean = energetics.foldxMean ?? energetics.foldx;
-                  const ddgun = energetics.ddgun;
                   const dynamut2 = energetics.dynamut2;
+                  const ddmut = energetics.ddmut;
+                  const rasp = energetics.rasp;
+                  const ddgun = energetics.ddgun;
 
                   const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-                  const ddgunDestab = ddgun !== null && ddgun >= 1.0;
-                  const dynamutDestab = dynamut2 !== null && dynamut2 >= 1.0;
+                  const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
+                  const ddmutDestab = ddmut !== null && ddmut <= -1.0;
+                  const raspDestab = rasp !== null && rasp <= -1.0;
+                  const ddgunDestab = ddgun !== null && ddgun <= -1.0;
 
                   const votes = [
                     { name: "FoldX", destab: foldxDestab, val: foldxMean },
                     { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
+                    { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
+                    { name: "RaSP", destab: raspDestab, val: rasp },
                     { name: "DDGun-Seq", destab: ddgunDestab, val: ddgun }
                   ];
 
@@ -1213,12 +1531,16 @@ export default function EvidenceDashboardCard({
 
                   return (
                     <div className="flex flex-col gap-1.5 border-b pb-3" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
-                        {totalVotes === 3 
-                          ? "3-Method Majority Consensus Stability Verdict" 
-                          : totalVotes > 0 
-                            ? `${totalVotes}-Method Consensus Stability Verdict` 
-                            : "Consensus Stability Verdict"}:
+                       <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                        {totalVotes === 5
+                          ? "5-Method Consensus Stability Verdict"
+                          : totalVotes === 4
+                            ? "4-Method Consensus Stability Verdict"
+                            : totalVotes === 3
+                              ? "3-Method Consensus Stability Verdict" 
+                              : totalVotes > 0 
+                                ? `${totalVotes}-Method Consensus Stability Verdict` 
+                                : "Consensus Stability Verdict"}:
                       </span>
                     </div>
                   );
@@ -1227,16 +1549,22 @@ export default function EvidenceDashboardCard({
                 <div className="space-y-4 pl-5">
                   {(() => {
                     const foldxMean = energetics.foldxMean ?? energetics.foldx;
-                    const ddgun = energetics.ddgun;
                     const dynamut2 = energetics.dynamut2;
+                    const ddmut = energetics.ddmut;
+                    const rasp = energetics.rasp;
+                    const ddgun = energetics.ddgun;
 
                     const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-                    const ddgunDestab = ddgun !== null && ddgun >= 1.0;
-                    const dynamutDestab = dynamut2 !== null && dynamut2 >= 1.0;
+                    const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
+                    const ddmutDestab = ddmut !== null && ddmut <= -1.0;
+                    const raspDestab = rasp !== null && rasp <= -1.0;
+                    const ddgunDestab = ddgun !== null && ddgun <= -1.0;
 
                     const votes = [
                       { name: "FoldX", destab: foldxDestab, val: foldxMean },
                       { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
+                      { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
+                      { name: "RaSP", destab: raspDestab, val: rasp },
                       { name: "DDGun-Seq", destab: ddgunDestab, val: ddgun }
                     ];
 
@@ -1249,9 +1577,9 @@ export default function EvidenceDashboardCard({
                     let detailText = "All active methods agree on fold stability.";
 
                     if (positiveVotes >= 2) {
-                      label = "High-Risk Pathogenic (Consensus)";
+                      label = "High-Risk Destabilizing (Consensus)";
                       styleClass = "bg-rose-500/10 text-rose-455 border-rose-500/20 font-bold";
-                      detailText = `${positiveVotes}/${totalVotes} methods predict significant destabilization (ΔΔG ≥ 1.0 kcal/mol or FoldX ≥ 1.5).`;
+                      detailText = `${positiveVotes}/${totalVotes} methods predict significant destabilization (DynaMut2/DDMut/DDGun ≤ -1.0 kcal/mol or FoldX ≥ 1.5).`;
                     } else if (positiveVotes === 1) {
                       label = "Moderate-Risk Conflicting Support";
                       styleClass = "bg-amber-500/10 text-amber-450 border-amber-500/20 font-bold";
@@ -1289,8 +1617,16 @@ export default function EvidenceDashboardCard({
                 {/* Additional Biophysical Metrics Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[10.5px] pt-1">
                   {/* Local sidechain packing RMSD */}
-                  <div className="p-2.5 rounded-lg border flex flex-col justify-between font-mono" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                    <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Sidechain RMSD</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMetric("rmsd")}
+                    className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
+                    style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Sidechain RMSD</span>
+                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
+                    </div>
                     <strong className={`text-[12px] font-bold block mt-1 ${
                       energetics.localSidechainRmsd !== null && energetics.localSidechainRmsd > 1.5 
                         ? "text-rose-455" 
@@ -1302,11 +1638,19 @@ export default function EvidenceDashboardCard({
                         ? `${energetics.localSidechainRmsd.toFixed(2)} Å` 
                         : "N/A"}
                     </strong>
-                  </div>
+                  </button>
 
                   {/* VdW Clash warnings */}
-                  <div className="p-2.5 rounded-lg border flex flex-col justify-between font-mono" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                    <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">VdW Clash Delta</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMetric("vdw")}
+                    className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
+                    style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">VdW Clash Delta</span>
+                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
+                    </div>
                     <div className="flex items-center gap-1.5 mt-1">
                       <strong className={`text-[12px] font-bold ${
                         energetics.stericClashWarning ? "text-rose-455" : "text-emerald-450"
@@ -1319,16 +1663,71 @@ export default function EvidenceDashboardCard({
                         </span>
                       )}
                     </div>
-                  </div>
+                  </button>
 
                   {/* Electrostatic Interaction Delta */}
-                  <div className="p-2.5 rounded-lg border flex flex-col justify-between font-mono" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                    <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Electrostatic Delta</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMetric("electrostatics")}
+                    className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
+                    style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Electrostatic Delta</span>
+                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
+                    </div>
                     <strong className="text-[12px] font-bold block mt-1" style={{ color: "var(--cs-text-primary)" }}>
                       {energetics.electrostatics !== null ? `${energetics.electrostatics.toFixed(2)} ${settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol"}` : "N/A"}
                     </strong>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {structuralDiff && (
+              <div className="p-3.5 rounded-lg border space-y-3.5 animate-fade-in" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                <h5 className="font-bold text-xs uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-secondary)" }}>
+                  Kabsch-Aligned Structural Displacements
+                </h5>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Global RMSD</div>
+                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.rmsd.toFixed(4)} Å</div>
+                  </div>
+                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Local RMSD</div>
+                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
+                      {structuralDiff.localRmsd !== null ? `${structuralDiff.localRmsd.toFixed(4)} Å` : "N/A"}
+                    </div>
+                  </div>
+                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">WT Clashes</div>
+                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.clashes.wtClashCount}</div>
+                  </div>
+                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Clash Diff</div>
+                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
+                      <span className={structuralDiff.clashes.diff > 0 ? "text-rose-455" : "text-emerald-450"}>
+                        {structuralDiff.clashes.diff > 0 ? `+${structuralDiff.clashes.diff}` : structuralDiff.clashes.diff}
+                      </span>
+                    </div>
                   </div>
                 </div>
+                {structuralDiff.windowDisplacements && structuralDiff.windowDisplacements.length > 0 && (
+                  <div className="pt-2">
+                    <span className="block text-[9px] uppercase font-bold text-slate-500 tracking-wider mb-2 font-mono">Local Window Displacements</span>
+                    <div className="flex flex-wrap gap-1.5 font-mono text-[9px]">
+                      {structuralDiff.windowDisplacements.map((d, index) => (
+                        <div key={index} className="px-2 py-1 rounded border flex items-center gap-1" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                          <span style={{ color: "var(--cs-text-secondary)" }}>{d.resName}{d.resSeq}:</span>
+                          <span className={d.displacement > 0.5 ? "text-rose-455 font-bold" : "text-emerald-450"}>
+                            {d.displacement.toFixed(2)} Å
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             
@@ -1638,6 +2037,97 @@ export default function EvidenceDashboardCard({
             </div>
           </div>
         )}
+
+        {/* Metric Explanation Modal */}
+        {selectedMetric && (() => {
+          const detail = METRIC_EXPLANATIONS[selectedMetric];
+          if (!detail) return null;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+              <div 
+                className="w-full max-w-md rounded-2xl border shadow-2xl p-6 relative flex flex-col gap-4 animate-slide-in"
+                style={{ 
+                  background: isDark ? "#1C1A17" : "#FAF9F6", 
+                  borderColor: "var(--cs-border)",
+                  color: "var(--cs-text-primary)"
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-start justify-between">
+                  <div>
+                    <span className="text-[9px] uppercase font-mono font-bold tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>
+                      {detail.category}
+                    </span>
+                    <h3 className="text-base font-black tracking-tight mt-0.5 text-left">
+                      {detail.name}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMetric(null)}
+                    className="w-6 h-6 rounded-full flex items-center justify-center border hover:bg-[var(--cs-bg-subtle)] transition-colors text-slate-450 hover:text-slate-200 cursor-pointer text-lg font-bold"
+                    style={{ borderColor: "var(--cs-border-subtle)" }}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-3 text-xs leading-relaxed text-left">
+                  <div>
+                    <span className="block text-[9px] uppercase font-bold font-mono tracking-wider opacity-60 mb-1">
+                      Scientific Description
+                    </span>
+                    <p style={{ color: "var(--cs-text-secondary)" }}>
+                      {detail.description}
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] uppercase font-bold font-mono tracking-wider opacity-60 mb-1">
+                      Interpretation &amp; Thresholds
+                    </span>
+                    <p style={{ color: "var(--cs-text-secondary)" }}>
+                      {detail.interpretation}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                    <span className="block text-[9px] uppercase font-bold font-mono tracking-wider opacity-60 mb-1">
+                      Reference Paper
+                    </span>
+                    <a
+                      href={detail.paperUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 font-bold hover:underline"
+                      style={{ color: "var(--cs-accent-clay)" }}
+                    >
+                      <span>{detail.paperTitle}</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMetric(null)}
+                    className="px-4 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer hover:bg-[var(--cs-bg-subtle)]"
+                    style={{ 
+                      borderColor: "var(--cs-border-subtle)", 
+                      background: "var(--cs-surface-2)",
+                      color: "var(--cs-text-primary)" 
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

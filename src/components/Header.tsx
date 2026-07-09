@@ -52,7 +52,7 @@ export default function Header({
           title={isDark ? "Switch to light" : "Switch to dark"}
           className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
             isDark
-              ? "border-[#362B4A] text-[#7A6F90] hover:text-[#F0EBFA] hover:bg-[#2C2240]"
+              ? "border-[#3C3934] text-[#B2ABA0] hover:text-[#F9F8F6] hover:bg-[#322F2A]"
               : "border-[#DDD6ED] text-[#8E82A0] hover:text-[#1A1523] hover:bg-[#F2EEF9]"
           }`}
         >
@@ -66,7 +66,7 @@ export default function Header({
           title="Settings"
           className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
             isDark
-              ? "border-[#362B4A] text-[#7A6F90] hover:text-[#F0EBFA] hover:bg-[#2C2240]"
+              ? "border-[#3C3934] text-[#B2ABA0] hover:text-[#F9F8F6] hover:bg-[#322F2A]"
               : "border-[#DDD6ED] text-[#8E82A0] hover:text-[#1A1523] hover:bg-[#F2EEF9]"
           }`}
         >

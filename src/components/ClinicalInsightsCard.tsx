@@ -275,67 +275,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                   </div>
                 </div>
 
-                {/* Local Microenvironment (5 Nearest Neighboring Residues) */}
-                {(() => {
-                  const presetResidues = getNearestResidues(uniprotId, variant, selectedResidueIndex);
-                  const cacheKey = `${uniprotId}_${selectedResidueIndex}`;
-                  const computedResidues = computedResiduesCache?.[cacheKey] || [];
-                  const nearestResidues = presetResidues.length > 0 ? presetResidues : computedResidues;
 
-                  return (
-                    <div className={`pt-3 border-t ${classBorderSec}`}>
-                      <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--cs-accent-clay)" }}>
-                        <Atom className="w-3.5 h-3.5" />
-                        <span>Local Microenvironment (5 Nearest Residues)</span>
-                      </div>
-                      <p className={`text-[10px] leading-relaxed mb-2 pl-5 ${isDark ? "text-slate-455" : "text-slate-555"}`}>
-                        These 3D spatial neighbors mediate local stability, folding dynamics, salt bridges, or ligand interactions. Disruption of these proximal interactions directly supports the structural pathogenic evidence scale.
-                      </p>
-                      {nearestResidues.length > 0 ? (
-                        <div className="space-y-2 pl-5">
-                          {nearestResidues.map((res, index) => (
-                            <div 
-                              key={index} 
-                              className="rounded-lg p-2.5 transition-all border shadow-sm"
-                              style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
-                            >
-                              <div className="flex items-center gap-2 flex-wrap mb-1">
-                                <span className="font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border transition-colors"
-                                  style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)", color: "var(--cs-text-primary)" }}>
-                                  {res.name}
-                                </span>
-                                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border"
-                                  style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-accent-clay)" }}>
-                                  {res.distance}
-                                </span>
-                                <span className={`text-[9px] font-medium px-2 py-0.5 rounded-full border ${res.classBadge}`}>
-                                  {res.properties}
-                                </span>
-                                {res.source === "curated" && (
-                                  <span className="text-[8px] font-mono uppercase bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 rounded">
-                                    curated annotation
-                                  </span>
-                                )}
-                                {res.source === "computed" && (
-                                  <span className="text-[8px] font-mono uppercase bg-emerald-500/10 text-emerald-455 border border-emerald-500/20 px-1 rounded">
-                                    computed from coordinates
-                                  </span>
-                                )}
-                              </div>
-                              <p className={`text-[11px] leading-relaxed transition-colors ${classTextMute}`}>
-                                {res.role}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className={`pl-5 text-[11px] font-mono italic ${classTextMute}`}>
-                          Structural neighbors computed on live 3D analysis
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
 
                 {/* ACMG Criteria Badge list */}
                 {/* Plausibility Statements and ACMG Evidence Suggester */}
@@ -417,73 +357,125 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                       </div>
 
                       {/* Unified Suggested Criteria list */}
-                      <div className="flex flex-col gap-2 pt-1">
-                        <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 mb-1">
-                          Unified Suggested Criteria Codes
-                        </span>
-                        {(() => {
-                          const mergedList = analysisState.result.insights?.acmgCriteria || 
-                            analysisState.result.ruleBasedInsights?.acmgCriteria?.map(c => ({ ...c, source: "database_verified" as const })) || [];
+                      {(() => {
+                        const mergedList = analysisState.result.insights?.acmgCriteria || 
+                          analysisState.result.ruleBasedInsights?.acmgCriteria?.map(c => ({ ...c, source: "database_verified" as const })) || [];
 
-                          return (
-                            <div className="space-y-2">
-                              {mergedList.map((item, idx) => {
-                                const isDbVerified = item.source === "database_verified";
-                                
-                                const containerStyle = isDbVerified
-                                  ? "rgba(196,104,73,0.04)"
-                                  : "rgba(217,70,170,0.04)";
+                        const dbVerified = mergedList.filter(item => item.source === "database_verified");
+                        const aiSuggested = mergedList.filter(item => item.source === "ai_suggested");
 
-                                const borderStyle = isDbVerified
-                                  ? "rgba(196,104,73,0.15)"
-                                  : "rgba(217,70,170,0.15)";
+                        return (
+                          <div className="space-y-4">
+                            {/* 1. Database Verified Section */}
+                            <div className="flex flex-col gap-2 pt-1">
+                              <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 mb-1">
+                                Database-Verified Criteria Codes (Rule Engine)
+                              </span>
+                              {dbVerified.length > 0 ? (
+                                <div className="space-y-2">
+                                  {dbVerified.map((item, idx) => {
+                                    const containerStyle = "rgba(196,104,73,0.04)";
+                                    const borderStyle = "rgba(196,104,73,0.15)";
+                                    const badgeBg = "var(--cs-accent-clay)";
+                                    const textStyle = "var(--cs-text-primary)";
+                                    const sourceBadge = "bg-amber-500/10 text-amber-500 border border-amber-500/20";
 
-                                const badgeBg = isDbVerified ? "var(--cs-accent-clay)" : "var(--cs-accent-mag)";
-                                
-                                const textStyle = isDbVerified
-                                  ? "var(--cs-text-primary)"
-                                  : "var(--cs-text-primary)";
-
-                                const sourceBadge = isDbVerified
-                                  ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-                                  : "bg-rose-500/10 text-rose-500 border border-rose-500/20";
-
-                                return (
-                                  <div 
-                                    key={idx} 
-                                    className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
-                                    style={{ background: containerStyle, borderColor: borderStyle }}
-                                  >
-                                    <div className="flex items-center justify-between gap-2 w-full">
-                                      <div className="flex items-center gap-2">
-                                        <span className="font-mono font-bold text-[9px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0" style={{ background: badgeBg }}>
-                                          {item.code}
-                                        </span>
-                                        <span className="text-[9px] font-mono font-bold uppercase tracking-wider" style={{ color: textStyle }}>
-                                          Suggested Criteria Evidence
-                                        </span>
+                                    return (
+                                      <div 
+                                        key={`db-${idx}`} 
+                                        className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
+                                        style={{ background: containerStyle, borderColor: borderStyle }}
+                                      >
+                                        <div className="flex items-center justify-between gap-2 w-full">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono font-bold text-[9px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0" style={{ background: badgeBg }}>
+                                              {item.code}
+                                            </span>
+                                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider" style={{ color: textStyle }}>
+                                              Suggested Criteria Evidence
+                                            </span>
+                                          </div>
+                                          <span className={`text-[7px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${sourceBadge}`}>
+                                            Database-Verified
+                                          </span>
+                                        </div>
+                                        <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                                          {item.reason}
+                                        </p>
                                       </div>
-                                      <span className={`text-[7px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${sourceBadge}`}>
-                                        {isDbVerified ? "Database-Verified" : "AI-Suggested"}
-                                      </span>
-                                    </div>
-                                    <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                                      {item.reason}
-                                    </p>
-                                  </div>
-                                );
-                              })}
-
-                              {isClinicalLoading && (
-                                <div className="flex items-center gap-2 font-bold font-mono text-[9px] uppercase tracking-wider py-2 pt-1" style={{ color: "var(--cs-accent-clay)" }}>
-                                  <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-                                  <span className="animate-pulse">Computing AI-suggested ACMG criteria...</span>
+                                    );
+                                  })}
                                 </div>
+                              ) : (
+                                <span className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
+                                  No database-verified criteria met.
+                                </span>
                               )}
                             </div>
-                          );
-                        })()}
-                      </div>
+
+                            {/* 2. AI Suggested Section */}
+                            {(aiSuggested.length > 0 || isClinicalLoading) && (
+                              <div className="flex flex-col gap-2 pt-1">
+                                <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 mb-1">
+                                  AI-Suggested ACMG Criteria (Gemini Pathfinder Model)
+                                </span>
+                                
+                                {aiSuggested.length > 0 && (
+                                  <>
+                                    <div className="p-2.5 rounded-lg border flex items-start gap-2 text-[10px] leading-relaxed bg-amber-500/5 border-amber-500/15 text-amber-600 dark:text-amber-450">
+                                      <span className="font-bold">⚠️ Clinical Safety Warning:</span>
+                                      <span>
+                                        AI-Suggested criteria are generated by a Large Language Model (Gemini) and have not been computationally verified against clinical databases. Justifications must be manually audited and approved by a clinical geneticist before use.
+                                      </span>
+                                    </div>
+                                    <div className="space-y-2">
+                                      {aiSuggested.map((item, idx) => {
+                                        const containerStyle = "rgba(217,70,170,0.04)";
+                                        const borderStyle = "rgba(217,70,170,0.15)";
+                                        const badgeBg = "var(--cs-accent-mag)";
+                                        const textStyle = "var(--cs-text-primary)";
+                                        const sourceBadge = "bg-rose-500/10 text-rose-500 border border-rose-500/20";
+
+                                        return (
+                                          <div 
+                                            key={`ai-${idx}`} 
+                                            className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
+                                            style={{ background: containerStyle, borderColor: borderStyle }}
+                                          >
+                                            <div className="flex items-center justify-between gap-2 w-full">
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-mono font-bold text-[9px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0" style={{ background: badgeBg }}>
+                                                  {item.code}
+                                                </span>
+                                                <span className="text-[9px] font-mono font-bold uppercase tracking-wider" style={{ color: textStyle }}>
+                                                  Suggested Criteria Evidence
+                                                </span>
+                                              </div>
+                                              <span className={`text-[7px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${sourceBadge}`}>
+                                                AI-Suggested
+                                              </span>
+                                            </div>
+                                            <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                                              {item.reason}
+                                            </p>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                )}
+
+                                {isClinicalLoading && (
+                                  <div className="flex items-center gap-2 font-bold font-mono text-[9px] uppercase tracking-wider py-2 pt-1" style={{ color: "var(--cs-accent-clay)" }}>
+                                    <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
+                                    <span className="animate-pulse">Computing AI-suggested ACMG criteria...</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}

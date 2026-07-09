@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings, ChevronDown, ChevronUp, Atom } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
+import { AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
 import { NearestResidue } from "../types";
 import { getNearestResidues } from "../data";
 
@@ -430,7 +431,9 @@ export default function SequenceVisualizer({
     const interfaceSite = localFeatures.find((f: any) => f.type.toLowerCase().includes("region") || f.type.toLowerCase().includes("site") || f.type.toLowerCase().includes("dimer") || f.type.toLowerCase().includes("interface"));
 
     if (isTarget) {
-      return `Queried mutation site: Swapping wild-type ${mutation.wt} (${wtProp}) with mutant ${mutation.mut} changes the local microenvironment, potentially disrupting critical tertiary packing or pocket contacts.`;
+      const wt3 = AMINO_ACID_1_TO_3_TITLE[mutation.wt] || mutation.wt;
+      const mut3 = AMINO_ACID_1_TO_3_TITLE[mutation.mut] || mutation.mut;
+      return `Queried mutation site: Swapping wild-type ${wt3} (${wtProp}) with mutant ${mut3} changes the local microenvironment, potentially disrupting critical tertiary packing or pocket contacts.`;
     }
     if (activeSite) {
       return `Curated Site: Mutating this residue is highly likely to disrupt functional catalysis or ligand docking (annotated as ${activeSite.type}: ${activeSite.description}).`;
@@ -1153,7 +1156,7 @@ export default function SequenceVisualizer({
                             </span>
                             {activeResOpt.pos === mutationIndex ? (
                               <span className="text-[8px] font-mono uppercase bg-rose-500/15 text-rose-400 border border-rose-500/20 px-1 rounded font-bold">
-                                Target Mutation Site ({mutation.wt} → {mutation.mut})
+                                Target Mutation Site ({AMINO_ACID_1_TO_3_TITLE[mutation.wt] || mutation.wt} → {AMINO_ACID_1_TO_3_TITLE[mutation.mut] || mutation.mut})
                               </span>
                             ) : (
                               <span className="text-[8px] font-mono uppercase bg-slate-500/10 text-slate-400 border border-slate-500/10 px-1 rounded">
@@ -1258,7 +1261,12 @@ export default function SequenceVisualizer({
                                   >
                                     <div className="flex flex-col gap-1 min-w-[150px] flex-1">
                                       <div className="flex items-center gap-2">
-                                        <span className="font-bold text-xs tracking-wide">{g.name}</span>
+                                        <span className="font-bold text-xs tracking-wide">
+                                          {g.name.replace(/\(([^)]+)\)/, (match, p1) => {
+                                            const titleCodes = p1.split(",").map((s: string) => AMINO_ACID_1_TO_3_TITLE[s.trim()] || s.trim());
+                                            return `(${titleCodes.join(", ")})`;
+                                          })}
+                                        </span>
                                         <span className={`font-mono text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${
                                           g.severity === "high" ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
                                           g.severity === "medium" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
