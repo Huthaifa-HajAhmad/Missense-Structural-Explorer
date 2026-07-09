@@ -5,7 +5,7 @@
  * rules (five-tier classification) with the following corrections applied:
  *
  *  ACMG-2  : Richards 2015 five-tier combinatorial classifier
- *  ACMG-3  : ClinVar evidence mapped to PP5 / BP6 (not PS1 / BS2)
+ *  ACMG-3  : ClinVar evidence mapped to PS1 / BS2 (replacing retired PP5 / BP6)
  *  ACMG-5  : Predictor concordance voting (n-of-3) for PP3 / BP4
  *  ACMG-AM : amClass matched with .includes() → catches "likely_pathogenic"
  *  THRESH  : All cutpoints imported from thresholds.ts (single source of truth)
@@ -17,7 +17,7 @@ import {
   THRESHOLDS,
   countPredictorConcordance,
   PredictorConcordance,
-} from "./thresholds.ts";
+} from "../../src/shared/thresholds.ts";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -94,6 +94,7 @@ const WEIGHT = {
 type WeightKey = keyof typeof WEIGHT;
 
 function codeWeight(code: string): number {
+  if (code === "BS1_Supp")       return WEIGHT.BP;
   if (code === "PVS1")           return WEIGHT.PVS1;
   if (code.startsWith("PS"))     return WEIGHT.PS;
   if (code.startsWith("PM"))     return WEIGHT.PM;
@@ -116,8 +117,8 @@ function classifyVariant(criteria: ACMGItem[]): string {
   const nPS  = pathogenic.filter(c => c.code.startsWith("PS")).length;
   const nPM  = pathogenic.filter(c => c.code.startsWith("PM")).length;
   const nPP  = pathogenic.filter(c => c.code.startsWith("PP")).length;
-  const nBS  = benign.filter(c => c.code.startsWith("BS")).length;
-  const nBP  = benign.filter(c => c.code.startsWith("BP")).length;
+  const nBS  = benign.filter(c => c.code.startsWith("BS") && c.code !== "BS1_Supp").length;
+  const nBP  = benign.filter(c => c.code.startsWith("BP") || c.code === "BS1_Supp").length;
 
   // ---- Pathogenic ----
   const isPathogenic =
@@ -172,12 +173,15 @@ export function computeRuleBasedACMG(
   /** Optional: live gnomAD variant frequency from fetchGnomadVariantFrequency() */
   gnomadFrequency?: {
     maxAF: number | null;
+    groupMaxAF: number | null;
     genomeAF: number | null;
     exomeAF: number | null;
     nHomozygous: number | null;
     dataset: string;
   } | null,
-  acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard"
+  acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard",
+  esm2?: { llr: number | null; verdict: string } | null,
+  uniprotFeatures?: any | null
 ): RuleBasedInsights {
   const criteria: ACMGItem[] = [];
 
@@ -189,6 +193,22 @@ export function computeRuleBasedACMG(
   const skipBenignComp = acmgWeighting === "strict-structural" || (acmgWeighting === "conservative" && !isClinVarBenign);
 
   // -------------------------------------------------------------------------
+  // ACMG-3: Map ClinVar database status directly to standard ACMG codes (PS1/BS2)
+  // -------------------------------------------------------------------------
+  if (isClinVarPathogenic && !skipPathogenicComp) {
+    criteria.push({
+      code: "PS1",
+      reason: `Identical amino acid change established as pathogenic in ClinVar database (classification: ${clinvar.classification}).`
+    });
+  }
+  if (isClinVarBenign && !skipBenignComp) {
+    criteria.push({
+      code: "BS2",
+      reason: `Identical amino acid change established as benign/likely benign in ClinVar database (classification: ${clinvar.classification}).`
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // 1. PP3 / BP4  — In-silico predictor concordance (ACMG-5 fix)
   // -------------------------------------------------------------------------
   const concordance: PredictorConcordance = countPredictorConcordance(
@@ -197,7 +217,9 @@ export function computeRuleBasedACMG(
     predictorData?.amPathogenicity,
     predictorData?.amClass,
     predictorData?.eveScore,
-    predictorData?.eveClass
+    predictorData?.eveClass,
+    conservationData?.bayesdel,
+    esm2?.llr
   );
 
   const { nPathogenic, nBenign, available, unavailable, signals } = concordance;
@@ -207,7 +229,9 @@ export function computeRuleBasedACMG(
     `CADD: ${predictorData?.caddPhred ?? "N/A"}, ` +
     `REVEL: ${conservationData?.revel ?? "N/A"}, ` +
     `AlphaMissense: ${predictorData?.amClass ?? "N/A"}, ` +
-    `EVE: ${predictorData?.eveClass || (predictorData?.eveScore !== null && predictorData?.eveScore !== undefined ? predictorData.eveScore.toFixed(3) : "N/A")}` +
+    `EVE: ${predictorData?.eveClass || (predictorData?.eveScore !== null && predictorData?.eveScore !== undefined ? predictorData.eveScore.toFixed(3) : "N/A")}, ` +
+    `BayesDel: ${conservationData?.bayesdel ?? "N/A"}, ` +
+    `VESM LLR: ${esm2?.llr !== undefined && esm2?.llr !== null ? esm2.llr.toFixed(2) : "N/A"}` +
     (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "");
 
   if (nPathogenic > nBenign && !skipPathogenicComp) {
@@ -246,7 +270,10 @@ export function computeRuleBasedACMG(
   let maxFreq = 0;
   let hasFreq = false;
 
-  if (gnomadFrequency && gnomadFrequency.maxAF !== null) {
+  if (gnomadFrequency && gnomadFrequency.groupMaxAF !== null) {
+    maxFreq = gnomadFrequency.groupMaxAF;
+    hasFreq = true;
+  } else if (gnomadFrequency && gnomadFrequency.maxAF !== null) {
     maxFreq = gnomadFrequency.maxAF;
     hasFreq = true;
   } else if (clinvar?.alleleFrequencies && Array.isArray(clinvar.alleleFrequencies)) {
@@ -272,20 +299,34 @@ export function computeRuleBasedACMG(
         code: "BS1",
         reason: `Allele frequency significantly higher than expected for disorder (${(maxFreq * 100).toFixed(3)}% > 1.0%).`,
       });
-    } else if (maxFreq > 0.0001 && maxFreq <= 0.01) {
-      // ACMG-7: Fill the 0.01% – 1% gap with BS1_Supporting
-      if (!skipBenignComp) {
-        criteria.push({
-          code: "BS1_Supp",
-          reason: `Allele frequency intermediate: ${(maxFreq * 100).toFixed(4)}% (0.01%–1.0%). Weak evidence against pathogenicity.`,
-        });
+    } else {
+      // PM2 inheritance-mode awareness (dominant: < 0.01%, recessive: < 0.1%)
+      let pm2Threshold = 0.0001; // Default 0.01%
+      let inheritanceModeText = "dominant/unknown";
+      if (gnomadConstraint?.pli !== null && gnomadConstraint?.pli !== undefined) {
+        if (gnomadConstraint.pli < 0.9) {
+          pm2Threshold = 0.001; // 0.1% for recessive
+          inheritanceModeText = "likely recessive (pLI < 0.9)";
+        } else {
+          inheritanceModeText = "likely dominant (pLI ≥ 0.9)";
+        }
       }
-    } else if (maxFreq <= 0.0001) {
-      if (!skipPathogenicComp) {
-        criteria.push({
-          code: "PM2",
-          reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% < 0.01%).`,
-        });
+
+      if (maxFreq > pm2Threshold && maxFreq <= 0.01) {
+        // ACMG-7: Fill the gap above PM2 threshold and below 1% with BS1_Supporting
+        if (!skipBenignComp) {
+          criteria.push({
+            code: "BS1_Supp",
+            reason: `Allele frequency intermediate: ${(maxFreq * 100).toFixed(4)}% (${(pm2Threshold * 100).toFixed(2)}%–1.0%). Weak evidence against pathogenicity (non-standard ACMG extension).`,
+          });
+        }
+      } else if (maxFreq <= pm2Threshold) {
+        if (!skipPathogenicComp) {
+          criteria.push({
+            code: "PM2",
+            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% threshold for ${inheritanceModeText} inheritance).`,
+          });
+        }
       }
     }
   } else {
@@ -294,6 +335,26 @@ export function computeRuleBasedACMG(
         code: "PM2",
         reason: "Variant absent or extremely rare in population databases.",
       });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // PM1 — Mutational hotspot and/or critical and well-established functional domain
+  // -------------------------------------------------------------------------
+  if (uniprotFeatures?.features && !skipPathogenicComp) {
+    const pos = parseInt(variant.replace(/\D/g, ""), 10);
+    if (!isNaN(pos)) {
+      const criticalFeature = uniprotFeatures.features.find((f: any) => {
+        const matchesType = ["Active site", "Binding site", "Metal binding", "Disulfide bond"].includes(f.type);
+        return matchesType && pos >= f.start && pos <= f.end;
+      });
+
+      if (criticalFeature) {
+        criteria.push({
+          code: "PM1",
+          reason: `Variant resides within a critical functional domain/hotspot: ${criticalFeature.type} (${criticalFeature.description || "curated site"}) spanning residues ${criticalFeature.start}–${criticalFeature.end}.`
+        });
+      }
     }
   }
 
@@ -320,7 +381,6 @@ export function computeRuleBasedACMG(
     // Hardcoded fallback — used only when gnomAD constraint data is unavailable
     const missenseConstrainedGenes = [
       "PAH", "FGFR3", "GBA1", "G6PD", "LDLR",
-      "BRCA1", "BRCA2", "TP53", "PTEN", "ATM",
     ];
     if (missenseConstrainedGenes.includes(gene.toUpperCase())) {
       criteria.push({
@@ -328,27 +388,6 @@ export function computeRuleBasedACMG(
         reason: `Missense variant in gene ${gene} which has a low rate of benign missense variants and is established as a missense-disease mechanism gene. (Fallback: live gnomAD constraint data unavailable.)`,
       });
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // 4. PP5 / BP6 — Reputable source evidence (ACMG-3 fix: was PS1 / BS2)
-  //
-  //    RATIONALE: PS1 = "same amino acid change as established pathogenic" which
-  //    requires evidence the *specific* AA change is pathogenic. When ClinVar
-  //    records the SAME variant as pathogenic, PP5 (reputable source) is
-  //    appropriate. PS1 should only be assigned when a *different* nucleotide
-  //    change causes the same amino acid change. BP6 replaces BS2 equivalently.
-  // -------------------------------------------------------------------------
-  if (clinvarClass.includes("pathogenic")) {
-    criteria.push({
-      code: "PP5",
-      reason: `Reputable source (ClinVar UID: ${clinvar.uid || "N/A"}) records this variant as pathogenic/likely pathogenic.`,
-    });
-  } else if (clinvarClass.includes("benign")) {
-    criteria.push({
-      code: "BP6",
-      reason: `Reputable source (ClinVar UID: ${clinvar.uid || "N/A"}) records this variant as benign/likely benign.`,
-    });
   }
 
   // -------------------------------------------------------------------------

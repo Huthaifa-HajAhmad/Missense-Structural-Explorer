@@ -26,3 +26,10 @@ Desktop.ini
 /server.js
 .vite/
 
+# Python bytecode and checkpoints
+__pycache__/
+*.pyc
+*.pth
+*.pt
+tools/vesm/
+
