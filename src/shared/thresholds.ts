@@ -4,21 +4,9 @@
  * This is the SINGLE SOURCE OF TRUTH for cut-points used by:
  *   - acmg.ts  (rule engine)
  *   - routes.ts (consensus logic)
- *   - EvidenceDashboardCard.tsx (via the mirrored src/thresholds.ts)
+ *   - EvidenceDashboardCard.tsx
  *
  * DO NOT hard-code predictor thresholds anywhere else.
- *
- * References
- * ----------
- * REVEL   : Ioannidis et al. 2016; ClinGen calibration Richards 2015 §6.
- * CADD    : Kircher et al. 2014; ACMG/AMP SVI working group 2018.
- * AM      : Cheng et al. 2023 (AlphaMissense); Pejaver et al. 2022 ClinGen calibration.
- *           NOTE: ClinGen-calibrated thresholds for AM are 0.983 (pathogenic) / 0.063 (benign).
- *           The values below are operationally conservative pending per-gene calibration.
- *           Label them clearly as UNCALIBRATED until a gene-specific calibration is applied.
- * FoldX   : Schymkowitz et al. 2005; ΔΔG > 1.5 kcal/mol: Guerois et al. 2002.
- * GERP++  : Cooper et al. 2010.
- * phyloP  : Pollard et al. 2010.
  */
 
 export const THRESHOLDS = {
@@ -44,14 +32,13 @@ export const THRESHOLDS = {
 
   alphaMissense: {
     /**
-     * Operational thresholds — NOT ClinGen-calibrated.
-     * ClinGen published values (Pejaver 2022): path ~0.983, benign ~0.063.
-     * These are conservative operational proxies until gene-specific calibration.
+     * ClinGen-calibrated thresholds (Pejaver et al. 2022).
+     * Pathogenic: ≥ 0.983, Benign: ≤ 0.063.
      */
-    pathogenicStrong: 0.90,   // surrogate for "pathogenic" class
-    pathogenicSupporting: 0.70, // surrogate for "likely_pathogenic" class
-    benign: 0.30,
-    benignStrong: 0.10,
+    pathogenicStrong: 0.983,
+    pathogenicSupporting: 0.983,
+    benign: 0.063,
+    benignStrong: 0.063,
     /** Class string matching — use .toLowerCase().includes() */
     pathogenicClass: "pathogenic",  // matches "pathogenic" and "likely_pathogenic"
     benignClass: "benign",          // matches "benign" and "likely_benign"
@@ -93,6 +80,26 @@ export const THRESHOLDS = {
     /** FoldX VdW energy delta > 2.0 kcal/mol → steric clash */
     significantClash: 2.0,
   },
+  dynamut2: {
+    /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
+    destabilizing: -1.0,
+  },
+  ddmut: {
+    /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
+    destabilizing: -1.0,
+  },
+  ddgun: {
+    /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
+    destabilizing: -1.0,
+  },
+  bayesdel: {
+    pathogenic: 0.133,
+    benign: -0.0404,
+  },
+  esm: {
+    pathogenic: -5.0,
+    benign: -2.0,
+  },
 } as const;
 
 /**
@@ -107,8 +114,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "CADD (Kircher 2014). PP3 strong PHRED ≥ 25, supporting ≥ 20; BP4 ≤ 10. " +
     "Source: ACMG/AMP SVI Working Group (2018).",
   alphaMissense:
-    "AlphaMissense (Cheng 2023). Operational thresholds — NOT ClinGen-calibrated. " +
-    "ClinGen values: path ≈ 0.983, benign ≈ 0.063 (Pejaver 2022). " +
+    "AlphaMissense (Cheng 2023). ClinGen-calibrated thresholds (Pejaver 2022): path ≥ 0.983, benign ≤ 0.063. " +
     "Class matching: includes('pathogenic') / includes('benign').",
   eve:
     "EVE (Evolutionary Model of Variant Effect, Frazer 2021). " +
@@ -121,12 +127,18 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "GERP++ RS ≥ 2.0 → conserved position (Cooper 2010).",
   phylop:
     "phyloP 100-way vertebrate ≥ 1.5 → conserved (Pollard 2010).",
+  dynamut2:
+    "DynaMut2 (Rodrigues 2021). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
+  ddmut:
+    "DDMut (BioSig 2022). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
+  ddgun:
+    "DDGun-Seq (Montanucci 2019/2022). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
+  bayesdel:
+    "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
+  esm:
+    "VESM Co-distilled LLR (SOTA, ntranoslab 2026). PP3 supporting LLR ≤ -5.0, BP4 supporting LLR ≥ -2.0.",
 };
 
-/**
- * Evaluate a single predictor's signal against canonical thresholds.
- * Returns "pathogenic" | "benign" | "vus" | "unavailable".
- */
 export type PredictorSignal = "pathogenic" | "benign" | "vus" | "unavailable";
 
 export function evaluateRevel(score: number | null | undefined): PredictorSignal {
@@ -183,10 +195,20 @@ export function evaluateEve(
   return "vus";
 }
 
-/**
- * Count concordant predictor signals given the standard inputs.
- * Returns counts and named availability for partial-evidence disclosure.
- */
+export function evaluateBayesdel(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score >= THRESHOLDS.bayesdel.pathogenic) return "pathogenic";
+  if (score <= THRESHOLDS.bayesdel.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateEsm(llr: number | null | undefined): PredictorSignal {
+  if (llr === null || llr === undefined) return "unavailable";
+  if (llr <= THRESHOLDS.esm.pathogenic) return "pathogenic";
+  if (llr >= THRESHOLDS.esm.benign) return "benign";
+  return "vus";
+}
+
 export interface PredictorConcordance {
   nPathogenic: number;
   nBenign:     number;
@@ -198,6 +220,8 @@ export interface PredictorConcordance {
     revel: PredictorSignal;
     am:    PredictorSignal;
     eve:   PredictorSignal;
+    bayesdel: PredictorSignal;
+    esm:   PredictorSignal;
   };
 }
 
@@ -207,13 +231,17 @@ export function countPredictorConcordance(
   amScore:   number | null | undefined,
   amClass:   string | null | undefined,
   eveScore?:  number | null | undefined,
-  eveClass?:  string | null | undefined
+  eveClass?:  string | null | undefined,
+  bayesdel?:  number | null | undefined,
+  esmLlr?:    number | null | undefined
 ): PredictorConcordance {
   const signals = {
     cadd:  evaluateCadd(caddPhred),
     revel: evaluateRevel(revel),
     am:    evaluateAlphaMissense(amScore, amClass),
     eve:   evaluateEve(eveScore, eveClass),
+    bayesdel: evaluateBayesdel(bayesdel),
+    esm:   evaluateEsm(esmLlr),
   };
 
   const available: string[]   = [];

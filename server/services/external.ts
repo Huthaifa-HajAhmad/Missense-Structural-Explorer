@@ -168,6 +168,8 @@ const vepResponseSchema = z.array(z.object({
   start: z.number().optional(),
   allele_string: z.string().optional(),
   transcript_consequences: z.array(z.object({
+    canonical: z.union([z.number(), z.boolean()]).optional(),
+    mane_select: z.string().optional(),
     alphamissense: z.object({
       am_pathogenicity: z.any().optional(),
       am_class: z.string().optional()
@@ -184,7 +186,9 @@ const myVariantResponseSchema = z.object({
       revel: z.any().optional(),
       gerp: z.any().optional(),
       "gerp++": z.any().optional(),
-      phylop: z.any().optional()
+      phylop: z.any().optional(),
+      bayesdel_noaf_score: z.any().optional(),
+      bayesdel: z.any().optional()
     }).optional()
   })).optional()
 });
@@ -567,21 +571,20 @@ export interface PredictorData {
   eveScore?: number | null;
   eveClass?: string | null;
 }
-
 export interface ConservationData {
   available: boolean;
   revel: number | null;
   gerp: number | null;
   phylop: number | null;
   consurf: number | null;
-  consurfEstimated?: number | null;
-  derived?: boolean;
+  bayesdel?: number | null;
 }
 
 export interface StringInteraction {
   partner: string;
   score: number;
 }
+
 
 export async function fetchPredictorData(gene: string, variant: string): Promise<PredictorData> {
   const cacheKey = `${gene}_${variant}`;
@@ -590,7 +593,7 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
 
   const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(normGene)}:p.${encodeURIComponent(cleanVar)}?content-type=application/json&AlphaMissense=1&CADD=1&EVE=1`;
+  const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(normGene)}:p.${encodeURIComponent(cleanVar)}?content-type=application/json&AlphaMissense=1&CADD=1&EVE=1&mane=1`;
   
   try {
     const res = await fetchWithRetry(url, {
@@ -602,7 +605,17 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
       const parsedData = vepResponseSchema.parse(data);
       if (parsedData.length > 0 && parsedData[0].transcript_consequences) {
         const consequences = parsedData[0].transcript_consequences;
-        const tc = consequences.find((c: any) => c.alphamissense || c.cadd_phred !== undefined || c.eve_score !== undefined) || consequences[0];
+        const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined || c.eve_score !== undefined;
+        let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
+        if (!tc) {
+          tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || c.canonical === "1") && hasPredictor(c));
+        }
+        if (!tc) {
+          tc = consequences.find(hasPredictor);
+        }
+        if (!tc) {
+          tc = consequences[0];
+        }
         if (tc) {
           const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? parseFloat(tc.alphamissense.am_pathogenicity) : null;
           const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
@@ -646,14 +659,76 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
   return defaultRes;
 }
 
-export async function fetchConservationData(gene: string, variant: string): Promise<ConservationData> {
-  const cacheKey = `${gene}_${variant}`;
+export async function fetchRealConsurfData(pdbId: string, chainId: string, pos: number): Promise<number | null> {
+  const cleanPdb = pdbId.toUpperCase();
+  const cleanChain = chainId.toUpperCase();
+  
+  const selUrl = `https://consurfdb.tau.ac.il/scripts/chain_selection.php?pdb_ID=${cleanPdb}`;
+  try {
+    const selRes = await fetchWithRetry(selUrl, { timeout: 10000 });
+    if (!selRes.ok) return null;
+    const html = await selRes.text();
+    
+    let hash: string | null = null;
+    const matches = [...html.matchAll(/<option\s+value=["'](\S+)\s+(\S{5})["']/gi)];
+    for (const match of matches) {
+      if (match[1].toUpperCase() === cleanChain) {
+        hash = match[2];
+        break;
+      }
+    }
+    
+    if (!hash) return null;
+    
+    const sumUrl = `https://consurfdb.tau.ac.il/DB/${hash}/consurf_summary.txt`;
+    const sumRes = await fetchWithRetry(sumUrl, { timeout: 10000 });
+    if (!sumRes.ok) return null;
+    const txt = await sumRes.text();
+    
+    let colorVal: number | null = null;
+    const lines = txt.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("POS")) continue;
+      const parts = trimmed.split(/\s+/);
+      if (parts.length < 5) continue;
+      
+      const colPos = parts[0];
+      const colAtom = parts[2];
+      const colColor = parts[4];
+      
+      const posNum = parseInt(colPos, 10);
+      const atomMatch = colAtom.match(/^[A-Z]{3}(\d+):/i);
+      const atomResNum = atomMatch ? parseInt(atomMatch[1], 10) : null;
+      
+      if (posNum === pos || atomResNum === pos) {
+        const colorInt = parseInt(colColor, 10);
+        if (!isNaN(colorInt) && colorInt >= 1 && colorInt <= 9) {
+          colorVal = colorInt;
+          break;
+        }
+      }
+    }
+    return colorVal;
+  } catch (err: any) {
+    console.warn(`[ConSurf Fetch Warning] Failed to fetch ConSurf data for ${cleanPdb}:${cleanChain}:${pos}: ${err.message}`);
+    return null;
+  }
+}
+
+export async function fetchConservationData(
+  gene: string,
+  variant: string,
+  pdbId?: string | null,
+  chainId?: string | null,
+  pos?: number | null
+): Promise<ConservationData> {
+  const cacheKey = `${gene}_${variant}_${pdbId || ""}_${chainId || ""}_${pos || ""}`;
   const cached = conservationCache.get(cacheKey);
   if (cached) return cached;
 
   const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  // Correctly query dbnsfp by filtering genename and hgvsp separately to resolve MyVariant.info schema mismatch
   const queryStr = `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
   const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp`;
   
@@ -694,22 +769,30 @@ export async function fetchConservationData(gene: string, variant: string): Prom
             phylop = phylopVal !== undefined && phylopVal !== null ? parseFloat(phylopVal) : null;
           }
 
-          let consurfEstimated: number | null = null;
-          let derived = false;
-          if (gerp !== null && phylop !== null) {
-            const normalizedGerp = Math.min(1, Math.max(0, (gerp + 5) / 11)); 
-            const normalizedPhyloP = Math.min(1, Math.max(0, (phylop + 1) / 5)); 
-            consurfEstimated = (normalizedGerp + normalizedPhyloP) / 2;
-            derived = true;
+          // Parse BayesDel score (handles both dbnsfp.bayesdel.no_af.score and dbnsfp.bayesdel_noaf_score formats)
+          let bayesdel: number | null = null;
+          if (dbnsfp.bayesdel?.no_af?.score !== undefined && dbnsfp.bayesdel?.no_af?.score !== null) {
+            let bVal = dbnsfp.bayesdel.no_af.score;
+            if (Array.isArray(bVal)) bVal = bVal[0];
+            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? parseFloat(bVal) : null;
+          } else if (dbnsfp.bayesdel_noaf_score !== undefined && dbnsfp.bayesdel_noaf_score !== null) {
+            let bVal = dbnsfp.bayesdel_noaf_score;
+            if (Array.isArray(bVal)) bVal = bVal[0];
+            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? parseFloat(bVal) : null;
           }
-          const resVal = { 
+
+          let consurfVal: number | null = null;
+          if (pdbId && chainId && pos) {
+            consurfVal = await fetchRealConsurfData(pdbId, chainId, pos);
+          }
+
+          const resVal: ConservationData = { 
             available: true, 
             revel, 
             gerp, 
             phylop, 
-            consurf: consurfEstimated !== null ? Math.round(consurfEstimated * 8) + 1 : null, 
-            consurfEstimated, 
-            derived 
+            consurf: consurfVal,
+            bayesdel
           };
           conservationCache.set(cacheKey, resVal);
           return resVal;
@@ -720,14 +803,13 @@ export async function fetchConservationData(gene: string, variant: string): Prom
     console.warn(`[Conservation Fetch Error] Failed to fetch MyVariant conservation: ${err.message}`);
   }
 
-  const defaultRes = {
+  const defaultRes: ConservationData = {
     available: false,
     revel: null,
     gerp: null,
     phylop: null,
     consurf: null,
-    consurfEstimated: null,
-    derived: false
+    bayesdel: null
   };
   conservationCache.set(cacheKey, defaultRes);
   return defaultRes;
@@ -863,6 +945,94 @@ export async function pollDynaMut2Job(
   }
 }
 
+export async function submitDdmutJob(
+  pdbText: string,
+  chain: string,
+  pos: number,
+  wtRes: string,
+  mutRes: string
+): Promise<string | null> {
+  const url = "https://biosig.lab.uq.edu.au/ddmut/api/prediction_single";
+  const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
+  console.log(`[DDMut API] Preparing to submit single mutation job for ${mutationCode} on chain ${chain}...`);
+
+  try {
+    const formData = new FormData();
+    formData.append("mutation", mutationCode);
+    formData.append("chain", chain || "A");
+    formData.append("pdb_file", new Blob([pdbText], { type: "text/plain" }), "wt.pdb");
+
+    const response = await fetchWithRetry(url, {
+      method: "POST",
+      body: formData,
+      timeout: 20000
+    });
+
+    if (!response.ok) {
+      throw new Error(`Submit job failed (status: ${response.status})`);
+    }
+
+    const data = await response.json() as any;
+    const jobId = data.job_id;
+    if (!jobId) {
+      throw new Error("API response did not contain a job_id.");
+    }
+    console.log(`[DDMut API] Job submitted successfully. Job ID: ${jobId}`);
+    return String(jobId);
+  } catch (err: any) {
+    console.error(`[DDMut API] Error during submission:`, err.message);
+    return null;
+  }
+}
+
+export async function pollDdmutJob(
+  jobId: string
+): Promise<{ status: "RUNNING" | "DONE" | "ERROR"; prediction: number | null } | null> {
+  const url = "https://biosig.lab.uq.edu.au/ddmut/api/prediction_single";
+  try {
+    const pollUrl = `${url}?job_id=${jobId}`;
+    const pollRes = await fetchWithRetry(pollUrl, {
+      method: "GET",
+      timeout: 10000
+    });
+
+    if (!pollRes.ok) {
+      console.warn(`[DDMut API] Polling request failed for job ${jobId} (status: ${pollRes.status})`);
+      if (pollRes.status === 429) {
+        const rateLimitErr = new Error("DDMut upstream rate limit reached");
+        (rateLimitErr as any).statusCode = 429;
+        throw rateLimitErr;
+      }
+      return { status: "ERROR", prediction: null };
+    }
+
+    const pollJson = await pollRes.json() as any;
+    if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
+      const ddG = parseFloat(pollJson.prediction);
+      console.log(`[DDMut API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
+      return { status: "DONE", prediction: isNaN(ddG) ? null : ddG };
+    }
+
+    if (
+      pollJson.status === "RUNNING" ||
+      pollJson.message === "RUNNING" ||
+      pollJson.status === "QUEUED" ||
+      (pollJson.prediction === undefined && !pollJson.error)
+    ) {
+      return { status: "RUNNING", prediction: null };
+    }
+
+    console.warn(`[DDMut API] Polling returned error or unexpected format:`, pollJson);
+    return { status: "ERROR", prediction: null };
+  } catch (err: any) {
+    console.error(`[DDMut API] Error polling job ${jobId}:`, err.message);
+    if (err.statusCode === 429) {
+      throw err;
+    }
+    return { status: "ERROR", prediction: null };
+  }
+}
+
 // =============================================================================
 // FREQ-1: gnomAD Variant Allele Frequency (GraphQL)
 // =============================================================================
@@ -870,6 +1040,8 @@ export async function pollDynaMut2Job(
 export interface GnomadVariantFrequency {
   /** Max allele frequency across gnomAD v4 sub-populations */
   maxAF: number | null;
+  /** Ancestry-specific max allele frequency for reliable groups (AN >= 2000) */
+  groupMaxAF: number | null;
   /** gnomAD v4 genome AF (global) */
   genomeAF: number | null;
   /** gnomAD v4 exome AF (global) */
@@ -916,12 +1088,22 @@ export async function fetchGnomadVariantFrequency(
           an
           af
           homozygote_count
+          populations {
+            id
+            ac
+            an
+          }
         }
         exome {
           ac
           an
           af
           homozygote_count
+          populations {
+            id
+            ac
+            an
+          }
         }
       }
     }
@@ -966,8 +1148,47 @@ export async function fetchGnomadVariantFrequency(
       genomeAF !== null ? genomeAF :
       exomeAF  !== null ? exomeAF  : null;
 
+    // Compute ancestry-specific groupMaxAF (AN >= 2000)
+    const populations: { id: string; ac: number; an: number; af: number }[] = [];
+    if (v.genome?.populations) {
+      for (const p of v.genome.populations) {
+        populations.push({
+          id: p.id,
+          ac: p.ac,
+          an: p.an,
+          af: p.an > 0 ? p.ac / p.an : 0
+        });
+      }
+    }
+    if (v.exome?.populations) {
+      for (const p of v.exome.populations) {
+        populations.push({
+          id: p.id,
+          ac: p.ac,
+          an: p.an,
+          af: p.an > 0 ? p.ac / p.an : 0
+        });
+      }
+    }
+
+    const validPops = populations.filter(p => p.an >= 2000 && p.af !== null && p.af !== undefined);
+    let groupMaxAF: number | null = null;
+    if (validPops.length > 0) {
+      let maxVal = 0;
+      for (const p of validPops) {
+        if (p.af > maxVal) {
+          maxVal = p.af;
+        }
+      }
+      groupMaxAF = maxVal;
+    } else {
+      // Fallback to global maxAF if no sub-population matches criteria
+      groupMaxAF = maxAF;
+    }
+
     const result: GnomadVariantFrequency = {
       maxAF,
+      groupMaxAF,
       genomeAF,
       exomeAF,
       genomeAC,
