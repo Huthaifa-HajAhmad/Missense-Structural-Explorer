@@ -13,7 +13,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 ## Endpoint Index
 
 ### 1. Health check
-* **Route**: `GET /health`
+* **Route**: `GET /api/v1/health`
 * **Auth**: None
 * **Description**: Returns server status and current timestamp. Useful for container readiness probes.
 * **Response**:
@@ -25,7 +25,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   ```
 
 ### 2. Version information
-* **Route**: `GET /version`
+* **Route**: `GET /api/v1/version`
 * **Auth**: None
 * **Description**: Returns current semantic version of the API.
 * **Response**:
@@ -36,7 +36,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   ```
 
 ### 3. Session Key Initialization
-* **Route**: `POST /session/keys`
+* **Route**: `POST /api/v1/session/keys`
 * **Auth**: 🔒 (Bearer Token)
 * **Request Body**:
   ```json
@@ -54,9 +54,9 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   ```
 
 ### 4. Analyze Variant
-* **Route**: `POST /analyze-variant`
+* **Route**: `POST /api/v1/analyze-variant`
 * **Auth**: 🔒 (Bearer Token) + `X-Gemini-Session-ID` header
-* **Rate Limits**: 10 requests per minute per IP / Session ID
+* **Rate Limits**: 120 requests per minute per IP for general endpoints, 10 requests per minute for Gemini API.
 * **Request Body**:
   ```json
   {
@@ -109,7 +109,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   - `503 MODEL_UNAVAILABLE`: Returned if Gemini model fails/is unavailable.
 
 ### 5. Biophysical Mutant Generation
-* **Route**: `POST /generate-mutant`
+* **Route**: `POST /api/v1/generate-mutant`
 * **Auth**: 🔒 (Bearer Token)
 * **Request Body**: (JSON payload containing PDB text)
   ```json
@@ -136,8 +136,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
       "stericClashWarning": false,
       "localSidechainRmsd": 1.12,
       "dynamut2": null,
-      "ddgun": 1.10,
-      "consensusVerdict": "High-Risk Pathogenic (Consensus)"
+      "consensusVerdict": "High-Risk Pathogenic (FoldX)"
     }
   }
   ```
@@ -147,7 +146,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   - `502 BAD_GATEWAY`: Returned if FoldX runs but outputs an invalid/corrupt result.
 
 ### 6. Translate Variant
-* **Route**: `POST /translate-variant`
+* **Route**: `POST /api/v1/translate-variant`
 * **Auth**: 🔒 (Bearer Token)
 * **Request Body**:
   ```json
@@ -159,14 +158,14 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Description**: Uses Ensembl VEP endpoints to translate genomic/cDNA coordinate inputs into IUPAC protein-level missense variant notations and UniProt accessions.
 
 ### 7. Sequence Fetcher
-* **Route**: `GET /sequence/:uniprotId`
+* **Route**: `GET /api/v1/sequence/:uniprotId`
 * **Auth**: 🔒 (Bearer Token)
 * **Description**: Fetches canonical FASTA sequence for the given UniProt accession.
 * **Error Codes**:
   - `424 SEQUENCE_UNAVAILABLE`: Returned if the sequence fetch fails and no preset sequence is found in the local database.
 
 ### 8. Binding Pocket Finder
-* **Route**: `POST /pocket-finder`
+* **Route**: `POST /api/v1/pocket-finder`
 * **Auth**: 🔒 (Bearer Token)
 * **Request Body**: (JSON containing PDB text)
   ```json
@@ -178,7 +177,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Description**: Runs P2Rank prediction on coordinates to detect ligand-binding pocket proximity. Falls back to a spatial density proximity heuristic if P2Rank is not installed.
 
 ### 9. Nearest Residues
-* **Route**: `POST /nearest-residues`
+* **Route**: `POST /api/v1/nearest-residues`
 * **Auth**: 🔒 (Bearer Token)
 * **Request Body**:
   ```json
@@ -200,7 +199,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   ```
 
 ### 10. Resolve Gene Accessions
-* **Route**: `POST /resolve-gene`
+* **Route**: `POST /api/v1/resolve-gene`
 * **Auth**: 🔒 (Bearer Token)
 * **Request Body**:
   ```json
@@ -211,6 +210,6 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Description**: Resolves HGNC gene symbols to canonical UniProt accessions using local mapping dictionaries.
 
 ### 11. AlphaFold PDB Proxy
-* **Route**: `GET /alphafold-pdb/:uniprotId`
+* **Route**: `GET /api/v1/alphafold-pdb/:uniprotId`
 * **Auth**: 🔒 (Bearer Token)
 * **Description**: Proxies coordinate fetching for AlphaFold models from the EMBL-EBI CDN to bypass browser cross-origin constraints.

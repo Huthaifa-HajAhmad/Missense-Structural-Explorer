@@ -48,31 +48,30 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 
 ### API Route Registry
 
-#### A. Variant Analysis Pipeline (`POST /api/analyze-variant`)
+#### A. Variant Analysis Pipeline (`POST /api/v1/analyze-variant`)
 * **Inputs**: `{ gene: string, variant: string, uniprotId: string }`
 * **Orchestration**: Executes parallel and cascade processing streams:
   1. **Structural Triage**: Runs a local, fast rule-based classifier (`predictStructuralDisruption`) in parallel to assess secondary structure patterns, volume changes in the hydrophobic core, and residue chemical indices.
-  2. **Narrative Generation**: Calls `gemini-2.5-flash` (falling back to `gemini-2.0-flash`) with a tailored biophysical prompt to obtain detailed, professional clinical markdown.
+  2. **Narrative Generation**: Calls `gemini-3.5-flash` (falling back to `gemini-2.5-flash` or `gemini-2.0-flash`) with a tailored biophysical prompt to obtain detailed, professional clinical markdown.
   3. **Structured JSON Validation**: Calls the model with a defined JSON schema request, extracting `biochemicalShift`, `structuralImpact`, and structural pathogenicity `acmgCriteria` arrays containing clinical codes and reasoning.
 * **Error Resilience**: Intercepts absent Gemini keys and returns a structured configuration error to the front-end, gracefully falling back to preconfigured high-fidelity clinical records (defined in `src/data.ts`) to maintain a fully interactive prototype.
 
-#### B. Biophysical Mutant Modeling Pipeline (`POST /api/generate-mutant`)
+#### B. Biophysical Mutant Modeling Pipeline (`POST /api/v1/generate-mutant`)
 * **Inputs**: `{ wtPdb: string, mutation: string, uniprotId?: string }`
 * **Process**:
   1. Writes the heavy wild-type template coordinate data block to a temporary workspace file (`wt_temp_${timestamp}_${randomId}.pdb`) to allow native CLI processors to access the coordinate matrix.
   2. Formulates localized command-line instruction files with standard biophysical mutation descriptions (e.g., `RA408W;` mapping the residue sequence).
   3. Prepares a child process execution context to run FoldX `BuildModel` across **3 independent runs** for stochastic averaging (extracting mean $\Delta\Delta G$ and standard deviation).
-  4. Runs a Python-based sequence predictor (`tools/ddgun/ddgun_seq.py`) to fetch sequence-based evolutionary $\Delta\Delta G$ scores.
-  5. Computes a **2/3 majority consensus verdict** based on predefined destabilization thresholds for FoldX, DynaMut2, and DDGun-Seq.
-  6. Calculates local sidechain packing RMSD using a physical alignment algorithm on wild-type and mutant rotamers.
+  4. Computes a consensus stability verdict based on FoldX and DynaMut2 ( NMA ) predictions.
+  5. Calculates local sidechain packing RMSD using a physical alignment algorithm on wild-type and mutant rotamers.
   7. **Fails Loud**: In environments lacking FoldX binaries or where execution fails, the engine throws a hard `503` error instead of falling back to silent wild-type coordinate returns, ensuring data integrity.
   8. **Safe Workspace Cleanup**: Explicitly runs recursive file deletion on temporary job directories to prevent storage pollution in production containers.
 
-#### C. Gene Accessory resolver (`POST /api/resolve-gene`)
+#### C. Gene Accessory resolver (`POST /api/v1/resolve-gene`)
 * Maps inputted gene symbols (e.g., PAH, FGFR3, GBA1, NAE1) to their canonical accession codes.
 * Interrogates EBI APIs to determine structure availability and coordinate schemas.
 
-#### D. AlphaFold Structural Proxy (`GET /api/alphafold-pdb/:uniprotId`)
+#### D. AlphaFold Structural Proxy (`GET /api/v1/alphafold-pdb/:uniprotId`)
 * Bypasses client-side issues with loading heavy bioinformatics files from varying host origins.
 * Interrogates the AlphaFold DB with cascade recovery logic:
   * First queries the official EMBL-EBI Prediction API (`https://alphafold.ebi.ac.uk/api/prediction/${uniprotId}`) to fetch the official PDB structure URL.
@@ -85,7 +84,7 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 ## 4. Production Security & Deployment (SEC-5)
 In production, the application is designed to be hosted in a containerized environment (e.g., Google Cloud Run) behind a secure load balancer or reverse proxy:
 * **Token Authentication & Session Keys**: Access to clinical endpoints requires bearer authentication. The `/session/keys` endpoint validates API credentials and creates stateless session tokens encrypted using AES-256-GCM. These tokens contain the API credentials and an expiration time, allowing any server replica to decrypt and validate sessions using a shared `APP_SESSION_SECRET` key, avoiding in-memory session synchronization.
-* **Rate Limiting & Security Headers**: Express middleware enforces standard Helmet security headers (HSTS, CSP, X-Frame-Options) and rate-limiting limits (30 requests/minute per IP) to prevent denial of service.
+* **Rate Limiting & Security Headers**: Express middleware enforces standard Helmet security headers (HSTS, CSP, X-Frame-Options) and rate-limiting limits (120 requests/minute for general API and 10 requests/minute for Gemini API per IP) to prevent denial of service.
 * **PII Redaction**: Free-text clinical narrative directions (`userDirections`) undergo regular-expression-based screening to redact phone numbers, emails, SSNs, dates of birth, and patient/medical record IDs before sending to third-party APIs.
 * **HTTPS Enforcement**: The Node.js Express server runs on plain HTTP (port 3000) inside its isolated container or sandbox environment. Secure HTTPS/TLS termination is decoupled from the application layer and must be handled at the ingress or load balancer layer (e.g., GCP HTTPS Load Balancer) to ensure all clinical variant data in transit is encrypted.
 * **Access Controls**: Production access can be secured using GCP Identity-Aware Proxy (IAP) to authenticate users via corporate Single Sign-On (SSO) before they can connect to the application.
