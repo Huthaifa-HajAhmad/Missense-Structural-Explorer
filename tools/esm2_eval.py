@@ -1,19 +1,64 @@
 # /// script
 # dependencies = [
 #   "torch",
-#   "transformers"
+#   "transformers",
+#   "huggingface_hub"
 # ]
 # ///
 
 import sys
 import json
 import torch
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import os
+import time
+from transformers import AutoTokenizer, EsmForMaskedLM
+from huggingface_hub import hf_hub_download
+from huggingface_hub.utils import disable_progress_bars
+
+# Programmatically disable tqdm progress bars to prevent TTY hangs in background tasks
+disable_progress_bars()
+
+def download_weights(repo_id, filename, local_dir):
+    os.makedirs(local_dir, exist_ok=True)
+    weights_path = os.path.join(local_dir, filename)
+    if os.path.exists(weights_path) and os.path.getsize(weights_path) > 10 * 1024 * 1024:
+        return weights_path
+
+    print(f"Downloading {filename} from {repo_id}...")
+    for attempt in range(1, 6):
+        try:
+            hf_hub_download(repo_id=repo_id, filename=filename, local_dir=local_dir)
+            if os.path.exists(weights_path) and os.path.getsize(weights_path) > 10 * 1024 * 1024:
+                print(f"Successfully downloaded {filename} ({os.path.getsize(weights_path)} bytes)")
+                return weights_path
+        except Exception as e:
+            print(f"Attempt {attempt}/5 failed: {str(e)}")
+            # Cleanup any partial download
+            part_path = weights_path + ".part"
+            for p in [weights_path, part_path]:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except:
+                        pass
+            time.sleep(3)
+            
+    raise RuntimeError(f"Failed to download {filename} after 5 attempts.")
 
 def compute_llr(sequence: str, pos: int, wt: str, mut: str):
-    model_name = "facebook/esm2_t6_8M_UR50D"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForMaskedLM.from_pretrained(model_name)
+    model_name = "VESM_150M"
+    base_model_name = "facebook/esm2_t30_150M_UR50D"
+    
+    # Download pretrained VESM weights locally in tools/vesm
+    local_dir = os.path.join(os.path.dirname(__file__), "vesm")
+    weights_path = download_weights(repo_id="ntranoslab/vesm", filename=f"{model_name}.pth", local_dir=local_dir)
+        
+    tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+    model = EsmForMaskedLM.from_pretrained(base_model_name)
+    
+    # Load pretrained VESM weights
+    state_dict = torch.load(weights_path, map_location="cpu")
+    model.load_state_dict(state_dict, strict=False)
     
     # Standardize
     sequence = sequence.upper()
@@ -80,11 +125,10 @@ if __name__ == "__main__":
     
     try:
         llr = compute_llr(seq, pos, wt, mut)
-        verdict = "pathogenic" if llr <= -6.0 else "benign"
         print(json.dumps({
             "status": "success",
             "llr": llr,
-            "verdict": verdict
+            "verdict": "raw score"
         }))
     except Exception as e:
         print(json.dumps({"status": "error", "message": str(e)}))

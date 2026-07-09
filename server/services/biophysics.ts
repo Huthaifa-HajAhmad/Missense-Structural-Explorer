@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
-import { AMINO_ACID_1_TO_3 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { validateUniProt, Semaphore } from "../utils.ts";
 
 
@@ -1180,15 +1180,50 @@ export interface DisruptionPrediction {
   plddt: number;
   burialStatus?: "core" | "surface" | "boundary";
   neighborCount?: number;
+  sasa?: number;
+  rsa?: number;
 }
 
-export function predictStructuralDisruption(
+async function runSasaEval(
+  wtPdbText: string,
+  chain: string,
+  position: number
+): Promise<{ sasa: number; rsa: number; burialStatus: "core" | "surface" | "boundary" } | null> {
+  const tempDir = path.join(process.cwd(), "temp_jobs", `sasa_${crypto.randomUUID()}`);
+  await fs.promises.mkdir(tempDir, { recursive: true });
+  const pdbPath = path.join(tempDir, "protein.pdb");
+  await fs.promises.writeFile(pdbPath, wtPdbText);
+
+  try {
+    const pythonScript = path.join(process.cwd(), "tools", "sasa_eval.py");
+    const { stdout } = await execFileAsync("python", ["-m", "uv", "run", pythonScript, pdbPath, chain, position.toString()], {
+      timeout: 10000
+    });
+    const result = JSON.parse(stdout.trim());
+    if (result.status === "success") {
+      return {
+        sasa: result.sasa,
+        rsa: result.rsa,
+        burialStatus: result.burialStatus
+      };
+    }
+  } catch (err) {
+    console.warn("[SASA-Eval] Subprocess failure:", err);
+  } finally {
+    try {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    } catch {}
+  }
+  return null;
+}
+
+export async function predictStructuralDisruption(
   wtPdbText: string,
   wtResidue1: string,
   position: number,
   mutantResidue1: string,
   chain?: string
-): DisruptionPrediction {
+): Promise<DisruptionPrediction> {
   const lines = wtPdbText.split(/\r?\n/);
   
   // 1. Parse HELIX and SHEET lines
@@ -1266,8 +1301,13 @@ export function predictStructuralDisruption(
       }
     }
   }
-  const isBuried = neighborCount >= 10;
-  const burialStatus = neighborCount >= 15 ? "core" : (neighborCount < 8 ? "surface" : "boundary");
+  // 3. Compute true SASA and RSA using the sidecar script
+  const sasaResult = await runSasaEval(wtPdbText, resolvedChain || "A", position);
+  
+  const burialStatus = sasaResult ? sasaResult.burialStatus : (neighborCount >= 15 ? "core" : (neighborCount < 8 ? "surface" : "boundary"));
+  const rsa = sasaResult ? sasaResult.rsa : undefined;
+  const sasa = sasaResult ? sasaResult.sasa : undefined;
+  const isBuried = burialStatus === "core";
 
   const buildResult = (level: "high" | "low", reason: string): DisruptionPrediction => {
     return {
@@ -1275,7 +1315,9 @@ export function predictStructuralDisruption(
       reason,
       plddt,
       burialStatus,
-      neighborCount
+      neighborCount,
+      sasa,
+      rsa
     };
   };
 
@@ -1322,26 +1364,6 @@ export function predictStructuralDisruption(
   return buildResult("low", `Substitution is predicted to have low conformational disruption on the backbone fold.`);
 }
 
-export async function runDdgunSeq(wt: string, mut: string): Promise<number | null> {
-  const pythonScript = path.join(process.cwd(), "tools", "ddgun", "ddgun_seq.py");
-  if (!fs.existsSync(pythonScript)) {
-    console.warn(`[DDGun-Seq] Python sidecar not found at: ${pythonScript}. Returning default/null.`);
-    return null;
-  }
-  try {
-    const { stdout } = await execFileAsync("python", [pythonScript, wt, mut], { timeout: 5000 });
-    const parsed = JSON.parse(stdout.trim());
-    if (parsed.status === "success" && typeof parsed.ddg === "number") {
-      return parsed.ddg;
-    }
-    console.warn(`[DDGun-Seq] Predictor returned error or invalid format:`, parsed);
-    return null;
-  } catch (err: any) {
-    console.warn(`[DDGun-Seq] Process execution failed:`, err.message);
-    return null;
-  }
-}
-
 const esm2Cache = new LRUCache<string, any>({
   max: 500
 });
@@ -1352,9 +1374,30 @@ export async function runEsm2Eval(
   wt: string,
   mut: string
 ): Promise<{ llr: number; verdict: string } | null> {
-  const cacheKey = `${seq.length}_${pos}_${wt}_${mut}`;
+  const cacheKey = `${seq.length}_${pos}_${wt}_mut`;
   const cached = esm2Cache.get(cacheKey);
   if (cached !== undefined) return cached;
+
+  // Try HTTP first
+  try {
+    const res = await fetch("http://127.0.0.1:8000/predict/vesm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sequence: seq, position: pos, wt, mut })
+    });
+    if (res.ok) {
+      const parsed = await res.json();
+      if (parsed.status === "success" && typeof parsed.llr === "number") {
+        const result = { llr: parsed.llr, verdict: parsed.verdict };
+        esm2Cache.set(cacheKey, result);
+        return result;
+      }
+    }
+  } catch (err: any) {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[ESM2-Eval] Model server is offline or error: ${err.message}. Falling back to CLI subprocess.`);
+    }
+  }
 
   const pythonScript = path.join(process.cwd(), "tools", "esm2_eval.py");
   if (!fs.existsSync(pythonScript)) {
@@ -1715,3 +1758,226 @@ export function computeStructuralDiff(
     }
   };
 }
+
+export function extractSequenceFromPdb(wtPdb: string, resolvedChain: string): { sequence: string; minPos: number } {
+  const lines = wtPdb.split(/\r?\n/);
+  const residues = new Map<number, string>();
+  let minPos = Infinity;
+  let maxPos = -Infinity;
+
+  for (const line of lines) {
+    if (line.startsWith("ATOM")) {
+      const atomName = line.slice(12, 16).trim();
+      if (atomName === "CA") {
+        const chain = line.slice(21, 22).trim().toUpperCase();
+        if (chain === resolvedChain.toUpperCase()) {
+          const resSeq = parseInt(line.slice(22, 26).trim(), 10);
+          const resName3 = line.slice(17, 20).trim().toUpperCase();
+          const aa1 = AMINO_ACID_3_TO_1[resName3] || "X";
+          residues.set(resSeq, aa1);
+          if (resSeq < minPos) minPos = resSeq;
+          if (resSeq > maxPos) maxPos = resSeq;
+        }
+      }
+    }
+  }
+
+  if (minPos === Infinity) {
+    return { sequence: "", minPos: 1 };
+  }
+
+  let seq = "";
+  for (let p = minPos; p <= maxPos; p++) {
+    seq += residues.get(p) || "X";
+  }
+  return { sequence: seq, minPos };
+}
+
+function decodeEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#9;/g, "\t")
+    .replace(/&#10;/g, "\n")
+    .replace(/&#13;/g, "\r");
+}
+
+const ddgunCache = new LRUCache<string, any>({ max: 200 });
+
+export async function runDdgunSeq(wtLetter: string, mutLetter: string, sequence: string, seqPos: number): Promise<number | null> {
+  const mutation = `${wtLetter}${seqPos}${mutLetter}`;
+  const cacheKey = `${sequence}_${mutation}`;
+  if (ddgunCache.has(cacheKey)) {
+    return ddgunCache.get(cacheKey) ?? null;
+  }
+
+  const url = "https://folding.biofold.org/cgi-bin/ddgun.cgi";
+  const formData = new FormData();
+  formData.append("db", "uniclust30_2018_08");
+  formData.append("structure", "");
+  formData.append("spdb", "");
+  formData.append("pdbid", "");
+  formData.append("pdbfile", new Blob([], { type: "application/octet-stream" }), "");
+  formData.append("chain", "");
+  formData.append("seqs", sequence);
+  formData.append("seqfile", new Blob([], { type: "application/octet-stream" }), "");
+  formData.append("vars", mutation);
+  formData.append("email", "");
+
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://folding.biofold.org/ddgun",
+    "Origin": "https://folding.biofold.org"
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      body: formData,
+      headers
+    });
+
+    if (!res.ok) {
+      throw new Error(`DDGun submission failed with status ${res.status}`);
+    }
+
+    const htmlText = await res.text();
+    const match = htmlText.match(/url=([^"]+)/);
+    if (!match) {
+      throw new Error("Failed to parse DDGun job tracking URL from redirect page");
+    }
+
+    const jobUrl = match[1];
+
+    const maxAttempts = 15;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let pollHtml = "";
+      try {
+        const pollRes = await fetch(jobUrl, { headers });
+        if (!pollRes.ok) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          continue;
+        }
+        pollHtml = await pollRes.text();
+      } catch (pollErr: any) {
+        // Retry connection resets or socket drops
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        continue;
+      }
+
+      if (pollHtml.includes('http-equiv="refresh"') || pollHtml.includes("url=find-ddgun-job.cgi")) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        continue;
+      }
+
+      const tableDataMatch = pollHtml.match(/id="load_table"[^>]*table_data="([^"]+)"/);
+      if (!tableDataMatch) {
+        throw new Error("Job completed but result table_data attribute was not found");
+      }
+
+      const rawTable = tableDataMatch[1];
+      const decoded = decodeEntities(rawTable);
+
+      const lines = decoded.split(/[\r\n]+/);
+      if (lines.length < 2) {
+        throw new Error("Empty result table returned from DDGun");
+      }
+
+      const headersRow = lines[0].split(/\t/);
+      const dataRow = lines[1].split(/\t/);
+
+      const scoreIndex = headersRow.findIndex(h => h.includes("S_DDG"));
+      if (scoreIndex === -1) {
+        throw new Error("S_DDG column not found in output table");
+      }
+
+      const parsedScore = parseFloat(dataRow[scoreIndex]);
+      if (isNaN(parsedScore)) {
+        throw new Error("S_DDG score value is not a valid number");
+      }
+
+      ddgunCache.set(cacheKey, parsedScore);
+      return parsedScore;
+    }
+
+    throw new Error("DDGun prediction timed out");
+  } catch (err: any) {
+    console.warn("[DDGun client error]", err.message);
+    return null;
+  }
+}
+
+const raspCache = new Map<string, number | null>();
+
+/**
+ * Runs the local RaSP stability predictor via the Python sidecar.
+ * RaSP uses ESM-IF1 structural embeddings + a pre-trained MLP head to
+ * predict ΔΔG (kcal/mol).
+ * Sign convention: negative = destabilizing (matching DynaMut2/DDMut).
+ */
+export async function runRaspLocal(
+  wtPdbPath: string,
+  mutPdbPath: string,
+  chain: string,
+  pos: number,
+  wtAa: string,
+  mutAa: string
+): Promise<number | null> {
+  const cacheKey = `${wtPdbPath}|${mutPdbPath}|${chain}|${pos}|${wtAa}|${mutAa}`;
+  if (raspCache.has(cacheKey)) return raspCache.get(cacheKey) ?? null;
+
+  // Try HTTP first
+  try {
+    const res = await fetch("http://127.0.0.1:8000/predict/rasp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        wt_pdb_path: wtPdbPath,
+        mut_pdb_path: mutPdbPath,
+        chain,
+        pos,
+        wt_aa: wtAa,
+        mut_aa: mutAa
+      })
+    });
+    if (res.ok) {
+      const parsed = await res.json();
+      if (parsed.status === "success" && typeof parsed.ddG === "number") {
+        raspCache.set(cacheKey, parsed.ddG);
+        return parsed.ddG;
+      }
+    }
+  } catch (err: any) {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[RaSP] Model server is offline or error: ${err.message}. Falling back to CLI subprocess.`);
+    }
+  }
+
+  const pythonScript = path.join(process.cwd(), "tools", "rasp", "predict_rasp.py");
+  if (!fs.existsSync(pythonScript)) {
+    console.warn(`[RaSP] Python sidecar not found at: ${pythonScript}.`);
+    return null;
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      "python",
+      ["-m", "uv", "run", pythonScript, wtPdbPath, mutPdbPath, chain, pos.toString(), wtAa, mutAa],
+      { timeout: 120000 } // RaSP uses ESM-IF1 which can be slow on CPU
+    );
+    const parsed = JSON.parse(stdout.trim());
+    if (parsed.status === "success" && typeof parsed.ddG === "number") {
+      raspCache.set(cacheKey, parsed.ddG);
+      return parsed.ddG;
+    }
+    console.warn(`[RaSP] Predictor returned error or invalid format:`, parsed);
+    raspCache.set(cacheKey, null);
+    return null;
+  } catch (err: any) {
+    console.warn(`[RaSP] Process execution failed:`, err.message);
+    return null;
+  }
+}
+
