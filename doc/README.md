@@ -1,6 +1,6 @@
-# Documentation Index — Missense Structural Explorer
+# Documentation Index — MissenseResolve®
 
-Welcome to the comprehensive documentation repository for the **Missense Structural Explorer**. This folder serves as a centralized hub of knowledge detailing the product designs, tech stack, and biological computing pipelines.
+Welcome to the comprehensive documentation repository for **MissenseResolve®**. This folder serves as a centralized hub of knowledge detailing the product designs, tech stack, and biological computing pipelines.
 
 ---
 
@@ -22,11 +22,19 @@ Welcome to the comprehensive documentation repository for the **Missense Structu
 * **Goal**: Highlights physical boundaries, API dependencies, cropping systems, and browser limitations.
 * **Key Topics**: Mutational modeling workspace constraints, EBI AlphaFold API versioning, and iframe sandbox restrictions.
 
+### 5. [API Reference](./API.md)
+* **Goal**: Reference documentation for all server-side API endpoints, query parameters, payloads, and error codes.
+* **Key Topics**: Variant analysis, biophysical modeling, pocket finding, and authentication.
+
+### 6. [Deployment Guide](./DEPLOY.md)
+* **Goal**: Setup and deployment runbook for production infrastructure using Caddy and systemd/PM2.
+* **Key Topics**: Reverse proxy setup, SSL, environment configuration, and sidecar lifecycle.
+
 ---
 
 ## 🛠️ Infrastructure Overview
 * **Runtime**: Node.js & Vite (TypeScript)
 * **API Ingress**: Port 3000
 * **Graphics**: HTML5 Canvas with WebGL (Molstar API)
-* **AI Orchestration**: Gemini 3.5 Flash (`@google/genai` model client)
+* **AI Orchestration**: Gemini 2.5 Flash (`@google/genai` model client)
 * **Biological APIs**: EMBL-EBI AlphaFold Database & Mutational Side-Chain Modeling Engine

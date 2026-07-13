@@ -1,4 +1,4 @@
-# Missense Structural Explorer — API Reference
+# MissenseResolve® — API Reference
 
 All backend endpoints are prefixed with `/api/v1` and are defined in `server/routes.ts`.
 

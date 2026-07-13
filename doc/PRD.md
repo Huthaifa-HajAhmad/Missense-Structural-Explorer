@@ -1,7 +1,7 @@
-# Product Requirements Document (PRD) — Missense Structural Explorer
+# Product Requirements Document (PRD) — MissenseResolve®
 
 ## 1. Executive Summary & Purpose
-The **Missense Structural Explorer** is a clinical-grade, web-based platform tailored for clinical geneticists, molecular biophysicists, and precision medicine researchers. In the diagnostic pipeline, genetic sequencing frequently yields thousands of genomic variants, particularly highly ambiguous **Variants of Uncertain Significance (VUS)**. Determining whether a single amino acid swap (a missense variant) disrupts a protein's fold, pocket, or binding affinity is a bottlenecks in clinical pathogenicity classification.
+The **MissenseResolve®** is a clinical-grade, web-based platform tailored for clinical geneticists, molecular biophysicists, and precision medicine researchers. In the diagnostic pipeline, genetic sequencing frequently yields thousands of genomic variants, particularly highly ambiguous **Variants of Uncertain Significance (VUS)**. Determining whether a single amino acid swap (a missense variant) disrupts a protein's fold, pocket, or binding affinity is a bottlenecks in clinical pathogenicity classification.
 
 This application resolves these bottlenecks by bridging the gap between flat text mutations (e.g., `p.Arg215Trp`) and 3D molecular reality. It unifies:
 1. **Interactive 3D Visualizations** directly inside the browser using Mol* (Molstar).

@@ -1,7 +1,7 @@
-# Technical Architecture Design — Missense Structural Explorer
+# Technical Architecture Design — MissenseResolve®
 
 ## 1. System Topology Overview
-The **Missense Structural Explorer** is designed as a modular, full-stack React and Express application running on Node.js. It implements a **Server-Side API Proxy Architecture** to securely handle API keys, perform computation-heavy sequence mutations, and bypass sandbox/CORS constraints on external bioinformatics services.
+The **MissenseResolve®** is designed as a modular, full-stack React and Express application running on Node.js. It implements a **Server-Side API Proxy Architecture** to securely handle API keys, perform computation-heavy sequence mutations, and bypass sandbox/CORS constraints on external bioinformatics services.
 
 ```
        +-------------------------------------------------------------+

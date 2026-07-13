@@ -1,4 +1,4 @@
-# Technical Limitations & Constraints — Missense Structural Explorer
+# Technical Limitations & Constraints — MissenseResolve®
 
 This document details the boundaries, performance limitations, dependency constraints, and environmental requirements of the application.
 

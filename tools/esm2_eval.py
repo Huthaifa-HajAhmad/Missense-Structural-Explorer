@@ -57,7 +57,7 @@ def compute_llr(sequence: str, pos: int, wt: str, mut: str):
     model = EsmForMaskedLM.from_pretrained(base_model_name)
     
     # Load pretrained VESM weights
-    state_dict = torch.load(weights_path, map_location="cpu")
+    state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict, strict=False)
     
     # Standardize

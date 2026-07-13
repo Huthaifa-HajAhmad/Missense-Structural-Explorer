@@ -1,6 +1,6 @@
-# Interactive Feature Catalog — Missense Structural Explorer
+# Interactive Feature Catalog — MissenseResolve®
 
-The **Missense Structural Explorer** offers a suite of interactive, clinical-grade tools designed to aid molecular diagnostic pipelines. This document details each user-facing feature and utility.
+The **MissenseResolve®** offers a suite of interactive, clinical-grade tools designed to aid molecular diagnostic pipelines. This document details each user-facing feature and utility.
 
 ---
 

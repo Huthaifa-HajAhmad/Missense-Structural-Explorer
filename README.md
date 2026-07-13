@@ -2,7 +2,7 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# 🔬 Missense Structural Explorer (Rare Disease Genomics)
+# 🔬 MissenseResolve® (Rare Disease Genomics)
 
 > A clinical-grade 3D macromolecular visualizer, biophysical mutant modeling gateway, and AI-driven variant pathfinder tailored for rare disease diagnostics.
 
@@ -10,9 +10,9 @@
 
 ## 🧬 Overview
 
-**Missense Structural Explorer** is a full-stack bioinformatics application designed to assist clinical geneticists and rare disease researchers in evaluating the biophysical impact of single-amino acid substitutions. 
+**MissenseResolve®** is a full-stack bioinformatics application designed to assist clinical geneticists and rare disease researchers in evaluating the biophysical impact of single-amino acid substitutions. 
 
-By unifying GPU-accelerated **3D structural visualization (Molstar)**, **deterministic database grounding (ClinVar & gnomAD)**, **Ensembl VEP notation translation**, and **generative AI reasoning (Gemini 3.5 Flash)**, the platform streamlines the evaluation of genetic variants from VCF genomic coordinates down to molecular atomic contacts.
+By unifying GPU-accelerated **3D structural visualization (Molstar)**, **deterministic database grounding (ClinVar & gnomAD)**, **Ensembl VEP notation translation**, and **generative AI reasoning (Gemini 2.5 Flash)**, the platform streamlines the evaluation of genetic variants from VCF genomic coordinates down to molecular atomic contacts.
 
 ### 🌟 Key Capabilities
 *   **WebGL 3D Viewer (Molstar Engine)**: Rotate, zoom, and analyze 3D structures fetched directly from the EBI AlphaFold Database. Toggle polar contacts and hydrogen bonding networks on the fly.

@@ -1,1 +1,1 @@
-{"name":"Missense Structural Explorer","description":"Instant 3D biophysical modeling for clinical variant interpretation using AlphaFold predictive structures and clinical AI diagnostics.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
+{"name":"MissenseResolve(R)","description":"Instant 3D biophysical modeling for clinical variant interpretation using AlphaFold predictive structures and clinical AI diagnostics.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
