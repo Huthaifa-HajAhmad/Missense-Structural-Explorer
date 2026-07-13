@@ -263,7 +263,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                                 <span style={{ color: "var(--cs-text-primary)" }}>Mutant ({parsed.mut})</span>
                               </div>
                               <p className="leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-                                Plots isoelectric properties. Overlapping profiles indicate conservative substitutions, whereas deviations support disruptive pathology.
+                                Plots isoelectric properties on a normalized 0–100 scale (0 = negative, 50 = neutral, 100 = positive). Overlapping profiles indicate conservative substitutions, whereas deviations support disruptive pathology.
                               </p>
                             </div>
                           </div>
@@ -452,7 +452,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                                                 </span>
                                               </div>
                                               <span className={`text-[7px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${sourceBadge}`}>
-                                                AI-Suggested
+                                                AI-suggested, not database-verified
                                               </span>
                                             </div>
                                             <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>

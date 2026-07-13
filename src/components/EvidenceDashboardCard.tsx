@@ -87,11 +87,11 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperUrl: "https://doi.org/10.1038/s41586-021-04043-8"
   },
   esm2: {
-    name: "VESM Co-distilled LLR (SOTA)",
+    name: "VESM Co-distilled LLR",
     category: "Protein Language Model",
-    description: "VESM (Variant Effect ESM) is a co-distilled protein language model that compresses the collective knowledge of the ESM family. It computes a log-likelihood ratio (LLR) reflecting SOTA variant effect predictions on ProteinGym without external structural or evolutionary inputs.",
-    interpretation: "LLR values range from -20 to +5. Negative scores indicate disruption; LLR ≤ -3.0 is a typical threshold indicating functional defect.",
-    paperTitle: "Ntranos Lab, Nature Methods (2026)",
+    description: "VESM (Variant Effect ESM) is a co-distilled protein language model that compresses the collective knowledge of the ESM family. It computes a log-likelihood ratio (LLR) reflecting variant effect predictions on ProteinGym without external structural or evolutionary inputs.",
+    interpretation: "LLR values range from -20 to +5. Informational only — no validated clinical threshold is applied, and it is excluded from ACMG concordance voting.",
+    paperTitle: "Ntranos Lab, bioRxiv (2024)",
     paperUrl: "https://github.com/ntranoslab/vesm"
   },
   foldx: {
@@ -1085,7 +1085,7 @@ export default function EvidenceDashboardCard({
                 {/* Charge */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span style={{ color: "var(--cs-text-secondary)" }}>Isoelectric Charge Index</span>
+                    <span style={{ color: "var(--cs-text-secondary)", cursor: "help" }} title="Normalized scale: 0 = negative, 50 = neutral, 100 = positive">Isoelectric Charge Index ⓘ</span>
                     <span className="font-bold">{wtProp.charge} → {mutProp.charge}</span>
                   </div>
                   {renderContrastBar(wtProp.charge, mutProp.charge)}

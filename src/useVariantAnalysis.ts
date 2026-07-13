@@ -55,7 +55,8 @@ export const analyzeVariantResponseSchema = z.object({
       )
     })),
     trait: z.string(),
-    uid: z.string().nullable()
+    uid: z.string().nullable(),
+    hasOtherPathogenicVariantSameAA: z.boolean().optional()
   }).nullable().optional(),
   metadata: z.object({
     gene: z.string(),
@@ -65,7 +66,8 @@ export const analyzeVariantResponseSchema = z.object({
     wildType: z.string(),
     mutant: z.string(),
     pdbId: z.string().nullable().optional(),
-    pdbSource: z.string().nullable().optional()
+    pdbSource: z.string().nullable().optional(),
+    sequence: z.string().nullable().optional()
   }),
   predictorData: z.object({
     available: z.boolean(),
@@ -211,30 +213,7 @@ import { useSearchHistory } from "./hooks/useSearchHistory";
 import { useBiophysicalModeling } from "./hooks/useBiophysicalModeling";
 import { usePredictorData } from "./hooks/usePredictorData";
 import { useClinicalEvidence } from "./hooks/useClinicalEvidence";
-export function computeConsensusVerdict(energetics: Partial<EnergeticsData> | null): string {
-  if (!energetics) return "Low-Risk (Neutral Stability)";
-  const foldxMean = energetics.foldxMean ?? energetics.foldx ?? null;
-  const dynamut2 = energetics.dynamut2 ?? null;
-  const ddmut = energetics.ddmut ?? null;
-  const rasp = energetics.rasp ?? null;
-  const ddgun = energetics.ddgun ?? null;
-
-  const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-  const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
-  const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-  const raspDestab = rasp !== null && rasp <= -1.0;
-  const ddgunDestab = ddgun !== null && ddgun <= -1.0;
-
-  const destabCount = [foldxDestab, dynamutDestab, ddmutDestab, raspDestab, ddgunDestab].filter(Boolean).length;
-  const availableCount = [foldxMean, dynamut2, ddmut, rasp, ddgun].filter(v => v !== null).length;
-
-  if (destabCount >= 2) {
-    return "High-Risk Destabilizing (Consensus)";
-  } else if (destabCount === 1 && availableCount >= 2) {
-    return "Moderate-Risk Conflicting Stability";
-  }
-  return "Low-Risk (Neutral Stability)";
-}
+import { computeConsensusVerdict } from "./shared/thresholds";
 
 export function buildEnergeticsQueryString(energetics: EnergeticsData | null): string {
   if (!energetics) return "";
@@ -691,6 +670,19 @@ export default function useVariantAnalysis() {
     fetchPocketInfo
   } = biophysical;
 
+  const currentGeneRef = useRef(gene);
+  const currentVariantRef = useRef(variant);
+  const currentCompareVariantRef = useRef(compareVariant);
+  const foldingEnergeticsRef = useRef(foldingEnergetics);
+  const compareFoldingEnergeticsRef = useRef(compareFoldingEnergetics);
+  useEffect(() => {
+    currentGeneRef.current = gene;
+    currentVariantRef.current = variant;
+    currentCompareVariantRef.current = compareVariant;
+    foldingEnergeticsRef.current = foldingEnergetics;
+    compareFoldingEnergeticsRef.current = compareFoldingEnergetics;
+  }, [gene, variant, compareVariant, foldingEnergetics, compareFoldingEnergetics]);
+
   const predictor = usePredictorData();
   const {
     analysisState, setAnalysisState,
@@ -873,7 +865,7 @@ export default function useVariantAnalysis() {
     }
   };
 
-  const executeAnalysis = async (targetGene: string, targetVariant: string, targetUniprot: string, signal?: AbortSignal) => {
+  const executeAnalysis = async (targetGene: string, targetVariant: string, targetUniprot: string, signal?: AbortSignal, originalNotation?: string) => {
     try {
       parseMutationResidues(targetVariant);
     } catch (err: any) {
@@ -1040,7 +1032,8 @@ export default function useVariantAnalysis() {
           variant: targetVariant,
           uniprotId: targetUniprot,
           userDirections: userDirections || undefined,
-          acmgWeighting: settings.acmgWeighting
+          acmgWeighting: settings.acmgWeighting,
+          originalNotation: originalNotation || undefined
         }),
         signal: activeSignal
       });
@@ -1169,7 +1162,8 @@ export default function useVariantAnalysis() {
               stringInteractions: validatedData.stringInteractions,
               gnomadConstraint: validatedData.gnomadConstraint,
               gnomadFrequency: validatedData.gnomadFrequency,
-              uniprotFeatures: validatedData.uniprotFeatures
+              uniprotFeatures: validatedData.uniprotFeatures,
+              sequence: validatedData.metadata?.sequence || null
             }),
             signal: activeSignal
           });
@@ -1190,6 +1184,8 @@ export default function useVariantAnalysis() {
                   analysis: narrativeData.analysis,
                   insights: {
                     ...prevInsights,
+                    biochemicalShift: narrativeData.insights?.biochemicalShift || prevInsights.biochemicalShift || "",
+                    structuralImpact: narrativeData.insights?.structuralImpact || prevInsights.structuralImpact || "",
                     acmgCriteria: narrativeData.insights?.acmgCriteria || [],
                     acmgVerdict: narrativeData.insights?.acmgVerdict || prev.result.ruleBasedInsights?.acmgVerdict || "",
                     partialEvidence: narrativeData.insights?.partialEvidence || prev.result.ruleBasedInsights?.partialEvidence,
@@ -1578,9 +1574,14 @@ export default function useVariantAnalysis() {
         addNotification("info", `DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
         const poll = async () => {
+          if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+            clearDynaMutPoll();
+            return;
+          }
           attempts++;
+          let finished = false;
           try {
-            const queryStr = buildEnergeticsQueryString(foldingEnergetics);
+            const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current);
             const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}?${queryStr}`, {
               method: "GET",
               signal: activeSignal
@@ -1593,6 +1594,10 @@ export default function useVariantAnalysis() {
               throw new Error(`Poll request failed (status: ${pollRes.status})`);
             }
             const pollData = await pollRes.json();
+            if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+              clearDynaMutPoll();
+              return;
+            }
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setFoldingEnergetics(prev => {
                 const base = prev || {
@@ -1612,10 +1617,12 @@ export default function useVariantAnalysis() {
               setDynamut2Status("done");
               clearDynaMutPoll();
               addNotification("success", `DynaMut2 prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+              finished = true;
             } else if (pollData.status === "ERROR") {
               setDynamut2Status("unavailable");
               clearDynaMutPoll();
               addNotification("error", `DynaMut2 prediction failed for ${targetGene} ${targetVariant}.`);
+              finished = true;
             }
           } catch (pollErr: any) {
             if (activeSignal?.aborted) return;
@@ -1623,9 +1630,10 @@ export default function useVariantAnalysis() {
             setDynamut2Status("unavailable");
             clearDynaMutPoll();
             addNotification("error", `DynaMut2 polling encountered an error: ${pollErr.message || pollErr}.`);
+            finished = true;
           }
           
-          if (attempts >= maxAttempts) {
+          if (!finished && attempts >= maxAttempts) {
             setDynamut2Status("unavailable");
             clearDynaMutPoll();
             addNotification("error", `DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
@@ -1644,9 +1652,14 @@ export default function useVariantAnalysis() {
         addNotification("info", `DDMut calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
         const poll = async () => {
+          if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+            clearDdmutPoll();
+            return;
+          }
           attempts++;
+          let finished = false;
           try {
-            const queryStr = buildEnergeticsQueryString(foldingEnergetics);
+            const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current);
             const pollRes = await fetchWithAuth(`/api/v1/ddmut-job/${jobId}?${queryStr}`, {
               method: "GET",
               signal: activeSignal
@@ -1659,6 +1672,10 @@ export default function useVariantAnalysis() {
               throw new Error(`Poll request failed (status: ${pollRes.status})`);
             }
             const pollData = await pollRes.json();
+            if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+              clearDdmutPoll();
+              return;
+            }
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setFoldingEnergetics(prev => {
                 const base = prev || {
@@ -1678,10 +1695,12 @@ export default function useVariantAnalysis() {
               setDdmutStatus("done");
               clearDdmutPoll();
               addNotification("success", `DDMut prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+              finished = true;
             } else if (pollData.status === "ERROR") {
               setDdmutStatus("unavailable");
               clearDdmutPoll();
               addNotification("error", `DDMut prediction failed for ${targetGene} ${targetVariant}.`);
+              finished = true;
             }
           } catch (pollErr: any) {
             if (activeSignal?.aborted) return;
@@ -1689,9 +1708,10 @@ export default function useVariantAnalysis() {
             setDdmutStatus("unavailable");
             clearDdmutPoll();
             addNotification("error", `DDMut polling encountered an error: ${pollErr.message || pollErr}.`);
+            finished = true;
           }
           
-          if (attempts >= maxAttempts) {
+          if (!finished && attempts >= maxAttempts) {
             setDdmutStatus("unavailable");
             clearDdmutPoll();
             addNotification("error", `DDMut prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
@@ -1825,9 +1845,14 @@ export default function useVariantAnalysis() {
         addNotification("info", `Comparison DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
         const poll = async () => {
+          if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
+            clearDynaMutComparePoll();
+            return;
+          }
           attempts++;
+          let finished = false;
           try {
-            const queryStr = buildEnergeticsQueryString(compareFoldingEnergetics);
+            const queryStr = buildEnergeticsQueryString(compareFoldingEnergeticsRef.current);
             const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}?${queryStr}`, {
               method: "GET",
               signal: activeSignal
@@ -1840,6 +1865,10 @@ export default function useVariantAnalysis() {
               throw new Error(`Poll request failed (status: ${pollRes.status})`);
             }
             const pollData = await pollRes.json();
+            if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
+              clearDynaMutComparePoll();
+              return;
+            }
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setCompareFoldingEnergetics(prev => {
                 const base = prev || {
@@ -1859,10 +1888,12 @@ export default function useVariantAnalysis() {
               setCompareDynamut2Status("done");
               clearDynaMutComparePoll();
               addNotification("success", `Comparison DynaMut2 prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+              finished = true;
             } else if (pollData.status === "ERROR") {
               setCompareDynamut2Status("unavailable");
               clearDynaMutComparePoll();
               addNotification("error", `Comparison DynaMut2 prediction failed for ${targetGene} ${targetVariant}.`);
+              finished = true;
             }
           } catch (pollErr: any) {
             if (activeSignal?.aborted) return;
@@ -1870,9 +1901,10 @@ export default function useVariantAnalysis() {
             setCompareDynamut2Status("unavailable");
             clearDynaMutComparePoll();
             addNotification("error", `Comparison DynaMut2 polling encountered an error: ${pollErr.message || pollErr}.`);
+            finished = true;
           }
           
-          if (attempts >= maxAttempts) {
+          if (!finished && attempts >= maxAttempts) {
             setCompareDynamut2Status("unavailable");
             clearDynaMutComparePoll();
             addNotification("error", `Comparison DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
@@ -1891,9 +1923,14 @@ export default function useVariantAnalysis() {
         addNotification("info", `Comparison DDMut calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
         const poll = async () => {
+          if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
+            clearDdmutComparePoll();
+            return;
+          }
           attempts++;
+          let finished = false;
           try {
-            const queryStr = buildEnergeticsQueryString(compareFoldingEnergetics);
+            const queryStr = buildEnergeticsQueryString(compareFoldingEnergeticsRef.current);
             const pollRes = await fetchWithAuth(`/api/v1/ddmut-job/${jobId}?${queryStr}`, {
               method: "GET",
               signal: activeSignal
@@ -1906,6 +1943,10 @@ export default function useVariantAnalysis() {
               throw new Error(`Poll request failed (status: ${pollRes.status})`);
             }
             const pollData = await pollRes.json();
+            if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
+              clearDdmutComparePoll();
+              return;
+            }
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setCompareFoldingEnergetics(prev => {
                 const base = prev || {
@@ -1925,10 +1966,12 @@ export default function useVariantAnalysis() {
               setCompareDdmutStatus("done");
               clearDdmutComparePoll();
               addNotification("success", `Comparison DDMut prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+              finished = true;
             } else if (pollData.status === "ERROR") {
               setCompareDdmutStatus("unavailable");
               clearDdmutComparePoll();
               addNotification("error", `Comparison DDMut prediction failed for ${targetGene} ${targetVariant}.`);
+              finished = true;
             }
           } catch (pollErr: any) {
             if (activeSignal?.aborted) return;
@@ -1936,9 +1979,10 @@ export default function useVariantAnalysis() {
             setCompareDdmutStatus("unavailable");
             clearDdmutComparePoll();
             addNotification("error", `Comparison DDMut polling encountered an error: ${pollErr.message || pollErr}.`);
+            finished = true;
           }
           
-          if (attempts >= maxAttempts) {
+          if (!finished && attempts >= maxAttempts) {
             setCompareDdmutStatus("unavailable");
             clearDdmutComparePoll();
             addNotification("error", `Comparison DDMut prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
@@ -2001,7 +2045,7 @@ export default function useVariantAnalysis() {
         const resMatch = resolved.variant.match(/\d+/);
         setSelectedResidueIndex(resMatch ? parseInt(resMatch[0], 10) : null);
         
-        executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal);
+        executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal, targetVariant);
       } catch (err: any) {
         if (activeSignal.aborted) return;
         setAnalysisState({
@@ -2039,7 +2083,7 @@ export default function useVariantAnalysis() {
       } else {
         setSelectedResidueIndex(null);
       }
-      executeAnalysis(targetGene, targetVariant, targetUniprot, activeSignal);
+      executeAnalysis(targetGene, targetVariant, targetUniprot, activeSignal, undefined);
       return;
     }
 
@@ -2087,7 +2131,7 @@ export default function useVariantAnalysis() {
         setSelectedResidueIndex(null);
       }
 
-      executeAnalysis(targetGene, targetVariant, resolvedUniprot, activeSignal);
+      executeAnalysis(targetGene, targetVariant, resolvedUniprot, activeSignal, undefined);
     } catch (err: any) {
       if (activeSignal.aborted) {
         console.log("handleSearchSubmit custom search aborted.");

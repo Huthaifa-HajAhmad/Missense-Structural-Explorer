@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { EnergeticsData, StructuralDiffResult, PocketResult, UserSettings } from "../types";
-import { buildEnergeticsQueryString, computeConsensusVerdict } from "../useVariantAnalysis";
+import { buildEnergeticsQueryString } from "../useVariantAnalysis";
+import { computeConsensusVerdict } from "../shared/thresholds";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 
 export function useBiophysicalModeling(
