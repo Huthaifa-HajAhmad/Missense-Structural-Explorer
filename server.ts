@@ -77,6 +77,18 @@ async function startServer() {
   // Mount versioned API router
   app.use("/api/v1", apiRouter);
 
+  // Global Express JSON error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[Global Error Handler]:", err);
+    const status = err.status || err.statusCode || 500;
+    res.status(status).json({
+      error: {
+        message: err.message || "An internal server error occurred.",
+        code: err.code || "INTERNAL_SERVER_ERROR"
+      }
+    });
+  });
+
   // Vite middleware for development / Static assets serving for production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -102,6 +114,21 @@ async function startServer() {
     if (modelServerProcess) {
       console.log("[Shutdown] Terminating model server sidecar...");
       modelServerProcess.kill();
+    }
+
+    // Abort all active background tasks in routes.ts (graceful shutdown)
+    try {
+      const { activeBackgroundTasks } = await import("./server/routes.ts");
+      if (activeBackgroundTasks && activeBackgroundTasks.length > 0) {
+        console.log(`[Shutdown] Aborting ${activeBackgroundTasks.length} background pre-warm tasks...`);
+        for (const task of activeBackgroundTasks) {
+          task.controller.abort();
+        }
+        await Promise.allSettled(activeBackgroundTasks.map(t => t.promise));
+        console.log("[Shutdown] All background pre-warm tasks completed/aborted.");
+      }
+    } catch (taskErr: any) {
+      console.error("[Shutdown Warning] Failed to abort background tasks:", taskErr.message);
     }
 
     serverInstance.close(async () => {

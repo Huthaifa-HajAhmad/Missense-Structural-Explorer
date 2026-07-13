@@ -4,14 +4,9 @@ import fs from "fs";
 import crypto from "crypto";
 
 export function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // Perform a dummy comparison to mitigate timing leaks
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
+  const hashA = crypto.createHash("sha256").update(a).digest();
+  const hashB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(hashA, hashB) && a === b;
 }
 
 export class Semaphore {
@@ -52,6 +47,8 @@ export class Semaphore {
   }
 
   release(): void {
+    // NOTE: activeCount-- must happen before next.resolve() is called,
+    // as next.resolve() (which triggers onAcquire) will immediately increment activeCount again.
     this.activeCount--;
     if (this.queue.length > 0) {
       const next = this.queue.shift();
@@ -216,8 +213,11 @@ export interface SessionPayload {
  * Output format: "ivBase64:ciphertextBase64:tagBase64"
  */
 export function encryptSession(payload: SessionPayload, secret: string): string {
-  // Derive a key of exactly 32 bytes from the secret string via PBKDF2
-  const key = crypto.pbkdf2Sync(secret, "session-secret-salt-string", 10000, 32, "sha256");
+  // Derive a key of exactly 32 bytes from the secret string via PBKDF2, using a derived salt.
+  // 10,000 iterations are selected to balance cryptographic strength against CPU denial of service (DoS) risks
+  // since this key derivation executes on session verification for incoming requests.
+  const salt = crypto.createHmac("sha256", secret).update("missense-resolve-pbkdf2-salt").digest();
+  const key = crypto.pbkdf2Sync(secret, salt, 10000, 32, "sha256");
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   
@@ -240,7 +240,11 @@ export function decryptSession(token: string, secret: string): SessionPayload | 
     if (parts.length !== 3) return undefined;
     const [ivB64, ciphertextB64, tagB64] = parts;
     
-    const key = crypto.pbkdf2Sync(secret, "session-secret-salt-string", 10000, 32, "sha256");
+    // Derive a key of exactly 32 bytes from the secret string via PBKDF2, using a derived salt.
+    // 10,000 iterations are selected to balance cryptographic strength against CPU denial of service (DoS) risks
+    // since this key derivation executes on session verification for incoming requests.
+    const salt = crypto.createHmac("sha256", secret).update("missense-resolve-pbkdf2-salt").digest();
+    const key = crypto.pbkdf2Sync(secret, salt, 10000, 32, "sha256");
     const iv = Buffer.from(ivB64, "base64");
     const ciphertext = Buffer.from(ciphertextB64, "base64");
     const tag = Buffer.from(tagB64, "base64");

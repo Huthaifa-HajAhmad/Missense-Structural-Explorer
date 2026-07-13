@@ -92,7 +92,7 @@ The variant is registered in ClinVar with:
 - Review Status: ${clinvar.reviewStatus}
 - Trait(s): ${clinvar.trait}
 - Allele Frequencies: ${JSON.stringify(clinvar.alleleFrequencies)}
-Please use this database grounding to inform your pathogenicity assessment and ACMG criteria selection. Do not select criteria that contradict this known clinical evidence.
+Please use this database grounding to inform your pathogenicity assessment and ACMG criteria selection. Consider ClinVar as one evidence source among many, resolving conflicts using structural and predictor data.
 `;
   }
 
@@ -196,13 +196,16 @@ Suggest 2-3 specific features for the clinical investigator to look for in the 3
 - Is this residue solvent-exposed (surface) or buried (core)?
 - Is it near a known active site, interface, or lipid-membrane anchoring boundary?
 For the structured report fields, provide compact, precise, and expert descriptions.
+In the "biochemicalShift" JSON field, provide a compact biophysical summary of the chemical property changes (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.').
+In the "structuralImpact" JSON field, provide a compact biophysical summary of the structural impact (e.g., 'Disrupts salt bridge at interface, likely causing tertiary fold destabilization.').
+
 [ACMG CRITERIA SELECTION RULE]:
 Only select valid ACMG/AMP criteria codes from the following whitelist: PVS1, PS1, PS2, PS3, PS4, PM1, PM2, PM3, PM4, PM5, PM6, PP1, PP2, PP3, PP4, BA1, BS1, BS2, BS3, BS4, BP1, BP2, BP3, BP4, BP5, BP7.
 DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working group due to significant double-counting risks and clinical safety concerns.
 `;
 
 
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
   const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
 
@@ -234,6 +237,14 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
                   type: Type.STRING,
                   description: "Highly detailed clinical and biophysical analysis of this mutation under the specified markdown headers. Must be formatted in markdown."
                 },
+                biochemicalShift: {
+                  type: Type.STRING,
+                  description: "Compact biophysical report on the chemical change of properties (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.')"
+                },
+                structuralImpact: {
+                  type: Type.STRING,
+                  description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Disrupts salt bridge at interface, likely causing tertiary fold destabilization.')"
+                },
                 plausibility: {
                   type: Type.STRING,
                   description: "Clinical plausibility statement explaining why the variant might be plausibly pathogenic or benign based on gathered evidence. E.g., 'Plausibly pathogenic because of [reasons]'"
@@ -250,7 +261,7 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
                   }
                 }
               },
-              required: ["analysis", "plausibility", "acmgCriteria"]
+              required: ["analysis", "biochemicalShift", "structuralImpact", "plausibility", "acmgCriteria"]
             }
           }
         }, {
@@ -393,7 +404,7 @@ Generate a JSON object with:
 - structuralImpact: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
 `;
 
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
   const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
 
@@ -440,11 +451,38 @@ Generate a JSON object with:
         throw err;
       });
 
-      if (!response?.text) {
-        throw new Error("Empty response returned from Gemini API");
+      const cleanedText = response.text.trim();
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(cleanedText);
+      } catch (err: any) {
+        console.warn("[Gemini Biophysical JSON Parse Failure] Direct parsing failed. Trying regex recovery.");
+        
+        let jsonMatch = cleanedText.match(/```json\s*([\s\S]*?)\s*```/);
+        let candidate = jsonMatch ? jsonMatch[1].trim() : cleanedText;
+        
+        try {
+          parsed = JSON.parse(candidate);
+        } catch (err2: any) {
+          const firstCurly = candidate.indexOf("{");
+          const lastCurly = candidate.lastIndexOf("}");
+          if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
+            try {
+              parsed = JSON.parse(candidate.slice(firstCurly, lastCurly + 1));
+            } catch (err3) {
+              console.error("[Gemini Biophysical JSON Recovery Failed] Could not recover JSON.");
+            }
+          }
+        }
       }
 
-      const parsed = JSON.parse(response.text.trim());
+      if (!parsed) {
+        return {
+          biochemicalShift: "Biochemical shift details unavailable due to output decoding error.",
+          structuralImpact: "Structural impact details unavailable due to output decoding error."
+        };
+      }
+
       return parsed;
 
     } catch (err: any) {
