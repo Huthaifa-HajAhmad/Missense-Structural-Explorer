@@ -1,13 +1,13 @@
 {
-  "name": "react-example",
+  "name": "missense-resolve",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -28,7 +28,6 @@
     "react-dom": "^19.0.1",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
-    "vite": "^6.2.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -42,8 +41,11 @@
     "sass": "^1.101.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
+    "typescript": "^7.0.2",
     "vite": "^6.2.3",
     "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
