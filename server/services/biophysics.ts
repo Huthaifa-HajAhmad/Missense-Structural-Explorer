@@ -3,6 +3,9 @@ import fs from "fs";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import crypto from "crypto";
+import readline from "readline";
+import { Readable } from "stream";
+import { finished } from "stream/promises";
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { validateUniProt, Semaphore } from "../utils.ts";
@@ -514,39 +517,17 @@ export function determineLikelyCofactor(typesCount: Record<string, number>): str
   return "Organic substrates / Substrate cavity";
 }
 
-export class ConcurrencySemaphore {
-  private activeCount = 0;
-  private queue: (() => void)[] = [];
-  constructor(private maxConcurrency: number) {}
-  async acquire(): Promise<void> {
-    if (this.activeCount < this.maxConcurrency) {
-      this.activeCount++;
-      return;
-    }
-    return new Promise<void>(resolve => {
-      this.queue.push(resolve);
-    });
-  }
-  release(): void {
-    if (this.queue.length > 0) {
-      const next = this.queue.shift();
-      if (next) next();
-    } else {
-      this.activeCount--;
-    }
-  }
-}
-
 const biophysicalConcurrency = process.env.BIOPHYSICAL_CONCURRENCY 
   ? parseInt(process.env.BIOPHYSICAL_CONCURRENCY, 10) 
   : 2;
-const foldxSemaphore = new ConcurrencySemaphore(biophysicalConcurrency);
+const foldxSemaphore = new Semaphore(biophysicalConcurrency);
 
 export async function generateMutantPdb(
   wtPdb: string,
   validatedMutation: string,
   uniprotId: string | undefined,
-  jobDir: string
+  jobDir: string,
+  signal?: AbortSignal
 ): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const pdbHash = crypto.createHash("sha256").update(wtPdb).digest("hex");
   const cacheKey = `${pdbHash}_${validatedMutation}`;
@@ -560,7 +541,7 @@ export async function generateMutantPdb(
   
   await foldxSemaphore.acquire();
   try {
-    const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir);
+    const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, signal);
     mutantCache.set(cacheKey, result);
     return result;
   } finally {
@@ -617,7 +598,8 @@ async function generateMutantPdbInternal(
   wtPdb: string,
   validatedMutation: string,
   uniprotId: string | undefined,
-  jobDir: string
+  jobDir: string,
+  signal?: AbortSignal
 ): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success" | "scwrl"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const fullWtPath = path.join(jobDir, "wt.pdb");
   const fullMutPath = path.join(jobDir, "individual_list.txt");
@@ -718,7 +700,8 @@ async function generateMutantPdbInternal(
         "--pdb=wt.pdb"
       ], {
         timeout: 45000,
-        cwd: jobDir
+        cwd: jobDir,
+        signal
       });
       const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
       if (fs.existsSync(repairedPdbPath)) {
@@ -727,6 +710,10 @@ async function generateMutantPdbInternal(
       }
     } catch (repairErr: any) {
       console.warn(`[Biophysical Modeling] RepairPDB warning (failed or skipped):`, repairErr.message);
+    }
+
+    if (signal?.aborted) {
+      throw new Error("Aborted");
     }
 
     // 2. Run FoldX BuildModel with 3 stochastic runs (BIO-10)
@@ -738,7 +725,8 @@ async function generateMutantPdbInternal(
       "--numberOfRuns=3"
     ], {
       timeout: 60000,
-      cwd: jobDir
+      cwd: jobDir,
+      signal
     });
 
     console.log(`[FoldX STDOUT]:`, stdout.slice(0, 300));
@@ -1374,7 +1362,7 @@ export async function runEsm2Eval(
   wt: string,
   mut: string
 ): Promise<{ llr: number; verdict: string } | null> {
-  const cacheKey = `${seq.length}_${pos}_${wt}_mut`;
+  const cacheKey = `${seq.length}_${pos}_${wt}_${mut}`;
   const cached = esm2Cache.get(cacheKey);
   if (cached !== undefined) return cached;
 
@@ -1910,12 +1898,146 @@ export async function runDdgunSeq(wtLetter: string, mutLetter: string, sequence:
   }
 }
 
-const raspCache = new Map<string, number | null>();
+const raspCache = new LRUCache<string, { score: number | null; isSurrogate: boolean }>({ max: 200 });
+
+async function createRaspIndex(csvPath: string): Promise<void> {
+  const indexPath = csvPath.replace(".csv", ".index.json");
+  const index: Record<string, number> = {};
+  
+  return new Promise((resolve, reject) => {
+    const stream = fs.createReadStream(csvPath);
+    const rl = readline.createInterface({ input: stream });
+    let byteOffset = 0;
+    let currentUniprot = "";
+    
+    rl.on("line", (line) => {
+      const commaIdx = line.indexOf(",");
+      if (commaIdx !== -1) {
+        const uniprot = line.slice(0, commaIdx).trim();
+        if (uniprot && uniprot !== currentUniprot && uniprot !== "uniprot_id") {
+          index[uniprot] = byteOffset;
+          currentUniprot = uniprot;
+        }
+      }
+      byteOffset += Buffer.byteLength(line) + 1; // +1 for the newline character
+    });
+
+    rl.on("close", () => {
+      try {
+        fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
+        console.log(`[RaSP] Created lookup index with ${Object.keys(index).length} proteins.`);
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    rl.on("error", (err) => reject(err));
+  });
+}
+
+async function downloadRaspDatabase(csvPath: string): Promise<void> {
+  const dataDir = path.dirname(csvPath);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  console.log("[RaSP] Querying Zenodo for human proteome database links...");
+  const metadataRes = await fetch("https://zenodo.org/api/records/6835877");
+  if (!metadataRes.ok) {
+    throw new Error(`Failed to query Zenodo metadata: ${metadataRes.statusText}`);
+  }
+  const metadata = await metadataRes.json();
+  const fileInfo = metadata.files.find((f: any) => (f.key || f.filename) === "df_rasp_gnomad_clinvar.csv");
+  if (!fileInfo) {
+    throw new Error("Could not find df_rasp_gnomad_clinvar.csv in Zenodo record.");
+  }
+
+  const downloadUrl = fileInfo.links.self || fileInfo.links.download;
+  console.log(`[RaSP] Downloading human proteome database from Zenodo (size: ${(fileInfo.size / 1024 / 1024).toFixed(1)} MB)...`);
+  
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download database: ${response.statusText}`);
+  }
+
+  const fileStream = fs.createWriteStream(csvPath);
+  // @ts-ignore
+  await finished(Readable.fromWeb(response.body).pipe(fileStream));
+  console.log("[RaSP] Download complete. Creating byte-offset index...");
+  await createRaspIndex(csvPath);
+}
+
+let raspIndex: Record<string, number> | null = null;
+
+function loadRaspIndex(csvPath: string): Record<string, number> {
+  if (raspIndex) return raspIndex;
+  const indexPath = csvPath.replace(".csv", ".index.json");
+  if (fs.existsSync(indexPath)) {
+    try {
+      raspIndex = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+      return raspIndex!;
+    } catch (err) {
+      console.warn("[RaSP] Failed to parse index file, recreating...", err);
+    }
+  }
+  return {};
+}
+
+export async function lookupPrecomputedRaspScore(
+  uniprotId: string,
+  pos: number,
+  wt: string,
+  mut: string
+): Promise<number | null> {
+  const csvPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
+  if (!fs.existsSync(csvPath)) {
+    await downloadRaspDatabase(csvPath);
+  }
+
+  const index = loadRaspIndex(csvPath);
+  const offset = index[uniprotId];
+  if (offset === undefined) {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[RaSP] Protein ${uniprotId} not found in human database.`);
+    }
+    return null;
+  }
+
+  const wt1 = wt.length === 3 ? AMINO_ACID_3_TO_1[wt.toUpperCase()] || wt : wt;
+  const mut1 = mut.length === 3 ? AMINO_ACID_3_TO_1[mut.toUpperCase()] || mut : mut;
+  const targetVariant = `${wt1}${pos}${mut1}`;
+
+  return new Promise((resolve) => {
+    const stream = fs.createReadStream(csvPath, { start: offset });
+    const rl = readline.createInterface({ input: stream });
+    let foundScore: number | null = null;
+
+    rl.on("line", (line) => {
+      const parts = line.split(",");
+      const currentUniprot = parts[0];
+      if (currentUniprot !== uniprotId) {
+        rl.close();
+        return;
+      }
+      if (parts[4] === targetVariant) {
+        const score = parseFloat(parts[5]);
+        if (!isNaN(score)) {
+          foundScore = score;
+        }
+        rl.close();
+      }
+    });
+
+    rl.on("close", () => {
+      stream.destroy();
+      resolve(foundScore);
+    });
+  });
+}
 
 /**
- * Runs the local RaSP stability predictor via the Python sidecar.
- * RaSP uses ESM-IF1 structural embeddings + a pre-trained MLP head to
- * predict ΔΔG (kcal/mol).
+ * Runs the local RaSP stability predictor via the Python sidecar or looks up precomputed human proteome.
  * Sign convention: negative = destabilizing (matching DynaMut2/DDMut).
  */
 export async function runRaspLocal(
@@ -1924,60 +2046,29 @@ export async function runRaspLocal(
   chain: string,
   pos: number,
   wtAa: string,
-  mutAa: string
-): Promise<number | null> {
-  const cacheKey = `${wtPdbPath}|${mutPdbPath}|${chain}|${pos}|${wtAa}|${mutAa}`;
-  if (raspCache.has(cacheKey)) return raspCache.get(cacheKey) ?? null;
+  mutAa: string,
+  uniprotId?: string | null
+): Promise<{ score: number; isSurrogate: boolean } | null> {
+  const cacheKey = `${uniprotId ?? ""}|${wtPdbPath}|${mutPdbPath}|${chain}|${pos}|${wtAa}|${mutAa}`;
+  const cached = raspCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached.score !== null ? { score: cached.score, isSurrogate: cached.isSurrogate } : null;
+  }
 
-  // Try HTTP first
-  try {
-    const res = await fetch("http://127.0.0.1:8000/predict/rasp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        wt_pdb_path: wtPdbPath,
-        mut_pdb_path: mutPdbPath,
-        chain,
-        pos,
-        wt_aa: wtAa,
-        mut_aa: mutAa
-      })
-    });
-    if (res.ok) {
-      const parsed = await res.json();
-      if (parsed.status === "success" && typeof parsed.ddG === "number") {
-        raspCache.set(cacheKey, parsed.ddG);
-        return parsed.ddG;
+  if (uniprotId) {
+    try {
+      const precomputed = await lookupPrecomputedRaspScore(uniprotId, pos, wtAa, mutAa);
+      if (precomputed !== null) {
+        const resObj = { score: precomputed, isSurrogate: false };
+        raspCache.set(cacheKey, resObj);
+        return resObj;
       }
-    }
-  } catch (err: any) {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[RaSP] Model server is offline or error: ${err.message}. Falling back to CLI subprocess.`);
+    } catch (err: any) {
+      console.warn(`[RaSP] Precomputed database lookup failed for ${uniprotId}:`, err.message);
     }
   }
 
-  const pythonScript = path.join(process.cwd(), "tools", "rasp", "predict_rasp.py");
-  if (!fs.existsSync(pythonScript)) {
-    console.warn(`[RaSP] Python sidecar not found at: ${pythonScript}.`);
-    return null;
-  }
-  try {
-    const { stdout } = await execFileAsync(
-      "python",
-      ["-m", "uv", "run", pythonScript, wtPdbPath, mutPdbPath, chain, pos.toString(), wtAa, mutAa],
-      { timeout: 120000 } // RaSP uses ESM-IF1 which can be slow on CPU
-    );
-    const parsed = JSON.parse(stdout.trim());
-    if (parsed.status === "success" && typeof parsed.ddG === "number") {
-      raspCache.set(cacheKey, parsed.ddG);
-      return parsed.ddG;
-    }
-    console.warn(`[RaSP] Predictor returned error or invalid format:`, parsed);
-    raspCache.set(cacheKey, null);
-    return null;
-  } catch (err: any) {
-    console.warn(`[RaSP] Process execution failed:`, err.message);
-    return null;
-  }
+  raspCache.set(cacheKey, { score: null, isSurrogate: false });
+  return null;
 }
 
