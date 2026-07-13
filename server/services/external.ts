@@ -133,6 +133,7 @@ export interface ClinVarData {
   alleleFrequencies: { source: string; value: any }[];
   trait: string;
   uid: string | null;
+  hasOtherPathogenicVariantSameAA?: boolean;
 }
 
 const clinvarSearchResponseSchema = z.object({
@@ -188,13 +189,19 @@ const myVariantResponseSchema = z.object({
       "gerp++": z.any().optional(),
       phylop: z.any().optional(),
       bayesdel_noaf_score: z.any().optional(),
-      bayesdel: z.any().optional()
+      bayesdel: z.any().optional(),
+      hgvsp: z.any().optional()
     }).optional()
   })).optional()
 });
 
-export async function fetchClinVarData(gene: string, variant: string): Promise<ClinVarData> {
-  const cacheKey = `${gene}_${variant}`;
+function getCodingNotation(title: string): string | null {
+  const match = title.match(/(c\.[^\s(]+)/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+export async function fetchClinVarData(gene: string, variant: string, originalNotation?: string): Promise<ClinVarData> {
+  const cacheKey = `${gene}_${variant}_${originalNotation || ""}`;
   const cached = clinvarCache.get(cacheKey);
   if (cached) return cached;
 
@@ -204,7 +211,8 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
     reviewStatus: "",
     alleleFrequencies: [],
     trait: "",
-    uid: null
+    uid: null,
+    hasOtherPathogenicVariantSameAA: false
   };
   
   const normGene = normalizeGeneSymbol(gene);
@@ -226,7 +234,7 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
   const searchData = clinvarSearchResponseSchema.parse(searchJson);
   const idList = searchData.esearchresult?.idlist || [];
   if (idList.length === 0) {
-    clinvarCache.set(cacheKey, defaultRes);
+    clinvarCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
     return defaultRes;
   }
   
@@ -260,12 +268,13 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
     return null;
   })();
 
+  // Match entries to queryNorm first
+  const matchingEntries: { id: string; entry: any; cleanTitle: string }[] = [];
   for (const id of idList) {
     const entry = resultObj[id];
     if (!entry) continue;
     
     const title = (entry.title || "").toLowerCase();
-    
     let isMatch = false;
     if (queryNorm) {
       const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}/g);
@@ -293,8 +302,6 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
           }
         }
       }
-
-      // Fallback: check exact word boundary substring match to handle titles without p. notation
       if (!isMatch) {
         const cleanVariant = variant.replace(/^p\./i, "").toLowerCase();
         const escaped = cleanVariant.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -304,32 +311,65 @@ export async function fetchClinVarData(gene: string, variant: string): Promise<C
         }
       }
     }
-    
     if (isMatch) {
-      const classification = entry.germline_classification?.description || "Unknown";
-      const lastEvaluated = entry.germline_classification?.last_evaluated || "";
-      const reviewStatus = entry.germline_classification?.review_status || "";
-      const traits = (entry.germline_classification?.trait_set || []).map((t: any) => t.trait_name || "").filter(Boolean).join(", ");
-      
-      const alleleFrequencies = (entry.allele_freq_set || []).map((freq: any) => ({
-        source: freq.source || "Unknown",
-        value: freq.value !== undefined ? freq.value : null
-      }));
-      
-      const resVal = {
-        classification,
-        lastEvaluated,
-        reviewStatus,
-        alleleFrequencies,
-        trait: traits,
-        uid: id
-      };
-      clinvarCache.set(cacheKey, resVal);
-      return resVal;
+      matchingEntries.push({ id, entry, cleanTitle: title });
     }
   }
-  clinvarCache.set(cacheKey, defaultRes);
-  return defaultRes;
+
+  if (matchingEntries.length === 0) {
+    clinvarCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
+    return defaultRes;
+  }
+
+  // Find user's specific matched entry
+  let matchedIdx = 0;
+  if (originalNotation) {
+    const cleanNotation = originalNotation.trim().toLowerCase();
+    const idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
+    if (idx !== -1) {
+      matchedIdx = idx;
+    }
+  }
+
+  const { id: matchedId, entry: matchedEntry } = matchingEntries[matchedIdx];
+  const matchedTitle = matchingEntries[matchedIdx].cleanTitle;
+  const matchedC = getCodingNotation(matchedTitle);
+
+  // Check if there is another entry that is pathogenic/likely pathogenic
+  let hasOtherPathogenicVariantSameAA = false;
+  for (let i = 0; i < matchingEntries.length; i++) {
+    if (i === matchedIdx) continue;
+    const otherClass = (matchingEntries[i].entry.germline_classification?.description || "").toLowerCase();
+    if (otherClass.includes("pathogenic") || otherClass.includes("likely pathogenic")) {
+      const otherC = getCodingNotation(matchingEntries[i].cleanTitle);
+      if (!matchedC || !otherC || matchedC !== otherC) {
+        hasOtherPathogenicVariantSameAA = true;
+        break;
+      }
+    }
+  }
+
+  const classification = matchedEntry.germline_classification?.description || "Unknown";
+  const lastEvaluated = matchedEntry.germline_classification?.last_evaluated || "";
+  const reviewStatus = matchedEntry.germline_classification?.review_status || "";
+  const traits = (matchedEntry.germline_classification?.trait_set || []).map((t: any) => t.trait_name || "").filter(Boolean).join(", ");
+  
+  const alleleFrequencies = (matchedEntry.allele_freq_set || []).map((freq: any) => ({
+    source: freq.source || "Unknown",
+    value: freq.value !== undefined ? freq.value : null
+  }));
+  
+  const resVal: ClinVarData = {
+    classification,
+    lastEvaluated,
+    reviewStatus,
+    alleleFrequencies,
+    trait: traits,
+    uid: matchedId,
+    hasOtherPathogenicVariantSameAA
+  };
+  clinvarCache.set(cacheKey, resVal);
+  return resVal;
 }
 
 export async function resolveGeneToUniprot(gene: string): Promise<string | null> {
@@ -394,7 +434,7 @@ export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | nul
   try {
     const apiResponse = await fetchWithRetry(afApiUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Missense-Structural-Explorer/1.0 (bioinformatics-app)",
         "Accept": "application/json"
       },
       timeout: 15000
@@ -464,7 +504,7 @@ export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | nul
 export async function fetchBestPdbStructure(
   uniprotId: string,
   pos?: number
-): Promise<{ pdbId: string; chainId: string } | null> {
+): Promise<{ pdbId: string; chainId: string; shift: number } | null> {
   const validatedUniprot = validateUniProt(uniprotId);
   const url = `https://www.ebi.ac.uk/pdbe/graph-api/mappings/best_structures/${validatedUniprot}`;
   try {
@@ -485,18 +525,13 @@ export async function fetchBestPdbStructure(
     for (const item of structures) {
       if (!item.pdb_id || !item.chain_id) continue;
       
-      // Verify 1-to-1 residue index mapping to prevent coordinate shift bugs
-      const hasNoShift = item.unp_start === item.start && item.unp_end === item.end;
-      if (!hasNoShift) continue;
+      // Allow shifts, but verify the position coverage
+      const hasCoverage = pos !== undefined ? (pos >= item.unp_start && pos <= item.unp_end) : true;
+      if (!hasCoverage) continue;
       
-      // If position is provided, verify it is covered by the resolved crystal coordinates
-      if (pos !== undefined) {
-        const isCovered = pos >= item.unp_start && pos <= item.unp_end;
-        if (!isCovered) continue;
-      }
-      
-      console.log(`[PDB Prioritizer] Found suitable experimental structure: ${item.pdb_id} chain ${item.chain_id} (Resolution: ${item.resolution}Å, Coverage: ${item.coverage})`);
-      return { pdbId: item.pdb_id.toLowerCase(), chainId: item.chain_id };
+      const shift = item.unp_start - item.start;
+      console.log(`[PDB Prioritizer] Found suitable experimental structure: ${item.pdb_id} chain ${item.chain_id} (Resolution: ${item.resolution}Å, Coverage: ${item.coverage}, Shift: ${shift})`);
+      return { pdbId: item.pdb_id.toLowerCase(), chainId: item.chain_id, shift };
     }
   } catch (err: any) {
     console.error("[PDB Prioritizer] Error finding best PDB structure:", err.message || err);
@@ -504,7 +539,7 @@ export async function fetchBestPdbStructure(
   return null;
 }
 
-export function extractChainFromPdb(pdbText: string, chainId: string): string {
+export function extractChainFromPdb(pdbText: string, chainId: string, shift = 0): string {
   const lines = pdbText.split("\n");
   const filteredLines: string[] = [];
   const targetChain = chainId.trim().toUpperCase();
@@ -516,11 +551,29 @@ export function extractChainFromPdb(pdbText: string, chainId: string): string {
       // Chain identifier is at index 21 (0-indexed)
       const lineChain = line.length > 21 ? line.charAt(21).toUpperCase() : "";
       if (lineChain === targetChain) {
+        if (shift !== 0 && line.length >= 26) {
+          const resSeq = parseInt(line.substring(22, 26).trim(), 10);
+          if (!isNaN(resSeq)) {
+            const newResSeq = resSeq + shift;
+            const newResSeqStr = String(newResSeq).padStart(4, " ");
+            filteredLines.push(line.substring(0, 22) + newResSeqStr + line.substring(26));
+            continue;
+          }
+        }
         filteredLines.push(line);
       }
     } else if (recordType === "TER") {
       const lineChain = line.length > 21 ? line.charAt(21).toUpperCase() : "";
       if (!lineChain || lineChain === targetChain) {
+        if (shift !== 0 && line.length >= 26) {
+          const resSeq = parseInt(line.substring(22, 26).trim(), 10);
+          if (!isNaN(resSeq)) {
+            const newResSeq = resSeq + shift;
+            const newResSeqStr = String(newResSeq).padStart(4, " ");
+            filteredLines.push(line.substring(0, 22) + newResSeqStr + line.substring(26));
+            continue;
+          }
+        }
         filteredLines.push(line);
       }
     } else if (recordType === "CONECT") {
@@ -534,9 +587,9 @@ export function extractChainFromPdb(pdbText: string, chainId: string): string {
   return filteredLines.join("\n");
 }
 
-export async function fetchPdbFromRcsb(pdbId: string, chainId?: string): Promise<string | null> {
+export async function fetchPdbFromRcsb(pdbId: string, chainId?: string, shift = 0): Promise<string | null> {
   const chainUpper = (chainId || "A").toUpperCase();
-  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}`;
+  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_shift_${shift}`;
   if (pdbCache.has(cacheKey)) {
     return pdbCache.get(cacheKey) || null;
   }
@@ -553,7 +606,7 @@ export async function fetchPdbFromRcsb(pdbId: string, chainId?: string): Promise
     if (!fullText || !fullText.includes("ATOM")) {
       return null;
     }
-    const chainPdb = extractChainFromPdb(fullText, chainUpper);
+    const chainPdb = extractChainFromPdb(fullText, chainUpper, shift);
     pdbCache.set(cacheKey, chainPdb);
     return chainPdb;
   } catch (err: any) {
@@ -655,7 +708,7 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
     eveScore: null,
     eveClass: null
   };
-  predictorCache.set(cacheKey, defaultRes);
+  predictorCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
   return defaultRes;
 }
 
@@ -727,10 +780,21 @@ export async function fetchConservationData(
   const cached = conservationCache.get(cacheKey);
   if (cached) return cached;
 
+  const defaultRes: ConservationData = {
+    available: false,
+    revel: null,
+    gerp: null,
+    phylop: null,
+    consurf: null,
+    bayesdel: null
+  };
+
   const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  const queryStr = `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-  const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp`;
+  const queryStr = (pos !== undefined && pos !== null)
+    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${pos}`
+    : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
+  const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp&limit=100`;
   
   try {
     const res = await fetchWithRetry(url, {
@@ -741,7 +805,21 @@ export async function fetchConservationData(
       const data = await res.json() as any;
       const parsedData = myVariantResponseSchema.parse(data);
       if (parsedData.hits && parsedData.hits.length > 0) {
-        const hit = parsedData.hits[0];
+        const matchTerm = `p.${cleanVar}`;
+        let hit = parsedData.hits.find(h => {
+          const hgvspField = h.dbnsfp?.hgvsp;
+          if (!hgvspField) return false;
+          const hgvspArray = Array.isArray(hgvspField) ? hgvspField : [hgvspField];
+          return hgvspArray.some(hVal => 
+            typeof hVal === "string" && hVal.toLowerCase().includes(matchTerm.toLowerCase())
+          );
+        });
+
+        if (!hit) {
+          conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
+          return defaultRes;
+        }
+
         const dbnsfp = hit.dbnsfp;
         if (dbnsfp) {
           // Parse REVEL score (handles both object formats with score arrays/values, and direct numeric values)
@@ -803,15 +881,7 @@ export async function fetchConservationData(
     console.warn(`[Conservation Fetch Error] Failed to fetch MyVariant conservation: ${err.message}`);
   }
 
-  const defaultRes: ConservationData = {
-    available: false,
-    revel: null,
-    gerp: null,
-    phylop: null,
-    consurf: null,
-    bayesdel: null
-  };
-  conservationCache.set(cacheKey, defaultRes);
+  conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
   return defaultRes;
 }
 
@@ -821,7 +891,7 @@ export async function fetchStringInteractions(gene: string): Promise<StringInter
   const cached = stringCache.get(cacheKey);
   if (cached) return cached;
 
-  const url = `https://version-12-0.string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606`;
+  const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606`;
   
   try {
     const res = await fetchWithRetry(url, { timeout: 15000 });
@@ -852,7 +922,7 @@ export async function fetchStringInteractions(gene: string): Promise<StringInter
     console.warn(`[STRING Network Fetch Error] Failed to fetch STRING network: ${err.message}`);
   }
 
-  stringCache.set(cacheKey, []);
+  stringCache.set(cacheKey, [], { ttl: 5 * 60 * 1000 });
   return [];
 }
 
@@ -1141,7 +1211,9 @@ export async function fetchGnomadVariantFrequency(
     const genomeAN: number | null = v.genome?.an ?? null;
     const exomeAN:  number | null = v.exome?.an  ?? null;
     const nHomozygous: number | null =
-      (v.genome?.homozygote_count ?? 0) + (v.exome?.homozygote_count ?? 0) || null;
+      (v.genome?.homozygote_count != null || v.exome?.homozygote_count != null)
+        ? (v.genome?.homozygote_count ?? 0) + (v.exome?.homozygote_count ?? 0)
+        : null;
 
     const maxAF =
       genomeAF !== null && exomeAF !== null ? Math.max(genomeAF, exomeAF) :
