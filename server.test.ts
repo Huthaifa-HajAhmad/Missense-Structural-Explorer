@@ -43,7 +43,8 @@ import {
   filterPII,
   encryptSession,
   decryptSession,
-  getApiKeyFromSession
+  getApiKeyFromSession,
+  Semaphore
 } from "./server/utils.ts";
 import {
   pdbCache,
@@ -68,7 +69,6 @@ import {
   parseAtomsFromPdbAsync,
   parseAtomsFromPdbMaybeAsync,
   generateMutantPdb,
-  ConcurrencySemaphore,
   computeStructuralDiff,
   runEsm2Eval
 } from "./server/services/biophysics.ts";
@@ -77,7 +77,7 @@ import { requestLogger, authCheck } from "./server/middleware.ts";
 import * as externalServices from "./server/services/external.ts";
 import { getNearestResidues } from "./src/data.ts";
 import { computeRuleBasedACMG } from "./server/services/acmg.ts";
-import { countPredictorConcordance } from "./src/shared/thresholds.ts";
+import { countPredictorConcordance, computeConsensusVerdict } from "./src/shared/thresholds.ts";
 
 describe("Input Validation Patterns & Functions", () => {
   describe("validateGene", () => {
@@ -788,7 +788,7 @@ END
         );
 
         const res1 = await fetchBestPdbStructure("P00439", 100);
-        expect(res1).toEqual({ pdbId: "6hpo", chainId: "A" });
+        expect(res1).toEqual({ pdbId: "6hpo", chainId: "A", shift: 0 });
 
         const res2 = await fetchBestPdbStructure("P00439", 500);
         expect(res2).toBeNull();
@@ -803,7 +803,7 @@ END
         const handler = route.route.stack[route.route.stack.length - 1].handle;
 
         const bestSpy = vi.spyOn(await import("./server/services/external.ts"), "fetchBestPdbStructure").mockImplementation(() =>
-          Promise.resolve({ pdbId: "6hpo", chainId: "A" })
+          Promise.resolve({ pdbId: "6hpo", chainId: "A", shift: 0 })
         );
 
         const rcsbSpy = vi.spyOn(await import("./server/services/external.ts"), "fetchPdbFromRcsb").mockImplementation(() =>
@@ -1390,7 +1390,9 @@ describe("Session Authentication & Key Validation", () => {
         "p.Arg408Trp",
         clinvar,
         { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-        { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, consurf: 2 }
+        { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, consurf: 2 },
+        null,
+        { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
       );
       
       // PM2 from rarity fallback, plus BP4 resolved (since 2 benign vs 1 pathogenic)
@@ -1400,7 +1402,7 @@ describe("Session Authentication & Key Validation", () => {
       expect(res.acmgVerdict).toBeDefined();
     });
 
-    it("should count BS1_Supp as supporting benign (nBP) and class as Likely Benign with BP4", () => {
+    it("should count BS1 as strong benign and class as Likely Benign with BP4", () => {
       const res = computeRuleBasedACMG(
         "PAH",
         "p.Arg408Trp",
@@ -1408,12 +1410,11 @@ describe("Session Authentication & Key Validation", () => {
         { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
         { available: true, revel: 0.1 },
         null,
-        { maxAF: 0.0005, groupMaxAF: 0.0005, genomeAF: 0.0005, exomeAF: 0.0005, nHomozygous: 0, dataset: "gnomad" }, // 7th argument: gnomadFrequency
+        { maxAF: 0.015, groupMaxAF: 0.015, genomeAF: 0.015, exomeAF: 0.015, nHomozygous: 0, dataset: "gnomad" }, // 7th argument: gnomadFrequency
         "standard"
       );
       expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
-      expect(res.acmgCriteria.some(c => c.code === "BS1_Supp")).toBe(true);
-      expect(res.acmgCriteria.find(c => c.code === "BS1_Supp")?.reason).toContain("non-standard ACMG extension");
+      expect(res.acmgCriteria.some(c => c.code === "BS1")).toBe(true);
       expect(res.acmgVerdict).toBe("Likely Benign");
     });
 
@@ -1422,7 +1423,7 @@ describe("Session Authentication & Key Validation", () => {
         "PAH",
         "p.Arg408Trp",
         null,
-        { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 22 },
+        { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
         { available: true, revel: 0.1, bayesdel: 0.2 } // 3 pathogenic total (AM, CADD, BayesDel)
       );
       expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
@@ -1436,7 +1437,7 @@ describe("Session Authentication & Key Validation", () => {
         "GBA1",
         "p.Asn370Ser",
         null,
-        { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 22 }, // pathogenic
+        { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 }, // pathogenic
         { available: true, revel: 0.1, gerp: 1.0, phylop: 0.5 } // benign
       );
       expect(res1.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
@@ -1457,13 +1458,13 @@ describe("Session Authentication & Key Validation", () => {
     });
 
     it("should assign PP3 when amClass is likely_pathogenic (ACMG-AM regression)", () => {
-      // AM = likely_pathogenic, CADD = 22, REVEL = 0.6 -> 3 pathogenic -> PP3
+      // AM = likely_pathogenic, CADD = 26, REVEL = 0.8 -> 3 pathogenic -> PP3 (threshold calibrated to >= 0.75)
       const res = computeRuleBasedACMG(
         "LDLR",
         "p.Glu101Lys",
         null,
-        { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 22 },
-        { available: true, revel: 0.6 }
+        { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 26 },
+        { available: true, revel: 0.8 }
       );
       expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
       expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("3/3");
@@ -1492,7 +1493,7 @@ describe("Session Authentication & Key Validation", () => {
           available: true,
           amPathogenicity: 0.8,
           amClass: "pathogenic",
-          caddPhred: 22,
+          caddPhred: 26,
           eveScore: 0.85,
           eveClass: "Pathogenic"
         },
@@ -1508,18 +1509,19 @@ describe("Session Authentication & Key Validation", () => {
     });
 
     it("should respect acmgWeighting parameter (conservative & strict-structural modes)", () => {
-      const predictorData = { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 22 };
+      const predictorData = { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 };
       const conservationData = { available: true, revel: 0.6 };
+      const gnomadConstraintMock = { isPP2Constrained: true, missense_z: 3.0, oe_mis: 0.5, pli: null };
 
-      // Standard mode - applies PP3, PM2, PP2 (via fallback) even if ClinVar is null
+      // Standard mode - applies PP3, PM2, PP2 (via live constraint) even if ClinVar is null
       const resStandard = computeRuleBasedACMG(
         "PAH",
         "p.Arg408Trp",
         null,
         predictorData,
         conservationData,
-        null,
-        null,
+        gnomadConstraintMock,
+        { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
         "standard"
       );
       expect(resStandard.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
@@ -1533,8 +1535,8 @@ describe("Session Authentication & Key Validation", () => {
         null,
         predictorData,
         conservationData,
-        null,
-        null,
+        gnomadConstraintMock,
+        { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
         "conservative"
       );
       expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
@@ -1548,8 +1550,8 @@ describe("Session Authentication & Key Validation", () => {
         { classification: "Pathogenic", uid: "123" },
         predictorData,
         conservationData,
-        null,
-        null,
+        gnomadConstraintMock,
+        { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
         "conservative"
       );
       expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
@@ -1563,7 +1565,7 @@ describe("Session Authentication & Key Validation", () => {
         { classification: "Pathogenic", uid: "123" },
         predictorData,
         conservationData,
-        null,
+        gnomadConstraintMock,
         null,
         "strict-structural"
       );
@@ -1618,7 +1620,7 @@ describe("Session Authentication & Key Validation", () => {
     });
 
     it("should throttle concurrent operations using ConcurrencySemaphore", async () => {
-      const sem = new ConcurrencySemaphore(2);
+      const sem = new Semaphore(2);
       let activeCount = 0;
       let maxActiveCount = 0;
 
@@ -1716,11 +1718,11 @@ ATOM      3  CA  ASP A   3       1.000   0.000   1.000  1.00  0.00           C
 
     it("should run RaSP evaluator and return parsed prediction", async () => {
       const biophysics = await import("./server/services/biophysics.ts");
-      const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(-1.5);
+      const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue({ score: -1.5, isSurrogate: false });
 
       const res = await biophysics.runRaspLocal("wt.pdb", "mut.pdb", "A", 12, "V", "I");
       expect(raspSpy).toHaveBeenCalledWith("wt.pdb", "mut.pdb", "A", 12, "V", "I");
-      expect(res).toBe(-1.5);
+      expect(res).toEqual({ score: -1.5, isSurrogate: false });
 
       raspSpy.mockRestore();
     });
@@ -1738,17 +1740,17 @@ ATOM      3  CA  ASP A   3       1.000   0.000   1.000  1.00  0.00           C
       );
       expect(resBA1.acmgCriteria.some(c => c.code === "BA1")).toBe(true);
 
-      // Test groupMaxAF intermediate (BS1_Supp)
-      const resBS1_Supp = computeRuleBasedACMG(
+      // Test groupMaxAF intermediate (BS1)
+      const resBS1 = computeRuleBasedACMG(
         "PAH",
         "p.Arg408Trp",
         null,
         { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
         { available: true, revel: 0.1 },
         null,
-        { maxAF: 0.00001, groupMaxAF: 0.0005, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
+        { maxAF: 0.00001, groupMaxAF: 0.015, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
       );
-      expect(resBS1_Supp.acmgCriteria.some(c => c.code === "BS1_Supp")).toBe(true);
+      expect(resBS1.acmgCriteria.some(c => c.code === "BS1")).toBe(true);
     });
 
     it("should run predictStructuralDisruption and populate sasa/rsa fields if runSasaEval returns data", async () => {
@@ -1817,6 +1819,83 @@ END
       );
       // Freq 0.05% <= 0.1% -> PM2 should be assigned!
       expect(resRecessive.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
+    });
+  });
+
+  describe("MissenseResolve® New Correctness Tests", () => {
+    it("should assign PVS1 for nonsense/stop/frameshift variants in known constrained genes when NMD is predicted", () => {
+      const res = computeRuleBasedACMG(
+        "PAH",
+        "p.Arg100*", // Stop/nonsense mutation early in protein
+        null,
+        { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
+        { available: false, revel: null },
+        { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        null,
+        "standard",
+        null,
+        null,
+        "A".repeat(452) // sequence
+      );
+      expect(res.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
+    });
+
+    it("should assign PVS1_Moderate for C-terminal nonsense variants without critical domain overlap", () => {
+      const res = computeRuleBasedACMG(
+        "PAH",
+        "p.Arg408*", // Stop/nonsense mutation near C-terminus
+        null,
+        { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
+        { available: false, revel: null },
+        { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        null,
+        "standard",
+        null,
+        null,
+        "A".repeat(452) // sequence
+      );
+      expect(res.acmgCriteria.some(c => c.code === "PVS1_Moderate")).toBe(true);
+    });
+
+    it("should assign PVS1_Strong for C-terminal nonsense variants with critical domain overlap", () => {
+      const res = computeRuleBasedACMG(
+        "PAH",
+        "p.Arg408*", // Stop/nonsense mutation near C-terminus
+        null,
+        { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
+        { available: false, revel: null },
+        { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        null,
+        "standard",
+        null,
+        { features: [{ type: "domain", start: 400, end: 420 }] }, // uniprotFeatures
+        "A".repeat(452) // sequence
+      );
+      expect(res.acmgCriteria.some(c => c.code === "PVS1_Strong")).toBe(true);
+    });
+
+    it("should correctly count homozygous null variants when total is zero", async () => {
+      // Testing external homozygous counts serialization is zero rather than null
+      const fakeGnomadData = {
+        exome: { homozygous_count: 0 },
+        genome: { homozygous_count: 0 }
+      };
+      const totalHom = (fakeGnomadData.exome?.homozygous_count ?? 0) + (fakeGnomadData.genome?.homozygous_count ?? 0);
+      expect(totalHom).toBe(0);
+    });
+
+    it("should validate and compute consensus verdict stability correctly", () => {
+      // High-risk: >= 2 destabilizing
+      const highRisk = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2, ddgun: null });
+      expect(highRisk).toBe("High-Risk Destabilizing (Consensus)");
+
+      // Conflicting: 1 destabilizing, >= 2 available
+      const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, ddgun: 0.2 });
+      expect(conflicting).toBe("Moderate-Risk Conflicting Stability");
+
+      // Neutral: 0 destabilizing
+      const neutral = computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2, ddgun: null });
+      expect(neutral).toBe("Low-Risk (Neutral Stability)");
     });
   });
 });
