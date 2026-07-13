@@ -5,7 +5,7 @@
  * rules (five-tier classification) with the following corrections applied:
  *
  *  ACMG-2  : Richards 2015 five-tier combinatorial classifier
- *  ACMG-3  : ClinVar evidence mapped to PS1 / BS2 (replacing retired PP5 / BP6)
+ *  ACMG-3  : ClinVar pathogenic evidence mapped to PS1 (replacing retired PP5). ClinVar benign no longer mapped to any criterion (BP6 retired, no replacement).
  *  ACMG-5  : Predictor concordance voting (n-of-3) for PP3 / BP4
  *  ACMG-AM : amClass matched with .includes() → catches "likely_pathogenic"
  *  THRESH  : All cutpoints imported from thresholds.ts (single source of truth)
@@ -69,6 +69,29 @@ export function normalizeProteinChangeTo1Letter(variantStr: string): string | nu
   return null;
 }
 
+export function isNullVariant(variantStr: string): boolean {
+  const clean = variantStr.replace(/^p\./i, "").trim().toLowerCase();
+  return clean.includes("ter") || 
+         clean.includes("stop") || 
+         clean.includes("fs") || 
+         clean.endsWith("*") || 
+         clean.endsWith("x") || 
+         clean.includes("del") || 
+         clean.includes("ins") || 
+         clean.includes("dup");
+}
+
+export function isInFrameIndel(variantStr: string): boolean {
+  const clean = variantStr.replace(/^p\./i, "").trim().toLowerCase();
+  return (clean.includes("del") || clean.includes("ins") || clean.includes("dup")) && !clean.includes("fs");
+}
+
+export function isIndelInRepeatRegion(sequence: string, pos: number): boolean {
+  if (!sequence || isNaN(pos) || pos < 3 || pos > sequence.length - 2) return false;
+  const local = sequence.slice(pos - 3, pos + 2);
+  return /(.)\1\1/.test(local);
+}
+
 // ---------------------------------------------------------------------------
 // Richards 2015 five-tier combinatorial classifier
 // ---------------------------------------------------------------------------
@@ -94,8 +117,9 @@ const WEIGHT = {
 type WeightKey = keyof typeof WEIGHT;
 
 function codeWeight(code: string): number {
-  if (code === "BS1_Supp")       return WEIGHT.BP;
   if (code === "PVS1")           return WEIGHT.PVS1;
+  if (code === "PVS1_Strong")    return WEIGHT.PS;
+  if (code === "PVS1_Moderate")  return WEIGHT.PM;
   if (code.startsWith("PS"))     return WEIGHT.PS;
   if (code.startsWith("PM"))     return WEIGHT.PM;
   if (code.startsWith("PP"))     return WEIGHT.PP;
@@ -114,11 +138,11 @@ function classifyVariant(criteria: ACMGItem[]): string {
   const benign     = criteria.filter(c => codeWeight(c.code) < 0);
 
   const nPVS = pathogenic.filter(c => c.code === "PVS1").length;
-  const nPS  = pathogenic.filter(c => c.code.startsWith("PS")).length;
-  const nPM  = pathogenic.filter(c => c.code.startsWith("PM")).length;
+  const nPS  = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong").length;
+  const nPM  = pathogenic.filter(c => c.code.startsWith("PM") || c.code === "PVS1_Moderate").length;
   const nPP  = pathogenic.filter(c => c.code.startsWith("PP")).length;
-  const nBS  = benign.filter(c => c.code.startsWith("BS") && c.code !== "BS1_Supp").length;
-  const nBP  = benign.filter(c => c.code.startsWith("BP") || c.code === "BS1_Supp").length;
+  const nBS  = benign.filter(c => c.code.startsWith("BS")).length;
+  const nBP  = benign.filter(c => c.code.startsWith("BP")).length;
 
   // ---- Pathogenic ----
   const isPathogenic =
@@ -126,7 +150,7 @@ function classifyVariant(criteria: ACMGItem[]): string {
     nPS >= 2 ||
     (nPS >= 1 && nPM >= 3) ||
     (nPS >= 1 && nPM >= 2 && nPP >= 2) ||
-    (nPS >= 1 && nPP >= 4);
+    (nPS >= 1 && nPM >= 1 && nPP >= 4);
 
   // ---- Likely Pathogenic ----
   const isLikelyPathogenic =
@@ -145,6 +169,13 @@ function classifyVariant(criteria: ACMGItem[]): string {
   // ---- Likely Benign ----
   const isLikelyBenign =
     !isBenign && ((nBS >= 1 && nBP >= 1) || nBP >= 2);
+
+  const hasPathogenic = isPathogenic || isLikelyPathogenic;
+  const hasBenign = isBenign || isLikelyBenign;
+
+  if (hasPathogenic && hasBenign) {
+    return "Variant of Uncertain Significance (VUS)";
+  }
 
   if (isPathogenic)       return "Pathogenic";
   if (isLikelyPathogenic) return "Likely Pathogenic";
@@ -181,7 +212,8 @@ export function computeRuleBasedACMG(
   } | null,
   acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard",
   esm2?: { llr: number | null; verdict: string } | null,
-  uniprotFeatures?: any | null
+  uniprotFeatures?: any | null,
+  sequence?: string | null
 ): RuleBasedInsights {
   const criteria: ACMGItem[] = [];
 
@@ -193,18 +225,67 @@ export function computeRuleBasedACMG(
   const skipBenignComp = acmgWeighting === "strict-structural" || (acmgWeighting === "conservative" && !isClinVarBenign);
 
   // -------------------------------------------------------------------------
-  // ACMG-3: Map ClinVar database status directly to standard ACMG codes (PS1/BS2)
+  // PVS1 — Null variant in a gene where LOF is a known mechanism of disease
   // -------------------------------------------------------------------------
-  if (isClinVarPathogenic && !skipPathogenicComp) {
+  const isLofIntolerant = gnomadConstraint?.pli !== null && gnomadConstraint?.pli !== undefined && gnomadConstraint.pli >= 0.9;
+  const isLofGene = isLofIntolerant;
+  
+  if (isNullVariant(variant) && !isInFrameIndel(variant) && isLofGene && !skipPathogenicComp) {
+    const mutMatch = variant.match(/(\d+)/);
+    const pos = mutMatch ? parseInt(mutMatch[1], 10) : null;
+    const seqLen = sequence ? sequence.length : null;
+
+    let nmdPredicted = true;
+    let nmdNote = "nonsense-mediated decay (NMD) is predicted to occur.";
+
+    if (pos && seqLen) {
+      // Predict NMD absence if variant falls in the last exon / last 50 aa or 10% C-terminal of the protein
+      const threshold = Math.max(50, Math.round(seqLen * 0.1));
+      if (pos >= seqLen - threshold) {
+        nmdPredicted = false;
+        nmdNote = `nonsense-mediated decay (NMD) is not predicted to occur because the variant at position ${pos}/${seqLen} falls in the C-terminal region.`;
+      }
+    }
+
+    if (nmdPredicted) {
+      criteria.push({
+        code: "PVS1",
+        reason: `PVS1 (Very Strong): Null variant (${variant}) in gene ${gene} where loss-of-function is an established mechanism of disease. ${nmdNote}`
+      });
+    } else {
+      // Check if variant overlaps a functional domain, active site, binding site
+      let isCriticalDomain = false;
+      if (uniprotFeatures?.features && Array.isArray(uniprotFeatures.features) && pos) {
+        isCriticalDomain = uniprotFeatures.features.some((f: any) => {
+          const type = (f.type || "").toLowerCase();
+          const start = f.start;
+          const end = f.end;
+          return (type.includes("domain") || type.includes("site") || type.includes("active") || type.includes("binding")) &&
+                 pos >= start && pos <= end;
+        });
+      }
+
+      if (isCriticalDomain) {
+        criteria.push({
+          code: "PVS1_Strong",
+          reason: `PVS1_Strong (Strong): C-terminal null variant (${variant}) in gene ${gene} where NMD is not predicted to occur, but residue falls within an established functional domain/site.`
+        });
+      } else {
+        criteria.push({
+          code: "PVS1_Moderate",
+          reason: `PVS1_Moderate (Moderate): C-terminal null variant (${variant}) in gene ${gene} where NMD is not predicted to occur, and no critical domain overlap is confirmed.`
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // ACMG-3: Map ClinVar database status directly to standard ACMG codes (PS1)
+  // -------------------------------------------------------------------------
+  if (clinvar?.hasOtherPathogenicVariantSameAA && !skipPathogenicComp) {
     criteria.push({
       code: "PS1",
-      reason: `Identical amino acid change established as pathogenic in ClinVar database (classification: ${clinvar.classification}).`
-    });
-  }
-  if (isClinVarBenign && !skipBenignComp) {
-    criteria.push({
-      code: "BS2",
-      reason: `Identical amino acid change established as benign/likely benign in ClinVar database (classification: ${clinvar.classification}).`
+      reason: `Same amino acid change as a previously established pathogenic variant in ClinVar database (different nucleotide change).`
     });
   }
 
@@ -312,15 +393,7 @@ export function computeRuleBasedACMG(
         }
       }
 
-      if (maxFreq > pm2Threshold && maxFreq <= 0.01) {
-        // ACMG-7: Fill the gap above PM2 threshold and below 1% with BS1_Supporting
-        if (!skipBenignComp) {
-          criteria.push({
-            code: "BS1_Supp",
-            reason: `Allele frequency intermediate: ${(maxFreq * 100).toFixed(4)}% (${(pm2Threshold * 100).toFixed(2)}%–1.0%). Weak evidence against pathogenicity (non-standard ACMG extension).`,
-          });
-        }
-      } else if (maxFreq <= pm2Threshold) {
+      if (maxFreq <= pm2Threshold) {
         if (!skipPathogenicComp) {
           criteria.push({
             code: "PM2",
@@ -328,13 +401,6 @@ export function computeRuleBasedACMG(
           });
         }
       }
-    }
-  } else {
-    if (!skipPathogenicComp) {
-      criteria.push({
-        code: "PM2",
-        reason: "Variant absent or extremely rare in population databases.",
-      });
     }
   }
 
@@ -374,19 +440,29 @@ export function computeRuleBasedACMG(
         `(missense Z-score: ${misZ}, observed/expected: ${oeMis}). ` +
         `Low rate of benign missense variants supports pathogenic missense mechanism.`,
     });
-    pp2Assigned = true;
   }
 
-  if (!pp2Assigned && !skipPathogenicComp) {
-    // Hardcoded fallback — used only when gnomAD constraint data is unavailable
-    const missenseConstrainedGenes = [
-      "PAH", "FGFR3", "GBA1", "G6PD", "LDLR",
-    ];
-    if (missenseConstrainedGenes.includes(gene.toUpperCase())) {
-      criteria.push({
-        code: "PP2",
-        reason: `Missense variant in gene ${gene} which has a low rate of benign missense variants and is established as a missense-disease mechanism gene. (Fallback: live gnomAD constraint data unavailable.)`,
-      });
+  // -------------------------------------------------------------------------
+  // PM4 / BP3 — In-frame Indels in repeat vs non-repeat regions
+  // -------------------------------------------------------------------------
+  if (isInFrameIndel(variant)) {
+    const pos = parseInt(variant.replace(/\D/g, ""), 10);
+    const isRepeat = sequence ? isIndelInRepeatRegion(sequence, pos) : false;
+    
+    if (isRepeat) {
+      if (!skipBenignComp) {
+        criteria.push({
+          code: "BP3",
+          reason: `In-frame indel (${variant}) located within a repetitive sequence region.`
+        });
+      }
+    } else {
+      if (!skipPathogenicComp) {
+        criteria.push({
+          code: "PM4",
+          reason: `In-frame length-changing indel (${variant}) in a non-repetitive sequence region.`
+        });
+      }
     }
   }
 

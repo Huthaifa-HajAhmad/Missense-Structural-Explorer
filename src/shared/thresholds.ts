@@ -33,10 +33,10 @@ export const THRESHOLDS = {
   alphaMissense: {
     /**
      * ClinGen-calibrated thresholds (Pejaver et al. 2022).
-     * Pathogenic: ≥ 0.983, Benign: ≤ 0.063.
+     * Pathogenic: ≥ 0.983, Supporting: ≥ 0.564, Benign: ≤ 0.063.
      */
     pathogenicStrong: 0.983,
-    pathogenicSupporting: 0.983,
+    pathogenicSupporting: 0.564,
     benign: 0.063,
     benignStrong: 0.063,
     /** Class string matching — use .toLowerCase().includes() */
@@ -136,21 +136,21 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   bayesdel:
     "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
   esm:
-    "VESM Co-distilled LLR (SOTA, ntranoslab 2026). PP3 supporting LLR ≤ -5.0, BP4 supporting LLR ≥ -2.0.",
+    "VESM Co-distilled LLR (ntranoslab, unpublished preprint). Informational only — no validated clinical threshold is applied, and it is excluded from concordance voting.",
 };
 
 export type PredictorSignal = "pathogenic" | "benign" | "vus" | "unavailable";
 
 export function evaluateRevel(score: number | null | undefined): PredictorSignal {
   if (score === null || score === undefined) return "unavailable";
-  if (score >= THRESHOLDS.revel.pathogenicSupporting) return "pathogenic";
+  if (score >= THRESHOLDS.revel.pathogenicStrong) return "pathogenic";
   if (score <= THRESHOLDS.revel.benign) return "benign";
   return "vus";
 }
 
 export function evaluateCadd(phred: number | null | undefined): PredictorSignal {
   if (phred === null || phred === undefined) return "unavailable";
-  if (phred >= THRESHOLDS.cadd.pathogenicSupporting) return "pathogenic";
+  if (phred >= THRESHOLDS.cadd.pathogenicStrong) return "pathogenic";
   if (phred <= THRESHOLDS.cadd.benign) return "benign";
   return "vus";
 }
@@ -169,7 +169,7 @@ export function evaluateAlphaMissense(
     if (lc.includes(THRESHOLDS.alphaMissense.benignClass)) return "benign";
   }
   if (score !== null && score !== undefined) {
-    if (score >= THRESHOLDS.alphaMissense.pathogenicSupporting) return "pathogenic";
+    if (score >= THRESHOLDS.alphaMissense.pathogenicStrong) return "pathogenic";
     if (score <= THRESHOLDS.alphaMissense.benign) return "benign";
   }
   return "vus";
@@ -253,11 +253,51 @@ export function countPredictorConcordance(
       unavailable.push(name.toUpperCase());
     } else {
       available.push(name.toUpperCase());
-      if (sig === "pathogenic") nPathogenic++;
-      else if (sig === "benign") nBenign++;
-      else nVus++;
+      // Exclude ESM co-distilled model from active consensus voting counts to prevent artificial inflation
+      if (name !== "esm") {
+        if (sig === "pathogenic") nPathogenic++;
+        else if (sig === "benign") nBenign++;
+        else nVus++;
+      }
     }
   }
 
   return { nPathogenic, nBenign, nVus, available, unavailable, signals };
+}
+
+/**
+ * Unified calculation of structural energetics consensus stability verdict.
+ */
+export function computeConsensusVerdict(
+  energetics: {
+    foldxMean?: number | null;
+    foldx?: number | null;
+    dynamut2?: number | null;
+    ddmut?: number | null;
+    rasp?: number | null;
+    ddgun?: number | null;
+  } | null
+): string {
+  if (!energetics) return "Low-Risk (Neutral Stability)";
+  const foldxVal = energetics.foldxMean ?? energetics.foldx ?? null;
+  const dynamut2 = energetics.dynamut2 ?? null;
+  const ddmut = energetics.ddmut ?? null;
+  const rasp = energetics.rasp ?? null;
+  const ddgun = energetics.ddgun ?? null;
+
+  const foldxDestab = foldxVal !== null && foldxVal >= THRESHOLDS.foldxDdG.destabilizingStrong;
+  const dynamutDestab = dynamut2 !== null && dynamut2 <= THRESHOLDS.dynamut2.destabilizing;
+  const ddmutDestab = ddmut !== null && ddmut <= THRESHOLDS.ddmut.destabilizing;
+  const raspDestab = rasp !== null && rasp <= -1.0; // RaSP destabilization threshold is <= -1.0
+  const ddgunDestab = ddgun !== null && ddgun <= THRESHOLDS.ddgun.destabilizing;
+
+  const destabCount = [foldxDestab, dynamutDestab, ddmutDestab, raspDestab, ddgunDestab].filter(Boolean).length;
+  const availableCount = [foldxVal, dynamut2, ddmut, rasp, ddgun].filter(v => v !== null).length;
+
+  if (destabCount >= 2) {
+    return "High-Risk Destabilizing (Consensus)";
+  } else if (destabCount === 1 && availableCount >= 2) {
+    return "Moderate-Risk Conflicting Stability";
+  }
+  return "Low-Risk (Neutral Stability)";
 }
