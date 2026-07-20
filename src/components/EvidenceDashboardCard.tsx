@@ -787,15 +787,15 @@ export default function EvidenceDashboardCard({
                       <div>
                         <div className="flex items-center justify-between font-bold text-[10.5px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-2">
                           <span>Pathogenic Support ({votingPathogenicCount}{infoPathogenicCount > 0 ? ` + ${infoPathogenicCount} info` : ""})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 font-mono border border-rose-500/20 font-bold text-rose-700 dark:text-rose-300">Concordant</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/15 font-mono border border-rose-500/30 font-bold text-rose-700 dark:text-rose-300">Concordant</span>
                         </div>
                         {concordance.pathogenicTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.pathogenicTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-rose-500/15 text-rose-900 dark:text-rose-100 border border-rose-500/30">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40">
                                 <span>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/25 text-rose-800 dark:text-rose-200 uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/30 text-rose-800 dark:text-rose-200 uppercase tracking-tighter">Info</span>
                                 )}
                               </span>
                             ))}
@@ -811,15 +811,15 @@ export default function EvidenceDashboardCard({
                       <div>
                         <div className="flex items-center justify-between font-bold text-[10.5px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 mb-2">
                           <span>Benign Support ({votingBenignCount}{infoBenignCount > 0 ? ` + ${infoBenignCount} info` : ""})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 font-mono border border-emerald-500/20 font-bold text-emerald-700 dark:text-emerald-300">Discordant</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 font-mono border border-emerald-500/30 font-bold text-emerald-700 dark:text-emerald-300">Discordant</span>
                         </div>
                         {concordance.benignTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.benignTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-emerald-500/15 text-emerald-900 dark:text-emerald-100 border border-emerald-500/30">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
                                 <span>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/25 text-emerald-800 dark:text-emerald-200 uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/30 text-emerald-800 dark:text-emerald-200 uppercase tracking-tighter">Info</span>
                                 )}
                               </span>
                             ))}
@@ -835,12 +835,12 @@ export default function EvidenceDashboardCard({
                       <div>
                         <div className="flex items-center justify-between font-bold text-[10.5px] uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-2">
                           <span>VUS / Intermediate ({concordance.vusTools.length})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 font-mono border border-amber-500/20 font-bold text-amber-700 dark:text-amber-300">Indeterminate</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 font-mono border border-amber-500/30 font-bold text-amber-700 dark:text-amber-300">Indeterminate</span>
                         </div>
                         {concordance.vusTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.vusTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-amber-500/15 text-amber-900 dark:text-amber-100 border border-amber-500/30">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
                                 <span>{t.name}</span>
                               </span>
                             ))}
@@ -1379,10 +1379,6 @@ export default function EvidenceDashboardCard({
                     // CADD
                     const caddStatus = caddVal !== null ? (caddVal >= 25 ? "path_strong" : caddVal >= 20 ? "path" : caddVal <= 10 ? "benign" : "vus") : "none";
                     rows.push(renderRow("cadd", "CADD PHRED", caddVal, caddVal?.toFixed(1) ?? "—", "<= 10.0", ">= 20.0 (strong >= 25)", "PP3 / BP4", caddStatus, caddStatus === "path_strong" ? "Strong Path." : caddStatus === "path" ? "Path. Supp." : caddStatus === "benign" ? "Benign" : "Moderate"));
-
-                    // EVE
-                    const eveStatus = (eveCls?.toLowerCase().includes("pathogenic") || (eveVal !== null && eveVal >= 0.75)) ? "path" : (eveCls?.toLowerCase().includes("benign") || (eveVal !== null && eveVal <= 0.25)) ? "benign" : "vus";
-                    rows.push(renderRow("eve", "EVE", eveVal, eveVal?.toFixed(2) ?? "—", "<= 0.25", ">= 0.75", "PP3 / BP4", eveVal !== null || eveCls !== null ? eveStatus : "none", eveStatus === "path" ? "Pathogenic" : eveStatus === "benign" ? "Benign" : "Uncertain"));
 
                     // BayesDel
                     const bayesdelStatus = bayesdelVal !== null ? (bayesdelVal >= 0.133 ? "path" : bayesdelVal <= -0.0404 ? "benign" : "vus") : "none";

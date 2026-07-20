@@ -1499,8 +1499,8 @@ export default function useVariantAnalysis() {
             type: "terminal",
             service: "sequence",
             parameters: {
-              evalue_cutoff: 0.1,
-              identity_cutoff: 0.3,
+              evalue_cutoff: 10,
+              identity_cutoff: 0.2,
               sequence_type: "protein",
               value: sequence
             }
