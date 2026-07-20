@@ -62,9 +62,10 @@ The server implements a regular-expression-based PII (Personally Identifiable In
 ## 7. Modified ACMG Framework Rules
 
 The ACMG rule suggester uses standard Richards et al. 2015 rules, with the following modifications:
-* **BS1_Supp (Benign Supporting)**: We introduced a custom supporting evidence level for variants with intermediate allele frequencies ($0.01\% - 1.0\%$). This fills the gap between strong benign frequency ($>1.0\%$) and pathogenic rarity ($<0.01\%$) per ClinGen's recommendations for clinical pipelines.
-* **PP5 / BP6 (ClinVar Mapping)**: ClinVar pathogenicity assertions are mapped directly to `PP5` / `BP6` (suggesting reputable source evidence) rather than `PS1` / `BS2`, ensuring strict alignment with modern ACMG guidelines.
+* **PS1 (Same Amino Acid Substitution)**: ClinVar same-amino-acid pathogenic variants map directly to `PS1` as strong evidence of pathogenicity.
+* **PP5 / BP6 (ClinVar Mapping)**: `PP5` / `BP6` (suggesting reputable source evidence) are retired and NOT used in this implementation, in strict alignment with ClinGen SVI working group guidelines that discourage double-counting ClinVar submissions.
+* **BS1 (Benign Stand-alone/Strong)**: `BS1` is mapped for intermediate frequencies without a custom supporting tier, ensuring standard clinical alignment.
 * **ACMG Weighting Models**: The rule-based suggester engine respects the selected weighting model:
-  - **Conservative Mode**: Omit computational and population frequency criteria (`PM2`, `PP3`, `BP4`, `BS1_Supp`, `PP2`) unless strongly corroborated by a corresponding ClinVar classification.
+  - **Conservative Mode**: Omit computational and population frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`) unless strongly corroborated by a corresponding ClinVar classification.
   - **Strict-Structural Mode**: Omit non-structural computational/frequency criteria (`PM2`, `PP3`, `BP4`, `PP2`) in the rule-based engine entirely, relying instead on ClinVar databases and structural hotspot criteria (`PM1`/`PS3`) generated during model analysis.
 

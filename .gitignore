@@ -33,3 +33,7 @@ __pycache__/
 *.pt
 tools/vesm/
 
+
+data/*.csv
+data/*.sqlite
+
