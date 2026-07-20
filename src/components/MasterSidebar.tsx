@@ -168,6 +168,8 @@ export default function MasterSidebar({
   isFolding = false,
   isBiophysicalLoading = false,
   isClinicalLoading = false,
+  isLoadingSearch = false,
+  loadingStep = "",
 }: MasterSidebarProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
 
