@@ -34,6 +34,8 @@ interface MasterSidebarProps {
   isFolding?: boolean;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
+  isLoadingSearch?: boolean;
+  loadingStep?: string;
 }
 
 interface NavItem {
@@ -82,46 +84,52 @@ const EVIDENCE_SUB_ITEMS = [
   { id: "guidelines",   label: "Scores Thresholds"       },
 ];
 
-/** Derives per-tab completion state from analysis data — no new state needed */
 function getTabStatus(
   view: MasterView,
   result: AnalysisResult | null | undefined,
   isFolding: boolean,
   isBiophysicalLoading: boolean,
-  isClinicalLoading: boolean
+  isClinicalLoading: boolean,
+  isLoadingSearch?: boolean,
+  loadingStep?: string
 ): "complete" | "progress" | "pending" {
   const r = result ?? null;
-  switch (view) {
-    case "search":
-      return "complete";
-    case "evidence":
-      return r != null ? "complete" : "pending";
-    case "structure":
-      if (isFolding) return "progress";
-      return r != null ? "complete" : "pending";
-    case "energetics":
-      if (isFolding || isBiophysicalLoading) return "progress";
-      return r != null ? "complete" : "pending";
-    case "landscape":
-      return r?.landscapeData != null ? "complete" : r != null ? "progress" : "pending";
-    case "insights":
-      if (isClinicalLoading) return "progress";
-      return (r?.insights != null || r?.ruleBasedInsights != null) ? "complete" : "pending";
-    case "report":
-      if (isClinicalLoading) return "progress";
-      return r?.analysis != null ? "complete" : "pending";
-    default:
-      return "pending";
+  if (isLoadingSearch) {
+    const match = (loadingStep || "").match(/Step (\d+)\/4/);
+    const currentStep = match ? parseInt(match[1], 10) : 1;
+
+    switch (view) {
+      case "evidence":
+        return currentStep === 1 ? "progress" : currentStep > 1 ? "complete" : "pending";
+      case "structure":
+        return currentStep === 2 ? "progress" : currentStep > 2 ? "complete" : "pending";
+      case "landscape":
+        return currentStep === 3 ? "progress" : currentStep > 3 ? "complete" : "pending";
+      case "energetics":
+        return currentStep === 4 ? "progress" : currentStep > 4 ? "complete" : "pending";
+      case "insights":
+        return currentStep >= 3 ? "progress" : "pending";
+      case "report":
+        return currentStep >= 4 ? "progress" : "pending";
+      default:
+        return "pending";
+    }
   }
+
+  if (r != null) {
+    return "complete";
+  }
+
+  return "pending";
 }
 
-/** The same StepIcon used in ContextRail — identical icon set, identical color mapping */
+/** Step icon: sleek filled dot indicator for completed steps */
 function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "complete") {
     return (
-      <CheckCircle2
-        className="cs-step-icon-complete flex-shrink-0"
-        style={{ width: 12, height: 12 }}
+      <span
+        className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 inline-block shadow-sm"
+        title="Complete"
         aria-label="Complete"
       />
     );
@@ -129,17 +137,17 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "progress") {
     return (
       <span
-        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress flex-shrink-0"
+        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress shrink-0"
         role="status"
         aria-label="In progress"
       />
     );
   }
   return (
-    <Circle
-      className="cs-step-icon-not-started flex-shrink-0"
-      style={{ width: 12, height: 12 }}
-      aria-label="Not started"
+    <span
+      className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0 inline-block opacity-60"
+      title="Pending"
+      aria-label="Pending"
     />
   );
 }
@@ -271,7 +279,7 @@ export default function MasterSidebar({
             {zone.items.map(({ id, label, sublabel, Icon }) => {
               const isActive = activeView === id;
               const status = getTabStatus(
-                id, analysisResult, isFolding, isBiophysicalLoading, isClinicalLoading
+                id, analysisResult, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep
               );
 
               return (

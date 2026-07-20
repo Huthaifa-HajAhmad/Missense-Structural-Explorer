@@ -34,57 +34,33 @@ function getTabStatus(
   isLoadingSearch?: boolean,
   loadingStep?: string
 ): "complete" | "progress" | "pending" {
-  // Running state (Active search pipeline execution)
   if (isLoadingSearch) {
     const match = (loadingStep || "").match(/Step (\d+)\/4/);
     const currentStep = match ? parseInt(match[1], 10) : 1;
 
     switch (view) {
       case "evidence":
-        return currentStep >= 3 ? "complete" : "progress";
+        return currentStep === 1 ? "progress" : currentStep > 1 ? "complete" : "pending";
       case "structure":
-        return currentStep < 2 ? "pending" : currentStep === 2 ? "progress" : "complete";
-      case "energetics":
-        return currentStep < 4 ? "pending" : "progress";
+        return currentStep === 2 ? "progress" : currentStep > 2 ? "complete" : "pending";
       case "landscape":
-        return currentStep < 3 ? "pending" : currentStep === 3 ? "progress" : "complete";
+        return currentStep === 3 ? "progress" : currentStep > 3 ? "complete" : "pending";
+      case "energetics":
+        return currentStep === 4 ? "progress" : currentStep > 4 ? "complete" : "pending";
       case "insights":
-        return currentStep < 3 ? "pending" : "progress";
+        return currentStep >= 3 ? "progress" : "pending";
       case "report":
-        return currentStep < 4 ? "pending" : "progress";
+        return currentStep >= 4 ? "progress" : "pending";
       default:
         return "pending";
     }
   }
 
-  // Idle state (No active result loaded)
-  if (!result) {
-    return "pending";
+  if (result != null) {
+    return "complete";
   }
 
-  // Landed state (Analysis result loaded)
-  switch (view) {
-    case "search":
-      return "complete";
-    case "evidence":
-      return "complete";
-    case "structure":
-      if (isFolding) return "progress";
-      return "complete";
-    case "energetics":
-      if (isFolding || isBiophysicalLoading) return "progress";
-      return "complete";
-    case "landscape":
-      return result?.landscapeData != null ? "complete" : "progress";
-    case "insights":
-      if (isClinicalLoading) return "progress";
-      return (result?.insights != null || result?.ruleBasedInsights != null) ? "complete" : "pending";
-    case "report":
-      if (isClinicalLoading) return "progress";
-      return result?.analysis != null ? "complete" : "pending";
-    default:
-      return "pending";
-  }
+  return "pending";
 }
 
 const WORKFLOW_STEPS: { view: MasterView; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -136,13 +112,13 @@ function getQuickLinks(
   }
 }
 
-/** Step icon: identical color mapping across sidebar, context rail, and tables */
+/** Step icon: sleek filled dot indicator for completed steps */
 function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "complete") {
     return (
-      <CheckCircle2
-        className="cs-step-icon-complete flex-shrink-0"
-        style={{ width: 14, height: 14 }}
+      <span
+        className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 inline-block shadow-sm"
+        title="Complete"
         aria-label="Complete"
       />
     );
@@ -150,17 +126,17 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "progress") {
     return (
       <span
-        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress flex-shrink-0"
+        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress shrink-0"
         role="status"
         aria-label="In progress"
       />
     );
   }
   return (
-    <Circle
-      className="cs-step-icon-not-started flex-shrink-0"
-      style={{ width: 14, height: 14 }}
-      aria-label="Not started"
+    <span
+      className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0 inline-block opacity-60"
+      title="Pending"
+      aria-label="Pending"
     />
   );
 }

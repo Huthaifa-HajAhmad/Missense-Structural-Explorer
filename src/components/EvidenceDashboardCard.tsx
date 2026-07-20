@@ -792,10 +792,10 @@ export default function EvidenceDashboardCard({
                         {concordance.pathogenicTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.pathogenicTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/40">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-extrabold bg-rose-500/20 text-slate-950 dark:text-white border border-rose-500/40">
                                 <span>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/30 text-rose-800 dark:text-rose-200 uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/30 text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Info</span>
                                 )}
                               </span>
                             ))}
@@ -816,10 +816,10 @@ export default function EvidenceDashboardCard({
                         {concordance.benignTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.benignTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-extrabold bg-emerald-500/20 text-slate-950 dark:text-white border border-emerald-500/40">
                                 <span>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/30 text-emerald-800 dark:text-emerald-200 uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/30 text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Info</span>
                                 )}
                               </span>
                             ))}
@@ -840,7 +840,7 @@ export default function EvidenceDashboardCard({
                         {concordance.vusTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.vusTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-extrabold bg-amber-500/20 text-slate-950 dark:text-white border border-amber-500/40">
                                 <span>{t.name}</span>
                               </span>
                             ))}

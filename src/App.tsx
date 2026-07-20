@@ -182,6 +182,8 @@ export default function App() {
         isFolding={isFolding}
         isBiophysicalLoading={isBiophysicalLoading}
         isClinicalLoading={isClinicalLoading}
+        isLoadingSearch={analysisState.isLoading}
+        loadingStep={loadingStep}
       />
 
       {/* ── App Main Viewport ── */}
