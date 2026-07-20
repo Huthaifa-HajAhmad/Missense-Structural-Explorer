@@ -7,13 +7,13 @@ import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 export function useBiophysicalModeling(
   settings: UserSettings,
   addNotification: (type: "success" | "info" | "error", message: string) => void,
-  fetchWithAuth: (url: string, init?: RequestInit) => Promise<Response>
+  fetchWithAuth: (url: string, init?: RequestInit & { timeout?: number }) => Promise<Response>
 ) {
   const [mutantPdb, setMutantPdb] = useState<string | null>(null);
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);
   const [foldingError, setFoldingError] = useState<string | null>(null);
-  const [foldingStatus, setFoldingStatus] = useState<"success" | "scwrl" | null>(null);
+  const [foldingStatus, setFoldingStatus] = useState<string | null>(null);
   const [foldingDdG, setFoldingDdG] = useState<number | null>(null);
   const [foldingEnergetics, setFoldingEnergetics] = useState<EnergeticsData | null>(null);
 
@@ -23,7 +23,7 @@ export function useBiophysicalModeling(
   const [compareFoldedResidueIndex, setCompareFoldedResidueIndex] = useState<number | null>(null);
   const [isFoldingCompare, setIsFoldingCompare] = useState<boolean>(false);
   const [foldingCompareError, setFoldingCompareError] = useState<string | null>(null);
-  const [compareFoldingStatus, setCompareFoldingStatus] = useState<"success" | "scwrl" | null>(null);
+  const [compareFoldingStatus, setCompareFoldingStatus] = useState<string | null>(null);
   const [compareFoldingDdG, setCompareFoldingDdG] = useState<number | null>(null);
   const [compareFoldingEnergetics, setCompareFoldingEnergetics] = useState<EnergeticsData | null>(null);
   const [comparisonLayout, setComparisonLayout] = useState<"superimposed" | "side-by-side">("superimposed");
@@ -32,6 +32,12 @@ export function useBiophysicalModeling(
   const [compareDynamut2Status, setCompareDynamut2Status] = useState<"pending" | "unavailable" | "done" | null>(null);
   const [ddmutStatus, setDdmutStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
   const [compareDdmutStatus, setCompareDdmutStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
+  
+  const [dynamut2JobId, setDynamut2JobId] = useState<string | null>(null);
+  const [compareDynamut2JobId, setCompareDynamut2JobId] = useState<string | null>(null);
+  const [ddmutJobId, setDdmutJobId] = useState<string | null>(null);
+  const [compareDdmutJobId, setCompareDdmutJobId] = useState<string | null>(null);
+
   const [structuralDiff, setStructuralDiff] = useState<StructuralDiffResult | null>(null);
   const [compareStructuralDiff, setCompareStructuralDiff] = useState<StructuralDiffResult | null>(null);
 
@@ -47,28 +53,28 @@ export function useBiophysicalModeling(
 
   const clearDynaMutPoll = useCallback(() => {
     if (dynamutPollIntervalRef.current) {
-      clearInterval(dynamutPollIntervalRef.current as any);
+      clearTimeout(dynamutPollIntervalRef.current as any);
       dynamutPollIntervalRef.current = null;
     }
   }, []);
 
   const clearDynaMutComparePoll = useCallback(() => {
     if (dynamutComparePollIntervalRef.current) {
-      clearInterval(dynamutComparePollIntervalRef.current as any);
+      clearTimeout(dynamutComparePollIntervalRef.current as any);
       dynamutComparePollIntervalRef.current = null;
     }
   }, []);
 
   const clearDdmutPoll = useCallback(() => {
     if (ddmutPollIntervalRef.current) {
-      clearInterval(ddmutPollIntervalRef.current as any);
+      clearTimeout(ddmutPollIntervalRef.current as any);
       ddmutPollIntervalRef.current = null;
     }
   }, []);
 
   const clearDdmutComparePoll = useCallback(() => {
     if (ddmutComparePollIntervalRef.current) {
-      clearInterval(ddmutComparePollIntervalRef.current as any);
+      clearTimeout(ddmutComparePollIntervalRef.current as any);
       ddmutComparePollIntervalRef.current = null;
     }
   }, []);
@@ -142,6 +148,14 @@ export function useBiophysicalModeling(
     setDdmutStatus,
     compareDdmutStatus,
     setCompareDdmutStatus,
+    dynamut2JobId,
+    setDynamut2JobId,
+    compareDynamut2JobId,
+    setCompareDynamut2JobId,
+    ddmutJobId,
+    setDdmutJobId,
+    compareDdmutJobId,
+    setCompareDdmutJobId,
     structuralDiff,
     setStructuralDiff,
     compareStructuralDiff,

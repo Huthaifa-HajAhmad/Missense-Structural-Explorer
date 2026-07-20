@@ -4,6 +4,20 @@ import { z } from "zod";
 const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
 const nullableFiniteNumber = z.number().nullable().refine(val => val === null || Number.isFinite(val), { message: "Number must be finite" });
 
+// Request deduplication cache for in-flight fetch promises (F-A2)
+const inFlightRequests = new Map<string, Promise<any>>();
+
+export function getDeduplicatedPromise<T>(key: string, promiseCreator: () => Promise<T>): Promise<T> {
+  let existing = inFlightRequests.get(key);
+  if (!existing) {
+    existing = promiseCreator().finally(() => {
+      inFlightRequests.delete(key);
+    });
+    inFlightRequests.set(key, existing);
+  }
+  return existing;
+}
+
 // Zod validation schemas for server responses (MOD-6)
 export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
@@ -83,12 +97,27 @@ export const analyzeVariantResponseSchema = z.object({
     revel: nullableFiniteNumber,
     gerp: nullableFiniteNumber,
     phylop: nullableFiniteNumber,
-    consurf: nullableFiniteNumber
+    consurf: nullableFiniteNumber,
+    bayesdel: nullableFiniteNumber.optional(),
+    metarnn: nullableFiniteNumber.optional(),
+    clinpred: nullableFiniteNumber.optional(),
+    eigenPhred: nullableFiniteNumber.optional(),
+    dann: nullableFiniteNumber.optional(),
+    esm1b: nullableFiniteNumber.optional(),
+    popeve: nullableFiniteNumber.optional()
   }).nullable().optional(),
   landscapeData: z.array(z.object({
     residx: z.number(),
-    revelMax: z.number().nullable(),
-    amMax: z.number().nullable(),
+    revelMean: z.number().nullable().optional(),
+    revelMedian: z.number().nullable().optional(),
+    revelMin: z.number().nullable().optional(),
+    revelMax: z.number().nullable().optional(),
+    revelCount: z.number().optional(),
+    amMean: z.number().nullable().optional(),
+    amMedian: z.number().nullable().optional(),
+    amMin: z.number().nullable().optional(),
+    amMax: z.number().nullable().optional(),
+    amCount: z.number().optional(),
     gerp: z.number().nullable(),
     phylop: z.number().nullable()
   })).nullable().optional(),
@@ -135,6 +164,12 @@ export const analyzeVariantResponseSchema = z.object({
     nHomozygous: z.number().nullable(),
     dataset: z.string()
   }).nullable().optional(),
+  aouFrequency: z.object({
+    aouAC: z.number().nullable().optional(),
+    aouAN: z.number().nullable().optional(),
+    aouHet: z.number().nullable().optional(),
+    aouHom: z.number().nullable().optional()
+  }).nullable().optional(),
   esm2: z.object({
     llr: z.number().nullable(),
     verdict: z.string().nullable()
@@ -144,7 +179,7 @@ export const analyzeVariantResponseSchema = z.object({
 export const generateMutantResponseSchema = z.object({
   pdb: z.string(),
   ddG: nullableFiniteNumber,
-  status: z.enum(["success", "scwrl"]),
+  status: z.string(),
   foldedResidueIndex: finiteNumber,
   energetics: z.object({
     foldx: nullableFiniteNumber,
@@ -158,7 +193,8 @@ export const generateMutantResponseSchema = z.object({
     ddmut: nullableFiniteNumber.optional(),
     rasp: nullableFiniteNumber.optional(),
     ddgun: nullableFiniteNumber.optional(),
-    consensusVerdict: z.string().nullable().optional()
+    consensusVerdict: z.string().nullable().optional(),
+    isRaspSurrogate: z.boolean().optional()
   }).optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),
@@ -206,7 +242,7 @@ export const translateVariantResponseSchema = z.object({
   uniprotId: z.string()
 });
 import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "./data";
-import { AnalysisState, VariantPreset, UserSettings, AnalysisResult, NearestResidue, PocketResult, EnergeticsData, StructuralDiffResult } from "./types";
+import { AnalysisState, VariantPreset, UserSettings, AnalysisResult, NearestResidue, PocketResult, EnergeticsData, StructuralDiffResult, BiophysicalApiResponse, AcmgVerdict, ACMGCriteriaItem, PdbHomolog } from "./types";
 import { useSettings } from "./context/SettingsContext";
 import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3 } from "./aminoAcids";
 import { useSearchHistory } from "./hooks/useSearchHistory";
@@ -230,16 +266,20 @@ export function buildEnergeticsQueryString(energetics: EnergeticsData | null): s
 
 async function fetchWithRetry(
   url: string,
-  options: RequestInit = {},
+  options: RequestInit & { timeout?: number } = {},
   maxRetries = 3,
   initialDelay = 1000,
   backoffFactor = 2
 ): Promise<Response> {
+  if (!navigator.onLine) {
+    throw new Error("You appear to be offline. Please verify your internet connection and try again.");
+  }
   let attempt = 0;
   
   while (true) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    const timeoutVal = options.timeout ?? 300000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutVal);
     
     const onSignalAbort = () => controller.abort();
     if (options.signal) {
@@ -260,8 +300,8 @@ async function fetchWithRetry(
         return response;
       }
       
-      // If it's a 503 (Cold Start) and we have retries left:
-      if (response.status === 503 && attempt < maxRetries) {
+      const shouldRetryStatus = [502, 503, 504, 429].includes(response.status);
+      if (shouldRetryStatus && attempt < maxRetries) {
         // Read body to see if it's an API key missing configuration error
         try {
           const clone = response.clone();
@@ -413,7 +453,7 @@ export function parseMutationResidues(variantStr: string) {
     Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
     Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V"
   };
-  const clean = variantStr.replace(/^p\./i, "");
+  const clean = variantStr.replace(/^p\./i, "").replace(/[()]/g, "");
   
   const normalize3 = (str: string) => {
     if (str.length !== 3) return str;
@@ -486,7 +526,7 @@ export default function useVariantAnalysis() {
 
   const fetchWithAuth = useCallback(async (
     url: string,
-    options: RequestInit = {}
+    options: RequestInit & { timeout?: number } = {}
   ): Promise<Response> => {
     const headers = { ...(options.headers as Record<string, string> || {}) };
     if (settings.geminiSessionId) {
@@ -619,6 +659,8 @@ export default function useVariantAnalysis() {
   const [copied, setCopied] = useState(false);
   const [customPdbUrl, setCustomPdbUrl] = useState<string | null>(null);
   const [userDirections, setUserDirections] = useState("");
+  const [homologs, setHomologs] = useState<PdbHomolog[]>([]);
+  const [isHomologsLoading, setIsHomologsLoading] = useState(false);
 
   const [viewMode, setViewMode] = useState<"wildtype" | "mutant">("wildtype");
   const [disruptionPredictor, setDisruptionPredictor] = useState<{ level: "high" | "low"; reason: string; plddt: number } | null>(null);
@@ -657,6 +699,10 @@ export default function useVariantAnalysis() {
     compareDynamut2Status, setCompareDynamut2Status,
     ddmutStatus, setDdmutStatus,
     compareDdmutStatus, setCompareDdmutStatus,
+    dynamut2JobId, setDynamut2JobId,
+    compareDynamut2JobId, setCompareDynamut2JobId,
+    ddmutJobId, setDdmutJobId,
+    compareDdmutJobId, setCompareDdmutJobId,
     structuralDiff, setStructuralDiff,
     compareStructuralDiff, setCompareStructuralDiff,
     computedPocket, setComputedPocket,
@@ -819,7 +865,13 @@ export default function useVariantAnalysis() {
             uniprotId: preset.uniprotId,
             residueIndex: mutMatch ? parseInt(mutMatch[1], 10) : null,
             wildType: "",
-            mutant: ""
+            mutant: "",
+            analysisVersion: {
+              thresholds: "ACMG v1.0.0-concordance",
+              geminiModel: "gemini-2.5-flash",
+              foldxVersion: "FoldX 5.0",
+              timestamp: new Date().toISOString()
+            }
           }
         }
       });
@@ -834,7 +886,7 @@ export default function useVariantAnalysis() {
 
   const translateVariantNotation = async (notation: string, signal: AbortSignal) => {
     setAnalysisState(prev => ({ ...prev, isLoading: true, error: null }));
-    setLoadingStep("Translating genomic coordinate / cDNA variant notation via Ensembl VEP...");
+    setLoadingStep("Step 1/4: Translating cDNA variant notation via Ensembl VEP...");
     
     try {
       const response = await fetchWithAuth("/api/v1/translate-variant", {
@@ -890,6 +942,7 @@ export default function useVariantAnalysis() {
     setAnalysisState({ isLoading: true, error: null, result: null });
     setIsBiophysicalLoading(true);
     setIsClinicalLoading(true);
+    fetchHomologs(targetUniprot, activeSignal);
     
     // Clear structural model comparison states for fresh run
     setViewMode("wildtype");
@@ -899,17 +952,14 @@ export default function useVariantAnalysis() {
     setFoldedResidueIndex(null);
     setFoldingError(null);
     
-    // Animate loader steps for elegant clinical diagnostics
-    setLoadingStep("1. Interrogating genomic substitution models...");
-    const timer1 = setTimeout(() => {
-      setLoadingStep("2. Loading 3D spatial coordinate models from AlphaFold...");
-    }, 1200);
-    const timer2 = setTimeout(() => {
-      setLoadingStep("3. Invoking Gemini biophysical analysis algorithm...");
-    }, 2500);
+    // Set initial stateful loader step
+    setLoadingStep("Step 2/4: Loading 3D structural templates & sequence features...");
+
+    let biophysicalResult: BiophysicalApiResponse | null = null;
+    let biophysicalError: string | null = null;
 
     try {
-      // Trigger FoldX/DynaMut2 calculation early in the background
+      // Trigger FoldX, DynaMut2, DDMut, and DDGun calculations concurrently at start of search submission
       fetchMutantFold(targetGene, targetVariant, targetUniprot, activeSignal);
 
       // Parallelize fetching of EBI AlphaFold structure to warm cache (HIGH-9)
@@ -922,81 +972,88 @@ export default function useVariantAnalysis() {
       if (settings.appApiToken) {
         warmupHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
       }
-      const pdbWarmupPromise = fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
-        signal: activeSignal,
-        headers: warmupHeaders
+      
+      const pdbKey = `warmup_${targetGene}_${targetVariant}_${targetUniprot}`;
+      const pdbWarmupPromise = getDeduplicatedPromise(pdbKey, () =>
+        fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
+          signal: activeSignal,
+          headers: warmupHeaders
+        }).then(async (res) => {
+          if (!res.ok) throw new Error(`PDB fetch failed`);
+          return res.text();
+        })
+      );
+      
+      pdbWarmupPromise.then(() => {
+        setLoadingStep(prev => {
+          if (prev.includes("Step 2/4")) {
+            return "Step 3/4: Loaded AlphaFold structure. Running in-silico ensemble pipelines...";
+          }
+          return prev;
+        });
       }).catch(err => {
         console.warn("AlphaFold PDB concurrent pre-fetch request failed or aborted:", err);
       });
 
-      let biophysicalResult: any = null;
-      let biophysicalError: string | null = null;
+      biophysicalResult = null;
+      biophysicalError = null;
 
       // Concurrently kick off the biophysical description query so it resolves quickly in parallel
-      const biophysicalPromise = fetchWithAuth("/api/v1/analyze-variant-biophysical", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gene: targetGene,
-          variant: targetVariant,
-          uniprotId: targetUniprot
-        }),
-        signal: activeSignal
-      }).then(async (res) => {
+      const bpKey = `biophysical_${targetGene}_${targetVariant}_${targetUniprot}`;
+      const biophysicalPromise = getDeduplicatedPromise(bpKey, () =>
+        fetchWithAuth("/api/v1/analyze-variant-biophysical", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gene: targetGene,
+            variant: targetVariant,
+            uniprotId: targetUniprot
+          }),
+          signal: activeSignal
+        }).then(async (res) => {
+          if (!res.ok) {
+            let errorMsg = "The biophysical analysis request failed.";
+            try {
+              const errData = await res.json();
+              if (errData?.error?.message) {
+                errorMsg = errData.error.message;
+              }
+            } catch (_) {}
+            throw new Error(errorMsg);
+          }
+          return res.json();
+        })
+      );
+
+      biophysicalPromise.then((bpData) => {
         setIsBiophysicalLoading(false);
-        if (res.ok) {
-          const bpData = await res.json();
-          biophysicalResult = bpData;
-          setAnalysisState(prev => {
-            if (!prev.result) return prev;
-            const prevInsights = prev.result.insights || {
-              biochemicalShift: "",
-              structuralImpact: "",
-              acmgCriteria: [],
-              plausibility: ""
-            };
-            return {
-              ...prev,
-              result: {
-                ...prev.result,
-                insights: {
-                  ...prevInsights,
-                  biochemicalShift: bpData.biochemicalShift,
-                  structuralImpact: bpData.structuralImpact
-                }
+        biophysicalResult = bpData;
+        setLoadingStep(prev => {
+          if (prev.includes("Step 2/4") || prev.includes("Step 3/4")) {
+            return "Step 4/4: Modeling biophysical force-fields and ACMG rule classifiers...";
+          }
+          return prev;
+        });
+        setAnalysisState(prev => {
+          if (!prev.result) return prev;
+          const prevInsights = prev.result.insights || {
+            biochemicalShift: "",
+            structuralImpact: "",
+            acmgCriteria: [],
+            plausibility: ""
+          };
+          return {
+            ...prev,
+            result: {
+              ...prev.result,
+              insights: {
+                ...prevInsights,
+                biochemicalShift: bpData.biochemicalShift,
+                structuralImpact: bpData.structuralImpact
               }
-            };
-          });
-        } else {
-          let errorMsg = "The biophysical analysis request failed.";
-          try {
-            const errData = await res.json();
-            if (errData?.error?.message) {
-              errorMsg = errData.error.message;
             }
-          } catch (_) {}
-          biophysicalError = errorMsg;
-          setAnalysisState(prev => {
-            if (!prev.result) return prev;
-            const prevInsights = prev.result.insights || {
-              biochemicalShift: "",
-              structuralImpact: "",
-              acmgCriteria: [],
-              plausibility: ""
-            };
-            return {
-              ...prev,
-              result: {
-                ...prev.result,
-                insights: {
-                  ...prevInsights,
-                  biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\n${errorMsg}`,
-                  structuralImpact: `⚠️ **Structural Impact Unavailable**\n\n${errorMsg}`
-                }
-              }
-            };
-          });
-        }
+          };
+        });
       }).catch(err => {
         setIsBiophysicalLoading(false);
         const errorMsg = err.message || "Unknown network error.";
@@ -1016,47 +1073,49 @@ export default function useVariantAnalysis() {
               ...prev.result,
               insights: {
                 ...prevInsights,
-                biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\nThe request encountered a connection error: ${errorMsg}`,
-                structuralImpact: `⚠️ **Structural Impact Unavailable**\n\nThe request encountered a connection error: ${errorMsg}`
+                biochemicalShift: `⚠️ **Biophysical Shift Unavailable**\n\n${errorMsg}`,
+                structuralImpact: `⚠️ **Structural Impact Unavailable**\n\n${errorMsg}`
               }
             }
           };
         });
       });
 
-      let response = await fetchWithAuth("/api/v1/analyze-variant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gene: targetGene,
-          variant: targetVariant,
-          uniprotId: targetUniprot,
-          userDirections: userDirections || undefined,
-          acmgWeighting: settings.acmgWeighting,
-          originalNotation: originalNotation || undefined
-        }),
-        signal: activeSignal
-      });
+      const analyzeKey = `analyze_${targetGene}_${targetVariant}_${targetUniprot}_${userDirections || ""}`;
+      const analyzePromise = getDeduplicatedPromise(analyzeKey, () =>
+        fetchWithAuth("/api/v1/analyze-variant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gene: targetGene,
+            variant: targetVariant,
+            uniprotId: targetUniprot,
+            userDirections: userDirections || undefined,
+            acmgWeighting: settings.acmgWeighting,
+            originalNotation: originalNotation || undefined
+          }),
+          signal: activeSignal
+        }).then(async (res) => {
+          const resText = await res.text();
+          let data: any = null;
+          try {
+            data = JSON.parse(resText);
+          } catch (e: any) {
+            if (!res.ok) {
+              throw new Error(`Genomic analysis endpoint failed (status: ${res.status}).`);
+            }
+            throw new Error("Failed to parse response JSON.");
+          }
+          if (!res.ok) {
+            throw new Error(getErrorMessage(data, "Genomic analysis endpoint failed."));
+          }
+          return analyzeVariantResponseSchema.parse(data);
+        })
+      );
 
-      clearTimeout(timer1);
-      clearTimeout(timer2);
+      const validatedData = await analyzePromise;
 
-      let resText = await response.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(resText);
-      } catch (e: any) {
-        if (!response.ok) {
-          throw new Error(`Genomic analysis endpoint failed (status: ${response.status}).`);
-        }
-        throw new Error("Failed to parse response JSON.");
-      }
 
-      if (!response.ok) {
-        throw new Error(getErrorMessage(data, "Genomic analysis endpoint failed."));
-      }
-
-      const validatedData = analyzeVariantResponseSchema.parse(data);
       const predictorVal = validatedData.disruptionPredictor || { level: "low" as const, reason: "PDB structure mapping not resolved", plddt: 100 };
       setDisruptionPredictor(predictorVal);
       setTriageOverride(false);
@@ -1064,9 +1123,10 @@ export default function useVariantAnalysis() {
       // Build initial insights incorporating buffered biophysical results or error messages to prevent data race drops (FE-2)
       let initialInsights: any = null;
       if (biophysicalResult) {
+        const bp = biophysicalResult as BiophysicalApiResponse;
         initialInsights = {
-          biochemicalShift: biophysicalResult.biochemicalShift,
-          structuralImpact: biophysicalResult.structuralImpact,
+          biochemicalShift: bp.biochemicalShift,
+          structuralImpact: bp.structuralImpact,
           acmgCriteria: [],
           plausibility: ""
         };
@@ -1087,8 +1147,8 @@ export default function useVariantAnalysis() {
           insights: initialInsights,
           ruleBasedInsights: validatedData.ruleBasedInsights ? {
             plausibility: validatedData.ruleBasedInsights.plausibility,
-            acmgVerdict: validatedData.ruleBasedInsights.acmgVerdict,
-            acmgCriteria: validatedData.ruleBasedInsights.acmgCriteria,
+            acmgVerdict: validatedData.ruleBasedInsights.acmgVerdict as AcmgVerdict,
+            acmgCriteria: validatedData.ruleBasedInsights.acmgCriteria as ACMGCriteriaItem[],
             partialEvidence: validatedData.ruleBasedInsights.partialEvidence
           } : null,
           clinvar: validatedData.clinvar ? {
@@ -1109,7 +1169,15 @@ export default function useVariantAnalysis() {
             uniprotId: validatedData.metadata.uniprotId,
             residueIndex: validatedData.metadata.residueIndex,
             wildType: validatedData.metadata.wildType,
-            mutant: validatedData.metadata.mutant
+            mutant: validatedData.metadata.mutant,
+            pdbId: validatedData.metadata.pdbId || null,
+            pdbSource: validatedData.metadata.pdbSource || null,
+            analysisVersion: {
+              thresholds: "ACMG v1.0.0-concordance",
+              geminiModel: "gemini-2.5-flash",
+              foldxVersion: "FoldX 5.0",
+              timestamp: new Date().toISOString()
+            }
           },
           predictorData: validatedData.predictorData || null,
           conservationData: validatedData.conservationData || null,
@@ -1132,6 +1200,12 @@ export default function useVariantAnalysis() {
             exomeAC: validatedData.gnomadFrequency.exomeAC ?? null,
             genomeAN: validatedData.gnomadFrequency.genomeAN ?? null,
             exomeAN: validatedData.gnomadFrequency.exomeAN ?? null
+          } : null,
+          aouFrequency: validatedData.aouFrequency ? {
+            aouAC: validatedData.aouFrequency.aouAC ?? null,
+            aouAN: validatedData.aouFrequency.aouAN ?? null,
+            aouHet: validatedData.aouFrequency.aouHet ?? null,
+            aouHom: validatedData.aouFrequency.aouHom ?? null
           } : null,
           esm2: validatedData.esm2 || null
         }
@@ -1247,8 +1321,6 @@ export default function useVariantAnalysis() {
         }
       })();
     } catch (err: any) {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
       setIsBiophysicalLoading(false);
       setIsClinicalLoading(false);
       
@@ -1282,15 +1354,51 @@ export default function useVariantAnalysis() {
               uniprotId: targetUniprot,
               residueIndex: mutMatch ? parseInt(mutMatch[0], 10) : null,
               wildType: "",
-              mutant: ""
+              mutant: "",
+              analysisVersion: {
+                thresholds: "ACMG v1.0.0-concordance",
+                geminiModel: "gemini-2.5-flash",
+                foldxVersion: "FoldX 5.0",
+                timestamp: new Date().toISOString()
+              }
             }
           }
         });
       } else {
+        const parsedRes = parseMutationResidues(targetVariant);
+        const mutMatch = targetVariant.match(/\d+/);
+        const posVal = mutMatch ? parseInt(mutMatch[0], 10) : null;
+        
+        const partialResult = {
+          isDemoData: false,
+          metadata: {
+            gene: targetGene,
+            variant: targetVariant,
+            uniprotId: targetUniprot,
+            residueIndex: posVal,
+            wildType: parsedRes?.wt || "",
+            mutant: parsedRes?.mut || "",
+            pdbId: null,
+            pdbSource: "AlphaFold",
+            analysisVersion: {
+              thresholds: "ACMG v1.0.0-concordance",
+              geminiModel: "gemini-2.5-flash",
+              foldxVersion: "FoldX 5.0",
+              timestamp: new Date().toISOString()
+            }
+          },
+          insights: {
+            biochemicalShift: (biophysicalResult as any)?.biochemicalShift || `⚠️ **Biochemical Shift Unavailable**\n\nThe primary variant database query failed: ${err.message || err}`,
+            structuralImpact: (biophysicalResult as any)?.structuralImpact || `⚠️ **Structural Impact Unavailable**\n\nThe primary variant database query failed: ${err.message || err}`,
+            acmgCriteria: [],
+            plausibility: ""
+          }
+        };
+
         setAnalysisState({
           isLoading: false,
-          error: `Biophysical calculation failed: ${err.message || "Endpoint error."} Ensure Google Gemini API Key is configured in the search panel or Settings.`,
-          result: null
+          error: `Database query failed: ${err.message || "Endpoint error."} Displaying partial biophysical structure and insights.`,
+          result: partialResult
         });
       }
     }
@@ -1370,6 +1478,90 @@ export default function useVariantAnalysis() {
       setComputedPocket(null);
     }
   }, [pdbText, uniprotId, selectedResidueIndex, fetchPocketData]);
+  const fetchHomologs = useCallback(async (targetUniprot: string, signal?: AbortSignal) => {
+    setIsHomologsLoading(true);
+    setHomologs([]);
+    try {
+      const uniRes = await fetch(`https://rest.uniprot.org/uniprotkb/${targetUniprot}.json`, { signal });
+      if (!uniRes.ok) throw new Error(`UniProt API returned status ${uniRes.status}`);
+      const uniData = await uniRes.json();
+      const sequence = uniData.sequence?.value;
+      if (!sequence || sequence.length < 25) {
+        setIsHomologsLoading(false);
+        return;
+      }
+
+      const searchRes = await fetch("https://search.rcsb.org/rcsbsearch/v2/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: {
+            type: "terminal",
+            service: "sequence",
+            parameters: {
+              evalue_cutoff: 0.1,
+              identity_cutoff: 0.3,
+              sequence_type: "protein",
+              value: sequence
+            }
+          },
+          return_type: "entry"
+        }),
+        signal
+      });
+
+      if (!searchRes.ok) throw new Error(`RCSB Search API returned status ${searchRes.status}`);
+      const searchData = await searchRes.json();
+      const hits = searchData.result_set?.slice(0, 5) || [];
+
+      const homologPromises = hits.map(async (hit: any) => {
+        const pdbId = hit.identifier;
+        const score = hit.score;
+        try {
+          const entryRes = await fetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbId}`, { signal });
+          const entryData = await entryRes.json();
+          const title = entryData.struct?.title || "No description";
+          const method = entryData.rcsb_entry_info?.experimental_method || "Unknown";
+          const resolution = entryData.rcsb_entry_info?.resolution_combined?.[0] || null;
+
+          let organism = "Unknown";
+          try {
+            const polyRes = await fetch(`https://data.rcsb.org/rest/v1/core/polymer_entity/${pdbId}/1`, { signal });
+            const polyData = await polyRes.json();
+            organism = polyData.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
+          } catch (polyErr) {
+            console.warn(`Failed to fetch polymer entity for ${pdbId}:`, polyErr);
+          }
+
+          return {
+            pdbId,
+            score,
+            title,
+            organism,
+            method,
+            resolution
+          } as PdbHomolog;
+        } catch (entryErr) {
+          console.warn(`Failed to fetch entry details for ${pdbId}:`, entryErr);
+          return null;
+        }
+      });
+
+      const resolved = (await Promise.all(homologPromises)).filter((h): h is PdbHomolog => h !== null);
+      if (!signal?.aborted) {
+        setHomologs(resolved);
+      }
+    } catch (err: any) {
+      if (!signal?.aborted) {
+        console.error("Error fetching homologous structures:", err);
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsHomologsLoading(false);
+      }
+    }
+  }, []);
+
 
   const fetchNearestResidues = useCallback(async (
     targetUniprot: string,
@@ -1459,12 +1651,20 @@ export default function useVariantAnalysis() {
   }, []);
 
   const fetchMutantFold = async (targetGene: string, targetVariant: string, targetUniprot: string, signal?: AbortSignal) => {
+    const effectiveUniprot = targetUniprot || analysisState.result?.metadata?.uniprotId || customUniprot || "";
+    console.log("[fetchMutantFold] Initiating call with:", { targetGene, targetVariant, targetUniprot, effectiveUniprot, hasSignal: !!signal });
+    if (!targetGene || !targetVariant || !effectiveUniprot) {
+      console.warn("[fetchMutantFold] Skipping call due to missing parameters:", { targetGene, targetVariant, effectiveUniprot });
+      return;
+    }
+
     const key = `${targetGene}_${targetVariant}`;
     lastFetchedFoldRef.current = key;
 
     let activeSignal = signal;
     if (!activeSignal) {
       if (mutantFoldAbortRef.current) {
+        console.log("[fetchMutantFold] Aborting previous folding request");
         mutantFoldAbortRef.current.abort();
       }
       const controller = new AbortController();
@@ -1486,7 +1686,7 @@ export default function useVariantAnalysis() {
       if (settings.appApiToken) {
         wtPdbHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
       }
-      const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${targetUniprot}${posQuery}`, {
+      const wtPdbRes = await fetch(`/api/v1/alphafold-pdb/${effectiveUniprot}${posQuery}`, {
         signal: activeSignal,
         headers: wtPdbHeaders
       });
@@ -1494,8 +1694,9 @@ export default function useVariantAnalysis() {
         throw new Error(`Failed to load wild-type template structure (status: ${wtPdbRes.status})`);
       }
       const wtPdb = await wtPdbRes.text();
+      setPdbText(wtPdb);
       if (selectedResidueIndex !== null) {
-        fetchNearestResidues(targetUniprot, targetVariant, selectedResidueIndex, wtPdb, activeSignal);
+        fetchNearestResidues(effectiveUniprot, targetVariant, selectedResidueIndex, wtPdb, activeSignal);
       }
 
       const mutation = mapMutationToFoldXFormat(targetVariant);
@@ -1503,233 +1704,299 @@ export default function useVariantAnalysis() {
         console.log(`[Biophysical Modeling] Mapping mutation to FoldX input format: ${mutation}`);
       }
 
-      const response = await fetchWithAuth("/api/v1/generate-mutant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          wtPdb,
-          mutation,
-          uniprotId: targetUniprot
-        }),
-        signal: activeSignal
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        let errMsg = "Biophysical mutant simulation failed.";
+      // KICK OFF DYNAMUT2 SUBMISSION & POLLING (Asynchronously)
+      const submitDynaMut2 = async () => {
         try {
-          const errData = JSON.parse(text);
-          errMsg = getErrorMessage(errData, errMsg);
-        } catch (_) {
-          errMsg = `Biophysical mutant simulation failed (status: ${response.status}). Response: ${text.slice(0, 300)}`;
+          const res = await fetchWithAuth("/api/v1/dynamut2-submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ wtPdb, mutation }),
+            signal: activeSignal,
+            timeout: 60000
+          });
+          if (!res.ok) throw new Error(`Submit DynaMut2 returned status ${res.status}`);
+          const submitData = await res.json();
+          const returnedStatus = submitData.dynamut2Status;
+          setDynamut2Status(
+            returnedStatus === "pending" || returnedStatus === "unavailable" || returnedStatus === "done"
+              ? returnedStatus
+              : null
+          );
+          if (submitData.dynamut2JobId) {
+            clearDynaMutPoll();
+            setDynamut2JobId(submitData.dynamut2JobId);
+            let attempts = 0;
+            const maxAttempts = 30;
+            const jobId = submitData.dynamut2JobId;
+            addNotification("info", `DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
+            
+            let finished = false;
+            const poll = async () => {
+              if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+                clearDynaMutPoll();
+                return;
+              }
+              attempts++;
+              try {
+                const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current) + `&uniprotId=${effectiveUniprot}&mutation=${mutation}`;
+                const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}?${queryStr}`, {
+                  method: "GET",
+                  signal: activeSignal
+                });
+                if (pollRes.status === 429) {
+                  console.warn(`[DynaMut2 Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
+                  const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+                  dynamutPollIntervalRef.current = setTimeout(poll, delay) as any;
+                  return;
+                }
+                if (!pollRes.ok) {
+                  throw new Error(`Poll request failed (status: ${pollRes.status})`);
+                }
+                const pollData = await pollRes.json();
+                if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+                  clearDynaMutPoll();
+                  return;
+                }
+                if (pollData.status === "DONE" && pollData.prediction !== null) {
+                  setFoldingEnergetics(prev => {
+                    const base = prev || {
+                      foldx: null,
+                      ddgun: null,
+                      dynamut2: null,
+                      ddmut: null,
+                      rasp: null
+                    };
+                    const updated = {
+                      ...base,
+                      dynamut2: pollData.prediction,
+                      ddgun: prev?.ddgun ?? pollData.ddgun ?? null
+                    };
+                    updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
+                    return updated;
+                  });
+                  setDynamut2Status("done");
+                  clearDynaMutPoll();
+                  addNotification("success", `DynaMut2 prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+                  finished = true;
+                } else if (pollData.status === "ERROR") {
+                  setDynamut2Status("unavailable");
+                  clearDynaMutPoll();
+                  addNotification("error", `DynaMut2 prediction failed for ${targetGene} ${targetVariant}.`);
+                  finished = true;
+                }
+              } catch (pollErr: any) {
+                if (activeSignal?.aborted) return;
+                console.error("[DynaMut2 Polling Error]:", pollErr);
+                setDynamut2Status("unavailable");
+                clearDynaMutPoll();
+                addNotification("error", `DynaMut2 polling encountered an error: ${pollErr.message || pollErr}.`);
+                finished = true;
+              }
+              
+              if (!finished) {
+                if (attempts >= maxAttempts) {
+                  setDynamut2Status("unavailable");
+                  clearDynaMutPoll();
+                  addNotification("error", `DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+                } else {
+                  const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+                  dynamutPollIntervalRef.current = setTimeout(poll, delay) as any;
+                }
+              }
+            };
+
+            await poll();
+          }
+        } catch (submitErr: any) {
+          if (activeSignal?.aborted) return;
+          console.error("[DynaMut2 Submission Error]:", submitErr);
+          setDynamut2Status("unavailable");
         }
-        throw new Error(errMsg);
-      }
+      };
 
-      const resText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(resText);
-      } catch (parseErr: any) {
-        throw new Error(`Failed to parse response JSON: ${parseErr.message}. Response: ${resText.slice(0, 300)}`);
-      }
+      // KICK OFF DDMUT SUBMISSION & POLLING (Asynchronously)
+      const submitDDMut = async () => {
+        try {
+          const res = await fetchWithAuth("/api/v1/ddmut-submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ wtPdb, mutation }),
+            signal: activeSignal,
+            timeout: 60000
+          });
+          if (!res.ok) throw new Error(`Submit DDMut returned status ${res.status}`);
+          const submitData = await res.json();
+          const returnedDdmutStatus = submitData.ddmutStatus;
+          setDdmutStatus(
+            returnedDdmutStatus === "pending" || returnedDdmutStatus === "unavailable" || returnedDdmutStatus === "done"
+              ? returnedDdmutStatus
+              : null
+          );
+          if (submitData.ddmutJobId) {
+            clearDdmutPoll();
+            setDdmutJobId(submitData.ddmutJobId);
+            let attempts = 0;
+            const maxAttempts = 30;
+            const jobId = submitData.ddmutJobId;
+            addNotification("info", `DDMut calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
+            
+            let finished = false;
+            const poll = async () => {
+              if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+                clearDdmutPoll();
+                return;
+              }
+              attempts++;
+              try {
+                const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current) + `&uniprotId=${effectiveUniprot}&mutation=${mutation}`;
+                const pollRes = await fetchWithAuth(`/api/v1/ddmut-job/${jobId}?${queryStr}`, {
+                  method: "GET",
+                  signal: activeSignal
+                });
+                if (pollRes.status === 429) {
+                  console.warn(`[DDMut Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
+                  const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+                  ddmutPollIntervalRef.current = setTimeout(poll, delay) as any;
+                  return;
+                }
+                if (!pollRes.ok) {
+                  throw new Error(`Poll request failed (status: ${pollRes.status})`);
+                }
+                const pollData = await pollRes.json();
+                if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+                  clearDdmutPoll();
+                  return;
+                }
+                if (pollData.status === "DONE" && pollData.prediction !== null) {
+                  setFoldingEnergetics(prev => {
+                    const base = prev || {
+                      foldx: null,
+                      ddgun: null,
+                      dynamut2: null,
+                      ddmut: null,
+                      rasp: null
+                    };
+                    const updated = {
+                      ...base,
+                      ddmut: pollData.prediction,
+                      ddgun: prev?.ddgun ?? pollData.ddgun ?? null
+                    };
+                    updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
+                    return updated;
+                  });
+                  setDdmutStatus("done");
+                  clearDdmutPoll();
+                  addNotification("success", `DDMut prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
+                  finished = true;
+                } else if (pollData.status === "ERROR") {
+                  setDdmutStatus("unavailable");
+                  clearDdmutPoll();
+                  addNotification("error", `DDMut prediction failed for ${targetGene} ${targetVariant}.`);
+                  finished = true;
+                }
+              } catch (pollErr: any) {
+                if (activeSignal?.aborted) return;
+                console.error("[DDMut Polling Error]:", pollErr);
+                setDdmutStatus("unavailable");
+                clearDdmutPoll();
+                addNotification("error", `DDMut polling encountered an error: ${pollErr.message || pollErr}.`);
+                finished = true;
+              }
+              
+              if (!finished) {
+                if (attempts >= maxAttempts) {
+                  setDdmutStatus("unavailable");
+                  clearDdmutPoll();
+                  addNotification("error", `DDMut prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+                } else {
+                  const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+                  ddmutPollIntervalRef.current = setTimeout(poll, delay) as any;
+                }
+              }
+            };
 
-      const validatedData = generateMutantResponseSchema.parse(data);
+            await poll();
+          }
+        } catch (submitErr: any) {
+          if (activeSignal?.aborted) return;
+          console.error("[DDMut Submission Error]:", submitErr);
+          setDdmutStatus("unavailable");
+        }
+      };
+
+      // Trigger parallel submissions asynchronously (no await)
+      submitDynaMut2();
+      submitDDMut();
+
+      console.log("[fetchMutantFold] Sending generate-mutant request with mutation:", mutation);
+      const mutantKey = `mutant_${targetGene}_${targetVariant}_${effectiveUniprot}`;
+      const responsePromise = getDeduplicatedPromise(mutantKey, () =>
+        fetchWithAuth("/api/v1/generate-mutant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            wtPdb,
+            mutation,
+            uniprotId: effectiveUniprot
+          }),
+          signal: activeSignal,
+          timeout: 300000
+        }).then(async (res) => {
+          const resText = await res.text();
+          let data;
+          try {
+            data = JSON.parse(resText);
+          } catch (parseErr: any) {
+            throw new Error(`Failed to parse response JSON: ${parseErr.message}. Response: ${resText.slice(0, 300)}`);
+          }
+          if (!res.ok) {
+            let errMsg = "Biophysical mutant simulation failed.";
+            errMsg = getErrorMessage(data, errMsg);
+            throw new Error(errMsg);
+          }
+          return generateMutantResponseSchema.parse(data);
+        })
+      );
+
+      const validatedData = await responsePromise;
       setMutantPdb(validatedData.pdb);
       setFoldedResidueIndex(validatedData.foldedResidueIndex);
       setFoldingStatus(validatedData.status);
       setFoldingDdG(validatedData.ddG);
-      setFoldingEnergetics(validatedData.energetics || {
-        foldx: validatedData.ddG,
-        dynamut2: null,
-        ddmut: null,
-        rasp: null,
-        ddgun: null
+      
+      // Update energetics while merging existing background results (preventing races)
+      setFoldingEnergetics(prev => {
+        const base = validatedData.energetics || {
+          foldx: validatedData.ddG,
+          dynamut2: null,
+          ddmut: null,
+          rasp: null,
+          ddgun: null
+        };
+        const updated = {
+          ...base,
+          dynamut2: prev?.dynamut2 ?? base.dynamut2 ?? null,
+          ddmut: prev?.ddmut ?? base.ddmut ?? null
+        };
+        updated.consensusVerdict = computeConsensusVerdict(updated);
+        return updated;
       });
 
       const posVal = posMatch ? parseInt(posMatch[0], 10) : 0;
       if (validatedData.pdb && wtPdb && posVal) {
         fetchStructuralDiff(wtPdb, validatedData.pdb, posVal, "A", false, activeSignal);
       }
-
-      const returnedStatus = validatedData.dynamut2Status;
-      setDynamut2Status(
-        returnedStatus === "pending" || returnedStatus === "unavailable" || returnedStatus === "done"
-          ? returnedStatus
-          : null
-      );
-
-      const returnedDdmutStatus = validatedData.ddmutStatus;
-      setDdmutStatus(
-        returnedDdmutStatus === "pending" || returnedDdmutStatus === "unavailable" || returnedDdmutStatus === "done"
-          ? returnedDdmutStatus
-          : null
-      );
-
-      if (validatedData.dynamut2JobId) {
-        clearDynaMutPoll();
-        let attempts = 0;
-        const maxAttempts = 30; // 30 attempts at 10s interval = 5 minutes timeout
-        const jobId = validatedData.dynamut2JobId;
-        addNotification("info", `DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
-        
-        const poll = async () => {
-          if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
-            clearDynaMutPoll();
-            return;
-          }
-          attempts++;
-          let finished = false;
-          try {
-            const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current);
-            const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}?${queryStr}`, {
-              method: "GET",
-              signal: activeSignal
-            });
-            if (pollRes.status === 429) {
-              console.warn(`[DynaMut2 Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
-              return;
-            }
-            if (!pollRes.ok) {
-              throw new Error(`Poll request failed (status: ${pollRes.status})`);
-            }
-            const pollData = await pollRes.json();
-            if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
-              clearDynaMutPoll();
-              return;
-            }
-            if (pollData.status === "DONE" && pollData.prediction !== null) {
-              setFoldingEnergetics(prev => {
-                const base = prev || {
-                  foldx: validatedData.ddG,
-                  ddgun: validatedData.energetics?.ddgun ?? null,
-                  dynamut2: null,
-                  ddmut: null,
-                  rasp: null
-                };
-                const updated = {
-                  ...base,
-                  dynamut2: pollData.prediction
-                };
-                updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
-                return updated;
-              });
-              setDynamut2Status("done");
-              clearDynaMutPoll();
-              addNotification("success", `DynaMut2 prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
-              finished = true;
-            } else if (pollData.status === "ERROR") {
-              setDynamut2Status("unavailable");
-              clearDynaMutPoll();
-              addNotification("error", `DynaMut2 prediction failed for ${targetGene} ${targetVariant}.`);
-              finished = true;
-            }
-          } catch (pollErr: any) {
-            if (activeSignal?.aborted) return;
-            console.error("[DynaMut2 Polling Error]:", pollErr);
-            setDynamut2Status("unavailable");
-            clearDynaMutPoll();
-            addNotification("error", `DynaMut2 polling encountered an error: ${pollErr.message || pollErr}.`);
-            finished = true;
-          }
-          
-          if (!finished && attempts >= maxAttempts) {
-            setDynamut2Status("unavailable");
-            clearDynaMutPoll();
-            addNotification("error", `DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
-          }
-        };
-
-        const intervalId = setInterval(poll, 10000);
-        dynamutPollIntervalRef.current = intervalId;
-      }
-
-      if (validatedData.ddmutJobId) {
-        clearDdmutPoll();
-        let attempts = 0;
-        const maxAttempts = 30;
-        const jobId = validatedData.ddmutJobId;
-        addNotification("info", `DDMut calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
-        
-        const poll = async () => {
-          if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
-            clearDdmutPoll();
-            return;
-          }
-          attempts++;
-          let finished = false;
-          try {
-            const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current);
-            const pollRes = await fetchWithAuth(`/api/v1/ddmut-job/${jobId}?${queryStr}`, {
-              method: "GET",
-              signal: activeSignal
-            });
-            if (pollRes.status === 429) {
-              console.warn(`[DDMut Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
-              return;
-            }
-            if (!pollRes.ok) {
-              throw new Error(`Poll request failed (status: ${pollRes.status})`);
-            }
-            const pollData = await pollRes.json();
-            if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
-              clearDdmutPoll();
-              return;
-            }
-            if (pollData.status === "DONE" && pollData.prediction !== null) {
-              setFoldingEnergetics(prev => {
-                const base = prev || {
-                  foldx: validatedData.ddG,
-                  ddgun: validatedData.energetics?.ddgun ?? null,
-                  dynamut2: null,
-                  ddmut: null,
-                  rasp: null
-                };
-                const updated = {
-                  ...base,
-                  ddmut: pollData.prediction
-                };
-                updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
-                return updated;
-              });
-              setDdmutStatus("done");
-              clearDdmutPoll();
-              addNotification("success", `DDMut prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction} kcal/mol)`);
-              finished = true;
-            } else if (pollData.status === "ERROR") {
-              setDdmutStatus("unavailable");
-              clearDdmutPoll();
-              addNotification("error", `DDMut prediction failed for ${targetGene} ${targetVariant}.`);
-              finished = true;
-            }
-          } catch (pollErr: any) {
-            if (activeSignal?.aborted) return;
-            console.error("[DDMut Polling Error]:", pollErr);
-            setDdmutStatus("unavailable");
-            clearDdmutPoll();
-            addNotification("error", `DDMut polling encountered an error: ${pollErr.message || pollErr}.`);
-            finished = true;
-          }
-          
-          if (!finished && attempts >= maxAttempts) {
-            setDdmutStatus("unavailable");
-            clearDdmutPoll();
-            addNotification("error", `DDMut prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
-          }
-        };
-
-        const intervalId = setInterval(poll, 10000);
-        ddmutPollIntervalRef.current = intervalId;
-      }
     } catch (err: any) {
-      if (activeSignal.aborted) {
+      lastFetchedFoldRef.current = "";
+      console.warn("[fetchMutantFold] Caught error:", err);
+      if (activeSignal?.aborted || err.name === "AbortError" || (err.message && err.message.toLowerCase().includes("aborted"))) {
         console.log("fetchMutantFold aborted/canceled.");
         return;
       }
       console.error("Mutant biophysical folding error:", err);
       setFoldingError(err.message || "Failed to generate biophysical structural model.");
     } finally {
-      if (!activeSignal.aborted) {
+      if (!activeSignal?.aborted) {
         setIsFolding(false);
       }
     }
@@ -1782,7 +2049,8 @@ export default function useVariantAnalysis() {
           mutation,
           uniprotId: targetUniprot
         }),
-        signal: activeSignal
+        signal: activeSignal,
+        timeout: 300000
       });
 
       if (!response.ok) {
@@ -1839,18 +2107,19 @@ export default function useVariantAnalysis() {
 
       if (validatedData.dynamut2JobId) {
         clearDynaMutComparePoll();
+        setCompareDynamut2JobId(validatedData.dynamut2JobId);
         let attempts = 0;
-        const maxAttempts = 30; // 30 attempts at 10s interval = 5 minutes timeout
+        const maxAttempts = 30;
         const jobId = validatedData.dynamut2JobId;
         addNotification("info", `Comparison DynaMut2 calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
+        let finished = false;
         const poll = async () => {
           if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
             clearDynaMutComparePoll();
             return;
           }
           attempts++;
-          let finished = false;
           try {
             const queryStr = buildEnergeticsQueryString(compareFoldingEnergeticsRef.current);
             const pollRes = await fetchWithAuth(`/api/v1/dynamut2-job/${jobId}?${queryStr}`, {
@@ -1859,6 +2128,8 @@ export default function useVariantAnalysis() {
             });
             if (pollRes.status === 429) {
               console.warn(`[DynaMut2 Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              dynamutComparePollIntervalRef.current = setTimeout(poll, delay) as any;
               return;
             }
             if (!pollRes.ok) {
@@ -1904,31 +2175,36 @@ export default function useVariantAnalysis() {
             finished = true;
           }
           
-          if (!finished && attempts >= maxAttempts) {
-            setCompareDynamut2Status("unavailable");
-            clearDynaMutComparePoll();
-            addNotification("error", `Comparison DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+          if (!finished) {
+            if (attempts >= maxAttempts) {
+              setCompareDynamut2Status("unavailable");
+              clearDynaMutComparePoll();
+              addNotification("error", `Comparison DynaMut2 prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+            } else {
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              dynamutComparePollIntervalRef.current = setTimeout(poll, delay) as any;
+            }
           }
         };
 
-        const intervalId = setInterval(poll, 10000);
-        dynamutComparePollIntervalRef.current = intervalId;
+        await poll();
       }
 
       if (validatedData.ddmutJobId) {
         clearDdmutComparePoll();
+        setCompareDdmutJobId(validatedData.ddmutJobId);
         let attempts = 0;
         const maxAttempts = 30;
         const jobId = validatedData.ddmutJobId;
         addNotification("info", `Comparison DDMut calculation submitted for ${targetGene} ${targetVariant}. Polling in background...`);
         
+        let finished = false;
         const poll = async () => {
           if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
             clearDdmutComparePoll();
             return;
           }
           attempts++;
-          let finished = false;
           try {
             const queryStr = buildEnergeticsQueryString(compareFoldingEnergeticsRef.current);
             const pollRes = await fetchWithAuth(`/api/v1/ddmut-job/${jobId}?${queryStr}`, {
@@ -1937,6 +2213,8 @@ export default function useVariantAnalysis() {
             });
             if (pollRes.status === 429) {
               console.warn(`[DDMut Polling] Rate limited (429) for job ${jobId}. Will retry on next tick.`);
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              ddmutComparePollIntervalRef.current = setTimeout(poll, delay) as any;
               return;
             }
             if (!pollRes.ok) {
@@ -1982,25 +2260,29 @@ export default function useVariantAnalysis() {
             finished = true;
           }
           
-          if (!finished && attempts >= maxAttempts) {
-            setCompareDdmutStatus("unavailable");
-            clearDdmutComparePoll();
-            addNotification("error", `Comparison DDMut prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+          if (!finished) {
+            if (attempts >= maxAttempts) {
+              setCompareDdmutStatus("unavailable");
+              clearDdmutComparePoll();
+              addNotification("error", `Comparison DDMut prediction timed out for ${targetGene} ${targetVariant} after 5 minutes.`);
+            } else {
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              ddmutComparePollIntervalRef.current = setTimeout(poll, delay) as any;
+            }
           }
         };
 
-        const intervalId = setInterval(poll, 10000);
-        ddmutComparePollIntervalRef.current = intervalId;
+        await poll();
       }
     } catch (err: any) {
-      if (activeSignal.aborted) {
+      if (activeSignal?.aborted || err.name === "AbortError" || (err.message && err.message.toLowerCase().includes("aborted"))) {
         console.log("fetchCompareMutantFold aborted/canceled.");
         return;
       }
       console.error("Comparison biophysical folding error:", err);
       setFoldingCompareError(err.message || "Failed to generate comparison biophysical structural model.");
     } finally {
-      if (!activeSignal.aborted) {
+      if (!activeSignal?.aborted) {
         setIsFoldingCompare(false);
       }
     }
@@ -2008,14 +2290,77 @@ export default function useVariantAnalysis() {
 
   useEffect(() => {
     const key = `${gene}_${variant}`;
-    const controller = new AbortController();
-    if (!mutantPdb && !isFolding && gene && variant && uniprotId && lastFetchedFoldRef.current !== key) {
-      fetchMutantFold(gene, variant, uniprotId, controller.signal);
+    const activeUniprot = uniprotId || analysisState.result?.metadata?.uniprotId || "";
+    if (!mutantPdb && !isFolding && gene && variant && activeUniprot && lastFetchedFoldRef.current !== key) {
+      fetchMutantFold(gene, variant, activeUniprot);
     }
-    return () => {
-      controller.abort();
-    };
-  }, [mutantPdb, gene, variant, uniprotId]);
+  }, [mutantPdb, gene, variant, uniprotId, analysisState.result?.metadata?.uniprotId]);
+
+  const refreshPredictorJob = useCallback(async (jobType: "dynamut2" | "ddmut") => {
+    const jobId = jobType === "dynamut2" ? dynamut2JobId : ddmutJobId;
+    if (!jobId) {
+      addNotification("info", `No active job found. Resubmitting ${jobType === "dynamut2" ? "DynaMut2" : "DDMut"}...`);
+      const activeUniprot = uniprotId || analysisState.result?.metadata?.uniprotId || "";
+      if (gene && variant && activeUniprot) {
+        fetchMutantFold(gene, variant, activeUniprot);
+      } else {
+        addNotification("error", "Cannot submit prediction: Gene or Variant information is incomplete.");
+      }
+      return;
+    }
+
+    addNotification("info", `Checking status for ${jobType === "dynamut2" ? "DynaMut2" : "DDMut"} job #${jobId}...`);
+    try {
+      const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current);
+      const pollRes = await fetchWithAuth(`/api/v1/${jobType}-job/${jobId}?${queryStr}`, {
+        method: "GET"
+      });
+      if (pollRes.status === 429) {
+        addNotification("error", "Rate limit reached. Please wait a few seconds before retrying.");
+        return;
+      }
+      if (!pollRes.ok) {
+        throw new Error(`Job status check returned status ${pollRes.status}`);
+      }
+      const pollData = await pollRes.json();
+      if (pollData.status === "DONE" && pollData.prediction !== null) {
+        setFoldingEnergetics(prev => {
+          const base = prev || {
+            foldx: null,
+            ddgun: null,
+            dynamut2: null,
+            ddmut: null,
+            rasp: null
+          };
+          const updated = {
+            ...base,
+            [jobType]: pollData.prediction
+          };
+          updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
+          return updated;
+        });
+        if (jobType === "dynamut2") {
+          setDynamut2Status("done");
+        } else {
+          setDdmutStatus("done");
+        }
+        addNotification("success", `${jobType === "dynamut2" ? "DynaMut2" : "DDMut"} prediction completed!`);
+      } else if (pollData.status === "ERROR") {
+        if (jobType === "dynamut2") {
+          setDynamut2Status("unavailable");
+        } else {
+          setDdmutStatus("unavailable");
+        }
+        addNotification("error", `${jobType === "dynamut2" ? "DynaMut2" : "DDMut"} prediction failed.`);
+      } else {
+        addNotification("info", `${jobType === "dynamut2" ? "DynaMut2" : "DDMut"} job is still running/queued (status: ${pollData.status}).`);
+      }
+    } catch (err: any) {
+      console.error(`[Manual Refresh Error]:`, err);
+      addNotification("error", `Failed to check job status: ${err.message || err}`);
+    }
+  }, [dynamut2JobId, ddmutJobId, gene, variant, uniprotId, analysisState.result, fetchWithAuth, addNotification]);
+
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     abortAllPendingRequests();
@@ -2025,7 +2370,7 @@ export default function useVariantAnalysis() {
     const activeSignal = controller.signal;
 
     const targetGene = (customGene || "").trim().toUpperCase();
-    const targetVariant = (customVariant || "").trim();
+    const targetVariant = (customVariant || "").replace(/[()]/g, "").trim();
     const targetUniprot = (customUniprot || "").trim().toUpperCase();
 
     if (!targetGene || !targetVariant) return;
@@ -2087,7 +2432,7 @@ export default function useVariantAnalysis() {
       return;
     }
 
-    setLoadingStep("Resolving gene name to UniProt and AlphaFold coordinates...");
+    setLoadingStep("Step 1/4: Resolving gene name to UniProt coordinates...");
 
     try {
       const resolveRes = await fetchWithAuth("/api/v1/resolve-gene", {
@@ -2281,6 +2626,8 @@ export default function useVariantAnalysis() {
       disruptionWarningVariant1,
       disruptionWarningVariant2,
       computedResiduesCache,
+      homologs,
+      isHomologsLoading,
     },
     actions: {
       setTheme,
@@ -2347,6 +2694,7 @@ export default function useVariantAnalysis() {
       handleCopyReport,
       fetchNearestResidues,
       resetViewerState,
+      refreshPredictorJob,
     }
   };
 }
