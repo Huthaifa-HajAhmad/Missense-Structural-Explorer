@@ -189,7 +189,7 @@ export default function SettingsModal() {
                       onClick={() => setActiveTab(tab.id)}
                       className={`px-3 py-2 text-xs font-semibold rounded-t-xl transition-all border-b-2 flex items-center gap-1.5 cursor-pointer shrink-0 -mb-[1px] ${
                         isActive
-                          ? "border-indigo-500 text-indigo-650 dark:text-indigo-450 bg-transparent font-bold"
+                          ? "border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-transparent font-bold"
                           : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                       }`}
                     >
@@ -539,7 +539,7 @@ export default function SettingsModal() {
                         <button
                           type="button"
                           onClick={() => setShowAppToken(!showAppToken)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-450 cursor-pointer"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-500 cursor-pointer"
                         >
                           {showAppToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -571,7 +571,7 @@ export default function SettingsModal() {
                           <button
                             type="button"
                             onClick={() => setShowApiKey(!showApiKey)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-450 cursor-pointer"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-500 cursor-pointer"
                           >
                             {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
@@ -582,7 +582,7 @@ export default function SettingsModal() {
                           onClick={handleLinkApiKey}
                           className={`px-4 py-2 font-sans font-bold text-xs rounded-lg transition-colors cursor-pointer border ${
                             settings.geminiApiKey && !isLinking
-                              ? "bg-indigo-600 text-white hover:bg-indigo-550 border-indigo-650"
+                              ? "bg-indigo-600 text-white hover:bg-indigo-500 border-indigo-600"
                               : isDark
                                 ? "bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed"
                                 : "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
@@ -616,7 +616,7 @@ export default function SettingsModal() {
                         : "bg-indigo-50/70 border-indigo-150 text-indigo-850 shadow-indigo-100/10"
                     }`}>
                       <p className="font-bold flex items-center gap-1 text-[11px] uppercase tracking-wide">
-                        <Sparkles className="w-3.5 h-3.5 text-indigo-455 animate-pulse" />
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
                         How to obtain a Google Gemini API Key:
                       </p>
                       <ol className="list-decimal pl-4 space-y-1.5 text-[11px]">
@@ -665,7 +665,7 @@ export default function SettingsModal() {
                 <button
                   type="button"
                   onClick={() => setIsSettingsOpen(false)}
-                  className="w-full sm:w-auto px-6 py-2 font-sans font-bold text-xs tracking-wide text-white bg-indigo-600 hover:bg-indigo-550 transition rounded-lg shadow-md cursor-pointer text-center"
+                  className="w-full sm:w-auto px-6 py-2 font-sans font-bold text-xs tracking-wide text-white bg-indigo-600 hover:bg-indigo-500 transition rounded-lg shadow-md cursor-pointer text-center"
                 >
                   Apply & Close
                 </button>

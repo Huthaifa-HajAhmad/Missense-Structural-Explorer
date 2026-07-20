@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { 
   Dna, 
   Search, 
@@ -15,7 +15,6 @@ import {
   Layers, 
   Compass, 
   Activity,
-  Heart,
   BookOpen,
   MapPin,
   Atom,
@@ -30,134 +29,108 @@ import {
   X
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS, getNearestResidues } from "./data";
-import { AnalysisState, VariantPreset, NearestResidue, UserSettings } from "./types";
-import MolstarViewer from "./components/MolstarViewer";
-import SequenceVisualizer from "./components/SequenceVisualizer";
-import Header from "./components/Header";
+import useVariantAnalysis from "./useVariantAnalysis";
+import { VARIANT_PRESETS } from "./data";
+import MasterSidebar, { MasterView } from "./components/MasterSidebar";
+import { QueryStrip } from "./components/QueryStrip";
+import VariantHeader from "./components/VariantHeader";
 import VariantSearchPanel from "./components/VariantSearchPanel";
-import ClinicalInsightsCard from "./components/ClinicalInsightsCard";
 import EvidenceDashboardCard from "./components/EvidenceDashboardCard";
+import EnergeticsView from "./components/EnergeticsView";
+import SequenceVisualizer from "./components/SequenceVisualizer";
+import ClinicalInsightsCard from "./components/ClinicalInsightsCard";
+import ClinicalReportBar from "./components/ClinicalReportBar";
+import ContextRail from "./components/ContextRail";
 import SettingsModal from "./components/SettingsModal";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { VariantAnalysisProvider } from "./context/VariantAnalysisContext";
 
-import useVariantAnalysis, {
-  AMINO_ACID_NAMES_MAP,
-  AMINO_ACID_PROPERTIES,
-  parseMutationResidues,
-  getAlternativeVariants
-} from "./useVariantAnalysis";
+const MolstarViewerLazy = lazy(() => import("./components/MolstarViewer"));
 
 export default function App() {
   const { state, actions } = useVariantAnalysis();
+  const [masterView, setMasterView] = useState<MasterView>("search");
+  const [activeEvidenceTab, setActiveEvidenceTab] = useState<string>("clinical");
   const [isLowDisruptionWarningCollapsed, setIsLowDisruptionWarningCollapsed] = useState<boolean>(false);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const val = localStorage.getItem("cs-sidebar-width");
+    return val ? parseInt(val, 10) : 220;
+  });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem("cs-sidebar-collapsed") === "true";
+  });
+  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+
+  // Auto-navigate to Evidence view when analysis completes
+  const prevIsLoadingRef = useRef(state.analysisState.isLoading);
+  useEffect(() => {
+    if (prevIsLoadingRef.current && !state.analysisState.isLoading && state.analysisState.result) {
+      if (masterView === "search") {
+        setMasterView("evidence");
+        setActiveEvidenceTab("clinical");
+      }
+    }
+    prevIsLoadingRef.current = state.analysisState.isLoading;
+  }, [state.analysisState.isLoading, state.analysisState.result, masterView]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
+  const [isLegendOpen, setIsLegendOpen] = useState(false);
+
   const {
-    theme,
     isDark,
     gene,
     variant,
     uniprotId,
     selectedResidueIndex,
-    hoveredResidueIndex,
-    searchVal,
+    foldedResidueIndex,
+    viewMode,
+    history,
     customGene,
     customVariant,
     customUniprot,
-    showCustomInputs,
-    copied,
-    customPdbUrl,
-    viewMode,
-    mutantPdb,
-    foldedResidueIndex,
-    isFolding,
-    foldingError,
-    foldingStatus,
+    analysisState,
     foldingDdG,
+    foldingStatus,
     foldingEnergetics,
     dynamut2Status,
     ddmutStatus,
-    structuralDiff,
-    pdbText,
     computedPocket,
     isPocketLoading,
     pocketError,
+    disruptionPredictor,
+    isFolding,
+    foldingError,
+    structuralDiff,
+    hoveredResidueIndex,
+    computedResiduesCache,
     isBiophysicalLoading,
     isClinicalLoading,
-    compareMode,
-    compareVariant,
-    compareMutantPdb,
-    compareFoldedResidueIndex,
-    isFoldingCompare,
-    foldingCompareError,
-    compareFoldingStatus,
-    compareFoldingDdG,
-    comparisonLayout,
-    showPolarContacts,
-    settings,
-    isSettingsOpen,
-    isHowToInspectOpen,
-    isLegendOpen,
-    analysisState,
+    copied,
     loadingStep,
-    history,
-    classRoot,
-    classHeader,
-    classHeaderTitle,
-    classHeaderSub,
-    classCard,
-    classCardHeader,
-    classCardTitle,
-    classCardSubText,
-    classTextMute,
-    classTextBody,
-    classTextBright,
-    classBorderSec,
-    classBorderCardSep,
-    classInput,
-    classInputLabel,
-    classBadgeAccent,
-    classSubCard,
-    disruptionWarningVariant1,
-    disruptionWarningVariant2,
-    computedResiduesCache,
-    disruptionPredictor,
-    triageOverride
+    settings,
+    showPolarContacts
   } = state;
 
   const {
-    setTheme,
-    toggleTheme,
-    setGene,
-    setVariant,
-    setUniprotId,
     setSelectedResidueIndex,
-    setHoveredResidueIndex,
-    setSearchVal,
+    setFoldedResidueIndex,
+    setViewMode,
+    toggleTheme,
+    setIsSettingsOpen,
     setCustomGene,
     setCustomVariant,
     setCustomUniprot,
-    setShowCustomInputs,
-    setCopied,
-    setCustomPdbUrl,
-    setViewMode,
-    setTriageOverride,
-    setMutantPdb,
-    setFoldedResidueIndex,
-    setIsFolding,
-    setFoldingError,
-    setCompareMode,
-    setCompareVariant,
-    setCompareMutantPdb,
-    setCompareFoldedResidueIndex,
-    setIsFoldingCompare,
-    setFoldingCompareError,
-    setComparisonLayout,
-    setShowPolarContacts,
-    setSettings,
-    setIsSettingsOpen,
-    setIsHowToInspectOpen,
-    setIsLegendOpen,
-    setAnalysisState,
-    setLoadingStep,
     setHistory,
     addToHistory,
     clearHistory,
@@ -173,696 +146,328 @@ export default function App() {
     handleCopyReport,
     fetchNearestResidues,
     resetViewerState,
-    setPdbText
+    setPdbText,
+    setShowPolarContacts
   } = actions;
 
+  // Theme-adaptive typography & card styling tokens
+  const classRoot = isDark ? "bg-[#1B1917] text-[#FAF9F6] dark" : "bg-[#F5F2EB] text-[#1A1523]";
+  const classCardHeader = isDark ? "border-[#322F2A]" : "border-[#ECEAE4]";
+  const classCardTitle = isDark ? "text-[#FAF9F6]" : "text-[#1A1523]";
+  const classInput = isDark
+    ? "bg-[#201E1B] border-[#3C3934] text-[#FAF9F6] focus:border-[#C46849]"
+    : "bg-white border-[#DDD6ED] text-[#1A1523] focus:border-[#C46849]";
+  const classBorderSec = isDark ? "border-[#322F2A]" : "border-[#ECEAE4]";
+  const classTextBody = isDark ? "text-[#B2ABA0]" : "text-[#666055]";
+  const classTextMute = isDark ? "text-[#827B70]" : "text-[#8E82A0]";
+
   return (
-    <div className={`min-h-screen flex flex-col font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
-      {/* Clinician Top Header */}
-      <Header
+    <VariantAnalysisProvider value={{ state, actions }}>
+      <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
+
+      {/* ── Resizable and Collapsible Master Sidebar ── */}
+      <MasterSidebar
+        activeView={masterView}
+        onViewChange={setMasterView}
         isDark={isDark}
         toggleTheme={toggleTheme}
-        setIsSettingsOpen={setIsSettingsOpen}
-        classHeader={classHeader}
-        classHeaderTitle={classHeaderTitle}
-        classHeaderSub={classHeaderSub}
-        classBadgeAccent={classBadgeAccent}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        sidebarWidth={sidebarWidth}
+        setSidebarWidth={setSidebarWidth}
+        isCollapsed={isSidebarCollapsed}
+        setIsCollapsed={setIsSidebarCollapsed}
+        activeEvidenceTab={activeEvidenceTab}
+        onEvidenceTabChange={setActiveEvidenceTab}
+        analysisResult={analysisState.result}
+        isFolding={isFolding}
+        isBiophysicalLoading={isBiophysicalLoading}
+        isClinicalLoading={isClinicalLoading}
       />
 
-      {/* ── Claude Science Gene/Protein Stats Bar ── */}
-      {(gene || analysisState.result) && (
-        <div className={`border-b px-5 py-3 flex flex-wrap items-center gap-4 transition-colors ${
-          isDark ? "bg-[#201E1B] border-[#322F2A]" : "bg-white border-[#DDD6ED]"
-        }`}>
-          {/* Gene name + protein info */}
-          <div className="flex items-baseline gap-3 min-w-0">
-            <h2 className={`text-2xl font-bold tracking-tight leading-none ${isDark ? "text-[#F9F8F6]" : "text-[#1A1523]"}`}>
-              {gene || "—"}
-            </h2>
-            {analysisState.result?.predictorData && (
-              <span className="text-[13px] font-normal leading-none" style={{ color: "#8E82A0" }}>
-                {uniprotId && <span className="font-mono mr-2" style={{ color: "#C46849" }}>{uniprotId}</span>}
-                {analysisState.result?.predictorData?.proteinName || ""}
+      {/* ── App Main Viewport ── */}
+      <div className="app-main flex flex-col flex-1 relative overflow-hidden">
+
+        {/* ── Slim Header Bar (chrome strip — shared seam with sidebar brand block) ── */}
+        <header className="app-header" id="main-header">
+          {/* Breadcrumb label — muted, hidden on search (no loaded variant yet) */}
+          {masterView !== "search" && (
+            <span
+              className="text-[11px] font-medium uppercase tracking-widest flex-shrink-0"
+              style={{ color: "var(--cs-text-muted)", letterSpacing: "0.08em" }}
+            >
+              {masterView === "evidence"   ? "Evidence" :
+               masterView === "structure"  ? "3D Structure" :
+               masterView === "energetics" ? "Energetics" :
+               masterView === "landscape"  ? "Landscape" :
+               masterView === "insights"   ? "Insights" :
+               masterView === "report"     ? "Report" : ""}
+            </span>
+          )}
+
+          {/* Divider (only when breadcrumb visible) */}
+          {masterView !== "search" && (
+            <div style={{ width: 1, height: 16, background: "var(--cs-border)", flexShrink: 0 }} />
+          )}
+
+          {/* Right-side system status */}
+          <div className="ml-auto flex items-center gap-2">
+            {isBiophysicalLoading && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded border flex items-center gap-1.5"
+                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}
+              >
+                <span className="cs-spinner cs-spinner-sm" />
+                Computing…
               </span>
             )}
-            {variant && (
-              <span className="text-[13px] font-mono font-semibold" style={{ color: "#D946AA" }}>
-                {variant}
+            {isOffline && (
+              <span className="text-[10px] font-mono font-medium shrink-0"
+                style={{ color: "var(--cs-warn)" }}
+              >
+                OFFLINE
               </span>
             )}
           </div>
+        </header>
 
-          {/* Stat pills — using actual available data */}
-          <div className="flex items-center gap-2 ml-auto flex-wrap">
-            {analysisState.result?.predictorData?.amPathogenicity != null && (
-              <div className="cs-stat-pill">
-                <span className="cs-stat-pill-value">{Number(analysisState.result.predictorData.amPathogenicity).toFixed(3)}</span>
-                <span className="cs-stat-pill-label">AM pathogenicity</span>
-              </div>
-            )}
-            {analysisState.result?.predictorData?.caddPhred != null && (
-              <div className="cs-stat-pill">
-                <span className="cs-stat-pill-value">{Number(analysisState.result.predictorData.caddPhred).toFixed(1)}</span>
-                <span className="cs-stat-pill-label">CADD Phred</span>
-              </div>
-            )}
-            {analysisState.result?.gnomadConstraint?.oe_mis != null && (
-              <div className="cs-stat-pill">
-                <span className="cs-stat-pill-value">{Number(analysisState.result.gnomadConstraint.oe_mis).toFixed(2)}</span>
-                <span className="cs-stat-pill-label">o/e missense</span>
-              </div>
-            )}
-            {analysisState.result?.clinvar?.classification && (
-              <div className="cs-stat-pill">
-                <span
-                  className="cs-stat-pill-value text-[12px]"
-                  style={{
-                    color: analysisState.result.clinvar.classification.toLowerCase().includes("pathogenic")
-                      ? "#D946AA"
-                      : analysisState.result.clinvar.classification.toLowerCase().includes("benign")
-                        ? "#16A34A"
-                        : "#D97706"
-                  }}
-                >
-                  {analysisState.result.clinvar.classification}
-                </span>
-                <span className="cs-stat-pill-label">ClinVar</span>
-              </div>
-            )}
+        {/* ── Global Variant Header (content area, below chrome strip) ── */}
+        {gene && masterView !== "search" && (
+          <VariantHeader
+            gene={gene}
+            variant={variant}
+            uniprotId={uniprotId}
+            analysisResult={analysisState.result}
+          />
+        )}
+
+        {analysisState.error && (
+          <div className="mx-4 mt-2 p-3 rounded-xl border flex items-start gap-3 bg-rose-500/10 border-rose-500/20 text-rose-200 flex-shrink-0 z-10">
+            <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-bold text-xs uppercase tracking-wider block mb-0.5">Analysis Warning</span>
+              <p className="text-xs leading-relaxed text-rose-300">{analysisState.error}</p>
+            </div>
+            <button onClick={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
+              className="text-rose-400 hover:text-rose-200 text-xs font-bold px-1 transition-colors cursor-pointer">✕</button>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Main Grid Workspace — Claude Science layout */}
-      <main className="flex-1 w-full max-w-full p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* LEFT COLUMN: Controls & Insights (spanning 5/12 width) */}
-        <section className={`lg:col-span-5 flex flex-col gap-4 w-full transition-all duration-300 ${settings.bentoLeftControls ? "lg:order-1" : "lg:order-2"}`}>
-          
-          {/* SEARCH & CONTROL PANEL */}
-          <VariantSearchPanel
-            isDark={isDark}
-            classCard={classCard}
-            classCardHeader={classCardHeader}
-            classCardTitle={classCardTitle}
-            classInput={classInput}
-            classBorderSec={classBorderSec}
-            customGene={customGene}
-            setCustomGene={setCustomGene}
-            customVariant={customVariant}
-            setCustomVariant={setCustomVariant}
-            customUniprot={customUniprot}
-            setCustomUniprot={setCustomUniprot}
-            analysisState={analysisState}
-            handleSearchSubmit={handleSearchSubmit}
-            gene={gene}
-            variant={variant}
-            uniprotId={uniprotId}
-            history={history}
-            clearHistory={clearHistory}
-            handleSelectHistoryItem={handleSelectHistoryItem}
-          />
-
-          {/* UNIFIED EVIDENCE DASHBOARD — directly below variant card */}
-          <EvidenceDashboardCard
-            isDark={isDark}
-            classCard={classCard}
-            classCardHeader={classCardHeader}
-            classCardTitle={classCardTitle}
-            classBorderSec={classBorderSec}
-            classTextBody={classTextBody}
-            classTextMute={classTextMute}
-            analysisState={analysisState}
-            foldingDdG={foldingDdG}
-            foldingStatus={foldingStatus}
-            foldingEnergetics={foldingEnergetics}
-            dynamut2Status={dynamut2Status}
-            ddmutStatus={ddmutStatus}
-            computedPocket={computedPocket}
-            isPocketLoading={isPocketLoading}
-            pocketError={pocketError}
-            disruptionPredictor={disruptionPredictor}
-            isFolding={isFolding}
-            foldingError={foldingError}
-            structuralDiff={structuralDiff}
-          />
-
-          {/* CLINICAL INSIGHTS CARD */}
-          <ClinicalInsightsCard
-            isDark={isDark}
-            classCard={classCard}
-            classCardHeader={classCardHeader}
-            classCardTitle={classCardTitle}
-            analysisState={analysisState}
-            handleCopyReport={handleCopyReport}
-            copied={copied}
-            gene={gene}
-            variant={variant}
-            uniprotId={uniprotId}
-            loadingStep={loadingStep}
-            formatEnergyString={formatEnergyString}
-            selectedResidueIndex={selectedResidueIndex}
-            settings={settings}
-            classTextBody={classTextBody}
-            classTextMute={classTextMute}
-            classBorderSec={classBorderSec}
-            computedResiduesCache={computedResiduesCache}
-            isBiophysicalLoading={isBiophysicalLoading}
-            isClinicalLoading={isClinicalLoading}
-          />
-        </section>
-
-        {/* RIGHT COLUMN: 3D Molstar viewer (spanning 7/12 width) */}
-        <section className={`lg:col-span-7 flex flex-col gap-4 w-full transition-all duration-300 ${settings.bentoLeftControls ? "lg:order-2" : "lg:order-1"}`}>
-          <div className={`${classCard} p-4 transition-all`}>
-            
-            {/* Viewer header — Claude Science style */}
-            <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b ${classBorderSec}`}>
-              <div>
-                <h3 className={`text-[13px] font-semibold flex items-center gap-2 ${isDark ? "text-[#F0EBFA]" : "text-[#1A1523]"}`}>
-                  <Activity className="w-3.5 h-3.5" style={{ color: "#C46849" }} />
-                  3D Molecular Workspace
-                </h3>
-                <p className="text-[11px] mt-0.5" style={{ color: "#8E82A0" }}>
-                  Drag to rotate · Scroll to zoom · Click atom to select
-                </p>
-              </div>
-
-              {/* pLDDT legend — Claude Science style */}
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-medium" style={{ color: "#8E82A0" }}>pLDDT:</span>
-                  <div className="cs-plddt-bar w-14">
-                    <div className="cs-plddt-vlow flex-1" title="Very Low <50" />
-                    <div className="cs-plddt-low flex-1" title="Low 50-70" />
-                    <div className="cs-plddt-high flex-1" title="High 70-90" />
-                    <div className="cs-plddt-vhigh flex-1" title="Very High ≥90" />
-                  </div>
-                </div>
-                {viewMode !== "wildtype" && (
-                  <span className="text-[9px] font-medium" style={{ color: "#D97706" }}>⚠ Inherited pLDDT</span>
-                )}
-              </div>
+        {/* ── Primary viewport (single active view with unified ContextRail) ── */}
+        <main className="app-view flex-1 relative overflow-hidden transition-all duration-300">
+          <Suspense fallback={
+            <div className="flex flex-col items-center justify-center h-full gap-3 bg-slate-950/20">
+              <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin border-teal-500" />
+              <span className="text-xs font-mono text-slate-400">Loading view...</span>
             </div>
-
-            {/* Structural State Controls — Claude Science segment style */}
-            <div className={`flex flex-wrap items-center justify-between gap-2 py-2.5 border-b mb-3 ${classBorderSec}`}>
-              <div className="flex items-center gap-2.5">
-                <span className="text-[11px] font-medium" style={{ color: "#8E82A0" }}>Structure:</span>
-                <div className="cs-seg-control">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("wildtype")}
-                    className={`cs-seg-btn ${viewMode === "wildtype" ? "active" : ""}`}
+          }>
+            <div className="data-screen-layout">
+              <div className="data-screen-primary">
+                {/* SEARCH VIEW — high-density structured workspace */}
+                {masterView === "search" && (
+                  <div 
+                    className="w-full flex flex-col items-center justify-start px-4 sm:px-6 py-6 lg:py-8 overflow-y-auto"
+                    style={{ background: "var(--cs-bg)", minHeight: "calc(100vh - var(--cs-chrome-height))" }}
                   >
-                    Wild-Type
-                  </button>
-                  {(disruptionPredictor?.level !== "low" || triageOverride) && (
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("mutant")}
-                      className={`cs-seg-btn ${viewMode === "mutant" ? "active" : ""}`}
-                    >
-                      Mutant
-                    </button>
-                  )}
-                </div>
-
-                {viewMode === "mutant" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !compareMode;
-                      setCompareMode(next);
-                      if (next) {
-                        setCompareVariant("wildtype");
-                        setCompareMutantPdb(pdbText);
-                      }
-                    }}
-                    className={`cs-btn-ghost text-[11px] ${
-                      compareMode ? "border-[#D946AA] text-[#D946AA] bg-[#FBE8F6]" : ""
-                    }`}
-                  >
-                    ⇄ Compare {compareMode ? "ON" : "OFF"}
-                  </button>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 ml-auto">
-                <button
-                  type="button"
-                  onClick={() => setIsHowToInspectOpen(true)}
-                  className="cs-btn-ghost text-[11px] flex items-center gap-1.5"
-                >
-                  <BookOpen className="w-3.5 h-3.5 text-[#C46849]" />
-                  <span>Guide</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsLegendOpen(true)}
-                  className="cs-btn-ghost text-[11px] flex items-center gap-1.5"
-                >
-                  <Layers className="w-3.5 h-3.5 text-[#C46849]" />
-                  <span>Legend</span>
-                </button>
-              </div>
-            </div>
-
-            {((disruptionPredictor?.level === "low" && !triageOverride) || 
-              (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70)) && (
-              <div className={`rounded-xl border flex flex-col transition-all w-full my-3 ${
-                isDark 
-                  ? "bg-amber-500/5 border-amber-500/20 text-slate-305" 
-                  : "bg-amber-50/40 border-amber-200 text-slate-700"
-              }`}>
-                {/* Header */}
-                <button
-                  type="button"
-                  onClick={() => setIsLowDisruptionWarningCollapsed(!isLowDisruptionWarningCollapsed)}
-                  className="w-full flex items-center justify-between p-3.5 text-left focus:outline-none cursor-pointer"
-                  id="structural-analysis-alerts-toggle"
-                >
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                    <h4 className={`font-bold font-mono text-[11px] uppercase tracking-wider ${isDark ? "text-amber-305" : "text-amber-800"}`}>
-                      Structural Analysis Alerts
-                    </h4>
-                    <span className={`text-[10px] font-sans ml-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                      ({(disruptionPredictor?.level === "low" && !triageOverride) && (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70) 
-                        ? "2 alerts active" 
-                        : "1 alert active"})
-                    </span>
-                  </div>
-
-                  {disruptionPredictor?.level === "low" && !triageOverride && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTriageOverride(true);
-                        setViewMode("mutant");
-                      }}
-                      className="mr-3 bg-[#C46849] hover:bg-[#A95738] text-white font-mono font-bold text-[8.5px] uppercase tracking-wider px-2 py-0.5 rounded transition active:scale-95 cursor-pointer shrink-0"
-                    >
-                      View simulated mutant anyway
-                    </button>
-                  )}
-
-                  {isLowDisruptionWarningCollapsed ? (
-                    <ChevronDown className={`w-4 h-4 ${isDark ? "text-slate-400" : "text-slate-555"}`} />
-                  ) : (
-                    <ChevronUp className={`w-4 h-4 ${isDark ? "text-slate-400" : "text-slate-555"}`} />
-                  )}
-                </button>
-
-                {/* Content */}
-                {!isLowDisruptionWarningCollapsed && (
-                  <div className="px-3.5 pb-3.5 text-xs select-none animate-slide-in flex flex-col gap-3.5">
-                    
-                    {/* Alert 1: Low Disruption */}
-                    {disruptionPredictor?.level === "low" && !triageOverride && (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h5 className="font-bold font-mono text-[10.5px] uppercase tracking-wider text-[#C46849]">
-                            Low Structural Disruption Predicted
-                          </h5>
-                          {disruptionPredictor.reason && (
-                            <span className="text-[9.5px] font-sans font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(196,104,73,0.12)", color: "var(--cs-accent-clay)" }}>
-                              {disruptionPredictor.reason.replace(/^Fallback:\s*/i, "")}
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-2 leading-relaxed text-slate-700 dark:text-slate-350">
-                          <p className="opacity-75 text-[10.5px] font-sans">
-                            Because FoldX operates on a <strong>rigid-backbone approximation</strong>, wild-type and mutant backbones remain identical. 3D comparison is disabled by default to prevent displaying misleadingly identical structures.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Divider line if both alerts are active */}
-                    {(disruptionPredictor?.level === "low" && !triageOverride) && 
-                     (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70) && (
-                      <div className="border-t border-slate-200 dark:border-slate-800/80" />
-                    )}
-
-                    {/* Alert 2: Low Confidence */}
-                    {disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70 && (
-                      <div className="flex flex-col gap-2">
-                        <div>
-                          <h5 className={`font-bold font-mono text-[10.5px] uppercase tracking-wider ${isDark ? "text-amber-400" : "text-amber-850"}`}>
-                            Low-Confidence Structure Alert (pLDDT: {disruptionPredictor.plddt.toFixed(1)})
-                          </h5>
-                        </div>
-                        <div className="leading-relaxed text-slate-700 dark:text-slate-350">
-                          <p>
-                            The local template structure at this residue has a low confidence score (pLDDT &lt; 70). Predictions generated from rigid-backbone models or biophysical force fields are highly speculative in disordered or low-confidence regions.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Compare controls row — compact and inline */}
-            {viewMode === "mutant" && compareMode && (
-              <div className={`p-2 rounded-lg border flex flex-wrap items-center gap-3 mb-3 text-xs transition-all ${
-                isDark ? "bg-slate-900/25 border-slate-800" : "bg-slate-50 border-slate-200 shadow-sm"
-              }`}>
-                {/* Variant selection */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-slate-400">Variant 2:</span>
-                  <select
-                    value={compareVariant}
-                    onChange={(e) => {
-                      const selectedVal = e.target.value;
-                      setCompareVariant(selectedVal);
-                      if (selectedVal === "wildtype") {
-                        setCompareMutantPdb(pdbText);
-                      } else if (selectedVal !== "custom") {
-                        fetchCompareMutantFold(gene, selectedVal, uniprotId);
-                      }
-                    }}
-                    className={`text-xs px-2 py-1 rounded border focus:outline-none cursor-pointer ${classInput}`}
-                  >
-                    <option value="wildtype">Wild-Type (Template)</option>
-                    {(() => {
-                      const dynamicAlts = (analysisState.result?.metadata as any)?.alternativeVariants || getAlternativeVariants(gene);
-                      return dynamicAlts.map((alt: string) => (
-                        <option key={alt} value={alt}>{alt}</option>
-                      ));
-                    })()}
-                    <option value="custom">Custom...</option>
-                  </select>
-                </div>
-
-                {/* Custom variant field */}
-                {compareVariant === "custom" && (
-                  <input
-                    type="text"
-                    placeholder="e.g. p.Gly300Ser"
-                    className={`px-2 py-1 text-xs rounded border focus:outline-none w-28 ${classInput}`}
-                    onBlur={(e) => {
-                      if (e.target.value) {
-                        let val = e.target.value.trim();
-                        if (!val.startsWith("p.")) val = "p." + val;
-                        setCompareVariant(val);
-                      }
-                    }}
-                  />
-                )}
-
-                {/* Layout selection */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider font-mono text-slate-400">Layout:</span>
-                  <div className="flex items-center p-0.5 rounded border bg-slate-950/20 border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setComparisonLayout("superimposed")}
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
-                        comparisonLayout === "superimposed"
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "text-slate-450 hover:text-slate-200"
-                      }`}
-                    >
-                      Superimposed
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setComparisonLayout("side-by-side")}
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
-                        comparisonLayout === "side-by-side"
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "text-slate-450 hover:text-slate-200"
-                      }`}
-                    >
-                      Side-by-Side
-                    </button>
-                  </div>
-                </div>
-
-                {/* Simulation button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const actualVal = compareVariant === "custom" ? "p.Gly300Ser" : compareVariant;
-                    fetchCompareMutantFold(gene, actualVal, uniprotId);
-                  }}
-                  disabled={isFoldingCompare}
-                  className={`ml-auto px-2.5 py-1 rounded text-xs font-bold font-mono transition-all border shadow-sm cursor-pointer ${
-                    isFoldingCompare
-                      ? "bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed"
-                      : "bg-pink-600 hover:bg-pink-500 text-white border-pink-700"
-                  }`}
-                >
-                  {isFoldingCompare ? "Folding..." : "Fold Variant 2"}
-                </button>
-
-                {isFoldingCompare && (
-                  <div className="w-full flex items-center gap-2 text-[10px] font-mono text-purple-400 animate-pulse mt-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping"></span>
-                    <span>Simulating biophysical side-chain mutations for {compareVariant}...</span>
-                  </div>
-                )}
-
-                {foldingCompareError && (
-                  <div className="w-full text-[10px] font-mono text-rose-500 mt-1">
-                    <span>Failed: {foldingCompareError}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Custom overlays for active folding or structure display */}
-            {viewMode === "mutant" && isFolding && (
-              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden flex flex-col items-center justify-center p-6 border transition-all ${
-                isDark 
-                  ? "bg-[#1E1629] border-[#362B4A]" 
-                  : "bg-[#F7F4FC] border-[#DDD6ED]"
-              }`}>
-                <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "#C46849", borderTopColor: "transparent" }}></div>
-                <p className="text-sm font-semibold animate-pulse" style={{ color: "#C46849" }}>
-                  Folding Mutant Protein Structure…
-                </p>
-                <p className="text-[12px] mt-2 text-center max-w-sm" style={{ color: "#8E82A0" }}>
-                  Simulating side-chain biophysics at position #{selectedResidueIndex || "408"}. This can take several seconds…
-                </p>
-              </div>
-            )}
-
-            {viewMode === "mutant" && foldingError && (
-              <div className={`relative w-full h-[650px] rounded-xl overflow-hidden flex flex-col items-center justify-center p-6 text-center border transition-all ${
-                isDark 
-                  ? "bg-[#1E1629] border-[#362B4A]" 
-                  : "bg-[#FEF2F2] border-[#FECACA]"
-              }`}>
-                <AlertTriangle className="w-10 h-10 mb-3" style={{ color: "#DC2626" }} />
-                <p className="font-semibold text-[15px] mb-2" style={{ color: isDark ? "#F0EBFA" : "#1A1523" }}>FoldX Biophysical Simulation Failed</p>
-                <p className="text-[12px] max-w-md mb-4" style={{ color: "#8E82A0" }}>{foldingError}</p>
-                <div className="flex items-center gap-3">
-                  <button 
-                    type="button"
-                    onClick={() => fetchMutantFold(gene, variant, uniprotId)}
-                    className="bg-[#C46849] hover:bg-[#A95738] text-white font-mono font-bold text-xs uppercase px-3 py-1.5 rounded transition active:scale-95 cursor-pointer"
-                  >
-                    Retry Folding
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setViewMode("wildtype");
-                      setFoldingError(null);
-                    }}
-                    className="border font-mono font-bold text-xs uppercase px-3 py-1.5 rounded transition active:scale-95 cursor-pointer"
-                    style={{ borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)", background: "var(--cs-surface)" }}
-                  >
-                    Show Wild-Type Structure
-                  </button>
-                </div>
-              </div>
-            )}
-
-
-
-            {/* Render viewer when not loading or errored */}
-            {!(viewMode === "mutant" && (isFolding || foldingError)) && (
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`${viewMode}_${compareMode}_${comparisonLayout}`}
-                  initial={{ opacity: 0, scale: 0.99, y: 3 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.99, y: -3 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
-                  className="w-full"
-                >
-                  {compareMode && comparisonLayout === "side-by-side" && compareMutantPdb ? (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                      {/* Left Viewport: Variant 1 */}
-                      <div className="flex flex-col gap-1.5">
-                        <div className="text-[10px] font-bold text-amber-500 font-mono px-1 flex items-center justify-between uppercase tracking-wider">
-                          <span>Variant 1: {variant}</span>
-                          <span className="text-[9px] text-slate-400 opacity-80 lowercase font-normal">Primary Model</span>
-                        </div>
-                        <MolstarViewer 
-                          uniprotId={uniprotId} 
-                          residueIndex={foldedResidueIndex} 
-                          gene={gene} 
-                          customPdbUrl={customPdbUrl || undefined}
-                          customPdbData={mutantPdb || undefined}
-                          showPolarContacts={showPolarContacts}
-                          theme={theme}
-                          onResidueHover={setHoveredResidueIndex}
-                          onResidueClick={setFoldedResidueIndex}
-                          disruptionWarning={disruptionWarningVariant1}
-                          residueColorHex={parseInt(settings.residueColor.replace("#", "0x"), 16) || 0xF97316}
-                          cameraDuration={settings.cameraDuration}
-                          autoZoomOnSelect={settings.autoZoomOnSelect}
-                          neonHighContrast={settings.neonHighContrast}
-                          mutantStatus={foldingStatus}
-                          mutantDdG={foldingDdG}
-                          variant={variant}
-                          energyUnit={settings.energyUnit}
-                          fetchNearestResidues={fetchNearestResidues}
-                          onPdbTextLoaded={setPdbText}
-                          computedPocket={computedPocket}
-                          isPocketLoading={isPocketLoading}
-                          pocketError={pocketError}
-                          pdbId={analysisState.result?.metadata?.pdbId}
-                          pdbSource={analysisState.result?.metadata?.pdbSource}
-                        />
-                      </div>
-                      
-                      {/* Right Viewport: Variant 2 */}
-                      <div className="flex flex-col gap-1.5">
-                        <div className="text-[10px] font-bold text-pink-500 font-mono px-1 flex items-center justify-between uppercase tracking-wider">
-                          <span>Variant 2: {compareVariant === "wildtype" ? "Wild-Type (Template)" : compareVariant}</span>
-                          <span className="text-[9px] text-slate-400 opacity-80 lowercase font-normal">Comparison Model</span>
-                        </div>
-                        {isFoldingCompare ? (
-                          <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 border transition-all ${
-                            isDark 
-                              ? "bg-slate-900 border-slate-800 text-white" 
-                              : "bg-slate-50 border-slate-200 text-slate-900"
-                          }`}>
-                            <div className="w-10 h-10 border-3 border-pink-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-                            <p className="text-pink-500 font-mono text-xs uppercase tracking-wider animate-pulse">Folding Variant 2 structure...</p>
-                          </div>
-                        ) : foldingCompareError ? (
-                          <div className={`relative w-full h-[650px] rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center p-6 text-center border transition-all ${
-                            isDark ? "bg-slate-900 border-slate-800 text-rose-455" : "bg-rose-50 border-rose-200"
-                          }`}>
-                            <p className="text-xs font-semibold mb-2 text-rose-500">Simulating Variant 2 Failed</p>
-                            <p className="text-[11px] mb-3 opacity-80 max-w-xs">{foldingCompareError}</p>
-                            <button
-                              type="button"
-                              onClick={() => fetchCompareMutantFold(gene, compareVariant, uniprotId)}
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono font-bold text-[10px] px-3 py-1.5 rounded"
-                            >
-                              Retry Simulation
-                            </button>
-                          </div>
-                        ) : (
-                          <MolstarViewer 
-                            uniprotId={uniprotId} 
-                            residueIndex={compareFoldedResidueIndex} 
-                            gene={gene} 
-                            customPdbUrl={customPdbUrl || undefined}
-                            customPdbData={compareMutantPdb || undefined}
-                            onResidueHover={setHoveredResidueIndex}
-                            onResidueClick={setCompareFoldedResidueIndex}
-                            disruptionWarning={disruptionWarningVariant2}
-                            mutantStatus={compareFoldingStatus}
-                            mutantDdG={compareFoldingDdG}
-                            variant={compareVariant}
-                            energyUnit={settings.energyUnit}
-                            fetchNearestResidues={compareFoldedResidueIndex !== foldedResidueIndex ? fetchNearestResidues : undefined}
-                            pdbId={analysisState.result?.metadata?.pdbId}
-                            pdbSource={analysisState.result?.metadata?.pdbSource}
-                          />
-                        )}
-                      </div>
+                    <div className="w-full" style={{ maxWidth: "var(--cs-search-max-width)" }}>
+                      <VariantSearchPanel
+                        isDark={isDark}
+                        classCard="border-0 shadow-none p-0 bg-transparent"
+                        classCardHeader="hidden"
+                        classCardTitle={classCardTitle}
+                        classInput={classInput}
+                        classBorderSec={classBorderSec}
+                        customGene={customGene}
+                        setCustomGene={setCustomGene}
+                        customVariant={customVariant}
+                        setCustomVariant={setCustomVariant}
+                        customUniprot={customUniprot}
+                        setCustomUniprot={setCustomUniprot}
+                        analysisState={analysisState}
+                        handleSearchSubmit={(e) => {
+                          handleSearchSubmit(e);
+                        }}
+                        gene={gene}
+                        variant={variant}
+                        uniprotId={uniprotId}
+                        history={history}
+                        clearHistory={clearHistory}
+                        handleSelectHistoryItem={(item) => {
+                          handleSelectHistoryItem(item);
+                        }}
+                        onViewChange={setMasterView}
+                      />
                     </div>
-                  ) : (
-                    /* Default Superimposed layout */
-                    <MolstarViewer 
-                      uniprotId={uniprotId} 
-                      residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex} 
-                      gene={gene} 
-                      customPdbUrl={customPdbUrl || undefined}
-                      customPdbData={viewMode === "mutant" ? (mutantPdb || undefined) : undefined}
-                      onResidueHover={setHoveredResidueIndex}
-                      onResidueClick={(idx) => {
-                        if (viewMode === "mutant") {
-                          setFoldedResidueIndex(idx);
-                        } else {
-                          setSelectedResidueIndex(idx);
-                        }
-                      }}
-                      comparePdbData={compareMode ? (compareMutantPdb || undefined) : undefined}
-                      compareResidueIndex={compareMode ? compareFoldedResidueIndex : undefined}
-                      compareVariant={compareMode ? compareVariant : undefined}
-                      disruptionWarning={viewMode === "mutant" ? disruptionWarningVariant1 : null}
-                      mutantStatus={foldingStatus}
-                      mutantDdG={foldingDdG}
-                      variant={variant}
-                      energyUnit={settings.energyUnit}
-                      fetchNearestResidues={fetchNearestResidues}
-                      onPdbTextLoaded={setPdbText}
+                  </div>
+                )}
+
+                {/* EVIDENCE VIEW */}
+                {masterView === "evidence" && (
+                  <ErrorBoundary name="Evidence Dashboard">
+                    <EvidenceDashboardCard
+                      isDark={isDark}
+                      classCard="h-full flex flex-col border-0 rounded-none shadow-none"
+                      classCardHeader={classCardHeader}
+                      classCardTitle={classCardTitle}
+                      classBorderSec={classBorderSec}
+                      classTextBody={classTextBody}
+                      classTextMute={classTextMute}
+                      analysisState={analysisState}
+                      foldingDdG={foldingDdG}
+                      foldingStatus={foldingStatus as "failed" | "success" | null}
+                      foldingEnergetics={foldingEnergetics}
+                      dynamut2Status={dynamut2Status}
+                      ddmutStatus={ddmutStatus}
                       computedPocket={computedPocket}
                       isPocketLoading={isPocketLoading}
                       pocketError={pocketError}
-                      pdbId={analysisState.result?.metadata?.pdbId}
-                      pdbSource={analysisState.result?.metadata?.pdbSource}
+                      disruptionPredictor={disruptionPredictor}
+                      isFolding={isFolding}
+                      foldingError={foldingError}
+                      structuralDiff={structuralDiff}
+                      activeTab={activeEvidenceTab}
+                      onTabChange={setActiveEvidenceTab}
                     />
-                  )}
-                </motion.div>
-              </AnimatePresence>
-            )}
-          </div>
+                  </ErrorBoundary>
+                )}
 
-          {/* Sequence Alignment Visualizer Card */}
-          <SequenceVisualizer 
-            uniprotId={uniprotId} 
-            variant={variant} 
-            residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex} 
-            hoveredResidueIndex={hoveredResidueIndex}
-            gene={gene} 
-            predictorData={analysisState.result?.predictorData}
-            conservationData={analysisState.result?.conservationData}
-            landscapeData={analysisState.result?.landscapeData}
-            computedResiduesCache={computedResiduesCache}
-            disruptionPredictor={disruptionPredictor}
-            uniprotFeatures={analysisState.result?.uniprotFeatures?.features || undefined}
-            onResidueClick={(idx) => {
-              if (viewMode === "mutant") {
-                setFoldedResidueIndex(idx);
-              } else {
-                setSelectedResidueIndex(idx);
-              }
-            }}
-          />
-        </section>
-      </main>
+                {/* ENERGETICS VIEW */}
+                {masterView === "energetics" && (
+                  <ErrorBoundary name="Energetics View">
+                    <EnergeticsView
+                      isDark={isDark}
+                      classCard="h-full flex flex-col border-0 rounded-none shadow-none"
+                      classCardHeader={classCardHeader}
+                      classCardTitle={classCardTitle}
+                      classBorderSec={classBorderSec}
+                      classTextBody={classTextBody}
+                      classTextMute={classTextMute}
+                      analysisState={analysisState}
+                      foldingDdG={foldingDdG}
+                      foldingStatus={foldingStatus as "failed" | "success" | null}
+                      foldingEnergetics={foldingEnergetics}
+                      dynamut2Status={dynamut2Status}
+                      ddmutStatus={ddmutStatus}
+                      disruptionPredictor={disruptionPredictor}
+                      isFolding={isFolding}
+                      foldingError={foldingError}
+                      structuralDiff={structuralDiff}
+                    />
+                  </ErrorBoundary>
+                )}
 
-      {/* Lab footer */}
-      <footer className={`border-t py-3 px-5 text-xs mt-auto flex flex-col md:flex-row items-center justify-between gap-4 w-full max-w-full transition-colors ${
-        isDark ? "bg-[#201E1B] border-[#322F2A] text-[#827B70]" : "bg-white border-[#DDD6ED] text-[#8E82A0]"
-      }`}>
-        <div className="flex flex-col items-center md:items-start text-center md:text-left max-w-2xl">
-          <p className="flex items-center gap-1.5 justify-center md:justify-start">
-            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 animate-pulse" />
-            <span className="font-semibold text-xs">Missense & Fold</span>
-          </p>
-          <p className={`text-[9.5px] mt-0.5 leading-relaxed ${isDark ? "text-slate-500" : "text-slate-400"}`}>
-            Disclaimer: For research and decision-support only. Not for diagnostic procedures. This application is not HIPAA-compliant; do not input Protected Health Information (PHI) or patient-identifiable data. Variant queries are transmitted to external APIs (including Google Gemini AI, ClinVar, EBI, and Ensembl) for real-time analysis. No clinical action should be taken based solely on this system.
-          </p>
-        </div>
-        <p className={`font-mono text-[9.5px] text-center md:text-right ${isDark ? "text-slate-500" : "text-slate-400"}`}>
-          Computational Engine © 2026 • Powered by Gemini Flash
-        </p>
-      </footer>
+                {/* STRUCTURE VIEW — always mounted to preserve Molstar WebGL context */}
+                <div
+                  className="h-full w-full"
+                  style={{ display: masterView === "structure" ? "block" : "none" }}
+                >
+                  <ErrorBoundary name="3D Structure">
+                    <Suspense fallback={
+                      <div className="flex flex-col items-center justify-center h-full gap-3">
+                        <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
+                        <span className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>Loading 3D Viewer...</span>
+                      </div>
+                    }>
+                      <MolstarViewerLazy
+                        residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
+                        variant={variant}
+                        heightClass="h-full"
+                      />
+                    </Suspense>
+                  </ErrorBoundary>
+                </div>
+
+                {/* LANDSCAPE VIEW — always mounted to preserve canvas/WebGL state */}
+                <div
+                  className="flex flex-col h-full overflow-y-auto w-full"
+                  style={{ display: masterView === "landscape" ? "flex" : "none", background: "var(--cs-bg)" }}
+                >
+                  <SequenceVisualizer
+                    uniprotId={uniprotId}
+                    variant={variant}
+                    residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
+                    hoveredResidueIndex={hoveredResidueIndex}
+                    gene={gene}
+                    predictorData={analysisState.result?.predictorData}
+                    conservationData={analysisState.result?.conservationData}
+                    landscapeData={analysisState.result?.landscapeData}
+                    computedResiduesCache={computedResiduesCache}
+                    disruptionPredictor={disruptionPredictor}
+                    uniprotFeatures={analysisState.result?.uniprotFeatures?.features || undefined}
+                    onResidueClick={(idx) => {
+                      if (viewMode === "mutant") setFoldedResidueIndex(idx);
+                      else setSelectedResidueIndex(idx);
+                    }}
+                  />
+                </div>
+
+                {/* INSIGHTS VIEW */}
+                {masterView === "insights" && (
+                  <ErrorBoundary name="Variant Insights">
+                    <ClinicalInsightsCard
+                      isDark={isDark}
+                      classCard="border-0 rounded-none shadow-none"
+                      classCardHeader={classCardHeader}
+                      classCardTitle={classCardTitle}
+                      analysisState={analysisState}
+                      handleCopyReport={handleCopyReport}
+                      copied={copied}
+                      gene={gene}
+                      variant={variant}
+                      uniprotId={uniprotId}
+                      loadingStep={loadingStep}
+                      formatEnergyString={formatEnergyString}
+                      selectedResidueIndex={selectedResidueIndex}
+                      settings={settings}
+                      classTextBody={classTextBody}
+                      classTextMute={classTextMute}
+                      classBorderSec={classBorderSec}
+                      computedResiduesCache={computedResiduesCache}
+                      isBiophysicalLoading={isBiophysicalLoading}
+                      isClinicalLoading={isClinicalLoading}
+                      foldingEnergetics={foldingEnergetics}
+                      disruptionPredictor={disruptionPredictor}
+                    />
+                  </ErrorBoundary>
+                )}
+
+                {/* REPORT VIEW */}
+                {masterView === "report" && (
+                  <ErrorBoundary name="Clinical Report">
+                    <ClinicalReportBar analysisState={analysisState} isDark={isDark} fullPage />
+                  </ErrorBoundary>
+                )}
+              </div>
+
+              {/* CONTEXT RAIL FOR MODELING & SYNTHESIS VIEWS (HIDDEN ON SEARCH VIEW TO AVOID REDUNDANCY) */}
+              {masterView !== "search" && (
+                <ContextRail
+                  activeView={masterView}
+                  onViewChange={setMasterView}
+                  analysisResult={analysisState.result}
+                  isFolding={isFolding}
+                  isBiophysicalLoading={isBiophysicalLoading}
+                  isClinicalLoading={isClinicalLoading}
+                  gene={gene}
+                  variant={variant}
+                  homologs={state.homologs}
+                  isHomologsLoading={state.isHomologsLoading}
+                  customPdbUrl={state.customPdbUrl}
+                  setCustomPdbUrl={actions.setCustomPdbUrl}
+                  isLoadingSearch={analysisState.isLoading}
+                  loadingStep={state.loadingStep}
+                />
+              )}
+            </div>
+          </Suspense>
+        </main>
+
+
+        {/* Footer info (28px height) */}
+        <footer className={`border-t px-5 py-1.5 flex items-center justify-between flex-shrink-0 text-[9px] transition-colors z-20 ${
+          isDark ? "bg-[#201E1B] border-[#322F2A] text-[#827B70]" : "bg-white border-[#DDD6ED] text-[#8E82A0]"
+        }`}>
+          <span>For research only. Not for diagnostic use. No PHI. &copy; 2026</span>
+          <span className="font-mono">Powered by Gemini Flash</span>
+        </footer>
 
       {/* Settings Panel Slide-out Modal */}
       <SettingsModal />
@@ -984,7 +589,7 @@ export default function App() {
                   <div className="space-y-4">
                     {/* Highlight Key */}
                     <div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-450">
+                      <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-500">
                         Mutation Site Highlight
                       </p>
                       <div className={`space-y-1 p-2 rounded-lg border ${isDark ? "bg-[#201E1B] border-[#322F2A]" : "bg-white border-[#E5E1DC] shadow-sm"}`}>
@@ -1006,7 +611,7 @@ export default function App() {
 
                     {/* Pocket Atoms elements */}
                     <div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-450">
+                      <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-500">
                         Atomic Elements (CPK)
                       </p>
                       <div className={`grid grid-cols-2 gap-1.5 p-2 rounded-lg border text-[9px] font-mono ${
@@ -1037,11 +642,11 @@ export default function App() {
                     {/* Contacts Map */}
                     {showPolarContacts && (
                       <div>
-                        <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-450">
+                        <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-500">
                           Interactive Contacts
                         </p>
                         <div className={`space-y-1 p-2 rounded-lg border text-[9px] font-mono ${
-                          isDark ? "bg-[#201E1B] border-[#322F2A] text-slate-400" : "bg-white border-[#E5E1DC] text-slate-650 shadow-sm"
+                          isDark ? "bg-[#201E1B] border-[#322F2A] text-slate-400" : "bg-white border-[#E5E1DC] text-slate-600 shadow-sm"
                         }`}>
                           <div className="flex items-center gap-1.5">
                             <span className="w-4 h-0.5 border-t border-dashed border-sky-400 shrink-0"></span>
@@ -1056,7 +661,7 @@ export default function App() {
 
                     {/* pLDDT Score heat key */}
                     <div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-450">
+                      <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-500">
                         AlphaFold pLDDT Confidence
                       </p>
                       <div className={`p-2 rounded-lg border space-y-1.5 ${
@@ -1069,7 +674,7 @@ export default function App() {
                         </div>
                         {viewMode !== "wildtype" && (
                           <div className={`text-[8.5px] leading-normal pt-1.5 border-t ${
-                            isDark ? "border-[#322F2A] text-slate-500" : "border-[#ECEAE4] text-slate-450"
+                            isDark ? "border-[#322F2A] text-slate-500" : "border-[#ECEAE4] text-slate-500"
                           }`}>
                             <span className="font-semibold text-amber-500">⚠ Inherited pLDDT:</span> Color confidence is inherited from the wild-type template.
                           </div>
@@ -1079,7 +684,7 @@ export default function App() {
 
                     {viewMode !== "wildtype" && (
                       <div>
-                        <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-450">
+                        <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 font-mono text-slate-500">
                           Scaffold Status
                         </p>
                         <div className={`p-2 rounded-lg border text-[9px] leading-relaxed ${
@@ -1135,6 +740,8 @@ export default function App() {
           </div>
         ))}
       </div>
-    </div>
+      </div>{/* end app-main */}
+    </div>{/* end app-shell */}
+  </VariantAnalysisProvider>
   );
 }

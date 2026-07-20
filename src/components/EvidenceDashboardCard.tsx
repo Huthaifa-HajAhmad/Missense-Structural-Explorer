@@ -11,13 +11,15 @@ import {
   Percent,
   Layers,
   Info,
-  ExternalLink
+  ExternalLink,
+  Circle
 } from "lucide-react";
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult } from "../types";
 import { AMINO_ACID_PROPERTIES, AMINO_ACID_NAMES_MAP } from "../useVariantAnalysis";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { useSettings } from "../context/SettingsContext";
 import { THRESHOLDS, countPredictorConcordance } from "../shared/thresholds";
+import { PredictorSpecialistPanels } from "./PredictorSpecialistPanels";
 
 interface EvidenceDashboardCardProps {
   isDark: boolean;
@@ -29,7 +31,7 @@ interface EvidenceDashboardCardProps {
   classTextMute: string;
   analysisState: AnalysisState;
   foldingDdG: number | null;
-  foldingStatus: "success" | "scwrl" | "failed" | null;
+  foldingStatus: "success" | "failed" | null;
   foldingEnergetics?: EnergeticsData | null;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
@@ -40,9 +42,11 @@ interface EvidenceDashboardCardProps {
   isFolding?: boolean;
   foldingError?: string | null;
   structuralDiff?: StructuralDiffResult | null;
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
 }
 
-type TabType = "clinical" | "predictors" | "conservation" | "structure" | "function" | "energetics" | "interactions" | "guidelines";
+type TabType = "clinical" | "predictors" | "structure" | "function" | "interactions" | "guidelines";
 
 interface MetricExplanation {
   name: string;
@@ -188,9 +192,13 @@ export default function EvidenceDashboardCard({
   disruptionPredictor,
   isFolding = false,
   foldingError = null,
-  structuralDiff = null
+  structuralDiff = null,
+  activeTab: activeTabProp,
+  onTabChange
 }: EvidenceDashboardCardProps) {
-  const [activeTab, setActiveTab] = useState<TabType>("clinical");
+  const [localActiveTab, setLocalActiveTab] = useState<TabType>("clinical");
+  const activeTab = (activeTabProp as TabType) || localActiveTab;
+  const setActiveTab = (onTabChange as any) || setLocalActiveTab;
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const { settings } = useSettings();
   const energyUnit = settings.energyUnit;
@@ -206,25 +214,81 @@ export default function EvidenceDashboardCard({
   };
 
   if (!result) {
-    return (
-      <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
-        {/* Header */}
-        <div className={`px-5 py-4 border-b flex items-center justify-between transition-colors ${classCardHeader}`}>
-          <div className="flex items-center gap-2">
-            <Database className="w-4 h-4" style={{ color: "var(--cs-accent-clay)" }} />
-            <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
-              Multi-Modal Evidence Dashboard
-            </h3>
+    // Loading state — data is being fetched in the background
+    if (analysisState.isLoading) {
+      return (
+        <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
+          <div className="p-6 flex-1 flex flex-col gap-5 overflow-y-auto">
+            {/* Live Module Readiness Status Bar */}
+            <div className="p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(196,104,73,0.12)" }}>
+                  <Database className="w-4 h-4 animate-pulse" style={{ color: "var(--cs-accent-clay)" }} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold tracking-tight" style={{ color: "var(--cs-text-primary)" }}>Loading Evidence Modules</h4>
+                  <p className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Populating multi-modal dataset groups sequentially based on API readiness...</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] font-mono flex-wrap justify-end">
+                <span className="px-2 py-1 rounded border bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-bold">
+                  ✓ Coordinates
+                </span>
+                <span className="px-2 py-1 rounded border bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold animate-pulse">
+                  ⚡ Clinical &amp; Frequencies
+                </span>
+                <span className="px-2 py-1 rounded border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-bold">
+                  ⏳ Biophysics (Background)
+                </span>
+              </div>
+            </div>
+
+            {/* Skeleton cards row */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="p-4 rounded-xl border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                  <div className="h-2 w-24 rounded animate-pulse mb-4" style={{ background: "var(--cs-surface-2)" }} />
+                  <div className="space-y-2">
+                    <div className="h-7 rounded animate-pulse" style={{ background: "var(--cs-surface-2)" }} />
+                    <div className="h-3 w-3/4 rounded animate-pulse" style={{ background: "var(--cs-surface-2)" }} />
+                    <div className="h-3 w-1/2 rounded animate-pulse" style={{ background: "var(--cs-surface-2)" }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Skeleton second row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {[1, 2].map(i => (
+                <div key={i} className="p-4 rounded-xl border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                  <div className="h-2 w-20 rounded animate-pulse mb-3" style={{ background: "var(--cs-surface-2)" }} />
+                  <div className="space-y-1.5">
+                    {[1,2,3,4].map(j => (
+                      <div key={j} className="h-2.5 rounded animate-pulse" style={{ background: "var(--cs-surface-2)", width: `${60 + j * 8}%` }} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Status text */}
+            <p className="text-[11px] font-mono text-center animate-pulse" style={{ color: "var(--cs-text-muted)" }}>
+              Fetching clinical annotations, ClinVar, gnomAD &amp; All of Us frequencies…
+            </p>
           </div>
         </div>
-        
-        {/* Body Onboarding */}
+      );
+    }
+
+    // Empty state — no query run yet
+    return (
+      <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
         <div className="p-5 flex-1 flex flex-col justify-center text-center py-12 text-slate-500">
           <Database className="w-10 h-10 mx-auto text-indigo-500 stroke-[1.5] mb-2 animate-pulse" />
-          <p className="text-sm font-semibold font-mono uppercase tracking-wider text-indigo-500" style={{ color: "var(--cs-accent-clay)" }}>Evidence Dashboard Ready</p>
+          <p className="text-sm font-semibold font-mono uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Evidence Dashboard Ready</p>
           <div className="w-16 h-[1px] bg-slate-800/10 dark:bg-slate-800/60 mx-auto my-3"></div>
           <p className="text-xs max-w-sm mx-auto mt-1 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-            Submit a genetic variant search query to load multi-modal predictors, conservation, energetics, and structural pocket evidence.
+            Submit a variant query to load multi-modal predictors, conservation, energetics and structural pocket evidence.
           </p>
         </div>
       </div>
@@ -265,22 +329,22 @@ export default function EvidenceDashboardCard({
   };
 
   const getREVELBadge = (score: number | null) => {
-    if (score === null) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (score === null) return { label: "N/A", style: "badge-metric-neutral" };
     // ClinGen SVI: >= 0.77 -> Moderate, >= 0.65 -> Supporting, <= 0.15 -> Supporting Benign
     if (score >= 0.77) {
-      return { label: `Moderate Path. (Score: ${score.toFixed(3)})`, style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+      return { label: `Moderate Path. (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
     }
     if (score >= 0.65) {
-      return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+      return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
     }
     if (score <= 0.15) {
-      return { label: `Supporting Benign (Score: ${score.toFixed(3)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `Supporting Benign (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
     }
-    return { label: `VUS (Score: ${score.toFixed(3)})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
+    return { label: `VUS (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
   };
 
   const getEVEBadge = (score: number | null | undefined, cls: string | null | undefined) => {
-    if (score === null || score === undefined) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (score === null || score === undefined) return { label: "N/A", style: "badge-metric-neutral" };
     const classStr = cls ? ` (${cls})` : "";
     const label = `Score: ${score.toFixed(3)}${classStr}`;
 
@@ -288,67 +352,67 @@ export default function EvidenceDashboardCard({
     const isBenign = cls?.toLowerCase().includes(THRESHOLDS.eve.benignClass) || score <= THRESHOLDS.eve.benign;
 
     if (isPathogenic) {
-      return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+      return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
     }
     if (isBenign) {
-      return { label: `Supporting Benign (Score: ${score.toFixed(3)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `Supporting Benign (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
     }
-    return { label, style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    return { label, style: "badge-metric-neutral" };
   };
 
   const getESM2Badge = (llr: number | null | undefined) => {
-    if (llr === null || llr === undefined) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (llr === null || llr === undefined) return { label: "N/A", style: "badge-metric-neutral" };
     // VESM SVI calibration: <= -5.0 -> Supporting Pathogenic, >= -2.0 -> Supporting Benign
     if (llr <= -5.0) {
-      return { label: `Supporting Path. (LLR: ${llr.toFixed(2)})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+      return { label: `Supporting Path. (LLR: ${llr.toFixed(2)})`, style: "badge-metric-neutral" };
     }
     if (llr >= -2.0) {
-      return { label: `Supporting Benign (LLR: ${llr.toFixed(2)})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `Supporting Benign (LLR: ${llr.toFixed(2)})`, style: "badge-metric-neutral" };
     }
-    return { label: `VUS (LLR: ${llr.toFixed(2)})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
+    return { label: `VUS (LLR: ${llr.toFixed(2)})`, style: "badge-metric-neutral" };
   };
 
   const getBayesdelBadge = (score: number | null | undefined) => {
-    if (score === null || score === undefined) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (score === null || score === undefined) return { label: "N/A", style: "badge-metric-neutral" };
     const label = `Score: ${score.toFixed(3)}`;
     if (score >= THRESHOLDS.bayesdel.pathogenic) {
-      return { label: `Supporting Path. (${label})`, style: "bg-amber-500/15 text-amber-455 border border-amber-500/20 font-bold" };
+      return { label: `Supporting Path. (${label})`, style: "badge-metric-neutral" };
     }
     if (score <= THRESHOLDS.bayesdel.benign) {
-      return { label: `Supporting Benign (${label})`, style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `Supporting Benign (${label})`, style: "badge-metric-neutral" };
     }
-    return { label: `VUS (${label})`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold" };
+    return { label: `VUS (${label})`, style: "badge-metric-neutral" };
   };
 
   const getGERPBadge = (score: number | null) => {
-    if (score === null) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (score === null) return { label: "N/A", style: "badge-metric-neutral" };
     if (score >= THRESHOLDS.gerp.conserved) {
-      return { label: `GERP++: ${score.toFixed(2)} (Conserved)`, style: "bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 font-bold" };
+      return { label: `GERP++: ${score.toFixed(2)} (Conserved)`, style: "badge-metric-neutral" };
     }
-    return { label: `GERP++: ${score.toFixed(2)} (Neutral)`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    return { label: `GERP++: ${score.toFixed(2)} (Neutral)`, style: "badge-metric-neutral" };
   };
 
   const getPhyloPBadge = (score: number | null) => {
-    if (score === null) return { label: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (score === null) return { label: "N/A", style: "badge-metric-neutral" };
     if (score >= THRESHOLDS.phylop.conserved) {
-      return { label: `phyloP: ${score.toFixed(2)} (Conserved)`, style: "bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 font-bold" };
+      return { label: `phyloP: ${score.toFixed(2)} (Conserved)`, style: "badge-metric-neutral" };
     }
-    return { label: `phyloP: ${score.toFixed(2)} (Variable)`, style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    return { label: `phyloP: ${score.toFixed(2)} (Variable)`, style: "badge-metric-neutral" };
   };
 
   const getDdGBadge = (val: number | null) => {
-    if (val === null) return { label: "Not Computed", category: "Not Computed", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    if (val === null) return { label: "Not Computed", category: "Not Computed", style: "badge-metric-neutral" };
     const formatted = formatDdGValue(val, energyUnit);
     if (val > 1.5) {
-      return { label: `+${formatted} (Highly Destabilizing)`, category: "Highly Destabilizing", style: "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold" };
+      return { label: `+${formatted} (Highly Destabilizing)`, category: "Highly Destabilizing", style: "badge-metric-neutral" };
     }
     if (val > 0.5) {
-      return { label: `+${formatted} (Moderately Destabilizing)`, category: "Moderately Destabilizing", style: "bg-orange-500/15 text-orange-450 border border-orange-500/20 font-bold" };
+      return { label: `+${formatted} (Moderately Destabilizing)`, category: "Moderately Destabilizing", style: "badge-metric-neutral" };
     }
     if (val < -0.5) {
-      return { label: `${formatted} (Stabilizing)`, category: "Stabilizing", style: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold" };
+      return { label: `${formatted} (Stabilizing)`, category: "Stabilizing", style: "badge-metric-neutral" };
     }
-    return { label: `${formatted} (Neutral)`, category: "Neutral", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
+    return { label: `${formatted} (Neutral)`, category: "Neutral", style: "badge-metric-neutral" };
   };
 
   const renderContrastBar = (wtVal: number, mutVal: number) => {
@@ -374,10 +438,8 @@ export default function EvidenceDashboardCard({
   const tabs: { id: TabType; label: string; icon: any }[] = [
     { id: "clinical", label: "Databases", icon: Database },
     { id: "predictors", label: "Predictors", icon: Cpu },
-    { id: "conservation", label: "Evolution", icon: Compass },
     { id: "structure", label: "Structure", icon: Layers },
     { id: "function", label: "Function", icon: TrendingUp },
-    { id: "energetics", label: "Energetics", icon: Activity },
     { id: "interactions", label: "Interactions", icon: Share2 },
     { id: "guidelines", label: "Threshold Guide", icon: ShieldAlert }
   ];
@@ -385,8 +447,8 @@ export default function EvidenceDashboardCard({
   const consurfVal = result.conservationData?.consurf;
 
   // Resolve 1-letter residue abbreviations for property calculations (normalize casing to TitleCase first)
-  const normalWt = result.metadata.wildType.charAt(0).toUpperCase() + result.metadata.wildType.slice(1).toLowerCase();
-  const normalMut = result.metadata.mutant.charAt(0).toUpperCase() + result.metadata.mutant.slice(1).toLowerCase();
+  const normalWt = result.metadata?.wildType ? (result.metadata.wildType.charAt(0).toUpperCase() + result.metadata.wildType.slice(1).toLowerCase()) : "";
+  const normalMut = result.metadata?.mutant ? (result.metadata.mutant.charAt(0).toUpperCase() + result.metadata.mutant.slice(1).toLowerCase()) : "";
   const wt1 = normalWt.length === 3 ? AMINO_ACID_3_TO_1[normalWt] : normalWt;
   const mut1 = normalMut.length === 3 ? AMINO_ACID_3_TO_1[normalMut] : normalMut;
   const wtProp = wt1 ? AMINO_ACID_PROPERTIES[wt1] : null;
@@ -411,15 +473,6 @@ export default function EvidenceDashboardCard({
 
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
-      {/* Header */}
-      <div className={`px-5 py-4 border-b flex items-center justify-between transition-colors ${classCardHeader}`}>
-        <div className="flex items-center gap-2">
-          <Database className="w-4 h-4" style={{ color: "var(--cs-accent-clay)" }} />
-          <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
-            Multi-Modal Evidence Dashboard
-          </h3>
-        </div>
-      </div>
 
       {result.isDemoData && (
         <div className={`mx-5 mt-4 p-2.5 rounded-xl border text-[11px] font-medium leading-relaxed transition-all flex items-center gap-2 ${
@@ -431,44 +484,17 @@ export default function EvidenceDashboardCard({
         </div>
       )}
 
-      {/* Tab Navigation */}
-      <div
-        className="flex border-b overflow-x-auto"
-        style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
-      >
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap"
-              style={isActive ? {
-                borderColor: "var(--cs-accent-clay)",
-                color: "var(--cs-accent-clay)",
-                background: "rgba(196,104,73,0.05)"
-              } : {
-                borderColor: "transparent",
-                color: "var(--cs-text-muted)"
-              }}
-              onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = "var(--cs-text-primary)"; } }}
-              onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = "var(--cs-text-muted)"; } }}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
 
-      {/* Tab Content Panels */}
-      <div className="p-5 flex-1 font-mono text-xs">
+      {/* Tab Content Panels — scrollable */}
+      <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
         {activeTab === "clinical" && (
           <div className="space-y-4">
-            <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>ClinVar & gnomAD Population Genetics</h4>
+            <div>
+              <h1 className="screen-title">Databases</h1>
+              <p className="screen-tab-description">ClinVar clinical classifications, gnomAD v4.0 population allele counts, and All of Us cohort frequencies.</p>
+            </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Column 1: ClinVar Interpretation */}
               {result.clinvar && result.clinvar.classification && !result.clinvar.classification.toLowerCase().includes("not found") ? (
                 <div 
@@ -476,17 +502,25 @@ export default function EvidenceDashboardCard({
                   style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
                 >
                   <div>
-                    <span className="block text-[10px] uppercase font-semibold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>ClinVar Interpretation</span>
+                    <span className="block text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-text-secondary)" }}>ClinVar Interpretation</span>
                     {(() => {
                       const c = result.clinvar.classification.toLowerCase();
-                      let badgeStyle = "bg-amber-500/15 text-amber-455 border border-amber-500/20";
-                      if (c.includes("likely pathogenic")) badgeStyle = "bg-orange-500/15 text-orange-450 border border-orange-500/20";
-                      else if (c.includes("pathogenic")) badgeStyle = "bg-rose-500/15 text-rose-455 border border-rose-500/25";
-                      else if (c.includes("likely benign")) badgeStyle = "bg-emerald-500/10 text-emerald-450 border border-emerald-500/20";
-                      else if (c.includes("benign")) badgeStyle = "bg-emerald-500/15 text-emerald-455 border border-emerald-500/25";
+                      let badgeStyle = {};
+                      if (c.includes("likely pathogenic")) {
+                        badgeStyle = { color: "var(--cs-text-warning)", backgroundColor: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)" };
+                      } else if (c.includes("pathogenic")) {
+                        badgeStyle = { color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "var(--cs-text-danger)" };
+                      } else if (c.includes("likely benign") || c.includes("benign")) {
+                        badgeStyle = { color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "var(--cs-text-success)" };
+                      } else {
+                        badgeStyle = { color: "var(--cs-text-secondary)", backgroundColor: "var(--cs-surface-2)", borderColor: "var(--cs-border)" };
+                      }
                       
                       return (
-                        <span className={`inline-block mt-2 px-2.5 py-1 rounded-lg text-xs font-bold ${badgeStyle}`}>
+                        <span 
+                          className="inline-block mt-2 px-2.5 py-1 rounded-lg text-xs font-bold border"
+                          style={badgeStyle}
+                        >
                           {result.clinvar.classification}
                         </span>
                       );
@@ -512,11 +546,15 @@ export default function EvidenceDashboardCard({
                 </div>
               ) : (
                 <div 
-                  className="p-4 rounded-xl border border-dashed transition-all duration-300 flex flex-col justify-center items-center text-center min-h-[160px]"
-                  style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)", color: "var(--cs-text-secondary)" }}
+                  className="p-4 rounded-xl border transition-all duration-300 flex flex-col justify-between"
+                  style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
                 >
-                  <span className="block text-[10px] uppercase font-bold tracking-wider mb-2" style={{ color: "var(--cs-text-muted)" }}>ClinVar Interpretation</span>
-                  <p className="text-xs italic font-sans" style={{ color: "var(--cs-text-muted)" }}>No matching variant found in NCBI ClinVar database.</p>
+                  <span className="block text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-text-secondary)" }}>
+                    ClinVar Interpretation
+                  </span>
+                  <div className="mt-3 rounded-lg p-2.5 border border-dashed font-sans text-xs italic flex items-center justify-center min-h-[70px] text-center" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)", color: "var(--cs-text-muted)" }}>
+                    Absent from NCBI ClinVar database (rare/novel variant).
+                  </div>
                 </div>
               )}
 
@@ -525,7 +563,7 @@ export default function EvidenceDashboardCard({
                 className="p-4 rounded-xl border transition-all duration-300"
                 style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
               >
-                <span className="block text-[10px] uppercase font-semibold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>gnomAD Allele Count</span>
+                <span className="block text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-text-secondary)" }}>gnomAD Allele Count</span>
 
                 {result.gnomadFrequency && (
                   (result.gnomadFrequency.genomeAC !== null && result.gnomadFrequency.genomeAC !== undefined) ||
@@ -595,7 +633,56 @@ export default function EvidenceDashboardCard({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs italic mt-3" style={{ color: "var(--cs-text-muted)" }}>Absent from gnomAD population database (rare/novel variant).</p>
+                  <div className="empty-state-box mt-3 text-xs">
+                    Absent from gnomAD population database (rare/novel variant).
+                  </div>
+                )}
+              </div>
+
+              {/* Column 3: All of Us Allele Count */}
+              <div
+                className="p-4 rounded-xl border transition-all duration-300"
+                style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+              >
+                <span className="block text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-text-secondary)" }}>All of Us Allele Count</span>
+                {result.aouFrequency && (result.aouFrequency.aouAC !== null || result.aouFrequency.aouAN !== null) ? (
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-lg p-2.5 border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold" style={{ color: "var(--cs-text-secondary)" }}>Total Alleles (AC)</span>
+                        <span className="font-bold font-mono" style={{ color: "var(--cs-accent-clay)" }}>
+                          {result.aouFrequency.aouAC !== null && result.aouFrequency.aouAC !== undefined ? result.aouFrequency.aouAC.toLocaleString() : "0"}
+                        </span>
+                      </div>
+                      {result.aouFrequency.aouAN !== null && result.aouFrequency.aouAN !== undefined && (
+                        <div className="flex justify-between items-center text-[10px] mt-1">
+                          <span style={{ color: "var(--cs-text-muted)" }}>Allele Number (AN)</span>
+                          <span className="font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                            {result.aouFrequency.aouAN.toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg p-2.5 border space-y-1.5" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold" style={{ color: "var(--cs-text-secondary)" }}>Heterozygotes (Het)</span>
+                        <span className="font-bold font-mono" style={{ color: "var(--cs-text-primary)" }}>
+                          {result.aouFrequency.aouHet !== null && result.aouFrequency.aouHet !== undefined ? result.aouFrequency.aouHet.toLocaleString() : "0"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold" style={{ color: "var(--cs-text-secondary)" }}>Homozygotes (Hom)</span>
+                        <span className="font-bold font-mono" style={{ color: "var(--cs-text-primary)" }}>
+                          {result.aouFrequency.aouHom !== null && result.aouFrequency.aouHom !== undefined ? result.aouFrequency.aouHom.toLocaleString() : "0"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state-box mt-3 text-xs">
+                    Absent from All of Us population database (rare/novel variant).
+                  </div>
                 )}
               </div>
             </div>
@@ -604,7 +691,10 @@ export default function EvidenceDashboardCard({
 
         {activeTab === "predictors" && (
           <div className="space-y-4">
-            <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>In Silico Pathogenicity Predictors</h4>
+            <div>
+              <h1 className="screen-title">Predictors</h1>
+              <p className="screen-tab-description">In-silico pathogenicity predictors with ACMG/AMP-calibrated thresholds and concordance voting.</p>
+            </div>
             
             {/* Transcript Context & Warning (TRANSCRIPT-BANNER) */}
             {result.transcriptId && (
@@ -626,412 +716,168 @@ export default function EvidenceDashboardCard({
               </div>
             )}
 
-            {/* Predictor Partial Evidence Banner (PARTIAL-BANNER) */}
-            {(() => {
-              const ruleBased = result.ruleBasedInsights;
-              const unavailable = ruleBased?.partialEvidence?.unavailable ?? [];
-              if (unavailable.length === 0) return null;
-              const k = 4 - unavailable.length;
-              return (
-                <div className="p-3 rounded-lg border bg-amber-500/10 text-amber-400 border-amber-500/20 leading-relaxed text-xs">
-                  <div className="font-bold flex items-center gap-1.5 uppercase tracking-wider text-[9px] font-mono text-amber-500">
-                    <span>⚠ Evidence Partial</span>
-                  </div>
-                  <p className="mt-1 text-[10px] opacity-90 text-amber-400/90">
-                    Only {k} of 4 in-silico predictors are available for this variant.
-                    Missing tools: <span className="font-bold">{unavailable.join(", ")}</span>.
-                    Use caution when interpreting consensus classifications.
-                  </p>
-                </div>
-              );
-            })()}
-
+            {/* Unified In-Silico Consensus & Coverage Card */}
             {(() => {
               const cadd = result.predictorData?.caddPhred;
               const revel = result.conservationData?.revel;
               const amScore = result.predictorData?.amPathogenicity;
               const amClass = result.predictorData?.amClass;
-              const eveScore = result.predictorData?.eveScore;
-              const eveClass = result.predictorData?.eveClass;
+              const bayesdel = result.conservationData?.bayesdel;
+              const esmLlr = result.conservationData?.esm1b;
 
-              const concordance = countPredictorConcordance(cadd, revel, amScore, amClass, eveScore, eveClass);
+              const concordance = countPredictorConcordance(cadd, revel, amScore, amClass, bayesdel, esmLlr, {
+                metarnn: result.conservationData?.metarnn,
+                clinpred: result.conservationData?.clinpred,
+                eigenPhred: result.conservationData?.eigenPhred,
+                dann: result.conservationData?.dann,
+                popeve: result.conservationData?.popeve,
+              });
               const total = concordance.available.length;
               if (total === 0) return null;
 
-              let verdictClass = "bg-slate-500/10 text-slate-400 border-slate-500/20";
-              let verdictText = "VUS / Conflicting Evidence";
+              let verdictTitle = "VUS / Conflicting Evidence";
+              let verdictBadgeLabel = "VUS";
+              let verdictBadgeStyle: React.CSSProperties = { color: "var(--cs-text-warning)", backgroundColor: "var(--cs-bg-warning)", borderColor: "rgba(217,119,6,0.3)" };
               
-              if (concordance.nPathogenic > total / 2) {
-                verdictClass = "bg-rose-500/10 text-rose-400 border-rose-500/20";
-                verdictText = `Concordant Pathogenic (${concordance.nPathogenic}/${total} tools)`;
-              } else if (concordance.nBenign > total / 2) {
-                verdictClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-                verdictText = `Concordant Benign (${concordance.nBenign}/${total} tools)`;
+              const activeVotingTotal = concordance.pathogenicTools.filter(t => !t.isInformationalOnly).length +
+                                       concordance.benignTools.filter(t => !t.isInformationalOnly).length +
+                                       concordance.vusTools.filter(t => !t.isInformationalOnly).length;
+
+              const votingPathogenicCount = concordance.pathogenicTools.filter(t => !t.isInformationalOnly).length;
+              const infoPathogenicCount = concordance.pathogenicTools.filter(t => t.isInformationalOnly).length;
+
+              const votingBenignCount = concordance.benignTools.filter(t => !t.isInformationalOnly).length;
+              const infoBenignCount = concordance.benignTools.filter(t => t.isInformationalOnly).length;
+
+              if (concordance.nPathogenic > activeVotingTotal / 2) {
+                verdictTitle = `Concordant Pathogenic (${concordance.nPathogenic}/${activeVotingTotal} consensus tools)`;
+                verdictBadgeLabel = "Pathogenic";
+                verdictBadgeStyle = { color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "rgba(220,38,38,0.3)" };
+              } else if (concordance.nBenign > activeVotingTotal / 2) {
+                verdictTitle = `Concordant Benign (${concordance.nBenign}/${activeVotingTotal} consensus tools)`;
+                verdictBadgeLabel = "Benign";
+                verdictBadgeStyle = { color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "rgba(22,163,74,0.3)" };
               } else {
-                verdictText = `Conflicting Evidence (${concordance.nPathogenic} pathogenic, ${concordance.nBenign} benign, ${concordance.nVus} VUS)`;
+                verdictTitle = `Conflicting Evidence (${concordance.nPathogenic} pathogenic, ${concordance.nBenign} benign, ${concordance.nVus} VUS)`;
               }
 
               return (
-                <div className={`p-3.5 mb-3 rounded-lg border ${verdictClass} leading-relaxed text-xs animate-fade-in`}>
-                  <div className="font-bold flex items-center gap-1.5 uppercase tracking-wider text-[10px] font-mono">
-                    <span>🧬 In-Silico Pathogenicity Consensus</span>
+                <div 
+                  className="p-4.5 rounded-xl border flex flex-col gap-4 mb-4 animate-fade-in shadow-sm"
+                  style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="block text-[10px] uppercase font-bold tracking-wider font-mono opacity-70" style={{ color: "var(--cs-text-muted)" }}>
+                        🧬 In-Silico Pathogenicity Consensus
+                      </span>
+                      <h4 className="text-sm font-bold mt-1" style={{ color: "var(--cs-text-primary)" }}>
+                        {verdictTitle}
+                      </h4>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border shrink-0" style={verdictBadgeStyle}>
+                      {verdictBadgeLabel}
+                    </span>
                   </div>
-                  <p className="mt-1 font-bold text-sm">
-                    {verdictText}
-                  </p>
-                  <p className="mt-1 text-[10px] opacity-80">
-                    Calculated from available predictors: {concordance.available.join(", ") || "None"}.
-                    {concordance.unavailable.length > 0 && ` Unavailable tools: ${concordance.unavailable.join(", ")}.`}
-                  </p>
+
+                  {/* 3-Container Grid Layout (Pathogenic, Benign, VUS/Intermediate) */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-[var(--cs-border-subtle)] text-[11px]">
+                    {/* Container 1: Pathogenic Support */}
+                    <div className="p-3 rounded-lg border bg-rose-500/5 border-rose-500/20 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between font-bold text-[10.5px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-2">
+                          <span>Pathogenic Support ({votingPathogenicCount}{infoPathogenicCount > 0 ? ` + ${infoPathogenicCount} info` : ""})</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 font-mono border border-rose-500/20 font-bold text-rose-700 dark:text-rose-300">Concordant</span>
+                        </div>
+                        {concordance.pathogenicTools.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {concordance.pathogenicTools.map((t) => (
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-rose-500/15 text-rose-900 dark:text-rose-100 border border-rose-500/30">
+                                <span>{t.name}</span>
+                                {t.isInformationalOnly && (
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/25 text-rose-800 dark:text-rose-200 uppercase tracking-tighter">Info</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] italic text-[var(--cs-text-muted)] block mt-1">No tools predicting pathogenic</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Container 2: Benign Support */}
+                    <div className="p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between font-bold text-[10.5px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 mb-2">
+                          <span>Benign Support ({votingBenignCount}{infoBenignCount > 0 ? ` + ${infoBenignCount} info` : ""})</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 font-mono border border-emerald-500/20 font-bold text-emerald-700 dark:text-emerald-300">Discordant</span>
+                        </div>
+                        {concordance.benignTools.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {concordance.benignTools.map((t) => (
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-emerald-500/15 text-emerald-900 dark:text-emerald-100 border border-emerald-500/30">
+                                <span>{t.name}</span>
+                                {t.isInformationalOnly && (
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/25 text-emerald-800 dark:text-emerald-200 uppercase tracking-tighter">Info</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] italic text-[var(--cs-text-muted)] block mt-1">No tools predicting benign</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Container 3: VUS / Intermediate */}
+                    <div className="p-3 rounded-lg border bg-amber-500/5 border-amber-500/20 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between font-bold text-[10.5px] uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-2">
+                          <span>VUS / Intermediate ({concordance.vusTools.length})</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 font-mono border border-amber-500/20 font-bold text-amber-700 dark:text-amber-300">Indeterminate</span>
+                        </div>
+                        {concordance.vusTools.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {concordance.vusTools.map((t) => (
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-amber-500/15 text-amber-900 dark:text-amber-100 border border-amber-500/30">
+                                <span>{t.name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] italic text-[var(--cs-text-muted)] block mt-1">No intermediate tools</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] leading-relaxed space-y-1 text-[var(--cs-text-secondary)] pt-1 border-t border-[var(--cs-border-subtle)]">
+                    <p>
+                      Calculated from <span className="font-semibold text-[var(--cs-text-primary)]">{total} available in-silico predictors</span> ({activeVotingTotal} consensus voting tools + {concordance.available.length - activeVotingTotal} informational model).
+                      {concordance.unavailable.length > 0 && (
+                        <span> Unavailable: <span className="font-mono text-[10px]">{concordance.unavailable.join(", ")}</span>.</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
               );
             })()}
 
-            <div className="overflow-x-auto border rounded-lg animate-fade-in" style={{ borderColor: "var(--cs-border)" }}>
-              <table className="w-full text-[11px] font-sans border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--cs-surface-2)", color: "var(--cs-text-primary)" }}>
-                    <th className="p-2.5 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)", width: "20%" }}>Predictor / Model</th>
-                    <th className="p-2.5 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)", width: "35%" }}>Description</th>
-                    <th className="p-2.5 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)", width: "12%" }}>Range</th>
-                    <th className="p-2.5 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)", width: "13%" }}>Score</th>
-                    <th className="p-2.5 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)", width: "20%" }}>Interpretation Verdict</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* AlphaMissense Row */}
-                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMetric("am")}
-                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                      >
-                        <span>AlphaMissense (EBI)</span>
-                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      </button>
-                    </td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>AI deep learning structure score</td>
-                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 1</td>
-                    <td className="p-2.5 text-center font-mono font-bold">
-                      {result.predictorData?.available === false || result.predictorData?.amPathogenicity === null || result.predictorData?.amPathogenicity === undefined
-                        ? "N/A"
-                        : result.predictorData.amPathogenicity.toFixed(3)}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      {result.predictorData?.available === false ? (
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                          Data unavailable (upstream)
-                        </span>
-                      ) : (() => {
-                        const badge = getAMBadge(result.predictorData?.amPathogenicity ?? null, result.predictorData?.amClass ?? null);
-                        return (
-                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border capitalize ${badge.style}`}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-
-                  {/* CADD Row */}
-                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMetric("cadd")}
-                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                      >
-                        <span>CADD PHRED</span>
-                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      </button>
-                    </td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Genomic annotation integration</td>
-                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 99</td>
-                    <td className="p-2.5 text-center font-mono font-bold">
-                      {result.predictorData?.available === false || result.predictorData?.caddPhred === null || result.predictorData?.caddPhred === undefined
-                        ? "N/A"
-                        : result.predictorData.caddPhred.toFixed(1)}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      {result.predictorData?.available === false ? (
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                          Data unavailable (upstream)
-                        </span>
-                      ) : (() => {
-                        const badge = getCADDBadge(result.predictorData?.caddPhred ?? null);
-                        return (
-                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-
-                  {/* REVEL Row */}
-                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMetric("revel")}
-                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                      >
-                        <span>REVEL</span>
-                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      </button>
-                    </td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Ensemble pathogenicity score</td>
-                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 1</td>
-                    <td className="p-2.5 text-center font-mono font-bold">
-                      {result.conservationData?.available === false || result.conservationData?.revel === null || result.conservationData?.revel === undefined
-                        ? "N/A"
-                        : result.conservationData.revel.toFixed(3)}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      {result.conservationData?.available === false ? (
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                          Data unavailable (upstream)
-                        </span>
-                      ) : (() => {
-                        const badge = getREVELBadge(result.conservationData?.revel ?? null);
-                        return (
-                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-
-                  {/* EVE Row */}
-                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                    <td className="p-2.5 font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMetric("eve")}
-                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                      >
-                        <span>EVE Model (Frazer 2021)</span>
-                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      </button>
-                    </td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Evolutionary model of variant effect</td>
-                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>0 – 1</td>
-                    <td className="p-2.5 text-center font-mono font-bold">
-                      {result.predictorData?.eveScore === undefined || result.predictorData?.eveScore === null
-                        ? "N/A"
-                        : result.predictorData.eveScore.toFixed(3)}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      {result.predictorData?.eveScore === undefined || result.predictorData?.eveScore === null ? (
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                          Data unavailable (upstream)
-                        </span>
-                      ) : (() => {
-                        const badge = getEVEBadge(result.predictorData.eveScore, result.predictorData.eveClass);
-                        return (
-                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-
-                  {/* ESM2 Row */}
-                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
-                    <td className="p-2.5 font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMetric("esm2")}
-                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                      >
-                        <span>VESM Co-distilled (SOTA)</span>
-                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      </button>
-                    </td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Co-distilled language model LLR</td>
-                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>−20 to +5</td>
-                    <td className="p-2.5 text-center font-mono font-bold">
-                      {result.esm2 === undefined || result.esm2 === null || result.esm2.llr === null
-                        ? "N/A"
-                        : result.esm2.llr.toFixed(2)}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      {result.esm2 === undefined || result.esm2 === null || result.esm2.llr === null ? (
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                          Data unavailable (upstream)
-                        </span>
-                      ) : (() => {
-                        const badge = getESM2Badge(result.esm2.llr);
-                        return (
-                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-
-                  {/* BayesDel Row */}
-                  <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
-                    <td className="p-2.5 font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMetric("bayesdel")}
-                        className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                      >
-                        <span>BayesDel (noAF)</span>
-                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      </button>
-                    </td>
-                    <td className="p-2.5 opacity-80" style={{ color: "var(--cs-text-secondary)" }}>Meta-predictor of deleteriousness</td>
-                    <td className="p-2.5 text-center font-mono" style={{ color: "var(--cs-text-muted)" }}>−1.0 to 1.0</td>
-                    <td className="p-2.5 text-center font-mono font-bold">
-                      {result.conservationData?.available === false || result.conservationData?.bayesdel === null || result.conservationData?.bayesdel === undefined
-                        ? "N/A"
-                        : result.conservationData.bayesdel.toFixed(3)}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      {result.conservationData?.available === false || result.conservationData?.bayesdel === null || result.conservationData?.bayesdel === undefined ? (
-                        <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                          Data unavailable (upstream)
-                        </span>
-                      ) : (() => {
-                        const badge = getBayesdelBadge(result.conservationData.bayesdel);
-                        return (
-                          <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "conservation" && (
-          <div className="space-y-4">
-            <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Evolutionary Sequence Conservation Scores</h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* GERP++ */}
-              <div className="p-4 rounded-xl border flex flex-col justify-between transition-all duration-300" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <div>
-                  <div className="flex justify-between items-start border-b border-slate-800/35 pb-1">
-                    <span className="block text-[10px] uppercase text-slate-455 dark:text-slate-500 font-bold tracking-wider">GERP++ Score</span>
-                    <span className="text-[10px] text-slate-500 font-bold font-mono">Range: -12.36 to 6.17</span>
-                  </div>
-                  <span className="text-xs text-slate-400 mt-2 block leading-relaxed">Mammalian alignment substitution rate constraint. Higher scores represent stronger selective constraint.</span>
-                </div>
-                <div className="mt-4">
-                  {result.conservationData?.available === false ? (
-                    <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                      Data unavailable (upstream)
-                    </span>
-                  ) : (() => {
-                    const badge = getGERPBadge(result.conservationData?.gerp ?? null);
-                    return (
-                      <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                        {badge.label}
-                      </span>
-                    );
-                  })()}
-                </div>
-              </div>
-              {/* phyloP */}
-              <div className="p-4 rounded-xl border flex flex-col justify-between transition-all duration-300" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <div>
-                  <div className="flex justify-between items-start border-b pb-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                    <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>phyloP Score (100 vertebrates)</span>
-                    <span className="text-[10px] font-bold font-mono" style={{ color: "var(--cs-text-muted)" }}>Range: -20 to +10</span>
-                  </div>
-                  <span className="text-xs mt-2 block leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>Base-wise evolutionary constraint scores. Positive means conserved; negative means fast-evolving.</span>
-                </div>
-                <div className="mt-4">
-                  {result.conservationData?.available === false ? (
-                    <span className="inline-block text-[10px] px-2 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold">
-                      Data unavailable (upstream)
-                    </span>
-                  ) : (() => {
-                    const badge = getPhyloPBadge(result.conservationData?.phylop ?? null);
-                    return (
-                      <span className={`inline-block text-xs px-2.5 py-1 rounded-lg border ${badge.style}`}>
-                        {badge.label}
-                      </span>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-
-            {/* ConSurf Highlights */}
-            <div className={`space-y-2 mt-4 pt-3 border-t transition-opacity ${!consurfVal ? "opacity-60" : ""}`} style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Real ConSurf Grade (ConSurf-DB):</span>
-                <span className={`text-xs px-2.5 py-1 rounded-lg font-bold border ${
-                  result.conservationData?.available === false
-                    ? "bg-slate-500/10 text-slate-400 border-slate-500/20"
-                    : consurfVal ? (consurfVal >= 7 ? "bg-rose-500/10 text-rose-450 border-rose-500/20" : consurfVal <= 3 ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" : "bg-slate-500/10 text-slate-400 border-slate-500/20") : "text-slate-550 border-slate-700/30"
-                }`}>
-                  {(() => {
-                    if (result.conservationData?.available === false) {
-                      return "Data unavailable (upstream)";
-                    }
-                    if (!consurfVal) return "N/A";
-                    const status = consurfVal >= 7 ? "Highly Conserved" : consurfVal <= 3 ? "Highly Variable" : "Average";
-                    return `${consurfVal} / 9 (${status})`;
-                  })()}
-                </span>
-              </div>
-              {consurfVal ? (
-                <div className="grid grid-cols-9 gap-1 h-3 mt-1">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((val) => {
-                    const isSelected = result.conservationData?.available !== false && consurfVal === val;
-                    let colorClass = "";
-                    if (val <= 3) colorClass = "bg-cyan-500";
-                    else if (val <= 6) colorClass = "bg-amber-500";
-                    else colorClass = "bg-rose-500";
-
-                    const isAvailable = result.conservationData?.available !== false;
-                    const opacityVal = !isAvailable ? "opacity-10" : (isSelected ? "opacity-100 ring-2 ring-[var(--cs-accent-clay)] scale-y-125 shadow-md" : "opacity-25");
-
-                    return (
-                      <div 
-                        key={val} 
-                        className={`h-full rounded-sm transition-all duration-300 ${colorClass} ${opacityVal}`}
-                        title={`ConSurf Grade ${val}`}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="h-3 rounded-sm w-full opacity-35" style={{ background: "var(--cs-bg-subtle)" }} />
-              )}
-              <div className="flex justify-between text-[8px] font-bold uppercase mt-1" style={{ color: "var(--cs-text-muted)" }}>
-                <span>Variable (1)</span>
-                <span>Average (5)</span>
-                <span>Conserved (9)</span>
-              </div>
-              {!consurfVal && result.conservationData?.available !== false && (
-                <div className="p-2 mt-2 rounded border text-[9px] leading-normal" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-                  ⚠️ **ConSurf Grade Unavailable**: No precalculated conservation grade is available for this resolved PDB structure and chain in ConSurf-DB.
-                </div>
-              )}
-              <p className="text-[8px] opacity-80 leading-normal mt-1.5 italic" style={{ color: "var(--cs-text-muted)" }}>
-                * ConSurf Grade represents the true evolutionary conservation score fetched from ConSurf-DB (1=Variable, 9=Conserved).
-              </p>
-            </div>
+            <PredictorSpecialistPanels 
+              predictorData={result.predictorData}
+              conservationData={result.conservationData}
+              esm2Score={result.esm2?.llr}
+            />
           </div>
         )}
 
         {activeTab === "structure" && (
           <div className="space-y-4">
-            <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Residue Biophysical Property Shifts</h4>
+            <div>
+              <h1 className="screen-title">Structure</h1>
+              <p className="screen-tab-description">Residue property shifts, burial status, contact density, and pocket proximity derived from the folded 3D model.</p>
+            </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 rounded-lg border flex flex-col items-center justify-center" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
@@ -1094,8 +940,8 @@ export default function EvidenceDashboardCard({
             )}
 
             {result.insights?.biochemicalShift && (
-              <div className="p-3 rounded-lg border text-[10px] leading-relaxed" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
-                <span className="font-bold block uppercase text-[8px] mb-1 tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Biochemical Shift Narrative:</span>
+              <div className="p-3 rounded-lg border text-[12px] font-sans leading-relaxed" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
+                <span className="font-bold block uppercase text-[11px] mb-1 tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Biochemical Shift Narrative:</span>
                 {result.insights.biochemicalShift}
               </div>
             )}
@@ -1111,33 +957,27 @@ export default function EvidenceDashboardCard({
                 >
                   <div className="w-full">
                     <div className="flex items-center justify-between w-full mb-1">
-                      <span className="block text-[8px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Burial / Exposure Status</span>
+                      <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Burial / Exposure Status</span>
                       <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${
-                        result.disruptionPredictor.burialStatus === "core"
-                          ? "bg-rose-500/15 text-rose-455 border border-rose-500/25"
-                          : result.disruptionPredictor.burialStatus === "boundary"
-                          ? "bg-amber-500/15 text-amber-455 border border-amber-500/20"
-                          : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      }`}>
+                      <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded border badge-metric-neutral">
                         {result.disruptionPredictor.burialStatus ?? "Unknown"}
                       </span>
                       {result.disruptionPredictor.rsa !== undefined && result.disruptionPredictor.rsa !== null && (
-                        <span className="text-[10px] font-mono opacity-80" style={{ color: "var(--cs-text-secondary)" }}>
+                        <span className="text-[11px] font-mono opacity-80" style={{ color: "var(--cs-text-secondary)" }}>
                           RSA: {(result.disruptionPredictor.rsa * 100).toFixed(1)}%
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] leading-normal mt-2" style={{ color: "var(--cs-text-secondary)" }}>
+                    <p className="text-[12px] leading-relaxed mt-2 font-sans" style={{ color: "var(--cs-text-secondary)" }}>
                       {result.disruptionPredictor.burialStatus === "core"
                         ? "Deeply buried core residue. High structural stability role; mutations highly likely to cause misfolding."
                         : result.disruptionPredictor.burialStatus === "boundary"
                         ? "Boundary/intermediate exposure. Moderate tolerance to hydrophobic-to-polar shifts."
                         : "Surface-exposed residue. High tolerance to substitution unless in active sites or binding interfaces."}
                       {result.disruptionPredictor.sasa !== undefined && result.disruptionPredictor.sasa !== null && (
-                        <span className="block mt-1 text-[8.5px] italic text-slate-500 font-sans">
+                        <span className="block mt-1.5 text-[11px] font-mono text-muted">
                           SASA: {result.disruptionPredictor.sasa.toFixed(1)} Å² (Calculated locally via Shrake-Rupley algorithm)
                         </span>
                       )}
@@ -1153,7 +993,7 @@ export default function EvidenceDashboardCard({
                 >
                   <div className="w-full">
                     <div className="flex items-center justify-between w-full mb-1">
-                      <span className="block text-[8px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Cα Contact Density</span>
+                      <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Cα Contact Density</span>
                       <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     </div>
                     <div className="flex items-center gap-1.5 mt-1">
@@ -1174,6 +1014,10 @@ export default function EvidenceDashboardCard({
 
         {activeTab === "function" && (
           <div className="space-y-4">
+            <div>
+              <h1 className="screen-title">Function</h1>
+              <p className="screen-tab-description">Ligand-binding pocket proximity (P2Rank / heuristic fallback) and UniProt-curated functional site annotations at this residue.</p>
+            </div>
             {isPocketLoading ? (
               <div className="flex flex-col items-center justify-center p-6 text-center">
                 <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mb-2" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
@@ -1189,82 +1033,76 @@ export default function EvidenceDashboardCard({
                 {computedPocket ? (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <h4 className="font-bold text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>P2Rank Ligand-Binding Pocket Distance</h4>
-                      <span className={`text-[9px] px-2 py-0.5 rounded font-bold border ${
-                        computedPocket.status === "success"
-                          ? "bg-emerald-500/10 text-emerald-455 border-emerald-500/20"
-                          : "bg-amber-500/10 text-amber-455 border-amber-500/20"
-                      }`}>
-                        {computedPocket.status === "success" ? "P2Rank Live (ML-computed)" : "P2Rank Offline (Heuristic Fallback)"}
+                      <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>P2Rank Ligand-Binding Pocket Distance</h4>
+                      <span className="badge-data-source">
+                        {computedPocket.status === "success" ? "P2Rank Live" : "Heuristic Fallback"}
                       </span>
                     </div>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="p-3 rounded-lg border shadow-sm transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                        <span className="block text-[10px] uppercase font-mono tracking-wider font-semibold" style={{ color: "var(--cs-text-muted)" }}>Pocket Distance</span>
-                        <span className={`text-base font-bold font-mono block mt-1 ${
+                      <div className="metric-card">
+                        <span className="metric-card-label">Pocket Distance</span>
+                        <span className={`metric-card-value ${
                           computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance < 10
-                            ? "text-rose-455"
-                            : "text-[var(--cs-text-primary)]"
+                            ? "text-[var(--cs-text-danger)]"
+                            : ""
                         }`}>
                           {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
                             ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
                             : "N/A"}
                         </span>
-                        <span className="text-[10px] font-sans mt-0.5 block" style={{ color: "var(--cs-text-muted)" }}>Distance to pocket centroid</span>
+                        <span className="metric-card-desc">Distance to pocket centroid</span>
                       </div>
 
-                      <div className="p-3 rounded-lg border shadow-sm transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                        <span className="block text-[10px] uppercase font-mono tracking-wider font-semibold" style={{ color: "var(--cs-text-muted)" }}>Binding Probability</span>
-                        <span className="text-base font-bold font-mono mt-1 block" style={{ color: "var(--cs-accent-clay)" }}>
+                      <div className="metric-card">
+                        <span className="metric-card-label">Binding Probability</span>
+                        <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
                           {computedPocket.status === "success" ? `${computedPocket.pocketScore}%` : "N/A"}
                         </span>
-                        <span className="text-[10px] font-sans mt-0.5 block" style={{ color: "var(--cs-text-muted)" }}>P2Rank affinity index</span>
+                        <span className="metric-card-desc">P2Rank affinity index</span>
                       </div>
 
-                      <div className="p-3 rounded-lg border shadow-sm transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                        <span className="block text-[10px] uppercase font-mono tracking-wider font-semibold" style={{ color: "var(--cs-text-muted)" }}>Pocket Volume</span>
-                        <span className="text-base font-bold font-mono mt-1 block" style={{ color: "var(--cs-accent-clay)" }}>
+                      <div className="metric-card">
+                        <span className="metric-card-label">Pocket Volume</span>
+                        <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
                           {computedPocket.pocketVolume ? `${computedPocket.pocketVolume} Å³` : "N/A"}
                         </span>
-                        <span className="text-[10px] font-sans mt-0.5 block" style={{ color: "var(--cs-text-muted)" }}>Spatial cavity volume</span>
+                        <span className="metric-card-desc">Spatial cavity volume</span>
                       </div>
                     </div>
 
                     {computedPocket.status !== "success" && (
-                      <div className="p-3 rounded-lg border text-[11px] leading-relaxed" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-                        <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider" style={{ color: "var(--cs-accent-mag)" }}>ML Model Offline:</span>
+                      <div className="p-3 rounded-lg border text-[11px] leading-relaxed" style={{ background: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)", color: "var(--cs-text-warning)" }}>
+                        <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider">ML Model Offline:</span>
                         P2Rank machine learning service is currently offline. Pocket affinity scores and cavity volumes are unavailable. Utilizing sequence-based functional proximity heuristics.
                       </div>
                     )}
 
-                    <div className="p-3 rounded-lg border space-y-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                      <div className="flex justify-between text-xs">
-                        <span className="font-bold font-sans" style={{ color: "var(--cs-text-secondary)" }}>Likely Co-Factor / Target Ligand:</span>
-                        <span className="font-bold font-mono" style={{ color: "var(--cs-text-primary)" }}>{computedPocket.likelyCofactor}</span>
+                    <div className="p-3.5 rounded-xl border space-y-2.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Likely Co-Factor / Target Ligand:</span>
+                        <span className="font-semibold font-mono text-[12px]" style={{ color: "var(--cs-text-primary)" }}>{computedPocket.likelyCofactor}</span>
                       </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="font-bold font-sans" style={{ color: "var(--cs-text-secondary)" }}>Spatial Classification:</span>
-                        <span className={`font-bold font-mono ${
-                          computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance <= 8.0
-                            ? "text-rose-455 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.2 rounded"
-                            : "text-emerald-450 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded"
-                        }`}>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Spatial Classification:</span>
+                        <span className="badge-data-source">
                           {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance <= 8.0
-                            ? "ACTIVE_SITE_PROXIMATE (High Functional Disruption)"
-                            : "DISTAL_SURFACE (Low Functional Disruption)"}
+                            ? "ACTIVE_SITE_PROXIMATE"
+                            : "DISTAL_SURFACE"}
                         </span>
                       </div>
                     </div>
 
                     {computedPocket.pocketResidues && computedPocket.pocketResidues.length > 0 && (
-                      <div className="space-y-1.5 mt-3">
-                        <span className="text-[10px] uppercase font-mono tracking-wider font-semibold animate-pulse" style={{ color: "var(--cs-text-muted)" }}>Pocket Lining Residues (Top 7)</span>
+                      <div className="space-y-2 mt-3.5">
+                        <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
+                          Pocket Lining Residues (Top 7)
+                        </h4>
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           {computedPocket.pocketResidues.slice(0, 7).map((res: any, idx: number) => (
-                            <div key={idx} className="p-2 rounded border flex justify-between shadow-sm transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                              <span className="font-bold font-mono" style={{ color: "var(--cs-text-primary)" }}>{res.name}{res.index}</span>
-                              <span className="font-mono" style={{ color: "var(--cs-text-secondary)" }}>Dist: {res.distance} Å</span>
+                            <div key={idx} className="p-2.5 px-3.5 rounded-lg flex justify-between items-center transition-all border border-[var(--cs-border)] bg-[var(--cs-bg-subtle)] shadow-none">
+                              <span style={{ fontSize: "var(--cs-font-size-numeric)", fontFamily: "var(--cs-font-mono)", fontWeight: "var(--cs-font-weight-semibold)", color: "var(--cs-text-primary)" }}>{res.name}{res.index}</span>
+                              <span style={{ fontSize: "var(--cs-font-size-caption)", fontFamily: "var(--cs-font-mono)", color: "var(--cs-text-muted)" }}>Dist: {res.distance} Å</span>
                             </div>
                           ))}
                         </div>
@@ -1272,7 +1110,7 @@ export default function EvidenceDashboardCard({
                     )}
                   </div>
                 ) : (
-                  <div className="p-3 text-center border border-dashed rounded-lg text-xs" style={{ color: "var(--cs-text-muted)", borderColor: "var(--cs-border)" }}>
+                  <div className="empty-state-box">
                     No active pocket computations found. Click 3D coordinates on the model to trigger solver.
                   </div>
                 )}
@@ -1280,8 +1118,8 @@ export default function EvidenceDashboardCard({
                 {/* UniProt Curated Features */}
                 {(() => {
                   const features = result.uniprotFeatures?.features ?? [];
-                  const pos = result.metadata.residueIndex;
-                  if (pos === null) return null;
+                  const pos = result.metadata?.residueIndex;
+                  if (pos === null || pos === undefined) return null;
 
                   const matchingFeatures = features.filter(
                     (f) => pos >= f.start && pos <= f.end
@@ -1289,25 +1127,20 @@ export default function EvidenceDashboardCard({
 
                   return (
                     <div className="space-y-3 pt-3 border-t" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                      <h4 className="font-bold text-[10px] uppercase tracking-wider font-mono" style={{ color: "var(--cs-accent-clay)" }}>
+                      <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
                         UniProt Curated Site & Interface Annotations
                       </h4>
 
                       {matchingFeatures.length > 0 ? (
                         <div className="space-y-2">
                           {matchingFeatures.map((f, idx) => {
-                            let badgeColor = "bg-slate-500/10 text-slate-450 border border-slate-500/20";
-                            if (f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("metal")) {
-                              badgeColor = "bg-rose-500/10 text-rose-455 border border-rose-500/20";
-                            } else if (f.type.toLowerCase().includes("binding")) {
-                              badgeColor = "bg-[rgba(196,104,73,0.08)] text-[var(--cs-accent-clay)] border border-[rgba(196,104,73,0.2)]";
-                            }
+                            let badgeColor = "badge-metric-neutral";
 
                             return (
                               <div
                                 key={idx}
                                 className="p-3 rounded-lg border leading-relaxed text-xs shadow-sm transition-all"
-                                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
+                                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
                               >
                                 <div className="flex items-center justify-between">
                                   <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold font-mono uppercase ${badgeColor}`}>
@@ -1325,7 +1158,7 @@ export default function EvidenceDashboardCard({
                           })}
                         </div>
                       ) : (
-                        <div className="p-3 text-center border border-dashed rounded-lg text-xs" style={{ color: "var(--cs-text-muted)", borderColor: "var(--cs-border)" }}>
+                        <div className="empty-state-box">
                           No curated UniProt functional features (active sites, metal bindings, interface regions) recorded at residue {pos}.
                         </div>
                       )}
@@ -1337,425 +1170,25 @@ export default function EvidenceDashboardCard({
           </div>
         )}
 
-        {activeTab === "energetics" && (
-          <div className="space-y-4">
-            <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Consensus Biophysical Stability (ΔΔG)</h4>
-            
-            {disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70 && (
-              <div className="p-3 rounded-lg border flex flex-col gap-1" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>Low-Confidence Template Alert (pLDDT: {disruptionPredictor.plddt.toFixed(1)})</span>
-                </div>
-                <p className="text-[10px] leading-relaxed">
-                  The local template structure at this residue has low confidence (pLDDT &lt; 70). Predictions generated from rigid-backbone models or biophysical force fields (e.g. FoldX, DynaMut2) are highly speculative in disordered or low-confidence regions.
-                </p>
-              </div>
-            )}
-            {((energetics.dynamut2 === null && dynamut2Status === "unavailable") || (energetics.ddmut === null && ddmutStatus === "unavailable")) && (
-              <div className="p-3 rounded-lg border flex flex-col gap-1" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>ΔΔG Evidence Partial (Asynchronous Services Offline)</span>
-                </div>
-                <p className="text-[10px] leading-relaxed">
-                  One or more background biophysical services (DynaMut2 or DDMut) are currently offline or failed. Displaying all available predictions.
-                </p>
-              </div>
-            )}
-
-            {isFolding && (
-              <div className="p-3.5 rounded-lg border space-y-1" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
-                <div className="font-bold text-xs uppercase flex items-center gap-2">
-                  <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
-                  <span>Biophysical Simulation In Progress</span>
-                </div>
-                <p className="text-xs leading-relaxed opacity-90">
-                  FoldX mutant minimization, DynaMut2, and DDMut simulations are currently calculating in the background. Generating mutated structures and running atomic force fields. Please wait...
-                </p>
-              </div>
-            )}
-
-            {!isFolding && foldingError && (
-              <div className="p-3.5 rounded-lg border space-y-1 bg-rose-50 border-rose-100 text-rose-800">
-                <div className="font-bold text-xs uppercase flex items-center gap-1.5">
-                  <ShieldAlert className="w-4 h-4 shrink-0 text-rose-500" />
-                  <span>Biophysical Simulation Failed</span>
-                </div>
-                <p className="text-xs leading-relaxed opacity-90">
-                  Simulation failed: <strong>{foldingError}</strong>. Displaying sequence-based (DDGun-Seq) fallback energetics only.
-                </p>
-              </div>
-            )}
-
-            {!isFolding && !foldingError && foldingStatus === null && (
-              <div className="p-3.5 rounded-lg border space-y-1 bg-amber-50 border-amber-200 text-amber-700">
-                <div className="font-bold text-xs uppercase flex items-center gap-1.5">
-                  <ShieldAlert className="w-4 h-4 shrink-0" style={{ strokeWidth: 2 }} />
-                  <span>Biophysical Simulation Required</span>
-                </div>
-                <p className="text-xs leading-relaxed">
-                  FoldX mutant energy minimization has not been triggered for this variant yet. Please switch the 3D Molecular Viewer mode to <strong>"Mutant"</strong> or <strong>"Side-by-Side"</strong> to run local side-chain repacking simulation and compute free-energy changes (ΔΔG).
-                </p>
-              </div>
-            )}
-
-            {!isFolding && !foldingError && foldingStatus !== null && (!foldingEnergetics || foldingEnergetics.foldx === null) && (
-              <div className="p-3.5 rounded-lg border space-y-1 bg-amber-50 border-amber-250 text-amber-800">
-                <div className="font-bold text-xs uppercase flex items-center gap-1.5">
-                  <Info className="w-4 h-4 shrink-0 text-amber-500" />
-                  <span>FoldX Modeling Unavailable</span>
-                </div>
-                <p className="text-xs leading-relaxed opacity-90">
-                  The local FoldX structural calculation engine is currently unavailable or failed in this environment. Displaying sequence-based (DDGun-Seq) and structural-based (DynaMut2 / DDMut) fallback energetics only.
-                </p>
-              </div>
-            )}
-
-            <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--cs-border)" }}>
-              <table className="w-full text-[10px] text-left border-collapse">
-                <thead>
-                  <tr className="border-b" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
-                    <th className="p-2.5 font-bold uppercase tracking-wider">Method</th>
-                    <th className="p-2.5 font-bold uppercase tracking-wider">Type</th>
-                    <th className="p-2.5 font-bold uppercase tracking-wider">ΔΔG Score</th>
-                    <th className="p-2.5 font-bold uppercase tracking-wider">Risk Assessment</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (3 runs)", val: energetics.foldxMean, invertSign: false },
-                    { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true },
-                    { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true },
-                    { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: true },
-                    { key: "ddgun", name: "DDGun-Seq", type: "Sequence/Evolution Integration", val: energetics.ddgun, invertSign: true }
-                  ].map((item, idx) => {
-                    let scoreText = "N/A";
-                    let badge = { label: "N/A", category: "N/A", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
-
-                    if (item.val !== null && item.val !== undefined) {
-                      if (item.name.includes("FoldX") && energetics.foldxSd !== null && energetics.foldxSd !== undefined) {
-                        const mean = energetics.foldxMean ?? energetics.foldx ?? 0;
-                        const sd = energetics.foldxSd;
-                        if (energyUnit === "kJ/mol") {
-                          scoreText = `${(mean * 4.184).toFixed(2)} ± ${(sd * 4.184).toFixed(2)} kJ/mol`;
-                        } else {
-                          scoreText = `${mean.toFixed(2)} ± ${sd.toFixed(2)} kcal/mol`;
-                        }
-                      } else {
-                        scoreText = formatDdGValue(item.val, energyUnit);
-                      }
-                      // For structural methods (DynaMut2/DDMut/RaSP/DDGun): negative = destabilizing
-                      // For FoldX: positive = destabilizing
-                      const badgeVal = item.invertSign ? -item.val : item.val;
-                      badge = getDdGBadge(badgeVal);
-                      if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70) {
-                        badge = {
-                          ...badge,
-                          category: `${badge.category} (Speculative)`,
-                          style: "bg-amber-500/10 text-amber-450 border border-amber-500/20 font-semibold"
-                        };
-                      }
-                    } else if (item.name === "DynaMut2" && dynamut2Status === "pending") {
-                      scoreText = "Calculating...";
-                      badge = { label: "Calculating", category: "Calculating", style: "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse font-bold" };
-                    } else if (item.name.includes("DDMut") && ddmutStatus === "pending") {
-                      scoreText = "Calculating...";
-                      badge = { label: "Calculating", category: "Calculating", style: "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse font-bold" };
-                    } else {
-                      scoreText = "Unavailable";
-                      badge = { label: "Unavailable", category: "Unavailable", style: "bg-slate-500/10 text-slate-400 border-slate-500/20" };
-                    }
-
-                    return (
-                      <tr key={idx} className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: idx < 4 ? "1px solid var(--cs-border-subtle)" : "none" }}>
-                        <td className="p-2.5 font-bold">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedMetric(item.key)}
-                            className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                          >
-                            <span>{item.name}</span>
-                            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          </button>
-                        </td>
-                        <td className="p-2.5" style={{ color: "var(--cs-text-secondary)" }}>{item.type}</td>
-                        <td className="p-2.5 font-bold">{scoreText}</td>
-                        <td className="p-2.5">
-                          <span className={`text-[8px] px-1.5 py-0.5 rounded border ${badge.style}`}>
-                            {badge.category}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Extended Biophysical Details & Consensus Verdict */}
-            {energetics.foldxMean !== null && (
-              <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                {/* Clinical Safety Warning Banner: Destabilization ≠ Pathogenicity */}
-                <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-amber-500/5 text-amber-500/90" style={{ borderColor: "rgba(245, 158, 11, 0.15)" }}>
-                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block mb-0.5 font-sans">Clinical Guidance: Destabilization ≠ Pathogenicity</span>
-                    Thermodynamic destabilization (ΔΔG) measures misfolding risk but does not equal clinical pathogenicity. Gain-of-function (GOF) or neomorphic variants (e.g. <i>FGFR3</i> p.Gly380Arg) can cause severe disease while remaining structurally stable or neutral.
-                  </div>
-                </div>
-                {(() => {
-                  const foldxMean = energetics.foldxMean ?? energetics.foldx;
-                  const dynamut2 = energetics.dynamut2;
-                  const ddmut = energetics.ddmut;
-                  const rasp = energetics.rasp;
-                  const ddgun = energetics.ddgun;
-
-                  const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-                  const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
-                  const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-                  const raspDestab = rasp !== null && rasp <= -1.0;
-                  const ddgunDestab = ddgun !== null && ddgun <= -1.0;
-
-                  const votes = [
-                    { name: "FoldX", destab: foldxDestab, val: foldxMean },
-                    { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
-                    { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
-                    { name: "RaSP", destab: raspDestab, val: rasp },
-                    { name: "DDGun-Seq", destab: ddgunDestab, val: ddgun }
-                  ];
-
-                  const activeVotes = votes.filter(v => v.val !== null);
-                  const positiveVotes = activeVotes.filter(v => v.destab).length;
-                  const totalVotes = activeVotes.length;
-
-                  return (
-                    <div className="flex flex-col gap-1.5 border-b pb-3" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                       <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
-                        {totalVotes === 5
-                          ? "5-Method Consensus Stability Verdict"
-                          : totalVotes === 4
-                            ? "4-Method Consensus Stability Verdict"
-                            : totalVotes === 3
-                              ? "3-Method Consensus Stability Verdict" 
-                              : totalVotes > 0 
-                                ? `${totalVotes}-Method Consensus Stability Verdict` 
-                                : "Consensus Stability Verdict"}:
-                      </span>
-                    </div>
-                  );
-                })()}
-                
-                <div className="space-y-4 pl-5">
-                  {(() => {
-                    const foldxMean = energetics.foldxMean ?? energetics.foldx;
-                    const dynamut2 = energetics.dynamut2;
-                    const ddmut = energetics.ddmut;
-                    const rasp = energetics.rasp;
-                    const ddgun = energetics.ddgun;
-
-                    const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-                    const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
-                    const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-                    const raspDestab = rasp !== null && rasp <= -1.0;
-                    const ddgunDestab = ddgun !== null && ddgun <= -1.0;
-
-                    const votes = [
-                      { name: "FoldX", destab: foldxDestab, val: foldxMean },
-                      { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
-                      { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
-                      { name: "RaSP", destab: raspDestab, val: rasp },
-                      { name: "DDGun-Seq", destab: ddgunDestab, val: ddgun }
-                    ];
-
-                    const activeVotes = votes.filter(v => v.val !== null);
-                    const positiveVotes = activeVotes.filter(v => v.destab).length;
-                    const totalVotes = activeVotes.length;
-
-                    let label = "Low-Risk (Neutral Consensus)";
-                    let styleClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-                    let detailText = "All active methods agree on fold stability.";
-
-                    if (positiveVotes >= 2) {
-                      label = "High-Risk Destabilizing (Consensus)";
-                      styleClass = "bg-rose-500/10 text-rose-455 border-rose-500/20 font-bold";
-                      detailText = `${positiveVotes}/${totalVotes} methods predict significant destabilization (DynaMut2/DDMut/DDGun ≤ -1.0 kcal/mol or FoldX ≥ 1.5).`;
-                    } else if (positiveVotes === 1) {
-                      label = "Moderate-Risk Conflicting Support";
-                      styleClass = "bg-amber-500/10 text-amber-450 border-amber-500/20 font-bold";
-                      detailText = "Conflicting evidence: 1 method predicts destabilization while others suggest neutrality.";
-                    } else if (totalVotes === 0) {
-                      label = "UNAVAILABLE";
-                      styleClass = "bg-slate-500/10 text-slate-400 border-slate-500/20";
-                      detailText = "Energetics data is currently processing or unavailable.";
-                    }
-
-                    if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70 && totalVotes > 0) {
-                      label = `${label} (Speculative - Low pLDDT)`;
-                      styleClass = "bg-amber-500/10 text-amber-455 border border-amber-500/20 font-bold";
-                      detailText = `${detailText} WARNING: Template structure has low confidence (pLDDT < 70) at this residue position. Biophysical predictions are speculative and should be interpreted with caution.`;
-                    }
-
-                    return (
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-[10px] px-2 py-0.5 rounded border ${styleClass}`}>
-                            {label}
-                          </span>
-                          <span className="text-[9px] font-mono font-bold" style={{ color: "var(--cs-text-muted)" }}>
-                            Votes: {positiveVotes}/{totalVotes} Destabilizing
-                          </span>
-                        </div>
-                        <p className="text-[10px] leading-relaxed mt-1" style={{ color: "var(--cs-text-secondary)" }}>
-                          {detailText}
-                        </p>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Additional Biophysical Metrics Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[10.5px] pt-1">
-                  {/* Local sidechain packing RMSD */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMetric("rmsd")}
-                    className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
-                    style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Sidechain RMSD</span>
-                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
-                    </div>
-                    <strong className={`text-[12px] font-bold block mt-1 ${
-                      energetics.localSidechainRmsd !== null && energetics.localSidechainRmsd > 1.5 
-                        ? "text-rose-455" 
-                        : energetics.localSidechainRmsd !== null && energetics.localSidechainRmsd > 0.8
-                          ? "text-amber-500"
-                          : "text-emerald-450"
-                    }`}>
-                      {energetics.localSidechainRmsd !== null 
-                        ? `${energetics.localSidechainRmsd.toFixed(2)} Å` 
-                        : "N/A"}
-                    </strong>
-                  </button>
-
-                  {/* VdW Clash warnings */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMetric("vdw")}
-                    className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
-                    style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">VdW Clash Delta</span>
-                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <strong className={`text-[12px] font-bold ${
-                        energetics.stericClashWarning ? "text-rose-455" : "text-emerald-450"
-                      }`}>
-                        {energetics.vdw !== null ? `${energetics.vdw.toFixed(2)} ${settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol"}` : "N/A"}
-                      </strong>
-                      {energetics.stericClashWarning && (
-                        <span className="text-[7px] bg-rose-500/10 border border-rose-500/20 text-rose-455 px-1 py-0.2 rounded font-bold uppercase shrink-0">
-                          Clash
-                        </span>
-                      )}
-                    </div>
-                  </button>
-
-                  {/* Electrostatic Interaction Delta */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMetric("electrostatics")}
-                    className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
-                    style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Electrostatic Delta</span>
-                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
-                    </div>
-                    <strong className="text-[12px] font-bold block mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                      {energetics.electrostatics !== null ? `${energetics.electrostatics.toFixed(2)} ${settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol"}` : "N/A"}
-                    </strong>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {structuralDiff && (
-              <div className="p-3.5 rounded-lg border space-y-3.5 animate-fade-in" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <h5 className="font-bold text-xs uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-secondary)" }}>
-                  Kabsch-Aligned Structural Displacements
-                </h5>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Global RMSD</div>
-                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.rmsd.toFixed(4)} Å</div>
-                  </div>
-                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Local RMSD</div>
-                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                      {structuralDiff.localRmsd !== null ? `${structuralDiff.localRmsd.toFixed(4)} Å` : "N/A"}
-                    </div>
-                  </div>
-                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">WT Clashes</div>
-                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.clashes.wtClashCount}</div>
-                  </div>
-                  <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Clash Diff</div>
-                    <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                      <span className={structuralDiff.clashes.diff > 0 ? "text-rose-455" : "text-emerald-450"}>
-                        {structuralDiff.clashes.diff > 0 ? `+${structuralDiff.clashes.diff}` : structuralDiff.clashes.diff}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                {structuralDiff.windowDisplacements && structuralDiff.windowDisplacements.length > 0 && (
-                  <div className="pt-2">
-                    <span className="block text-[9px] uppercase font-bold text-slate-500 tracking-wider mb-2 font-mono">Local Window Displacements</span>
-                    <div className="flex flex-wrap gap-1.5 font-mono text-[9px]">
-                      {structuralDiff.windowDisplacements.map((d, index) => (
-                        <div key={index} className="px-2 py-1 rounded border flex items-center gap-1" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                          <span style={{ color: "var(--cs-text-secondary)" }}>{d.resName}{d.resSeq}:</span>
-                          <span className={d.displacement > 0.5 ? "text-rose-455 font-bold" : "text-emerald-450"}>
-                            {d.displacement.toFixed(2)} Å
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            <div className="text-[9px] p-2.5 rounded border italic" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
-              * Consensus calculations are derived from FoldX energy grids and sequence-based evolutionary alignment dynamics.
-            </div>
-          </div>
-        )}
-
         {activeTab === "interactions" && (
           <div className="space-y-4">
-            <h4 className="font-bold text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>STRING Functional Protein-Protein Interaction Network</h4>
+            <div>
+              <h1 className="screen-title">Interactions</h1>
+              <p className="screen-tab-description">Top functional protein-protein interaction partners and confidence scores from STRING DB.</p>
+            </div>
             
             {(() => {
               const interactions = result.stringInteractions;
               if (interactions && interactions.length > 0) {
                 return (
-                  <div className="space-y-3">
-                    <p className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>
-                      Top functional partners and network association confidence scores retrieved dynamically from STRING DB:
-                    </p>
-                    <div className="overflow-x-auto border rounded-lg" style={{ borderColor: "var(--cs-border)" }}>
-                      <table className="w-full text-[11px] font-sans border-collapse">
+                  <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
+                    <div className="overflow-x-auto">
+                      <table className="w-full font-sans border-collapse">
                         <thead>
-                          <tr style={{ background: "var(--cs-surface-2)", color: "var(--cs-text-primary)" }}>
-                            <th className="p-2.5 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Associated Partner (Gene)</th>
-                            <th className="p-2.5 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Confidence Score</th>
-                            <th className="p-2.5 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Classification / Verdict</th>
+                          <tr className="table-header-row border-b border-[var(--cs-border)]" style={{ background: "var(--cs-surface-2)" }}>
+                            <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Associated Partner</th>
+                            <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Score</th>
+                            <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/3" style={{ color: "var(--cs-text-secondary)" }}>Confidence</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1763,20 +1196,20 @@ export default function EvidenceDashboardCard({
                             const pct = (partner.score * 100).toFixed(0);
                             const isHigh = partner.score >= 0.7;
                             return (
-                              <tr key={pIdx} className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: pIdx < interactions.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
-                                <td className="p-2.5 font-bold flex items-center gap-2">
-                                  <span className={`w-1.5 h-1.5 rounded-full ${isHigh ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
+                              <tr key={pIdx} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: pIdx < interactions.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
+                                <td className="p-3 px-4 text-[12px] font-semibold text-left w-1/3 border-r border-[var(--cs-border-subtle)]">
                                   <span style={{ color: "var(--cs-text-primary)" }}>{partner.partner}</span>
                                 </td>
-                                <td className="p-2.5 text-center font-mono font-bold">{partner.score.toFixed(3)}</td>
-                                <td className="p-2.5 text-center">
-                                  <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold border ${
-                                    isHigh 
-                                      ? "bg-emerald-500/10 text-emerald-455 border border-emerald-500/20" 
-                                      : "bg-amber-500/10 text-amber-455 border border-amber-500/20"
-                                  }`}>
-                                    {pct}% ({isHigh ? "High Confidence" : "Medium Confidence"})
-                                  </span>
+                                <td className="p-3 px-4 text-center font-mono text-[12px] w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
+                                  {partner.score.toFixed(3)}
+                                </td>
+                                <td className="p-3 px-4 text-center w-1/3">
+                                  <div className="inline-flex items-center justify-center gap-2 w-full">
+                                    <span className="font-mono text-xs" style={{ color: "var(--cs-text-secondary)" }}>{pct}%</span>
+                                    <span className="badge-data-source">
+                                      {isHigh ? "High" : "Medium"}
+                                    </span>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1788,8 +1221,8 @@ export default function EvidenceDashboardCard({
                 );
               }
               return (
-                <div className="p-3 text-center border border-dashed rounded-lg" style={{ color: "var(--cs-text-muted)", borderColor: "var(--cs-border)" }}>
-                  No STRING DB interaction partners found for gene {result.metadata.gene}.
+                <div className="empty-state-box">
+                  No STRING DB interaction partners found for gene {result.metadata?.gene}.
                 </div>
               );
             })()}
@@ -1798,33 +1231,37 @@ export default function EvidenceDashboardCard({
 
         {activeTab === "guidelines" && (
           <div className="space-y-4">
-            <h4 className="font-bold text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Research Interpretation & ACMG/AMP Threshold Guidelines</h4>
+            <div>
+              <h1 className="screen-title">Threshold Guide</h1>
+              <p className="screen-tab-description">ACMG/AMP evidence code thresholds for each computational predictor, with live match highlighting for the current variant.</p>
+            </div>
             
             {/* Dynamic Alert Banner */}
             {(() => {
               const revel = result.conservationData?.revel ?? null;
               const ddG = foldingDdG;
-              
-              let statusText = "Variant of Uncertain Significance (VUS)";
-              let statusStyle = "bg-slate-500/10 text-slate-400 border-slate-500/20";
+              let statusStyle = {};
+              let statusText = "CONCORDANCE UNCERTAIN";
               let statusDesc = "The scores and stability changes fall into intermediate ranges or present conflicting evidence, requiring further functional validation.";
               
               if (revel !== null && revel >= 0.75 && ddG !== null && ddG > 1.5) {
                 statusText = "Destabilization + Conservation Concordant (High Risk)";
-                statusStyle = "bg-rose-500/15 text-rose-455 border-rose-500/25";
+                statusStyle = { color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "var(--cs-text-danger)" };
                 statusDesc = "Both sequence-based conservation (REVEL >= 0.75) and structural energetics (FoldX ddG > 1.5 kcal/mol) suggest severe risk of loss-of-function due to misfolding. NOTE: Destabilization ≠ Pathogenicity; some pathogenic variants (e.g. gain-of-function or neomorphic) do not cause structural destabilization.";
               } else if ((revel !== null && revel >= 0.5) || (ddG !== null && ddG > 1.5)) {
                 statusText = "MODERATE-RISK CONCORDANCE (Pathogenic / Destabilizing Support)";
-                statusStyle = "bg-orange-500/15 text-orange-450 border-orange-500/20";
+                statusStyle = { color: "var(--cs-text-warning)", backgroundColor: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)" };
                 statusDesc = "At least one biophysical indicator (REVEL >= 0.5 or FoldX ddG > 0.5 kcal/mol) shows significant aberration, suggesting functional or structural impact.";
               } else if (revel !== null && revel < 0.15 && ddG !== null && ddG < 0.5 && ddG > -0.5) {
                 statusText = "LOW-RISK CONCORDANCE (Likely Benign / Tolerated)";
-                statusStyle = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                statusStyle = { color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "var(--cs-text-success)" };
                 statusDesc = "Consensus indicators fall within benign boundaries. The variant is structurally neutral and evolutionary conservation does not suggest strict constraint.";
+              } else {
+                statusStyle = { color: "var(--cs-text-secondary)", backgroundColor: "var(--cs-surface-2)", borderColor: "var(--cs-border)" };
               }
               
               return (
-                <div className={`p-3 rounded-lg border leading-relaxed text-xs ${statusStyle}`}>
+                <div className="p-3 rounded-lg border leading-relaxed text-xs" style={statusStyle}>
                   <div className="font-bold flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
                     <ShieldAlert className="w-4 h-4 shrink-0" />
                     <span>{statusText}</span>
@@ -1835,200 +1272,197 @@ export default function EvidenceDashboardCard({
             })()}
 
             {/* Threshold Table */}
-            <div className="overflow-x-auto border rounded-lg" style={{ borderColor: "var(--cs-border)" }}>
-              <table className="w-full text-[10px] font-sans border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--cs-surface-2)", color: "var(--cs-text-primary)" }}>
-                    <th className="p-2 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Assay / Metric</th>
-                    <th className="p-2 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Variant Score</th>
-                    <th className="p-2 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Benign Threshold</th>
-                    <th className="p-2 text-left border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Pathogenic Threshold</th>
-                    <th className="p-2 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>ACMG Code</th>
-                    <th className="p-2 text-center border-b font-bold font-mono" style={{ borderColor: "var(--cs-border)" }}>Match</th>
-                  </tr>
-                </thead>
+            <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
+              <div className="overflow-x-auto">
+                <table className="w-full font-sans border-collapse">
+                  <thead>
+                    <tr className="table-header-row border-b border-[var(--cs-border)]" style={{ background: "var(--cs-surface-2)" }}>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Assay / Metric</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Score</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Benign ≤</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Pathogenic ≥</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>ACMG Code</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center" style={{ color: "var(--cs-text-secondary)" }}>Match</th>
+                    </tr>
+                  </thead>
                 <tbody>
-                  {/* REVEL Row */}
                   {(() => {
-                    const val = result.conservationData?.revel ?? null;
-                    const isBenign = val !== null && val < 0.15;
-                    const isPath = val !== null && val >= 0.5;
-                    const isStrong = val !== null && val >= 0.75;
-                    return (
-                      <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                        <td className="p-2 font-bold" style={{ color: "var(--cs-text-primary)" }}>REVEL Score</td>
-                        <td className="p-2 font-mono font-bold">{val !== null ? val.toFixed(3) : "N/A"}</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&lt; 0.150</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&gt;= 0.500 (Strong: &gt;= 0.750)</td>
-                        <td className="p-2 text-center font-bold font-mono text-xs">
-                          {isStrong || isPath ? (
-                            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">PP3</span>
-                          ) : isBenign ? (
-                            <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">BP4</span>
-                          ) : (
-                            <span className="opacity-40">PP3 / BP4</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-center">
-                          {isStrong ? (
-                            <span className="bg-rose-500/20 text-rose-455 px-1.5 py-0.5 rounded font-bold">Strong Path.</span>
-                          ) : isPath ? (
-                            <span className="bg-amber-500/10 text-amber-450 px-1.5 py-0.5 rounded font-bold">Path. Supp.</span>
-                          ) : isBenign ? (
-                            <span className="bg-emerald-500/10 text-emerald-450 px-1.5 py-0.5 rounded font-bold">Benign</span>
-                          ) : val !== null ? (
-                            <span className="bg-slate-500/10 text-slate-400 px-1.5 py-0.5 rounded font-bold">VUS</span>
-                          ) : (
-                            <span style={{ color: "var(--cs-text-muted)" }}>N/A</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })()}
+                    const caddVal = result.predictorData?.caddPhred ?? null;
+                    const revelVal = result.conservationData?.revel ?? null;
+                    const amVal = result.predictorData?.amPathogenicity ?? null;
+                    const amCls = result.predictorData?.amClass ?? null;
+                    const eveVal = result.predictorData?.eveScore ?? result.conservationData?.popeve ?? null;
+                    const eveCls = result.predictorData?.eveClass ?? null;
+                    const bayesdelVal = result.conservationData?.bayesdel ?? null;
+                    const metarnnVal = result.conservationData?.metarnn ?? null;
+                    const clinpredVal = result.conservationData?.clinpred ?? null;
+                    const eigenVal = result.conservationData?.eigenPhred ?? null;
+                    const dannVal = result.conservationData?.dann ?? null;
+                    const popeveVal = result.conservationData?.popeve ?? null;
+                    const esmVal = result.conservationData?.esm1b ?? null;
 
-                  {/* FoldX ddG Row */}
-                  {(() => {
-                    const val = foldingDdG;
-                    const isBenign = val !== null && val >= -0.5 && val <= 0.5;
-                    const isPath = val !== null && val > 0.5;
-                    const isStrong = val !== null && val > 1.5;
-                    const isStabilizing = val !== null && val < -0.5;
-                    return (
-                      <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                        <td className="p-2 font-bold" style={{ color: "var(--cs-text-primary)" }}>FoldX ddG</td>
-                        <td className="p-2 font-mono font-bold">{val !== null ? `${val.toFixed(2)} kcal/mol` : "N/A"}</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>-0.5 to +0.5</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&gt; 0.50 (Severe: &gt; 1.50)</td>
-                        <td className="p-2 text-center font-bold font-mono text-xs">
-                          {isStrong || isPath ? (
-                            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">PM1</span>
-                          ) : isBenign || isStabilizing ? (
-                            <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">BP3</span>
-                          ) : (
-                            <span className="opacity-40">PM1 / BP3</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-center">
-                          {isStrong ? (
-                            <span className="bg-rose-500/20 text-rose-455 px-1.5 py-0.5 rounded font-bold">Severe Destab.</span>
-                          ) : isPath ? (
-                            <span className="bg-amber-500/10 text-amber-450 px-1.5 py-0.5 rounded font-bold">Destab.</span>
-                          ) : isBenign ? (
-                            <span className="bg-emerald-500/10 text-emerald-450 px-1.5 py-0.5 rounded font-bold">Neutral</span>
-                          ) : val !== null && val < -0.5 ? (
-                            <span className="bg-emerald-500/10 text-emerald-450 px-1.5 py-0.5 rounded font-bold">Stabilizing</span>
-                          ) : (
-                            <span style={{ color: "var(--cs-text-muted)" }}>N/A</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })()}
+                    const foldxVal = foldingDdG ?? null;
+                    const dynamut2Val = result.dynamut2 ?? foldingEnergetics?.dynamut2 ?? null;
+                    const ddmutVal = result.ddmut ?? foldingEnergetics?.ddmut ?? null;
+                    const ddgunVal = foldingEnergetics?.ddgun ?? null;
+                    const raspVal = result.rasp ?? foldingEnergetics?.rasp ?? null;
 
-                  {/* GERP++ Row */}
-                  {(() => {
-                    const val = result.conservationData?.gerp ?? null;
-                    const isCons = val !== null && val >= 2.0;
-                    return (
-                      <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                        <td className="p-2 font-bold" style={{ color: "var(--cs-text-primary)" }}>GERP++</td>
-                        <td className="p-2 font-mono font-bold">{val !== null ? val.toFixed(2) : "N/A"}</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&lt; 2.00</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&gt;= 2.00 (Highly Conserved)</td>
-                        <td className="p-2 text-center font-bold font-mono text-xs">
-                          {isCons ? (
-                            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">PP3</span>
-                          ) : val !== null ? (
-                            <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">BP4</span>
-                          ) : (
-                            <span className="opacity-40">PP3 / BP4</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-center">
-                          {isCons ? (
-                            <span className="px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(196,104,73,0.15)", color: "var(--cs-accent-clay)" }}>Conserved</span>
-                          ) : val !== null ? (
-                            <span style={{ color: "var(--cs-text-muted)" }}>Neutral</span>
-                          ) : (
-                            <span style={{ color: "var(--cs-text-muted)" }}>N/A</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })()}
+                    const gerpVal = result.conservationData?.gerp ?? null;
+                    const phylopVal = result.conservationData?.phylop ?? null;
+                    const misZVal = (result as any)?.misZ ?? (result as any)?.gnomadMisZ ?? null;
+                    const loeufVal = (result as any)?.loeuf ?? (result as any)?.gnomadLoeuf ?? null;
 
-                  {/* phyloP Row */}
-                  {(() => {
-                    const val = result.conservationData?.phylop ?? null;
-                    const isCons = val !== null && val >= 1.5;
-                    return (
-                      <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                        <td className="p-2 font-bold" style={{ color: "var(--cs-text-primary)" }}>phyloP (100-way)</td>
-                        <td className="p-2 font-mono font-bold">{val !== null ? val.toFixed(2) : "N/A"}</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&lt; 1.50</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&gt;= 1.50 (Highly Conserved)</td>
-                        <td className="p-2 text-center font-bold font-mono text-xs">
-                          {isCons ? (
-                            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">PP3</span>
-                          ) : val !== null ? (
-                            <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">BP4</span>
-                          ) : (
-                            <span className="opacity-40">PP3 / BP4</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-center">
-                          {isCons ? (
-                            <span className="px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(196,104,73,0.15)", color: "var(--cs-accent-clay)" }}>Conserved</span>
-                          ) : val !== null ? (
-                            <span style={{ color: "var(--cs-text-muted)" }}>Variable</span>
-                          ) : (
-                            <span style={{ color: "var(--cs-text-muted)" }}>N/A</span>
-                          )}
+                    const renderCategoryHeader = (catKey: string, catTitle: string) => (
+                      <tr key={catKey} className="bg-[var(--cs-surface-2)]">
+                        <td colSpan={6} className="p-2 px-4 text-[10.5px] font-bold uppercase tracking-wider text-left border-b border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-accent-clay)" }}>
+                          {catTitle}
                         </td>
                       </tr>
                     );
-                  })()}
 
-                  {/* CADD PHRED Row */}
-                  {(() => {
-                    const val = result.predictorData?.caddPhred ?? null;
-                    const isBenign = val !== null && val < 15;
-                    const isPath = val !== null && val >= 20;
-                    return (
-                      <tr className="hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
-                        <td className="p-2 font-bold" style={{ color: "var(--cs-text-primary)" }}>CADD PHRED</td>
-                        <td className="p-2 font-mono font-bold">{val !== null ? val.toFixed(1) : "N/A"}</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&lt; 15.0</td>
-                        <td className="p-2 font-mono" style={{ color: "var(--cs-text-secondary)" }}>&gt;= 20.0 (Top 1% deleterious)</td>
-                        <td className="p-2 text-center font-bold font-mono text-xs">
-                          {isPath ? (
-                            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">PP3</span>
-                          ) : isBenign ? (
-                            <span className="text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">BP4</span>
-                          ) : (
-                            <span className="opacity-40">PP3 / BP4</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-center">
-                          {isPath ? (
-                            <span className="bg-rose-500/10 text-rose-455 px-1.5 py-0.5 rounded font-bold">Pathogenic</span>
-                          ) : isBenign ? (
-                            <span className="bg-emerald-500/10 text-emerald-450 px-1.5 py-0.5 rounded font-bold">Benign</span>
-                          ) : val !== null ? (
-                            <span className="bg-amber-500/10 text-amber-450 px-1.5 py-0.5 rounded font-bold">Moderate</span>
-                          ) : (
-                            <span className="text-slate-500 font-bold">N/A</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
+                    const renderRow = (
+                      key: string,
+                      name: string,
+                      val: number | null | undefined,
+                      valDisplay: string,
+                      benignText: string,
+                      pathText: string,
+                      acmgCode: string,
+                      status: "path_strong" | "path" | "benign" | "neutral" | "vus" | "none",
+                      matchBadgeLabel: string
+                    ) => {
+                      const isPath = status === "path_strong" || status === "path";
+                      const isBenign = status === "benign";
+                      const codes = acmgCode.split('/');
+                      const pathCode = codes[0]?.trim() || acmgCode;
+                      const benignCode = codes[1]?.trim() || acmgCode;
+
+                      return (
+                        <tr key={key} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
+                          <td className="p-3 px-4 text-[12px] font-semibold text-left border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>{name}</td>
+                          <td className="p-3 px-4 text-center font-mono text-[12px] border-r border-[var(--cs-border-subtle)]">{val !== null && val !== undefined ? valDisplay : "—"}</td>
+                          <td className="p-3 px-4 text-center text-[11px] font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-muted)" }}>{benignText}</td>
+                          <td className="p-3 px-4 text-center text-[11px] font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-muted)" }}>{pathText}</td>
+                          <td className="p-3 px-4 text-center font-bold font-mono text-xs border-r border-[var(--cs-border-subtle)]">
+                            {isPath ? (
+                              <span className="px-2 py-0.5 rounded border font-bold" style={{ color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "var(--cs-text-danger)" }}>{pathCode}</span>
+                            ) : isBenign ? (
+                              <span className="px-2 py-0.5 rounded border font-bold" style={{ color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "var(--cs-text-success)" }}>{benignCode}</span>
+                            ) : (
+                              <span className="opacity-40" style={{ color: "var(--cs-text-muted)" }}>{acmgCode}</span>
+                            )}
+                          </td>
+                          <td className="p-3 px-4 text-center">
+                            {val !== null && val !== undefined ? (
+                              <span className="badge-data-source">{matchBadgeLabel}</span>
+                            ) : (
+                              <span style={{ color: "var(--cs-text-muted)" }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    };
+
+                    const rows: React.ReactNode[] = [];
+
+                    // --- CATEGORY 1: In-Silico Pathogenicity Predictors ---
+                    rows.push(renderCategoryHeader("cat-path", "1. In-Silico Pathogenicity & Machine Learning"));
+
+                    // REVEL
+                    const revelStatus = revelVal !== null ? (revelVal >= 0.75 ? "path_strong" : revelVal >= 0.5 ? "path" : revelVal < 0.15 ? "benign" : "vus") : "none";
+                    rows.push(renderRow("revel", "REVEL", revelVal, revelVal?.toFixed(3) ?? "—", "< 0.15", ">= 0.50 (strong >= 0.75)", "PP3 / BP4", revelStatus, revelStatus === "path_strong" ? "Strong Path." : revelStatus === "path" ? "Path. Supp." : revelStatus === "benign" ? "Benign" : "VUS"));
+
+                    // AlphaMissense
+                    const amStatus = (amCls?.toLowerCase().includes("pathogenic") || (amVal !== null && amVal >= 0.983)) ? "path_strong" : (amCls?.toLowerCase().includes("benign") || (amVal !== null && amVal <= 0.063)) ? "benign" : "vus";
+                    rows.push(renderRow("am", "AlphaMissense", amVal, amVal?.toFixed(3) ?? "—", "<= 0.063", ">= 0.983 (supp >= 0.564)", "PP3 / BP4", amVal !== null || amCls !== null ? amStatus : "none", amStatus === "path_strong" ? "Pathogenic" : amStatus === "benign" ? "Benign" : "VUS"));
+
+                    // CADD
+                    const caddStatus = caddVal !== null ? (caddVal >= 25 ? "path_strong" : caddVal >= 20 ? "path" : caddVal <= 10 ? "benign" : "vus") : "none";
+                    rows.push(renderRow("cadd", "CADD PHRED", caddVal, caddVal?.toFixed(1) ?? "—", "<= 10.0", ">= 20.0 (strong >= 25)", "PP3 / BP4", caddStatus, caddStatus === "path_strong" ? "Strong Path." : caddStatus === "path" ? "Path. Supp." : caddStatus === "benign" ? "Benign" : "Moderate"));
+
+                    // EVE
+                    const eveStatus = (eveCls?.toLowerCase().includes("pathogenic") || (eveVal !== null && eveVal >= 0.75)) ? "path" : (eveCls?.toLowerCase().includes("benign") || (eveVal !== null && eveVal <= 0.25)) ? "benign" : "vus";
+                    rows.push(renderRow("eve", "EVE", eveVal, eveVal?.toFixed(2) ?? "—", "<= 0.25", ">= 0.75", "PP3 / BP4", eveVal !== null || eveCls !== null ? eveStatus : "none", eveStatus === "path" ? "Pathogenic" : eveStatus === "benign" ? "Benign" : "Uncertain"));
+
+                    // BayesDel
+                    const bayesdelStatus = bayesdelVal !== null ? (bayesdelVal >= 0.133 ? "path" : bayesdelVal <= -0.0404 ? "benign" : "vus") : "none";
+                    rows.push(renderRow("bayesdel", "BayesDel (noAF)", bayesdelVal, bayesdelVal?.toFixed(3) ?? "—", "<= -0.0404", ">= 0.133", "PP3 / BP4", bayesdelStatus, bayesdelStatus === "path" ? "Pathogenic" : bayesdelStatus === "benign" ? "Benign" : "VUS"));
+
+                    // MetaRNN
+                    const metarnnStatus = metarnnVal !== null ? (metarnnVal >= 0.5 ? "path" : "benign") : "none";
+                    rows.push(renderRow("metarnn", "MetaRNN", metarnnVal, metarnnVal?.toFixed(3) ?? "—", "< 0.50", ">= 0.50", "PP3 / BP4", metarnnStatus, metarnnStatus === "path" ? "Deleterious" : "Tolerated"));
+
+                    // ClinPred
+                    const clinpredStatus = clinpredVal !== null ? (clinpredVal >= 0.5 ? "path" : "benign") : "none";
+                    rows.push(renderRow("clinpred", "ClinPred", clinpredVal, clinpredVal?.toFixed(3) ?? "—", "< 0.50", ">= 0.50", "PP3 / BP4", clinpredStatus, clinpredStatus === "path" ? "Deleterious" : "Tolerated"));
+
+                    // Eigen
+                    const eigenStatus = eigenVal !== null ? (eigenVal >= 4.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("eigen", "Eigen PHRED", eigenVal, eigenVal?.toFixed(1) ?? "—", "< 4.0", ">= 4.0", "PP3 / BP4", eigenStatus, eigenStatus === "path" ? "Pathogenic" : "Benign"));
+
+                    // DANN
+                    const dannStatus = dannVal !== null ? (dannVal >= 0.96 ? "path" : dannVal <= 0.5 ? "benign" : "vus") : "none";
+                    rows.push(renderRow("dann", "DANN", dannVal, dannVal?.toFixed(3) ?? "—", "<= 0.50", ">= 0.96", "PP3 / BP4", dannStatus, dannStatus === "path" ? "Pathogenic" : dannStatus === "benign" ? "Benign" : "Moderate"));
+
+                    // popEVE
+                    const popeveStatus = popeveVal !== null ? (popeveVal < 0 ? (popeveVal <= -4.617 ? "path_strong" : popeveVal <= -2.0 ? "path" : popeveVal >= -1.0 ? "benign" : "vus") : (popeveVal >= 0.75 ? "path_strong" : popeveVal <= 0.25 ? "benign" : "vus")) : "none";
+                    rows.push(renderRow("popeve", "popEVE", popeveVal, popeveVal?.toFixed(3) ?? "—", "<= 0.25 (LLR >= -1.0)", ">= 0.75 (LLR <= -4.617 severe)", "PP3 / BP4", popeveStatus, popeveStatus === "path_strong" ? "Severe Path." : popeveStatus === "path" ? "Pathogenic" : popeveStatus === "benign" ? "Benign" : "VUS"));
+
+                    // ESM-1b / VESM
+                    const esmStatus = esmVal !== null ? (esmVal <= -5.0 ? "path" : esmVal >= -2.0 ? "benign" : "vus") : "none";
+                    rows.push(renderRow("esm", "ESM-1b (VESM)", esmVal, esmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
+
+                    // --- CATEGORY 2: Biophysical & Structural Energetics ---
+                    rows.push(renderCategoryHeader("cat-biophys", "2. Biophysical & Structural Energetics"));
+
+                    // FoldX
+                    const foldxStatus = foldxVal !== null ? (foldxVal > 1.5 ? "path_strong" : foldxVal > 0.5 ? "path" : foldxVal >= -0.5 ? "benign" : "neutral") : "none";
+                    rows.push(renderRow("foldx", "FoldX ΔΔG", foldxVal, foldxVal ? `${foldxVal.toFixed(2)} kcal/mol` : "—", "-0.5 to +0.5", "> 0.50 (severe > 1.50)", "PM1 / BP3", foldxStatus, foldxStatus === "path_strong" ? "Severe Destab." : foldxStatus === "path" ? "Destab." : foldxStatus === "benign" ? "Neutral" : "Stabilizing"));
+
+                    // DynaMut2
+                    const dynamut2Status = dynamut2Val !== null ? (dynamut2Val <= -1.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("dynamut2", "DynaMut2 ΔΔG", dynamut2Val, dynamut2Val ? `${dynamut2Val.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", dynamut2Status, dynamut2Status === "path" ? "Destabilizing" : "Neutral"));
+
+                    // DDMut
+                    const ddmutStatus = ddmutVal !== null ? (ddmutVal <= -1.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("ddmut", "DDMut ΔΔG", ddmutVal, ddmutVal ? `${ddmutVal.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", ddmutStatus, ddmutStatus === "path" ? "Destabilizing" : "Neutral"));
+
+                    // DDGun-Seq
+                    const ddgunStatus = ddgunVal !== null ? (ddgunVal <= -1.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("ddgun", "DDGun-Seq ΔΔG", ddgunVal, ddgunVal ? `${ddgunVal.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", ddgunStatus, ddgunStatus === "path" ? "Destabilizing" : "Neutral"));
+
+                    // RaSP
+                    const raspStatus = raspVal !== null ? (raspVal > 0.5 ? "path" : "benign") : "none";
+                    rows.push(renderRow("rasp", "RaSP ΔΔG", raspVal, raspVal ? `${raspVal.toFixed(2)} kcal/mol` : "—", "-0.5 to +0.5", "> 0.50 kcal/mol", "PM1 / BP3", raspStatus, raspStatus === "path" ? "Destabilizing" : "Neutral"));
+
+                    // --- CATEGORY 3: Evolutionary Conservation & Population Constraint ---
+                    rows.push(renderCategoryHeader("cat-cons", "3. Evolutionary Conservation & Population Intolerance"));
+
+                    // GERP++
+                    const gerpStatus = gerpVal !== null ? (gerpVal >= 2.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("gerp", "GERP++ RS", gerpVal, gerpVal?.toFixed(2) ?? "—", "< 2.00", ">= 2.00 (conserved)", "PP3 / BP4", gerpStatus, gerpStatus === "path" ? "Conserved" : "Neutral"));
+
+                    // phyloP 100-way
+                    const phylopStatus = phylopVal !== null ? (phylopVal >= 1.5 ? "path" : "benign") : "none";
+                    rows.push(renderRow("phylop", "phyloP 100-way", phylopVal, phylopVal?.toFixed(2) ?? "—", "< 1.50", ">= 1.50 (conserved)", "PP3 / BP4", phylopStatus, phylopStatus === "path" ? "Conserved" : "Variable"));
+
+                    // Missense Z
+                    const misZStatus = misZVal !== null ? (misZVal >= 3.09 ? "path_strong" : misZVal >= 2.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("misZ", "gnomAD Missense Z", misZVal, misZVal?.toFixed(2) ?? "—", "< 2.00", ">= 2.00 (strong >= 3.09)", "PP2 / BP1", misZStatus, misZStatus === "path_strong" ? "Depleted (Strong)" : misZStatus === "path" ? "Constrained" : "Unconstrained"));
+
+                    // LOEUF
+                    const loeufStatus = loeufVal !== null ? (loeufVal < 0.35 ? "path_strong" : loeufVal < 0.60 ? "path" : "benign") : "none";
+                    rows.push(renderRow("loeuf", "gnomAD LOEUF", loeufVal, loeufVal?.toFixed(2) ?? "—", ">= 0.60", "< 0.35 (mod < 0.60)", "PP2 / BP1", loeufStatus, loeufStatus === "path_strong" ? "Severe Intolerant" : loeufStatus === "path" ? "Mod. Intolerant" : "Tolerated"));
+
+                    return rows;
                   })()}
                 </tbody>
               </table>
             </div>
+          </div>
 
-            <div className="p-3 rounded-lg border text-[9px] leading-normal shadow-sm" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
-              <h5 className="font-bold text-[10px] uppercase mb-1" style={{ color: "var(--cs-text-primary)" }}>ACMG/AMP Evidence Codes Key:</h5>
+            <div className="p-3 rounded-lg border text-[12px] font-sans leading-relaxed shadow-sm" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
+              <h5 className="font-bold text-[11px] font-medium uppercase tracking-wider mb-1" style={{ color: "var(--cs-text-primary)" }}>ACMG/AMP Evidence Codes Key:</h5>
               <ul className="list-disc pl-4 space-y-1">
                 <li><strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>PP3 (Pathogenic Supporting)</strong> {"/"} <strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>BP4 (Benign Supporting)</strong>: Computational algorithms predict a deleterious/neutral effect on the protein.</li>
                 <li><strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>PM1 (Pathogenic Moderate)</strong>: Mutational hot-spot or critical functional domain (e.g. binding pocket interface) without benign variation.</li>

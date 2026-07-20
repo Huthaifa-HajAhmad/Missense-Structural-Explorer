@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import React, { memo, useCallback } from "react";
 import { 
   FileText, 
   CheckCircle2, 
@@ -9,7 +9,8 @@ import {
   Atom, 
   ExternalLink, 
   Database,
-  Lightbulb
+  Lightbulb,
+  Download
 } from "lucide-react";
 import { 
   Radar, 
@@ -50,6 +51,8 @@ interface ClinicalInsightsCardProps {
   computedResiduesCache?: Record<string, NearestResidue[]>;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
+  foldingEnergetics?: any;
+  disruptionPredictor?: any;
 }
 
 const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
@@ -72,7 +75,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   classBorderSec,
   computedResiduesCache,
   isBiophysicalLoading: propIsBiophysicalLoading,
-  isClinicalLoading: propIsClinicalLoading
+  isClinicalLoading: propIsClinicalLoading,
+  foldingEnergetics,
+  disruptionPredictor
 }: ClinicalInsightsCardProps) {
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
@@ -85,8 +90,131 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     : !!(analysisState.result && !analysisState.result.analysis);
   const isNarrativeLoading = isClinicalLoading;
 
+  const renderResiduePropertyRadar = useCallback(() => {
+    try {
+      const parsed = parseMutationResidues(variant);
+      const wtData = AMINO_ACID_PROPERTIES[parsed.wt] || { hydrophobicity: 50, charge: 50, size: 50, polarity: 50 };
+      const mutData = AMINO_ACID_PROPERTIES[parsed.mut] || { hydrophobicity: 50, charge: 50, size: 50, polarity: 50 };
+      
+      const radarData = [
+        { subject: "Hydrophobicity", WT: wtData.hydrophobicity, MUT: mutData.hydrophobicity },
+        { subject: "Charge", WT: wtData.charge, MUT: mutData.charge },
+        { subject: "Molecular Size", WT: wtData.size, MUT: mutData.size },
+        { subject: "Polarity", WT: wtData.polarity, MUT: mutData.polarity }
+      ];
+
+      const wtColor = "#10b981"; // Emerald
+      const mutColor = "#f43f5e"; // Rose
+
+      return (
+        <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-3 rounded-lg border cs-surface-card transition-colors">
+          <div className="w-full sm:w-[50%] h-[155px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                <PolarGrid stroke={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)"} />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: "var(--cs-text-secondary)" }} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8, fill: "var(--cs-text-muted)" }} />
+                <Radar name="Wild-Type" dataKey="WT" stroke={wtColor} fill={wtColor} fillOpacity={0.12} />
+                <Radar name="Mutant" dataKey="MUT" stroke={mutColor} fill={mutColor} fillOpacity={0.12} />
+                <Tooltip contentStyle={{ fontSize: 10, background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="w-full sm:w-[45%] flex flex-col gap-1.5 text-[10.5px]">
+            <div className="flex items-center gap-2 pb-1 border-b cs-border-card-sep border-dashed">
+              <span className="w-2.5 h-2.5 rounded" style={{ background: wtColor }}></span>
+              <span style={{ color: "var(--cs-text-primary)" }}>Wild-Type ({parsed.wt})</span>
+            </div>
+            <div className="flex items-center gap-2 pb-2">
+              <span className="w-2.5 h-2.5 rounded" style={{ background: mutColor }}></span>
+              <span style={{ color: "var(--cs-text-primary)" }}>Mutant ({parsed.mut})</span>
+            </div>
+            <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
+              Plots isoelectric properties on a normalized 0–100 scale (0 = negative, 50 = neutral, 100 = positive). Overlapping profiles indicate conservative substitutions, whereas deviations support molecular/biophysical disruption.
+            </p>
+            <div className="mt-1.5 pt-1.5 border-t cs-border-card-sep border-dashed text-[8.5px] leading-normal" style={{ color: "var(--cs-text-muted)" }}>
+              <strong>Primary Literature Scales:</strong>
+              <ul className="list-disc pl-3 mt-0.5 space-y-0.5">
+                <li>Hydrophobicity: Kyte-Doolittle Hydropathy Index (J Mol Biol, 1982)</li>
+                <li>Molecular Size: Amino acid van der Waals volume (Science, 1974)</li>
+                <li>Charge & Polarity: IUPAC classification at pH 7.4</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      );
+    } catch {
+      return null;
+    }
+  }, [variant, isDark]);
+
+  const handleExportJSON = () => {
+    if (!analysisState.result) return;
+    const exportData = {
+      metadata: {
+        gene: gene,
+        variant: variant,
+        uniprotId: uniprotId || analysisState.result.metadata?.uniprotId || "",
+        timestamp: new Date().toISOString(),
+        appVersion: "1.0.0",
+        models: {
+          foldx: "FoldX BuildModel 5.0",
+          dynamut2: "DynaMut2 Consensus",
+          ddmut: "DDMut Deep Learning",
+          ddgun: "DDGun-Seq",
+          rasp: "RaSP Precomputed",
+          alphamissense: "AlphaMissense (via EVE/REVEL/AM)"
+        }
+      },
+      inputParameters: {
+        gene,
+        variant,
+        uniprotId,
+        acmgWeighting: settings.acmgWeighting
+      },
+      databaseResults: {
+        clinvar: analysisState.result.clinvar || null,
+        gnomad: {
+          frequency: analysisState.result.gnomadFrequency || null,
+          constraint: analysisState.result.gnomadConstraint || null
+        },
+        predictors: analysisState.result.predictorData || null,
+        conservation: analysisState.result.conservationData || null,
+        uniprotFeatures: analysisState.result.uniprotFeatures || null
+      },
+      biophysicalEnergetics: {
+        foldx: {
+          ddG: foldingEnergetics?.foldx ?? analysisState.result.foldingEnergetics?.foldx ?? null,
+          mean: foldingEnergetics?.foldxMean ?? null,
+          sd: foldingEnergetics?.foldxSd ?? null,
+          vdwClashDelta: foldingEnergetics?.vdw ?? null,
+          electrostatics: foldingEnergetics?.electrostatics ?? null,
+          stericClashWarning: foldingEnergetics?.stericClashWarning ?? false,
+          sidechainRmsd: foldingEnergetics?.localSidechainRmsd ?? null
+        },
+        dynamut2: foldingEnergetics?.dynamut2 ?? analysisState.result.dynamut2 ?? null,
+        ddmut: foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null,
+        rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
+        ddgun: foldingEnergetics?.ddgun ?? null,
+        consensusStabilityVerdict: foldingEnergetics?.consensusVerdict ?? null
+      },
+      acmgCriteriaSuggestions: {
+        ruleBased: analysisState.result.ruleBasedInsights || null,
+        aiGenerated: analysisState.result.insights || null
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${gene}_${variant}_analysis_export.json`.replace(/\s+/g, "_");
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className={`${classCard} overflow-hidden flex flex-col min-h-[400px] transition-all`} id="clinical-insights-report-card">
+    <div className={`${classCard} overflow-visible flex flex-col transition-all`} id="clinical-insights-report-card">
       {/* Card Header */}
       <div className={`px-5 py-4 border-b flex items-center justify-between transition-colors ${classCardHeader}`}>
         <div className="flex flex-col">
@@ -106,38 +234,63 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           </span>
         </div>
         
-        {/* Copy Report button */}
         {analysisState.result && (
-          <button
-            onClick={handleCopyReport}
-            className="transition flex items-center gap-1 text-[10px] border rounded px-2.5 py-1 select-none cursor-pointer shadow-sm"
-            style={{
-              borderColor: "var(--cs-border)",
-              background: "var(--cs-surface-2)",
-              color: "var(--cs-text-secondary)"
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.background = "var(--cs-bg-subtle)";
-              (e.currentTarget as HTMLElement).style.color = "var(--cs-accent-clay)";
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.background = "var(--cs-surface-2)";
-              (e.currentTarget as HTMLElement).style.color = "var(--cs-text-secondary)";
-            }}
-            title="Copy markdown report to clipboard"
-          >
-            {copied ? (
-              <>
-                <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--cs-accent-clay)" }} />
-                <span className="font-semibold" style={{ color: "var(--cs-accent-clay)" }}>Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                <span>Copy Report</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Export JSON Button */}
+            <button
+              onClick={handleExportJSON}
+              className="transition flex items-center gap-1 text-[10px] border rounded px-2.5 py-1 select-none cursor-pointer shadow-sm"
+              style={{
+                borderColor: "var(--cs-border)",
+                background: "var(--cs-surface-2)",
+                color: "var(--cs-text-secondary)"
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background = "var(--cs-bg-subtle)";
+                (e.currentTarget as HTMLElement).style.color = "var(--cs-accent-clay)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background = "var(--cs-surface-2)";
+                (e.currentTarget as HTMLElement).style.color = "var(--cs-text-secondary)";
+              }}
+              title="Export structured analysis payload as JSON file"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export JSON</span>
+            </button>
+
+            {/* Copy Report Button */}
+            <button
+              onClick={handleCopyReport}
+              className="transition flex items-center gap-1 text-[10px] border rounded px-2.5 py-1 select-none cursor-pointer shadow-sm"
+              style={{
+                borderColor: "var(--cs-border)",
+                background: "var(--cs-surface-2)",
+                color: "var(--cs-text-secondary)"
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background = "var(--cs-bg-subtle)";
+                (e.currentTarget as HTMLElement).style.color = "var(--cs-accent-clay)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background = "var(--cs-surface-2)";
+                (e.currentTarget as HTMLElement).style.color = "var(--cs-text-secondary)";
+              }}
+              title="Copy markdown report to clipboard"
+            >
+              {copied ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--cs-accent-clay)" }} />
+                  <span className="font-semibold" style={{ color: "var(--cs-accent-clay)" }}>Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Report</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
       </div>
 
@@ -155,7 +308,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           /* Multi step loader inside insights card */
           <div className="flex flex-col items-center justify-center py-12 text-center" style={{ color: "var(--cs-text-muted)" }}>
             <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-            <p className="text-sm font-semibold font-mono mb-2" style={{ color: "var(--cs-text-primary)" }}>Calculating mutation pathogenicity...</p>
+            <p className="text-sm font-semibold font-mono mb-2" style={{ color: "var(--cs-text-primary)" }}>Analyzing variant evidence...</p>
             <p className="text-xs max-w-xs font-mono h-5 animate-pulse" style={{ color: "var(--cs-accent-clay)" }}>{loadingStep}</p>
           </div>
         ) : analysisState.error ? (
@@ -222,56 +375,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                     <span>Residue Property Comparison (Radar Profile)</span>
                   </div>
                   <div className="pl-5 pt-1">
-                    {(() => {
-                      try {
-                        const parsed = parseMutationResidues(variant);
-                        const wtData = AMINO_ACID_PROPERTIES[parsed.wt] || { hydrophobicity: 50, charge: 50, size: 50, polarity: 50 };
-                        const mutData = AMINO_ACID_PROPERTIES[parsed.mut] || { hydrophobicity: 50, charge: 50, size: 50, polarity: 50 };
-                        
-                        const radarData = [
-                          { subject: "Hydrophobicity", WT: wtData.hydrophobicity, MUT: mutData.hydrophobicity },
-                          { subject: "Charge", WT: wtData.charge, MUT: mutData.charge },
-                          { subject: "Molecular Size", WT: wtData.size, MUT: mutData.size },
-                          { subject: "Polarity", WT: wtData.polarity, MUT: mutData.polarity }
-                        ];
-
-                        const wtColor = "#10b981"; // Emerald
-                        const mutColor = "#f43f5e"; // Rose
-
-                        return (
-                          <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-3 rounded-lg border transition-colors"
-                            style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                            <div className="w-full sm:w-[50%] h-[155px]">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                                  <PolarGrid stroke={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)"} />
-                                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: "var(--cs-text-secondary)" }} />
-                                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8, fill: "var(--cs-text-muted)" }} />
-                                  <Radar name="Wild-Type" dataKey="WT" stroke={wtColor} fill={wtColor} fillOpacity={0.12} />
-                                  <Radar name="Mutant" dataKey="MUT" stroke={mutColor} fill={mutColor} fillOpacity={0.12} />
-                                  <Tooltip contentStyle={{ fontSize: 10, background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} />
-                                </RadarChart>
-                              </ResponsiveContainer>
-                            </div>
-                            <div className="w-full sm:w-[45%] flex flex-col gap-1.5 text-[10.5px]">
-                              <div className="flex items-center gap-2 pb-1 border-b border-dashed" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                                <span className="w-2.5 h-2.5 rounded" style={{ background: wtColor }}></span>
-                                <span style={{ color: "var(--cs-text-primary)" }}>Wild-Type ({parsed.wt})</span>
-                              </div>
-                              <div className="flex items-center gap-2 pb-2">
-                                <span className="w-2.5 h-2.5 rounded" style={{ background: mutColor }}></span>
-                                <span style={{ color: "var(--cs-text-primary)" }}>Mutant ({parsed.mut})</span>
-                              </div>
-                              <p className="leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-                                Plots isoelectric properties on a normalized 0–100 scale (0 = negative, 50 = neutral, 100 = positive). Overlapping profiles indicate conservative substitutions, whereas deviations support disruptive pathology.
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      } catch {
-                        return null;
-                      }
-                    })()}
+                    {renderResiduePropertyRadar()}
                   </div>
                 </div>
 
@@ -295,13 +399,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                         
                         let badgeStyle = "bg-slate-500/10 text-slate-400 border border-slate-500/20";
                         if (verdict.includes("Likely Pathogenic")) {
-                          badgeStyle = "bg-orange-500/15 text-orange-450 border border-orange-500/20 font-bold";
+                          badgeStyle = "bg-orange-500/15 text-orange-500 border border-orange-500/20 font-bold";
                         } else if (verdict.includes("Pathogenic")) {
-                          badgeStyle = "bg-rose-500/15 text-rose-455 border border-rose-500/25 font-bold";
+                          badgeStyle = "bg-rose-500/15 text-rose-500 border border-rose-500/25 font-bold";
                         } else if (verdict.includes("Likely Benign")) {
-                          badgeStyle = "bg-emerald-500/10 text-emerald-450 border border-emerald-500/20 font-bold";
+                          badgeStyle = "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-bold";
                         } else if (verdict.includes("Benign")) {
-                          badgeStyle = "bg-emerald-500/15 text-emerald-455 border border-emerald-500/25 font-bold";
+                          badgeStyle = "bg-emerald-500/15 text-emerald-500 border border-emerald-500/25 font-bold";
                         }
                         
                         return (
@@ -362,7 +466,6 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                           analysisState.result.ruleBasedInsights?.acmgCriteria?.map(c => ({ ...c, source: "database_verified" as const })) || [];
 
                         const dbVerified = mergedList.filter(item => item.source === "database_verified");
-                        const aiSuggested = mergedList.filter(item => item.source === "ai_suggested");
 
                         return (
                           <div className="space-y-4">
@@ -413,67 +516,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                               )}
                             </div>
 
-                            {/* 2. AI Suggested Section */}
-                            {(aiSuggested.length > 0 || isClinicalLoading) && (
-                              <div className="flex flex-col gap-2 pt-1">
-                                <span className="block text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500 mb-1">
-                                  AI-Suggested ACMG Criteria (Gemini Pathfinder Model)
-                                </span>
-                                
-                                {aiSuggested.length > 0 && (
-                                  <>
-                                    <div className="p-2.5 rounded-lg border flex items-start gap-2 text-[10px] leading-relaxed bg-amber-500/5 border-amber-500/15 text-amber-600 dark:text-amber-450">
-                                      <span className="font-bold">⚠️ Clinical Safety Warning:</span>
-                                      <span>
-                                        AI-Suggested criteria are generated by a Large Language Model (Gemini) and have not been computationally verified against clinical databases. Justifications must be manually audited and approved by a clinical geneticist before use.
-                                      </span>
-                                    </div>
-                                    <div className="space-y-2">
-                                      {aiSuggested.map((item, idx) => {
-                                        const containerStyle = "rgba(217,70,170,0.04)";
-                                        const borderStyle = "rgba(217,70,170,0.15)";
-                                        const badgeBg = "var(--cs-accent-mag)";
-                                        const textStyle = "var(--cs-text-primary)";
-                                        const sourceBadge = "bg-rose-500/10 text-rose-500 border border-rose-500/20";
-
-                                        return (
-                                          <div 
-                                            key={`ai-${idx}`} 
-                                            className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
-                                            style={{ background: containerStyle, borderColor: borderStyle }}
-                                          >
-                                            <div className="flex items-center justify-between gap-2 w-full">
-                                              <div className="flex items-center gap-2">
-                                                <span className="font-mono font-bold text-[9px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0" style={{ background: badgeBg }}>
-                                                  {item.code}
-                                                </span>
-                                                <span className="text-[9px] font-mono font-bold uppercase tracking-wider" style={{ color: textStyle }}>
-                                                  Suggested Criteria Evidence
-                                                </span>
-                                              </div>
-                                              <span className={`text-[7px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${sourceBadge}`}>
-                                                AI-suggested, not database-verified
-                                              </span>
-                                            </div>
-                                            <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                                              {item.reason}
-                                            </p>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </>
-                                )}
-
-                                {isClinicalLoading && (
-                                  <div className="flex items-center gap-2 font-bold font-mono text-[9px] uppercase tracking-wider py-2 pt-1" style={{ color: "var(--cs-accent-clay)" }}>
-                                    <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-                                    <span className="animate-pulse">Computing AI-suggested ACMG criteria...</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                            </div>
                         );
                       })()}
                     </div>
@@ -498,11 +541,11 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                               <span className={`inline-block mt-1 px-2.5 py-0.5 rounded text-[11px] font-bold ${
                                 (() => {
                                   const c = analysisState.result.clinvar.classification.toLowerCase();
-                                  if (c.includes("likely pathogenic")) return "bg-orange-500/15 text-orange-450 border border-orange-500/20";
-                                  if (c.includes("pathogenic")) return "bg-rose-500/15 text-rose-455 border border-rose-500/25";
+                                  if (c.includes("likely pathogenic")) return "bg-orange-500/15 text-orange-500 border border-orange-500/20";
+                                  if (c.includes("pathogenic")) return "bg-rose-500/15 text-rose-500 border border-rose-500/25";
                                   if (c.includes("likely benign")) return "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
-                                  if (c.includes("benign")) return "bg-emerald-500/15 text-emerald-455 border border-emerald-500/25";
-                                  return "bg-amber-500/15 text-amber-455 border border-amber-500/20";
+                                  if (c.includes("benign")) return "bg-emerald-500/15 text-emerald-500 border border-emerald-500/25";
+                                  return "bg-amber-500/15 text-amber-500 border border-amber-500/20";
                                 })()
                               }`}>
                                 {analysisState.result.clinvar.classification}
@@ -535,7 +578,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {analysisState.result.clinvar.alleleFrequencies.map((freq: any, fIdx: number) => (
                                   <div key={fIdx} className="flex justify-between items-center pr-4 text-xs">
-                                    <span className="opacity-75 font-semibold text-slate-450 dark:text-slate-450">{/gnomad/i.test(freq.source) ? "gnomAD" : freq.source}:</span>
+                                    <span className="opacity-75 font-semibold text-slate-500 dark:text-slate-500">{/gnomad/i.test(freq.source) ? "gnomAD" : freq.source}:</span>
                                     <span className="font-bold font-mono" style={{ color: "var(--cs-accent-clay)" }}>
                                       {(() => {
                                         const num = parseFloat(freq.value);
@@ -578,26 +621,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               </div>
             )}
 
-            {/* Detailed Narrative Report Section */}
-            <div className={`border-t pt-4 ${classBorderSec}`}>
-              <div className="text-[10px] font-mono uppercase mb-2 font-bold tracking-widest flex items-center gap-1" style={{ color: "var(--cs-text-muted)" }}>
-                <FileText className="w-3.5 h-3.5" />
-                Detailed Clinical Narrative
-              </div>
-              {isNarrativeLoading ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-3 border border-dashed rounded-lg" style={{ background: "rgba(196,104,73,0.03)", borderColor: "rgba(196,104,73,0.15)" }}>
-                  <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-                  <span className="text-[10px] font-mono animate-pulse uppercase tracking-wider" style={{ color: "var(--cs-text-muted)" }}>
-                    Generating clinical narrative explanation...
-                  </span>
-                </div>
-              ) : (
-                <div className="prose prose-xs leading-relaxed space-y-4 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin transition-colors"
-                  style={{ color: "var(--cs-text-primary)" }}>
-                  <Markdown>{formatEnergyString(analysisState.result.analysis)}</Markdown>
-                </div>
-              )}
-            </div>
+
           </div>
         ) : (
           /* Startup or placeholder state */
@@ -610,18 +634,6 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             </p>
           </div>
         )}
-      </div>
-
-      {/* Card Footer informative links */}
-      <div className={`px-5 py-3 border-t text-[11px] flex items-center justify-between transition-colors ${
-        isDark ? "border-[#322F2A] bg-[#23211E] text-slate-400" : "border-[#ECEAE4] bg-[#F9F8F6] text-slate-500"
-      }`}>
-        <span className="flex items-center gap-1.5">
-          <Database className="w-3.5 h-3.5" style={{ color: "var(--cs-accent-clay)" }} />
-          {analysisState.result?.clinvar?.uid 
-            ? "Cross-referenced with ClinVar & gnomAD" 
-            : "Sequence & Structural Analysis"}
-        </span>
       </div>
     </div>
   );

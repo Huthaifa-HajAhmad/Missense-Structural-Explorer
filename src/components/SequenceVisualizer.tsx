@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings, ChevronDown, ChevronUp, Atom } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
 import { NearestResidue } from "../types";
 import { getNearestResidues } from "../data";
+import { THRESHOLDS } from "../shared/thresholds";
 
 interface SequenceVisualizerProps {
   uniprotId: string;
@@ -59,28 +60,7 @@ const getSubstitutionGroup = (aa: string): string => {
   return "";
 };
 
-const PathogenicitySlider = ({ expectedRange, color }: { expectedRange: string; color: string }) => {
-  const match = expectedRange.match(/([\d\.]+)\s*-\s*([\d\.]+)/);
-  if (!match) return <span className="text-[9px] font-mono">{expectedRange}</span>;
-  const min = parseFloat(match[1]);
-  const max = parseFloat(match[2]);
-  const left = min * 100;
-  const width = (max - min) * 100;
 
-  return (
-    <div className="flex items-center gap-1.5 w-full">
-      <span className="text-[8px] font-mono w-5 text-right opacity-60">0.0</span>
-      <div className="flex-grow h-2 bg-slate-200 dark:bg-slate-800 rounded relative overflow-hidden">
-        <div 
-          className={`h-full absolute rounded ${color}`} 
-          style={{ left: `${left}%`, width: `${width}%` }} 
-        />
-      </div>
-      <span className="text-[8px] font-mono w-5 text-left opacity-60">1.0</span>
-      <span className="text-[9px] font-mono font-bold ml-1">{expectedRange}</span>
-    </div>
-  );
-};
 
 export default function SequenceVisualizer({ 
   uniprotId, 
@@ -111,11 +91,25 @@ export default function SequenceVisualizer({
   const [copied, setCopied] = useState<boolean>(false);
   const [hoveredResidue, setHoveredResidue] = useState<{ symbol: string; pos: number; type: "wild" | "mutant" | "normal" } | null>(null);
   const [isWindowDropdownOpen, setIsWindowDropdownOpen] = useState<boolean>(false);
+  // Default to "max" (Peak Constraint) for clinical safety to ensure potential mutational hotspots are highlighted conservatively by default
+  const [metricMode, setMetricMode] = useState<"mean" | "max">("max");
 
   // Re-adjust windowSize if seqScrollStep prop changes or from settings changes
   useEffect(() => {
     setWindowSize(seqScrollStepProp || settings.seqScrollStep || 31);
   }, [seqScrollStepProp, settings.seqScrollStep]);
+
+  const landscapeMap = useMemo(() => {
+    const map = new Map<number, any>();
+    if (landscapeData && Array.isArray(landscapeData)) {
+      landscapeData.forEach((item) => {
+        if (item && typeof item.residx === "number") {
+          map.set(item.residx, item);
+        }
+      });
+    }
+    return map;
+  }, [landscapeData]);
 
   const getResidueBaseColor = (res: string) => {
     if (seqColorScheme === "minimal") {
@@ -131,10 +125,9 @@ export default function SequenceVisualizer({
         return isDark
           ? "bg-emerald-950/40 text-emerald-300 border-emerald-900/50 hover:bg-emerald-900/50 hover:scale-105"
           : "bg-emerald-50 text-emerald-800 border-emerald-200/80 hover:bg-emerald-100/70 hover:scale-105";
-      } else {
         return isDark
-          ? "bg-sky-950/20 text-sky-305 border-sky-900/30 hover:bg-sky-900/30 hover:scale-105"
-          : "bg-sky-50/55 text-sky-800 border-sky-100 hover:bg-sky-50 hover:scale-105";
+          ? "bg-sky-950/20 text-sky-300 border-sky-900/30 hover:bg-sky-900/30 hover:scale-105"
+          : "bg-sky-50 text-sky-800 border-sky-100 hover:bg-sky-50 hover:scale-105";
       }
     }
 
@@ -142,7 +135,7 @@ export default function SequenceVisualizer({
     const match = AMINO_ACID_MAP_FULL[res];
     if (!match) {
       return isDark 
-        ? "bg-slate-900/30 text-slate-405 border-transparent hover:bg-slate-800/45 hover:text-slate-200 hover:scale-105" 
+        ? "bg-slate-900/30 text-slate-400 border-transparent hover:bg-slate-800/45 hover:text-slate-200 hover:scale-105" 
         : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-800 hover:scale-105";
     }
 
@@ -387,8 +380,12 @@ export default function SequenceVisualizer({
         ? parseFloat(conservationData.revel)
         : null;
     }
-    const match = landscapeData?.find((item: any) => item.residx === pos);
-    return match?.revelMax !== undefined && match?.revelMax !== null ? match.revelMax : null;
+    const match = landscapeMap.get(pos);
+    if (!match) return null;
+    if (metricMode === "mean") {
+      return match.revelMean !== undefined && match.revelMean !== null ? match.revelMean : null;
+    }
+    return match.revelMax !== undefined && match.revelMax !== null ? match.revelMax : null;
   };
 
   const getAmScore = (pos: number) => {
@@ -397,8 +394,12 @@ export default function SequenceVisualizer({
         ? parseFloat(predictorData.amPathogenicity)
         : null;
     }
-    const match = landscapeData?.find((item: any) => item.residx === pos);
-    return match?.amMax !== undefined && match?.amMax !== null ? match.amMax : null;
+    const match = landscapeMap.get(pos);
+    if (!match) return null;
+    if (metricMode === "mean") {
+      return match.amMean !== undefined && match.amMean !== null ? match.amMean : null;
+    }
+    return match.amMax !== undefined && match.amMax !== null ? match.amMax : null;
   };
 
   const getGerpScore = (pos: number) => {
@@ -407,7 +408,7 @@ export default function SequenceVisualizer({
         ? parseFloat(conservationData.gerp)
         : null;
     }
-    const match = landscapeData?.find((item: any) => item.residx === pos);
+    const match = landscapeMap.get(pos);
     return match?.gerp !== undefined && match?.gerp !== null ? match.gerp : null;
   };
 
@@ -417,7 +418,7 @@ export default function SequenceVisualizer({
         ? parseFloat(conservationData.phylop)
         : null;
     }
-    const match = landscapeData?.find((item: any) => item.residx === pos);
+    const match = landscapeMap.get(pos);
     return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
   };
 
@@ -451,8 +452,6 @@ export default function SequenceVisualizer({
     name: string;
     residues: string[];
     badgeColor: string;
-    expectedRevel: string;
-    expectedAm: string;
     consequence: string;
     severity: "high" | "medium" | "low";
   }
@@ -480,8 +479,6 @@ export default function SequenceVisualizer({
           name: "Charged (D, E, K, R, H)",
           residues: ["D", "E", "K", "R", "H"],
           badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-          expectedRevel: "0.80 - 0.95",
-          expectedAm: "0.85 - 0.98",
           consequence: "Severe catalytic disruption. Alters pocket electrostatics directly.",
           severity: "high"
         },
@@ -489,8 +486,6 @@ export default function SequenceVisualizer({
           name: "Polar (S, T, N, Q, C)",
           residues: ["S", "T", "N", "Q", "C"],
           badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-          expectedRevel: "0.75 - 0.90",
-          expectedAm: "0.80 - 0.95",
           consequence: "Disrupts hydrogen bonding network in catalytic cleft.",
           severity: "high"
         },
@@ -498,8 +493,6 @@ export default function SequenceVisualizer({
           name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
           residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
           badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-          expectedRevel: "0.70 - 0.90",
-          expectedAm: "0.75 - 0.95",
           consequence: "Steric pocket occlusion. Blocks ligand entry / binding.",
           severity: "high"
         },
@@ -507,8 +500,6 @@ export default function SequenceVisualizer({
           name: "Conformational (P, G)",
           residues: ["P", "G"],
           badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-          expectedRevel: "0.85 - 0.98",
-          expectedAm: "0.90 - 0.99",
           consequence: "Collapses pocket geometry. Completely inactivates function.",
           severity: "high"
         }
@@ -521,8 +512,6 @@ export default function SequenceVisualizer({
           name: "Charged (D, E, K, R, H)",
           residues: ["D", "E", "K", "R", "H"],
           badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-          expectedRevel: "0.60 - 0.85",
-          expectedAm: "0.70 - 0.90",
           consequence: "Introduces charge repulsion, blocking complex assembly.",
           severity: "high"
         },
@@ -530,8 +519,6 @@ export default function SequenceVisualizer({
           name: "Polar (S, T, N, Q, C)",
           residues: ["S", "T", "N", "Q", "C"],
           badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-          expectedRevel: "0.40 - 0.70",
-          expectedAm: "0.45 - 0.75",
           consequence: "Alters hydrogen bonding contacts with binding partner.",
           severity: "medium"
         },
@@ -539,8 +526,6 @@ export default function SequenceVisualizer({
           name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
           residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
           badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-          expectedRevel: "0.40 - 0.80",
-          expectedAm: "0.50 - 0.85",
           consequence: "Disrupts hydrophobic interface packing or causes steric overlap.",
           severity: "medium"
         },
@@ -548,8 +533,6 @@ export default function SequenceVisualizer({
           name: "Conformational (P, G)",
           residues: ["P", "G"],
           badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-          expectedRevel: "0.70 - 0.90",
-          expectedAm: "0.75 - 0.95",
           consequence: "Disrupts local secondary structure essential for docking.",
           severity: "high"
         }
@@ -562,8 +545,6 @@ export default function SequenceVisualizer({
           name: "Charged (D, E, K, R, H)",
           residues: ["D", "E", "K", "R", "H"],
           badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-          expectedRevel: "0.75 - 0.90",
-          expectedAm: "0.80 - 0.95",
           consequence: "Severe packing crash. Introducing charges in the core causes misfolding.",
           severity: "high"
         },
@@ -571,8 +552,6 @@ export default function SequenceVisualizer({
           name: "Polar (S, T, N, Q, C)",
           residues: ["S", "T", "N", "Q", "C"],
           badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-          expectedRevel: "0.50 - 0.75",
-          expectedAm: "0.55 - 0.80",
           consequence: "Unsatisfied hydrogen bonds in core. Moderately destabilizing.",
           severity: "medium"
         },
@@ -580,8 +559,6 @@ export default function SequenceVisualizer({
           name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
           residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
           badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-          expectedRevel: "0.20 - 0.50",
-          expectedAm: "0.25 - 0.55",
           consequence: "Conservative changes. Minor volume shifts are generally well-packed.",
           severity: "low"
         },
@@ -589,8 +566,6 @@ export default function SequenceVisualizer({
           name: "Conformational (P, G)",
           residues: ["P", "G"],
           badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-          expectedRevel: "0.75 - 0.95",
-          expectedAm: "0.80 - 0.98",
           consequence: "Backbone conformation breach. High risk of local sheet/helix collapse.",
           severity: "high"
         }
@@ -602,8 +577,6 @@ export default function SequenceVisualizer({
         name: "Charged (D, E, K, R, H)",
         residues: ["D", "E", "K", "R", "H"],
         badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-        expectedRevel: "0.05 - 0.20",
-        expectedAm: "0.08 - 0.25",
         consequence: "Highly tolerated on solvent-exposed protein surfaces.",
         severity: "low"
       },
@@ -611,8 +584,6 @@ export default function SequenceVisualizer({
         name: "Polar (S, T, N, Q, C)",
         residues: ["S", "T", "N", "Q", "C"],
         badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-        expectedRevel: "0.05 - 0.15",
-        expectedAm: "0.05 - 0.20",
         consequence: "Highly tolerated. Maintains polar solvent interactions.",
         severity: "low"
       },
@@ -620,8 +591,6 @@ export default function SequenceVisualizer({
         name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
         residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
         badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-        expectedRevel: "0.15 - 0.40",
-        expectedAm: "0.20 - 0.45",
         consequence: "Surface hydrophobicity increase; may prompt aggregation.",
         severity: "low"
       },
@@ -629,8 +598,6 @@ export default function SequenceVisualizer({
         name: "Conformational (P, G)",
         residues: ["P", "G"],
         badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-        expectedRevel: "0.30 - 0.60",
-        expectedAm: "0.35 - 0.65",
         consequence: "Proline can disrupt loops. Glycine can introduce excessive flexibility.",
         severity: "medium"
       }
@@ -686,6 +653,34 @@ export default function SequenceVisualizer({
               <span className={`w-2.5 h-2.5 rounded border ${isDark ? "bg-[#191816]/60 border-[#3C3934]/40" : "bg-white border-slate-200"}`}></span>
               <span>Rest</span>
             </div>
+          </div>
+
+          {/* Metric Mode Toggle */}
+          <div className={`flex rounded-lg border p-0.5 font-sans font-semibold text-[11px] ${
+            isDark ? "bg-[#201E1B] border-[#3C3934]" : "bg-slate-100 border-[#ECEAE4]"
+          }`}>
+            <button
+              type="button"
+              onClick={() => setMetricMode("mean")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                metricMode === "mean"
+                  ? "bg-[#C46849] text-white shadow-sm font-bold"
+                  : (isDark ? "text-slate-400 hover:text-slate-200" : "text-[#666055] hover:text-slate-800")
+              }`}
+            >
+              Mean Intolerance
+            </button>
+            <button
+              type="button"
+              onClick={() => setMetricMode("max")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                metricMode === "max"
+                  ? "bg-[#C46849] text-white shadow-sm font-bold"
+                  : (isDark ? "text-slate-400 hover:text-slate-200" : "text-[#666055] hover:text-slate-800")
+              }`}
+            >
+              Peak Constraint
+            </button>
           </div>
 
           <div className="relative">
@@ -900,7 +895,7 @@ export default function SequenceVisualizer({
                           : isSelected
                             ? isDark
                               ? "bg-indigo-500/30 text-indigo-200 border-indigo-500/80 ring-2 ring-indigo-500/40 relative scale-110 z-10 shadow-md shadow-indigo-950/50 cursor-pointer"
-                              : "bg-indigo-500/10 text-indigo-700 border-indigo-500/50 ring-2 ring-indigo-500/20 relative scale-110 z-10 shadow-md shadow-indigo-150/50 cursor-pointer"
+                              : "bg-indigo-500/10 text-indigo-700 border-indigo-500/50 ring-2 ring-indigo-500/20 relative scale-110 z-10 shadow-md shadow-indigo-100/50 cursor-pointer"
                             : isHovered
                               ? isDark
                                 ? "bg-[#3C3934] text-slate-100 border-[#3C3934] relative scale-105 z-10 cursor-pointer"
@@ -917,7 +912,7 @@ export default function SequenceVisualizer({
 
             {/* REVEL Score Row */}
             <div className="flex items-center font-mono text-xs pl-2 mb-1.5 mt-2">
-              <span className="w-[82px] text-[10px] font-semibold text-indigo-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="REVEL Pathogenicity Score (Peak Constraint)">
+              <span className="w-[82px] text-[10px] font-semibold text-indigo-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title={`REVEL Pathogenicity Score (${metricMode === "mean" ? "Positional Mean Intolerance" : "Peak Constraint"})`}>
                 REVEL
               </span>
               <div className="flex">
@@ -926,21 +921,22 @@ export default function SequenceVisualizer({
                   const score = getRevelScore(absolutePos);
                   const isTarget = absolutePos === mutationIndex;
                   const isSelected = absolutePos === residueIndex;
+                  const match = landscapeMap.get(absolutePos);
                   
                   let colorClass = isDark 
                     ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
                     : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
                   if (score !== null) {
-                    if (score >= 0.5) {
+                    if (score >= THRESHOLDS.revel.pathogenicSupporting) {
                       colorClass = isDark ? "bg-rose-500/25 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-200";
-                    } else if (score >= 0.25) {
+                    } else if (score >= THRESHOLDS.revel.benign) {
                       colorClass = isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-100 text-amber-800 border-amber-200";
                     } else {
                       colorClass = isDark ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : "bg-emerald-50 text-emerald-700 border-emerald-100";
                     }
                   }
 
-                  const formatted = score !== null ? score.toFixed(2).substring(1) : "N/A";
+                  const formatted = score !== null ? score.toFixed(2) : "N/A";
                   
                   return (
                     <button
@@ -948,12 +944,15 @@ export default function SequenceVisualizer({
                       onClick={() => onResidueClick && onResidueClick(absolutePos)}
                       className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[9px] transition-all cursor-pointer ${colorClass} ${
                         isTarget
-                          ? "ring-2 ring-indigo-500 scale-105 z-10 font-black"
+                          ? "ring-2 ring-indigo-500 scale-105 z-10 font-black animate-pulse"
                           : isSelected
                             ? "ring-1 ring-slate-400 scale-102 z-10"
                             : ""
                       }`}
-                      title={`REVEL Score: ${score !== null ? score.toFixed(3) : "N/A"} at residue #${absolutePos}`}
+                      title={isTarget 
+                        ? `Target Mutation ${mutation.wt}→${mutation.mut} Score: ${score !== null ? score.toFixed(3) : "N/A"}${metricMode === "mean" && match?.revelMean ? ` (Positional Mean Intolerance: ${match.revelMean.toFixed(3)})` : ""}`
+                        : `Neighbor Position #${absolutePos} ${metricMode === "mean" ? "Mean Intolerance" : "Peak Constraint"}: ${score !== null ? score.toFixed(3) : "N/A"}`
+                      }
                     >
                       {formatted}
                     </button>
@@ -964,7 +963,7 @@ export default function SequenceVisualizer({
 
             {/* AlphaMissense Score Row */}
             <div className="flex items-center font-mono text-xs pl-2 mb-1.5">
-              <span className="w-[82px] text-[10px] font-semibold text-purple-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="AlphaMissense Pathogenicity Score (Peak Constraint)">
+              <span className="w-[82px] text-[10px] font-semibold text-purple-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title={`AlphaMissense Pathogenicity Score (${metricMode === "mean" ? "Positional Mean Intolerance" : "Peak Constraint"})`}>
                 ALPHA_MS
               </span>
               <div className="flex">
@@ -973,21 +972,22 @@ export default function SequenceVisualizer({
                   const score = getAmScore(absolutePos);
                   const isTarget = absolutePos === mutationIndex;
                   const isSelected = absolutePos === residueIndex;
+                  const match = landscapeMap.get(absolutePos);
                   
                   let colorClass = isDark 
                     ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
                     : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
                   if (score !== null) {
-                    if (score >= 0.56) {
+                    if (score >= THRESHOLDS.alphaMissense.pathogenicSupporting) {
                       colorClass = isDark ? "bg-rose-500/25 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-200";
-                    } else if (score >= 0.34) {
+                    } else if (score >= THRESHOLDS.alphaMissense.likelyBenign) {
                       colorClass = isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-100 text-amber-800 border-amber-200";
                     } else {
                       colorClass = isDark ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : "bg-emerald-50 text-emerald-700 border-emerald-100";
                     }
                   }
 
-                  const formatted = score !== null ? score.toFixed(2).substring(1) : "N/A";
+                  const formatted = score !== null ? score.toFixed(2) : "N/A";
                   
                   return (
                     <button
@@ -995,12 +995,15 @@ export default function SequenceVisualizer({
                       onClick={() => onResidueClick && onResidueClick(absolutePos)}
                       className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[9px] transition-all cursor-pointer ${colorClass} ${
                         isTarget
-                          ? "ring-2 ring-purple-500 scale-105 z-10 font-black"
+                          ? "ring-2 ring-purple-500 scale-105 z-10 font-black animate-pulse"
                           : isSelected
                             ? "ring-1 ring-slate-400 scale-102 z-10"
                             : ""
                       }`}
-                      title={`AlphaMissense Score: ${score !== null ? score.toFixed(3) : "N/A"} at residue #${absolutePos}`}
+                      title={isTarget 
+                        ? `Target Mutation ${mutation.wt}→${mutation.mut} Score: ${score !== null ? score.toFixed(3) : "N/A"}${metricMode === "mean" && match?.amMean ? ` (Positional Mean Intolerance: ${match.amMean.toFixed(3)})` : ""}`
+                        : `Neighbor Position #${absolutePos} ${metricMode === "mean" ? "Mean Intolerance" : "Peak Constraint"}: ${score !== null ? score.toFixed(3) : "N/A"}`
+                      }
                     >
                       {formatted}
                     </button>
@@ -1025,9 +1028,9 @@ export default function SequenceVisualizer({
                     ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
                     : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
                   if (score !== null) {
-                    if (score >= 4.0) {
+                    if (score >= THRESHOLDS.gerp.high) {
                       colorClass = isDark ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-200";
-                    } else if (score >= 2.0) {
+                    } else if (score >= THRESHOLDS.gerp.moderate) {
                       colorClass = isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-100 text-amber-800 border-amber-200";
                     } else {
                       colorClass = isDark ? "bg-[#191816]/30 text-[#827B70]/80 border-[#3C3934]/20" : "bg-slate-50 text-slate-500 border-slate-200/50";
@@ -1058,7 +1061,7 @@ export default function SequenceVisualizer({
 
             {/* PhyloP Score Row */}
             <div className="flex items-center font-mono text-xs pl-2">
-              <span className="w-[82px] text-[10px] font-semibold text-teal-505 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="PhyloP Conservation Score">
+              <span className="w-[82px] text-[10px] font-semibold text-teal-500 pr-2 shrink-0 select-none uppercase tracking-wider text-right" title="PhyloP Conservation Score">
                 PHYLOP
               </span>
               <div className="flex">
@@ -1072,12 +1075,12 @@ export default function SequenceVisualizer({
                     ? "bg-[#191816]/60 text-[#827B70] border-[#3C3934]/30" 
                     : "bg-[#FAF9F6]/80 text-[#8F897E] border-[#ECEAE4]";
                   if (score !== null) {
-                    if (score >= 4.0) {
+                    if (score >= THRESHOLDS.phylop.high) {
                       colorClass = isDark ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-200";
-                    } else if (score >= 1.5) {
+                    } else if (score >= THRESHOLDS.phylop.moderate) {
                       colorClass = isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-100 text-amber-800 border-amber-200";
                     } else {
-                      colorClass = isDark ? "bg-[#191816]/30 text-[#827B70]/80 border-[#3C3934]/20" : "bg-slate-50 text-slate-505 border-slate-200/50";
+                      colorClass = isDark ? "bg-[#191816]/30 text-[#827B70]/80 border-[#3C3934]/20" : "bg-slate-50 text-slate-500 border-slate-200/50";
                     }
                   }
 
@@ -1103,6 +1106,59 @@ export default function SequenceVisualizer({
               </div>
             </div>
 
+          </div>
+
+          {/* Threshold Legend Bar & Data Provenance */}
+          <div className="flex flex-col gap-2 mt-2 mb-4 px-1">
+            <div className={`flex flex-wrap gap-x-6 gap-y-1.5 text-[9.5px] font-mono transition-colors ${
+              isDark ? "text-slate-400" : "text-slate-500"
+            }`}>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-[9px] uppercase tracking-wider text-indigo-500 mr-0.5">REVEL:</span>
+                <span className="w-2.5 h-2.5 rounded bg-rose-500/25 border border-rose-500/40"></span>
+                <span>Pathogenic (≥{THRESHOLDS.revel.pathogenicSupporting.toFixed(2)})</span>
+                <span className="w-2.5 h-2.5 rounded bg-amber-500/20 border border-amber-500/30"></span>
+                <span>VUS ({THRESHOLDS.revel.benign.toFixed(2)}–{THRESHOLDS.revel.pathogenicSupporting.toFixed(2)})</span>
+                <span className="w-2.5 h-2.5 rounded bg-emerald-500/15 border border-emerald-500/20"></span>
+                <span>Benign (&lt;{THRESHOLDS.revel.benign.toFixed(2)})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-[9px] uppercase tracking-wider text-purple-500 mr-0.5">AlphaMissense:</span>
+                <span className="w-2.5 h-2.5 rounded bg-rose-500/25 border border-rose-500/40"></span>
+                <span>Pathogenic (≥{THRESHOLDS.alphaMissense.pathogenicSupporting})</span>
+                <span className="w-2.5 h-2.5 rounded bg-amber-500/20 border border-amber-500/30"></span>
+                <span>VUS ({THRESHOLDS.alphaMissense.likelyBenign}–{THRESHOLDS.alphaMissense.pathogenicSupporting})</span>
+                <span className="w-2.5 h-2.5 rounded bg-emerald-500/15 border border-emerald-500/20"></span>
+                <span>Benign (&lt;{THRESHOLDS.alphaMissense.likelyBenign})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-[9px] uppercase tracking-wider text-emerald-500 mr-0.5">GERP++:</span>
+                <span className="w-2.5 h-2.5 rounded bg-emerald-500/25 border border-emerald-500/40"></span>
+                <span>High (≥{THRESHOLDS.gerp.high.toFixed(1)})</span>
+                <span className="w-2.5 h-2.5 rounded bg-amber-500/20 border border-amber-500/30"></span>
+                <span>Mod ({THRESHOLDS.gerp.moderate.toFixed(1)}–{THRESHOLDS.gerp.high.toFixed(1)})</span>
+                <span className="w-2.5 h-2.5 rounded bg-slate-500/10 border border-slate-500/25"></span>
+                <span>Low (&lt;{THRESHOLDS.gerp.moderate.toFixed(1)})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-[9px] uppercase tracking-wider text-teal-500 mr-0.5">PhyloP:</span>
+                <span className="w-2.5 h-2.5 rounded bg-emerald-500/25 border border-emerald-500/40"></span>
+                <span>High (≥{THRESHOLDS.phylop.high.toFixed(1)})</span>
+                <span className="w-2.5 h-2.5 rounded bg-amber-500/20 border border-amber-500/30"></span>
+                <span>Mod ({THRESHOLDS.phylop.moderate.toFixed(1)}–{THRESHOLDS.phylop.high.toFixed(1)})</span>
+                <span className="w-2.5 h-2.5 rounded bg-slate-500/10 border border-slate-500/25"></span>
+                <span>Low (&lt;{THRESHOLDS.phylop.moderate.toFixed(1)})</span>
+              </div>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-t pt-2 border-slate-800/10 dark:border-slate-800/60">
+              <span className={`text-[9px] font-sans italic ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                * Note: For GERP++ and PhyloP, high conservation scores indicate high vulnerability to missense disruption.
+              </span>
+              <span className={`text-[9px] font-mono tracking-wide ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                Scores sourced from dbNSFP v4.4a via MyVariant.info REST API.
+              </span>
+            </div>
           </div>
 
           {/* Interactive details or contextual details of the selected alignment coordinate */}
@@ -1163,35 +1219,142 @@ export default function SequenceVisualizer({
                                 Landscape Context
                               </span>
                             )}
-                          </div>
-                          <div className={`text-xs ${isDark ? "text-slate-400" : "text-slate-555"} flex flex-wrap gap-x-4 gap-y-1 py-1`}>
-                            <span>Properties: <strong className="text-indigo-500 font-semibold">{AMINO_ACID_MAP_FULL[activeResOpt.symbol]?.property || "N/A"}</strong></span>
+                          <div className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"} flex flex-wrap gap-x-4 gap-y-1 py-1 w-full`}>
+                            <span className="w-full mb-1">Properties: <strong className="text-indigo-500 font-semibold">{AMINO_ACID_MAP_FULL[activeResOpt.symbol]?.property || "N/A"}</strong></span>
                             {(() => {
-                              const revel = getRevelScore(activeResOpt.pos);
-                              const am = getAmScore(activeResOpt.pos);
+                              const match = landscapeMap.get(activeResOpt.pos);
                               const gerp = getGerpScore(activeResOpt.pos);
                               const phylop = getPhyloPScore(activeResOpt.pos);
-                              
+
+                              const isTarget = activeResOpt.pos === mutationIndex;
+                              const revelTarget = isTarget && conservationData?.revel !== undefined && conservationData?.revel !== null
+                                ? parseFloat(conservationData.revel)
+                                : null;
+                              const amTarget = isTarget && predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null
+                                ? parseFloat(predictorData.amPathogenicity)
+                                : null;
+
                               return (
-                                <>
-                                  {revel !== null && (
-                                    <span>REVEL (Peak): <strong className="text-indigo-500 font-mono font-bold">{revel.toFixed(3)}</strong></span>
+                                <div className="space-y-2 mt-1.5 w-full">
+                                  <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-b py-2 w-full transition-colors ${
+                                    isDark ? "border-[#3C3934]/60" : "border-[#ECEAE4]"
+                                  }`}>
+                                    {/* REVEL stats block */}
+                                    <div className="flex flex-col gap-1 text-[11px] flex-1">
+                                      <span className="font-bold text-indigo-500 uppercase tracking-wider text-[9px] font-mono">REVEL Distribution</span>
+                                      {revelTarget !== null && (
+                                        <div className="flex justify-between">
+                                          <span>Target Mutation ({mutation.wt}→{mutation.mut}):</span>
+                                          <strong className="text-indigo-500 font-mono">{revelTarget.toFixed(3)}</strong>
+                                        </div>
+                                      )}
+                                      {match ? (
+                                        <>
+                                          <div className="flex justify-between opacity-85">
+                                            <span>Positional Mean:</span>
+                                            <strong className="font-mono">{match.revelMean !== null && match.revelMean !== undefined ? match.revelMean.toFixed(3) : "N/A"}</strong>
+                                          </div>
+                                          <div className="flex justify-between opacity-85">
+                                            <span>Positional Median:</span>
+                                            <strong className="font-mono">{match.revelMedian !== null && match.revelMedian !== undefined ? match.revelMedian.toFixed(3) : "N/A"}</strong>
+                                          </div>
+                                          <div className="flex justify-between opacity-85">
+                                            <span>Range [Min - Max]:</span>
+                                            <strong className="font-mono">
+                                              {match.revelMin !== null && match.revelMin !== undefined ? match.revelMin.toFixed(2) : "N/A"} - {match.revelMax !== null && match.revelMax !== undefined ? match.revelMax.toFixed(2) : "N/A"}
+                                            </strong>
+                                          </div>
+                                          <div className="flex justify-between opacity-70 text-[10px]">
+                                            <span>Substitutions Evaluated:</span>
+                                            <span className="font-mono">{match.revelCount || 0} variants</span>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="text-slate-500 italic text-[10px]">No surrounding landscape data available</div>
+                                      )}
+                                    </div>
+
+                                    {/* AlphaMissense stats block */}
+                                    <div className="flex flex-col gap-1 text-[11px] flex-1">
+                                      <span className="font-bold text-purple-500 uppercase tracking-wider text-[9px] font-mono">AlphaMissense Distribution</span>
+                                      {amTarget !== null && (
+                                        <div className="flex justify-between">
+                                          <span>Target Mutation ({mutation.wt}→{mutation.mut}):</span>
+                                          <strong className="text-purple-500 font-mono">{amTarget.toFixed(3)}</strong>
+                                        </div>
+                                      )}
+                                      {match ? (
+                                        <>
+                                          <div className="flex justify-between opacity-85">
+                                            <span>Positional Mean:</span>
+                                            <strong className="font-mono">{match.amMean !== null && match.amMean !== undefined ? match.amMean.toFixed(3) : "N/A"}</strong>
+                                          </div>
+                                          <div className="flex justify-between opacity-85">
+                                            <span>Positional Median:</span>
+                                            <strong className="font-mono">{match.amMedian !== null && match.amMedian !== undefined ? match.amMedian.toFixed(3) : "N/A"}</strong>
+                                          </div>
+                                          <div className="flex justify-between opacity-85">
+                                            <span>Range [Min - Max]:</span>
+                                            <strong className="font-mono">
+                                              {match.amMin !== null && match.amMin !== undefined ? match.amMin.toFixed(2) : "N/A"} - {match.amMax !== null && match.amMax !== undefined ? match.amMax.toFixed(2) : "N/A"}
+                                            </strong>
+                                          </div>
+                                          <div className="flex justify-between opacity-70 text-[10px]">
+                                            <span>Substitutions Evaluated:</span>
+                                            <span className="font-mono">{match.amCount || 0} variants</span>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="text-slate-500 italic text-[10px]">No surrounding landscape data available</div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {match && (match.revelCount > 0 || match.amCount > 0) && (
+                                    <div className="pt-2">
+                                      <details className="group cursor-pointer">
+                                        <summary className={`text-[10px] font-mono uppercase select-none hover:opacity-85 transition-opacity outline-none ${
+                                          isDark ? "text-slate-400" : "text-slate-500"
+                                        }`}>
+                                          ▶ Inspect Raw dbNSFP Positional Entries ({Math.max(match.revelCount || 0, match.amCount || 0)} variants)
+                                        </summary>
+                                        <div className={`mt-2 p-2 rounded-lg border text-[9.5px] font-mono space-y-1.5 transition-all ${
+                                          isDark ? "bg-[#191816]/55 border-[#3C3934]/60 text-slate-300" : "bg-white border-[#ECEAE4] text-slate-700"
+                                        }`}>
+                                          <div className="grid grid-cols-3 font-bold opacity-80 border-b pb-1">
+                                            <span>Predictor</span>
+                                            <span>Positional Range</span>
+                                            <span>Evaluated Counts</span>
+                                          </div>
+                                          <div className="grid grid-cols-3 py-0.5 border-b border-slate-800/5 dark:border-slate-800/10">
+                                            <span className="text-indigo-500 font-bold">REVEL</span>
+                                            <span>{match.revelMean?.toFixed(3)} ({match.revelMin?.toFixed(2)} - {match.revelMax?.toFixed(2)})</span>
+                                            <span>{match.revelCount || 0} transcript variants</span>
+                                          </div>
+                                          <div className="grid grid-cols-3 py-0.5">
+                                            <span className="text-purple-500 font-bold">AlphaMissense</span>
+                                            <span>{match.amMean?.toFixed(3)} ({match.amMin?.toFixed(2)} - {match.amMax?.toFixed(2)})</span>
+                                            <span>{match.amCount || 0} transcript variants</span>
+                                          </div>
+                                        </div>
+                                      </details>
+                                    </div>
                                   )}
-                                  {am !== null && (
-                                    <span>AM (Peak): <strong className="text-purple-500 font-mono font-bold">{am.toFixed(3)}</strong></span>
-                                  )}
-                                  {gerp !== null && (
-                                    <span>GERP++: <strong className="text-emerald-505 font-mono font-bold">{gerp.toFixed(2)}</strong></span>
-                                  )}
-                                  {phylop !== null && (
-                                    <span>PhyloP: <strong className="text-teal-505 font-mono font-bold">{phylop.toFixed(2)}</strong></span>
-                                  )}
-                                </>
+
+                                  <div className="flex gap-4 text-[10.5px] font-mono py-1 opacity-90 border-t border-dashed border-slate-800/10 dark:border-slate-800/30 pt-2 mt-1">
+                                    {gerp !== null && (
+                                      <span>GERP++: <strong className="text-emerald-500">{gerp.toFixed(2)}</strong></span>
+                                    )}
+                                    {phylop !== null && (
+                                      <span>PhyloP: <strong className="text-teal-500">{phylop.toFixed(2)}</strong></span>
+                                    )}
+                                  </div>
+                                </div>
                               );
                             })()}
-                          </div>
+                          </div></div>
                            <p className={`text-[11px] leading-relaxed max-w-3xl border-t pt-2 mt-1 transition-colors ${
-                            isDark ? "text-[#B2ABA0] border-[#3C3934]" : "text-slate-650 border-[#ECEAE4]"
+                            isDark ? "text-[#B2ABA0] border-[#3C3934]" : "text-slate-600 border-[#ECEAE4]"
                           }`}>
                             {getBiophysicalConsequence(activeResOpt.symbol, activeResOpt.pos)}
                           </p>
@@ -1244,7 +1407,7 @@ export default function SequenceVisualizer({
 
                           <div className="mt-4 pt-3 border-t border-[#ECEAE4] dark:border-[#3C3934]/60">
                             <span className="text-[10px] font-bold font-mono text-indigo-500 uppercase tracking-wider block mb-3">
-                              Substitutional Class Impact Profiles (Expected Predictor Ranges)
+                              Substitutional Class Impact Profiles
                             </span>
                             <div className="flex flex-col gap-2 w-full">
                               {getSubstitutionalConsequences(activeResOpt.symbol, activeResOpt.pos).map((g, idx) => {
@@ -1284,18 +1447,6 @@ export default function SequenceVisualizer({
                                         {g.consequence}
                                       </p>
                                     </div>
-
-                                    <div className="flex flex-col gap-1.5 w-full md:w-[260px] shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-[#ECEAE4] dark:border-[#3C3934]/60">
-                                      <div className="flex items-center justify-between text-[8.5px] font-mono opacity-80">
-                                        <span>REVEL Range</span>
-                                      </div>
-                                      <PathogenicitySlider expectedRange={g.expectedRevel} color={barColor} />
-                                      
-                                      <div className="flex items-center justify-between text-[8.5px] font-mono opacity-80 mt-1">
-                                        <span>AlphaMissense Range</span>
-                                      </div>
-                                      <PathogenicitySlider expectedRange={g.expectedAm} color={barColor} />
-                                    </div>
                                   </div>
                                 );
                               })}
@@ -1303,7 +1454,7 @@ export default function SequenceVisualizer({
                           </div>
                         </div>
                       ) : (
-                        <p className={`text-xs ${isDark ? "text-[#B2ABA0]" : "text-slate-650"}`}>
+                        <p className={`text-xs ${isDark ? "text-[#B2ABA0]" : "text-slate-600"}`}>
                           Wild-type <strong className="text-emerald-500 font-semibold">{AMINO_ACID_MAP_FULL[mutation.wt]?.name || mutation.wt}</strong> at index #{mutationIndex} substituted with <strong className="text-rose-500 font-semibold">{AMINO_ACID_MAP_FULL[mutation.mut]?.name || mutation.mut}</strong>.
                         </p>
                       )}

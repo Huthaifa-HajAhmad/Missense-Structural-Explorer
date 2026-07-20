@@ -5,6 +5,7 @@ import { DefaultPluginUISpec } from "molstar/lib/mol-plugin-ui/spec";
 import "molstar/lib/mol-plugin-ui/skin/light.scss";
 import { useSettings } from "../context/SettingsContext";
 import { pocketFinderResponseSchema } from "../useVariantAnalysis";
+import { useVariantAnalysisContext } from "../context/VariantAnalysisContext";
 
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
@@ -182,11 +183,11 @@ function isValidPdbUrl(url: string): boolean {
 
 // Declare custom property to store selection status or custom controls if needed
 interface MolstarViewerProps {
-  uniprotId: string;
   residueIndex: number | null;
-  gene: string;
-  customPdbUrl?: string;
   customPdbData?: string;
+  customPdbUrl?: string;
+  uniprotId?: string;
+  gene?: string;
   showPolarContacts?: boolean;
   theme?: "dark" | "light";
   onResidueHover?: (index: number | null) => void;
@@ -199,23 +200,17 @@ interface MolstarViewerProps {
     title: string;
     description: string;
   } | null;
+  mutantStatus?: string | null;
+  mutantDdG?: number | null;
+  heightClass?: string;
+  variant?: string;
   residueColorHex?: number;
   cameraDuration?: number;
   autoZoomOnSelect?: boolean;
   neonHighContrast?: boolean;
-  mutantStatus?: "success" | "scwrl" | null;
-  mutantDdG?: number | null;
-  heightClass?: string;
-  variant?: string;
-  energyUnit?: "kcal/mol" | "kJ/mol";
-  fetchNearestResidues?: (
-    uniprotId: string,
-    variant: string,
-    residueIndex: number,
-    pdbText: string,
-    signal?: AbortSignal
-  ) => Promise<void>;
-  onPdbTextLoaded?: (pdbText: string | null) => void;
+  energyUnit?: string;
+  fetchNearestResidues?: any;
+  onPdbTextLoaded?: (text: string) => void;
   computedPocket?: PocketResult | null;
   isPocketLoading?: boolean;
   pocketError?: string | null;
@@ -224,35 +219,17 @@ interface MolstarViewerProps {
 }
 
 export default function MolstarViewer({ 
-  uniprotId, 
   residueIndex, 
-  gene, 
-  customPdbUrl, 
   customPdbData, 
-  showPolarContacts: showPolarContactsProp, 
-  theme,
-  onResidueHover,
   onResidueClick,
   comparePdbData,
   compareResidueIndex,
   compareVariant,
   disruptionWarning,
-  residueColorHex: residueColorHexProp,
-  cameraDuration: cameraDurationProp,
-  autoZoomOnSelect: autoZoomOnSelectProp,
-  neonHighContrast: neonHighContrastProp,
   mutantStatus,
   mutantDdG,
   heightClass,
-  variant,
-  energyUnit,
-  fetchNearestResidues,
-  onPdbTextLoaded,
-  computedPocket,
-  isPocketLoading,
-  pocketError,
-  pdbId,
-  pdbSource
+  variant
 }: MolstarViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pluginRef = useRef<any>(null);
@@ -263,7 +240,7 @@ export default function MolstarViewer({
   
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [plddtFilter, setPlddtFilter] = useState<"none" | "50" | "70">("none");
+  const [plddtFilter, setPlddtFilter] = useState<"none" | "30" | "50" | "70">("none");
   const [templateSource, setTemplateSource] = useState<"experimental" | "alphafold" | null>(null);
   const [pluginsReadyState, setPluginsReadyState] = useState<number>(0);
   const [pluginCreated, setPluginCreated] = useState<boolean>(false);
@@ -284,21 +261,30 @@ export default function MolstarViewer({
   const [warningClicked, setWarningClicked] = useState(false);
 
   const { theme: contextTheme, settings, showPolarContacts: contextShowPolarContacts } = useSettings();
-  const isDark = (theme || contextTheme) !== "light";
-  const showPolarContacts = showPolarContactsProp !== undefined ? showPolarContactsProp : contextShowPolarContacts;
-  const residueColorHex = residueColorHexProp !== undefined 
-    ? residueColorHexProp 
-    : parseInt((settings.residueColor || "#F97316").replace("#", ""), 16);
-  const cameraDuration = cameraDurationProp !== undefined 
-    ? cameraDurationProp 
-    : settings.cameraDuration;
-  const autoZoomOnSelect = autoZoomOnSelectProp !== undefined 
-    ? autoZoomOnSelectProp 
-    : settings.autoZoomOnSelect;
-  const neonHighContrast = neonHighContrastProp !== undefined 
-    ? neonHighContrastProp 
-    : settings.neonHighContrast;
+  const analysisContext = useVariantAnalysisContext();
+  const { state: analysisState, actions: analysisActions } = analysisContext;
+
+  // Extract shared variables from context (F-A3)
+  const uniprotId = analysisState.uniprotId;
+  const gene = analysisState.gene;
+  const customPdbUrl = analysisState.customPdbUrl;
+  const onResidueHover = analysisActions.setHoveredResidueIndex;
+  const fetchNearestResidues = analysisActions.fetchNearestResidues;
+  const onPdbTextLoaded = analysisActions.setPdbText;
+  const computedPocket = analysisState.computedPocket;
+  const isPocketLoading = analysisState.isPocketLoading;
+  const pocketError = analysisState.pocketError;
+  const pdbId = analysisState.analysisState.result?.metadata?.pdbId;
+  const pdbSource = analysisState.analysisState.result?.metadata?.pdbSource;
+
+  const isDark = contextTheme !== "light";
+  const showPolarContacts = contextShowPolarContacts;
+  const residueColorHex = parseInt((settings.residueColor || "#F97316").replace("#", ""), 16);
+  const cameraDuration = settings.cameraDuration;
+  const autoZoomOnSelect = settings.autoZoomOnSelect;
+  const neonHighContrast = settings.neonHighContrast;
   const show3DLabels = settings.show3DLabels !== undefined ? settings.show3DLabels : true;
+  const energyUnit = settings.energyUnit;
 
   // Mode transition visual state
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
@@ -307,6 +293,7 @@ export default function MolstarViewer({
   const [showPocket, setShowPocket] = useState<boolean>(false);
   const [isPocketPanelOpen, setIsPocketPanelOpen] = useState<boolean>(false);
   const pocketComponentRefRef = useRef<any[]>([]);
+  const [viewerStyle, setViewerStyle] = useState<"confidence" | "biomolecular">("confidence");
 
   const [pocketErrorLocal, setPocketErrorLocal] = useState<string | null>(null);
   const setPocketError = setPocketErrorLocal;
@@ -330,11 +317,13 @@ export default function MolstarViewer({
         return;
       }
       const headers: Record<string, string> = {};
-      if (settings?.geminiSessionId) {
-        headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
-      }
-      if (settings?.appApiToken) {
-        headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+      if (!pdbUrl.startsWith("http://") && !pdbUrl.startsWith("https://")) {
+        if (settings?.geminiSessionId) {
+          headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+        }
+        if (settings?.appApiToken) {
+          headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+        }
       }
       let templateSrc: "experimental" | "alphafold" | null = null;
       fetch(pdbUrl, { headers })
@@ -875,13 +864,15 @@ export default function MolstarViewer({
             console.log(`Molstar downloading pdb structure from proxy: ${pdbUrl}`);
           }
 
-          // Fetch PDB coordinates using authenticated headers first
+          // Fetch PDB coordinates using authenticated headers only for internal proxies
           const headers: Record<string, string> = {};
-          if (settings?.geminiSessionId) {
-            headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
-          }
-          if (settings?.appApiToken) {
-            headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+          if (!pdbUrl.startsWith("http://") && !pdbUrl.startsWith("https://")) {
+            if (settings?.geminiSessionId) {
+              headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
+            }
+            if (settings?.appApiToken) {
+              headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+            }
           }
           const fetchRes = await fetch(pdbUrl, { headers });
           if (!fetchRes.ok) {
@@ -923,11 +914,56 @@ export default function MolstarViewer({
           }
         }
 
-        // Apply standard auto representation preset for robust loading/coloring representation
-        // utilizing the built-in 'plddt-confidence' color theme (AlphaFold uses B-factor for pLDDT)
-        await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
-          theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
-        });
+        if (viewerStyle === "biomolecular") {
+          // 1. Protein component -> cartoon representation in cyan
+          const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+          if (proteinComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
+              type: 'cartoon',
+              color: 'uniform',
+              colorParams: { value: Color(0x00bcd4) } // Cyan
+            });
+          }
+
+          // 2. Nucleic component (DNA/RNA) -> cartoon & sticks in gray
+          const nucleicComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'nucleic');
+          if (nucleicComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
+              type: 'cartoon',
+              color: 'uniform',
+              colorParams: { value: Color(0x888888) } // Gray
+            });
+            await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
+              type: 'ball-and-stick',
+              color: 'uniform',
+              colorParams: { value: Color(0x999999) }
+            });
+          }
+
+          // 3. Ligand component -> ball-and-stick colored by element
+          const ligandComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'ligand');
+          if (ligandComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(ligandComp, {
+              type: 'ball-and-stick',
+              color: 'element-symbol'
+            });
+          }
+
+          // 4. Ion component -> spacefill colored by element
+          const ionComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'ion');
+          if (ionComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(ionComp, {
+              type: 'spacefill',
+              color: 'element-symbol'
+            });
+          }
+        } else {
+          // Apply standard auto representation preset for robust loading/coloring representation
+          // utilizing the built-in 'plddt-confidence' color theme (AlphaFold uses B-factor for pLDDT)
+          await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
+            theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
+          });
+        }
 
         // Load comparison model if available (superimposing)
         if (comparePdbData) {
@@ -979,7 +1015,10 @@ export default function MolstarViewer({
       } catch (err: any) {
         console.error("Molstar structure loading failed:", err);
         if (active) {
-          setLoadError(`Failed to load 3D coordinates for AlphaFold model AF-${uniprotId}. Please verify UniProt accession validity.`);
+          const modelName = customPdbUrl 
+            ? `PDB model (${customPdbUrl.split('/').pop() || customPdbUrl})` 
+            : `AlphaFold model AF-${uniprotId}`;
+          setLoadError(`Failed to load 3D coordinates for ${modelName}. Please verify accession/model validity.`);
           setLoading(false);
           setIsTransitioning(false);
         }
@@ -998,7 +1037,7 @@ export default function MolstarViewer({
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource, viewerStyle]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -1321,9 +1360,7 @@ export default function MolstarViewer({
   };
 
   return (
-    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} bg-slate-950 rounded-xl overflow-hidden shadow-inner border transition-all flex flex-col ${
-      isDark ? "border-slate-800" : "border-slate-200 shadow-[0_4px_16px_rgba(0,0,0,0.06)]"
-    }`}>
+    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} flex flex-col overflow-hidden transition-all`}>
       {/* Loading Overlay */}
       {loading && (
         <div className={`absolute inset-0 z-10 flex flex-col items-center justify-center p-6 backdrop-blur-sm transition-colors ${
@@ -1333,7 +1370,7 @@ export default function MolstarViewer({
           <p className="text-indigo-500 font-mono text-sm tracking-widest uppercase animate-pulse">
             {customPdbData ? "Rendering Mutant Structure..." : "Fetching AlphaFold Coordinates..."}
           </p>
-          <p className={`text-xs mt-2 text-center max-w-sm ${isDark ? "text-slate-400" : "text-slate-650"}`}>
+          <p className={`text-xs mt-2 text-center max-w-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>
             {customPdbData 
               ? `Processing custom 3D mutant biophysical simulation via local FoldX engine...`
               : `Downloading 3D PDB structure for UniProt accession: ${uniprotId}`}
@@ -1344,22 +1381,24 @@ export default function MolstarViewer({
       {/* Error Overlay */}
       {loadError && (
         <div className={`absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm ${
-          isDark ? "bg-[#111827]/90 text-rose-450" : "bg-slate-50/90 text-rose-600"
+          isDark ? "bg-[#111827]/90 text-rose-500" : "bg-slate-50/90 text-rose-600"
         }`}>
           <svg className="w-12 h-12 mb-3 stroke-current" fill="none" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <p className={`font-semibold text-lg mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>Structure Unavailable</p>
-          <p className={`text-sm max-w-md mb-4 ${isDark ? "text-slate-400" : "text-slate-650"}`}>{loadError}</p>
+          <p className={`text-sm max-w-md mb-4 ${isDark ? "text-slate-400" : "text-slate-600"}`}>{loadError}</p>
           <div className={`text-xs p-3 rounded text-left font-mono max-w-md w-full overflow-hidden border ${
             isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500"
           }`}>
              Source: <span className="text-rose-500 break-all font-semibold">
               {customPdbData 
                 ? "Target FoldX Mutated Output" 
-                : pdbSource === "RCSB PDB" && pdbId 
-                  ? `RCSB PDB (ID: ${pdbId.toUpperCase()})` 
-                  : `AlphaFold DB v4 (AF-${uniprotId})`}
+                : customPdbUrl
+                  ? `Custom PDB Model (${customPdbUrl.split('/').pop() || customPdbUrl})`
+                  : pdbSource === "RCSB PDB" && pdbId 
+                    ? `RCSB PDB (ID: ${pdbId.toUpperCase()})` 
+                    : `AlphaFold DB v4 (AF-${uniprotId})`}
             </span>
           </div>
         </div>
@@ -1464,7 +1503,7 @@ export default function MolstarViewer({
               {/* Expanded body */}
               {!foldxBannerCollapsed && (
                 <div className={`px-3 pb-2.5 pt-0 text-[10px] font-mono border-t ${
-                  isDark ? "border-slate-800/40 text-slate-350" : "border-slate-200/60 text-slate-650"
+                  isDark ? "border-slate-800/40 text-slate-350" : "border-slate-200/60 text-slate-600"
                 }`}>
                   <p className="leading-relaxed mt-1.5">
                     <strong>Biophysically Repacked:</strong> Side-chain coordinates reflect local FoldX force-field energy minimisation.
@@ -1484,59 +1523,14 @@ export default function MolstarViewer({
                 </div>
               )}
             </div>
-          ) : mutantStatus === "scwrl" && showWarningCard ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setFoldxBannerCollapsed(p => !p)}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors ${
-                  isDark ? "hover:bg-slate-800/55" : "hover:bg-slate-100/50"
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3 h-3 text-amber-500 shrink-0 animate-pulse" />
-                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-amber-500">SCWRL4 Fallback</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  {foldxBannerCollapsed
-                    ? <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                    : <ChevronUp className="w-3 h-3 text-slate-400 shrink-0" />}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setShowWarningCard(false); }}
-                    className="ml-1 p-0.5 rounded hover:bg-slate-500/20 cursor-pointer"
-                  >
-                    <X className="w-3 h-3 text-slate-400" />
-                  </button>
-                </div>
-              </button>
-              {!foldxBannerCollapsed && (
-                <div className={`px-3 pb-2.5 pt-0 text-[10px] font-mono border-t ${
-                  isDark ? "border-slate-800/40 text-slate-350" : "border-slate-200/60 text-slate-650"
-                }`}>
-                  <p className="leading-relaxed mt-1.5">
-                    <strong>SCWRL4 Packed:</strong> Side-chain rotamers packed as fallback. Stability energy (ΔΔG) not available.
-                  </p>
-                  {templateSource === "alphafold" ? (
-                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-bold w-fit font-sans">
-                      confidence: inherited from WT
-                    </div>
-                  ) : templateSource === "experimental" ? (
-                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold w-fit font-sans">
-                      no AF confidence (experimental template)
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
           ) : null}
         </div>
       )}
       {/* Bottom bar: Model Status info + actions all in one aligned bar below the viewport */}
       <div className={`flex flex-col md:flex-row items-center justify-between gap-3 px-4 py-3 border-t z-10 transition-colors pointer-events-auto ${
         isDark 
-          ? "bg-[#0b0f19] border-slate-800/80 text-slate-350" 
-          : "bg-slate-50 border-slate-200 text-slate-650"
+          ? "bg-[#0b0f19] border-slate-800 text-slate-350" 
+          : "bg-slate-50 border-slate-200 text-slate-600 shadow-sm"
       }`}>
         {/* Left: Model Info (Pills/Capsules style instead of vertical dividers) */}
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
@@ -1604,12 +1598,33 @@ export default function MolstarViewer({
 
         {/* Right: Actions (PLDDT Filter, Fullscreen, Capture, Pocket Finder) */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Representation Style Selector */}
+          <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none font-mono">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden md:inline">
+              Representation:
+            </span>
+            <select
+              value={viewerStyle}
+              onChange={(e) => setViewerStyle(e.target.value as "confidence" | "biomolecular")}
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
+                isDark 
+                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
+                  : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+              }`}
+            >
+              <option value="confidence">pLDDT / B-factor</option>
+              <option value="biomolecular">Cartoon & Sticks</option>
+            </select>
+          </div>
+
           {templateSource === "alphafold" && (
             <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none font-mono">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden md:inline">pLDDT Filter:</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden md:inline">
+                pLDDT Filter:
+              </span>
               <select
                 value={plddtFilter}
-                onChange={(e) => setPlddtFilter(e.target.value as "none" | "50" | "70")}
+                onChange={(e) => setPlddtFilter(e.target.value as "none" | "30" | "50" | "70")}
                 className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
                   isDark 
                     ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
@@ -1783,7 +1798,7 @@ export default function MolstarViewer({
                     <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Centroid Dist.</span>
                     <strong className={`text-[13.5px] block mt-0.5 ${
                       computedPocket.pocketDistance !== null && computedPocket.pocketDistance < 10
-                        ? "text-rose-455"
+                        ? "text-rose-500"
                         : "text-indigo-400"
                     }`}>
                       {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
@@ -1794,7 +1809,7 @@ export default function MolstarViewer({
 
                   <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
                     <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Lining residues</span>
-                    <strong className="text-[13.5px] text-emerald-450 block mt-0.5">{computedPocket.pocketResidues?.length || 0}</strong>
+                    <strong className="text-[13.5px] text-emerald-500 block mt-0.5">{computedPocket.pocketResidues?.length || 0}</strong>
                   </div>
                 </div>
 
