@@ -125,30 +125,28 @@ function getTabStatus(
   return "pending";
 }
 
-/** Render filled indicator dot for completed steps, spinner for in-progress, and hollow dot for pending */
+/** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */
 function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "complete") {
     return (
-      <span
-        className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 inline-block shadow-sm"
-        title="Complete"
-        aria-label="Complete"
-      />
+      <span className="relative flex h-2.5 w-2.5 items-center justify-center shrink-0" title="Complete" aria-label="Complete">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
+      </span>
     );
   }
   if (status === "progress") {
     return (
       <span
-        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress flex-shrink-0"
+        className="w-2.5 h-2.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin shrink-0 inline-block"
         role="status"
         aria-label="In progress"
       />
     );
   }
   return (
-    <Circle
-      className="cs-step-icon-not-started flex-shrink-0 opacity-40"
-      style={{ width: 10, height: 10 }}
+    <span
+      className="w-2 h-2 rounded-full border border-slate-400 dark:border-slate-600 bg-transparent shrink-0 inline-block opacity-50"
       aria-label="Not started"
     />
   );

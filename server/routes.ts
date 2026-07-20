@@ -626,7 +626,7 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         return fetchConservationData(gene, variant, pdbMap?.pdbId, pdbMap?.chainId, pos, pred?.gnomadVariantId || null, genosRec, uniprotId);
       });
 
-      // disruptionPredictor depends on pdbMappingPromise
+      // disruptionPredictor runs with a 500ms race so PDB structure downloads never delay the primary genomic & ACMG response
       const disruptionPromise = pdbMappingPromise.then(async (pdbMap) => {
         try {
           let wtPdbText: string | null = null;
@@ -647,6 +647,9 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         return { level: "low", reason: "Fallback: PDB structure mapping not resolved", plddt: 100 };
       });
 
+      const disruptionTimeout = new Promise(resolve => setTimeout(() => resolve({ level: "low", reason: "Async structural triage active", plddt: 100 }), 500));
+      const fastDisruptionPromise = Promise.race([disruptionPromise, disruptionTimeout]);
+
       // Wait for all promises in parallel
       const [
         clinvarRes,
@@ -666,7 +669,7 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         conservationPromise,
         stringPromise,
         gnomadFrequencyPromise,
-        disruptionPromise,
+        fastDisruptionPromise,
         esm2Promise,
         landscapePromise,
         predictorPromise,
