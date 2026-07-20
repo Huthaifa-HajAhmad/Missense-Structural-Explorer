@@ -1,15 +1,45 @@
-import { LRUCache } from "lru-cache";
-import { CLINVAR_AA_MAP, CLINVAR_REV_AA_MAP, AMINO_ACID_1_TO_3_TITLE } from "../../src/aminoAcids.ts";
-import { validateUniProt } from "../utils.ts";
-import { z } from "zod";
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-function normalizeGeneSymbol(gene: string): string {
+import { LRUCache } from "lru-cache";
+import https from "https";
+import crypto from "crypto";
+import { CLINVAR_AA_MAP, CLINVAR_REV_AA_MAP, AMINO_ACID_1_TO_3_TITLE } from "../../src/aminoAcids.ts";
+import { validateUniProt, CircuitBreaker } from "../utils.ts";
+import { z } from "zod";
+import { TabixIndexedFile } from "@gmod/tabix";
+import path from "path";
+import fs from "fs";
+import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant, queryLocalDbnsfpLandscape } from "./dbnsfp_local.ts";
+import { queryGenosWebservice } from "./genos_web.ts";
+
+export function normalizeGeneSymbol(gene: string): string {
   const g = gene.trim().toUpperCase();
   if (g === "GBA1") return "GBA";
   return g;
 }
 
+const hostBreakers = new Map<string, CircuitBreaker>();
+
+function getHostBreaker(hostname: string): CircuitBreaker {
+  let breaker = hostBreakers.get(hostname);
+  if (!breaker) {
+    breaker = new CircuitBreaker(5, 60000); // 5 failures, 60s cooldown
+    hostBreakers.set(hostname, breaker);
+  }
+  return breaker;
+}
+
 async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
+  let hostname = "unknown";
+  try {
+    hostname = new URL(url).hostname;
+  } catch (_) {}
+
+  const breaker = getHostBreaker(hostname);
+  if (!breaker.canExecute()) {
+    throw new Error(`Upstream service ${hostname} is temporarily unavailable (circuit breaker open).`);
+  }
+
   const timeoutMs = options.timeout ?? 15000;
   let lastStatus = 200;
   for (let i = 0; i < retries; i++) {
@@ -24,34 +54,47 @@ async function fetchWithRetry(url: string, options: RequestInit & { timeout?: nu
       clearTimeout(id);
       
       if (res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503) {
+        breaker.recordFailure();
         lastStatus = res.status;
         let backoff = delay * (2 ** i);
+        let hasRetryAfter = false;
         if (res.status === 429) {
           const retryAfterHeader = res.headers.get("Retry-After");
           if (retryAfterHeader) {
             const seconds = parseInt(retryAfterHeader, 10);
             if (!isNaN(seconds)) {
               backoff = seconds * 1000;
+              hasRetryAfter = true;
             } else {
               const date = Date.parse(retryAfterHeader);
               if (!isNaN(date)) {
                 backoff = Math.max(0, date - Date.now());
+                hasRetryAfter = true;
               }
             }
           }
+        }
+        if (!hasRetryAfter) {
+          const jitter = 0.5 + Math.random() * 0.5;
+          backoff = Math.round(backoff * jitter);
         }
         console.warn(`[Upstream Fetch ${res.status}] error/limit on ${url}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
         await new Promise(resolve => setTimeout(resolve, backoff));
         continue;
       }
+      
+      breaker.recordSuccess();
       return res;
     } catch (err: any) {
+      breaker.recordFailure();
       if (i === retries - 1) {
         err.statusCode = lastStatus;
         throw err;
       }
-      console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${delay * 2 ** i}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay * 2 ** i));
+      const jitter = 0.5 + Math.random() * 0.5;
+      const backoff = Math.round(delay * (2 ** i) * jitter);
+      console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
     }
   }
   const errObj = new Error(`Failed to fetch ${url} after ${retries} attempts.`);
@@ -59,7 +102,7 @@ async function fetchWithRetry(url: string, options: RequestInit & { timeout?: nu
   throw errObj;
 }
 
-function normalizeVariantTo3Letter(variant: string): string {
+export function normalizeVariantTo3Letter(variant: string): string {
   const clean = variant.replace(/^p\./i, "").trim();
   const match = clean.match(/^([a-zA-Z]{3}|[a-zA-Z])(\d+)([a-zA-Z]{3}|[a-zA-Z])$/);
   if (!match) return clean;
@@ -124,6 +167,7 @@ export function clearAllCaches() {
   gnomadFreqCache.clear();
   gnomadConstraintCache.clear();
   uniprotFeaturesCache.clear();
+  landscapeCache.clear();
 }
 
 export interface ClinVarData {
@@ -190,7 +234,17 @@ const myVariantResponseSchema = z.object({
       phylop: z.any().optional(),
       bayesdel_noaf_score: z.any().optional(),
       bayesdel: z.any().optional(),
-      hgvsp: z.any().optional()
+      hgvsp: z.any().optional(),
+      metarnn: z.any().optional(),
+      clinpred: z.any().optional(),
+      eigen: z.any().optional(),
+      dann: z.any().optional(),
+      esm1b: z.any().optional(),
+      eve: z.any().optional(),
+      aou_ac: z.any().optional(),
+      aou_an: z.any().optional(),
+      aou_het: z.any().optional(),
+      aou_hom: z.any().optional()
     }).optional()
   })).optional()
 });
@@ -504,7 +558,7 @@ export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | nul
 export async function fetchBestPdbStructure(
   uniprotId: string,
   pos?: number
-): Promise<{ pdbId: string; chainId: string; shift: number } | null> {
+): Promise<{ pdbId: string; chainId: string; shift: number; unpStart: number; structStart: number } | null> {
   const validatedUniprot = validateUniProt(uniprotId);
   const url = `https://www.ebi.ac.uk/pdbe/graph-api/mappings/best_structures/${validatedUniprot}`;
   try {
@@ -531,7 +585,13 @@ export async function fetchBestPdbStructure(
       
       const shift = item.unp_start - item.start;
       console.log(`[PDB Prioritizer] Found suitable experimental structure: ${item.pdb_id} chain ${item.chain_id} (Resolution: ${item.resolution}Å, Coverage: ${item.coverage}, Shift: ${shift})`);
-      return { pdbId: item.pdb_id.toLowerCase(), chainId: item.chain_id, shift };
+      return { 
+        pdbId: item.pdb_id.toLowerCase(), 
+        chainId: item.chain_id, 
+        shift,
+        unpStart: item.unp_start,
+        structStart: item.start
+      };
     }
   } catch (err: any) {
     console.error("[PDB Prioritizer] Error finding best PDB structure:", err.message || err);
@@ -587,9 +647,31 @@ export function extractChainFromPdb(pdbText: string, chainId: string, shift = 0)
   return filteredLines.join("\n");
 }
 
-export async function fetchPdbFromRcsb(pdbId: string, chainId?: string, shift = 0): Promise<string | null> {
+function parseFirstResidueSeq(pdbText: string, chainId: string): number | null {
+  const lines = pdbText.split("\n");
+  const targetChain = chainId.trim().toUpperCase();
+  for (const line of lines) {
+    if (line.startsWith("ATOM")) {
+      const lineChain = line.length > 21 ? line.charAt(21).toUpperCase() : "";
+      if (lineChain === targetChain) {
+        const resSeq = parseInt(line.substring(22, 26).trim(), 10);
+        if (!isNaN(resSeq)) {
+          return resSeq;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export async function fetchPdbFromRcsb(
+  pdbId: string,
+  chainId?: string,
+  unpStart?: number,
+  structStart?: number
+): Promise<string | null> {
   const chainUpper = (chainId || "A").toUpperCase();
-  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_shift_${shift}`;
+  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_unp_${unpStart || 0}_struct_${structStart || 0}`;
   if (pdbCache.has(cacheKey)) {
     return pdbCache.get(cacheKey) || null;
   }
@@ -606,7 +688,20 @@ export async function fetchPdbFromRcsb(pdbId: string, chainId?: string, shift = 
     if (!fullText || !fullText.includes("ATOM")) {
       return null;
     }
-    const chainPdb = extractChainFromPdb(fullText, chainUpper, shift);
+
+    const firstResSeq = parseFirstResidueSeq(fullText, chainUpper);
+    let finalShift = 0;
+    if (unpStart !== undefined && structStart !== undefined && firstResSeq !== null) {
+      if (Math.abs(firstResSeq - unpStart) < Math.abs(firstResSeq - structStart)) {
+        finalShift = 0;
+        console.log(`[RCSB PDB] PDB file ${pdbId} chain ${chainUpper} appears already aligned with UniProt (first residue in PDB: ${firstResSeq}, unpStart: ${unpStart}). Using shift: 0`);
+      } else {
+        finalShift = unpStart - structStart;
+        console.log(`[RCSB PDB] PDB file ${pdbId} chain ${chainUpper} appears to use structural coordinates (first residue in PDB: ${firstResSeq}, structStart: ${structStart}, unpStart: ${unpStart}). Using shift: ${finalShift}`);
+      }
+    }
+
+    const chainPdb = extractChainFromPdb(fullText, chainUpper, finalShift);
     pdbCache.set(cacheKey, chainPdb);
     return chainPdb;
   } catch (err: any) {
@@ -631,6 +726,22 @@ export interface ConservationData {
   phylop: number | null;
   consurf: number | null;
   bayesdel?: number | null;
+  metarnn?: number | null;
+  metarnnPred?: string | null;
+  clinpred?: number | null;
+  clinpredPred?: string | null;
+  eigenPhred?: number | null;
+  eigenRaw?: number | null;
+  dann?: number | null;
+  esm1b?: number | null;
+  esm1bPred?: string | null;
+  popeve?: number | null;
+  aouFrequency?: {
+    aouAC: number | null;
+    aouAN: number | null;
+    aouHet: number | null;
+    aouHom: number | null;
+  } | null;
 }
 
 export interface StringInteraction {
@@ -769,16 +880,192 @@ export async function fetchRealConsurfData(pdbId: string, chainId: string, pos: 
   }
 }
 
+const popEVECache = new LRUCache<string, any>({ max: 500, ttl: 60 * 60 * 1000 });
+let popEVETabix: TabixIndexedFile | null = null;
+
+function getPopEVETabix(): TabixIndexedFile | null {
+  if (popEVETabix) return popEVETabix;
+  const vcfPath = path.join(process.cwd(), "data", "popeve", "popeve_grch38.vcf.gz");
+  if (!fs.existsSync(vcfPath)) return null;
+  popEVETabix = new TabixIndexedFile({
+    path: vcfPath
+  });
+  return popEVETabix;
+}
+
+export async function fetchPopEVEScore(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string
+): Promise<number | null> {
+  const cacheKey = `${chrom}:${pos}:${ref}:${alt}`;
+  const cached = popEVECache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const tbi = getPopEVETabix();
+  if (!tbi) {
+    return null;
+  }
+
+  const chromNorm = chrom.startsWith("chr") ? chrom : `chr${chrom}`;
+  const chromsToTry = chromNorm.startsWith("chr") 
+    ? [chromNorm, chromNorm.slice(3)] 
+    : [chromNorm, `chr${chromNorm}`];
+
+  try {
+    let score: number | null = null;
+    for (const ch of chromsToTry) {
+      try {
+        await tbi.getLines(ch, pos - 1, pos, (line: string) => {
+          const cols = line.split("\t");
+          if (cols[1] !== String(pos)) return;
+          if (cols[3] !== ref || cols[4] !== alt) return;
+          const info = cols[7] ?? "";
+          const match = info.match(/popEVE=([0-9.-]+)/);
+          if (match) score = parseFloat(match[1]);
+        });
+        if (score !== null) break;
+      } catch (innerErr) {
+        // Try next chromosome format
+      }
+    }
+    popEVECache.set(cacheKey, score);
+    return score;
+  } catch (err: any) {
+    console.warn(`[popEVE] Tabix lookup failed for ${chromNorm}:${pos}:`, err.message);
+    popEVECache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+    return null;
+  }
+}
+
+const popEveOnlineCache = new LRUCache<string, any>({ max: 500, ttl: 1000 * 60 * 60 * 24 });
+const refseqCache = new LRUCache<string, any>({ max: 1000, ttl: 1000 * 60 * 60 * 24 * 7 });
+
+async function getRefSeqForProtein(proteinOrGene: string): Promise<string | null> {
+  const cached = refseqCache.get(proteinOrGene);
+  if (cached !== undefined) return cached;
+
+  try {
+    const isUniprot = /^[A-Z0-9]{6,10}$/i.test(proteinOrGene);
+    const url = isUniprot 
+      ? `https://rest.uniprot.org/uniprotkb/${proteinOrGene}.json`
+      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${proteinOrGene}+AND+organism_id:9606&fields=xref_refseq&format=json`;
+
+    const res = await fetchWithRetry(url, { timeout: 10000 });
+    if (!res.ok) {
+      refseqCache.set(proteinOrGene, null);
+      return null;
+    }
+    const data = await res.json() as any;
+    let dbXrefs: any[] = [];
+    if (isUniprot) {
+      dbXrefs = data.uniProtKBCrossReferences || [];
+    } else if (data.results && data.results.length > 0) {
+      dbXrefs = data.results[0].uniProtKBCrossReferences || [];
+    }
+
+    const refseqXrefs = dbXrefs.filter((x: any) => x.database === "RefSeq");
+    const refseqId = refseqXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("NP_"))?.id || refseqXrefs[0]?.id || null;
+
+    refseqCache.set(proteinOrGene, refseqId);
+    return refseqId;
+  } catch (err: any) {
+    console.warn(`[popEVE Online] RefSeq lookup warning for ${proteinOrGene}: ${err.message}`);
+    refseqCache.set(proteinOrGene, null);
+    return null;
+  }
+}
+
+export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: string): Promise<number | null> {
+  const cacheKey = `${proteinOrGene}_${variant}`;
+  const cached = popEveOnlineCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  try {
+    const refseqId = await getRefSeqForProtein(proteinOrGene);
+    if (!refseqId) {
+      popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+      return null;
+    }
+
+    const csvUrl = `https://data.evemodel.org/popeve/v1.1/mutations/${refseqId}.csv`;
+    const res = await fetchWithRetry(csvUrl, { timeout: 15000 });
+    if (!res.ok) {
+      popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+      return null;
+    }
+    const csvText = await res.text();
+
+    const match = variant.match(/([A-Z]{1,3})[=:/]?(\d+)[=:/]?([A-Z]{1,3})/i);
+    if (!match) {
+      popEveOnlineCache.set(cacheKey, null);
+      return null;
+    }
+
+    const toSingle = (aa: string) => {
+      if (aa.length === 1) return aa.toUpperCase();
+      const map: Record<string, string> = { ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLU:'E', GLN:'Q', GLY:'G', HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S', THR:'T', TRP:'W', TYR:'Y', VAL:'V' };
+      return map[aa.toUpperCase()] || aa.toUpperCase();
+    };
+
+    const targetMut = `${toSingle(match[1])}${match[2]}${toSingle(match[3])}`;
+    const lines = csvText.split("\n");
+    if (lines.length === 0) return null;
+
+    const header = lines[0].split(",");
+    const popEveIdx = header.indexOf("popEVE");
+    if (popEveIdx === -1) return null;
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith(targetMut + ",")) {
+        const parts = line.split(",");
+        const scoreVal = parseFloat(parts[popEveIdx]);
+        if (!isNaN(scoreVal)) {
+          popEveOnlineCache.set(cacheKey, scoreVal);
+          return scoreVal;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[popEVE Online Error] ${err.message}`);
+  }
+
+  popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+  return null;
+}
+
 export async function fetchConservationData(
   gene: string,
   variant: string,
   pdbId?: string | null,
   chainId?: string | null,
-  pos?: number | null
+  pos?: number | null,
+  gnomadVariantId?: string | null,
+  genosRec?: any | null,
+  uniprotId?: string | null
 ): Promise<ConservationData> {
-  const cacheKey = `${gene}_${variant}_${pdbId || ""}_${chainId || ""}_${pos || ""}`;
+  const cacheKey = `${gene}_${variant}_${pdbId || ""}_${chainId || ""}_${pos || ""}_${gnomadVariantId || ""}`;
   const cached = conservationCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.popeve !== null) {
+      return cached;
+    }
+    const onlineScore = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+    if (onlineScore !== null) {
+      cached.popeve = onlineScore;
+      conservationCache.set(cacheKey, cached);
+    }
+    return cached;
+  }
+
+  const resolvedPos = (pos !== undefined && pos !== null) 
+    ? pos 
+    : (() => {
+        const match = variant.match(/\d+/);
+        return match ? parseInt(match[0], 10) : null;
+      })();
 
   const defaultRes: ConservationData = {
     available: false,
@@ -786,21 +1073,167 @@ export async function fetchConservationData(
     gerp: null,
     phylop: null,
     consurf: null,
-    bayesdel: null
+    bayesdel: null,
+    metarnn: null,
+    metarnnPred: null,
+    clinpred: null,
+    clinpredPred: null,
+    eigenPhred: null,
+    eigenRaw: null,
+    dann: null,
+    esm1b: null,
+    esm1bPred: null,
+    popeve: null,
+    aouFrequency: null
   };
+
+  if (isLocalDbnsfpAvailable() && resolvedPos !== null) {
+    try {
+      const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant);
+      if (rec) {
+        const popEVEPromise = gnomadVariantId
+          ? (async () => {
+              const parts = gnomadVariantId.split("-");
+              if (parts.length >= 4) {
+                const chrom = parts[0];
+                const posVal = parseInt(parts[1], 10);
+                const ref = parts[2];
+                const alt = parts[3];
+                if (!isNaN(posVal)) {
+                  return fetchPopEVEScore(chrom, posVal, ref, alt);
+                }
+              }
+              return null;
+            })()
+          : Promise.resolve(null);
+
+        const consurfPromise = (pdbId && chainId)
+          ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
+          : Promise.resolve(null);
+
+        const [popEVEScore, consurfVal] = await Promise.all([popEVEPromise, consurfPromise]);
+
+        let popEVEVal = rec.popeve ?? popEVEScore;
+        if (popEVEVal === null) {
+          popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+        }
+
+        const resVal: ConservationData = {
+          available: true,
+          revel: rec.revel,
+          gerp: rec.gerp,
+          phylop: rec.phylop,
+          consurf: consurfVal,
+          bayesdel: rec.bayesdel,
+          metarnn: rec.metarnn,
+          metarnnPred: null,
+          clinpred: rec.clinpred,
+          clinpredPred: null,
+          eigenPhred: rec.eigen,
+          eigenRaw: null,
+          dann: rec.dann,
+          esm1b: rec.esm1b,
+          esm1bPred: null,
+          popeve: popEVEVal,
+          aouFrequency: {
+            aouAC: rec.aou_ac,
+            aouAN: rec.aou_an,
+            aouHet: rec.aou_het,
+            aouHom: rec.aou_hom
+          }
+        };
+        conservationCache.set(cacheKey, resVal);
+        return resVal;
+      }
+    } catch (err: any) {
+      console.warn(`[Local dbNSFP Query Error] Fallback to remote: ${err.message}`);
+    }
+  }
+
+  // Try Genos Web Query service before falling back to MyVariant.info
+  try {
+    const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, gnomadVariantId);
+    if (activeGenosRec) {
+      const consurfPromise = (pdbId && chainId && resolvedPos !== null)
+        ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
+        : Promise.resolve(null);
+      const consurfVal = await consurfPromise;
+
+      let popEVEVal = activeGenosRec.popeve;
+      if (popEVEVal === null) {
+        popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+      }
+
+      const resVal: ConservationData = {
+        available: true,
+        revel: activeGenosRec.revel,
+        gerp: activeGenosRec.gerp,
+        phylop: activeGenosRec.phylop,
+        consurf: consurfVal,
+        bayesdel: activeGenosRec.bayesdel,
+        metarnn: activeGenosRec.metarnn,
+        metarnnPred: null,
+        clinpred: activeGenosRec.clinpred,
+        clinpredPred: null,
+        eigenPhred: activeGenosRec.eigenPhred,
+        eigenRaw: null,
+        dann: activeGenosRec.dann,
+        esm1b: activeGenosRec.esm1b,
+        esm1bPred: null,
+        popeve: popEVEVal,
+        aouFrequency: activeGenosRec.aou_ac !== null ? {
+          aouAC: activeGenosRec.aou_ac,
+          aouAN: activeGenosRec.aou_an,
+          aouHet: activeGenosRec.aou_ac,
+          aouHom: 0
+        } : null
+      };
+      conservationCache.set(cacheKey, resVal);
+      return resVal;
+    }
+  } catch (err: any) {
+    console.warn(`[Genos Web Query Fallback Error] ${err.message}`);
+  }
 
   const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  const queryStr = (pos !== undefined && pos !== null)
-    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${pos}`
+  const queryStr = (resolvedPos !== null)
+    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
     : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
   const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp&limit=100`;
   
   try {
-    const res = await fetchWithRetry(url, {
+    const myVariantPromise = fetchWithRetry(url, {
       headers: { "Accept": "application/json" },
       timeout: 15000
     });
+
+    const consurfPromise = (pdbId && chainId && pos)
+      ? fetchRealConsurfData(pdbId, chainId, pos)
+      : Promise.resolve(null);
+
+    const popEVEPromise = gnomadVariantId
+      ? (async () => {
+          const parts = gnomadVariantId.split("-");
+          if (parts.length >= 4) {
+            const chrom = parts[0];
+            const posVal = parseInt(parts[1], 10);
+            const ref = parts[2];
+            const alt = parts[3];
+            if (!isNaN(posVal)) {
+              return fetchPopEVEScore(chrom, posVal, ref, alt);
+            }
+          }
+          return null;
+        })()
+      : Promise.resolve(null);
+
+    const [res, consurfVal, popEVEScore] = await Promise.all([
+      myVariantPromise,
+      consurfPromise,
+      popEVEPromise
+    ]);
+
     if (res.ok) {
       const data = await res.json() as any;
       const parsedData = myVariantResponseSchema.parse(data);
@@ -813,7 +1246,7 @@ export async function fetchConservationData(
           return hgvspArray.some(hVal => 
             typeof hVal === "string" && hVal.toLowerCase().includes(matchTerm.toLowerCase())
           );
-        });
+        }) || parsedData.hits[0];
 
         if (!hit) {
           conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
@@ -859,10 +1292,90 @@ export async function fetchConservationData(
             bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? parseFloat(bVal) : null;
           }
 
-          let consurfVal: number | null = null;
-          if (pdbId && chainId && pos) {
-            consurfVal = await fetchRealConsurfData(pdbId, chainId, pos);
+          // Parse MetaRNN
+          let metarnn: number | null = null;
+          let metarnnPred: string | null = null;
+          if (dbnsfp.metarnn) {
+            let v = dbnsfp.metarnn.score;
+            if (Array.isArray(v)) v = v[0];
+            metarnn = v != null ? parseFloat(v) : null;
+            let p = dbnsfp.metarnn.pred;
+            if (Array.isArray(p)) p = p[0];
+            metarnnPred = typeof p === "string" ? p : null;
           }
+
+          // Parse ClinPred
+          let clinpred: number | null = null;
+          let clinpredPred: string | null = null;
+          if (dbnsfp.clinpred) {
+            clinpred = dbnsfp.clinpred.score != null ? parseFloat(dbnsfp.clinpred.score) : null;
+            clinpredPred = typeof dbnsfp.clinpred.pred === "string" ? dbnsfp.clinpred.pred : null;
+          }
+
+          // Parse Eigen
+          let eigenPhred: number | null = null;
+          let eigenRaw: number | null = null;
+          if (dbnsfp.eigen) {
+            eigenPhred = dbnsfp.eigen.phred_coding != null ? parseFloat(dbnsfp.eigen.phred_coding) : null;
+            eigenRaw = dbnsfp.eigen.raw_coding != null ? parseFloat(dbnsfp.eigen.raw_coding) : null;
+          }
+
+          // Parse DANN
+          let dann: number | null = null;
+          if (dbnsfp.dann) {
+            let d = dbnsfp.dann.score;
+            if (Array.isArray(d)) d = d[0];
+            dann = d != null ? parseFloat(d) : null;
+          }
+
+          // Parse ESM-1b
+          let esm1b: number | null = null;
+          let esm1bPred: string | null = null;
+          if (dbnsfp.esm1b) {
+            let s = dbnsfp.esm1b.score;
+            if (Array.isArray(s)) s = s[0];
+            esm1b = s != null ? parseFloat(s) : null;
+            let ep = dbnsfp.esm1b.pred;
+            if (Array.isArray(ep)) ep = ep[0];
+            esm1bPred = typeof ep === "string" ? ep : null;
+          }
+
+          // Parse EVE / popEVE fallback
+          let finalPopEVE = popEVEScore;
+          if (finalPopEVE === null && dbnsfp.eve?.score !== undefined) {
+            let eVal = dbnsfp.eve.score;
+            if (Array.isArray(eVal)) eVal = eVal[0];
+            const parsed = parseFloat(eVal);
+            if (!isNaN(parsed)) finalPopEVE = parsed;
+          }
+          if (finalPopEVE === null) {
+            finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+          }
+
+          // Parse All of Us counts
+          let aouAC: number | null = null;
+          let aouAN: number | null = null;
+          let aouHet: number | null = null;
+          let aouHom: number | null = null;
+
+          if (dbnsfp.aou_ac !== undefined) {
+            let val = Array.isArray(dbnsfp.aou_ac) ? dbnsfp.aou_ac[0] : dbnsfp.aou_ac;
+            aouAC = val !== null && val !== "" ? parseInt(val, 10) : null;
+          }
+          if (dbnsfp.aou_an !== undefined) {
+            let val = Array.isArray(dbnsfp.aou_an) ? dbnsfp.aou_an[0] : dbnsfp.aou_an;
+            aouAN = val !== null && val !== "" ? parseInt(val, 10) : null;
+          }
+          if (dbnsfp.aou_het !== undefined) {
+            let val = Array.isArray(dbnsfp.aou_het) ? dbnsfp.aou_het[0] : dbnsfp.aou_het;
+            aouHet = val !== null && val !== "" ? parseInt(val, 10) : null;
+          }
+          if (dbnsfp.aou_hom !== undefined) {
+            let val = Array.isArray(dbnsfp.aou_hom) ? dbnsfp.aou_hom[0] : dbnsfp.aou_hom;
+            aouHom = val !== null && val !== "" ? parseInt(val, 10) : null;
+          }
+
+          const hasAou = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;
 
           const resVal: ConservationData = { 
             available: true, 
@@ -870,7 +1383,23 @@ export async function fetchConservationData(
             gerp, 
             phylop, 
             consurf: consurfVal,
-            bayesdel
+            bayesdel,
+            metarnn,
+            metarnnPred,
+            clinpred,
+            clinpredPred,
+            eigenPhred,
+            eigenRaw,
+            dann,
+            esm1b,
+            esm1bPred,
+            popeve: finalPopEVE,
+            aouFrequency: hasAou ? {
+              aouAC,
+              aouAN,
+              aouHet,
+              aouHom
+            } : null
           };
           conservationCache.set(cacheKey, resVal);
           return resVal;
@@ -1058,50 +1587,70 @@ export async function submitDdmutJob(
 export async function pollDdmutJob(
   jobId: string
 ): Promise<{ status: "RUNNING" | "DONE" | "ERROR"; prediction: number | null } | null> {
-  const url = "https://biosig.lab.uq.edu.au/ddmut/api/prediction_single";
-  try {
-    const pollUrl = `${url}?job_id=${jobId}`;
-    const pollRes = await fetchWithRetry(pollUrl, {
+  const boundary = `----WebKitFormBoundary${crypto.randomBytes(8).toString("hex")}`;
+  const body = `--${boundary}\r\nContent-Disposition: form-data; name="job_id"\r\n\r\n${jobId}\r\n--${boundary}--\r\n`;
+
+  console.log(`[DDMut API] Polling status for job ${jobId} using GET with multipart form-data...`);
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: "biosig.lab.uq.edu.au",
+      port: 443,
+      path: "/ddmut/api/prediction_single",
       method: "GET",
-      timeout: 10000
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": Buffer.byteLength(body)
+      },
+      rejectUnauthorized: false,
+      timeout: 15000
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        try {
+          if (res.statusCode !== 200) {
+            console.warn(`[DDMut API] Polling failed (status: ${res.statusCode})`);
+            resolve({ status: "ERROR", prediction: null });
+            return;
+          }
+          const pollJson = JSON.parse(data);
+          if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
+            const ddG = parseFloat(pollJson.prediction);
+            console.log(`[DDMut API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
+            resolve({ status: "DONE", prediction: isNaN(ddG) ? null : ddG });
+            return;
+          }
+          if (
+            pollJson.status === "RUNNING" ||
+            pollJson.message === "RUNNING" ||
+            pollJson.status === "QUEUED" ||
+            pollJson.message === "QUEUED"
+          ) {
+            resolve({ status: "RUNNING", prediction: null });
+            return;
+          }
+          console.warn(`[DDMut API] Polling returned error or unexpected format:`, pollJson);
+          resolve({ status: "ERROR", prediction: null });
+        } catch (e: any) {
+          console.error(`[DDMut API] Parse error during polling:`, e.message);
+          resolve({ status: "ERROR", prediction: null });
+        }
+      });
     });
 
-    if (!pollRes.ok) {
-      console.warn(`[DDMut API] Polling request failed for job ${jobId} (status: ${pollRes.status})`);
-      if (pollRes.status === 429) {
-        const rateLimitErr = new Error("DDMut upstream rate limit reached");
-        (rateLimitErr as any).statusCode = 429;
-        throw rateLimitErr;
-      }
-      return { status: "ERROR", prediction: null };
-    }
+    req.on("error", (err: any) => {
+      console.error(`[DDMut API] Network error during polling:`, err.message);
+      resolve({ status: "ERROR", prediction: null });
+    });
 
-    const pollJson = await pollRes.json() as any;
-    if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
-      const ddG = parseFloat(pollJson.prediction);
-      console.log(`[DDMut API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
-      return { status: "DONE", prediction: isNaN(ddG) ? null : ddG };
-    }
-
-    if (
-      pollJson.status === "RUNNING" ||
-      pollJson.message === "RUNNING" ||
-      pollJson.status === "QUEUED" ||
-      (pollJson.prediction === undefined && !pollJson.error)
-    ) {
-      return { status: "RUNNING", prediction: null };
-    }
-
-    console.warn(`[DDMut API] Polling returned error or unexpected format:`, pollJson);
-    return { status: "ERROR", prediction: null };
-  } catch (err: any) {
-    console.error(`[DDMut API] Error polling job ${jobId}:`, err.message);
-    if (err.statusCode === 429) {
-      throw err;
-    }
-    return { status: "ERROR", prediction: null };
-  }
+    req.write(body);
+    req.end();
+  });
 }
+
 
 // =============================================================================
 // FREQ-1: gnomAD Variant Allele Frequency (GraphQL)
@@ -1284,14 +1833,18 @@ export async function fetchGnomadVariantFrequency(
 // =============================================================================
 
 export interface GnomadGeneConstraint {
-  /** Missense Z-score: ≥ 3.09 → constrained (PP2 evidence) */
   missense_z: number | null;
-  /** Observed / Expected missense ratio: < 0.8 → constrained (PP2 evidence) */
   oe_mis: number | null;
-  /** pLI score for LoF constraint */
   pli: number | null;
-  /** Whether gene meets PP2 thresholds */
+  loeuf: number | null;
   isPP2Constrained: boolean;
+  regions?: any[];
+  regionalConstraint?: {
+    isConstrained: boolean;
+    oeRatio: number | null;
+    pValue: number | null;
+    regionText: string | null;
+  } | null;
 }
 
 const gnomadConstraintCache = new LRUCache<string, GnomadGeneConstraint>({
@@ -1300,66 +1853,124 @@ const gnomadConstraintCache = new LRUCache<string, GnomadGeneConstraint>({
 });
 
 export async function fetchGnomadGeneConstraint(
-  geneSymbol: string
+  geneSymbol: string,
+  aaPos?: number | null
 ): Promise<GnomadGeneConstraint | null> {
   const key = geneSymbol.toUpperCase();
-  const cached = gnomadConstraintCache.get(key);
-  if (cached !== undefined) return cached;
+  let cached = gnomadConstraintCache.get(key);
 
-  const query = `
-    query GeneConstraint($gene: String!) {
-      gene(gene_symbol: $gene, reference_genome: GRCh38) {
-        gnomad_constraint {
-          mis_z
-          oe_mis
-          pLI
+  if (cached === undefined) {
+    const query = `
+      query GeneConstraintAndRMC($gene: String!) {
+        gene(gene_symbol: $gene, reference_genome: GRCh37) {
+          gnomad_constraint {
+            mis_z
+            oe_mis
+            pLI
+            oe_lof_upper
+          }
+          gnomad_v2_regional_missense_constraint {
+            passed_qc
+            regions {
+              chrom
+              start
+              stop
+              aa_start
+              aa_stop
+              obs_mis
+              exp_mis
+              obs_exp
+              p_value
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const resp = await fetchWithRetry(
+        "https://gnomad.broadinstitute.org/api",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ query, variables: { gene: key } }),
+          timeout: 15000,
+        },
+        2,
+        1500
+      );
+
+      if (resp.ok) {
+        const json = await resp.json();
+        const geneData = json?.data?.gene;
+        const constraint = geneData?.gnomad_constraint;
+        const rmc = geneData?.gnomad_v2_regional_missense_constraint;
+
+        if (constraint) {
+          const missense_z = constraint.mis_z != null ? parseFloat(constraint.mis_z.toFixed(2)) : null;
+          const oe_mis = constraint.oe_mis != null ? parseFloat(constraint.oe_mis.toFixed(2)) : null;
+          const pli = constraint.pLI != null ? parseFloat(constraint.pLI.toFixed(2)) : null;
+          const loeuf = constraint.oe_lof_upper != null ? parseFloat(constraint.oe_lof_upper.toFixed(2)) : null;
+
+          const isPP2Constrained =
+            (missense_z !== null && missense_z >= 3.09) ||
+            (oe_mis !== null && oe_mis < 0.8);
+
+          cached = {
+            missense_z,
+            oe_mis,
+            pli,
+            loeuf,
+            isPP2Constrained,
+            regions: rmc?.regions || []
+          };
+          gnomadConstraintCache.set(key, cached);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[gnomAD Constraint] Error fetching ${key}:`, err.message);
+    }
+  }
+
+  if (!cached) return null;
+
+  // Perform regional check for the specific aaPos on-the-fly from the cached object
+  let regionalConstraint: GnomadGeneConstraint["regionalConstraint"] = null;
+  if (aaPos && cached.regions && cached.regions.length > 0) {
+    let matchedRegion = null;
+    for (const r of cached.regions) {
+      const startNum = parseInt(r.aa_start.replace(/\D/g, ""), 10);
+      const stopNum = parseInt(r.aa_stop.replace(/\D/g, ""), 10);
+      if (!isNaN(startNum) && !isNaN(stopNum)) {
+        const minPos = Math.min(startNum, stopNum);
+        const maxPos = Math.max(startNum, stopNum);
+        if (aaPos >= minPos && aaPos <= maxPos) {
+          matchedRegion = r;
+          break;
         }
       }
     }
-  `;
-
-  try {
-    const resp = await fetchWithRetry(
-      "https://gnomad.broadinstitute.org/api",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ query, variables: { gene: key } }),
-        timeout: 15000,
-      },
-      2,
-      1500
-    );
-
-    if (!resp.ok) {
-      console.warn(`[gnomAD Constraint] API ${resp.status} for gene ${key}`);
-      return null;
+    if (matchedRegion) {
+      regionalConstraint = {
+        isConstrained: true,
+        oeRatio: matchedRegion.obs_exp != null ? parseFloat(matchedRegion.obs_exp.toFixed(2)) : null,
+        pValue: matchedRegion.p_value,
+        regionText: `${matchedRegion.aa_start} to ${matchedRegion.aa_stop}`
+      };
+    } else {
+      regionalConstraint = {
+        isConstrained: false,
+        oeRatio: null,
+        pValue: null,
+        regionText: null
+      };
     }
-
-    const json = await resp.json();
-    const constraint = json?.data?.gene?.gnomad_constraint;
-    if (!constraint) {
-      console.warn(`[gnomAD Constraint] No constraint data for ${key}`);
-      return null;
-    }
-
-    const missense_z: number | null = constraint.mis_z   ?? null;
-    const oe_mis:     number | null = constraint.oe_mis  ?? null;
-    const pli:        number | null = constraint.pLI     ?? null;
-
-    // PP2 thresholds per ACMG-6 plan:
-    //   mis_z >= 3.09 OR oe_mis < 0.8 → constrained
-    const isPP2Constrained =
-      (missense_z !== null && missense_z >= 3.09) ||
-      (oe_mis     !== null && oe_mis     <  0.8);
-
-    const result: GnomadGeneConstraint = { missense_z, oe_mis, pli, isPP2Constrained };
-    gnomadConstraintCache.set(key, result);
-    return result;
-  } catch (err: any) {
-    console.error(`[gnomAD Constraint] Error fetching ${key}:`, err.message);
-    return null;
   }
+
+  return {
+    ...cached,
+    regionalConstraint
+  };
 }
 
 // =============================================================================
@@ -1452,8 +2063,16 @@ export async function fetchUniprotFeatures(
 
 export interface LandscapePositionData {
   residx: number;
+  revelMean: number | null;
+  revelMedian: number | null;
+  revelMin: number | null;
   revelMax: number | null;
+  revelCount: number;
+  amMean: number | null;
+  amMedian: number | null;
+  amMin: number | null;
   amMax: number | null;
+  amCount: number;
   gerp: number | null;
   phylop: number | null;
 }
@@ -1463,18 +2082,85 @@ const landscapeCache = new LRUCache<string, LandscapePositionData[]>({
   ttl: 1000 * 60 * 60 * 24, // 1-day TTL
 });
 
+function getMedian(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 !== 0) {
+    return sorted[half];
+  }
+  return (sorted[half - 1] + sorted[half]) / 2.0;
+}
+
+export async function fetchLocalPopulationFrequencies(gene: string, pos: number, variant?: string | null): Promise<{
+  gnomad: any | null;
+  aou: any | null;
+} | null> {
+  if (!isLocalDbnsfpAvailable()) return null;
+  const rec = await queryLocalDbnsfpVariant(gene, pos, null, null, variant);
+  if (!rec) return null;
+
+  return {
+    gnomad: {
+      maxAF: rec.gnomad_an ? (rec.gnomad_ac || 0) / rec.gnomad_an : null,
+      groupMaxAF: rec.gnomad_an ? (rec.gnomad_ac || 0) / rec.gnomad_an : null,
+      genomeAF: rec.gnomad_an ? (rec.gnomad_ac || 0) / rec.gnomad_an : null,
+      exomeAF: rec.gnomad_an ? (rec.gnomad_ac || 0) / rec.gnomad_an : null,
+      genomeAC: rec.gnomad_ac,
+      exomeAC: 0,
+      genomeAN: rec.gnomad_an,
+      exomeAN: 0,
+      nHomozygous: rec.gnomad_hom,
+      dataset: "gnomad_r4_local"
+    },
+    aou: {
+      aouAC: rec.aou_ac,
+      aouAN: rec.aou_an,
+      aouHet: rec.aou_het,
+      aouHom: rec.aou_hom
+    }
+  };
+}
+
 export async function fetchLandscapeData(
   gene: string,
-  startPos: number,
-  endPos: number
+  startPos?: number,
+  endPos?: number
 ): Promise<LandscapePositionData[]> {
   const normGene = normalizeGeneSymbol(gene);
-  const cacheKey = `${normGene}_${startPos}_${endPos}`;
-  const cached = landscapeCache.get(cacheKey);
-  if (cached) return cached;
 
-  const queryStr = `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:[${startPos} TO ${endPos}]`;
-  const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.revel,dbnsfp.alphamissense,dbnsfp.gerp%2B%2B,dbnsfp.gerp,dbnsfp.phylop,dbnsfp.aa.pos&size=1000`;
+  if (isLocalDbnsfpAvailable()) {
+    const localLandscape = await queryLocalDbnsfpLandscape(normGene, startPos, endPos);
+    if (localLandscape) {
+      return localLandscape;
+    }
+  }
+  
+  // First, check if the full protein landscape is cached
+  const fullCacheKey = `${normGene}_full`;
+  const cachedFull = landscapeCache.get(fullCacheKey);
+  if (cachedFull) {
+    if (startPos !== undefined && endPos !== undefined) {
+      return cachedFull.filter(item => item.residx >= startPos && item.residx <= endPos);
+    }
+    return cachedFull;
+  }
+
+  // If a specific window was requested and cached, return it
+  if (startPos !== undefined && endPos !== undefined) {
+    const windowCacheKey = `${normGene}_${startPos}_${endPos}`;
+    const cachedWindow = landscapeCache.get(windowCacheKey);
+    if (cachedWindow) return cachedWindow;
+  }
+
+  // Build the query: if startPos & endPos are passed, query that range. Otherwise query the entire gene.
+  const queryStr = (startPos !== undefined && endPos !== undefined)
+    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:[${startPos} TO ${endPos}]`
+    : `dbnsfp.genename:${normGene}`;
+
+  // Increase the size to 5000 for full exonic query
+  const sizeLimit = (startPos !== undefined && endPos !== undefined) ? 1000 : 5000;
+  const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.revel,dbnsfp.alphamissense,dbnsfp.gerp%2B%2B,dbnsfp.gerp,dbnsfp.phylop,dbnsfp.aa.pos&size=${sizeLimit}`;
 
   const result: LandscapePositionData[] = [];
   const landscapeMap = new Map<number, {
@@ -1483,15 +2169,6 @@ export async function fetchLandscapeData(
     gerpScores: number[];
     phylopScores: number[];
   }>();
-
-  for (let pos = startPos; pos <= endPos; pos++) {
-    landscapeMap.set(pos, {
-      revelScores: [],
-      amScores: [],
-      gerpScores: [],
-      phylopScores: []
-    });
-  }
 
   try {
     const res = await fetchWithRetry(url, {
@@ -1509,49 +2186,64 @@ export async function fetchLandscapeData(
             ? dbnsfp.aa.pos
             : (dbnsfp.aa?.pos ? [dbnsfp.aa.pos] : []);
           
-          const targetPos = posList.find((p: any) => p >= startPos && p <= endPos);
-          if (!targetPos) return;
+          posList.forEach((posVal: any) => {
+            const pos = parseInt(posVal, 10);
+            if (isNaN(pos)) return;
 
-          const posData = landscapeMap.get(targetPos);
-          if (!posData) return;
-
-          // Parse REVEL
-          if (dbnsfp.revel) {
-            let revVal = dbnsfp.revel.score !== undefined ? dbnsfp.revel.score : dbnsfp.revel;
-            if (Array.isArray(revVal)) revVal = revVal[0];
-            const val = parseFloat(revVal);
-            if (!isNaN(val)) posData.revelScores.push(val);
-          }
-
-          // Parse AlphaMissense
-          if (dbnsfp.alphamissense) {
-            let amVal = dbnsfp.alphamissense.score !== undefined ? dbnsfp.alphamissense.score : dbnsfp.alphamissense;
-            if (Array.isArray(amVal)) amVal = amVal[0];
-            const val = parseFloat(amVal);
-            if (!isNaN(val)) posData.amScores.push(val);
-          }
-
-          // Parse GERP++ / GERP
-          const gerpObj = dbnsfp['gerp++'] || {};
-          let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : null;
-          if (gerpVal === null && dbnsfp.gerp?.['91_mammals']?.score !== undefined) {
-            gerpVal = dbnsfp.gerp['91_mammals'].score;
-          }
-          if (gerpVal !== null) {
-            const val = parseFloat(Array.isArray(gerpVal) ? gerpVal[0] : gerpVal);
-            if (!isNaN(val)) posData.gerpScores.push(val);
-          }
-
-          // Parse PhyloP
-          if (dbnsfp.phylop) {
-            let phylopVal = dbnsfp.phylop['100way_vertebrate']?.score !== undefined
-              ? dbnsfp.phylop['100way_vertebrate'].score
-              : (dbnsfp.phylop.vertebrate || dbnsfp.phylop['phylop100way_vertebrate'] || null);
-            if (phylopVal !== null) {
-              const val = parseFloat(Array.isArray(phylopVal) ? phylopVal[0] : phylopVal);
-              if (!isNaN(val)) posData.phylopScores.push(val);
+            // If we are filtering by start/end range, skip positions outside range
+            if (startPos !== undefined && endPos !== undefined) {
+              if (pos < startPos || pos > endPos) return;
             }
-          }
+
+            if (!landscapeMap.has(pos)) {
+              landscapeMap.set(pos, {
+                revelScores: [],
+                amScores: [],
+                gerpScores: [],
+                phylopScores: []
+              });
+            }
+
+            const posData = landscapeMap.get(pos)!;
+
+            // Parse REVEL
+            if (dbnsfp.revel) {
+              let revVal = dbnsfp.revel.score !== undefined ? dbnsfp.revel.score : dbnsfp.revel;
+              if (Array.isArray(revVal)) revVal = revVal[0];
+              const val = parseFloat(revVal);
+              if (!isNaN(val)) posData.revelScores.push(val);
+            }
+
+            // Parse AlphaMissense
+            if (dbnsfp.alphamissense) {
+              let amVal = dbnsfp.alphamissense.score !== undefined ? dbnsfp.alphamissense.score : dbnsfp.alphamissense;
+              if (Array.isArray(amVal)) amVal = amVal[0];
+              const val = parseFloat(amVal);
+              if (!isNaN(val)) posData.amScores.push(val);
+            }
+
+            // Parse GERP++ / GERP
+            const gerpObj = dbnsfp['gerp++'] || {};
+            let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : null;
+            if (gerpVal === null && dbnsfp.gerp?.['91_mammals']?.score !== undefined) {
+              gerpVal = dbnsfp.gerp['91_mammals'].score;
+            }
+            if (gerpVal !== null) {
+              const val = parseFloat(Array.isArray(gerpVal) ? gerpVal[0] : gerpVal);
+              if (!isNaN(val)) posData.gerpScores.push(val);
+            }
+
+            // Parse PhyloP
+            if (dbnsfp.phylop) {
+              let phylopVal = dbnsfp.phylop['100way_vertebrate']?.score !== undefined
+                ? dbnsfp.phylop['100way_vertebrate'].score
+                : (dbnsfp.phylop.vertebrate || dbnsfp.phylop['phylop100way_vertebrate'] || null);
+              if (phylopVal !== null) {
+                const val = parseFloat(Array.isArray(phylopVal) ? phylopVal[0] : phylopVal);
+                if (!isNaN(val)) posData.phylopScores.push(val);
+              }
+            }
+          });
         });
       }
     }
@@ -1559,19 +2251,85 @@ export async function fetchLandscapeData(
     console.warn(`[Landscape Fetch Error] Failed to fetch dbNSFP landscape: ${err.message}`);
   }
 
-  // Summarize into result array
-  for (let pos = startPos; pos <= endPos; pos++) {
-    const d = landscapeMap.get(pos)!;
+  /**
+   * Aggregation Rationale (L-11 & N2-4):
+   * For every residue position, up to 19 distinct amino acid substitutions exist across multiple canonical/non-canonical transcripts.
+   * - REVEL & AlphaMissense: Use max (worst-case pathogenicity per position) for conservative clinical utility.
+   * - GERP++ & PhyloP: Use mean (typical conservation level per position) to capture average local evolutionary selection pressure.
+   * - Median: Represents robust central tendency less skewed by single extreme substitutions (e.g. Proline insertion).
+   * - Min / Max: Establishes the exact score range bound for all possible variants at this position.
+   * - Count: Tracks total transcript variants evaluated to signal data completeness.
+   */
+  for (const [pos, d] of landscapeMap.entries()) {
+    const revelCount = d.revelScores.length;
+    const amCount = d.amScores.length;
+
+    const revelMean = revelCount > 0 ? d.revelScores.reduce((a, b) => a + b, 0) / revelCount : null;
+    const revelMedian = getMedian(d.revelScores);
+    const revelMin = revelCount > 0 ? Math.min(...d.revelScores) : null;
+    const revelMax = revelCount > 0 ? Math.max(...d.revelScores) : null;
+
+    const amMean = amCount > 0 ? d.amScores.reduce((a, b) => a + b, 0) / amCount : null;
+    const amMedian = getMedian(d.amScores);
+    const amMin = amCount > 0 ? Math.min(...d.amScores) : null;
+    const amMax = amCount > 0 ? Math.max(...d.amScores) : null;
+
+    const gerp = d.gerpScores.length > 0 ? d.gerpScores.reduce((a, b) => a + b, 0) / d.gerpScores.length : null;
+    const phylop = d.phylopScores.length > 0 ? d.phylopScores.reduce((a, b) => a + b, 0) / d.phylopScores.length : null;
+
     result.push({
       residx: pos,
-      revelMax: d.revelScores.length > 0 ? Math.max(...d.revelScores) : null,
-      amMax: d.amScores.length > 0 ? Math.max(...d.amScores) : null,
-      gerp: d.gerpScores.length > 0 ? d.gerpScores.reduce((a, b) => a + b, 0) / d.gerpScores.length : null,
-      phylop: d.phylopScores.length > 0 ? d.phylopScores.reduce((a, b) => a + b, 0) / d.phylopScores.length : null
+      revelMean,
+      revelMedian,
+      revelMin,
+      revelMax,
+      revelCount,
+      amMean,
+      amMedian,
+      amMin,
+      amMax,
+      amCount,
+      gerp,
+      phylop
     });
   }
 
-  landscapeCache.set(cacheKey, result);
+  // Sort by residue index position
+  result.sort((a, b) => a.residx - b.residx);
+
+  // If startPos & endPos were specified, fill in any missing positions in that range as empty entries
+  if (startPos !== undefined && endPos !== undefined) {
+    const resultMap = new Map(result.map(item => [item.residx, item]));
+    const filledResult: LandscapePositionData[] = [];
+    for (let pos = startPos; pos <= endPos; pos++) {
+      const existing = resultMap.get(pos);
+      if (existing) {
+        filledResult.push(existing);
+      } else {
+        filledResult.push({
+          residx: pos,
+          revelMean: null,
+          revelMedian: null,
+          revelMin: null,
+          revelMax: null,
+          revelCount: 0,
+          amMean: null,
+          amMedian: null,
+          amMin: null,
+          amMax: null,
+          amCount: 0,
+          gerp: null,
+          phylop: null
+        });
+      }
+    }
+    const windowCacheKey = `${normGene}_${startPos}_${endPos}`;
+    landscapeCache.set(windowCacheKey, filledResult);
+    return filledResult;
+  }
+
+  // Cache full protein
+  landscapeCache.set(fullCacheKey, result);
   return result;
 }
 

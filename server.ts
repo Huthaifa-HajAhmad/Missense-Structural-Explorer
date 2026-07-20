@@ -10,6 +10,7 @@ import { createServer as createViteServer } from "vite";
 import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
 import { runTempJobsJanitor } from "./server/utils.ts";
+import { initializeRaspDatabase } from "./server/services/biophysics.ts";
 
 dotenv.config();
 
@@ -19,15 +20,38 @@ async function startServer() {
   // Start the background temp_jobs janitor (M-8)
   runTempJobsJanitor();
 
-  // Spawn the local ML model server sidecar
-  console.log("[Startup] Launching local ML model server sidecar...");
-  const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
-  modelServerProcess = spawn("python", ["-m", "uv", "run", modelServerScript], {
-    stdio: "inherit"
-  });
-  modelServerProcess.on("error", (err) => {
-    console.error("[Model Server] Failed to start sidecar:", err.message);
-  });
+  // Initialize the RaSP database (background download/load if missing) (E-4)
+  initializeRaspDatabase();
+
+  // Spawn the local ML model server sidecar with auto-restart (A-6)
+  let restartAttempts = 0;
+  function spawnModelServer() {
+    console.log("[Startup] Launching local ML model server sidecar...");
+    const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
+    modelServerProcess = spawn("python", ["-m", "uv", "run", modelServerScript], {
+      stdio: "inherit"
+    });
+    
+    modelServerProcess.on("error", (err) => {
+      console.error("[Model Server] Failed to start sidecar:", err.message);
+    });
+
+    modelServerProcess.on("exit", (code, signal) => {
+      console.warn(`[Model Server] Sidecar exited with code ${code} and signal ${signal}.`);
+      modelServerProcess = null;
+      if (restartAttempts < 10) {
+        restartAttempts++;
+        console.log(`[Model Server] Restarting sidecar process (attempt ${restartAttempts}/10) in 2 seconds...`);
+        setTimeout(() => {
+          spawnModelServer();
+        }, 2000);
+      } else {
+        console.error("[Model Server] Max restart attempts reached. Sidecar will remain offline.");
+      }
+    });
+  }
+
+  spawnModelServer();
 
   const app = express();
   const PORT = 3000;

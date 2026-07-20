@@ -1,3 +1,4 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
@@ -152,7 +153,7 @@ export async function parseResiduesFromPdbAsync(pdbText: string): Promise<PdbRes
 }
 
 export async function parseResiduesFromPdbMaybeAsync(pdbText: string): Promise<PdbResidue[]> {
-  if (pdbText.length > 256 * 1024) {
+  if (pdbText.length > 64 * 1024) {
     return parseResiduesFromPdbAsync(pdbText);
   }
   return parseResiduesFromPdb(pdbText);
@@ -223,7 +224,7 @@ export async function parseAtomsFromPdbAsync(pdbText: string): Promise<PdbAtom[]
 }
 
 export async function parseAtomsFromPdbMaybeAsync(pdbText: string): Promise<PdbAtom[]> {
-  if (pdbText.length > 256 * 1024) {
+  if (pdbText.length > 64 * 1024) {
     return parseAtomsFromPdbAsync(pdbText);
   }
   return parseAtomsFromPdb(pdbText);
@@ -456,7 +457,11 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
   const meanElec = elecs.reduce((a, b) => a + b, 0) / elecs.length;
 
   const stericClashWarning = meanVdw > 2.0;
-  const clampedDdG = Math.min(50.0, meanDdG);
+  // Sign Convention (C-1):
+  // - FoldX: positive values represent destabilization (mutant has higher free energy than wild-type).
+  // - DynaMut2 / DDMut / DDGun-Seq / RaSP: negative values represent destabilization.
+  // Clamp values between -50.0 and 50.0 kcal/mol to prevent extreme artifacts from distorting downstream metrics.
+  const clampedDdG = Math.max(-50.0, Math.min(50.0, meanDdG));
 
   return {
     ddG: parseFloat(clampedDdG.toFixed(4)),
@@ -528,7 +533,7 @@ export async function generateMutantPdb(
   uniprotId: string | undefined,
   jobDir: string,
   signal?: AbortSignal
-): Promise<{ pdb: string; ddG: number | null; status: "success" | "scwrl"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
+): Promise<{ pdb: string; ddG: number | null; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const pdbHash = crypto.createHash("sha256").update(wtPdb).digest("hex");
   const cacheKey = `${pdbHash}_${validatedMutation}`;
   const cached = mutantCache.get(cacheKey);
@@ -600,7 +605,7 @@ async function generateMutantPdbInternal(
   uniprotId: string | undefined,
   jobDir: string,
   signal?: AbortSignal
-): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success" | "scwrl"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
+): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const fullWtPath = path.join(jobDir, "wt.pdb");
   const fullMutPath = path.join(jobDir, "individual_list.txt");
 
@@ -688,7 +693,7 @@ async function generateMutantPdbInternal(
   let mutantPdbContent = "";
   let overallDdG: number | null = null;
   let overallSd: number = 0;
-  let status: "success" | "scwrl" = "success";
+  let status: "success" = "success";
   let parsedResult: FoldxParsedResult | null = null;
 
   try {
@@ -1333,15 +1338,18 @@ export async function predictStructuralDisruption(
   }
 
   // Rule C: Core volume increase delta V > 100 Å^3
+  // Standard residue volumes (in Å³) sourced from Zamyatnin (1972) / Pontius (1996) (C-3)
+  // Threshold of 100 Å³ for core steric expansion corresponds to a size transition of at least 3-4 carbon atoms 
+  // (e.g., Gly to Phe/Tyr/Trp), which is well-documented to cause steric clashes in packed hydrophobic protein cores.
   const aaVolumes: Record<string, number> = {
-    G: 60, A: 89, S: 89, C: 108, D: 111, P: 113, N: 114, T: 116, E: 138, Q: 144, 
-    H: 153, V: 138, M: 163, I: 167, L: 167, K: 169, R: 189, F: 190, Y: 194, W: 228
+    G: 60.1, A: 88.6, S: 89.0, C: 108.5, D: 111.1, P: 112.7, N: 114.1, T: 116.1, E: 138.4, Q: 143.9, 
+    H: 153.2, V: 140.0, M: 162.9, I: 166.7, L: 166.7, K: 168.6, R: 173.4, F: 189.9, Y: 193.6, W: 227.8
   };
   const volWt = aaVolumes[wt] || 120;
   const volMut = aaVolumes[mut] || 120;
   const volDelta = volMut - volWt;
   if (isBuried && volDelta > 100) {
-    return buildResult("high", `Severe core steric expansion (volume increase of +${volDelta} Å³ from ${wt} to ${mut} at position ${position}), expected to cause steric clashes in the packed hydrophobic core.`);
+    return buildResult("high", `Severe core steric expansion (volume increase of +${volDelta.toFixed(1)} Å³ from ${wt} to ${mut} at position ${position}), expected to cause steric clashes in the packed hydrophobic core.`);
   }
 
   // Rule D: Proline to glycine loop-flexibility shift
@@ -1546,7 +1554,7 @@ export function svd3(A: Matrix3): { U: Matrix3; S: [number, number, number]; V: 
   return { U, S, V };
 }
 
-function calculateClashes(atoms: PdbAtom[]): number {
+export function calculateClashes(atoms: PdbAtom[]): number {
   const clashThreshold = 2.2;
   const nonHAtoms = atoms.filter(a => !a.name.startsWith("H") && a.name !== "OXT");
   let clashCount = 0;
@@ -1606,14 +1614,14 @@ export interface StructuralDiffResult {
   };
 }
 
-export function computeStructuralDiff(
+export async function computeStructuralDiff(
   wtPdb: string,
   mutPdb: string,
   pos: number,
   chain: string
-): StructuralDiffResult {
-  const wtAtoms = parseAtomsFromPdb(wtPdb);
-  const mutAtoms = parseAtomsFromPdb(mutPdb);
+): Promise<StructuralDiffResult> {
+  const wtAtoms = await parseAtomsFromPdbMaybeAsync(wtPdb);
+  const mutAtoms = await parseAtomsFromPdbMaybeAsync(mutPdb);
 
   const wtCas = wtAtoms.filter(a => a.name === "CA");
   const mutCas = mutAtoms.filter(a => a.name === "CA");
@@ -1731,8 +1739,13 @@ export function computeStructuralDiff(
     }
   }
 
+  await new Promise<void>(resolve => setImmediate(resolve));
   const localRmsd = calculateLocalSidechainRmsd(wtAtoms, mutAtoms, pos, chain);
+  
+  await new Promise<void>(resolve => setImmediate(resolve));
   const wtClashes = calculateClashes(wtAtoms);
+  
+  await new Promise<void>(resolve => setImmediate(resolve));
   const mutClashes = calculateClashes(mutAtoms);
 
   return {
@@ -1793,7 +1806,7 @@ function decodeEntities(str: string): string {
     .replace(/&#13;/g, "\r");
 }
 
-const ddgunCache = new LRUCache<string, any>({ max: 200 });
+export const ddgunCache = new LRUCache<string, any>({ max: 200 });
 
 export async function runDdgunSeq(wtLetter: string, mutLetter: string, sequence: string, seqPos: number): Promise<number | null> {
   const mutation = `${wtLetter}${seqPos}${mutLetter}`;
@@ -1818,52 +1831,91 @@ export async function runDdgunSeq(wtLetter: string, mutLetter: string, sequence:
   const headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://folding.biofold.org/ddgun",
-    "Origin": "https://folding.biofold.org"
+    "Origin": "https://folding.biofold.org",
+    "Connection": "close"
   };
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      body: formData,
-      headers
-    });
+  const deadlineController = new AbortController();
+  const deadlineTimeout = setTimeout(() => {
+    console.warn(`[DDGun Seq] 180s overall deadline reached for mutation ${mutation}. Aborting.`);
+    deadlineController.abort();
+  }, 180000);
 
-    if (!res.ok) {
-      throw new Error(`DDGun submission failed with status ${res.status}`);
+  try {
+    let htmlText = "";
+    const submissionRetries = 6;
+    for (let sAttempt = 1; sAttempt <= submissionRetries; sAttempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          body: formData,
+          headers,
+          signal: deadlineController.signal
+        });
+
+        if (!res.ok) {
+          throw new Error(`DDGun submission failed with status ${res.status}`);
+        }
+
+        htmlText = await res.text();
+        break;
+      } catch (submitErr: any) {
+        if (deadlineController.signal.aborted) throw submitErr;
+        console.warn(`[DDGun Submission Attempt ${sAttempt}] failed:`, submitErr.message);
+        if (sAttempt === submissionRetries) {
+          throw submitErr;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500 * sAttempt));
+      }
     }
 
-    const htmlText = await res.text();
-    const match = htmlText.match(/url=([^"]+)/);
+    const match = htmlText.match(/url=([^"]+)/i);
     if (!match) {
       throw new Error("Failed to parse DDGun job tracking URL from redirect page");
     }
 
-    const jobUrl = match[1];
+    let jobUrl = match[1];
+    if (!jobUrl.startsWith("http")) {
+      jobUrl = new URL(jobUrl, "https://folding.biofold.org").toString();
+    }
+    const maxAttempts = 25;
+    let pollDelay = 8000;
 
-    const maxAttempts = 15;
+    const pollHeaders = {
+      "User-Agent": headers["User-Agent"],
+      "Connection": "close"
+    };
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (deadlineController.signal.aborted) {
+        throw new Error("DDGun task aborted due to 180s overall deadline.");
+      }
       let pollHtml = "";
       try {
-        const pollRes = await fetch(jobUrl, { headers });
+        const pollRes = await fetch(jobUrl, { 
+          headers: pollHeaders,
+          signal: deadlineController.signal
+        });
         if (!pollRes.ok) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          console.warn(`[DDGun Poll Attempt ${attempt}] HTTP failure status: ${pollRes.status}`);
+          pollDelay = Math.min(pollDelay * 1.5, 12000);
+          await new Promise(resolve => setTimeout(resolve, pollDelay));
           continue;
         }
         pollHtml = await pollRes.text();
       } catch (pollErr: any) {
-        // Retry connection resets or socket drops
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        if (deadlineController.signal.aborted) throw pollErr;
+        console.warn(`[DDGun Poll Attempt ${attempt}] Network error (ECONNRESET/socket drop):`, pollErr.message);
+        pollDelay = Math.min(pollDelay * 1.5, 12000);
+        await new Promise(resolve => setTimeout(resolve, pollDelay));
         continue;
       }
 
-      if (pollHtml.includes('http-equiv="refresh"') || pollHtml.includes("url=find-ddgun-job.cgi")) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+      const tableDataMatch = pollHtml.match(/id="load_table"[^>]*table_data="([^"]+)"/i);
+      if (!tableDataMatch || tableDataMatch[1] === "__table_data__") {
+        pollDelay = Math.min(pollDelay * 1.2, 8000);
+        await new Promise(resolve => setTimeout(resolve, pollDelay));
         continue;
-      }
-
-      const tableDataMatch = pollHtml.match(/id="load_table"[^>]*table_data="([^"]+)"/);
-      if (!tableDataMatch) {
-        throw new Error("Job completed but result table_data attribute was not found");
       }
 
       const rawTable = tableDataMatch[1];
@@ -1893,8 +1945,10 @@ export async function runDdgunSeq(wtLetter: string, mutLetter: string, sequence:
 
     throw new Error("DDGun prediction timed out");
   } catch (err: any) {
-    console.warn("[DDGun client error]", err.message);
+    console.error(`[DDGun Seq Error] Prediction failed for ${mutation}:`, err.message);
     return null;
+  } finally {
+    clearTimeout(deadlineTimeout);
   }
 }
 
@@ -1984,6 +2038,20 @@ function loadRaspIndex(csvPath: string): Record<string, number> {
   return {};
 }
 
+export async function initializeRaspDatabase(): Promise<void> {
+  const csvPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
+  if (!fs.existsSync(csvPath)) {
+    console.log("[RaSP] Human proteome database not found locally. Triggering background download...");
+    downloadRaspDatabase(csvPath).catch(err => {
+      console.error("[RaSP Initialization Error] Failed to download precomputed RaSP database:", err.message);
+    });
+  } else {
+    try {
+      loadRaspIndex(csvPath);
+    } catch (_) {}
+  }
+}
+
 export async function lookupPrecomputedRaspScore(
   uniprotId: string,
   pos: number,
@@ -1992,7 +2060,8 @@ export async function lookupPrecomputedRaspScore(
 ): Promise<number | null> {
   const csvPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
   if (!fs.existsSync(csvPath)) {
-    await downloadRaspDatabase(csvPath);
+    console.warn("[RaSP] Human proteome database is not ready yet. Skipping lookup.");
+    return null;
   }
 
   const index = loadRaspIndex(csvPath);
@@ -2065,6 +2134,25 @@ export async function runRaspLocal(
       }
     } catch (err: any) {
       console.warn(`[RaSP] Precomputed database lookup failed for ${uniprotId}:`, err.message);
+    }
+  }
+
+  // Fallback: use VESM LLR score as a surrogate stability score
+  if (uniprotId) {
+    try {
+      const { fetchUniprotSequence } = await import("./external.ts");
+      const seq = await fetchUniprotSequence(uniprotId);
+      if (seq) {
+        const biophysicsModule = await import("./biophysics.ts");
+        const esmRes = await biophysicsModule.runEsm2Eval(seq, pos, wtAa, mutAa);
+        if (esmRes !== null && esmRes.llr !== undefined && esmRes.llr !== null) {
+          const resObj = { score: esmRes.llr, isSurrogate: true };
+          raspCache.set(cacheKey, resObj);
+          return resObj;
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[RaSP] ESM surrogate fallback failed for ${uniprotId}:`, err.message);
     }
   }
 

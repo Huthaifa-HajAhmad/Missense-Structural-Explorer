@@ -77,6 +77,13 @@ import { requestLogger, authCheck } from "./server/middleware.ts";
 import * as externalServices from "./server/services/external.ts";
 import { getNearestResidues } from "./src/data.ts";
 import { computeRuleBasedACMG } from "./server/services/acmg.ts";
+import { 
+  svd3, 
+  calculateLocalSidechainRmsd, 
+  calculateClashes, 
+  predictStructuralDisruption,
+  PdbAtom
+} from "./server/services/biophysics.ts";
 import { countPredictorConcordance, computeConsensusVerdict } from "./src/shared/thresholds.ts";
 
 describe("Input Validation Patterns & Functions", () => {
@@ -788,7 +795,7 @@ END
         );
 
         const res1 = await fetchBestPdbStructure("P00439", 100);
-        expect(res1).toEqual({ pdbId: "6hpo", chainId: "A", shift: 0 });
+        expect(res1).toEqual({ pdbId: "6hpo", chainId: "A", shift: 0, unpStart: 1, structStart: 1 });
 
         const res2 = await fetchBestPdbStructure("P00439", 500);
         expect(res2).toBeNull();
@@ -803,7 +810,7 @@ END
         const handler = route.route.stack[route.route.stack.length - 1].handle;
 
         const bestSpy = vi.spyOn(await import("./server/services/external.ts"), "fetchBestPdbStructure").mockImplementation(() =>
-          Promise.resolve({ pdbId: "6hpo", chainId: "A", shift: 0 })
+          Promise.resolve({ pdbId: "6hpo", chainId: "A", shift: 0, unpStart: 1, structStart: 1 })
         );
 
         const rcsbSpy = vi.spyOn(await import("./server/services/external.ts"), "fetchPdbFromRcsb").mockImplementation(() =>
@@ -898,7 +905,7 @@ END
             "R",
             "W",
             undefined,
-            {},
+            null,
             "standard",
             "dummy-key",
             AbortSignal.timeout(5000)
@@ -935,13 +942,13 @@ END
           try {
             await expect(
               geminiService.performGeminiAnalysis(
-                "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, {}, "standard", "dummy-key", AbortSignal.timeout(5000)
+                "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
               )
             ).rejects.toThrowError(geminiService.GeminiError);
             
             try {
               await geminiService.performGeminiAnalysis(
-                "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, {}, "standard", "dummy-key", AbortSignal.timeout(5000)
+                "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
               );
             } catch (err: any) {
               expect(err.code).toBe(expectedCode);
@@ -1024,7 +1031,7 @@ END
         pollSpy.mockRestore();
       });
 
-      it("should return foldx result and dynamut2JobId immediately when calling /generate-mutant", async () => {
+      it("should return foldx result immediately when calling /generate-mutant", async () => {
         const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
         expect(route).toBeDefined();
         if (!route || !route.route) throw new Error("Route /generate-mutant not found");
@@ -1038,8 +1045,6 @@ END
           foldedResidueIndex: 1
         });
 
-        const submitSpy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("98765");
-        const ddmutSubmitSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("ddmut-job-1");
         const ddgunSpy = vi.spyOn(biophysics, "runDdgunSeq").mockResolvedValue(0.3);
         const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(null);
 
@@ -1077,20 +1082,130 @@ END
         await handler(req, res, () => {});
         
         expect(mutantSpy).toHaveBeenCalled();
-        expect(submitSpy).toHaveBeenCalledWith(dummyPdb, "A", 1, "D", "V");
         expect(ddgunSpy).toHaveBeenCalled();
+        expect(jsonVal).toBeDefined();
+        expect(jsonVal.energetics.foldx).toBe(1.25);
+        expect(jsonVal.energetics.ddgun).toBe(0.3);
+
+        mutantSpy.mockRestore();
+        ddgunSpy.mockRestore();
+        raspSpy.mockRestore();
+      });
+
+      it("should submit DynaMut2 job successfully when calling /dynamut2-submit", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-submit");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /dynamut2-submit not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const submitSpy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("98765");
+
+        let jsonVal: any = null;
+        const dummyPdb = `
+HEADER    EXPERIMENTAL STRUCTURE
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+TER       2      ASP A   1
+END
+        `.trim();
+
+        const req: any = {
+          body: {
+            wtPdb: dummyPdb,
+            mutation: "DA1V"
+          }
+        };
+        const res: any = {
+          status(code: number) {
+            return this;
+          },
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        
+        expect(submitSpy).toHaveBeenCalledWith(dummyPdb, "A", 1, "D", "V");
         expect(jsonVal).toBeDefined();
         expect(jsonVal.dynamut2JobId).toBe("98765");
         expect(jsonVal.dynamut2Status).toBe("pending");
-        expect(jsonVal.energetics.foldx).toBe(1.25);
-        expect(jsonVal.energetics.ddgun).toBe(0.3);
-        expect(jsonVal.energetics.dynamut2).toBeNull();
 
-        mutantSpy.mockRestore();
         submitSpy.mockRestore();
-        ddmutSubmitSpy.mockRestore();
-        ddgunSpy.mockRestore();
-        raspSpy.mockRestore();
+      });
+
+      it("should submit DDMut job successfully when calling /ddmut-submit", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-submit");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /ddmut-submit not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const submitSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("ddmut-job-1");
+
+        let jsonVal: any = null;
+        const dummyPdb = `
+HEADER    EXPERIMENTAL STRUCTURE
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+TER       2      ASP A   1
+END
+        `.trim();
+
+        const req: any = {
+          body: {
+            wtPdb: dummyPdb,
+            mutation: "DA1V"
+          }
+        };
+        const res: any = {
+          status(code: number) {
+            return this;
+          },
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        
+        expect(submitSpy).toHaveBeenCalledWith(dummyPdb, "A", 1, "D", "V");
+        expect(jsonVal).toBeDefined();
+        expect(jsonVal.ddmutJobId).toBe("ddmut-job-1");
+        expect(jsonVal.ddmutStatus).toBe("pending");
+
+        submitSpy.mockRestore();
+      });
+
+      it("should correctly call pollDdmutJob and return status & prediction", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/ddmut-job/:jobId");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /ddmut-job/:jobId not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const pollSpy = vi.spyOn(externalServices, "pollDdmutJob").mockResolvedValue({
+          status: "DONE",
+          prediction: -1.25
+        });
+
+        let jsonVal: any = null;
+        const req: any = {
+          params: { jobId: "98765" },
+          query: {},
+          headers: {}
+        };
+        const res: any = {
+          json(body: any) {
+            jsonVal = body;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(pollSpy).toHaveBeenCalledWith("98765");
+        expect(jsonVal.status).toBe("DONE");
+        expect(jsonVal.prediction).toBe(-1.25);
+        
+        pollSpy.mockRestore();
       });
     });
 
@@ -1248,6 +1363,7 @@ describe("Session Authentication & Key Validation", () => {
       const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
       const freqSpy = vi.spyOn(externalServices, "fetchGnomadVariantFrequency").mockResolvedValue({} as any);
       const pdbSpy = vi.spyOn(externalServices, "fetchBestPdbStructure").mockResolvedValue({} as any);
+      const afPdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
       const constSpy = vi.spyOn(externalServices, "fetchGnomadGeneConstraint").mockResolvedValue({} as any);
       const featSpy = vi.spyOn(externalServices, "fetchUniprotFeatures").mockResolvedValue({} as any);
 
@@ -1297,6 +1413,7 @@ describe("Session Authentication & Key Validation", () => {
       strSpy.mockRestore();
       freqSpy.mockRestore();
       pdbSpy.mockRestore();
+      afPdbSpy.mockRestore();
       constSpy.mockRestore();
       featSpy.mockRestore();
       disSpy.mockRestore();
@@ -1319,6 +1436,7 @@ describe("Session Authentication & Key Validation", () => {
       const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
       const freqSpy = vi.spyOn(externalServices, "fetchGnomadVariantFrequency").mockResolvedValue({} as any);
       const pdbSpy = vi.spyOn(externalServices, "fetchBestPdbStructure").mockResolvedValue({} as any);
+      const afPdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
       const constSpy = vi.spyOn(externalServices, "fetchGnomadGeneConstraint").mockResolvedValue({} as any);
       const featSpy = vi.spyOn(externalServices, "fetchUniprotFeatures").mockResolvedValue({} as any);
 
@@ -1362,6 +1480,7 @@ describe("Session Authentication & Key Validation", () => {
       strSpy.mockRestore();
       freqSpy.mockRestore();
       pdbSpy.mockRestore();
+      afPdbSpy.mockRestore();
       constSpy.mockRestore();
       featSpy.mockRestore();
       disSpy.mockRestore();
@@ -1484,7 +1603,7 @@ describe("Session Authentication & Key Validation", () => {
       expect(pp3?.reason).not.toContain("agree");
     });
 
-    it("should respect EVE scores in ACMG PP3/BP4 concordance calculations", () => {
+    it("should respect popEVE scores in ACMG PP3/BP4 concordance calculations", () => {
       const res = computeRuleBasedACMG(
         "GBA1",
         "p.Asn370Ser",
@@ -1494,18 +1613,17 @@ describe("Session Authentication & Key Validation", () => {
           amPathogenicity: 0.8,
           amClass: "pathogenic",
           caddPhred: 26,
-          eveScore: 0.85,
-          eveClass: "Pathogenic"
         },
         {
           available: true,
-          revel: 0.1
+          revel: 0.1,
+          popeve: -3.775,
         }
       );
       const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
       expect(pp3).toBeDefined();
       expect(pp3?.reason).toContain("3/4 predictors agree");
-      expect(pp3?.reason).toContain("EVE: Pathogenic");
+      expect(pp3?.reason).toContain("popEVE: PATHOGENIC");
     });
 
     it("should respect acmgWeighting parameter (conservative & strict-structural modes)", () => {
@@ -1647,7 +1765,7 @@ describe("Session Authentication & Key Validation", () => {
       expect(activeCount).toBe(0);
     });
 
-    it("should compute Kabsch alignment and structural diff correctly", () => {
+    it("should compute Kabsch alignment and structural diff correctly", async () => {
       const wtPdb = `
 ATOM      1  CA  ASP A   1       1.000   0.000   0.000  1.00  0.00           C
 ATOM      2  CA  ASP A   2       0.000   1.000   0.000  1.00  0.00           C
@@ -1660,7 +1778,7 @@ ATOM      2  CA  ASP A   2       1.000   1.000   0.000  1.00  0.00           C
 ATOM      3  CA  ASP A   3       1.000   0.000   1.000  1.00  0.00           C
       `.trim();
 
-      const diff = computeStructuralDiff(wtPdb, mutPdb, 1, "A");
+      const diff = await computeStructuralDiff(wtPdb, mutPdb, 1, "A");
       expect(diff.rmsd).toBeLessThan(0.0001);
       expect(diff.windowDisplacements).toBeDefined();
       expect(diff.windowDisplacements.length).toBe(3);
@@ -1725,6 +1843,22 @@ ATOM      3  CA  ASP A   3       1.000   0.000   1.000  1.00  0.00           C
       expect(res).toEqual({ score: -1.5, isSurrogate: false });
 
       raspSpy.mockRestore();
+    });
+
+    it("should fallback to ESM LLR surrogate in runRaspLocal when precomputed score is null", async () => {
+      const biophysics = await import("./server/services/biophysics.ts");
+      const externalServices = await import("./server/services/external.ts");
+
+      const lookupSpy = vi.spyOn(biophysics, "lookupPrecomputedRaspScore").mockResolvedValue(null);
+      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPG");
+      const esmSpy = vi.spyOn(biophysics, "runEsm2Eval").mockResolvedValue({ llr: -3.5, verdict: "raw score" });
+
+      const res = await biophysics.runRaspLocal("wt.pdb", "mut.pdb", "A", 2, "A", "P", "Q9H116");
+      expect(res).toEqual({ score: -3.5, isSurrogate: true });
+
+      lookupSpy.mockRestore();
+      seqSpy.mockRestore();
+      esmSpy.mockRestore();
     });
 
     it("should evaluate PM2/BA1/BS1 based on groupMaxAF in computeRuleBasedACMG", () => {
@@ -1887,15 +2021,294 @@ END
     it("should validate and compute consensus verdict stability correctly", () => {
       // High-risk: >= 2 destabilizing
       const highRisk = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2, ddgun: null });
-      expect(highRisk).toBe("High-Risk Destabilizing (Consensus)");
+      expect(highRisk).toBe("High Misfolding Risk (Destabilizing Consensus)");
 
       // Conflicting: 1 destabilizing, >= 2 available
       const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, ddgun: 0.2 });
-      expect(conflicting).toBe("Moderate-Risk Conflicting Stability");
+      expect(conflicting).toBe("Moderate Misfolding Risk (Conflicting Stability)");
 
       // Neutral: 0 destabilizing
       const neutral = computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2, ddgun: null });
-      expect(neutral).toBe("Low-Risk (Neutral Stability)");
+      expect(neutral).toBe("Low Misfolding Risk (Neutral Stability)");
+    });
+  });
+
+  describe("Critical Biophysical Numerical and Rules Verification (C-2)", () => {
+    it("should verify svd3 matrix decomposition against a known identity matrix", () => {
+      const I = [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1]
+      ] as any;
+      const { U, S, V } = svd3(I);
+      expect(S[0]).toBeCloseTo(1.0);
+      expect(S[1]).toBeCloseTo(1.0);
+      expect(S[2]).toBeCloseTo(1.0);
+      expect(U[0][0]).toBeCloseTo(1.0);
+      expect(V[0][0]).toBeCloseTo(1.0);
+    });
+
+    it("should compute 0.0 RMSD for perfectly aligned identical sidechains", () => {
+      const atom1: PdbAtom = { resSeq: 10, resName: "ARG", name: "CB", chain: "A", x: 1.0, y: 1.0, z: 1.0 };
+      const atom2: PdbAtom = { resSeq: 10, resName: "ARG", name: "CG", chain: "A", x: 2.0, y: 1.5, z: 1.0 };
+      const atom3: PdbAtom = { resSeq: 10, resName: "ARG", name: "CA", chain: "A", x: 0.0, y: 0.0, z: 0.0 };
+      const rmsd = calculateLocalSidechainRmsd([atom1, atom2, atom3], [atom1, atom2, atom3], 10, "A");
+      expect(rmsd).toBeCloseTo(0.0);
+    });
+
+    it("should accurately count steric clashes when atoms are below threshold", () => {
+      const a1: PdbAtom = { resSeq: 1, resName: "ALA", name: "CA", chain: "A", x: 0.0, y: 0.0, z: 0.0 };
+      const a2: PdbAtom = { resSeq: 5, resName: "ALA", name: "CB", chain: "A", x: 1.0, y: 1.0, z: 1.0 }; // dist = ~1.73 < 2.2, different residues
+      expect(calculateClashes([a1, a2])).toBe(1);
+
+      const a3: PdbAtom = { resSeq: 5, resName: "ALA", name: "CB", chain: "A", x: 3.0, y: 0.0, z: 0.0 }; // dist = 3.0 > 2.2
+      expect(calculateClashes([a1, a3])).toBe(0);
+    });
+
+    it("should evaluate predictStructuralDisruption rules correctly", async () => {
+      // Helper function to format PDB lines properly using exact index mappings
+      function formatPdbAtomLine(serial: number, name: string, resName: string, chain: string, resSeq: number, x: number, y: number, z: number): string {
+        const chars = Array(80).fill(" ");
+        chars.splice(0, 4, ..."ATOM".split(""));
+        const serialStr = String(serial).padStart(5, " ");
+        chars.splice(6, 5, ...serialStr.split(""));
+        const nameStr = name.padEnd(4, " ");
+        chars.splice(12, 4, ...nameStr.split(""));
+        const resNameStr = resName.padEnd(3, " ");
+        chars.splice(17, 3, ...resNameStr.split(""));
+        chars[21] = chain.slice(0, 1);
+        const resSeqStr = String(resSeq).padStart(4, " ");
+        chars.splice(22, 4, ...resSeqStr.split(""));
+        const xStr = x.toFixed(3).padStart(8, " ");
+        chars.splice(30, 8, ...xStr.split(""));
+        const yStr = y.toFixed(3).padStart(8, " ");
+        chars.splice(38, 8, ...yStr.split(""));
+        const zStr = z.toFixed(3).padStart(8, " ");
+        chars.splice(46, 8, ...zStr.split(""));
+        const bStr = "95.00".padStart(6, " ");
+        chars.splice(60, 6, ...bStr.split(""));
+        return chars.join("");
+      }
+
+      // Proline in helix
+      const pdbHelix = `
+HELIX    1  H1 ALA A   10  ALA A   20
+${formatPdbAtomLine(1, "CA", "ALA", "A", 10, 0, 0, 0)}
+TER
+END
+      `.trim();
+      const resA = await predictStructuralDisruption(pdbHelix, "A", 10, "P", "A");
+      expect(resA.level).toBe("high");
+      expect(resA.reason).toContain("Proline introduced at position 10");
+
+      // Buried charge reversal
+      let pdbBuried = formatPdbAtomLine(1, "CA", "ASP", "A", 15, 0, 0, 0) + "\n";
+      for (let i = 1; i <= 15; i++) {
+        const theta = (i / 15) * 2 * Math.PI;
+        const phi = (i / 15) * Math.PI;
+        const r = 2.0;
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+        pdbBuried += formatPdbAtomLine(i + 1, "CA", "VAL", "A", 15 + i, x, y, z) + "\n";
+      }
+      pdbBuried += "TER\nEND";
+      const resB = await predictStructuralDisruption(pdbBuried, "D", 15, "R", "A");
+      expect(resB.level).toBe("high");
+      expect(resB.reason).toContain("Buried charge reversal");
+
+      // Core volume expansion (Gly to Trp, vol delta = 167.7)
+      let pdbVolume = formatPdbAtomLine(1, "CA", "GLY", "A", 20, 0, 0, 0) + "\n";
+      for (let i = 1; i <= 15; i++) {
+        const theta = (i / 15) * 2 * Math.PI;
+        const phi = (i / 15) * Math.PI;
+        const r = 2.0;
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+        pdbVolume += formatPdbAtomLine(i + 1, "CA", "VAL", "A", 20 + i, x, y, z) + "\n";
+      }
+      pdbVolume += "TER\nEND";
+      const resC = await predictStructuralDisruption(pdbVolume, "G", 20, "W", "A");
+      expect(resC.level).toBe("high");
+      expect(resC.reason).toContain("Severe core steric expansion");
+
+      // Proline to glycine loop-flexibility shift
+      const pdbLoop = `
+${formatPdbAtomLine(1, "CA", "PRO", "A", 25, 0, 0, 0)}
+TER
+END
+      `.trim();
+      const resD = await predictStructuralDisruption(pdbLoop, "P", 25, "G", "A");
+      expect(resD.level).toBe("high");
+      expect(resD.reason).toContain("Proline to Glycine substitution in structural loop");
+
+      // Neutral case
+      const pdbNeutral = `
+${formatPdbAtomLine(1, "CA", "ALA", "A", 30, 0, 0, 0)}
+TER
+END
+      `.trim();
+      const resNormal = await predictStructuralDisruption(pdbNeutral, "A", 30, "V", "A");
+      expect(resNormal.level).toBe("low");
+    }, 15000);
+  });
+
+  describe("Full Pipeline Integration Test (C-7)", () => {
+    it("should walk through the main endpoints of the pipeline", async () => {
+      // 1. Test /translate-variant
+      const translateRoute: any = apiRouter.stack.find(s => s.route && s.route.path === "/translate-variant");
+      expect(translateRoute).toBeDefined();
+      const translateHandler = translateRoute.route.stack[translateRoute.route.stack.length - 1].handle;
+      
+      const fetchSpy = vi.spyOn(global, "fetch");
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            transcript_consequences: [
+              {
+                transcript_id: "ENST00000256078",
+                canonical: true,
+                hgvsp: "ENSP00000256078:p.Arg408His",
+                gene_symbol: "PAH"
+              }
+            ]
+          }
+        ]
+      } as any);
+
+      let translateJson: any = null;
+      const translateReq: any = { body: { variant: "NM_000277.5:c.1222C>T" }, headers: {} };
+      const translateRes: any = {
+        status(code: number) { this.statusCode = code; return this; },
+        json(body: any) { translateJson = body; return this; }
+      };
+      await translateHandler(translateReq, translateRes, () => {});
+      
+      expect(translateJson).toBeDefined();
+      expect(translateJson.gene).toBe("PAH");
+      expect(translateJson.variant).toBe("p.Arg408His");
+      expect(translateJson.uniprotId).toBe("");
+      fetchSpy.mockRestore();
+
+      // 2. Test /resolve-gene
+      const resolveRoute: any = apiRouter.stack.find(s => s.route && s.route.path === "/resolve-gene");
+      expect(resolveRoute).toBeDefined();
+      const resolveHandler = resolveRoute.route.stack[resolveRoute.route.stack.length - 1].handle;
+      
+      let resolveJson: any = null;
+      const resolveReq: any = { body: { gene: "PAH" }, headers: {} };
+      const resolveRes: any = {
+        status(code: number) { this.statusCode = code; return this; },
+        json(body: any) { resolveJson = body; return this; }
+      };
+      const uniprotSpy = vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      const pdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
+      await resolveHandler(resolveReq, resolveRes, () => {});
+      expect(resolveJson).toBeDefined();
+      expect(resolveJson.uniprotId).toBe("P00439");
+      uniprotSpy.mockRestore();
+      pdbSpy.mockRestore();
+    });
+  });
+
+  describe("fetchLandscapeData Stats Calculations", () => {
+    it("should calculate mean, median, min, max and count for REVEL and AlphaMissense", async () => {
+      const fetchSpy = vi.spyOn(global, "fetch");
+      
+      // Mock myvariant.info response
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          hits: [
+            {
+              dbnsfp: {
+                aa: { pos: 5 },
+                revel: { score: 0.2 },
+                alphamissense: { score: 0.1 },
+                'gerp++': { rs: 1.5 },
+                phylop: { '100way_vertebrate': { score: 0.5 } }
+              }
+            },
+            {
+              dbnsfp: {
+                aa: { pos: 5 },
+                revel: { score: 0.8 },
+                alphamissense: { score: 0.9 },
+                'gerp++': { rs: 2.5 },
+                phylop: { '100way_vertebrate': { score: 1.5 } }
+              }
+            },
+            {
+              dbnsfp: {
+                aa: { pos: 5 },
+                revel: { score: 0.5 },
+                alphamissense: { score: 0.5 },
+                'gerp++': { rs: 2.0 },
+                phylop: { '100way_vertebrate': { score: 1.0 } }
+              }
+            }
+          ]
+        })
+      } as any);
+
+      const data = await externalServices.fetchLandscapeData("PAH", 5, 5);
+      expect(data).toHaveLength(1);
+      const pos5 = data[0];
+      
+      expect(pos5.residx).toBe(5);
+      // REVEL scores: [0.2, 0.8, 0.5] -> Mean: 0.5, Median: 0.5, Min: 0.2, Max: 0.8, Count: 3
+      expect(pos5.revelMean).toBeCloseTo(0.5);
+      expect(pos5.revelMedian).toBeCloseTo(0.5);
+      expect(pos5.revelMin).toBe(0.2);
+      expect(pos5.revelMax).toBe(0.8);
+      expect(pos5.revelCount).toBe(3);
+
+      // AM scores: [0.1, 0.9, 0.5] -> Mean: 0.5, Median: 0.5, Min: 0.1, Max: 0.9, Count: 3
+      expect(pos5.amMean).toBeCloseTo(0.5);
+      expect(pos5.amMedian).toBeCloseTo(0.5);
+      expect(pos5.amMin).toBe(0.1);
+      expect(pos5.amMax).toBe(0.9);
+      expect(pos5.amCount).toBe(3);
+
+      // GERP++ scores: [1.5, 2.5, 2.0] -> Mean: 2.0
+      expect(pos5.gerp).toBeCloseTo(2.0);
+      // PhyloP scores: [0.5, 1.5, 1.0] -> Mean: 1.0
+      expect(pos5.phylop).toBeCloseTo(1.0);
+
+      fetchSpy.mockRestore();
+    });
+  });
+
+  describe("Local dbNSFP Amino Acid Filtering", () => {
+    it("should match amino acid change representations properly using matchAminoAcidChange logic", async () => {
+      const dbnsfpLocal = await import("./server/services/dbnsfp_local.ts");
+      
+      const dbInstanceSpy = vi.spyOn(dbnsfpLocal as any, "getDbInstance").mockReturnValue({
+        prepare: () => ({
+          all: () => [
+            { gene: "GZF1", pos: 586, aa_change: "p.Asp586Val", revel: 0.1 },
+            { gene: "GZF1", pos: 586, aa_change: "p.Asp586Ala", revel: 0.9 }
+          ]
+        })
+      });
+
+      const res = await dbnsfpLocal.queryLocalDbnsfpVariant("GZF1", 586, null, null, "p.Asp586Ala");
+      expect(res).toBeDefined();
+      expect(res?.revel).toBe(0.9);
+      expect(res?.aa_change).toBe("p.Asp586Ala");
+
+      dbInstanceSpy.mockRestore();
+    });
+
+    it("should fetch popEVE score online for GZF1 p.Asp586Ala via fetchPopEVEScoreOnline", async () => {
+      const externalServices = await import("./server/services/external.ts");
+      const score = await externalServices.fetchPopEVEScoreOnline("GZF1", "p.Asp586Ala");
+      expect(score).not.toBeNull();
+      if (score !== null) {
+        expect(score).toBeCloseTo(-3.775, 2);
+      }
     });
   });
 });

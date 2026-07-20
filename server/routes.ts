@@ -50,8 +50,44 @@ import {
   fetchGnomadVariantFrequency,
   fetchUniprotFeatures,
   fetchLandscapeData,
+  fetchLocalPopulationFrequencies,
 } from "./services/external.ts";
+import { isLocalDbnsfpAvailable } from "./services/dbnsfp_local.ts";
+import { queryGenosWebservice } from "./services/genos_web.ts";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_1_TO_3_TITLE } from "../src/aminoAcids.ts";
+import { type AnalysisResult } from "../src/types.ts";
+import {
+  type ClinVarData,
+  type PredictorData,
+  type ConservationData,
+  type GnomadGeneConstraint,
+  type GnomadVariantFrequency,
+  type UniprotFeaturesResult
+} from "./services/external.ts";
+
+
+export interface FoldXResult {
+  pdb: string;
+  ddG: number | null;
+  status: string;
+  foldedResidueIndex: number;
+  resolvedChain?: string;
+  energetics?: {
+    foldxMean: number | null;
+    foldxSd: number | null;
+    foldx: number | null;
+    dynamut2: number | null;
+    ddmut: number | null;
+    rasp: number | null;
+    ddgun: number | null;
+    vdw: number | null;
+    electrostatics: number | null;
+    rawDdGs: number[];
+    stericClashWarning: boolean;
+    localSidechainRmsd: number | null;
+    consensusVerdict: string | null;
+  } | null;
+}
 
 export interface BackgroundTask {
   id: string;
@@ -59,6 +95,7 @@ export interface BackgroundTask {
   promise: Promise<any>;
 }
 export const activeBackgroundTasks: BackgroundTask[] = [];
+export const inFlightPrewarms = new Set<string>();
 
 import {
   biophysicalSemaphore,
@@ -71,7 +108,8 @@ import {
   runEsm2Eval,
   extractSequenceFromPdb,
   runDdgunSeq,
-  runRaspLocal
+  runRaspLocal,
+  ddgunCache
 } from "./services/biophysics.ts";
 import { computeRuleBasedACMG, type RuleBasedInsights, type ACMGItem } from "./services/acmg.ts";
 import { THRESHOLDS, computeConsensusVerdict } from "../src/shared/thresholds.ts";
@@ -99,7 +137,7 @@ export const apiRouter = express.Router();
 const jsonParserRegular = express.json({ limit: "1mb" });
 const jsonParserPdb = express.json({ limit: "5mb" });
 
-apiRouter.get("/health", (req, res) => {
+apiRouter.get("/health", async (req, res) => {
   // foldxReady: check binary exists (no exec)
   const foldxBinEnv = process.env.FOLDX_BINARY || "";
   let foldxReady = false;
@@ -119,7 +157,19 @@ apiRouter.get("/health", (req, res) => {
   const placeholders = ["YOUR_GEMINI_API_KEY", "CHANGE_ME", "MY_GEMINI_API_KEY", ""];
   const geminiReady = !!(geminiKey && !placeholders.some(p => geminiKey.includes(p)) && geminiKey.trim().length >= 10);
 
-  res.json({ status: "ok", timestamp: new Date().toISOString(), foldxReady, geminiReady });
+  // modelServerReady: query local FastAPI sidecar health endpoint (A-6)
+  let modelServerReady = false;
+  try {
+    const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(500) });
+    if (sidecarRes.ok) {
+      const data = await sidecarRes.json() as any;
+      modelServerReady = data.status === "healthy";
+    }
+  } catch (_) {
+    modelServerReady = false;
+  }
+
+  res.json({ status: "ok", timestamp: new Date().toISOString(), foldxReady, geminiReady, modelServerReady, auditLogFailures: AuditLogger.failureCount });
 });
 
 apiRouter.get("/version", (req, res) => {
@@ -147,6 +197,32 @@ apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
   const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
   const ddmut = req.query?.ddmut ? parseFloat(req.query.ddmut as string) : null;
 
+  // Dynamically resolve ddgun from server cache if sequence/uniprotId/mutation parameters are provided
+  let ddgunResolved = ddgun;
+  if (!ddgunResolved && req.query?.uniprotId && req.query?.mutation) {
+    try {
+      const uId = req.query.uniprotId as string;
+      const mutStr = (req.query.mutation as string).trim();
+      const wtL = mutStr[0].toUpperCase();
+      const mutL = mutStr[mutStr.length - 1].toUpperCase();
+      const mutMatch = mutStr.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+      if (mutMatch) {
+        const posN = parseInt(mutMatch[2], 10);
+        const seq = await fetchUniprotSequence(uId);
+        if (seq && posN > 0 && posN <= seq.length) {
+          const cacheKey = `${seq}_${wtL}${posN}${mutL}`;
+          const cachedVal = ddgunCache.get(cacheKey);
+          if (cachedVal !== undefined && cachedVal !== null) {
+            console.log(`[DDGun-Seq Cache Hit] Resolved ddgun value during status poll:`, cachedVal);
+            ddgunResolved = cachedVal;
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("[DDGun Status Poll Resolver Warning] Failed resolving cached ddgun:", e.message);
+    }
+  }
+
   try {
     const result = await pollDynaMut2Job(jobId);
     if (!result) {
@@ -158,20 +234,21 @@ apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
     await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
 
     const consensusVerdict = result.status === "DONE" && result.prediction !== null
-      ? computeConsensusVerdict({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, ddgun })
+      ? computeConsensusVerdict({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, ddgun: ddgunResolved })
       : null;
 
     res.json({
       jobId,
       status: result.status,
       prediction: result.prediction,
-      consensusVerdict
+      consensusVerdict,
+      ddgun: ddgunResolved
     });
   } catch (err: any) {
     console.error(`[Route Error] DynaMut2 job polling failed for ${jobId}:`, err.message);
     await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
     if (err.statusCode === 429) {
-      res.status(429).json({ error: "Upstream DynaMut2 API rate limit reached." });
+      sendError(res, 429, "RATE_LIMIT_ERROR", "Upstream DynaMut2 API rate limit reached.");
       return;
     }
     res.json({ jobId, status: "ERROR", prediction: null, consensusVerdict: null });
@@ -193,6 +270,32 @@ apiRouter.get("/ddmut-job/:jobId", async (req, res) => {
   const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
   const dynamut2 = req.query?.dynamut2 ? parseFloat(req.query.dynamut2 as string) : null;
 
+  // Dynamically resolve ddgun from server cache if sequence/uniprotId/mutation parameters are provided
+  let ddgunResolved = ddgun;
+  if (!ddgunResolved && req.query?.uniprotId && req.query?.mutation) {
+    try {
+      const uId = req.query.uniprotId as string;
+      const mutStr = (req.query.mutation as string).trim();
+      const wtL = mutStr[0].toUpperCase();
+      const mutL = mutStr[mutStr.length - 1].toUpperCase();
+      const mutMatch = mutStr.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+      if (mutMatch) {
+        const posN = parseInt(mutMatch[2], 10);
+        const seq = await fetchUniprotSequence(uId);
+        if (seq && posN > 0 && posN <= seq.length) {
+          const cacheKey = `${seq}_${wtL}${posN}${mutL}`;
+          const cachedVal = ddgunCache.get(cacheKey);
+          if (cachedVal !== undefined && cachedVal !== null) {
+            console.log(`[DDGun-Seq Cache Hit] Resolved ddgun value during status poll:`, cachedVal);
+            ddgunResolved = cachedVal;
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("[DDGun Status Poll Resolver Warning] Failed resolving cached ddgun:", e.message);
+    }
+  }
+
   try {
     const result = await pollDdmutJob(jobId);
     if (!result) {
@@ -204,20 +307,21 @@ apiRouter.get("/ddmut-job/:jobId", async (req, res) => {
     await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
 
     const consensusVerdict = result.status === "DONE" && result.prediction !== null
-      ? computeConsensusVerdict({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, ddgun })
+      ? computeConsensusVerdict({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, ddgun: ddgunResolved })
       : null;
 
     res.json({
       jobId,
       status: result.status,
       prediction: result.prediction,
-      consensusVerdict
+      consensusVerdict,
+      ddgun: ddgunResolved
     });
   } catch (err: any) {
     console.error(`[Route Error] DDMut job polling failed for ${jobId}:`, err.message);
     await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
     if (err.statusCode === 429) {
-      res.status(429).json({ error: "Upstream DDMut API rate limit reached." });
+      sendError(res, 429, "RATE_LIMIT_ERROR", "Upstream DDMut API rate limit reached.");
       return;
     }
     res.json({ jobId, status: "ERROR", prediction: null, consensusVerdict: null });
@@ -311,6 +415,9 @@ function writeToCache(cacheKey: string, data: any) {
 }
 
 function generateAltVariants(sequence: string): string[] {
+  // NOTE (C-6): These alternative comparison variants are generated at arbitrary, evenly-spaced fractional 
+  // positions (15%, 35%, 55%, 75% of sequence length) for comparative baseline visualization in the UI. 
+  // They do not represent biologically informed functional domain or hot-spot recommendations.
   // We want to generate 4 valid, non-overlapping mutations
   // Pick positions at 15%, 35%, 55%, 75% of length
   const fractions = [0.15, 0.35, 0.55, 0.75];
@@ -447,72 +554,154 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
     let conservationData = null;
     let stringInteractions = null;
     let gnomadFrequency = null;
+    let aouFrequency = null;
     let disruptionPredictor = { level: "low", reason: "Fallback: PDB structure mapping not resolved", plddt: 100 };
     let esm2 = null;
     let landscapeData = null;
+    let gnomadConstraint = null;
+    let uniprotFeatures = null;
 
     let resolvedPdbId: string | null = null;
     let resolvedPdbSource: string = "AlphaFold";
-    let pdbMapping: { pdbId: string; chainId: string; shift: number } | null = null;
+    let pdbMapping: { pdbId: string; chainId: string; shift: number; unpStart: number; structStart: number } | null = null;
 
     try {
-      // Fetch PredictorData first to resolve chromosomal positions (gnomadVariantId)
-      predictorData = await fetchPredictorData(gene, variant);
-
-      try {
-        pdbMapping = await fetchBestPdbStructure(uniprotId, pos);
-        if (pdbMapping && pdbMapping.pdbId) {
-          resolvedPdbId = pdbMapping.pdbId.toUpperCase();
-          resolvedPdbSource = "RCSB PDB";
-        }
-      } catch (err) {
+      // Start independent tasks in parallel at t=0
+      const predictorPromise = fetchPredictorData(gene, variant);
+      
+      const pdbMappingPromise = fetchBestPdbStructure(uniprotId, pos).catch(err => {
         console.warn("[PDB Selection Error] Failed to query best PDB structure:", err);
+        return null;
+      });
+
+      const clinvarPromise = fetchClinVarData(gene, variant, originalNotation);
+      const stringPromise = fetchStringInteractions(gene);
+      
+      const esm2Promise = runEsm2Eval(sequence, pos, wt1Letter, mut1Letter).catch(err => {
+        console.warn("[ESM2 Parallel Run Warning] Failed to run ESM2 evaluation:", err);
+        return null;
+      });
+
+      const startPos = (pos !== undefined && pos !== null) ? Math.max(1, pos - 15) : undefined;
+      const endPos = (pos !== undefined && pos !== null) ? pos + 15 : undefined;
+
+      const landscapePromise = fetchLandscapeData(gene, startPos, endPos).catch(err => {
+        console.warn("[Landscape Parallel Run Warning] Failed to fetch landscape data:", err);
+        return null;
+      });
+
+      const genosPromise = queryGenosWebservice(gene, variant).catch(err => {
+        console.warn("[Genos Web Query Warning] Failed to run Genos web query:", err);
+        return null;
+      });
+
+      const gnomadConstraintPromise = fetchGnomadGeneConstraint(gene, pos).catch(err => {
+        console.warn("[Gnomad Constraint Warning] Failed to fetch gnomad gene constraint:", err);
+        return null;
+      });
+
+      const uniprotFeaturesPromise = fetchUniprotFeatures(uniprotId).catch(err => {
+        console.warn("[UniProt Features Warning] Failed to fetch uniprot features:", err);
+        return null;
+      });
+
+      const localFreqsPromise = (isLocalDbnsfpAvailable() && pos !== null)
+        ? fetchLocalPopulationFrequencies(gene, pos, variant).catch(err => {
+            console.warn("[Local dbNSFP Freq Warning] Error querying local frequencies:", err);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      // Chain dependent tasks:
+      // gnomad frequency depends on localFreqsPromise and predictorPromise
+      const gnomadFrequencyPromise = localFreqsPromise.then(localFreqs => {
+        if (localFreqs && localFreqs.gnomad) return localFreqs.gnomad;
+        return predictorPromise.then(pred => {
+          return fetchGnomadVariantFrequency(pred?.gnomadVariantId || null);
+        });
+      });
+
+      // conservationData depends on pdbMappingPromise, predictorPromise, and genosPromise
+      const conservationPromise = Promise.all([pdbMappingPromise, predictorPromise, genosPromise]).then(([pdbMap, pred, genosRec]) => {
+        return fetchConservationData(gene, variant, pdbMap?.pdbId, pdbMap?.chainId, pos, pred?.gnomadVariantId || null, genosRec, uniprotId);
+      });
+
+      // disruptionPredictor depends on pdbMappingPromise
+      const disruptionPromise = pdbMappingPromise.then(async (pdbMap) => {
+        try {
+          let wtPdbText: string | null = null;
+          let chainId: string | undefined;
+          if (pdbMap && pdbMap.pdbId) {
+            wtPdbText = await fetchPdbFromRcsb(pdbMap.pdbId, pdbMap.chainId, pdbMap.unpStart, pdbMap.structStart);
+            chainId = pdbMap.chainId;
+          } else {
+            wtPdbText = await fetchAlphafoldPdb(uniprotId);
+            chainId = "A";
+          }
+          if (wtPdbText) {
+            return predictStructuralDisruption(wtPdbText, wt1Letter, pos, mut1Letter, chainId);
+          }
+        } catch (err) {
+          console.warn("[Triage Parallel Run Warning] Failed to predict structural disruption:", err);
+        }
+        return { level: "low", reason: "Fallback: PDB structure mapping not resolved", plddt: 100 };
+      });
+
+      // Wait for all promises in parallel
+      const [
+        clinvarRes,
+        conservationRes,
+        stringRes,
+        gnomadFreqRes,
+        disruptionRes,
+        esm2Res,
+        landscapeRes,
+        predictorRes,
+        pdbMapRes,
+        gnomadConstraintRes,
+        uniprotFeaturesRes,
+        localFreqsRes
+      ] = await Promise.all([
+        clinvarPromise,
+        conservationPromise,
+        stringPromise,
+        gnomadFrequencyPromise,
+        disruptionPromise,
+        esm2Promise,
+        landscapePromise,
+        predictorPromise,
+        pdbMappingPromise,
+        gnomadConstraintPromise,
+        uniprotFeaturesPromise,
+        localFreqsPromise
+      ]);
+
+      clinvar = clinvarRes;
+      conservationData = conservationRes;
+      
+      if (localFreqsRes && localFreqsRes.aou) {
+        aouFrequency = localFreqsRes.aou;
+      } else if (conservationRes?.aouFrequency) {
+        aouFrequency = conservationRes.aouFrequency;
+      }
+      if (aouFrequency && aouFrequency.aouAC === null && aouFrequency.aouAN === null && aouFrequency.aouHet === null && aouFrequency.aouHom === null) {
+        aouFrequency = null;
       }
 
-      const startPos = Math.max(1, pos - 15);
-      const endPos = Math.min(sequence.length, pos + 15);
+      stringInteractions = stringRes;
+      gnomadFrequency = gnomadFreqRes;
+      disruptionPredictor = disruptionRes as any;
+      esm2 = esm2Res;
+      landscapeData = landscapeRes;
+      predictorData = predictorRes;
+      pdbMapping = pdbMapRes;
+      gnomadConstraint = gnomadConstraintRes;
+      uniprotFeatures = uniprotFeaturesRes;
 
-      const results = await Promise.all([
-        fetchClinVarData(gene, variant, originalNotation),
-        fetchConservationData(gene, variant, pdbMapping?.pdbId, pdbMapping?.chainId, pos),
-        fetchStringInteractions(gene),
-        fetchGnomadVariantFrequency(predictorData?.gnomadVariantId || null),
-        (async () => {
-          try {
-            let wtPdbText: string | null = null;
-            let chainId: string | undefined;
-            if (pdbMapping && pdbMapping.pdbId) {
-              wtPdbText = await fetchPdbFromRcsb(pdbMapping.pdbId, pdbMapping.chainId, pdbMapping.shift);
-              chainId = pdbMapping.chainId;
-            } else {
-              wtPdbText = await fetchAlphafoldPdb(uniprotId);
-              chainId = "A"; // AlphaFold model files are always chain A
-            }
-
-            if (wtPdbText) {
-              return predictStructuralDisruption(wtPdbText, wt1Letter, pos, mut1Letter, chainId);
-            }
-          } catch (err) {
-            console.warn("[Triage Parallel Run Warning] Failed to predict structural disruption:", err);
-          }
-          return { level: "low", reason: "Fallback: PDB structure mapping not resolved", plddt: 100 };
-        })(),
-        runEsm2Eval(sequence, pos, wt1Letter, mut1Letter).catch(err => {
-          console.warn("[ESM2 Parallel Run Warning] Failed to run ESM2 evaluation:", err);
-          return null;
-        }),
-        fetchLandscapeData(gene, startPos, endPos).catch(err => {
-          console.warn("[Landscape Parallel Run Warning] Failed to fetch landscape data:", err);
-          return null;
-        })
-      ]);
-      clinvar = results[0];
-      conservationData = results[1];
-      stringInteractions = results[2];
-      gnomadFrequency = results[3];
-      disruptionPredictor = results[4] as any;
-      esm2 = results[5];
-      landscapeData = results[6];
+      if (pdbMapping && pdbMapping.pdbId) {
+        resolvedPdbId = pdbMapping.pdbId.toUpperCase();
+        resolvedPdbSource = "RCSB PDB";
+      }
     } catch (err: any) {
       console.error("[Parallel Fetch Error]:", err);
       if (err.name === "AbortError" || err.message.includes("timeout")) {
@@ -522,16 +711,6 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       sendError(res, 502, "BAD_GATEWAY", `Variant database upstream query error: ${err.message}`);
       return;
     }
-
-    // ACMG-6 / UniProt: Fetch live gnomAD gene constraint and UniProt curated features.
-    // These are non-critical — failures are silently absorbed so the main response is not blocked.
-    const [gnomadConstraint, uniprotFeatures] = await Promise.allSettled([
-      fetchGnomadGeneConstraint(gene),
-      fetchUniprotFeatures(uniprotId),
-    ]).then(results => [
-      results[0].status === "fulfilled" ? results[0].value : null,
-      results[1].status === "fulfilled" ? results[1].value : null,
-    ]);
 
     // ACMG-6: Inject live gnomAD constraint into PP2 logic.
     // If the gene is constrained per gnomAD mis_z / oe_mis, PP2 evidence is injected.
@@ -553,50 +732,57 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
 
     // Asynchronously pre-compute FoldX modeling in the background to warm the cache (bypass during tests)
     if (process.env.NODE_ENV !== "test") {
-      const prewarmTaskId = crypto.randomUUID();
-      const prewarmController = new AbortController();
-      
-      const prewarmPromise = (async () => {
-        let createdJobDir = "";
-        try {
-          if (pdbMapping && pdbMapping.pdbId) {
-            const wtPdbText = await fetchPdbFromRcsb(pdbMapping.pdbId, pdbMapping.chainId, pdbMapping.shift);
-            if (wtPdbText) {
-              const wt1 = wt1Letter.toUpperCase();
-              const chain = pdbMapping.chainId.toUpperCase();
-              const mut1 = AMINO_ACID_3_TO_1[mutant] || (mutant.length === 1 ? mutant.toUpperCase() : mutant[0].toUpperCase());
-              
-              const mutation = `${wt1}${chain}${pos}${mut1}`;
-              const prewarmJobId = crypto.randomUUID();
-              const prewarmJobDir = path.join(process.cwd(), "temp_jobs", prewarmJobId);
-              createdJobDir = prewarmJobDir;
-              
-              console.log(`[Pre-warm Cache] Silently launching FoldX mutant simulation in background for ${gene} ${variant}`);
-              await generateMutantPdb(wtPdbText, mutation, uniprotId, prewarmJobDir, prewarmController.signal);
-              console.log(`[Pre-warm Cache] FoldX simulation completed and cached for ${gene} ${variant}`);
+      const prewarmKey = `${gene}_${variant}`.toUpperCase();
+      if (inFlightPrewarms.has(prewarmKey)) {
+        console.log(`[Pre-warm Cache] FoldX pre-warm already in-flight for ${gene} ${variant}, skipping duplicate.`);
+      } else {
+        inFlightPrewarms.add(prewarmKey);
+        const prewarmTaskId = crypto.randomUUID();
+        const prewarmController = new AbortController();
+        
+        const prewarmPromise = (async () => {
+          let createdJobDir = "";
+          try {
+            if (pdbMapping && pdbMapping.pdbId) {
+              const wtPdbText = await fetchPdbFromRcsb(pdbMapping.pdbId, pdbMapping.chainId, pdbMapping.unpStart, pdbMapping.structStart);
+              if (wtPdbText) {
+                const wt1 = wt1Letter.toUpperCase();
+                const chain = pdbMapping.chainId.toUpperCase();
+                const mut1 = AMINO_ACID_3_TO_1[mutant] || (mutant.length === 1 ? mutant.toUpperCase() : mutant[0].toUpperCase());
+                
+                const mutation = `${wt1}${chain}${pos}${mut1}`;
+                const prewarmJobId = crypto.randomUUID();
+                const prewarmJobDir = path.join(process.cwd(), "temp_jobs", prewarmJobId);
+                createdJobDir = prewarmJobDir;
+                
+                console.log(`[Pre-warm Cache] Silently launching FoldX mutant simulation in background for ${gene} ${variant}`);
+                await generateMutantPdb(wtPdbText, mutation, uniprotId, prewarmJobDir, prewarmController.signal);
+                console.log(`[Pre-warm Cache] FoldX simulation completed and cached for ${gene} ${variant}`);
+              }
+            }
+          } catch (prewarmErr: any) {
+            if (prewarmController.signal.aborted) {
+              console.log(`[Pre-warm Cache] Background FoldX pre-warm aborted for ${gene} ${variant}`);
+            } else {
+              console.warn(`[Pre-warm Cache Warning] Background FoldX pre-warm failed:`, prewarmErr.message);
+            }
+            if (createdJobDir) {
+              try {
+                if (fs.existsSync(createdJobDir)) {
+                  await fs.promises.rm(createdJobDir, { recursive: true, force: true });
+                }
+              } catch (_) {}
+            }
+          } finally {
+            inFlightPrewarms.delete(prewarmKey);
+            const idx = activeBackgroundTasks.findIndex(t => t.id === prewarmTaskId);
+            if (idx !== -1) {
+              activeBackgroundTasks.splice(idx, 1);
             }
           }
-        } catch (prewarmErr: any) {
-          if (prewarmController.signal.aborted) {
-            console.log(`[Pre-warm Cache] Background FoldX pre-warm aborted for ${gene} ${variant}`);
-          } else {
-            console.warn(`[Pre-warm Cache Warning] Background FoldX pre-warm failed:`, prewarmErr.message);
-          }
-          if (createdJobDir) {
-            try {
-              if (fs.existsSync(createdJobDir)) {
-                await fs.promises.rm(createdJobDir, { recursive: true, force: true });
-              }
-            } catch (_) {}
-          }
-        } finally {
-          const idx = activeBackgroundTasks.findIndex(t => t.id === prewarmTaskId);
-          if (idx !== -1) {
-            activeBackgroundTasks.splice(idx, 1);
-          }
-        }
-      })();
-      activeBackgroundTasks.push({ id: prewarmTaskId, controller: prewarmController, promise: prewarmPromise });
+        })();
+        activeBackgroundTasks.push({ id: prewarmTaskId, controller: prewarmController, promise: prewarmPromise });
+      }
     }
 
     res.json({
@@ -613,6 +799,7 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       gnomadConstraint: gnomadConstraint ?? null,
       uniprotFeatures: uniprotFeatures ?? null,
       gnomadFrequency: gnomadFrequency ?? null,
+      aouFrequency: aouFrequency ?? null,
       esm2: esm2 ?? null,
       metadata: {
         gene,
@@ -724,7 +911,7 @@ apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {
       sendError(res, 400, "BAD_REQUEST", "Position (pos) must be a number");
       return;
     }
-    const diff = computeStructuralDiff(wtPdb, mutPdb, posVal, chain);
+    const diff = await computeStructuralDiff(wtPdb, mutPdb, posVal, chain);
     res.json(diff);
   } catch (error: any) {
     console.error("Structural diff endpoint failure:", error);
@@ -734,17 +921,17 @@ apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {
 
 function handleNarrativeResponse(
   res: express.Response,
-  analysisResult: any,
+  analysisResult: AnalysisResult,
   gene: string,
   variant: string,
-  clinvar: any,
-  predictorData: any,
-  conservationData: any,
-  gnomadConstraint: any,
-  gnomadFrequency: any,
+  clinvar: ClinVarData | null,
+  predictorData: PredictorData | null,
+  conservationData: ConservationData | null,
+  gnomadConstraint: GnomadGeneConstraint | null,
+  gnomadFrequency: GnomadVariantFrequency | null,
   acmgWeighting: "standard" | "conservative" | "strict-structural",
   esm2?: { llr: number | null; verdict: string } | null,
-  uniprotFeatures?: any | null,
+  uniprotFeatures?: UniprotFeaturesResult | null,
   sequence?: string | null
 ) {
   if (analysisResult.insights) {
@@ -880,14 +1067,46 @@ apiRouter.post("/analyze-variant-narrative", jsonParserRegular, async (req, res)
             code: err instanceof GeminiError ? err.code : "INTERNAL_ERROR",
             message: err.message
           });
+          
+          const ruleInsights = computeRuleBasedACMG(
+            gene, variant, clinvar, predictorData, conservationData, gnomadConstraint, gnomadFrequency, acmgWeighting, null, uniprotFeatures, sequence
+          );
+          
+          const clinvarText = clinvar 
+            ? `Listed as **${clinvar.classification || "Unclassified"}** (Review status: *${clinvar.reviewStatus || "unknown"}*).`
+            : "Absent from ClinVar database (rare or novel variant).";
+            
+          const freqText = (gnomadFrequency && gnomadFrequency.exomeAF)
+            ? `Observed in gnomAD with an allele frequency of **${gnomadFrequency.exomeAF.toExponential(3)}**.`
+            : "Absent from gnomAD population database (extremely rare or novel variant).";
+
+          const cadd = predictorData?.caddPhred;
+          const am = predictorData?.amClass;
+          const revel = conservationData?.revel;
+          
+          const predictorSummary = [
+            cadd ? `CADD Phred score is **${cadd}**` : null,
+            revel ? `REVEL score is **${revel}**` : null,
+            am ? `AlphaMissense is **${am}**` : null
+          ].filter(Boolean).join(", ");
+
+          const fallbackText = 
+            `### ⚠️ AI Explanation Service Offline (Fallback Report Loaded)\n\n` +
+            `The Gemini AI narrative service is currently experiencing rate/quota limits (${err.message}). A structured clinical summary has been generated from standard database metrics:\n\n` +
+            `* **Clinical Consensus**: Rule-based ACMG classification is **${ruleInsights.acmgVerdict || "VUS / Conflicting Evidence"}**.\n` +
+            `* **ClinVar Database**: ${clinvarText}\n` +
+            `* **Population Frequency**: ${freqText}\n` +
+            (predictorSummary ? `* **In-Silico Predictors**: ${predictorSummary}.\n` : "") +
+            `* **Biophysical Impact**: Local sequence and structure are fully loaded and functional. You can run FoldX / DynaMut2 simulations via the 3D Molecular Viewer controls below.`;
+
           analysisResult = {
-            analysis: `⚠️ **AI Narrative Explanation Unavailable**\n\nThe Gemini AI explanation service is currently experiencing service limits or could not be reached (${err.message}). Standard database metrics, predictions, and sequence conservation details have been loaded and are fully functional in the dashboard below.`,
+            analysis: fallbackText,
             insights: {
               biochemicalShift: "Unavailable (AI Service Offline)",
               structuralImpact: "Unavailable (AI Service Offline)",
               acmgCriteria: []
             }
-          };
+          } as AnalysisResult;
         }
 
         handleNarrativeResponse(
@@ -919,6 +1138,140 @@ apiRouter.post("/analyze-variant-narrative", jsonParserRegular, async (req, res)
   } catch (error: any) {
     console.error("Narrative endpoint failure:", error);
     sendError(res, 500, "INTERNAL_ERROR", error.message || "Failed to process narrative request.");
+  }
+});
+
+interface RegistryJob {
+  jobId: string;
+  type: "dynamut2" | "ddmut";
+  mutation: string;
+  timestamp: string;
+}
+
+const REGISTRY_PATH = path.join(process.cwd(), "temp_jobs", "job_registry.json");
+
+async function recordJobInRegistry(jobId: string, type: "dynamut2" | "ddmut", mutation: string) {
+  try {
+    let registry: RegistryJob[] = [];
+    if (fs.existsSync(REGISTRY_PATH)) {
+      const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+      registry = JSON.parse(content) as RegistryJob[];
+    }
+    registry.push({
+      jobId,
+      type,
+      mutation,
+      timestamp: new Date().toISOString()
+    });
+    if (registry.length > 1000) {
+      registry = registry.slice(-1000);
+    }
+    await fs.promises.mkdir(path.dirname(REGISTRY_PATH), { recursive: true });
+    await fs.promises.writeFile(REGISTRY_PATH, JSON.stringify(registry, null, 2), "utf-8");
+  } catch (err: any) {
+    console.warn("[Job Registry Warning] Failed to write job to registry:", err.message);
+  }
+}
+
+apiRouter.post("/dynamut2-submit", jsonParserPdb, async (req, res) => {
+  try {
+    const { wtPdb, mutation } = req.body;
+    if (!wtPdb || !mutation) {
+      sendError(res, 400, "BAD_REQUEST", "Missing wtPdb or mutation.");
+      return;
+    }
+
+    const mutTrimmed = mutation.trim();
+    const wtLetter = mutTrimmed[0].toUpperCase();
+    const mutLetter = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+
+    const mutMatch = mutTrimmed.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+    if (!mutMatch) {
+      sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
+      return;
+    }
+    const chainParam = mutMatch[2].toUpperCase();
+    const posNum = parseInt(mutMatch[3], 10);
+
+    let resolvedChain = chainParam;
+    try {
+      const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
+      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain === chainParam));
+      if (targetRes) {
+        resolvedChain = targetRes.chain;
+      } else {
+        const fallbackRes = pdbResidues.find(r => r.resSeq === posNum);
+        if (fallbackRes) {
+          resolvedChain = fallbackRes.chain;
+        }
+      }
+    } catch (pdbErr) {
+      console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
+    }
+    const resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+
+    const dynamut2JobId = await submitDynaMut2Job(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
+    if (dynamut2JobId) {
+      await recordJobInRegistry(dynamut2JobId, "dynamut2", mutTrimmed);
+    }
+    res.json({
+      dynamut2JobId,
+      dynamut2Status: dynamut2JobId ? "pending" : "unavailable"
+    });
+  } catch (err: any) {
+    console.error("DynaMut2 submit endpoint failure:", err);
+    sendError(res, 500, "INTERNAL_ERROR", err.message || "Failed to submit DynaMut2 job.");
+  }
+});
+
+apiRouter.post("/ddmut-submit", jsonParserPdb, async (req, res) => {
+  try {
+    const { wtPdb, mutation } = req.body;
+    if (!wtPdb || !mutation) {
+      sendError(res, 400, "BAD_REQUEST", "Missing wtPdb or mutation.");
+      return;
+    }
+
+    const mutTrimmed = mutation.trim();
+    const wtLetter = mutTrimmed[0].toUpperCase();
+    const mutLetter = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+
+    const mutMatch = mutTrimmed.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+    if (!mutMatch) {
+      sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
+      return;
+    }
+    const chainParam = mutMatch[2].toUpperCase();
+    const posNum = parseInt(mutMatch[3], 10);
+
+    let resolvedChain = chainParam;
+    try {
+      const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
+      const targetRes = pdbResidues.find(r => r.resSeq === posNum && (chainParam === "" || r.chain === chainParam));
+      if (targetRes) {
+        resolvedChain = targetRes.chain;
+      } else {
+        const fallbackRes = pdbResidues.find(r => r.resSeq === posNum);
+        if (fallbackRes) {
+          resolvedChain = fallbackRes.chain;
+        }
+      }
+    } catch (pdbErr) {
+      console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
+    }
+    const resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+
+    const ddmutJobId = await submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
+    if (ddmutJobId) {
+      await recordJobInRegistry(ddmutJobId, "ddmut", mutTrimmed);
+    }
+    res.json({
+      ddmutJobId,
+      ddmutStatus: ddmutJobId ? "pending" : "unavailable"
+    });
+  } catch (err: any) {
+    console.error("DDMut submit endpoint failure:", err);
+    sendError(res, 500, "INTERNAL_ERROR", err.message || "Failed to submit DDMut job.");
   }
 });
 
@@ -989,20 +1342,20 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
     }
 
     try {
-      let foldxResult: { pdb: string; ddG: number | null; status: string; foldedResidueIndex: number; resolvedChain?: string; energetics?: any } | null = null;
+      let foldxResult: FoldXResult | null = null;
       let foldxError: any = null;
 
       let dynamut2JobId: string | null = null;
-      let dynamut2Status: "pending" | "unavailable" = "unavailable";
+      let dynamut2Status: "pending" | "unavailable" | null = null;
 
       let ddmutJobId: string | null = null;
-      let ddmutStatus: "pending" | "unavailable" = "unavailable";
+      let ddmutStatus: "pending" | "unavailable" | null = null;
 
       let ddgun: number | null = null;
       let rasp: number | null = null;
       let isRaspSurrogate = false;
 
-      const runFoldX = async () => {
+      const runFoldX = async (): Promise<FoldXResult | null> => {
         let acquired = false;
         try {
           await biophysicalSemaphore.acquire();
@@ -1020,9 +1373,10 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
 
           // Create job directory
           await fs.promises.mkdir(jobDir, { recursive: true });
-          foldxResult = await generateMutantPdb(wtPdb, mutTrimmed, uniprotId, jobDir);
+          return await generateMutantPdb(wtPdb, mutTrimmed, uniprotId, jobDir);
         } catch (err: any) {
           foldxError = err;
+          return null;
         } finally {
           if (acquired) {
             biophysicalSemaphore.release();
@@ -1030,51 +1384,72 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
         }
       };
 
-      const runDynaMut = async () => {
-        try {
-          dynamut2JobId = await submitDynaMut2Job(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
-          if (dynamut2JobId) {
-            dynamut2Status = "pending";
-          }
-        } catch (submitErr: any) {
-          console.warn(`[DynaMut2 Submission Fail] Failed to submit job:`, submitErr.message);
-        }
-      };
-
-      const runDdmut = async () => {
-        try {
-          ddmutJobId = await submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
-          if (ddmutJobId) {
-            ddmutStatus = "pending";
-          }
-        } catch (submitErr: any) {
-          console.warn(`[DDMut Submission Fail] Failed to submit job:`, submitErr.message);
-        }
-      };
-
       const runDDGun = async () => {
         try {
           let seq = "";
-          let minPos = 1;
-          if (pdbResidues) {
-            const seqInfo = extractSequenceFromPdb(wtPdb, resolvedChainUpper);
-            seq = seqInfo.sequence;
-            minPos = seqInfo.minPos;
+          let seqPos = posNum;
+          try {
+            seq = await fetchUniprotSequence(uniprotId);
+          } catch (seqErr) {
+            if (pdbResidues) {
+              const seqInfo = extractSequenceFromPdb(wtPdb, resolvedChainUpper);
+              seq = seqInfo.sequence;
+              seqPos = posNum - seqInfo.minPos + 1;
+            }
           }
-          const seqPos = posNum - minPos + 1;
-          ddgun = await runDdgunSeq(wtLetter, mutLetter, seq, seqPos);
+          if (seq && seqPos > 0 && seqPos <= seq.length) {
+            ddgun = await runDdgunSeq(wtLetter, mutLetter, seq, seqPos);
+          } else {
+            console.warn(`[DDGun-Seq Warning] Invalid residue index ${seqPos} for sequence of length ${seq ? seq.length : 0}`);
+          }
         } catch (err: any) {
           console.warn("[DDGun-Seq Warning] Failed to run:", err.message);
         }
       };
 
-      // Run FoldX, DynaMut2, DDGun-Seq, and DDMut in parallel
-      await Promise.all([
+      const d2Promise = submitDynaMut2Job(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter)
+        .then(async (id) => {
+          if (id) {
+            dynamut2JobId = id;
+            dynamut2Status = "pending";
+            await recordJobInRegistry(id, "dynamut2", mutTrimmed);
+          } else {
+            dynamut2Status = "unavailable";
+          }
+        })
+        .catch(err => {
+          console.warn("[DynaMut2 Background Submission Error] Failed to submit:", err.message);
+          dynamut2Status = "unavailable";
+        });
+
+      const ddmutPromise = submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter)
+        .then(async (id) => {
+          if (id) {
+            ddmutJobId = id;
+            ddmutStatus = "pending";
+            await recordJobInRegistry(id, "ddmut", mutTrimmed);
+          } else {
+            ddmutStatus = "unavailable";
+          }
+        })
+        .catch(err => {
+          console.warn("[DDMut Background Submission Error] Failed to submit:", err.message);
+          ddmutStatus = "unavailable";
+        });
+
+      const runDDGunWithTimeout = async () => {
+        const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 4000));
+        await Promise.race([runDDGun(), timeoutPromise]);
+      };
+
+      // Run FoldX, DDGun-Seq, DynaMut2 job submission, and DDMut job submission in parallel
+      const [foldxRes] = await Promise.all([
         runFoldX(),
-        runDynaMut(),
-        runDDGun(),
-        runDdmut()
+        runDDGunWithTimeout(),
+        d2Promise,
+        ddmutPromise
       ]);
+      foldxResult = foldxRes;
 
       // Handle FoldX-phase errors that should abort the request (input errors / residue mismatch)
       if (foldxError) {
@@ -1108,14 +1483,13 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       });
 
       // Run RaSP sequentially after FoldX (requires mutant PDB text from foldxResult)
-      const foldxResForRasp = foldxResult as any;
-      if (foldxResForRasp?.pdb) {
+      if (foldxResult?.pdb) {
         try {
           const wtPdbPath = path.join(jobDir, "wt_for_rasp.pdb");
           const mutPdbPath = path.join(jobDir, "mut_for_rasp.pdb");
           await fs.promises.mkdir(jobDir, { recursive: true });
           await fs.promises.writeFile(wtPdbPath, wtPdb, "utf8");
-          await fs.promises.writeFile(mutPdbPath, foldxResForRasp.pdb, "utf8");
+          await fs.promises.writeFile(mutPdbPath, foldxResult.pdb, "utf8");
           const raspRes = await runRaspLocal(wtPdbPath, mutPdbPath, resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
           if (raspRes !== null) {
             rasp = raspRes.score;
@@ -1133,17 +1507,16 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       }
 
       // If FoldX succeeded, use its outputs; otherwise, fallback to WT structures and nulls
-      const foldxRes = foldxResult as any;
-      const finalPdb = foldxRes ? foldxRes.pdb : wtPdb;
-      const finalDdG = foldxRes ? foldxRes.ddG : null;
-      const finalStatus = foldxRes ? foldxRes.status : "failed";
+      const finalPdb = foldxResult ? foldxResult.pdb : wtPdb;
+      const finalDdG = foldxResult ? foldxResult.ddG : null;
+      const finalStatus = foldxResult ? foldxResult.status : "failed";
 
-      const foldxMean = foldxRes?.energetics?.foldxMean ?? finalDdG;
-      const foldxSd = foldxRes?.energetics?.foldxSd ?? null;
-      const vdw = foldxRes?.energetics?.vdw ?? null;
-      const electrostatics = foldxRes?.energetics?.electrostatics ?? null;
-      const stericClashWarning = foldxRes?.energetics?.stericClashWarning ?? false;
-      const localSidechainRmsd = foldxRes?.energetics?.localSidechainRmsd ?? null;
+      const foldxMean = foldxResult?.energetics?.foldxMean ?? finalDdG;
+      const foldxSd = foldxResult?.energetics?.foldxSd ?? null;
+      const vdw = foldxResult?.energetics?.vdw ?? null;
+      const electrostatics = foldxResult?.energetics?.electrostatics ?? null;
+      const stericClashWarning = foldxResult?.energetics?.stericClashWarning ?? false;
+      const localSidechainRmsd = foldxResult?.energetics?.localSidechainRmsd ?? null;
 
       const consensusVerdict = computeConsensusVerdict({ foldxMean, rasp, ddgun });
 
@@ -1575,7 +1948,7 @@ apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
         return;
       }
       
-      const pdbData = await fetchPdbFromRcsb(pdbId, chainId);
+      const pdbData = await fetchPdbFromRcsb(pdbId, chainId, pdbMapping.unpStart, pdbMapping.structStart);
       if (pdbData) {
         res.setHeader("Content-Type", "text/plain");
         res.setHeader("X-Template-Source", "experimental");

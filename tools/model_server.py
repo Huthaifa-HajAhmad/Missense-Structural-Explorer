@@ -57,6 +57,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Missense Structural Explorer Model Server", lifespan=lifespan)
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "model_loaded": vesm_model is not None}
+
 class VesmRequest(BaseModel):
     sequence: str
     position: int

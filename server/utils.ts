@@ -6,7 +6,7 @@ import crypto from "crypto";
 export function safeCompare(a: string, b: string): boolean {
   const hashA = crypto.createHash("sha256").update(a).digest();
   const hashB = crypto.createHash("sha256").update(b).digest();
-  return crypto.timingSafeEqual(hashA, hashB) && a === b;
+  return crypto.timingSafeEqual(hashA, hashB);
 }
 
 export class Semaphore {
@@ -47,6 +47,10 @@ export class Semaphore {
   }
 
   release(): void {
+    if (this.activeCount <= 0) {
+      console.error("Semaphore over-release detected");
+      return;
+    }
     // NOTE: activeCount-- must happen before next.resolve() is called,
     // as next.resolve() (which triggers onAcquire) will immediately increment activeCount again.
     this.activeCount--;
@@ -99,7 +103,7 @@ export function validateVariant(variant: any): string {
   if (!variant || typeof variant !== "string") {
     throw new Error("Variant must be a non-empty string.");
   }
-  const trimmed = variant.trim();
+  const trimmed = variant.replace(/[()]/g, "").trim();
   const match = trimmed.match(HGVS_PATTERN);
   if (!match) {
     throw new Error(`Invalid variant format: "${trimmed}". Must match HGVS protein nomenclature (e.g., p.Arg215Trp or R215W).`);
@@ -143,20 +147,90 @@ export function validateUniProt(uniprotId: any): string {
   return trimmed.toUpperCase();
 }
 
+export function sanitizeErrorMessage(err: any): string {
+  if (!err) return "An unexpected error occurred.";
+  const msg = typeof err === "string" ? err : (err.message || "");
+  
+  if (msg.includes("ENOENT") || msg.includes("fs.") || msg.includes("spawn")) {
+    return "A system-level resource is temporarily unavailable.";
+  }
+  if (msg.includes("fetch") || msg.includes("Failed to fetch") || msg.includes("rate limit") || msg.includes("upstream")) {
+    return "Reference database query failed. Please verify the connection or try again later.";
+  }
+  if (msg.includes("JSON") || msg.includes("parse") || msg.includes("Unexpected token")) {
+    return "Data format mismatch when retrieving reference database details.";
+  }
+  if (msg.includes("ACMG") || msg.includes("BayesDel") || msg.includes("concordance")) {
+    return "Evaluation algorithm encountered an internal data processing mismatch.";
+  }
+  
+  const allowedKeywords = ["invalid", "session", "expired", "synonymous", "token", "missing", "unsupported"];
+  if (allowedKeywords.some(kw => msg.toLowerCase().includes(kw))) {
+    return msg;
+  }
+  
+  return "An internal server error occurred while processing the request.";
+}
+
 export function sendError(res: express.Response, status: number, code: string, message: string, details?: any) {
   const reqId = res.getHeader ? (res.getHeader("X-Request-ID") as string) : undefined;
+  
+  // Sanitize the message to protect against information leakage in clinical/production environments (E-1)
+  let sanitizedMessage = message;
+  if (status >= 500) {
+    sanitizedMessage = sanitizeErrorMessage(message);
+  }
+
   res.status(status).json({
     error: {
       code,
-      message,
+      message: sanitizedMessage,
       ...(reqId ? { requestId: reqId } : {}),
       ...(details ? { details } : {})
     }
   });
 }
 
+export class CircuitBreaker {
+  private state: "CLOSED" | "OPEN" | "HALF-OPEN" = "CLOSED";
+  private failures = 0;
+  private lastFailureTime = 0;
+
+  constructor(
+    private threshold = 5,
+    private cooldownMs = 60000
+  ) {}
+
+  canExecute(): boolean {
+    if (this.state === "OPEN") {
+      const now = Date.now();
+      if (now - this.lastFailureTime > this.cooldownMs) {
+        this.state = "HALF-OPEN";
+        return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  recordSuccess(): void {
+    this.failures = 0;
+    this.state = "CLOSED";
+  }
+
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.threshold) {
+      this.state = "OPEN";
+      console.warn(`[Circuit Breaker] Tripped to OPEN state due to ${this.failures} consecutive failures.`);
+    }
+  }
+}
+
 export class AuditLogger {
   private static logPath = path.join(process.cwd(), "logs", "audit.jsonl");
+  public static failureCount = 0;
 
   static async log(action: string, metadata: any) {
     try {
@@ -176,6 +250,7 @@ export class AuditLogger {
       }
       await fs.promises.appendFile(this.logPath, entryStr + "\n", "utf8");
     } catch (err: any) {
+      AuditLogger.failureCount++;
       console.error("[AuditLogger] Failed to write audit log:", err.message);
     }
   }

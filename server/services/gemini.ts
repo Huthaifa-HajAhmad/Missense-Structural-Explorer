@@ -1,5 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { PredictorData, ConservationData, StringInteraction } from "./external.ts";
+import { z } from "zod";
+import { PredictorData, ConservationData, StringInteraction, type ClinVarData } from "./external.ts";
+import { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../src/types.ts";
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -62,7 +64,7 @@ export async function performGeminiAnalysis(
   wildType: string,
   mutant: string,
   userDirections: string | undefined,
-  clinvar: any,
+  clinvar: ClinVarData | null,
   acmgWeighting: "standard" | "conservative" | "strict-structural",
   customApiKey: string | undefined,
   timeoutSignal: AbortSignal,
@@ -188,7 +190,8 @@ Explain how this substitution disrupts the structural integrity of the protein:
 Provide specific molecular hypotheses based on peptide chain coordinates.
 
 ### 🏥 Clinical and Pathogenicity Interpretation
-Synthesize the evidence to discuss the plausibility of pathogenicity (e.g., explaining why the variant might be plausibly pathogenic or benign based on ClinVar, in silico predictors, and biological mechanisms). Discuss any associated clinical syndromes. DO NOT assign a final diagnostic classification label.
+Synthesize the evidence to discuss the clinical plausibility of pathogenicity (ACMG classification of disease causation). Do not confuse this with structural stability changes (ΔΔG). Discuss any associated clinical syndromes. DO NOT assign a final diagnostic classification label.
+CRITICAL CONCEPTUAL CLARITY DIRECTIVE: Distinctly separate clinical pathogenicity (disease causation) from biophysical fold stability impact (structural stability changes). Clearly explain in your narrative that a variant can alter folding energetics (ΔΔG) without being pathogenic, or conversely, be highly pathogenic without destabilizing the fold (e.g., neomorphic or gain-of-function variants). Do not conflate the two concepts.
 
 ### 🔬 Recommended 3D Visualization Landmarks
 Suggest 2-3 specific features for the clinical investigator to look for in the 3D Mol* viewport:
@@ -209,94 +212,111 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
   const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
   const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
 
+  const keysToTry = [customApiKey, undefined].filter((k, i, self) => i === self.indexOf(k));
+
   let fullText = "";
   let lastError: any = null;
+  let success = false;
 
-  for (const modelName of modelsToTry) {
-    if (timeoutSignal?.aborted) {
-      throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
-    }
+  for (const apiKey of keysToTry) {
+    let client;
     try {
-      console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName}`);
-      const attemptController = new AbortController();
-      const signal = timeoutSignal 
-        ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
-        : attemptController.signal;
+      client = getGeminiClient(apiKey);
+    } catch (clientErr) {
+      continue;
+    }
 
-      const response = await withTimeout<any>(
-        (client.models.generateContent as any)({
-          model: modelName,
-          contents: prompt,
-          config: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                analysis: {
-                  type: Type.STRING,
-                  description: "Highly detailed clinical and biophysical analysis of this mutation under the specified markdown headers. Must be formatted in markdown."
-                },
-                biochemicalShift: {
-                  type: Type.STRING,
-                  description: "Compact biophysical report on the chemical change of properties (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.')"
-                },
-                structuralImpact: {
-                  type: Type.STRING,
-                  description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Disrupts salt bridge at interface, likely causing tertiary fold destabilization.')"
-                },
-                plausibility: {
-                  type: Type.STRING,
-                  description: "Clinical plausibility statement explaining why the variant might be plausibly pathogenic or benign based on gathered evidence. E.g., 'Plausibly pathogenic because of [reasons]'"
-                },
-                acmgCriteria: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      code: { type: Type.STRING, description: "ACMG/AMP criteria code (e.g., 'PM1', 'PP3', 'PM2')" },
-                      reason: { type: Type.STRING, description: "Short justification for applying this criteria code in this specific context" }
-                    },
-                    required: ["code", "reason"]
+    for (const modelName of modelsToTry) {
+      if (timeoutSignal?.aborted) {
+        throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+      }
+      try {
+        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key`);
+        const attemptController = new AbortController();
+        const signal = timeoutSignal 
+          ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
+          : attemptController.signal;
+
+        const response = await withTimeout<any>(
+          (client.models.generateContent as any)({
+            model: modelName,
+            contents: prompt,
+            config: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  analysis: {
+                    type: Type.STRING,
+                    description: "Highly detailed clinical and biophysical analysis of this mutation under the specified markdown headers. Must be formatted in markdown."
+                  },
+                  biochemicalShift: {
+                    type: Type.STRING,
+                    description: "Compact biophysical report on the chemical change of properties (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.')"
+                  },
+                  structuralImpact: {
+                    type: Type.STRING,
+                    description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Disrupts salt bridge at interface, likely causing tertiary fold destabilization.')"
+                  },
+                  plausibility: {
+                    type: Type.STRING,
+                    description: "Clinical plausibility statement explaining why the variant might be plausibly pathogenic or benign based on gathered evidence. E.g., 'Plausibly pathogenic because of [reasons]'"
+                  },
+                  acmgCriteria: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        code: { type: Type.STRING, description: "ACMG/AMP criteria code (e.g., 'PM1', 'PP3', 'PM2')" },
+                        reason: { type: Type.STRING, description: "Short justification for applying this criteria code in this specific context" }
+                      },
+                      required: ["code", "reason"]
+                    }
                   }
-                }
-              },
-              required: ["analysis", "biochemicalShift", "structuralImpact", "plausibility", "acmgCriteria"]
+                },
+                required: ["analysis", "biochemicalShift", "structuralImpact", "plausibility", "acmgCriteria"]
+              }
             }
-          }
-        }, {
-          signal
-        }),
-        35000,
-        "Google GenAI SDK request timed out"
-      ).catch(err => {
-        attemptController.abort();
-        throw err;
-      });
-      fullText = response.text || "";
-      if (fullText) {
-        console.log(`[Gemini Analysis] Successfully generated response using model: ${modelName}`);
-        lastError = null;
-        break;
+          }, {
+            signal
+          }),
+          35000,
+          "Google GenAI SDK request timed out"
+        ).catch(err => {
+          attemptController.abort();
+          throw err;
+        });
+
+        fullText = response.text || "";
+        if (fullText) {
+          console.log(`[Gemini Analysis] Successfully generated response using model: ${modelName} with ${apiKey ? "custom" : "system"} API key`);
+          lastError = null;
+          success = true;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[Gemini Model Error] Model ${modelName} failed with ${apiKey ? "custom" : "system"} API key:`, err.message);
+        lastError = err;
+        
+        const errMsg = (err.message || "").toLowerCase();
+        if (
+          errMsg.includes("not found") || 
+          errMsg.includes("model_unavailable") || 
+          errMsg.includes("not enabled") || 
+          errMsg.includes("404") ||
+          errMsg.includes("invalid_argument") ||
+          errMsg.includes("invalid model") ||
+          errMsg.includes("developer") ||
+          errMsg.includes("timeout") ||
+          errMsg.includes("timed out")
+        ) {
+          continue;
+        }
       }
-    } catch (err: any) {
-      console.warn(`[Gemini Model Error] Model ${modelName} failed:`, err.message);
-      lastError = err;
-      
-      const errMsg = (err.message || "").toLowerCase();
-      if (
-        errMsg.includes("not found") || 
-        errMsg.includes("model_unavailable") || 
-        errMsg.includes("not enabled") || 
-        errMsg.includes("404") ||
-        errMsg.includes("invalid_argument") ||
-        errMsg.includes("invalid model") ||
-        errMsg.includes("developer") ||
-        errMsg.includes("timeout") ||
-        errMsg.includes("timed out")
-      ) {
-        continue;
-      }
+    }
+    if (success) {
+      break;
     }
   }
 
@@ -350,6 +370,29 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     };
   }
 
+  // Define Zod schema for validation (E-5)
+  const geminiResponseSchema = z.object({
+    analysis: z.string().optional().default(""),
+    plausibility: z.string().optional().default(""),
+    acmgCriteria: z.array(
+      z.object({
+        code: z.string(),
+        reason: z.string()
+      })
+    ).optional().default([])
+  });
+
+  const validationResult = geminiResponseSchema.safeParse(parsed);
+  if (!validationResult.success) {
+    console.warn("[Gemini Schema Validation Failure] Schema mismatch, falling back to unstructured report:", validationResult.error.message);
+    return {
+      analysis: parsed?.analysis || fullText || "AI analysis narrative unavailable due to generation error.",
+      insights: null
+    };
+  }
+
+  const validatedData = validationResult.data;
+
   // Validate ACMG codes
   const validAcmgCodes = new Set([
     "PVS1", "PS1", "PS2", "PS3", "PS4", "PM1", "PM2", "PM3", "PM4", "PM5", "PM6",
@@ -357,27 +400,24 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     "BP1", "BP2", "BP3", "BP4", "BP5", "BP7"
   ]);
 
-  const rawAcmgCriteria = parsed.acmgCriteria || [];
-  const acmgCriteria: { code: string; reason: string }[] = [];
-  for (const item of rawAcmgCriteria) {
-    if (item && typeof item === "object" && typeof item.code === "string" && typeof item.reason === "string") {
-      const codeUpper = item.code.toUpperCase().trim();
-      if (validAcmgCodes.has(codeUpper)) {
-        acmgCriteria.push({ code: codeUpper, reason: item.reason });
-      }
+  const acmgCriteria: ACMGCriteriaItem[] = [];
+  for (const item of validatedData.acmgCriteria) {
+    const codeUpper = item.code.toUpperCase().trim();
+    if (validAcmgCodes.has(codeUpper)) {
+      acmgCriteria.push({ code: codeUpper as AcmgEvidenceCode, reason: item.reason, source: "ai_suggested" });
     }
   }
 
   return {
-    analysis: parsed.analysis || "",
+    analysis: validatedData.analysis,
     insights: {
       biochemicalShift: "",
       structuralImpact: "",
       pathogenicity: "(Clinician Assigned)",
-      plausibility: parsed.plausibility || "",
+      plausibility: validatedData.plausibility,
       acmgCriteria
     }
-  };
+  } as AnalysisResult;
 }
 
 export async function performGeminiBiophysicalAnalysis(
@@ -408,88 +448,109 @@ Generate a JSON object with:
   const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
   const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
 
+  const keysToTry = [customApiKey, undefined].filter((k, i, self) => i === self.indexOf(k));
+
   let lastError: any = null;
+  let parsed: any = null;
+  let success = false;
 
-  for (const modelName of modelsToTry) {
-    if (timeoutSignal?.aborted) {
-      throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
-    }
+  for (const apiKey of keysToTry) {
+    let client;
     try {
-      console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName}`);
-      const attemptController = new AbortController();
-      const signal = timeoutSignal 
-        ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
-        : attemptController.signal;
+      client = getGeminiClient(apiKey);
+    } catch (clientErr) {
+      continue;
+    }
 
-      const response = await withTimeout<any>(
-        (client.models.generateContent as any)({
-          model: modelName,
-          contents: prompt,
-          config: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                biochemicalShift: {
-                  type: Type.STRING,
-                  description: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
-                },
-                structuralImpact: {
-                  type: Type.STRING,
-                  description: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
-                }
-              },
-              required: ["biochemicalShift", "structuralImpact"]
-            }
-          }
-        }),
-        30000,
-        "Gemini request timed out"
-      ).catch(err => {
-        attemptController.abort();
-        throw err;
-      });
-
-      const cleanedText = response.text.trim();
-      let parsed: any = null;
+    for (const modelName of modelsToTry) {
+      if (timeoutSignal?.aborted) {
+        throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+      }
       try {
-        parsed = JSON.parse(cleanedText);
-      } catch (err: any) {
-        console.warn("[Gemini Biophysical JSON Parse Failure] Direct parsing failed. Trying regex recovery.");
-        
-        let jsonMatch = cleanedText.match(/```json\s*([\s\S]*?)\s*```/);
-        let candidate = jsonMatch ? jsonMatch[1].trim() : cleanedText;
-        
+        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key`);
+        const attemptController = new AbortController();
+        const signal = timeoutSignal 
+          ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
+          : attemptController.signal;
+
+        const response = await withTimeout<any>(
+          (client.models.generateContent as any)({
+            model: modelName,
+            contents: prompt,
+            config: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  biochemicalShift: {
+                    type: Type.STRING,
+                    description: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
+                  },
+                  structuralImpact: {
+                    type: Type.STRING,
+                    description: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
+                  }
+                },
+                required: ["biochemicalShift", "structuralImpact"]
+              }
+            }
+          }),
+          30000,
+          "Gemini request timed out"
+        ).catch(err => {
+          attemptController.abort();
+          throw err;
+        });
+
+        const cleanedText = response.text.trim();
         try {
-          parsed = JSON.parse(candidate);
-        } catch (err2: any) {
-          const firstCurly = candidate.indexOf("{");
-          const lastCurly = candidate.lastIndexOf("}");
-          if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
-            try {
-              parsed = JSON.parse(candidate.slice(firstCurly, lastCurly + 1));
-            } catch (err3) {
-              console.error("[Gemini Biophysical JSON Recovery Failed] Could not recover JSON.");
+          parsed = JSON.parse(cleanedText);
+        } catch (err: any) {
+          console.warn("[Gemini Biophysical JSON Parse Failure] Direct parsing failed. Trying regex recovery.");
+          
+          let jsonMatch = cleanedText.match(/```json\s*([\s\S]*?)\s*```/);
+          let candidate = jsonMatch ? jsonMatch[1].trim() : cleanedText;
+          
+          try {
+            parsed = JSON.parse(candidate);
+          } catch (err2: any) {
+            const firstCurly = candidate.indexOf("{");
+            const lastCurly = candidate.lastIndexOf("}");
+            if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
+              try {
+                parsed = JSON.parse(candidate.slice(firstCurly, lastCurly + 1));
+              } catch (err3) {
+                console.error("[Gemini Biophysical JSON Recovery Failed] Could not recover JSON.");
+              }
             }
           }
         }
+
+        if (parsed) {
+          success = true;
+          break;
+        }
+
+      } catch (err: any) {
+        console.warn(`[Gemini Biophysical Analysis] Model ${modelName} failed with ${apiKey ? "custom" : "system"} API key:`, err.message);
+        lastError = err;
       }
-
-      if (!parsed) {
-        return {
-          biochemicalShift: "Biochemical shift details unavailable due to output decoding error.",
-          structuralImpact: "Structural impact details unavailable due to output decoding error."
-        };
-      }
-
-      return parsed;
-
-    } catch (err: any) {
-      console.warn(`[Gemini Biophysical Analysis] Model ${modelName} failed:`, err);
-      lastError = err;
+    }
+    if (success) {
+      break;
     }
   }
 
-  throw lastError || new Error("Failed to analyze variant biophysical properties with Gemini API");
+  if (!parsed) {
+    if (lastError) {
+      throw lastError;
+    }
+    return {
+      biochemicalShift: "Biochemical shift details unavailable due to output decoding error.",
+      structuralImpact: "Structural impact details unavailable due to output decoding error."
+    };
+  }
+
+  return parsed;
 }
