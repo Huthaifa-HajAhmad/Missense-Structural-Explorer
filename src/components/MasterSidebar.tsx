@@ -94,8 +94,14 @@ function getTabStatus(
 ): "complete" | "progress" | "pending" {
   if (view === "search") return "complete";
 
-  // 1. Result landed -> All pipeline steps complete
+  // If biophysical engine is actively running (FoldX, DynaMut2, DDMut), energetics tab must report 'progress'
+  if (view === "energetics" && (isFolding || isBiophysicalLoading)) {
+    return "progress";
+  }
+
+  // 1. Result landed -> All pipeline steps complete (except active background tasks)
   if (result != null) {
+    if (view === "structure" && isFolding) return "progress";
     return "complete";
   }
 

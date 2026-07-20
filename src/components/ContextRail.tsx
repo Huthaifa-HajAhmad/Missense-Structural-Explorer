@@ -27,7 +27,7 @@ interface ContextRailProps {
  *  complete → data is present | progress → actively computing | pending → not started */
 function getTabStatus(
   view: MasterView,
-  result: AnalysisResult | null,
+  result: AnalysisResult | null | undefined,
   isFolding: boolean,
   isBiophysicalLoading: boolean,
   isClinicalLoading: boolean,
@@ -36,8 +36,14 @@ function getTabStatus(
 ): "complete" | "progress" | "pending" {
   if (view === "search") return "complete";
 
+  // If biophysical engine is actively running (FoldX, DynaMut2, DDMut), energetics tab must report 'progress'
+  if (view === "energetics" && (isFolding || isBiophysicalLoading)) {
+    return "progress";
+  }
+
   // 1. Landed state -> All 4 pipeline stages return complete!
   if (result != null) {
+    if (view === "structure" && isFolding) return "progress";
     return "complete";
   }
 

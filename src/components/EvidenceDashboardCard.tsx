@@ -780,22 +780,22 @@ export default function EvidenceDashboardCard({
                     </span>
                   </div>
 
-                  {/* 3-Container Grid Layout (Pathogenic, Benign, VUS/Intermediate) */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-[var(--cs-border-subtle)] text-[11px]">
+                  {/* 3-Container Grid Layout (Pathogenic, Benign, VUS/Intermediate) - Centered between top & bottom separators */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 py-3.5 border-y border-[var(--cs-border-subtle)] text-[11px]">
                     {/* Container 1: Pathogenic Support */}
                     <div className="p-3 rounded-lg border bg-rose-500/5 border-rose-500/20 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between font-extrabold text-[10.5px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-2">
+                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-black dark:text-rose-300 mb-2">
                           <span>Pathogenic Support ({votingPathogenicCount}{infoPathogenicCount > 0 ? ` + ${infoPathogenicCount} info` : ""})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/15 font-mono border border-rose-500/30 font-extrabold text-rose-800 dark:text-rose-200">Concordant</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/15 font-mono border border-rose-500/30 font-black text-black dark:text-rose-200">Concordant</span>
                         </div>
                         {concordance.pathogenicTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.pathogenicTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-rose-500/20 text-black dark:text-white border border-rose-500/40">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-rose-500/25 !text-black dark:!text-white border border-rose-500/40 shadow-xs">
                                 <span>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/30 text-rose-900 dark:text-rose-100 uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/40 !text-black dark:!text-rose-100 font-black uppercase tracking-tighter">Info</span>
                                 )}
                               </span>
                             ))}
@@ -809,17 +809,17 @@ export default function EvidenceDashboardCard({
                     {/* Container 2: Benign Support */}
                     <div className="p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between font-extrabold text-[10.5px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 mb-2">
+                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-black dark:text-emerald-300 mb-2">
                           <span>Benign Support ({votingBenignCount}{infoBenignCount > 0 ? ` + ${infoBenignCount} info` : ""})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 font-mono border border-emerald-500/30 font-extrabold text-emerald-800 dark:text-emerald-200">Discordant</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 font-mono border border-emerald-500/30 font-black text-black dark:text-emerald-200">Discordant</span>
                         </div>
                         {concordance.benignTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.benignTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-emerald-500/20 text-black dark:text-white border border-emerald-500/40">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-emerald-500/25 !text-black dark:!text-white border border-emerald-500/40 shadow-xs">
                                 <span>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/30 text-emerald-900 dark:text-emerald-100 uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/40 !text-black dark:!text-emerald-100 font-black uppercase tracking-tighter">Info</span>
                                 )}
                               </span>
                             ))}
@@ -833,14 +833,14 @@ export default function EvidenceDashboardCard({
                     {/* Container 3: VUS / Intermediate */}
                     <div className="p-3 rounded-lg border bg-amber-500/5 border-amber-500/20 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between font-extrabold text-[10.5px] uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-2">
+                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-black dark:text-amber-300 mb-2">
                           <span>VUS / Intermediate ({concordance.vusTools.length})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 font-mono border border-amber-500/30 font-extrabold text-amber-800 dark:text-amber-200">Indeterminate</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 font-mono border border-amber-500/30 font-black text-black dark:text-amber-200">Indeterminate</span>
                         </div>
                         {concordance.vusTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.vusTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-amber-500/20 text-black dark:text-white border border-amber-500/40">
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-amber-500/25 !text-black dark:!text-white border border-amber-500/40 shadow-xs">
                                 <span>{t.name}</span>
                               </span>
                             ))}
@@ -852,7 +852,7 @@ export default function EvidenceDashboardCard({
                     </div>
                   </div>
 
-                  <div className="text-[11px] leading-relaxed space-y-1 text-[var(--cs-text-secondary)] pt-1 border-t border-[var(--cs-border-subtle)]">
+                  <div className="text-[11px] leading-relaxed space-y-1 text-[var(--cs-text-secondary)] pt-1">
                     <p>
                       Calculated from <span className="font-semibold text-[var(--cs-text-primary)]">{total} available in-silico predictors</span> ({activeVotingTotal} consensus voting tools + {concordance.available.length - activeVotingTotal} informational model).
                       {concordance.unavailable.length > 0 && (

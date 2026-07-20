@@ -111,6 +111,9 @@ export default function VariantSearchPanel({
         return { status: "Complete", desc: `AlphaFold / PDB 3D coordinates ready` };
       }
       if (stage === "energetics") {
+        if (isBiophysicalLoading) {
+          return { status: "In Progress", desc: "Modeling PyRosetta & FoldX biophysical force-fields..." };
+        }
         const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.dynamut2;
         const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol` : "Biophysical force-field active";
         return { status: "Complete", desc: ddgText };
