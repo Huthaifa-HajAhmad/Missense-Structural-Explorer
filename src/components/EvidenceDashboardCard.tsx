@@ -785,17 +785,17 @@ export default function EvidenceDashboardCard({
                     {/* Container 1: Pathogenic Support */}
                     <div className="p-3 rounded-lg border bg-rose-500/5 border-rose-500/20 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-black dark:text-rose-300 mb-2">
+                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-[var(--cs-text-primary)] mb-2" style={{ color: "var(--cs-text-primary)" }}>
                           <span>Pathogenic Support ({votingPathogenicCount}{infoPathogenicCount > 0 ? ` + ${infoPathogenicCount} info` : ""})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/15 font-mono border border-rose-500/30 font-black text-black dark:text-rose-200">Concordant</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/15 font-mono border border-rose-500/30 font-black text-[var(--cs-text-primary)]" style={{ color: "var(--cs-text-primary)" }}>Concordant</span>
                         </div>
                         {concordance.pathogenicTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.pathogenicTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-rose-500/25 !text-black dark:!text-white border border-rose-500/40 shadow-xs">
-                                <span>{t.name}</span>
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-rose-500/25 border border-rose-500/40 shadow-xs" style={{ color: "var(--cs-text-primary)" }}>
+                                <span style={{ color: "var(--cs-text-primary)" }}>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/40 !text-black dark:!text-rose-100 font-black uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/40 font-black uppercase tracking-tighter" style={{ color: "var(--cs-text-primary)" }}>Info</span>
                                 )}
                               </span>
                             ))}
@@ -809,17 +809,17 @@ export default function EvidenceDashboardCard({
                     {/* Container 2: Benign Support */}
                     <div className="p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-black dark:text-emerald-300 mb-2">
+                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-[var(--cs-text-primary)] mb-2" style={{ color: "var(--cs-text-primary)" }}>
                           <span>Benign Support ({votingBenignCount}{infoBenignCount > 0 ? ` + ${infoBenignCount} info` : ""})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 font-mono border border-emerald-500/30 font-black text-black dark:text-emerald-200">Discordant</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 font-mono border border-emerald-500/30 font-black text-[var(--cs-text-primary)]" style={{ color: "var(--cs-text-primary)" }}>Discordant</span>
                         </div>
                         {concordance.benignTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.benignTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-emerald-500/25 !text-black dark:!text-white border border-emerald-500/40 shadow-xs">
-                                <span>{t.name}</span>
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-emerald-500/25 border border-emerald-500/40 shadow-xs" style={{ color: "var(--cs-text-primary)" }}>
+                                <span style={{ color: "var(--cs-text-primary)" }}>{t.name}</span>
                                 {t.isInformationalOnly && (
-                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/40 !text-black dark:!text-emerald-100 font-black uppercase tracking-tighter">Info</span>
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/40 font-black uppercase tracking-tighter" style={{ color: "var(--cs-text-primary)" }}>Info</span>
                                 )}
                               </span>
                             ))}
@@ -833,15 +833,15 @@ export default function EvidenceDashboardCard({
                     {/* Container 3: VUS / Intermediate */}
                     <div className="p-3 rounded-lg border bg-amber-500/5 border-amber-500/20 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-black dark:text-amber-300 mb-2">
+                        <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-[var(--cs-text-primary)] mb-2" style={{ color: "var(--cs-text-primary)" }}>
                           <span>VUS / Intermediate ({concordance.vusTools.length})</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 font-mono border border-amber-500/30 font-black text-black dark:text-amber-200">Indeterminate</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 font-mono border border-amber-500/30 font-black text-[var(--cs-text-primary)]" style={{ color: "var(--cs-text-primary)" }}>Indeterminate</span>
                         </div>
                         {concordance.vusTools.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
                             {concordance.vusTools.map((t) => (
-                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-amber-500/25 !text-black dark:!text-white border border-amber-500/40 shadow-xs">
-                                <span>{t.name}</span>
+                              <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-amber-500/25 border border-amber-500/40 shadow-xs" style={{ color: "var(--cs-text-primary)" }}>
+                                <span style={{ color: "var(--cs-text-primary)" }}>{t.name}</span>
                               </span>
                             ))}
                           </div>

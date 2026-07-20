@@ -36,9 +36,16 @@ function getTabStatus(
 ): "complete" | "progress" | "pending" {
   if (view === "search") return "complete";
 
-  // If biophysical engine is actively running (FoldX, DynaMut2, DDMut), energetics tab must report 'progress'
-  if (view === "energetics" && (isFolding || isBiophysicalLoading)) {
-    return "progress";
+  // Check if biophysical calculations (FoldX, DynaMut2, DDMut) are complete
+  const hasBiophysics = result?.foldingEnergetics != null || result?.dynamut2 != null || result?.ddmut != null || result?.biophysicalEnergetics != null;
+
+  if (view === "energetics") {
+    if (isFolding || isBiophysicalLoading || (result != null && !hasBiophysics)) {
+      return "progress";
+    }
+    if (result != null && hasBiophysics) {
+      return "complete";
+    }
   }
 
   // 1. Landed state -> All 4 pipeline stages return complete!
