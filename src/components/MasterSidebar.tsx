@@ -34,8 +34,6 @@ interface MasterSidebarProps {
   isFolding?: boolean;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
-  isLoadingSearch?: boolean;
-  loadingStep?: string;
 }
 
 interface NavItem {
@@ -84,6 +82,7 @@ const EVIDENCE_SUB_ITEMS = [
   { id: "guidelines",   label: "Scores Thresholds"       },
 ];
 
+/** Derives per-tab completion state from analysis data — synchronized across all workflow components */
 function getTabStatus(
   view: MasterView,
   result: AnalysisResult | null | undefined,
@@ -93,7 +92,14 @@ function getTabStatus(
   isLoadingSearch?: boolean,
   loadingStep?: string
 ): "complete" | "progress" | "pending" {
-  const r = result ?? null;
+  if (view === "search") return "complete";
+
+  // 1. Result landed -> All pipeline steps complete
+  if (result != null) {
+    return "complete";
+  }
+
+  // 2. Active search execution
   if (isLoadingSearch) {
     const match = (loadingStep || "").match(/Step (\d+)\/4/);
     const currentStep = match ? parseInt(match[1], 10) : 1;
@@ -116,14 +122,10 @@ function getTabStatus(
     }
   }
 
-  if (r != null) {
-    return "complete";
-  }
-
   return "pending";
 }
 
-/** Step icon: sleek filled dot indicator for completed steps */
+/** Render filled indicator dot for completed steps, spinner for in-progress, and hollow dot for pending */
 function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "complete") {
     return (
@@ -137,17 +139,17 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "progress") {
     return (
       <span
-        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress shrink-0"
+        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress flex-shrink-0"
         role="status"
         aria-label="In progress"
       />
     );
   }
   return (
-    <span
-      className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0 inline-block opacity-60"
-      title="Pending"
-      aria-label="Pending"
+    <Circle
+      className="cs-step-icon-not-started flex-shrink-0 opacity-40"
+      style={{ width: 10, height: 10 }}
+      aria-label="Not started"
     />
   );
 }
@@ -168,8 +170,6 @@ export default function MasterSidebar({
   isFolding = false,
   isBiophysicalLoading = false,
   isClinicalLoading = false,
-  isLoadingSearch = false,
-  loadingStep = "",
 }: MasterSidebarProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
 
@@ -281,7 +281,7 @@ export default function MasterSidebar({
             {zone.items.map(({ id, label, sublabel, Icon }) => {
               const isActive = activeView === id;
               const status = getTabStatus(
-                id, analysisResult, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep
+                id, analysisResult, isFolding, isBiophysicalLoading, isClinicalLoading
               );
 
               return (

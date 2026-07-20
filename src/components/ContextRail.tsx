@@ -34,6 +34,14 @@ function getTabStatus(
   isLoadingSearch?: boolean,
   loadingStep?: string
 ): "complete" | "progress" | "pending" {
+  if (view === "search") return "complete";
+
+  // 1. Landed state -> All 4 pipeline stages return complete!
+  if (result != null) {
+    return "complete";
+  }
+
+  // 2. Running state (Active search pipeline execution)
   if (isLoadingSearch) {
     const match = (loadingStep || "").match(/Step (\d+)\/4/);
     const currentStep = match ? parseInt(match[1], 10) : 1;
@@ -54,10 +62,6 @@ function getTabStatus(
       default:
         return "pending";
     }
-  }
-
-  if (result != null) {
-    return "complete";
   }
 
   return "pending";
@@ -112,13 +116,13 @@ function getQuickLinks(
   }
 }
 
-/** Step icon: sleek filled dot indicator for completed steps */
+/** Step icon: identical color mapping across sidebar, context rail, and tables */
 function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "complete") {
     return (
-      <span
-        className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 inline-block shadow-sm"
-        title="Complete"
+      <CheckCircle2
+        className="cs-step-icon-complete flex-shrink-0"
+        style={{ width: 14, height: 14 }}
         aria-label="Complete"
       />
     );
@@ -126,17 +130,17 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   if (status === "progress") {
     return (
       <span
-        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress shrink-0"
+        className="cs-spinner cs-spinner-sm cs-step-icon-in-progress flex-shrink-0"
         role="status"
         aria-label="In progress"
       />
     );
   }
   return (
-    <span
-      className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0 inline-block opacity-60"
-      title="Pending"
-      aria-label="Pending"
+    <Circle
+      className="cs-step-icon-not-started flex-shrink-0"
+      style={{ width: 14, height: 14 }}
+      aria-label="Not started"
     />
   );
 }
