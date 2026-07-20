@@ -37,6 +37,7 @@ export const THRESHOLDS = {
      */
     pathogenicStrong: 0.983,
     pathogenicSupporting: 0.564,
+    likelyBenign: 0.34,
     benign: 0.063,
     benignStrong: 0.063,
     /** Class string matching — use .toLowerCase().includes() */
@@ -44,15 +45,6 @@ export const THRESHOLDS = {
     benignClass: "benign",          // matches "benign" and "likely_benign"
   },
 
-  eve: {
-    /** EVE score ≥ 0.75 → Pathogenic */
-    pathogenic: 0.75,
-    /** EVE score ≤ 0.25 → Benign */
-    benign: 0.25,
-    /** Class string matching — use .toLowerCase().includes() */
-    pathogenicClass: "pathogenic",
-    benignClass: "benign",
-  },
 
   foldxDdG: {
     /** ΔΔG > 1.5 kcal/mol: strong destabilization */
@@ -67,12 +59,18 @@ export const THRESHOLDS = {
   },
 
   gerp: {
-    /** GERP++ RS ≥ 2.0 → conserved position */
+    /** GERP++ RS ≥ 4.0 → highly conserved, ≥ 2.0 → moderately conserved */
+    high: 4.0,
+    moderate: 2.0,
+    /** Binary classification threshold used for ClinGen rules and guideline badges */
     conserved: 2.0,
   },
 
   phylop: {
-    /** phyloP ≥ 1.5 → conserved position */
+    /** phyloP ≥ 4.0 → highly conserved, ≥ 1.5 → moderately conserved */
+    high: 4.0,
+    moderate: 1.5,
+    /** Binary classification threshold used for ClinGen rules and guideline badges */
     conserved: 1.5,
   },
 
@@ -100,6 +98,47 @@ export const THRESHOLDS = {
     pathogenic: -5.0,
     benign: -2.0,
   },
+  metaRnn: {
+    pathogenic: 0.5,
+    benign: 0.5,
+  },
+  clinPred: {
+    pathogenic: 0.5,
+    benign: 0.5,
+  },
+  eigen: {
+    pathogenic: 4.0,
+    benign: 4.0,
+  },
+  dann: {
+    pathogenic: 0.96,
+    benign: 0.96,
+  },
+  esm1b: {
+    pathogenic: -7.5,
+    benign: -5.0,
+  },
+  popEve: {
+    /** Severe Pathogenicity Threshold (99.99% likelihood, 15-fold case enrichment): LLR ≤ -5.056 */
+    severePathogenic: -5.056,
+    /** Moderate Pathogenicity Threshold (99% likelihood, 5-fold case enrichment): LLR ≤ -4.617 */
+    pathogenic: -4.617,
+    /** Supporting Pathogenicity LLR threshold */
+    pathogenicSupporting: -2.0,
+    /** Benign LLR threshold */
+    benignLlr: -1.0,
+    /** 0 to 1 normalized scale cutoffs */
+    pathogenicNormalized: 0.75,
+    benignNormalized: 0.25,
+  },
+  misZ: {
+    pathogenicStrong: 3.09,
+    pathogenicSupporting: 2.0,
+  },
+  loeuf: {
+    pathogenicStrong: 0.35,
+    pathogenicSupporting: 0.60,
+  },
 } as const;
 
 /**
@@ -116,9 +155,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   alphaMissense:
     "AlphaMissense (Cheng 2023). ClinGen-calibrated thresholds (Pejaver 2022): path ≥ 0.983, benign ≤ 0.063. " +
     "Class matching: includes('pathogenic') / includes('benign').",
-  eve:
-    "EVE (Evolutionary Model of Variant Effect, Frazer 2021). " +
-    "Pathogenic ≥ 0.75, Benign ≤ 0.25, or class includes('pathogenic') / includes('benign').",
   foldxDdG:
     "FoldX BuildModel ΔΔG (Schymkowitz 2005). Destabilizing > 1.5 kcal/mol (strong). " +
     "NOTE: Destabilization ≠ Pathogenicity. GOF/neomorphic/gain-of-interaction variants " +
@@ -137,6 +173,24 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
   esm:
     "VESM Co-distilled LLR (ntranoslab, unpublished preprint). Informational only — no validated clinical threshold is applied, and it is excluded from concordance voting.",
+  metaRnn:
+    "MetaRNN (dbNSFP, score ≥ 0.5 deleterious).",
+  clinPred:
+    "ClinPred (dbNSFP, score ≥ 0.5 deleterious).",
+  eigen:
+    "Eigen (coding Phred score ≥ 4.0 deleterious).",
+  dann:
+    "DANN (deep learning score ≥ 0.96 deleterious).",
+  esm1b:
+    "ESM-1b (evolutionary LMs, score ≤ -7.5 deleterious, ≥ -5.0 benign).",
+  popEve:
+    "popEVE (Population-calibrated EVE, Nature 2024). Severe pathogenic LLR ≤ -5.056 (99.99% likelihood), " +
+    "Moderate pathogenic LLR ≤ -4.617 (99% likelihood), Supporting LLR ≤ -2.0; Benign LLR ≥ -1.0. " +
+    "Normalized probability scale: Pathogenic ≥ 0.75, Benign ≤ 0.25.",
+  misZ:
+    "gnomAD Missense Z-score (positive = depletion of missense variants; strong constraint ≥ 3.09, supporting ≥ 2.0).",
+  loeuf:
+    "gnomAD LOEUF (observed/expected loss-of-function ratio; severe intolerance < 0.35, moderate < 0.60).",
 };
 
 export type PredictorSignal = "pathogenic" | "benign" | "vus" | "unavailable";
@@ -175,25 +229,6 @@ export function evaluateAlphaMissense(
   return "vus";
 }
 
-export function evaluateEve(
-  score: number | null | undefined,
-  cls: string | null | undefined
-): PredictorSignal {
-  const hasCls = cls !== null && cls !== undefined && cls !== "";
-  const hasScore = score !== null && score !== undefined;
-  if (!hasCls && !hasScore) return "unavailable";
-
-  if (cls) {
-    const lc = cls.toLowerCase();
-    if (lc.includes(THRESHOLDS.eve.pathogenicClass)) return "pathogenic";
-    if (lc.includes(THRESHOLDS.eve.benignClass)) return "benign";
-  }
-  if (score !== null && score !== undefined) {
-    if (score >= THRESHOLDS.eve.pathogenic) return "pathogenic";
-    if (score <= THRESHOLDS.eve.benign) return "benign";
-  }
-  return "vus";
-}
 
 export function evaluateBayesdel(score: number | null | undefined): PredictorSignal {
   if (score === null || score === undefined) return "unavailable";
@@ -209,20 +244,66 @@ export function evaluateEsm(llr: number | null | undefined): PredictorSignal {
   return "vus";
 }
 
+export function evaluateMetaRnn(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score >= THRESHOLDS.metaRnn.pathogenic) return "pathogenic";
+  if (score < THRESHOLDS.metaRnn.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateClinPred(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score >= THRESHOLDS.clinPred.pathogenic) return "pathogenic";
+  if (score < THRESHOLDS.clinPred.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateEigen(phred: number | null | undefined): PredictorSignal {
+  if (phred === null || phred === undefined) return "unavailable";
+  if (phred >= THRESHOLDS.eigen.pathogenic) return "pathogenic";
+  if (phred < THRESHOLDS.eigen.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateDann(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score >= THRESHOLDS.dann.pathogenic) return "pathogenic";
+  if (score <= 0.5) return "benign";
+  return "vus";
+}
+
+export function evaluatePopEve(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score < 0) {
+    if (score <= THRESHOLDS.popEve.pathogenicSupporting) return "pathogenic";
+    if (score >= THRESHOLDS.popEve.benignLlr) return "benign";
+    return "vus";
+  }
+  if (score >= THRESHOLDS.popEve.pathogenicNormalized) return "pathogenic";
+  if (score <= THRESHOLDS.popEve.benignNormalized) return "benign";
+  return "vus";
+}
+
+export interface PredictorToolDetails {
+  key: string;
+  name: string;
+  signal: PredictorSignal;
+  scoreLabel: string;
+  isInformationalOnly?: boolean;
+}
+
 export interface PredictorConcordance {
   nPathogenic: number;
   nBenign:     number;
+  nDeleterious: number;
+  nTolerated:  number;
   nVus:        number;
   available:   string[];
   unavailable: string[];
-  signals: {
-    cadd:  PredictorSignal;
-    revel: PredictorSignal;
-    am:    PredictorSignal;
-    eve:   PredictorSignal;
-    bayesdel: PredictorSignal;
-    esm:   PredictorSignal;
-  };
+  pathogenicTools: PredictorToolDetails[];
+  benignTools:     PredictorToolDetails[];
+  vusTools:        PredictorToolDetails[];
+  signals: Record<string, PredictorSignal>;
 }
 
 export function countPredictorConcordance(
@@ -230,39 +311,121 @@ export function countPredictorConcordance(
   revel:     number | null | undefined,
   amScore:   number | null | undefined,
   amClass:   string | null | undefined,
-  eveScore?:  number | null | undefined,
-  eveClass?:  string | null | undefined,
   bayesdel?:  number | null | undefined,
-  esmLlr?:    number | null | undefined
+  esmLlr?:    number | null | undefined,
+  extra?: {
+    metarnn?: number | null;
+    clinpred?: number | null;
+    eigenPhred?: number | null;
+    dann?: number | null;
+    popeve?: number | null;
+  }
 ): PredictorConcordance {
-  const signals = {
-    cadd:  evaluateCadd(caddPhred),
-    revel: evaluateRevel(revel),
-    am:    evaluateAlphaMissense(amScore, amClass),
-    eve:   evaluateEve(eveScore, eveClass),
-    bayesdel: evaluateBayesdel(bayesdel),
-    esm:   evaluateEsm(esmLlr),
-  };
+  const toolDefs: PredictorToolDetails[] = [
+    {
+      key: "cadd",
+      name: "CADD",
+      signal: evaluateCadd(caddPhred),
+      scoreLabel: caddPhred !== null && caddPhred !== undefined ? `${caddPhred.toFixed(1)}` : "—",
+    },
+    {
+      key: "revel",
+      name: "REVEL",
+      signal: evaluateRevel(revel),
+      scoreLabel: revel !== null && revel !== undefined ? `${revel.toFixed(3)}` : "—",
+    },
+    {
+      key: "am",
+      name: "AlphaMissense",
+      signal: evaluateAlphaMissense(amScore, amClass),
+      scoreLabel: amClass ? amClass : amScore !== null && amScore !== undefined ? `${amScore.toFixed(3)}` : "—",
+    },
+    {
+      key: "bayesdel",
+      name: "BayesDel",
+      signal: evaluateBayesdel(bayesdel),
+      scoreLabel: bayesdel !== null && bayesdel !== undefined ? `${bayesdel.toFixed(3)}` : "—",
+    },
+    {
+      key: "metarnn",
+      name: "MetaRNN",
+      signal: evaluateMetaRnn(extra?.metarnn),
+      scoreLabel: extra?.metarnn !== null && extra?.metarnn !== undefined ? `${extra.metarnn.toFixed(3)}` : "—",
+    },
+    {
+      key: "clinpred",
+      name: "ClinPred",
+      signal: evaluateClinPred(extra?.clinpred),
+      scoreLabel: extra?.clinpred !== null && extra?.clinpred !== undefined ? `${extra.clinpred.toFixed(3)}` : "—",
+    },
+    {
+      key: "eigen",
+      name: "Eigen",
+      signal: evaluateEigen(extra?.eigenPhred),
+      scoreLabel: extra?.eigenPhred !== null && extra?.eigenPhred !== undefined ? `${extra.eigenPhred.toFixed(1)}` : "—",
+    },
+    {
+      key: "dann",
+      name: "DANN",
+      signal: evaluateDann(extra?.dann),
+      scoreLabel: extra?.dann !== null && extra?.dann !== undefined ? `${extra.dann.toFixed(3)}` : "—",
+    },
+    {
+      key: "popeve",
+      name: "popEVE",
+      signal: evaluatePopEve(extra?.popeve),
+      scoreLabel: extra?.popeve !== null && extra?.popeve !== undefined ? `${extra.popeve.toFixed(3)}` : "—",
+    },
+    {
+      key: "esm",
+      name: "ESM",
+      signal: evaluateEsm(esmLlr),
+      scoreLabel: esmLlr !== null && esmLlr !== undefined ? `${esmLlr.toFixed(2)}` : "—",
+      isInformationalOnly: true,
+    },
+  ];
 
   const available: string[]   = [];
   const unavailable: string[] = [];
+  const signals: Record<string, PredictorSignal> = {};
+  const pathogenicTools: PredictorToolDetails[] = [];
+  const benignTools: PredictorToolDetails[]     = [];
+  const vusTools: PredictorToolDetails[]        = [];
+
   let nPathogenic = 0, nBenign = 0, nVus = 0;
 
-  for (const [name, sig] of Object.entries(signals) as [string, PredictorSignal][]) {
-    if (sig === "unavailable") {
-      unavailable.push(name.toUpperCase());
+  for (const tool of toolDefs) {
+    signals[tool.key] = tool.signal;
+    if (tool.signal === "unavailable") {
+      unavailable.push(tool.name.toUpperCase());
     } else {
-      available.push(name.toUpperCase());
-      // Exclude ESM co-distilled model from active consensus voting counts to prevent artificial inflation
-      if (name !== "esm") {
-        if (sig === "pathogenic") nPathogenic++;
-        else if (sig === "benign") nBenign++;
-        else nVus++;
+      available.push(tool.name.toUpperCase());
+      if (tool.signal === "pathogenic") {
+        pathogenicTools.push(tool);
+        if (!tool.isInformationalOnly) nPathogenic++;
+      } else if (tool.signal === "benign") {
+        benignTools.push(tool);
+        if (!tool.isInformationalOnly) nBenign++;
+      } else {
+        vusTools.push(tool);
+        if (!tool.isInformationalOnly) nVus++;
       }
     }
   }
 
-  return { nPathogenic, nBenign, nVus, available, unavailable, signals };
+  return {
+    nPathogenic,
+    nBenign,
+    nDeleterious: nPathogenic,
+    nTolerated: nBenign,
+    nVus,
+    available,
+    unavailable,
+    pathogenicTools,
+    benignTools,
+    vusTools,
+    signals
+  };
 }
 
 /**
@@ -278,7 +441,7 @@ export function computeConsensusVerdict(
     ddgun?: number | null;
   } | null
 ): string {
-  if (!energetics) return "Low-Risk (Neutral Stability)";
+  if (!energetics) return "Low Misfolding Risk (Neutral Stability)";
   const foldxVal = energetics.foldxMean ?? energetics.foldx ?? null;
   const dynamut2 = energetics.dynamut2 ?? null;
   const ddmut = energetics.ddmut ?? null;
@@ -295,9 +458,9 @@ export function computeConsensusVerdict(
   const availableCount = [foldxVal, dynamut2, ddmut, rasp, ddgun].filter(v => v !== null).length;
 
   if (destabCount >= 2) {
-    return "High-Risk Destabilizing (Consensus)";
+    return "High Misfolding Risk (Destabilizing Consensus)";
   } else if (destabCount === 1 && availableCount >= 2) {
-    return "Moderate-Risk Conflicting Stability";
+    return "Moderate Misfolding Risk (Conflicting Stability)";
   }
-  return "Low-Risk (Neutral Stability)";
+  return "Low Misfolding Risk (Neutral Stability)";
 }

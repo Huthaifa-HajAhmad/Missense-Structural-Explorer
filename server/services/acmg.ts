@@ -297,10 +297,15 @@ export function computeRuleBasedACMG(
     conservationData?.revel,
     predictorData?.amPathogenicity,
     predictorData?.amClass,
-    predictorData?.eveScore,
-    predictorData?.eveClass,
     conservationData?.bayesdel,
-    esm2?.llr
+    esm2?.llr,
+    {
+      metarnn: conservationData?.metarnn,
+      clinpred: conservationData?.clinpred,
+      eigenPhred: conservationData?.eigenPhred,
+      dann: conservationData?.dann,
+      popeve: conservationData?.popeve,
+    }
   );
 
   const { nPathogenic, nBenign, available, unavailable, signals } = concordance;
@@ -310,7 +315,7 @@ export function computeRuleBasedACMG(
     `CADD: ${predictorData?.caddPhred ?? "N/A"}, ` +
     `REVEL: ${conservationData?.revel ?? "N/A"}, ` +
     `AlphaMissense: ${predictorData?.amClass ?? "N/A"}, ` +
-    `EVE: ${predictorData?.eveClass || (predictorData?.eveScore !== null && predictorData?.eveScore !== undefined ? predictorData.eveScore.toFixed(3) : "N/A")}, ` +
+    `popEVE: ${signals.popeve ? signals.popeve.toUpperCase() : "N/A"}, ` +
     `BayesDel: ${conservationData?.bayesdel ?? "N/A"}, ` +
     `VESM LLR: ${esm2?.llr !== undefined && esm2?.llr !== null ? esm2.llr.toFixed(2) : "N/A"}` +
     (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "");
