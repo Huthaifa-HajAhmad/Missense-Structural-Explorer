@@ -1,6 +1,7 @@
 # Canonical Strategy: Upgrading to dbNSFP v5.0 Local Deployment
 
-This document outlines the engineering blueprint for migrating the sequence landscape pipeline from the external **MyVariant.info REST API** (which currently serves **dbNSFP v4.4a**) to a **local, self-hosted dbNSFP v5.0** index.
+> [!NOTE]
+> **Current Status**: Local dbNSFP query execution is currently **deferred** in favor of live MyVariant.info API queries. The local SQLite database layer requires setting `ENABLE_LOCAL_DBNSFP=true` in environment variables and running `tools/ingest_dbnsfp.ts` to full completion (>50M rows).
 
 ---
 

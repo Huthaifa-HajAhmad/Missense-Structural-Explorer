@@ -40,6 +40,9 @@ GEMINI_MODEL_FALLBACKS="gemini-2.5-flash,gemini-2.0-flash"
 # Path to FoldX binary (or leave blank to auto-detect from tools/foldx)
 FOLDX_BINARY=""
 
+# Optional local dbNSFP override (set to true only after running ingest_dbnsfp.ts to completion)
+ENABLE_LOCAL_DBNSFP="false"
+
 # Node Environment
 NODE_ENV="production"
 PORT=3000

@@ -55,7 +55,8 @@ function initDb() {
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_gene_pos ON variant_scores (gene, pos);
-    CREATE INDEX IF NOT EXISTS idx_chr_pos_ref_alt ON variant_scores (pos, ref, alt);
+    CREATE INDEX IF NOT EXISTS idx_pos_ref_alt ON variant_scores (pos, ref, alt);
+    CREATE INDEX IF NOT EXISTS idx_variant_scores_gene_pos_ref_alt ON variant_scores (gene, pos, ref, alt);
   `);
 
   return db;

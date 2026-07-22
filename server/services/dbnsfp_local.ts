@@ -6,18 +6,42 @@ import * as self from './dbnsfp_local.ts';
 const DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
 
 let localDb: DatabaseSync | null = null;
+let dbCheckFailed = false;
 
 export function isLocalDbnsfpAvailable(): boolean {
-  return fs.existsSync(DB_PATH);
+  if (process.env.ENABLE_LOCAL_DBNSFP !== 'true') return false;
+  if (!fs.existsSync(DB_PATH)) return false;
+  try {
+    const stat = fs.statSync(DB_PATH);
+    return stat.size > 1024;
+  } catch {
+    return false;
+  }
 }
 
 export function getDbInstance(): DatabaseSync | null {
-  if (!isLocalDbnsfpAvailable()) return null;
+  if (!isLocalDbnsfpAvailable() || dbCheckFailed) return null;
   if (!localDb) {
     try {
-      localDb = new DatabaseSync(DB_PATH, { open: true });
+      const db = new DatabaseSync(DB_PATH, { open: true });
+      const stmt = db.prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='variant_scores'");
+      const row = stmt.get() as { count: number } | undefined;
+      if (!row || row.count === 0) {
+        console.warn("[Local dbNSFP] Table variant_scores does not exist in SQLite DB. Disabling local mode.");
+        dbCheckFailed = true;
+        return null;
+      }
+      const countStmt = db.prepare("SELECT COUNT(*) as cnt FROM variant_scores LIMIT 1");
+      const countRow = countStmt.get() as { cnt: number } | undefined;
+      if (!countRow || countRow.cnt === 0) {
+        console.warn("[Local dbNSFP] Local database is empty (0 records). Disabling local mode.");
+        dbCheckFailed = true;
+        return null;
+      }
+      localDb = db;
     } catch (err: any) {
       console.warn(`[Local dbNSFP] Failed to initialize SQLite database connection: ${err.message}`);
+      dbCheckFailed = true;
       localDb = null;
     }
   }

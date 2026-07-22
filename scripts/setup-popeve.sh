@@ -2,7 +2,7 @@
 # Streamed download & optimization pipeline for popEVE GRCh38 VCF.
 # Strips empty QUAL/ID/FILTER fields and rounds popEVE scores to 3 decimals.
 # Final size: ~280 MB (down from ~5 GB).
-set -e
+set -euo pipefail
 
 OUTDIR="$(dirname "$0")/../data/popeve"
 mkdir -p "$OUTDIR"
