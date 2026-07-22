@@ -12,6 +12,7 @@ import {
   AuditLogger,
   VCF_GENOMIC_PATTERN,
   CDNA_PATTERN,
+  DASHED_GENOMIC_PATTERN,
   MUTATION_FOLDX_PATTERN,
   filterPII,
   encryptSession,
@@ -54,6 +55,7 @@ import {
 } from "./services/external.ts";
 import { isLocalDbnsfpAvailable } from "./services/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./services/genos_web.ts";
+import { fetchEsm3StructureEval } from "./services/esm3_forge.ts";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_1_TO_3_TITLE } from "../src/aminoAcids.ts";
 import { type AnalysisResult } from "../src/types.ts";
 import {
@@ -104,6 +106,7 @@ import {
   parseResiduesFromPdbMaybeAsync,
   getResidueDetails,
   predictStructuralDisruption,
+  type DisruptionPrediction,
   computeStructuralDiff,
   runEsm2Eval,
   extractSequenceFromPdb,
@@ -112,6 +115,8 @@ import {
   ddgunCache
 } from "./services/biophysics.ts";
 import { computeRuleBasedACMG, type RuleBasedInsights, type ACMGItem } from "./services/acmg.ts";
+import { runEsmcAnalysis } from "./services/esmc.ts";
+import { foldSequence } from "./services/esmfold.ts";
 import { THRESHOLDS, computeConsensusVerdict } from "../src/shared/thresholds.ts";
 import { AMINO_ACID_3_TO_1 } from "../src/aminoAcids.ts";
 
@@ -555,11 +560,13 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
     let stringInteractions = null;
     let gnomadFrequency = null;
     let aouFrequency = null;
-    let disruptionPredictor = { level: "low", reason: "Fallback: PDB structure mapping not resolved", plddt: 100 };
+    let disruptionPredictor: DisruptionPrediction = { level: "unknown", reason: "Fallback: PDB structure mapping not resolved", plddt: null };
     let esm2 = null;
     let landscapeData = null;
     let gnomadConstraint = null;
     let uniprotFeatures = null;
+    let esm3Eval = null;
+    let esmcEval = null;
 
     let resolvedPdbId: string | null = null;
     let resolvedPdbSource: string = "AlphaFold";
@@ -647,6 +654,32 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         return { level: "low", reason: "Fallback: PDB structure mapping not resolved", plddt: 100 };
       });
 
+      const esm3EvalPromise = pdbMappingPromise.then(async (pdbMap) => {
+        try {
+          let wtPdbText: string | null = null;
+          if (pdbMap && pdbMap.pdbId) {
+            wtPdbText = await fetchPdbFromRcsb(pdbMap.pdbId, pdbMap.chainId, pdbMap.unpStart, pdbMap.structStart);
+          } else {
+            wtPdbText = await fetchAlphafoldPdb(uniprotId);
+          }
+          return fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, wtPdbText);
+        } catch (err) {
+          console.warn("[ESM3 Parallel Run Warning] Failed to run ESM3 structural evaluation:", err);
+          return fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, null);
+        }
+      });
+
+      const esmcEvalPromise = runEsmcAnalysis(
+        gene,
+        variant,
+        uniprotId,
+        sequence,
+        req.headers["x-biohub-token"] as string || null
+      ).catch(err => {
+        console.warn("[ESMC Parallel Run Warning] Failed to run ESMC analysis:", err);
+        return null;
+      });
+
       const disruptionTimeout = new Promise(resolve => setTimeout(() => resolve({ level: "low", reason: "Async structural triage active", plddt: 100 }), 500));
       const fastDisruptionPromise = Promise.race([disruptionPromise, disruptionTimeout]);
 
@@ -663,7 +696,9 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         pdbMapRes,
         gnomadConstraintRes,
         uniprotFeaturesRes,
-        localFreqsRes
+        localFreqsRes,
+        esm3EvalRes,
+        esmcEvalRes
       ] = await Promise.all([
         clinvarPromise,
         conservationPromise,
@@ -676,7 +711,9 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         pdbMappingPromise,
         gnomadConstraintPromise,
         uniprotFeaturesPromise,
-        localFreqsPromise
+        localFreqsPromise,
+        esm3EvalPromise,
+        esmcEvalPromise
       ]);
 
       clinvar = clinvarRes;
@@ -700,6 +737,8 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       pdbMapping = pdbMapRes;
       gnomadConstraint = gnomadConstraintRes;
       uniprotFeatures = uniprotFeaturesRes;
+      esm3Eval = esm3EvalRes;
+      esmcEval = esmcEvalRes;
 
       if (pdbMapping && pdbMapping.pdbId) {
         resolvedPdbId = pdbMapping.pdbId.toUpperCase();
@@ -788,6 +827,12 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       }
     }
 
+    // Construct mutated sequence
+    let mutatedSequence: string | null = null;
+    if (sequence && pos >= 1 && pos <= sequence.length && wt1Letter && mut1Letter) {
+      mutatedSequence = sequence.substring(0, pos - 1) + mut1Letter + sequence.substring(pos);
+    }
+
     res.json({
       analysis: null,
       insights: null,
@@ -804,6 +849,8 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
       gnomadFrequency: gnomadFrequency ?? null,
       aouFrequency: aouFrequency ?? null,
       esm2: esm2 ?? null,
+      esm3Eval: esm3Eval ?? null,
+      esmcEval: esmcEval ?? null,
       metadata: {
         gene,
         variant,
@@ -813,7 +860,8 @@ apiRouter.post("/analyze-variant", analyzeVariantLimiter, jsonParserRegular, asy
         mutant,
         pdbId: resolvedPdbId,
         pdbSource: resolvedPdbSource,
-        alternativeVariants: generateAltVariants(sequence)
+        alternativeVariants: generateAltVariants(sequence),
+        mutatedSequence
       }
     });
   } catch (error: any) {
@@ -919,6 +967,26 @@ apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {
   } catch (error: any) {
     console.error("Structural diff endpoint failure:", error);
     sendError(res, 500, "INTERNAL_ERROR", error.message || "Failed to compute structural difference.");
+  }
+});
+
+apiRouter.post("/esm3-structure-eval", jsonParserPdb, async (req, res) => {
+  try {
+    const { uniprotId, position, wtResidue, mutResidue, wtPdbText } = req.body;
+    if (!uniprotId || position === undefined || !wtResidue || !mutResidue) {
+      sendError(res, 400, "BAD_REQUEST", "Missing required fields: uniprotId, position, wtResidue, mutResidue");
+      return;
+    }
+    const posVal = parseInt(position, 10);
+    if (isNaN(posVal)) {
+      sendError(res, 400, "BAD_REQUEST", "Position must be a valid number.");
+      return;
+    }
+    const evalResult = await fetchEsm3StructureEval(uniprotId, posVal, wtResidue, mutResidue, wtPdbText);
+    res.json(evalResult);
+  } catch (error: any) {
+    console.error("ESM3 structure eval endpoint failure:", error);
+    sendError(res, 500, "INTERNAL_ERROR", error.message || "Failed to evaluate ESM3 structure.");
   }
 });
 
@@ -1157,8 +1225,10 @@ async function recordJobInRegistry(jobId: string, type: "dynamut2" | "ddmut", mu
   try {
     let registry: RegistryJob[] = [];
     if (fs.existsSync(REGISTRY_PATH)) {
-      const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
-      registry = JSON.parse(content) as RegistryJob[];
+      try {
+        const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+        registry = JSON.parse(content) as RegistryJob[];
+      } catch {}
     }
     registry.push({
       jobId,
@@ -1170,7 +1240,16 @@ async function recordJobInRegistry(jobId: string, type: "dynamut2" | "ddmut", mu
       registry = registry.slice(-1000);
     }
     await fs.promises.mkdir(path.dirname(REGISTRY_PATH), { recursive: true });
-    await fs.promises.writeFile(REGISTRY_PATH, JSON.stringify(registry, null, 2), "utf-8");
+    const tmpPath = `${REGISTRY_PATH}.${crypto.randomUUID()}.tmp`;
+    await fs.promises.writeFile(tmpPath, JSON.stringify(registry, null, 2), "utf-8");
+    try {
+      await fs.promises.rename(tmpPath, REGISTRY_PATH);
+    } catch (renameErr) {
+      await fs.promises.writeFile(REGISTRY_PATH, JSON.stringify(registry, null, 2), "utf-8");
+      if (fs.existsSync(tmpPath)) {
+        await fs.promises.unlink(tmpPath).catch(() => {});
+      }
+    }
   } catch (err: any) {
     console.warn("[Job Registry Warning] Failed to write job to registry:", err.message);
   }
@@ -1353,10 +1432,9 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
 
       let ddmutJobId: string | null = null;
       let ddmutStatus: "pending" | "unavailable" | null = null;
-
       let ddgun: number | null = null;
       let rasp: number | null = null;
-      let isRaspSurrogate = false;
+      let raspReason: string | undefined = undefined;
 
       const runFoldX = async (): Promise<FoldXResult | null> => {
         let acquired = false;
@@ -1367,12 +1445,6 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
           await AuditLogger.log("GENERATE_MUTANT", {
             mutation: mutTrimmed
           });
-
-          if (process.env.NODE_ENV !== "production") {
-            console.log(`[Biophysical Modeling] Generating mutant structure for mutation configuration: ${mutTrimmed}`);
-          } else {
-            console.log("[Biophysical Modeling] Generating mutant structure...");
-          }
 
           // Create job directory
           await fs.promises.mkdir(jobDir, { recursive: true });
@@ -1389,24 +1461,13 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
 
       const runDDGun = async () => {
         try {
-          let seq = "";
-          let seqPos = posNum;
-          try {
-            seq = await fetchUniprotSequence(uniprotId);
-          } catch (seqErr) {
-            if (pdbResidues) {
-              const seqInfo = extractSequenceFromPdb(wtPdb, resolvedChainUpper);
-              seq = seqInfo.sequence;
-              seqPos = posNum - seqInfo.minPos + 1;
-            }
-          }
-          if (seq && seqPos > 0 && seqPos <= seq.length) {
+          const seq = await fetchUniprotSequence(uniprotId || "");
+          if (seq) {
+            const seqPos = posNum;
             ddgun = await runDdgunSeq(wtLetter, mutLetter, seq, seqPos);
-          } else {
-            console.warn(`[DDGun-Seq Warning] Invalid residue index ${seqPos} for sequence of length ${seq ? seq.length : 0}`);
           }
         } catch (err: any) {
-          console.warn("[DDGun-Seq Warning] Failed to run:", err.message);
+          console.warn(`[DDGun-Seq] Failed to compute sequence stability prediction:`, err.message);
         }
       };
 
@@ -1441,7 +1502,7 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
         });
 
       const runDDGunWithTimeout = async () => {
-        const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 4000));
+        const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 15000));
         await Promise.race([runDDGun(), timeoutPromise]);
       };
 
@@ -1454,7 +1515,7 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       ]);
       foldxResult = foldxRes;
 
-      // Handle FoldX-phase errors that should abort the request (input errors / residue mismatch)
+      // Handle FoldX-phase errors that should abort the request (input errors / residue mismatch / engine unavailable)
       if (foldxError) {
         console.warn(`[Biophysical Server Route] FoldX execution error:`, foldxError.message);
         const reqId = req.headers["x-request-id"] as string;
@@ -1468,8 +1529,9 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
           return;
         }
 
-        // If it's a modeling engine unavailable or invalid foldx file, we degrade gracefully instead of 503/500 crash.
-        console.log(`[Biophysical Server Route] Gracefully degrading FoldX failure to WT PDB fallback.`);
+        // P0-2 Fix: Restore HTTP 503 MODELING_UNAVAILABLE fail-loud contract
+        sendError(res, 503, "MODELING_UNAVAILABLE", `Biophysical modeling engine unavailable (FoldX execution failed: ${foldxError.message})`);
+        return;
       }
 
       const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
@@ -1496,8 +1558,8 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
           const raspRes = await runRaspLocal(wtPdbPath, mutPdbPath, resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
           if (raspRes !== null) {
             rasp = raspRes.score;
-            isRaspSurrogate = raspRes.isSurrogate;
-            console.log(`[RaSP] ΔΔG prediction: ${rasp} kcal/mol (surrogate: ${isRaspSurrogate})`);
+            raspReason = raspRes.reason;
+            console.log(`[RaSP] ΔΔG prediction: ${rasp} kcal/mol (reason: ${raspReason || 'none'})`);
           }
           // Clean up temp files
           await Promise.allSettled([
@@ -1509,7 +1571,7 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
         }
       }
 
-      // If FoldX succeeded, use its outputs; otherwise, fallback to WT structures and nulls
+      // If FoldX succeeded, use its outputs
       const finalPdb = foldxResult ? foldxResult.pdb : wtPdb;
       const finalDdG = foldxResult ? foldxResult.ddG : null;
       const finalStatus = foldxResult ? foldxResult.status : "failed";
@@ -1521,7 +1583,17 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
       const stericClashWarning = foldxResult?.energetics?.stericClashWarning ?? false;
       const localSidechainRmsd = foldxResult?.energetics?.localSidechainRmsd ?? null;
 
-      const consensusVerdict = computeConsensusVerdict({ foldxMean, rasp, ddgun });
+      // P0-4 Fix: Track evidence completeness and pending tools
+      const pendingTools: string[] = [];
+      if (dynamut2Status === "pending") pendingTools.push("DynaMut2");
+      if (ddmutStatus === "pending") pendingTools.push("DDMut");
+      if (ddgun === null) pendingTools.push("DDGun-Seq");
+
+      const evidenceComplete = pendingTools.length === 0;
+      const rawConsensusVerdict = computeConsensusVerdict({ foldxMean, rasp, ddgun });
+      const consensusVerdict = (!evidenceComplete && rawConsensusVerdict)
+        ? `${rawConsensusVerdict} (Preliminary - pending: ${pendingTools.join(", ")})`
+        : rawConsensusVerdict;
 
       res.json({
         pdb: finalPdb,
@@ -1544,9 +1616,18 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
           dynamut2: null,
           ddmut: null,
           rasp,
-          isRaspSurrogate,
+          raspReason,
           ddgun,
-          consensusVerdict
+          consensusVerdict,
+          evidenceComplete,
+          pendingTools
+        },
+        provenance: {
+          foldxVersion: "5.0",
+          foldxRuns: 5,
+          raspDatasetSnapshot: "2023-Zenodo-6835877",
+          vesmModel: "VESM_150M_v1",
+          timestamp: new Date().toISOString()
         }
       });
     } finally {
@@ -1557,8 +1638,27 @@ apiRouter.post("/generate-mutant", jsonParserPdb, async (req, res) => {
   }
 });
 
+apiRouter.post("/esmfold", jsonParserRegular, async (req, res) => {
+  try {
+    const { sequence } = req.body;
+    if (!sequence || typeof sequence !== "string" || sequence.length < 5) {
+      sendError(res, 400, "BAD_REQUEST", "Invalid protein sequence provided.");
+      return;
+    }
+    const headerVal = req.headers["x-biohub-token"];
+    const token = Array.isArray(headerVal) ? headerVal[0] : headerVal || process.env.ESM3_FORGE_API_KEY;
+    const pdb = await foldSequence(sequence, token);
+    res.json({ pdb });
+  } catch (err: any) {
+    sendError(res, 502, "BAD_GATEWAY", err.message || "Failed to fold sequence using ESMFold.");
+  }
+});
+
 const ensemblResponseSchema = z.array(
   z.object({
+    seq_region_name: z.string().optional(),
+    start: z.number().optional(),
+    allele_string: z.string().optional(),
     transcript_consequences: z.array(
       z.object({
         transcript_id: z.string().optional(),
@@ -1580,9 +1680,14 @@ apiRouter.post("/translate-variant", jsonParserRegular, async (req, res) => {
       return;
     }
 
-    const trimmed = variant.trim();
+    let trimmed = variant.trim();
+    const dashedMatch = trimmed.match(DASHED_GENOMIC_PATTERN);
+    if (dashedMatch) {
+      trimmed = `chr${dashedMatch[1]}:g.${dashedMatch[2]}${dashedMatch[3].toUpperCase()}>${dashedMatch[4].toUpperCase()}`;
+    }
+
     if (!VCF_GENOMIC_PATTERN.test(trimmed) && !CDNA_PATTERN.test(trimmed)) {
-      sendError(res, 400, "BAD_REQUEST", `Invalid notation format: "${trimmed}". Must be genomic VCF (e.g., chr7:g.140753336A>T) or transcript cDNA (e.g., NM_004333.6:c.1799T>A).`);
+      sendError(res, 400, "BAD_REQUEST", `Invalid notation format: "${variant}". Must be genomic VCF (e.g., chr7:g.140753336A>T), transcript cDNA (e.g., NM_004333.6:c.1799T>A), or genomic coordinates (e.g., 20-23365054-G-A).`);
       return;
     }
     if (process.env.NODE_ENV !== "production") {
@@ -1618,6 +1723,17 @@ apiRouter.post("/translate-variant", jsonParserRegular, async (req, res) => {
     if (data.length === 0 || !data[0].transcript_consequences) {
       sendError(res, 404, "NOT_FOUND", "No transcript consequences found for the provided variant.");
       return;
+    }
+
+    const chr = data[0].seq_region_name;
+    const startPos = data[0].start;
+    const alleleStr = data[0].allele_string;
+    let genomicCoordinates: string | null = null;
+    if (chr && startPos && typeof alleleStr === "string") {
+      const parts = alleleStr.split("/");
+      if (parts.length >= 2) {
+        genomicCoordinates = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
+      }
     }
 
     const consequences = data[0].transcript_consequences;
@@ -1670,6 +1786,7 @@ apiRouter.post("/translate-variant", jsonParserRegular, async (req, res) => {
       uniprotId,
       transcriptId,
       isCanonical,
+      genomicCoordinates,
       ...(transcriptWarning ? { transcriptWarning } : {}),
     });
   } catch (err: any) {
