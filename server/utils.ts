@@ -4,9 +4,11 @@ import fs from "fs";
 import crypto from "crypto";
 
 export function safeCompare(a: string, b: string): boolean {
-  const hashA = crypto.createHash("sha256").update(a).digest();
-  const hashB = crypto.createHash("sha256").update(b).digest();
-  return crypto.timingSafeEqual(hashA, hashB);
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 export class Semaphore {
@@ -68,12 +70,14 @@ export const GENE_PATTERN = /^[A-Z0-9\-]{1,20}$/i;
 
 const IUPAC_3 = "(?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val)";
 const IUPAC_1 = "[ARNDCQEGHILKMFPSTWYV]";
-export const HGVS_PATTERN = new RegExp(`^(?:p\\.)?(${IUPAC_3}|${IUPAC_1})(\\d{1,5})(${IUPAC_3}|${IUPAC_1})$`, "i");
+export const HGVS_PATTERN = new RegExp(`^(?:p\\.)?(${IUPAC_3}|${IUPAC_1})(\\d{1,6})(${IUPAC_3}|${IUPAC_1})$`, "i");
 
 export const UNIPROT_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/i;
 export const MUTATION_FOLDX_PATTERN = /^[ARNDCQEGHILKMFPSTWYV][A-Z]\d+[ARNDCQEGHILKMFPSTWYV]$/i;
 export const VCF_GENOMIC_PATTERN = /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i;
 export const CDNA_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
+export const DASHED_GENOMIC_PATTERN = /^(?:chr)?([0-9XYMT]+)-(\d+)-([ACGTN]+)-([ACGTN]+)$/i;
+
 
 const AA_3_TO_1: Record<string, string> = {
   ALA: "A", ARG: "R", ASN: "N", ASP: "D", CYS: "C",
@@ -283,16 +287,24 @@ export interface SessionPayload {
   expiresAt: number;
 }
 
+const pbkdf2KeyCache = new Map<string, Buffer>();
+
+function getDerivedSessionKey(secret: string): Buffer {
+  let key = pbkdf2KeyCache.get(secret);
+  if (!key) {
+    const salt = crypto.createHmac("sha256", secret).update("missense-resolve-pbkdf2-salt").digest();
+    key = crypto.pbkdf2Sync(secret, salt, 100000, 32, "sha256");
+    pbkdf2KeyCache.set(secret, key);
+  }
+  return key;
+}
+
 /**
  * Encrypts a session payload into a stateless AES-256-GCM token.
  * Output format: "ivBase64:ciphertextBase64:tagBase64"
  */
 export function encryptSession(payload: SessionPayload, secret: string): string {
-  // Derive a key of exactly 32 bytes from the secret string via PBKDF2, using a derived salt.
-  // 10,000 iterations are selected to balance cryptographic strength against CPU denial of service (DoS) risks
-  // since this key derivation executes on session verification for incoming requests.
-  const salt = crypto.createHmac("sha256", secret).update("missense-resolve-pbkdf2-salt").digest();
-  const key = crypto.pbkdf2Sync(secret, salt, 10000, 32, "sha256");
+  const key = getDerivedSessionKey(secret);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   
@@ -315,11 +327,7 @@ export function decryptSession(token: string, secret: string): SessionPayload | 
     if (parts.length !== 3) return undefined;
     const [ivB64, ciphertextB64, tagB64] = parts;
     
-    // Derive a key of exactly 32 bytes from the secret string via PBKDF2, using a derived salt.
-    // 10,000 iterations are selected to balance cryptographic strength against CPU denial of service (DoS) risks
-    // since this key derivation executes on session verification for incoming requests.
-    const salt = crypto.createHmac("sha256", secret).update("missense-resolve-pbkdf2-salt").digest();
-    const key = crypto.pbkdf2Sync(secret, salt, 10000, 32, "sha256");
+    const key = getDerivedSessionKey(secret);
     const iv = Buffer.from(ivB64, "base64");
     const ciphertext = Buffer.from(ciphertextB64, "base64");
     const tag = Buffer.from(tagB64, "base64");
@@ -361,8 +369,8 @@ export function getApiKeyFromSession(sessionId: string): string | undefined {
  */
 export function runTempJobsJanitor() {
   const tempJobsDir = path.join(process.cwd(), "temp_jobs");
-  const ONE_HOUR = 60 * 60 * 1000;
-  const RUN_INTERVAL = 15 * 60 * 1000; // run every 15 minutes
+  const MAX_AGE = 30 * 60 * 1000; // 30 minutes TTL (M-4)
+  const RUN_INTERVAL = 5 * 60 * 1000; // run every 5 minutes (M-4)
 
   setInterval(async () => {
     try {
@@ -376,7 +384,7 @@ export function runTempJobsJanitor() {
           const stats = await fs.promises.stat(filePath);
           if (stats.isDirectory()) {
             const age = now - stats.mtimeMs;
-            if (age > ONE_HOUR) {
+            if (age > MAX_AGE) {
               console.log(`[Janitor] Deleting expired job directory: ${filePath} (age: ${Math.round(age / 1000 / 60)} mins)`);
               await fs.promises.rm(filePath, { recursive: true, force: true });
             }

@@ -9,7 +9,7 @@ import { createServer as createViteServer } from "vite";
 
 import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
-import { runTempJobsJanitor } from "./server/utils.ts";
+import { runTempJobsJanitor, AuditLogger } from "./server/utils.ts";
 import { initializeRaspDatabase } from "./server/services/biophysics.ts";
 
 dotenv.config();
@@ -23,17 +23,24 @@ async function startServer() {
   // Initialize the RaSP database (background download/load if missing) (E-4)
   initializeRaspDatabase();
 
-  // Spawn the local ML model server sidecar with auto-restart (A-6)
+  // Generate in-memory SIDECAR_SECRET token for sidecar authentication (P2-7)
+  if (!process.env.SIDECAR_SECRET) {
+    process.env.SIDECAR_SECRET = crypto.randomUUID();
+  }
+
+  // Spawn the local ML model server sidecar with auto-restart (A-6, P2-7)
   let restartAttempts = 0;
   function spawnModelServer() {
     console.log("[Startup] Launching local ML model server sidecar...");
     const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
     modelServerProcess = spawn("python", ["-m", "uv", "run", modelServerScript], {
-      stdio: "inherit"
+      stdio: "inherit",
+      env: { ...process.env, SIDECAR_SECRET: process.env.SIDECAR_SECRET }
     });
     
     modelServerProcess.on("error", (err) => {
       console.error("[Model Server] Failed to start sidecar:", err.message);
+      AuditLogger.log("SIDECAR_ERROR", { message: err.message });
     });
 
     modelServerProcess.on("exit", (code, signal) => {
@@ -42,11 +49,13 @@ async function startServer() {
       if (restartAttempts < 10) {
         restartAttempts++;
         console.log(`[Model Server] Restarting sidecar process (attempt ${restartAttempts}/10) in 2 seconds...`);
+        AuditLogger.log("SIDECAR_RESTART", { attempt: restartAttempts, code, signal });
         setTimeout(() => {
           spawnModelServer();
         }, 2000);
       } else {
         console.error("[Model Server] Max restart attempts reached. Sidecar will remain offline.");
+        AuditLogger.log("SIDECAR_FATAL_OFFLINE", { restartAttempts, code, signal });
       }
     });
   }
@@ -81,9 +90,18 @@ async function startServer() {
   app.use(requestLogger);
   app.use(validateContentType);
 
-  // Security Middleware (SEC-3, SEC-8)
+  // Security Middleware (SEC-3, SEC-8, A-7)
   app.use(helmet({
-    contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: ["'self'", "https://*.ebi.ac.uk", "https://alphafold.ebi.ac.uk", "https://*.uniprot.org", "https://myvariant.info", "https://*.rcsb.org"]
+      }
+    }
   }));
 
   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:3000"];
@@ -114,6 +132,7 @@ async function startServer() {
   });
 
   // Vite middleware for development / Static assets serving for production
+  // Note (A-5): SPA fallback app.get('*') is mounted after API routes and error handler so API calls are never shadowed.
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -135,9 +154,18 @@ async function startServer() {
   const shutdown = async (signal: string) => {
     console.log(`[Shutdown] Received ${signal}. Starting graceful shutdown...`);
     
-    if (modelServerProcess) {
-      console.log("[Shutdown] Terminating model server sidecar...");
-      modelServerProcess.kill();
+    if (modelServerProcess && modelServerProcess.pid) {
+      console.log("[Shutdown] Terminating model server sidecar process tree...");
+      if (process.platform === "win32") {
+        try {
+          const { exec } = require("child_process");
+          exec(`taskkill /F /T /PID ${modelServerProcess.pid}`);
+        } catch (_) {}
+      } else {
+        try {
+          modelServerProcess.kill("SIGTERM");
+        } catch (_) {}
+      }
     }
 
     // Abort all active background tasks in routes.ts (graceful shutdown)

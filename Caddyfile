@@ -17,6 +17,8 @@ localhost {
         X-Content-Type-Options "nosniff"
         # Protect against cross-site scripting (XSS)
         X-XSS-Protection "1; mode=block"
+        # Content Security Policy (M-6, P3-4)
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.ebi.ac.uk https://alphafold.ebi.ac.uk https://*.uniprot.org https://myvariant.info https://*.rcsb.org;"
         # Frame protection
         X-Frame-Options "DENY"
     }

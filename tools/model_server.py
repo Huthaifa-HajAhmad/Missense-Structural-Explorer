@@ -57,6 +57,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Missense Structural Explorer Model Server", lifespan=lifespan)
 
+@app.middleware("http")
+async def verify_secret_header(request: Request, call_next):
+    expected_secret = os.environ.get("SIDECAR_SECRET")
+    if expected_secret and request.url.path != "/health":
+        client_secret = request.headers.get("X-Sidecar-Secret")
+        if client_secret != expected_secret:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized sidecar request"})
+    response = await call_next(request)
+    return response
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "model_loaded": vesm_model is not None}

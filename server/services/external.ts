@@ -1,5 +1,3 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
 import { LRUCache } from "lru-cache";
 import https from "https";
 import crypto from "crypto";
@@ -29,7 +27,7 @@ function getHostBreaker(hostname: string): CircuitBreaker {
   return breaker;
 }
 
-async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
+export async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
   let hostname = "unknown";
   try {
     hostname = new URL(url).hostname;
@@ -140,6 +138,11 @@ export const uniprotCache = new LRUCache<string, string>({
 export const clinvarCache = new LRUCache<string, any>({
   max: 500,
   ttl: 60 * 60 * 1000 // 1 hour TTL
+});
+
+export const afUrlCache = new LRUCache<string, string>({
+  max: 1000,
+  ttl: 24 * 60 * 60 * 1000 // 24 hour TTL (M-3)
 });
 
 export const predictorCache = new LRUCache<string, any>({
@@ -482,6 +485,22 @@ export async function fetchUniprotSequence(uniprotId: string): Promise<string> {
 export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | null> {
   const validatedUniprot = validateUniProt(uniprotId);
   
+  const cachedUrl = afUrlCache.get(validatedUniprot);
+  if (cachedUrl) {
+    try {
+      const pRes = await fetchWithRetry(cachedUrl, {
+        headers: { "User-Agent": "Missense-Structural-Explorer/1.0", "Accept": "*/*" },
+        timeout: 15000
+      });
+      if (pRes.ok) {
+        const pdbText = await pRes.text();
+        if (pdbText && pdbText.includes("ATOM")) {
+          return pdbText;
+        }
+      }
+    } catch (_) {}
+  }
+
   // 1. Try querying EBI AlphaFold API first to find correct URL
   const afApiUrl = `https://alphafold.ebi.ac.uk/api/prediction/${validatedUniprot}`;
   let pdbUrlFromApi = "";
@@ -543,6 +562,7 @@ export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | nul
         pdbData = await pRes.text();
         if (pdbData && pdbData.indexOf("ATOM") !== -1) {
           success = true;
+          afUrlCache.set(validatedUniprot, url);
           console.log(`Successfully fetched PDB from ${url} (${pdbData.length} bytes)`);
           break;
         }
