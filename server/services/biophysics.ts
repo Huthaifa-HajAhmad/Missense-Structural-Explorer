@@ -1,4 +1,4 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+import os from "os";
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
@@ -24,7 +24,7 @@ const pocketCache = new LRUCache<string, any>({
   sizeCalculation: (value) => {
     if (!value) return 1000;
     const residueCount = Array.isArray(value.pocketResidues) ? value.pocketResidues.length : 0;
-    return 500 + residueCount * 200; // ~200 bytes per residue + base overhead
+    return residueCount * 50;
   }
 });
 
@@ -42,7 +42,7 @@ export function parseResiduesFromPdb(pdbText: string): PdbResidue[] {
   const residuesMap = new Map<string, PdbResidue>();
   const lines = pdbText.split(/\r?\n/);
   for (const line of lines) {
-    if (line.startsWith("ATOM")) {
+    if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
       const altLoc = line.charAt(16);
       if (altLoc === " " || altLoc === "" || altLoc === "A") {
         const atomName = line.slice(12, 16).trim();
@@ -342,12 +342,13 @@ export function getResidueDetails(resName3: string): { properties: string; role:
 }
 
 export interface FoldxParsedResult {
-  ddG: number;
+  ddG: number | null;
   sd: number;
   vdw: number;
   electrostatics: number;
   rawDdGs: number[];
   stericClashWarning: boolean;
+  isDegenerate?: boolean;
 }
 
 export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
@@ -443,39 +444,61 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
     elecs.push(runElec);
   }
 
-  const sumDdG = rawDdGs.reduce((a, b) => a + b, 0);
-  const meanDdG = sumDdG / rawDdGs.length;
+  let validDdGs = [...rawDdGs];
+  if (rawDdGs.length >= 4) {
+    const sorted = [...rawDdGs].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const absoluteDeviations = sorted.map(val => Math.abs(val - median)).sort((a, b) => a - b);
+    const mad = absoluteDeviations[Math.floor(absoluteDeviations.length / 2)] || 0.0001;
+    // Modified Z-score (Iglewicz & Hoaglin 1993): 0.6745 * |x - median| / MAD <= 3.5
+    const filtered = rawDdGs.filter(val => {
+      const modZ = (0.6745 * Math.abs(val - median)) / mad;
+      return modZ <= 3.5;
+    });
+    if (filtered.length >= 3) {
+      validDdGs = filtered;
+    }
+  }
+
+  const sumDdG = validDdGs.reduce((a, b) => a + b, 0);
+  const meanDdG = sumDdG / validDdGs.length;
 
   let sd = 0;
-  if (rawDdGs.length > 1) {
-    const squareDiffs = rawDdGs.map(val => Math.pow(val - meanDdG, 2));
+  if (validDdGs.length > 1) {
+    const squareDiffs = validDdGs.map(val => Math.pow(val - meanDdG, 2));
     const sumSquareDiffs = squareDiffs.reduce((a, b) => a + b, 0);
-    sd = Math.sqrt(sumSquareDiffs / (rawDdGs.length - 1));
+    sd = Math.sqrt(sumSquareDiffs / (validDdGs.length - 1));
   }
 
   const meanVdw = vdws.reduce((a, b) => a + b, 0) / vdws.length;
   const meanElec = elecs.reduce((a, b) => a + b, 0) / elecs.length;
 
   const stericClashWarning = meanVdw > 2.0;
-  // Sign Convention (C-1):
-  // - FoldX: positive values represent destabilization (mutant has higher free energy than wild-type).
-  // - DynaMut2 / DDMut / DDGun-Seq / RaSP: negative values represent destabilization.
-  // Clamp values between -50.0 and 50.0 kcal/mol to prevent extreme artifacts from distorting downstream metrics.
-  const clampedDdG = Math.max(-50.0, Math.min(50.0, meanDdG));
+
+  // H-5 Fix: Detect extreme unphysical energy artifacts (> 20 kcal/mol)
+  // If FoldX RepairPDB failed or un-repaired clashes exploded, return null and exclude from consensus
+  const isDegenerate = Math.abs(meanDdG) > 20.0;
+  if (isDegenerate) {
+    console.warn(`[FoldX Warning] Extreme unphysical energy artifact detected (mean ΔΔG = ${meanDdG.toFixed(2)} kcal/mol > 20 kcal/mol). Excluding from consensus.`);
+  }
+  const finalDdG = isDegenerate ? null : parseFloat(meanDdG.toFixed(4));
 
   return {
-    ddG: parseFloat(clampedDdG.toFixed(4)),
+    ddG: finalDdG,
     sd: parseFloat(sd.toFixed(4)),
     vdw: parseFloat(meanVdw.toFixed(4)),
     electrostatics: parseFloat(meanElec.toFixed(4)),
-    rawDdGs,
-    stericClashWarning
+    rawDdGs: validDdGs,
+    stericClashWarning,
+    isDegenerate
   };
 }
 
 const execFileAsync = promisify(execFile);
 
-export const biophysicalSemaphore = new Semaphore(3);
+// A-4 Fix: Dynamically size biophysical semaphore concurrency based on CPU core availability
+const defaultConcurrency = parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "", 10) || Math.max(1, os.cpus().length - 1);
+export const biophysicalSemaphore = new Semaphore(defaultConcurrency);
 
 /**
  * Amino acid propensity weights used for ligand binding pocket scoring.
@@ -721,18 +744,39 @@ async function generateMutantPdbInternal(
       throw new Error("Aborted");
     }
 
-    // 2. Run FoldX BuildModel with 3 stochastic runs (BIO-10)
-    console.log(`[Biophysical Modeling] Executing FoldX BuildModel (3 runs): ${foldxBin}...`);
-    const { stdout, stderr } = await execFileAsync(foldxBin, [
-      "--command=BuildModel",
-      "--pdb=wt.pdb",
-      "--mutant-file=individual_list.txt",
-      "--numberOfRuns=3"
-    ], {
-      timeout: 60000,
-      cwd: jobDir,
-      signal
-    });
+    // 2. Run FoldX BuildModel with 5 stochastic runs for publication-grade statistics (H1)
+    console.log(`[Biophysical Modeling] Executing FoldX BuildModel (5 runs): ${foldxBin}...`);
+    let stdout = "", stderr = "";
+    try {
+      const execRes = await execFileAsync(foldxBin, [
+        "--command=BuildModel",
+        "--pdb=wt.pdb",
+        "--mutant-file=individual_list.txt",
+        "--numberOfRuns=5"
+      ], {
+        timeout: 60000,
+        cwd: jobDir,
+        signal
+      });
+      stdout = execRes.stdout;
+      stderr = execRes.stderr;
+    } catch (execErr: any) {
+      if (execErr.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || execErr.killed || execErr.signal === "SIGTERM") {
+        console.warn(`[Biophysical Modeling] FoldX execution timed out or killed. Cleaning up process tree.`);
+        if (process.platform === "win32") {
+          try {
+            const { exec } = require("child_process");
+            exec(`taskkill /F /IM foldx.exe /T`);
+          } catch (_) {}
+        } else {
+          try {
+            const { exec } = require("child_process");
+            exec(`pkill -f foldx`);
+          } catch (_) {}
+        }
+      }
+      throw execErr;
+    }
 
     console.log(`[FoldX STDOUT]:`, stdout.slice(0, 300));
     if (stderr) console.warn(`[FoldX STDERR]:`, stderr);
@@ -754,7 +798,7 @@ async function generateMutantPdbInternal(
         parsedResult = parseFoldxDifFile(fxText);
         overallDdG = parsedResult.ddG;
         overallSd = parsedResult.sd;
-        console.log(`[Biophysical Modeling] Parsed FoldX stochastic ddG: ${overallDdG} ± ${overallSd} kcal/mol`);
+        console.log(`[Biophysical Modeling] Parsed FoldX 5-run stochastic ddG: ${overallDdG} ± ${overallSd} kcal/mol`);
       }
     }
   } catch (foldxErr: any) {
@@ -1168,9 +1212,9 @@ function injectBFactorsFromWtPdb(wtPdb: string, mutPdb: string): string {
 }
 
 export interface DisruptionPrediction {
-  level: "high" | "low";
+  level: "high" | "low" | "unknown";
   reason: string;
-  plddt: number;
+  plddt: number | null;
   burialStatus?: "core" | "surface" | "boundary";
   neighborCount?: number;
   sasa?: number;
@@ -1258,10 +1302,10 @@ export async function predictStructuralDisruption(
 
   const targetAtoms = atoms.filter(a => a.resSeq === position && (resolvedChain === undefined || a.chain === resolvedChain));
   if (targetAtoms.length === 0) {
-    return { level: "low", reason: "Target residue not found in structure.", plddt: 100, burialStatus: "boundary", neighborCount: 0 };
+    return { level: "unknown", reason: "Target residue not found in structure.", plddt: null, burialStatus: "boundary", neighborCount: 0 };
   }
 
-  let plddt = 100.0;
+  let plddt: number | null = null;
   for (const line of lines) {
     if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
       const atomName = line.slice(12, 16).trim();
@@ -1282,7 +1326,21 @@ export async function predictStructuralDisruption(
     (resolvedChain === undefined || s.chain === resolvedChain) && 
     position >= s.start && position <= s.end
   );
-  const secStruct = targetStruct ? targetStruct.type : "loop";
+
+  let secStruct: "helix" | "sheet" | "loop" = "loop";
+  if (targetStruct) {
+    secStruct = targetStruct.type;
+  } else if (structures.length === 0) {
+    // Dihedral angle/distance geometry estimation fallback for AlphaFold PDBs lacking HELIX/SHEET headers (P1-3)
+    const targetCaChain = resolvedChain || "A";
+    const ca0 = atoms.find(a => a.chain === targetCaChain && a.resSeq === position - 1 && a.name === "CA");
+    const ca3 = atoms.find(a => a.chain === targetCaChain && a.resSeq === position + 2 && a.name === "CA");
+    if (ca0 && ca3) {
+      const dist = Math.sqrt(Math.pow(ca3.x - ca0.x, 2) + Math.pow(ca3.y - ca0.y, 2) + Math.pow(ca3.z - ca0.z, 2));
+      if (dist < 6.2) secStruct = "helix";
+      else if (dist > 9.5) secStruct = "sheet";
+    }
+  }
 
   const targetCa = targetAtoms.find(a => a.name === "CA") || targetAtoms[0];
   let neighborCount = 0;
@@ -1302,7 +1360,7 @@ export async function predictStructuralDisruption(
   const sasa = sasaResult ? sasaResult.sasa : undefined;
   const isBuried = burialStatus === "core";
 
-  const buildResult = (level: "high" | "low", reason: string): DisruptionPrediction => {
+  const buildResult = (level: "high" | "low" | "unknown", reason: string): DisruptionPrediction => {
     return {
       level,
       reason,
@@ -1378,7 +1436,10 @@ export async function runEsm2Eval(
   try {
     const res = await fetch("http://127.0.0.1:8000/predict/vesm", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Sidecar-Secret": process.env.SIDECAR_SECRET || ""
+      },
       body: JSON.stringify({ sequence: seq, position: pos, wt, mut })
     });
     if (res.ok) {
@@ -1952,7 +2013,7 @@ export async function runDdgunSeq(wtLetter: string, mutLetter: string, sequence:
   }
 }
 
-const raspCache = new LRUCache<string, { score: number | null; isSurrogate: boolean }>({ max: 200 });
+const raspCache = new LRUCache<string, { score: number | null; reason?: string }>({ max: 200 });
 
 async function createRaspIndex(csvPath: string): Promise<void> {
   const indexPath = csvPath.replace(".csv", ".index.json");
@@ -2057,20 +2118,23 @@ export async function lookupPrecomputedRaspScore(
   pos: number,
   wt: string,
   mut: string
-): Promise<number | null> {
+): Promise<{ score: number | null; reason?: string }> {
   const csvPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
   if (!fs.existsSync(csvPath)) {
     console.warn("[RaSP] Human proteome database is not ready yet. Skipping lookup.");
-    return null;
+    return { score: null, reason: "Pre-computed RaSP database unavailable" };
   }
 
+  if (uniprotId.startsWith("_")) {
+    return { score: null, reason: "Protein is not present in the pre-computed database" };
+  }
   const index = loadRaspIndex(csvPath);
   const offset = index[uniprotId];
   if (offset === undefined) {
     if (process.env.NODE_ENV !== "production") {
       console.log(`[RaSP] Protein ${uniprotId} not found in human database.`);
     }
-    return null;
+    return { score: null, reason: "Protein is not present in the pre-computed database" };
   }
 
   const wt1 = wt.length === 3 ? AMINO_ACID_3_TO_1[wt.toUpperCase()] || wt : wt;
@@ -2100,13 +2164,17 @@ export async function lookupPrecomputedRaspScore(
 
     rl.on("close", () => {
       stream.destroy();
-      resolve(foundScore);
+      if (foundScore !== null) {
+        resolve({ score: foundScore });
+      } else {
+        resolve({ score: null, reason: "Residue position is not present in the pre-computed database" });
+      }
     });
   });
 }
 
 /**
- * Runs the local RaSP stability predictor via the Python sidecar or looks up precomputed human proteome.
+ * Runs the local RaSP stability predictor via precomputed human proteome lookup.
  * Sign convention: negative = destabilizing (matching DynaMut2/DDMut).
  */
 export async function runRaspLocal(
@@ -2117,46 +2185,28 @@ export async function runRaspLocal(
   wtAa: string,
   mutAa: string,
   uniprotId?: string | null
-): Promise<{ score: number; isSurrogate: boolean } | null> {
-  const cacheKey = `${uniprotId ?? ""}|${wtPdbPath}|${mutPdbPath}|${chain}|${pos}|${wtAa}|${mutAa}`;
+): Promise<{ score: number | null; reason?: string } | null> {
+  // P1-1 Fix: Key cache on canonical protein/variant identifiers rather than temp file paths
+  const cacheKey = `${uniprotId ?? ""}|${chain}|${pos}|${wtAa}|${mutAa}`;
   const cached = raspCache.get(cacheKey);
   if (cached !== undefined) {
-    return cached.score !== null ? { score: cached.score, isSurrogate: cached.isSurrogate } : null;
+    return cached;
   }
 
   if (uniprotId) {
     try {
-      const precomputed = await lookupPrecomputedRaspScore(uniprotId, pos, wtAa, mutAa);
-      if (precomputed !== null) {
-        const resObj = { score: precomputed, isSurrogate: false };
-        raspCache.set(cacheKey, resObj);
-        return resObj;
-      }
+      const biophysicsModule = await import("./biophysics.ts");
+      const resObj = await biophysicsModule.lookupPrecomputedRaspScore(uniprotId, pos, wtAa, mutAa);
+      raspCache.set(cacheKey, resObj);
+      return resObj;
     } catch (err: any) {
       console.warn(`[RaSP] Precomputed database lookup failed for ${uniprotId}:`, err.message);
     }
   }
 
-  // Fallback: use VESM LLR score as a surrogate stability score
-  if (uniprotId) {
-    try {
-      const { fetchUniprotSequence } = await import("./external.ts");
-      const seq = await fetchUniprotSequence(uniprotId);
-      if (seq) {
-        const biophysicsModule = await import("./biophysics.ts");
-        const esmRes = await biophysicsModule.runEsm2Eval(seq, pos, wtAa, mutAa);
-        if (esmRes !== null && esmRes.llr !== undefined && esmRes.llr !== null) {
-          const resObj = { score: esmRes.llr, isSurrogate: true };
-          raspCache.set(cacheKey, resObj);
-          return resObj;
-        }
-      }
-    } catch (err: any) {
-      console.warn(`[RaSP] ESM surrogate fallback failed for ${uniprotId}:`, err.message);
-    }
-  }
-
-  raspCache.set(cacheKey, { score: null, isSurrogate: false });
-  return null;
+  const defaultObj = { score: null, reason: "Residue position is not present in the pre-computed database" };
+  raspCache.set(cacheKey, defaultObj);
+  return defaultObj;
 }
+
 

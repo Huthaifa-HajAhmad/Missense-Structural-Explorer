@@ -1,17 +1,20 @@
 /**
- * thresholds.ts — Canonical score thresholds for all in-silico predictors.
- *
- * This is the SINGLE SOURCE OF TRUTH for cut-points used by:
- *   - acmg.ts  (rule engine)
- *   - routes.ts (consensus logic)
- *   - EvidenceDashboardCard.tsx
- *
- * DO NOT hard-code predictor thresholds anywhere else.
+ * THRESHOLDS_METADATA — Audit and citation metadata for predictor cut-points (P3-2).
  */
+export const THRESHOLDS_METADATA = {
+  lastReviewed: "2026-07-22",
+  citations: {
+    revel: "Ioannidis et al. Am J Hum Genet (2016) & ClinGen SVI Recommendation",
+    alphaMissense: "Cheng et al. Science (2023) & Pejaver et al. Am J Hum Genet (2022)",
+    cadd: "Rentzsch et al. Nucleic Acids Res (2019) & ACMG/AMP SVI Guidance",
+    foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005)",
+    popEVE: "Frazer et al. Nature (2021)"
+  }
+};
 
 export const THRESHOLDS = {
   revel: {
-    /** REVEL ≥ 0.75 → PP3 (Strong) per ClinGen SVI recommendation */
+    /** REVEL ≥ 0.75 → PP3 (Strong) per ClinGen SVI recommendation (Ioannidis et al. 2016) */
     pathogenicStrong: 0.75,
     /** REVEL ≥ 0.50 → PP3 (Supporting) */
     pathogenicSupporting: 0.50,
@@ -127,7 +130,17 @@ export const THRESHOLDS = {
     pathogenicSupporting: -2.0,
     /** Benign LLR threshold */
     benignLlr: -1.0,
+    benign: -1.0,
     /** 0 to 1 normalized scale cutoffs */
+    pathogenicNormalized: 0.75,
+    benignNormalized: 0.25,
+  },
+  eve: {
+    severePathogenic: -5.056,
+    pathogenic: -4.617,
+    pathogenicSupporting: -2.0,
+    benignLlr: -1.0,
+    benign: -1.0,
     pathogenicNormalized: 0.75,
     benignNormalized: 0.25,
   },
@@ -429,6 +442,49 @@ export function countPredictorConcordance(
 }
 
 /**
+ * Normalizes any raw predictor score into a canonical positive destabilization magnitude vector (H-4).
+ * Canonical Rule: Positive magnitude (> 0) indicates destabilization.
+ */
+export function normalizeDestabilizationMagnitude(
+  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "ddgun",
+  score: number | null
+): { magnitude: number | null; isDestabilizing: boolean } {
+  if (score === null || score === undefined || isNaN(score)) {
+    return { magnitude: null, isDestabilizing: false };
+  }
+
+  switch (tool) {
+    case "foldx": {
+      // FoldX: Positive score = destabilizing (threshold >= 1.5)
+      const isDestab = score >= THRESHOLDS.foldxDdG.destabilizingStrong;
+      return { magnitude: score, isDestabilizing: isDestab };
+    }
+    case "dynamut2": {
+      // DynaMut2: Negative score = destabilizing (threshold <= -1.0)
+      const isDestab = score <= THRESHOLDS.dynamut2.destabilizing;
+      return { magnitude: -score, isDestabilizing: isDestab };
+    }
+    case "ddmut": {
+      // DDMut: Negative score = destabilizing (threshold <= -1.0)
+      const isDestab = score <= THRESHOLDS.ddmut.destabilizing;
+      return { magnitude: -score, isDestabilizing: isDestab };
+    }
+    case "rasp": {
+      // RaSP: Negative score = destabilizing (threshold <= -1.0)
+      const isDestab = score <= -1.0;
+      return { magnitude: -score, isDestabilizing: isDestab };
+    }
+    case "ddgun": {
+      // DDGun: Negative score = destabilizing (threshold <= -1.0)
+      const isDestab = score <= THRESHOLDS.ddgun.destabilizing;
+      return { magnitude: -score, isDestabilizing: isDestab };
+    }
+    default:
+      return { magnitude: score, isDestabilizing: false };
+  }
+}
+
+/**
  * Unified calculation of structural energetics consensus stability verdict.
  */
 export function computeConsensusVerdict(
@@ -448,14 +504,27 @@ export function computeConsensusVerdict(
   const rasp = energetics.rasp ?? null;
   const ddgun = energetics.ddgun ?? null;
 
-  const foldxDestab = foldxVal !== null && foldxVal >= THRESHOLDS.foldxDdG.destabilizingStrong;
-  const dynamutDestab = dynamut2 !== null && dynamut2 <= THRESHOLDS.dynamut2.destabilizing;
-  const ddmutDestab = ddmut !== null && ddmut <= THRESHOLDS.ddmut.destabilizing;
-  const raspDestab = rasp !== null && rasp <= -1.0; // RaSP destabilization threshold is <= -1.0
-  const ddgunDestab = ddgun !== null && ddgun <= THRESHOLDS.ddgun.destabilizing;
+  const foldxNorm = normalizeDestabilizationMagnitude("foldx", foldxVal);
+  const dynamutNorm = normalizeDestabilizationMagnitude("dynamut2", dynamut2);
+  const ddmutNorm = normalizeDestabilizationMagnitude("ddmut", ddmut);
+  const raspNorm = normalizeDestabilizationMagnitude("rasp", rasp);
+  const ddgunNorm = normalizeDestabilizationMagnitude("ddgun", ddgun);
 
-  const destabCount = [foldxDestab, dynamutDestab, ddmutDestab, raspDestab, ddgunDestab].filter(Boolean).length;
+  const destabCount = [
+    foldxNorm.isDestabilizing,
+    dynamutNorm.isDestabilizing,
+    ddmutNorm.isDestabilizing,
+    raspNorm.isDestabilizing,
+    ddgunNorm.isDestabilizing
+  ].filter(Boolean).length;
+
   const availableCount = [foldxVal, dynamut2, ddmut, rasp, ddgun].filter(v => v !== null).length;
+
+  if (availableCount === 1) {
+    return destabCount === 1
+      ? "Elevated Misfolding Risk (Single-Tool Estimate)"
+      : "Low Misfolding Risk (Single-Tool Estimate)";
+  }
 
   if (destabCount >= 2) {
     return "High Misfolding Risk (Destabilizing Consensus)";
