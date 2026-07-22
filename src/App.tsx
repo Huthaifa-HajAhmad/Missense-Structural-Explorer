@@ -49,6 +49,78 @@ const MolstarViewerLazy = lazy(() => import("./components/MolstarViewer"));
 
 export default function App() {
   const { state, actions } = useVariantAnalysis();
+
+  const {
+    isDark,
+    gene,
+    variant,
+    uniprotId,
+    selectedResidueIndex,
+    foldedResidueIndex,
+    viewMode,
+    history,
+    customGene,
+    customVariant,
+    customUniprot,
+    customGenomic,
+    analysisState,
+    foldingDdG,
+    foldingStatus,
+    foldingEnergetics,
+    dynamut2Status,
+    ddmutStatus,
+    computedPocket,
+    isPocketLoading,
+    pocketError,
+    disruptionPredictor,
+    isFolding,
+    foldingError,
+    structuralDiff,
+    hoveredResidueIndex,
+    computedResiduesCache,
+    isBiophysicalLoading,
+    isClinicalLoading,
+    copied,
+    loadingStep,
+    settings,
+    showPolarContacts,
+    esmFoldPdb,
+    isEsmFolding,
+    esmFoldingError,
+    homologs,
+    isHomologsLoading
+  } = state;
+
+  const {
+    setSelectedResidueIndex,
+    setFoldedResidueIndex,
+    setViewMode,
+    toggleTheme,
+    setIsSettingsOpen,
+    setCustomGene,
+    setCustomVariant,
+    setCustomUniprot,
+    setCustomGenomic,
+    setHistory,
+    addToHistory,
+    clearHistory,
+    handleSelectHistoryItem,
+    updateSetting,
+    resetSettingsToDefault,
+    formatEnergyString,
+    handleSelectPreset,
+    executeAnalysis,
+    fetchMutantFold,
+    fetchCompareMutantFold,
+    fetchEsmFold,
+    handleSearchSubmit,
+    handleCopyReport,
+    fetchNearestResidues,
+    resetViewerState,
+    setPdbText,
+    setShowPolarContacts
+  } = actions;
+
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<string>("clinical");
   const [isLowDisruptionWarningCollapsed, setIsLowDisruptionWarningCollapsed] = useState<boolean>(false);
@@ -73,6 +145,43 @@ export default function App() {
     prevIsLoadingRef.current = state.analysisState.isLoading;
   }, [state.analysisState.isLoading, state.analysisState.result, masterView]);
 
+  // Trigger ESMFold folding when masterView is "structure_esmfold"
+  useEffect(() => {
+    if (masterView === "structure_esmfold") {
+      const metadata = state.analysisState.result?.metadata;
+      if (!metadata) return;
+
+      const runFolding = async () => {
+        let mutSeq = metadata.mutatedSequence;
+        if (!mutSeq) {
+          const activeUniprot = uniprotId || metadata.uniprotId;
+          const pos = metadata.residueIndex;
+          const mutRes = metadata.mutant;
+          if (activeUniprot && pos && mutRes) {
+            try {
+              const res = await fetch(`/api/v1/sequence/${activeUniprot}`);
+              if (res.ok) {
+                const data = await res.json();
+                const wtSeq = data.sequence;
+                if (wtSeq && pos >= 1 && pos <= wtSeq.length) {
+                  const mut1 = mutRes.length === 3 ? (mutRes === "Ala" ? "A" : mutRes === "Arg" ? "R" : mutRes) : mutRes;
+                  mutSeq = wtSeq.substring(0, pos - 1) + mut1 + wtSeq.substring(pos);
+                }
+              }
+            } catch (err) {
+              console.error("Failed to resolve mutated sequence for ESMFold:", err);
+            }
+          }
+        }
+        if (mutSeq && !esmFoldPdb && !isEsmFolding) {
+          fetchEsmFold(mutSeq);
+        }
+      };
+
+      runFolding();
+    }
+  }, [masterView, state.analysisState.result?.metadata, esmFoldPdb, isEsmFolding, fetchEsmFold, uniprotId]);
+
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
@@ -86,69 +195,6 @@ export default function App() {
 
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
-
-  const {
-    isDark,
-    gene,
-    variant,
-    uniprotId,
-    selectedResidueIndex,
-    foldedResidueIndex,
-    viewMode,
-    history,
-    customGene,
-    customVariant,
-    customUniprot,
-    analysisState,
-    foldingDdG,
-    foldingStatus,
-    foldingEnergetics,
-    dynamut2Status,
-    ddmutStatus,
-    computedPocket,
-    isPocketLoading,
-    pocketError,
-    disruptionPredictor,
-    isFolding,
-    foldingError,
-    structuralDiff,
-    hoveredResidueIndex,
-    computedResiduesCache,
-    isBiophysicalLoading,
-    isClinicalLoading,
-    copied,
-    loadingStep,
-    settings,
-    showPolarContacts
-  } = state;
-
-  const {
-    setSelectedResidueIndex,
-    setFoldedResidueIndex,
-    setViewMode,
-    toggleTheme,
-    setIsSettingsOpen,
-    setCustomGene,
-    setCustomVariant,
-    setCustomUniprot,
-    setHistory,
-    addToHistory,
-    clearHistory,
-    handleSelectHistoryItem,
-    updateSetting,
-    resetSettingsToDefault,
-    formatEnergyString,
-    handleSelectPreset,
-    executeAnalysis,
-    fetchMutantFold,
-    fetchCompareMutantFold,
-    handleSearchSubmit,
-    handleCopyReport,
-    fetchNearestResidues,
-    resetViewerState,
-    setPdbText,
-    setShowPolarContacts
-  } = actions;
 
   // Theme-adaptive typography & card styling tokens
   const classRoot = isDark ? "bg-[#1B1917] text-[#FAF9F6] dark" : "bg-[#F5F2EB] text-[#1A1523]";
@@ -182,8 +228,11 @@ export default function App() {
         isFolding={isFolding}
         isBiophysicalLoading={isBiophysicalLoading}
         isClinicalLoading={isClinicalLoading}
+        isPocketLoading={isPocketLoading}
+        dynamut2Status={dynamut2Status}
+        ddmutStatus={ddmutStatus}
         isLoadingSearch={analysisState.isLoading}
-        loadingStep={loadingStep}
+        loadingStep={state.loadingStep}
       />
 
       {/* ── App Main Viewport ── */}
@@ -198,7 +247,7 @@ export default function App() {
               style={{ color: "var(--cs-text-muted)", letterSpacing: "0.08em" }}
             >
               {masterView === "evidence"   ? "Evidence" :
-               masterView === "structure"  ? "3D Structure" :
+               (masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold") ? "3D Structure" :
                masterView === "energetics" ? "Energetics" :
                masterView === "landscape"  ? "Landscape" :
                masterView === "insights"   ? "Insights" :
@@ -283,6 +332,8 @@ export default function App() {
                         setCustomVariant={setCustomVariant}
                         customUniprot={customUniprot}
                         setCustomUniprot={setCustomUniprot}
+                        customGenomic={customGenomic}
+                        setCustomGenomic={setCustomGenomic}
                         analysisState={analysisState}
                         handleSearchSubmit={(e) => {
                           handleSearchSubmit(e);
@@ -358,23 +409,54 @@ export default function App() {
 
                 {/* STRUCTURE VIEW — always mounted to preserve Molstar WebGL context */}
                 <div
-                  className="h-full w-full"
-                  style={{ display: masterView === "structure" ? "block" : "none" }}
+                  className="h-full w-full flex flex-col"
+                  style={{ display: (masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold") ? "flex" : "none" }}
                 >
-                  <ErrorBoundary name="3D Structure">
-                    <Suspense fallback={
-                      <div className="flex flex-col items-center justify-center h-full gap-3">
-                        <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
-                        <span className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>Loading 3D Viewer...</span>
+                  {/* Slim Viewport Header Bar */}
+                  <div className="flex items-center justify-between px-5 py-3 border-b shrink-0 transition-colors" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold tracking-wide uppercase" style={{ color: "var(--cs-text-primary)" }}>
+                        {masterView === "structure_esmfold" ? "ESMFold2 Mutant Structure" : "AlphaFold2 WT PDB Structure"}
+                      </span>
+                    </div>
+
+                    {masterView === "structure_esmfold" && (
+                      <div className="flex items-center gap-2 text-xs font-mono">
+                        {isEsmFolding ? (
+                          <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold animate-pulse">
+                            <span className="w-2.5 h-2.5 border-2 border-t-transparent rounded-full animate-spin border-amber-500" />
+                            Folding sequence...
+                          </span>
+                        ) : esmFoldingError ? (
+                          <span className="text-[10px] text-rose-455 font-bold">
+                            ⚠️ Folding failed
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 text-[10px]">
+                            ✓ De Novo Fold Ready
+                          </span>
+                        )}
                       </div>
-                    }>
-                      <MolstarViewerLazy
-                        residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
-                        variant={variant}
-                        heightClass="h-full"
-                      />
-                    </Suspense>
-                  </ErrorBoundary>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-h-0 relative">
+                    <ErrorBoundary name="3D Structure">
+                      <Suspense fallback={
+                        <div className="flex flex-col items-center justify-center h-full gap-3">
+                          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
+                          <span className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>Loading 3D Viewer...</span>
+                        </div>
+                      }>
+                        <MolstarViewerLazy
+                          residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
+                          variant={variant}
+                          heightClass="h-full"
+                          active3dModelTab={masterView === "structure_esmfold" ? "esmfold2" : "alphafold2"}
+                        />
+                      </Suspense>
+                    </ErrorBoundary>
+                  </div>
                 </div>
 
                 {/* LANDSCAPE VIEW — always mounted to preserve canvas/WebGL state */}
@@ -456,6 +538,9 @@ export default function App() {
                   setCustomPdbUrl={actions.setCustomPdbUrl}
                   isLoadingSearch={analysisState.isLoading}
                   loadingStep={state.loadingStep}
+                  isPocketLoading={isPocketLoading}
+                  dynamut2Status={dynamut2Status}
+                  ddmutStatus={ddmutStatus}
                 />
               )}
             </div>

@@ -173,6 +173,23 @@ export const analyzeVariantResponseSchema = z.object({
   esm2: z.object({
     llr: z.number().nullable(),
     verdict: z.string().nullable()
+  }).nullable().optional(),
+  esm3Eval: z.object({
+    uniprotId: z.string(),
+    position: z.number(),
+    wtResidue: z.string(),
+    mutResidue: z.string(),
+    pdbText: z.string().nullable(),
+    perturbationScores: z.array(z.number()),
+    maxDriftResidue: z.number(),
+    structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]),
+    microenvironments: z.array(z.string()),
+    putativeStructuralChanges: z.array(z.string()),
+    confidence: z.object({
+      level: z.enum(["high", "moderate", "low"]),
+      plddt: z.number(),
+      sequenceCoverage: z.number()
+    })
   }).nullable().optional()
 });
 
@@ -194,7 +211,9 @@ export const generateMutantResponseSchema = z.object({
     rasp: nullableFiniteNumber.optional(),
     ddgun: nullableFiniteNumber.optional(),
     consensusVerdict: z.string().nullable().optional(),
-    isRaspSurrogate: z.boolean().optional()
+    raspReason: z.string().optional(),
+    evidenceComplete: z.boolean().optional(),
+    pendingTools: z.array(z.string()).optional()
   }).optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),
@@ -239,7 +258,8 @@ export const resolveGeneResponseSchema = z.object({
 export const translateVariantResponseSchema = z.object({
   gene: z.string(),
   variant: z.string(),
-  uniprotId: z.string()
+  uniprotId: z.string(),
+  genomicCoordinates: z.string().nullable().optional()
 });
 import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "./data";
 import { AnalysisState, VariantPreset, UserSettings, AnalysisResult, NearestResidue, PocketResult, EnergeticsData, StructuralDiffResult, BiophysicalApiResponse, AcmgVerdict, ACMGCriteriaItem, PdbHomolog } from "./types";
@@ -386,7 +406,8 @@ export function isVcfOrCdnaNotation(input: string): boolean {
   const trimmed = input.trim();
   const genomicRegex = /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i;
   const cdnaRegex = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
-  return genomicRegex.test(trimmed) || cdnaRegex.test(trimmed);
+  const dashedGenomicRegex = /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i;
+  return genomicRegex.test(trimmed) || cdnaRegex.test(trimmed) || dashedGenomicRegex.test(trimmed);
 }
 
 export const AMINO_ACID_NAMES_MAP: Record<string, string> = {
@@ -523,6 +544,7 @@ export default function useVariantAnalysis() {
   const mutantFoldAbortRef = useRef<AbortController | null>(null);
   const compareFoldAbortRef = useRef<AbortController | null>(null);
   const pendingResiduesRef = useRef<Set<string>>(new Set());
+  const activeRequestIdRef = useRef<number>(0);
 
   const fetchWithAuth = useCallback(async (
     url: string,
@@ -534,6 +556,9 @@ export default function useVariantAnalysis() {
     }
     if (settings.appApiToken) {
       headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+    }
+    if (settings.biohubApiToken) {
+      headers["x-biohub-token"] = settings.biohubApiToken;
     }
     
     let response = await fetchWithRetry(url, { ...options, headers });
@@ -568,6 +593,9 @@ export default function useVariantAnalysis() {
             if (settings.appApiToken) {
               retryHeaders["Authorization"] = `Bearer ${settings.appApiToken}`;
             }
+            if (settings.biohubApiToken) {
+              retryHeaders["x-biohub-token"] = settings.biohubApiToken;
+            }
             response = await fetchWithRetry(url, { ...options, headers: retryHeaders });
           }
         }
@@ -577,9 +605,10 @@ export default function useVariantAnalysis() {
     }
     
     return response;
-  }, [settings.geminiSessionId, settings.geminiApiKey, settings.appApiToken, updateSetting]);
+  }, [settings.geminiSessionId, settings.geminiApiKey, settings.appApiToken, settings.biohubApiToken, updateSetting]);
 
   const abortAllPendingRequests = () => {
+    activeRequestIdRef.current += 1;
     clearDynaMutPoll();
     clearDynaMutComparePoll();
     if (analysisAbortRef.current) {
@@ -654,6 +683,7 @@ export default function useVariantAnalysis() {
   const [customGene, setCustomGene] = useState("");
   const [customVariant, setCustomVariant] = useState("");
   const [customUniprot, setCustomUniprot] = useState("");
+  const [customGenomic, setCustomGenomic] = useState("");
   const [showCustomInputs, setShowCustomInputs] = useState(false);
 
   const [copied, setCopied] = useState(false);
@@ -666,6 +696,9 @@ export default function useVariantAnalysis() {
   const [disruptionPredictor, setDisruptionPredictor] = useState<{ level: "high" | "low"; reason: string; plddt: number } | null>(null);
 
   const [notifications, setNotifications] = useState<{ id: string; type: "success" | "info" | "error"; message: string }[]>([]);
+  const [esmFoldPdb, setEsmFoldPdb] = useState<string | null>(null);
+  const [isEsmFolding, setIsEsmFolding] = useState<boolean>(false);
+  const [esmFoldingError, setEsmFoldingError] = useState<string | null>(null);
 
   const addNotification = useCallback((type: "success" | "info" | "error", message: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -758,6 +791,9 @@ export default function useVariantAnalysis() {
     clearDynaMutComparePoll();
     setViewMode("wildtype");
     setMutantPdb(null);
+    setEsmFoldPdb(null);
+    setIsEsmFolding(false);
+    setEsmFoldingError(null);
     setFoldedResidueIndex(null);
     setFoldingError(null);
     setFoldingStatus(null);
@@ -929,6 +965,8 @@ export default function useVariantAnalysis() {
       return;
     }
 
+    const requestId = ++activeRequestIdRef.current;
+
     let activeSignal = signal;
     if (!activeSignal) {
       if (analysisAbortRef.current) {
@@ -951,6 +989,9 @@ export default function useVariantAnalysis() {
     setMutantPdb(null);
     setFoldedResidueIndex(null);
     setFoldingError(null);
+    setEsmFoldPdb(null);
+    setIsEsmFolding(false);
+    setEsmFoldingError(null);
     
     // Set initial stateful loader step
     setLoadingStep("Step 2/4: Loading 3D structural templates & sequence features...");
@@ -1211,8 +1252,6 @@ export default function useVariantAnalysis() {
         }
       });
       addToHistory(targetGene, targetVariant, targetUniprot);
-
-      // Trigger FoldX/DynaMut2 calculation is now done early at the start of executeAnalysis
 
       if (validatedData.metadata?.residueIndex) {
         setSelectedResidueIndex(validatedData.metadata.residueIndex);
@@ -1649,6 +1688,34 @@ export default function useVariantAnalysis() {
       }
     }
   }, []);
+
+  const fetchEsmFold = useCallback(async (sequence: string) => {
+    if (!sequence) return;
+    setIsEsmFolding(true);
+    setEsmFoldingError(null);
+    try {
+      const response = await fetchWithAuth("/api/v1/esmfold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sequence })
+      });
+      if (!response.ok) {
+        throw new Error(`ESMFold service failed with status ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.pdb) {
+        setEsmFoldPdb(data.pdb);
+      } else {
+        throw new Error("No structure returned from ESMFold service.");
+      }
+    } catch (err: any) {
+      console.error("[ESMFold] Failed to fetch folded structure:", err);
+      setEsmFoldingError(err.message || "Failed to fold protein sequence.");
+      addNotification("error", `ESMFold folding failed: ${err.message}`);
+    } finally {
+      setIsEsmFolding(false);
+    }
+  }, [fetchWithAuth, addNotification]);
 
   const fetchMutantFold = async (targetGene: string, targetVariant: string, targetUniprot: string, signal?: AbortSignal) => {
     const effectiveUniprot = targetUniprot || analysisState.result?.metadata?.uniprotId || customUniprot || "";
@@ -2370,14 +2437,29 @@ export default function useVariantAnalysis() {
     const activeSignal = controller.signal;
 
     const targetGene = (customGene || "").trim().toUpperCase();
-    const targetVariant = (customVariant || "").replace(/[()]/g, "").trim();
+    let targetVariant = (customVariant || "").replace(/[()]/g, "").trim();
+    const targetGenomic = (customGenomic || "").trim();
     const targetUniprot = (customUniprot || "").trim().toUpperCase();
 
-    if (!targetGene || !targetVariant) return;
+    if (targetGenomic) {
+      targetVariant = targetGenomic;
+    }
 
-    if (isVcfOrCdnaNotation(targetVariant)) {
+    const isCoordinate = isVcfOrCdnaNotation(targetVariant);
+    if (isCoordinate) {
+      if (!targetVariant) return;
+    } else {
+      if (!targetGene || !targetVariant) return;
+    }
+
+    if (isCoordinate) {
       try {
-        const resolved = await translateVariantNotation(targetVariant, activeSignal);
+        let notationToTranslate = targetVariant;
+        const dashedMatch = targetVariant.match(/^(?:chr)?([0-9XYMT]+)-(\d+)-([ACGTN]+)-([ACGTN]+)$/i);
+        if (dashedMatch) {
+          notationToTranslate = `chr${dashedMatch[1]}:g.${dashedMatch[2]}${dashedMatch[3].toUpperCase()}>${dashedMatch[4].toUpperCase()}`;
+        }
+        const resolved = await translateVariantNotation(notationToTranslate, activeSignal);
         
         setGene(resolved.gene);
         setVariant(resolved.variant);
@@ -2386,11 +2468,18 @@ export default function useVariantAnalysis() {
         setCustomGene(resolved.gene);
         setCustomVariant(resolved.variant);
         setCustomUniprot(resolved.uniprotId);
+        if (resolved.genomicCoordinates) {
+          setCustomGenomic(resolved.genomicCoordinates);
+        } else if (dashedMatch) {
+          setCustomGenomic(targetGenomic);
+        } else {
+          setCustomGenomic("");
+        }
         
         const resMatch = resolved.variant.match(/\d+/);
         setSelectedResidueIndex(resMatch ? parseInt(resMatch[0], 10) : null);
         
-        executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal, targetVariant);
+        executeAnalysis(resolved.gene, resolved.variant, resolved.uniprotId, activeSignal, notationToTranslate);
       } catch (err: any) {
         if (activeSignal.aborted) return;
         setAnalysisState({
@@ -2557,6 +2646,7 @@ export default function useVariantAnalysis() {
       customGene,
       customVariant,
       customUniprot,
+      customGenomic,
       showCustomInputs,
       copied,
       customPdbUrl,
@@ -2602,6 +2692,9 @@ export default function useVariantAnalysis() {
       history,
       userDirections,
       notifications,
+      esmFoldPdb,
+      isEsmFolding,
+      esmFoldingError,
 
       // Styling and computed classes
       classRoot,
@@ -2643,6 +2736,7 @@ export default function useVariantAnalysis() {
       setCustomGene,
       setCustomVariant,
       setCustomUniprot,
+      setCustomGenomic,
       setShowCustomInputs,
       setCopied,
       setCustomPdbUrl,
@@ -2689,6 +2783,7 @@ export default function useVariantAnalysis() {
       handleSelectPreset,
       executeAnalysis,
       fetchMutantFold,
+      fetchEsmFold,
       fetchCompareMutantFold,
       handleSearchSubmit,
       handleCopyReport,

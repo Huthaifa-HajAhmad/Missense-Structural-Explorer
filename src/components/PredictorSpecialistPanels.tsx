@@ -7,6 +7,8 @@ interface PredictorSpecialistPanelsProps {
     amPathogenicity: number | null;
     amClass: string | null;
     caddPhred: number | null;
+    eveScore?: number | null;
+    eveClass?: string | null;
   } | null;
   conservationData?: {
     revel: number | null;
@@ -231,22 +233,24 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
       <div className="min-h-[220px]">
         {activeTab === "lms" && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* ESM-1b */}
-            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.esm1b}>
+            {/* VESM++ / VESM3 */}
+            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title="VESM++ Co-distilled Ensemble (ESM2-3B + ESM3) zero-shot Log-Likelihood Ratio (LLR)">
               <div className="flex justify-between items-start">
                 <div>
                   <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
-                    ESM-1b
-                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal" style={{ background: "rgba(196,104,73,0.1)", color: "var(--cs-accent-clay)" }}>Evolutionary LM</span>
+                    VESM++
+                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal" style={{ background: "rgba(196,104,73,0.1)", color: "var(--cs-accent-clay)" }}>Co-distilled LM</span>
                   </h4>
-                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Zero-shot LLR likelihood score</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Co-distilled ESM-3/ESM2 LLR score</p>
                 </div>
-                {renderBadge(getEsmSignal(esm1b))}
+                {renderBadge(getEsmSignal(esm2Score ?? null))}
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{esm1b !== null ? esm1b.toFixed(2) : "N/A"}</span>
-                {esm1b !== null && renderScoreBar(esm1b, -25, 5, -7.5, -5.0, true)}
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
+                  {esm2Score !== null && esm2Score !== undefined ? esm2Score.toFixed(2) : "N/A"}
+                </span>
+                {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
               </div>
             </div>
 
@@ -293,7 +297,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 {popeve !== null && (
                   popeve < 0
                     ? renderScoreBar(popeve, -7.2, 0.0, -1.0, -2.0)
-                    : renderScoreBar(popeve, 0.0, 1.0, THRESHOLDS.popEve.benign, THRESHOLDS.popEve.pathogenic)
+                    : renderScoreBar(popeve, 0.0, 1.0, THRESHOLDS.popEve.benignNormalized, THRESHOLDS.popEve.pathogenicNormalized)
                 )}
               </div>
             </div>

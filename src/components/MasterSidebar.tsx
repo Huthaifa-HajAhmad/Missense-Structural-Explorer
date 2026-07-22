@@ -7,11 +7,14 @@ import {
   CheckCircle2, Circle,
 } from "lucide-react";
 import { AnalysisResult } from "../types";
+import { getWorkflowStageStatus } from "../shared/workflowStatus";
 
 export type MasterView =
   | "search"
   | "evidence"
   | "structure"
+  | "structure_alphafold"
+  | "structure_esmfold"
   | "energetics"
   | "landscape"
   | "insights"
@@ -34,6 +37,11 @@ interface MasterSidebarProps {
   isFolding?: boolean;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
+  isPocketLoading?: boolean;
+  dynamut2Status?: string | null;
+  ddmutStatus?: string | null;
+  isLoadingSearch?: boolean;
+  loadingStep?: string;
 }
 
 interface NavItem {
@@ -77,66 +85,16 @@ const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population Frequencies" },
   { id: "predictors",   label: "In-Silico Predictors"   },
   { id: "structure",    label: "Residue Shifts"          },
+  { id: "perturbation", label: "Structural Perturbation" },
   { id: "function",     label: "Functional Site"         },
   { id: "interactions", label: "PPI Networks"            },
   { id: "guidelines",   label: "Scores Thresholds"       },
 ];
 
-/** Derives per-tab completion state from analysis data — synchronized across all workflow components */
-function getTabStatus(
-  view: MasterView,
-  result: AnalysisResult | null | undefined,
-  isFolding: boolean,
-  isBiophysicalLoading: boolean,
-  isClinicalLoading: boolean,
-  isLoadingSearch?: boolean,
-  loadingStep?: string
-): "complete" | "progress" | "pending" {
-  if (view === "search") return "complete";
-
-  // Check if biophysical calculations (FoldX, DynaMut2, DDMut) are complete
-  const hasBiophysics = result?.foldingEnergetics != null || result?.dynamut2 != null || result?.ddmut != null || result?.biophysicalEnergetics != null;
-
-  if (view === "energetics") {
-    if (isFolding || isBiophysicalLoading || (result != null && !hasBiophysics)) {
-      return "progress";
-    }
-    if (result != null && hasBiophysics) {
-      return "complete";
-    }
-  }
-
-  // 1. Result landed -> All pipeline steps complete (except active background tasks)
-  if (result != null) {
-    if (view === "structure" && isFolding) return "progress";
-    return "complete";
-  }
-
-  // 2. Active search execution
-  if (isLoadingSearch) {
-    const match = (loadingStep || "").match(/Step (\d+)\/4/);
-    const currentStep = match ? parseInt(match[1], 10) : 1;
-
-    switch (view) {
-      case "evidence":
-        return currentStep === 1 ? "progress" : currentStep > 1 ? "complete" : "pending";
-      case "structure":
-        return currentStep === 2 ? "progress" : currentStep > 2 ? "complete" : "pending";
-      case "landscape":
-        return currentStep === 3 ? "progress" : currentStep > 3 ? "complete" : "pending";
-      case "energetics":
-        return currentStep === 4 ? "progress" : currentStep > 4 ? "complete" : "pending";
-      case "insights":
-        return currentStep >= 3 ? "progress" : "pending";
-      case "report":
-        return currentStep >= 4 ? "progress" : "pending";
-      default:
-        return "pending";
-    }
-  }
-
-  return "pending";
-}
+const STRUCTURE_SUB_ITEMS = [
+  { id: "structure_alphafold", label: "AlphaFold2" },
+  { id: "structure_esmfold",   label: "ESMFold2"   },
+];
 
 /** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */
 function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
@@ -181,6 +139,11 @@ export default function MasterSidebar({
   isFolding = false,
   isBiophysicalLoading = false,
   isClinicalLoading = false,
+  isPocketLoading = false,
+  dynamut2Status = null,
+  ddmutStatus = null,
+  isLoadingSearch = false,
+  loadingStep = "",
 }: MasterSidebarProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
 
@@ -290,16 +253,33 @@ export default function MasterSidebar({
             )}
 
             {zone.items.map(({ id, label, sublabel, Icon }) => {
-              const isActive = activeView === id;
-              const status = getTabStatus(
-                id, analysisResult, isFolding, isBiophysicalLoading, isClinicalLoading
+              const isActive =
+                activeView === id ||
+                (id === "structure" && (activeView === "structure_alphafold" || activeView === "structure_esmfold"));
+              const { status } = getWorkflowStageStatus(
+                id,
+                analysisResult,
+                isFolding,
+                isBiophysicalLoading,
+                isClinicalLoading,
+                isLoadingSearch,
+                loadingStep,
+                isPocketLoading,
+                dynamut2Status,
+                ddmutStatus
               );
 
               return (
                 <div key={id} className="flex flex-col">
                   <button
                     type="button"
-                    onClick={() => onViewChange(id)}
+                    onClick={() => {
+                      if (id === "structure") {
+                        onViewChange("structure_alphafold");
+                      } else {
+                        onViewChange(id);
+                      }
+                    }}
                     className="flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left transition-all duration-150 active:scale-[0.98] group"
                     style={{
                       padding: isCollapsed ? "9px 0" : "8px 10px",
@@ -410,6 +390,68 @@ export default function MasterSidebar({
                             onClick={() => {
                               onViewChange("evidence");
                               onEvidenceTabChange(sub.id);
+                            }}
+                            className="flex items-center gap-2 py-1.5 px-2 rounded-md w-full text-left transition-all duration-150 cursor-pointer"
+                            style={{
+                              background: isSubActive
+                                ? "rgba(196,104,73,0.07)"
+                                : "transparent",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 5,
+                                height: 5,
+                                borderRadius: "50%",
+                                flexShrink: 0,
+                                background: isSubActive
+                                  ? "var(--cs-accent-clay)"
+                                  : "transparent",
+                                border: isSubActive
+                                  ? "none"
+                                  : "1px solid var(--cs-text-muted)",
+                                transition: "background 0.12s",
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: isSubActive ? 500 : 400,
+                                color: isSubActive
+                                  ? "var(--cs-accent-clay)"
+                                  : "var(--cs-text-muted)",
+                              }}
+                              className="truncate"
+                            >
+                              {sub.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* ── 3D Structure sub-items ── */}
+                  {id === "structure" && !isCollapsed && (
+                    <div
+                      className="flex flex-col"
+                      style={{
+                        marginLeft: 14,
+                        paddingLeft: 12,
+                        borderLeft: "1px solid var(--cs-border-subtle)",
+                        gap: 2,
+                        marginTop: 3,
+                        marginBottom: 4,
+                      }}
+                    >
+                      {STRUCTURE_SUB_ITEMS.map((sub) => {
+                        const isSubActive = activeView === sub.id;
+                        return (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={() => {
+                              onViewChange(sub.id as MasterView);
                             }}
                             className="flex items-center gap-2 py-1.5 px-2 rounded-md w-full text-left transition-all duration-150 cursor-pointer"
                             style={{

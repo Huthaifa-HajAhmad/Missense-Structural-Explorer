@@ -85,6 +85,7 @@ export interface AnalysisResult {
     eveScore?: number | null;
     eveClass?: string | null;
     proteinName?: string | null;
+    gnomadVariantId?: string | null;
   } | null;
   conservationData?: {
     revel: number | null;
@@ -134,6 +135,24 @@ export interface AnalysisResult {
   ddmutJobId?: string | null;
   rasp?: number | null;
   foldingEnergetics?: EnergeticsData | null;
+  esm3Eval?: {
+    uniprotId: string;
+    position: number;
+    wtResidue: string;
+    mutResidue: string;
+    pdbText: string | null;
+    perturbationScores: number[];
+    maxDriftResidue: number;
+    structuralChangeLevel: "none" | "minor" | "moderate" | "major";
+    microenvironments: string[];
+    putativeStructuralChanges: string[];
+    confidence: {
+      level: "high" | "moderate" | "low";
+      plddt: number;
+      sequenceCoverage: number;
+    };
+  } | null;
+  esmcEval?: EsmcEvalResult | null;
   metadata?: {
     gene: string;
     variant: string;
@@ -143,6 +162,8 @@ export interface AnalysisResult {
     mutant: string;
     pdbId?: string | null;
     pdbSource?: string | null;
+    alternativeVariants?: any;
+    mutatedSequence?: string | null;
     analysisVersion?: {
       thresholds: string;
       geminiModel: string;
@@ -150,6 +171,7 @@ export interface AnalysisResult {
       timestamp: string;
     } | null;
   };
+  biophysicalEnergetics?: any;
   disruptionPredictor?: {
     level: "high" | "low";
     reason: string;
@@ -232,6 +254,7 @@ export interface UserSettings {
   geminiSessionId?: string;
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
+  biohubApiToken?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;
@@ -276,9 +299,11 @@ export interface EnergeticsData {
   dynamut2: number | null;
   ddmut?: number | null;
   rasp?: number | null;
+  raspReason?: string;
   ddgun?: number | null;
   consensusVerdict?: string | null;
-  isRaspSurrogate?: boolean;
+  evidenceComplete?: boolean;
+  pendingTools?: string[];
 }
 
 export interface StructuralDiffResult {
@@ -298,3 +323,27 @@ export interface StructuralDiffResult {
   method: string;
   resolution: number | null;
 }
+
+export interface EsmcPreference {
+  aa: string;
+  prob: number;
+}
+
+export interface EsmcLocalShift {
+  position: number;
+  residue: string;
+  shift: number;
+}
+
+export interface EsmcEvalResult {
+  wtProbability: number;
+  mutProbability: number;
+  llr: number;
+  preferences: EsmcPreference[];
+  mutRank: number;
+  positionalEntropy: number;
+  embeddingShift: number;
+  localEmbeddingShift: number;
+  localShiftMap: EsmcLocalShift[];
+}
+

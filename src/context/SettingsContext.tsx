@@ -74,6 +74,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       geminiSessionId: "",
       geminiSessionExpiresAt: 0,
       appApiToken: "",
+      biohubApiToken: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,
@@ -119,6 +120,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         delete parsed.appApiToken;
         modified = true;
       }
+      if (parsed.biohubApiToken !== undefined) {
+        delete parsed.biohubApiToken;
+        modified = true;
+      }
       if (modified && saved) {
         try {
           localStorage.setItem("missenseUserSettings", JSON.stringify(parsed));
@@ -126,7 +131,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Load transient credentials from sessionStorage
-      let transient: { geminiApiKey?: string; geminiSessionId?: string; geminiSessionExpiresAt?: number; appApiToken?: string } = {};
+      let transient: { geminiApiKey?: string; geminiSessionId?: string; geminiSessionExpiresAt?: number; appApiToken?: string; biohubApiToken?: string } = {};
       try {
         const transSaved = sessionStorage.getItem("missenseTransientCredentials");
         if (transSaved) {
@@ -141,6 +146,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         geminiSessionId: transient.geminiSessionId || "",
         geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
         appApiToken: transient.appApiToken || "",
+        biohubApiToken: transient.biohubApiToken || "",
         show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true
       };
     } catch {
@@ -163,19 +169,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         delete toSave.geminiSessionId; // Never save session ID in localStorage (XSS-safe stateless token)
         delete toSave.geminiSessionExpiresAt;
         delete toSave.appApiToken; // Never save raw App API Token in localStorage
+        delete toSave.biohubApiToken; // Never save raw Biohub API Token in localStorage
         localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
       } catch (e) {
         console.error(e);
       }
 
       // Sync transient credentials to sessionStorage for refresh safety
-      if (key === "geminiApiKey" || key === "geminiSessionId" || key === "geminiSessionExpiresAt" || key === "appApiToken") {
+      if (key === "geminiApiKey" || key === "geminiSessionId" || key === "geminiSessionExpiresAt" || key === "appApiToken" || key === "biohubApiToken") {
         try {
           const credentials = {
             geminiApiKey: updated.geminiApiKey || "",
             geminiSessionId: updated.geminiSessionId || "",
             geminiSessionExpiresAt: updated.geminiSessionExpiresAt || 0,
-            appApiToken: updated.appApiToken || ""
+            appApiToken: updated.appApiToken || "",
+            biohubApiToken: updated.biohubApiToken || ""
           };
           sessionStorage.setItem("missenseTransientCredentials", JSON.stringify(credentials));
         } catch (e) {
@@ -198,6 +206,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       geminiSessionId: "",
       geminiSessionExpiresAt: 0,
       appApiToken: "",
+      biohubApiToken: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,

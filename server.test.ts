@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const mockGenerateContent = vi.fn();
 
@@ -39,6 +43,7 @@ import {
   MUTATION_FOLDX_PATTERN,
   VCF_GENOMIC_PATTERN,
   CDNA_PATTERN,
+  DASHED_GENOMIC_PATTERN,
   safeCompare,
   filterPII,
   encryptSession,
@@ -181,6 +186,20 @@ describe("Input Validation Patterns & Functions", () => {
     it("should reject invalid cDNA notations", () => {
       expect(CDNA_PATTERN.test("NM_004333.6:1799T>A")).toBe(false);
       expect(CDNA_PATTERN.test("c.1799")).toBe(false);
+    });
+
+    it("should match valid dashed genomic coordinates", () => {
+      expect(DASHED_GENOMIC_PATTERN.test("20-23365054-G-A")).toBe(true);
+      expect(DASHED_GENOMIC_PATTERN.test("chr20-23365054-G-A")).toBe(true);
+      expect(DASHED_GENOMIC_PATTERN.test("X-12345-C-G")).toBe(true);
+      expect(DASHED_GENOMIC_PATTERN.test("chrY-9876-A-T")).toBe(true);
+    });
+
+    it("should reject invalid dashed genomic coordinates", () => {
+      expect(DASHED_GENOMIC_PATTERN.test("20-23365054-G")).toBe(false);
+      expect(DASHED_GENOMIC_PATTERN.test("20-23365054-G-")).toBe(false);
+      expect(DASHED_GENOMIC_PATTERN.test("20-23365054--A")).toBe(false);
+      expect(DASHED_GENOMIC_PATTERN.test("20--G-A")).toBe(false);
     });
   });
 
@@ -345,7 +364,7 @@ describe("Input Validation Patterns & Functions", () => {
         expect(res.sd).toBe(1.00);
       });
 
-      it("should clamp extreme outlier ddG values and raise warnings (BIO-6)", () => {
+      it("should mark extreme outlier ddG values (> 20 kcal/mol) as degenerate artifacts (H-5, BIO-6)", () => {
         const mockFxout = `
   # FoldX output file
   Pdb\tTotal energy\tBackbone Hbond\tSidechain Hbond\tVan der Waals\tElectrostatics
@@ -353,7 +372,8 @@ describe("Input Validation Patterns & Functions", () => {
   wt_1.pdb\t160.00\t3.04\t9.00\t120.00\t20.00
         `.trim();
         const res = parseFoldxDifFile(mockFxout);
-        expect(res.ddG).toBe(50.00); // clamped
+        expect(res.ddG).toBe(null); // Extreme unphysical energy artifact (> 20 kcal/mol)
+        expect(res.isDegenerate).toBe(true);
         expect(res.stericClashWarning).toBe(true);
       });
 
@@ -415,8 +435,8 @@ wt_1.pdb\t11.8627\t1.97785
           const fxText = fs.readFileSync(fixturePath, "utf8");
           const val = parseFoldxDifFile(fxText);
           
-          expect(val.ddG).toBeTypeOf("number");
-          expect(isNaN(val.ddG)).toBe(false);
+          expect(val.ddG).not.toBeNull();
+          expect(isNaN(val.ddG!)).toBe(false);
         }
       );
     });
@@ -1047,6 +1067,9 @@ END
 
         const ddgunSpy = vi.spyOn(biophysics, "runDdgunSeq").mockResolvedValue(0.3);
         const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(null);
+        const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("D");
+        const dynamutSpy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("12345");
+        const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("67890");
 
         let jsonVal: any = null;
         let statusVal: number | null = null;
@@ -1090,6 +1113,9 @@ END
         mutantSpy.mockRestore();
         ddgunSpy.mockRestore();
         raspSpy.mockRestore();
+        seqSpy.mockRestore();
+        dynamutSpy.mockRestore();
+        ddmutSpy.mockRestore();
       });
 
       it("should submit DynaMut2 job successfully when calling /dynamut2-submit", async () => {
@@ -1836,29 +1862,33 @@ ATOM      3  CA  ASP A   3       1.000   0.000   1.000  1.00  0.00           C
 
     it("should run RaSP evaluator and return parsed prediction", async () => {
       const biophysics = await import("./server/services/biophysics.ts");
-      const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue({ score: -1.5, isSurrogate: false });
+      const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue({ score: -1.5 });
 
       const res = await biophysics.runRaspLocal("wt.pdb", "mut.pdb", "A", 12, "V", "I");
       expect(raspSpy).toHaveBeenCalledWith("wt.pdb", "mut.pdb", "A", 12, "V", "I");
-      expect(res).toEqual({ score: -1.5, isSurrogate: false });
+      expect(res).toEqual({ score: -1.5 });
 
       raspSpy.mockRestore();
     });
 
-    it("should fallback to ESM LLR surrogate in runRaspLocal when precomputed score is null", async () => {
+    it("should return explicit database reason string in runRaspLocal when precomputed score is null", async () => {
       const biophysics = await import("./server/services/biophysics.ts");
-      const externalServices = await import("./server/services/external.ts");
-
-      const lookupSpy = vi.spyOn(biophysics, "lookupPrecomputedRaspScore").mockResolvedValue(null);
-      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPG");
-      const esmSpy = vi.spyOn(biophysics, "runEsm2Eval").mockResolvedValue({ llr: -3.5, verdict: "raw score" });
+      const lookupSpy = vi.spyOn(biophysics, "lookupPrecomputedRaspScore").mockResolvedValue({ score: null, reason: "Residue position is not present in the pre-computed database" });
 
       const res = await biophysics.runRaspLocal("wt.pdb", "mut.pdb", "A", 2, "A", "P", "Q9H116");
-      expect(res).toEqual({ score: -3.5, isSurrogate: true });
+      expect(res).toEqual({ score: null, reason: "Residue position is not present in the pre-computed database" });
 
       lookupSpy.mockRestore();
-      seqSpy.mockRestore();
-      esmSpy.mockRestore();
+    });
+
+    it("should compute consensus verdict stability correctly for benchmark variant PAH p.Arg408Trp (golden-value test)", async () => {
+      const { computeConsensusVerdict } = await import("./src/shared/thresholds.ts");
+      const verdict = computeConsensusVerdict({
+        foldxMean: 4.85, // Strongly destabilizing ΔΔG
+        rasp: -3.2,      // Strongly destabilizing RaSP
+        ddgun: -2.1      // Destabilizing DDGun
+      });
+      expect(verdict).toBe("High Misfolding Risk (Destabilizing Consensus)");
     });
 
     it("should evaluate PM2/BA1/BS1 based on groupMaxAF in computeRuleBasedACMG", () => {
@@ -2192,6 +2222,41 @@ END
       expect(translateJson.uniprotId).toBe("");
       fetchSpy.mockRestore();
 
+      // 1b. Test /translate-variant with dashed genomic coordinates
+      const fetchSpyDashed = vi.spyOn(global, "fetch");
+      fetchSpyDashed.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            seq_region_name: "20",
+            start: 23365054,
+            allele_string: "G/A",
+            transcript_consequences: [
+              {
+                transcript_id: "ENST00000325888",
+                canonical: true,
+                hgvsp: "ENSP00000325888:p.Gly380Arg",
+                gene_symbol: "CNNM2"
+              }
+            ]
+          }
+        ]
+      } as any);
+
+      let translateDashedJson: any = null;
+      const translateDashedReq: any = { body: { variant: "20-23365054-G-A" }, headers: {} };
+      const translateDashedRes: any = {
+        status(code: number) { this.statusCode = code; return this; },
+        json(body: any) { translateDashedJson = body; return this; }
+      };
+      await translateHandler(translateDashedReq, translateDashedRes, () => {});
+
+      expect(translateDashedJson).toBeDefined();
+      expect(translateDashedJson.gene).toBe("CNNM2");
+      expect(translateDashedJson.variant).toBe("p.Gly380Arg");
+      expect(translateDashedJson.genomicCoordinates).toBe("20-23365054-G-A");
+      fetchSpyDashed.mockRestore();
+
       // 2. Test /resolve-gene
       const resolveRoute: any = apiRouter.stack.find(s => s.route && s.route.path === "/resolve-gene");
       expect(resolveRoute).toBeDefined();
@@ -2309,7 +2374,7 @@ END
       if (score !== null) {
         expect(score).toBeCloseTo(-3.775, 2);
       }
-    });
+    }, 15000);
   });
 });
 

@@ -18,11 +18,14 @@ import {
   Layers,
   Activity,
   BarChart2,
-  Map
+  Map,
+  FlaskConical,
+  FileText
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisContext } from "../context/VariantAnalysisContext";
+import { getWorkflowStageStatus } from "../shared/workflowStatus";
 
 interface VariantSearchPanelProps {
   isDark: boolean;
@@ -37,6 +40,8 @@ interface VariantSearchPanelProps {
   setCustomVariant: (val: string) => void;
   customUniprot: string;
   setCustomUniprot: (val: string) => void;
+  customGenomic: string;
+  setCustomGenomic: (val: string) => void;
   analysisState: AnalysisState;
   handleSearchSubmit: (e: React.FormEvent) => void;
   gene: string;
@@ -68,6 +73,8 @@ export default function VariantSearchPanel({
   setCustomVariant,
   customUniprot,
   setCustomUniprot,
+  customGenomic,
+  setCustomGenomic,
   analysisState,
   handleSearchSubmit,
   gene,
@@ -84,7 +91,19 @@ export default function VariantSearchPanel({
   const loadingStep = context?.state?.loadingStep ?? "";
   const isFolding = context?.state?.isFolding ?? false;
   const isBiophysicalLoading = context?.state?.isBiophysicalLoading ?? false;
+  const isClinicalLoading = context?.state?.isClinicalLoading ?? false;
+  const isPocketLoading = context?.state?.isPocketLoading ?? false;
+  const dynamut2Status = context?.state?.dynamut2Status ?? null;
+  const ddmutStatus = context?.state?.ddmutStatus ?? null;
   const result = analysisState.result;
+
+  const isGenomicVariant = (customVariant && (
+    /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
+    /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
+    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i.test(customVariant.trim())
+  )) || !!customGenomic.trim();
+  const isGeneRequired = !isGenomicVariant;
+  const isVariantRequired = !customGenomic.trim();
 
   const inputBase = `w-full rounded-lg px-3 py-2 text-[13px] outline-none border transition-all font-medium ${classInput}`;
 
@@ -101,41 +120,28 @@ export default function VariantSearchPanel({
   );
 
   // Derive stage status & metrics for live workflow rail
-  const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape") => {
-    if (result) {
-      if (stage === "evidence") {
-        const clinvarText = result.clinvar?.classification || "Annotated";
-        return { status: "Complete", desc: `ClinVar: ${clinvarText} · ACMG rules evaluated` };
-      }
-      if (stage === "structure") {
-        return { status: "Complete", desc: `AlphaFold / PDB 3D coordinates ready` };
-      }
-      if (stage === "energetics") {
-        const hasBiophysics = result?.foldingEnergetics != null || result?.dynamut2 != null || result?.ddmut != null || result?.biophysicalEnergetics != null;
-        if (isBiophysicalLoading || !hasBiophysics) {
-          return { status: "In Progress", desc: "Modeling PyRosetta & FoldX biophysical force-fields..." };
-        }
-        const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.dynamut2;
-        const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol` : "Biophysical force-field active";
-        return { status: "Complete", desc: ddgText };
-      }
-      if (stage === "landscape") {
-        const count = result.landscapeData?.length ?? 0;
-        return { status: "Complete", desc: `${count} residue positions mapped & scored` };
-      }
-    }
-
-    if (analysisState.isLoading) {
-      const stepMatch = (loadingStep || "").match(/Step (\d+)\/4/);
-      const currentStep = stepMatch ? parseInt(stepMatch[1], 10) : 1;
-      
-      if (stage === "evidence") return { status: currentStep === 1 ? "In Progress" : currentStep > 1 ? "Complete" : "Pending", desc: loadingStep || "Running evidence query..." };
-      if (stage === "structure") return { status: currentStep === 2 ? "In Progress" : currentStep > 2 ? "Complete" : "Pending", desc: "Predicting 3D atomic coordinates..." };
-      if (stage === "landscape") return { status: currentStep === 3 ? "In Progress" : currentStep > 3 ? "Complete" : "Pending", desc: "Mapping spatial mutation density..." };
-      if (stage === "energetics") return { status: currentStep === 4 ? "In Progress" : currentStep > 4 ? "Complete" : "Pending", desc: "Calculating ΔΔG stability changes..." };
-    }
-
-    return { status: "Ready", desc: stage === "evidence" ? "ClinVar, gnomAD & ACMG rules engine" : stage === "structure" ? "AlphaFold DB & PDB 3D coordinates" : stage === "energetics" ? "FoldX, PyRosetta & EvoEF2 free-energy calculation" : "3D spatial mutation mapping & pocket impact" };
+  const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "report") => {
+    const raw = getWorkflowStageStatus(
+      stage,
+      result,
+      isFolding,
+      isBiophysicalLoading,
+      isClinicalLoading,
+      analysisState.isLoading,
+      loadingStep,
+      isPocketLoading,
+      dynamut2Status,
+      ddmutStatus
+    );
+    const statusMap: Record<string, string> = {
+      complete: "Complete",
+      progress: "In Progress",
+      pending: "Pending"
+    };
+    return {
+      status: statusMap[raw.status] || raw.status,
+      desc: raw.desc
+    };
   };
 
   return (
@@ -194,12 +200,12 @@ export default function VariantSearchPanel({
                       className="text-[12px] font-medium flex justify-between items-center"
                       style={{ color: "var(--cs-text-secondary)" }}
                     >
-                      <span>Gene Symbol <span className="text-rose-500">*</span></span>
+                      <span>Gene Symbol {isGeneRequired && <span className="text-rose-500">*</span>}</span>
                     </label>
                     <div className="relative">
                       <input
                         type="text"
-                        required
+                        required={isGeneRequired}
                         placeholder="e.g. CNNM2"
                         value={customGene}
                         onChange={(e) => setCustomGene(e.target.value)}
@@ -215,12 +221,12 @@ export default function VariantSearchPanel({
                       className="text-[12px] font-medium flex justify-between items-center"
                       style={{ color: "var(--cs-text-secondary)" }}
                     >
-                      <span>Variant Notation <span className="text-rose-500">*</span></span>
+                      <span>Variant Notation {isVariantRequired && <span className="text-rose-500">*</span>}</span>
                     </label>
                     <div className="relative">
                       <input
                         type="text"
-                        required
+                        required={isVariantRequired}
                         placeholder="e.g. p.Gly380Arg"
                         value={customVariant}
                         onChange={(e) => setCustomVariant(e.target.value)}
@@ -232,8 +238,29 @@ export default function VariantSearchPanel({
                   </div>
                 </div>
 
-                {/* Row 2: UniProt ID (Optional) */}
+                {/* Row 2: Genomic Coordinates */}
                 <div className="flex flex-col gap-1.5">
+                  <label 
+                    className="text-[12px] font-medium flex justify-between items-center"
+                    style={{ color: "var(--cs-text-secondary)" }}
+                  >
+                    <span>Genomic Coordinates (Optional)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. 20-23365054-G-A"
+                      value={customGenomic}
+                      onChange={(e) => setCustomGenomic(e.target.value)}
+                      className={inputBase + " pr-9 uppercase"}
+                      style={{ fontFamily: "var(--cs-font-mono)" }}
+                    />
+                    <PasteBtn setter={setCustomGenomic} />
+                  </div>
+                </div>
+
+                {/* Row 3: UniProt Accession */}
+                <div className="flex flex-col gap-1.5 mt-1">
                   <label 
                     className="text-[12px] font-medium flex justify-between items-center"
                     style={{ color: "var(--cs-text-secondary)" }}
@@ -323,6 +350,7 @@ export default function VariantSearchPanel({
                   <div className="text-[11px] leading-relaxed space-y-0.5" style={{ color: "var(--cs-text-secondary)" }}>
                     <div>• <strong>Protein HGVS:</strong> <code className="font-mono">p.Gly380Arg</code>, <code className="font-mono">G380R</code>, <code className="font-mono">380R</code></div>
                     <div>• <strong>cDNA HGVS:</strong> <code className="font-mono">c.123A&gt;G</code></div>
+                    <div>• <strong>Genomic Coordinates:</strong> <code className="font-mono">20-23365054-G-A</code>, <code className="font-mono">chr20:g.23365054G&gt;A</code></div>
                     <div>• <strong>ClinVar ID:</strong> <code className="font-mono">VCV000013920</code></div>
                     <div>• <strong>Gene Symbol:</strong> <code className="font-mono">CNNM2</code>, <code className="font-mono">MECP2</code>, <code className="font-mono">KIF1A</code> (HUGO symbol)</div>
                     <div>• <strong>UniProt Accession:</strong> <code className="font-mono">Q9H8M5</code>, <code className="font-mono">P51587</code> (Swiss-Prot ID)</div>
@@ -353,6 +381,8 @@ export default function VariantSearchPanel({
                   { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
                   { key: "energetics", title: "Energetics Engine", Icon: Activity, targetView: "energetics" as MasterView },
                   { key: "landscape", title: "Landscape Minimap", Icon: Map, targetView: "landscape" as MasterView },
+                  { key: "insights", title: "Variant Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
+                  { key: "report", title: "Clinical Report", Icon: FileText, targetView: "report" as MasterView },
                 ].map(({ key, title, Icon, targetView }) => {
                   const info = getStageInfo(key as any);
                   const isClickable = !!result && !!onViewChange;

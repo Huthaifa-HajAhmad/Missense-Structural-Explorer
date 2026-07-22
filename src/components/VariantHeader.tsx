@@ -135,6 +135,16 @@ export default function VariantHeader({
           </span>
         )}
 
+        {/* Genomic Coordinates — neutral identifier, no clinical valence */}
+        {predictorData?.gnomadVariantId && (
+          <span className="cs-badge cs-badge-muted" title={`Genomic: ${predictorData.gnomadVariantId}`}>
+            <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              Genomic
+            </span>{" "}
+            {predictorData.gnomadVariantId}
+          </span>
+        )}
+
         {/* UniProt ID — neutral identifier, no clinical valence */}
         {uniprotId && (
           <span className="cs-badge cs-badge-muted" title={`UniProt: ${uniprotId}`}>

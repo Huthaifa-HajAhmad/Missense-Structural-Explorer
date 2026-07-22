@@ -13,6 +13,8 @@ interface QueryStripProps {
   setCustomVariant: (val: string) => void;
   customUniprot: string;
   setCustomUniprot: (val: string) => void;
+  customGenomic: string;
+  setCustomGenomic: (val: string) => void;
   analysisState: AnalysisState;
   handleSearchSubmit: (e: React.FormEvent) => void;
   gene: string;
@@ -41,6 +43,8 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
   setCustomVariant,
   customUniprot,
   setCustomUniprot,
+  customGenomic,
+  setCustomGenomic,
   analysisState,
   handleSearchSubmit,
   gene,
@@ -54,6 +58,13 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
   const { state: analysisStateCtx, actions: analysisActionsCtx } = useVariantAnalysisContext();
   const userDirections = analysisStateCtx.userDirections;
   const setUserDirections = analysisActionsCtx.setUserDirections;
+  const isGenomicVariant = (customVariant && (
+    /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
+    /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
+    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i.test(customVariant.trim())
+  )) || !!customGenomic.trim();
+  const isGeneRequired = !isGenomicVariant;
+  const isVariantRequired = !customGenomic.trim();
 
   // Auto-focus gene input when opened
   useEffect(() => {
@@ -116,13 +127,13 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
           {/* Gene field */}
           <div className="flex-1 flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-              Gene
+              Gene {isGeneRequired && <span className="text-rose-500">*</span>}
             </label>
             <div className="relative">
               <input
                 ref={geneInputRef}
                 type="text"
-                required
+                required={isGeneRequired}
                 placeholder="e.g. MECP2"
                 value={customGene}
                 onChange={(e) => setCustomGene(e.target.value)}
@@ -135,18 +146,35 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
           {/* Variant field */}
           <div className="flex-1 flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-              Variant
+              Variant {isVariantRequired && <span className="text-rose-500">*</span>}
             </label>
             <div className="relative">
               <input
                 type="text"
-                required
+                required={isVariantRequired}
                 placeholder="e.g. p.Arg255Ter"
                 value={customVariant}
                 onChange={(e) => setCustomVariant(e.target.value)}
                 className={`${inputClass} pr-8 font-semibold tracking-wide font-mono`}
               />
               <PasteBtn setter={setCustomVariant} />
+            </div>
+          </div>
+
+          {/* Genomic Coordinates field */}
+          <div className="flex-1 flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              Genomic Coordinates (Optional)
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="e.g. 20-23365054-G-A"
+                value={customGenomic}
+                onChange={(e) => setCustomGenomic(e.target.value)}
+                className={`${inputClass} pr-8 font-mono`}
+              />
+              <PasteBtn setter={setCustomGenomic} />
             </div>
           </div>
 

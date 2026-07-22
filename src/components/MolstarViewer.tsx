@@ -160,6 +160,59 @@ export const CustomBFactorColorThemeProvider: ColorTheme.Provider<any, any> = {
   isApplicable: (ctx: any) => !!ctx.structure
 };
 
+export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
+  let color = (location: any) => Color(0x38bdf8);
+  const perturbationScores: number[] = props?.perturbationScores || [];
+  if (ctx.structure) {
+    const l = StructureElement.Location.create(ctx.structure.root);
+    const getColor = (location: any) => {
+      const { unit, element } = location;
+      if (!Unit.isAtomic(unit)) return Color(0x38bdf8);
+      const seqNum = StructureProperties.residue.auth_seq_id(location);
+      const score = (perturbationScores && seqNum > 0 && seqNum <= perturbationScores.length)
+        ? perturbationScores[seqNum - 1]
+        : 0;
+      if (score <= 0.05) return Color(0x38bdf8); // Unperturbed Ice Cyan
+      if (score <= 0.15) return Color(0x34d399); // Minor Emerald
+      if (score <= 0.35) return Color(0xf59e0b); // Moderate Amber
+      return Color(0xe11d48); // High Disruption Rose/Crimson
+    };
+    color = (location: any) => {
+      if (StructureElement.Location.is(location)) return getColor(location);
+      if (Bond.isLocation(location)) {
+        l.unit = location.aUnit;
+        l.element = location.aUnit.elements[location.aIndex];
+        return getColor(l);
+      }
+      return Color(0x38bdf8);
+    };
+  }
+  return {
+    factory: CustomESM3AllostericColorTheme,
+    granularity: 'group' as any,
+    preferSmoothing: true,
+    color,
+    props,
+    description: 'ESM3 Allosteric Disruption Heatmap',
+    legend: TableLegend(Object.entries({
+      'Unperturbed (<0.05)': Color(0x38bdf8),
+      'Minor Shift (0.05-0.15)': Color(0x34d399),
+      'Moderate Shift (0.15-0.35)': Color(0xf59e0b),
+      'Severe Allosteric Hub (>0.35)': Color(0xe11d48),
+    }) as any)
+  };
+}
+
+export const CustomESM3AllostericColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: 'esm3-allosteric',
+  label: 'ESM3 Allosteric Perturbation',
+  category: ColorThemeCategory.Validation,
+  factory: CustomESM3AllostericColorTheme,
+  getParams: () => ({}),
+  defaultValues: {},
+  isApplicable: (ctx: any) => !!ctx.structure
+};
+
 function isValidPdbUrl(url: string): boolean {
   if (!url) return false;
   if (url.startsWith("/") || (!url.startsWith("http://") && !url.startsWith("https://"))) {
@@ -186,6 +239,7 @@ interface MolstarViewerProps {
   residueIndex: number | null;
   customPdbData?: string;
   customPdbUrl?: string;
+  active3dModelTab?: "alphafold2" | "esmfold2";
   uniprotId?: string;
   gene?: string;
   showPolarContacts?: boolean;
@@ -229,7 +283,8 @@ export default function MolstarViewer({
   mutantStatus,
   mutantDdG,
   heightClass,
-  variant
+  variant,
+  active3dModelTab = "alphafold2"
 }: MolstarViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pluginRef = useRef<any>(null);
@@ -748,6 +803,7 @@ export default function MolstarViewer({
         // Register custom pLDDT theme provider
         localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomPLDDTColorThemeProvider);
         localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomBFactorColorThemeProvider);
+        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomESM3AllostericColorThemeProvider);
 
         // Subscribe to Molstar interaction events
         hoverSubscription = localPlugin.behaviors.interaction.hover.subscribe((event: any) => {
@@ -845,6 +901,14 @@ export default function MolstarViewer({
           data = await localPlugin.builders.data.rawData({
             data: customPdbData,
             label: `${gene} (FoldX Biophysical Mutant)`
+          });
+        } else if (active3dModelTab === "esmfold2" && analysisContext.state.esmFoldPdb) {
+          if (import.meta.env.DEV) {
+            console.log(`Molstar loading ESMFold2 predicted mutated PDB structure`);
+          }
+          data = await localPlugin.builders.data.rawData({
+            data: analysisContext.state.esmFoldPdb,
+            label: `${gene} (ESMFold2 Mutant Structure)`
           });
         } else {
           const match = variant ? variant.match(/\d+/) : null;
@@ -1037,7 +1101,7 @@ export default function MolstarViewer({
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource, viewerStyle]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource, viewerStyle, active3dModelTab, analysisContext.state.esmFoldPdb]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -1448,6 +1512,7 @@ export default function MolstarViewer({
           </div>
         </div>
       )}
+
 
       <div 
          ref={containerRef} 

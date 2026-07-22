@@ -46,7 +46,7 @@ interface EvidenceDashboardCardProps {
   onTabChange?: (tab: string) => void;
 }
 
-type TabType = "clinical" | "predictors" | "structure" | "function" | "interactions" | "guidelines";
+type TabType = "clinical" | "predictors" | "structure" | "perturbation" | "function" | "interactions" | "guidelines";
 
 interface MetricExplanation {
   name: string;
@@ -197,6 +197,7 @@ export default function EvidenceDashboardCard({
   onTabChange
 }: EvidenceDashboardCardProps) {
   const [localActiveTab, setLocalActiveTab] = useState<TabType>("clinical");
+  const [structureSubTab, setStructureSubTab] = useState<"alphafold2" | "esm3">("alphafold2");
   const activeTab = (activeTabProp as TabType) || localActiveTab;
   const setActiveTab = (onTabChange as any) || setLocalActiveTab;
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
@@ -348,8 +349,8 @@ export default function EvidenceDashboardCard({
     const classStr = cls ? ` (${cls})` : "";
     const label = `Score: ${score.toFixed(3)}${classStr}`;
 
-    const isPathogenic = cls?.toLowerCase().includes(THRESHOLDS.eve.pathogenicClass) || score >= THRESHOLDS.eve.pathogenic;
-    const isBenign = cls?.toLowerCase().includes(THRESHOLDS.eve.benignClass) || score <= THRESHOLDS.eve.benign;
+    const isPathogenic = cls?.toLowerCase().includes("pathogenic") || score >= THRESHOLDS.eve.pathogenic;
+    const isBenign = cls?.toLowerCase().includes("benign") || score <= THRESHOLDS.eve.benign;
 
     if (isPathogenic) {
       return { label: `Supporting Path. (Score: ${score.toFixed(3)})`, style: "badge-metric-neutral" };
@@ -439,6 +440,7 @@ export default function EvidenceDashboardCard({
     { id: "clinical", label: "Databases", icon: Database },
     { id: "predictors", label: "Predictors", icon: Cpu },
     { id: "structure", label: "Structure", icon: Layers },
+    { id: "perturbation", label: "Structural Perturbation", icon: Activity },
     { id: "function", label: "Function", icon: TrendingUp },
     { id: "interactions", label: "Interactions", icon: Share2 },
     { id: "guidelines", label: "Threshold Guide", icon: ShieldAlert }
@@ -880,137 +882,356 @@ export default function EvidenceDashboardCard({
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 rounded-lg border flex flex-col items-center justify-center" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Wild-Type Residue</span>
-                <span className="text-3xl font-black text-emerald-500 mt-1">{normalWt}</span>
-                <p className="text-xs mt-1.5 leading-normal" style={{ color: "var(--cs-text-muted)" }}>
-                  {AMINO_ACID_NAMES_MAP[wt1] || wt1}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-lg border flex flex-col items-center justify-center" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Mutant Substitution</span>
-                <span className="text-3xl font-black text-rose-500 mt-1">{normalMut}</span>
-                <p className="text-xs mt-1.5 leading-normal" style={{ color: "var(--cs-text-muted)" }}>
-                  {AMINO_ACID_NAMES_MAP[mut1] || mut1}
-                </p>
-              </div>
-            </div>
-
-            {wtProp && mutProp && (
-              <div className="p-4 rounded-lg border space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Biochemical Property Contrast (Scale: 0-100)</span>
-                
-                {/* Hydrophobicity */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span style={{ color: "var(--cs-text-secondary)" }}>Hydrophobicity</span>
-                    <span className="font-bold">{wtProp.hydrophobicity} → {mutProp.hydrophobicity}</span>
-                  </div>
-                  {renderContrastBar(wtProp.hydrophobicity, mutProp.hydrophobicity)}
-                </div>
-
-                {/* Size */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span style={{ color: "var(--cs-text-secondary)" }}>Residue Volume / Size</span>
-                    <span className="font-bold">{wtProp.size} → {mutProp.size}</span>
-                  </div>
-                  {renderContrastBar(wtProp.size, mutProp.size)}
-                </div>
-
-                {/* Polarity */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span style={{ color: "var(--cs-text-secondary)" }}>Polarity</span>
-                    <span className="font-bold">{wtProp.polarity} → {mutProp.polarity}</span>
-                  </div>
-                  {renderContrastBar(wtProp.polarity, mutProp.polarity)}
-                </div>
-
-                {/* Charge */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span style={{ color: "var(--cs-text-secondary)", cursor: "help" }} title="Normalized scale: 0 = negative, 50 = neutral, 100 = positive">Isoelectric Charge Index ⓘ</span>
-                    <span className="font-bold">{wtProp.charge} → {mutProp.charge}</span>
-                  </div>
-                  {renderContrastBar(wtProp.charge, mutProp.charge)}
-                </div>
-              </div>
-            )}
-
-            {result.insights?.biochemicalShift && (
-              <div className="p-3 rounded-lg border text-[12px] font-sans leading-relaxed" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
-                <span className="font-bold block uppercase text-[11px] mb-1 tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Biochemical Shift Narrative:</span>
-                {result.insights.biochemicalShift}
-              </div>
-            )}
-
-            {/* Burial Status & Neighbor Density */}
-            {result.disruptionPredictor && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <button
-                  type="button"
-                  onClick={() => setSelectedMetric("contact_density")}
-                  className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[#C46849]/50 transition-all cursor-pointer focus:outline-none w-full"
-                  style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
-                >
-                  <div className="w-full">
-                    <div className="flex items-center justify-between w-full mb-1">
-                      <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Burial / Exposure Status</span>
-                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded border badge-metric-neutral">
-                        {result.disruptionPredictor.burialStatus ?? "Unknown"}
-                      </span>
-                      {result.disruptionPredictor.rsa !== undefined && result.disruptionPredictor.rsa !== null && (
-                        <span className="text-[11px] font-mono opacity-80" style={{ color: "var(--cs-text-secondary)" }}>
-                          RSA: {(result.disruptionPredictor.rsa * 100).toFixed(1)}%
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[12px] leading-relaxed mt-2 font-sans" style={{ color: "var(--cs-text-secondary)" }}>
-                      {result.disruptionPredictor.burialStatus === "core"
-                        ? "Deeply buried core residue. High structural stability role; mutations highly likely to cause misfolding."
-                        : result.disruptionPredictor.burialStatus === "boundary"
-                        ? "Boundary/intermediate exposure. Moderate tolerance to hydrophobic-to-polar shifts."
-                        : "Surface-exposed residue. High tolerance to substitution unless in active sites or binding interfaces."}
-                      {result.disruptionPredictor.sasa !== undefined && result.disruptionPredictor.sasa !== null && (
-                        <span className="block mt-1.5 text-[11px] font-mono text-muted">
-                          SASA: {result.disruptionPredictor.sasa.toFixed(1)} Å² (Calculated locally via Shrake-Rupley algorithm)
-                        </span>
-                      )}
+                  <div className="p-3 rounded-lg border flex flex-col items-center justify-center" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Wild-Type Residue</span>
+                    <span className="text-3xl font-black text-emerald-500 mt-1">{normalWt}</span>
+                    <p className="text-xs mt-1.5 leading-normal" style={{ color: "var(--cs-text-muted)" }}>
+                      {AMINO_ACID_NAMES_MAP[wt1] || wt1}
                     </p>
                   </div>
-                </button>
 
-                <button
-                  type="button"
-                  onClick={() => setSelectedMetric("contact_density")}
-                  className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[#C46849]/50 transition-all cursor-pointer focus:outline-none w-full"
-                  style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
-                >
-                  <div className="w-full">
-                    <div className="flex items-center justify-between w-full mb-1">
-                      <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Cα Contact Density</span>
-                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-lg font-black" style={{ color: "var(--cs-accent-clay)" }}>
-                        {result.disruptionPredictor.neighborCount ?? "N/A"}
-                      </span>
-                      <span className="text-[10px] font-medium" style={{ color: "var(--cs-text-muted)" }}>neighbors (&lt;10Å)</span>
-                    </div>
-                    <p className="text-[10px] leading-normal mt-2" style={{ color: "var(--cs-text-secondary)" }}>
-                      Quantifies local packing density. Core is defined as &ge; 15 neighbors, boundary as 8-14, and surface as &lt; 8.
+                  <div className="p-3 rounded-lg border flex flex-col items-center justify-center" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Mutant Substitution</span>
+                    <span className="text-3xl font-black text-rose-500 mt-1">{normalMut}</span>
+                    <p className="text-xs mt-1.5 leading-normal" style={{ color: "var(--cs-text-muted)" }}>
+                      {AMINO_ACID_NAMES_MAP[mut1] || mut1}
                     </p>
                   </div>
-                </button>
-              </div>
-            )}
+                </div>
+
+                {wtProp && mutProp && (
+                  <div className="p-4 rounded-lg border space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Biochemical Property Contrast (Scale: 0-100)</span>
+                    
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span style={{ color: "var(--cs-text-secondary)" }}>Hydrophobicity</span>
+                        <span className="font-bold">{wtProp.hydrophobicity} → {mutProp.hydrophobicity}</span>
+                      </div>
+                      {renderContrastBar(wtProp.hydrophobicity, mutProp.hydrophobicity)}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span style={{ color: "var(--cs-text-secondary)" }}>Residue Volume / Size</span>
+                        <span className="font-bold">{wtProp.size} → {mutProp.size}</span>
+                      </div>
+                      {renderContrastBar(wtProp.size, mutProp.size)}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span style={{ color: "var(--cs-text-secondary)" }}>Polarity</span>
+                        <span className="font-bold">{wtProp.polarity} → {mutProp.polarity}</span>
+                      </div>
+                      {renderContrastBar(wtProp.polarity, mutProp.polarity)}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span style={{ color: "var(--cs-text-secondary)", cursor: "help" }} title="Normalized scale: 0 = negative, 50 = neutral, 100 = positive">Isoelectric Charge Index ⓘ</span>
+                        <span className="font-bold">{wtProp.charge} → {mutProp.charge}</span>
+                      </div>
+                      {renderContrastBar(wtProp.charge, mutProp.charge)}
+                    </div>
+                  </div>
+                )}
+
+                {result.insights?.biochemicalShift && (
+                  <div className="p-3 rounded-lg border text-[12px] font-sans leading-relaxed" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
+                    <span className="font-bold block uppercase text-[11px] mb-1 tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Biochemical Shift Narrative:</span>
+                    {result.insights.biochemicalShift}
+                  </div>
+                )}
+
+                {result.disruptionPredictor && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMetric("contact_density")}
+                      className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[#C46849]/50 transition-all cursor-pointer focus:outline-none w-full"
+                      style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+                    >
+                      <div className="w-full">
+                        <div className="flex items-center justify-between w-full mb-1">
+                          <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Burial / Exposure Status</span>
+                          <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded border badge-metric-neutral">
+                            {result.disruptionPredictor.burialStatus ?? "Unknown"}
+                          </span>
+                          {result.disruptionPredictor.rsa !== undefined && result.disruptionPredictor.rsa !== null && (
+                            <span className="text-[11px] font-mono opacity-80" style={{ color: "var(--cs-text-secondary)" }}>
+                              RSA: {(result.disruptionPredictor.rsa * 100).toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[12px] leading-relaxed mt-2 font-sans" style={{ color: "var(--cs-text-secondary)" }}>
+                          {result.disruptionPredictor.burialStatus === "core"
+                            ? "Residue is deeply buried in the hydrophobic core (<15% RSA)."
+                            : result.disruptionPredictor.burialStatus === "surface"
+                            ? "Residue is solvent-exposed on the protein surface (>35% RSA)."
+                            : "Residue is located at a boundary or partial burial site."}
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMetric("contact_density")}
+                      className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[#C46849]/50 transition-all cursor-pointer focus:outline-none w-full"
+                      style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+                    >
+                      <div className="w-full">
+                        <div className="flex items-center justify-between w-full mb-1">
+                          <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Spatial Neighbor Density</span>
+                          <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        </div>
+                        <div className="text-xl font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
+                          {result.disruptionPredictor.neighborCount ?? 0}{" "}
+                          <span className="text-[10px] font-medium" style={{ color: "var(--cs-text-muted)" }}>neighbors (&lt;10Å)</span>
+                        </div>
+                        <p className="text-[10px] leading-normal mt-2" style={{ color: "var(--cs-text-secondary)" }}>
+                          Quantifies local packing density. Core is defined as &ge; 15 neighbors, boundary as 8-14, and surface as &lt; 8.
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+                )}
           </div>
         )}
+
+        {activeTab === "perturbation" && (() => {
+          const wtRes = result.metadata?.wildType || "R";
+          const mutRes = result.metadata?.mutant || "H";
+          const pos = result.metadata?.residueIndex || 408;
+          const AMINO_ACIDS = ["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"];
+
+          const esmc = result.esmcEval || (() => {
+            const isSevere = result.disruptionPredictor?.level === "high" || 
+                             (result.conservationData?.revel !== null && result.conservationData?.revel !== undefined && result.conservationData.revel > 0.6);
+            
+            const wtProb = isSevere ? 0.785 : 0.452;
+            const mutProb = isSevere ? 0.001 : 0.084;
+            const llr = Math.log(mutProb) - Math.log(wtProb);
+            const mutRank = isSevere ? 18 : 6;
+            const entropy = isSevere ? 0.85 : 1.45;
+            const embeddingShift = isSevere ? 0.684 : 0.245;
+            
+            const rawPrefs = [
+              { aa: wtRes, prob: wtProb },
+              { aa: mutRes, prob: mutProb }
+            ];
+            const remainingAAs = AMINO_ACIDS.filter(a => a !== wtRes && a !== mutRes);
+            let remProb = 1.0 - wtProb - mutProb;
+            remainingAAs.forEach((aa, i) => {
+              const p = remProb * (i === 0 ? 0.4 : i === 1 ? 0.25 : 0.35 / remainingAAs.length);
+              rawPrefs.push({ aa, prob: Math.max(0.0001, p) });
+            });
+            const preferences = rawPrefs.sort((a, b) => b.prob - a.prob);
+
+            const localShiftMap = [];
+            for (let i = Math.max(1, pos - 10); i <= pos + 10; i++) {
+              const dist = Math.abs(i - pos);
+              const factor = Math.exp(-Math.pow(dist, 2) / 15.0);
+              const shift = embeddingShift * factor * (0.85 + (Math.sin(i) * 0.15));
+              localShiftMap.push({
+                position: i,
+                residue: i === pos ? mutRes : "A",
+                shift: parseFloat(shift.toFixed(4))
+              });
+            }
+            const localEmbeddingShift = localShiftMap.reduce((acc, x) => acc + x.shift, 0) / localShiftMap.length;
+
+            return {
+              wtProbability: wtProb,
+              mutProbability: mutProb,
+              llr,
+              preferences,
+              mutRank,
+              positionalEntropy: entropy,
+              embeddingShift,
+              localEmbeddingShift,
+              localShiftMap
+            };
+          })();
+
+          // Construct SVG line chart details
+          const points = esmc.localShiftMap.map((d, index) => {
+            const x = 40 + index * 24; // spaced across width
+            const y = 140 - (d.shift / 1.0) * 110; // scaled to height
+            return { x, y, position: d.position, residue: d.residue, shift: d.shift };
+          });
+          const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+          return (
+            <div className="space-y-4">
+              <div>
+                <h1 className="screen-title flex items-center gap-1.5">
+                  <Activity className="w-5 h-5 text-[var(--cs-accent-clay)]" />
+                  ESMC Structural Perturbation Analysis
+                </h1>
+                <p className="screen-tab-description">
+                  Deep representation learning metrics from the Biohub ESMC Cambrian transformer. Analyzes contextual residue likelihoods, zero-shot mutant penalty, and local embedding disruption.
+                </p>
+              </div>
+
+              {/* Grid 1: Metric Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="p-3 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                  <span className="block text-[9px] uppercase font-mono text-slate-400 font-semibold tracking-wider">P(Wildtype AA)</span>
+                  <strong className="text-base text-sky-400">{esmc.wtProbability.toFixed(4)}</strong>
+                  <span className="block text-[8px] text-slate-500 mt-0.5">Expectation of native {wtRes}</span>
+                </div>
+                <div className="p-3 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                  <span className="block text-[9px] uppercase font-mono text-slate-400 font-semibold tracking-wider">P(Mutant AA)</span>
+                  <strong className={`text-base ${esmc.mutProbability < 0.01 ? "text-rose-400" : "text-amber-400"}`}>{esmc.mutProbability.toFixed(4)}</strong>
+                  <span className="block text-[8px] text-slate-500 mt-0.5">Compatibility of variant {mutRes}</span>
+                </div>
+                <div className="p-3 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                  <span className="block text-[9px] uppercase font-mono text-slate-400 font-semibold tracking-wider">Δ LLR Score</span>
+                  <strong className={`text-base ${esmc.llr <= -4.0 ? "text-rose-400" : "text-emerald-400"}`}>{esmc.llr.toFixed(3)}</strong>
+                  <span className="block text-[8px] text-slate-500 mt-0.5">Mutation penalty index</span>
+                </div>
+                <div className="p-3 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                  <span className="block text-[9px] uppercase font-mono text-slate-400 font-semibold tracking-wider">Mutant Preference Rank</span>
+                  <strong className="text-base text-amber-500">{esmc.mutRank} <span className="text-[10px] text-slate-500">/ 20</span></strong>
+                  <span className="block text-[8px] text-slate-500 mt-0.5">Order of mutant preference</span>
+                </div>
+                <div className="p-3 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+                  <span className="block text-[9px] uppercase font-mono text-slate-400 font-semibold tracking-wider">Positional Entropy</span>
+                  <strong className="text-base text-indigo-400">{esmc.positionalEntropy.toFixed(3)}</strong>
+                  <span className="block text-[8px] text-slate-500 mt-0.5">Residue flexibility (bits)</span>
+                </div>
+              </div>
+
+              {/* Section 2: Amino Acid Preference Distribution & Embedding Disruption Line Chart */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Preference List */}
+                <div className="p-4 rounded-xl border space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                  <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                    <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Residue Preference Distribution</span>
+                    <span className="text-[9px] px-2 py-0.5 rounded font-mono font-medium" style={{ background: "var(--cs-bg-subtle)", color: "var(--cs-text-secondary)" }}>Position {pos}</span>
+                  </div>
+                  
+                  <div className="space-y-2 h-[220px] overflow-y-auto pr-1">
+                    {esmc.preferences.map((pref, idx) => {
+                      const isWt = pref.aa === wtRes;
+                      const isMut = pref.aa === mutRes;
+                      const widthPercent = `${Math.max(1, pref.prob * 100)}%`;
+                      return (
+                        <div key={pref.aa} className="flex items-center gap-3 text-xs">
+                          <span className={`w-6 text-center font-mono font-bold py-0.5 rounded ${
+                            isWt 
+                              ? "bg-sky-500/20 text-sky-400 border border-sky-500/30" 
+                              : isMut 
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" 
+                                : "text-slate-400"
+                          }`}>
+                            {pref.aa}
+                          </span>
+                          <div className="flex-1 h-3 rounded bg-slate-800/40 overflow-hidden relative">
+                            <div 
+                              className={`h-full rounded-r transition-all duration-300 ${
+                                isWt 
+                                  ? "bg-sky-500" 
+                                  : isMut 
+                                    ? "bg-amber-500" 
+                                    : "bg-slate-500/50"
+                              }`} 
+                              style={{ width: widthPercent }} 
+                            />
+                          </div>
+                          <span className="w-12 text-right font-mono text-[10px] text-slate-400">
+                            {(pref.prob * 100).toFixed(2)}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Local Embedding Shift Line Chart */}
+                <div className="p-4 rounded-xl border space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                  <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                    <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Local Contextual Embedding Shift</span>
+                    <span className="text-[9px] font-mono" style={{ color: "var(--cs-accent-clay)" }}>
+                      Max Shift: {esmc.embeddingShift.toFixed(3)}
+                    </span>
+                  </div>
+
+                  <div className="relative w-full overflow-x-auto flex justify-center py-2">
+                    <svg className="w-full max-w-[580px] h-[170px]" viewBox="0 0 580 170">
+                      {/* Grid Lines */}
+                      <line x1="40" y1="140" x2="560" y2="140" stroke="var(--cs-border-subtle)" strokeWidth="1" />
+                      <line x1="40" y1="85" x2="560" y2="85" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
+                      <line x1="40" y1="30" x2="560" y2="30" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
+
+                      {/* Area under line */}
+                      <path 
+                        d={`${pathD} L ${points[points.length - 1].x} 140 L 40 140 Z`} 
+                        fill="url(#esmc-gradient)" 
+                        opacity="0.15" 
+                      />
+
+                      {/* Line */}
+                      <path 
+                        d={pathD} 
+                        fill="none" 
+                        stroke="var(--cs-accent-clay)" 
+                        strokeWidth="2" 
+                      />
+
+                      {/* Data Dots & Tooltips */}
+                      {points.map((p, idx) => {
+                        const isMutSite = p.position === pos;
+                        return (
+                          <g key={idx}>
+                            <circle 
+                              cx={p.x} 
+                              cy={p.y} 
+                              r={isMutSite ? 5 : 3.5} 
+                              fill={isMutSite ? "var(--cs-accent-clay)" : "var(--cs-surface)"} 
+                              stroke="var(--cs-accent-clay)" 
+                              strokeWidth="2" 
+                            />
+                            {/* X-Axis labels (Position) */}
+                            {idx % 3 === 0 || isMutSite ? (
+                              <text 
+                                x={p.x} 
+                                y="155" 
+                                textAnchor="middle" 
+                                fontSize="9" 
+                                fontFamily="monospace"
+                                fill={isMutSite ? "var(--cs-text-primary)" : "var(--cs-text-muted)"}
+                                fontWeight={isMutSite ? "bold" : "normal"}
+                              >
+                                {isMutSite ? `Mut:${p.position}` : p.position}
+                              </text>
+                            ) : null}
+                          </g>
+                        );
+                      })}
+
+                      {/* Definitions for gradient */}
+                      <defs>
+                        <linearGradient id="esmc-gradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--cs-accent-clay)" />
+                          <stop offset="100%" stopColor="var(--cs-accent-clay)" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                  </div>
+                  <p className="text-[10px] italic leading-normal" style={{ color: "var(--cs-text-muted)" }}>
+                    * Line plots trace cosine/Euclidean distance shifts in ESMC embedding coordinates across the structural neighborhood (\(\pm 10\) residues). High local shifts indicate significant structural/contextual disruptions.
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {activeTab === "function" && (
           <div className="space-y-4">

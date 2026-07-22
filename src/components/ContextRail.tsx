@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { AnalysisResult, PdbHomolog } from "../types";
 import { MasterView } from "./MasterSidebar";
+import { getWorkflowStageStatus } from "../shared/workflowStatus";
 
 interface ContextRailProps {
   activeView: MasterView;
@@ -21,63 +22,9 @@ interface ContextRailProps {
   setCustomPdbUrl?: (url: string | null) => void;
   isLoadingSearch?: boolean;
   loadingStep?: string;
-}
-
-/** Derives three-state status for each view tab from existing analysis data.
- *  complete → data is present | progress → actively computing | pending → not started */
-function getTabStatus(
-  view: MasterView,
-  result: AnalysisResult | null | undefined,
-  isFolding: boolean,
-  isBiophysicalLoading: boolean,
-  isClinicalLoading: boolean,
-  isLoadingSearch?: boolean,
-  loadingStep?: string
-): "complete" | "progress" | "pending" {
-  if (view === "search") return "complete";
-
-  // Check if biophysical calculations (FoldX, DynaMut2, DDMut) are complete
-  const hasBiophysics = result?.foldingEnergetics != null || result?.dynamut2 != null || result?.ddmut != null || result?.biophysicalEnergetics != null;
-
-  if (view === "energetics") {
-    if (isFolding || isBiophysicalLoading || (result != null && !hasBiophysics)) {
-      return "progress";
-    }
-    if (result != null && hasBiophysics) {
-      return "complete";
-    }
-  }
-
-  // 1. Landed state -> All 4 pipeline stages return complete!
-  if (result != null) {
-    if (view === "structure" && isFolding) return "progress";
-    return "complete";
-  }
-
-  // 2. Running state (Active search pipeline execution)
-  if (isLoadingSearch) {
-    const match = (loadingStep || "").match(/Step (\d+)\/4/);
-    const currentStep = match ? parseInt(match[1], 10) : 1;
-
-    switch (view) {
-      case "evidence":
-        return currentStep === 1 ? "progress" : currentStep > 1 ? "complete" : "pending";
-      case "structure":
-        return currentStep === 2 ? "progress" : currentStep > 2 ? "complete" : "pending";
-      case "landscape":
-        return currentStep === 3 ? "progress" : currentStep > 3 ? "complete" : "pending";
-      case "energetics":
-        return currentStep === 4 ? "progress" : currentStep > 4 ? "complete" : "pending";
-      case "insights":
-        return currentStep >= 3 ? "progress" : "pending";
-      case "report":
-        return currentStep >= 4 ? "progress" : "pending";
-      default:
-        return "pending";
-    }
-  }
-
-  return "pending";
+  isPocketLoading?: boolean;
+  dynamut2Status?: string | null;
+  ddmutStatus?: string | null;
 }
 
 const WORKFLOW_STEPS: { view: MasterView; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -160,8 +107,10 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
 
 const STEP_PROGRESS_SUBTEXT: Record<MasterView, string> = {
   evidence: "Fetching ClinVar, gnomAD & predictor thresholds…",
-  structure: "Loading 3D structure & mapping PDB models…",
-  energetics: "Calculating biophysical stability & ΔΔG impact…",
+  structure: "Resolving AlphaFold, ESMFold & PDB structural models…",
+  structure_alphafold: "Resolving AlphaFold, ESMFold & PDB structural models…",
+  structure_esmfold: "Resolving ESMFold 3D structural models…",
+  energetics: "Calculating FoldX, DynaMut2, DDMut & DDGun stability changes…",
   landscape: "Mapping sequence positioning & domain boundaries…",
   insights: "Synthesizing pathogenicity & ACMG/AMP criteria…",
   report: "Compiling clinical summary & evidence export…",
@@ -183,6 +132,9 @@ export default function ContextRail({
   setCustomPdbUrl,
   isLoadingSearch = false,
   loadingStep = "",
+  isPocketLoading = false,
+  dynamut2Status = null,
+  ddmutStatus = null,
 }: ContextRailProps) {
   const quickLinks = getQuickLinks(activeView);
 
@@ -194,16 +146,33 @@ export default function ContextRail({
         <span className="context-rail-section-label">Workflow</span>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {WORKFLOW_STEPS.map(({ view, label, Icon }) => {
-            const status = getTabStatus(
-              view, analysisResult, isFolding, isBiophysicalLoading, isClinicalLoading, isLoadingSearch, loadingStep
+            const { status, desc } = getWorkflowStageStatus(
+              view,
+              analysisResult,
+              isFolding,
+              isBiophysicalLoading,
+              isClinicalLoading,
+              isLoadingSearch,
+              loadingStep,
+              isPocketLoading,
+              dynamut2Status,
+              ddmutStatus
             );
-            const isCurrent = activeView === view;
+            const isCurrent =
+              activeView === view ||
+              (view === "structure" && (activeView === "structure_alphafold" || activeView === "structure_esmfold"));
             return (
               <div key={view} className="flex flex-col">
                 <button
                   type="button"
                   className={`context-rail-step${isCurrent ? " current" : ""}`}
-                  onClick={() => onViewChange(view)}
+                  onClick={() => {
+                    if (view === "structure") {
+                      onViewChange("structure_alphafold");
+                    } else {
+                      onViewChange(view);
+                    }
+                  }}
                   aria-current={isCurrent ? "step" : undefined}
                   title={label}
                 >
@@ -222,7 +191,7 @@ export default function ContextRail({
                 {status === "progress" && (
                   <div className="flex items-center gap-1.5 pl-7 pb-1.5 pt-0.5 text-[10.5px] font-sans leading-tight" style={{ color: "var(--cs-accent-clay)" }}>
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-accent-clay)] animate-pulse shrink-0" />
-                    <span className="font-medium break-words leading-tight">{STEP_PROGRESS_SUBTEXT[view] || "Running stage calculations…"}</span>
+                    <span className="font-medium break-words leading-tight">{desc || STEP_PROGRESS_SUBTEXT[view] || "Running stage calculations…"}</span>
                   </div>
                 )}
               </div>
@@ -232,7 +201,7 @@ export default function ContextRail({
       </div>
 
       {/* ── Alternative PDB Models (Homologs) ── */}
-      {activeView === "structure" && setCustomPdbUrl && (
+      {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && setCustomPdbUrl && (
         <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
           <span className="text-[11px] font-medium uppercase tracking-wider font-sans mb-2 block" style={{ color: "var(--cs-text-secondary)" }}>
             PDB Models

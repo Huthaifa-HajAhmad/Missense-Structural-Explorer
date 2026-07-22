@@ -46,7 +46,13 @@ const NAV_SECTIONS: NavSection[] = [
       { id: "conservation", label: "Conservation",    Icon: Leaf        },
     ],
   },
-  { id: "structure",    label: "Structure",     Icon: Compass   },
+  {
+    id: "structure",    label: "Structure",     Icon: Compass,
+    subItems: [
+      { id: "structure_alphafold" as any, label: "Alphafold2",      Icon: Layers },
+      { id: "structure_esm" as any,       label: "ESM Multimodal", Icon: Dna    },
+    ]
+  },
   { id: "function",     label: "Function",      Icon: TrendingUp },
   { id: "energetics",   label: "Energetics",    Icon: Activity   },
   { id: "guidelines",   label: "Threshold Guide", Icon: ShieldAlert },
@@ -55,6 +61,9 @@ const NAV_SECTIONS: NavSection[] = [
 /** Determines whether a tab's parent section is active */
 const isInPredictorsGroup = (tab: EvidenceTab): boolean =>
   ["predictors", "plm", "meta", "annotation", "conservation"].includes(tab);
+
+const isInStructureGroup = (tab: EvidenceTab): boolean =>
+  ["structure", "structure_alphafold" as any, "structure_esm" as any].includes(tab);
 
 export default function EvidenceSidebar({
   activeTab,
@@ -83,11 +92,19 @@ export default function EvidenceSidebar({
           // or if we're on one of its sub-items (collapsed mode shows parent as active)
           const isParentActive =
             id === activeTab ||
-            (isCollapsed && id === "predictors" && isInPredictorsGroup(activeTab));
+            (isCollapsed && id === "predictors" && isInPredictorsGroup(activeTab)) ||
+            (isCollapsed && id === "structure" && isInStructureGroup(activeTab));
           const isSubParentActive =
-            !isCollapsed && id === "predictors" && isInPredictorsGroup(activeTab);
+            !isCollapsed && (
+              (id === "predictors" && isInPredictorsGroup(activeTab)) ||
+              (id === "structure" && isInStructureGroup(activeTab))
+            );
 
           const status = getStatus(id === "predictors" ? "predictors" : id);
+
+          const isExpandedGroup = 
+            (id === "predictors" && isInPredictorsGroup(activeTab)) ||
+            (id === "structure" && isInStructureGroup(activeTab));
 
           return (
             <React.Fragment key={id}>
@@ -96,9 +113,10 @@ export default function EvidenceSidebar({
                 type="button"
                 className={`ev-nav-item${isParentActive || isSubParentActive ? " active" : ""}`}
                 onClick={() => {
-                  // Predictors section: click navigates to "predictors" (or first sub-item)
                   if (id === "predictors") {
                     onTabChange(isCollapsed ? "predictors" : (activeTab === "predictors" ? "plm" : "predictors"));
+                  } else if (id === "structure") {
+                    onTabChange(isCollapsed ? "structure" : (activeTab === "structure" ? "structure_alphafold" as any : "structure"));
                   } else {
                     onTabChange(id);
                   }
@@ -124,7 +142,7 @@ export default function EvidenceSidebar({
               </button>
 
               {/* Sub-items: only visible when section is expanded AND sidebar is not collapsed */}
-              {subItems && !isCollapsed && isInPredictorsGroup(activeTab) && (
+              {subItems && !isCollapsed && isExpandedGroup && (
                 <div role="group" aria-label="Predictor sub-sections">
                   {subItems.map((sub) => {
                     const SubIcon = sub.Icon;

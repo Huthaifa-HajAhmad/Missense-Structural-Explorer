@@ -184,11 +184,11 @@ export default function EnergeticsView({
     ddgun: foldingEnergetics?.ddgun ?? null,
     bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null,
-    isRaspSurrogate: foldingEnergetics?.isRaspSurrogate
+    raspReason: (foldingEnergetics as any)?.raspReason
   };
 
   return (
-    <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full font-mono text-xs`} id="energetics-view">
+    <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full font-mono text-xs`} id="energetics-view" role="region" aria-label="Biophysical Energetics Analysis">
       <div className="px-5 py-5 border-b flex-shrink-0" style={{ borderColor: "var(--cs-border)" }}>
         <h1 className="screen-title">Energetics</h1>
         <p className="screen-tab-description">
@@ -224,7 +224,7 @@ export default function EnergeticsView({
         )}
 
         {isFolding && (
-          <div className="p-3.5 rounded-lg border space-y-1 animate-fade-in" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
+          <div className="p-3.5 rounded-lg border space-y-1 animate-fade-in" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
             <div className="font-bold text-xs uppercase flex items-center gap-2">
               <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
               <span>Biophysical Simulation In Progress</span>
@@ -296,7 +296,7 @@ export default function EnergeticsView({
                   const collapsePending = pendingList.length >= 2;
 
                   const items = [
-                    { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (3 runs)", val: energetics.foldxMean, invertSign: false, isPending: isFoldxPending },
+                    { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (5 runs)", val: energetics.foldxMean, invertSign: false, isPending: isFoldxPending },
                     { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true, isPending: isDynamutPending },
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
                     { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: true, isPending: false },
@@ -352,11 +352,6 @@ export default function EnergeticsView({
                           >
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span style={{ color: "var(--cs-text-primary)" }}>{item.name}</span>
-                              {item.key === "rasp" && (energetics as any)?.isRaspSurrogate && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold font-mono tracking-tight" title="Protein missing from precomputed database; fell back to local VESM LLR model.">
-                                  Sequence Surrogate
-                                </span>
-                              )}
                             </div>
                             <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           </button>
@@ -407,12 +402,12 @@ export default function EnergeticsView({
               </div>
             </div>
 
-            {(energetics as any)?.isRaspSurrogate && (
-              <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-blue-500/5 text-blue-550 border-blue-500/20" style={{ borderColor: "rgba(59, 130, 246, 0.15)" }}>
-                <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+            {(energetics as any)?.raspReason && energetics.rasp === null && (
+              <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-slate-500/5 text-slate-400 border-slate-500/20" style={{ borderColor: "rgba(100, 116, 139, 0.15)" }}>
+                <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-bold block mb-0.5 font-sans">RaSP Method Notice: Sequence-based Surrogate Active</span>
-                  The UniProt ID for this protein was not found in the precomputed RaSP human proteome dataset. As a result, the system has dynamically evaluated a sequence-based stability proxy utilizing the local **VESM_150M** language model.
+                  <span className="font-bold block mb-0.5 font-sans">RaSP Method Notice</span>
+                  {(energetics as any).raspReason}
                 </div>
               </div>
             )}

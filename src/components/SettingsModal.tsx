@@ -28,6 +28,7 @@ export default function SettingsModal() {
   const [activeTab, setActiveTab] = useState<TabId>("viewport");
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAppToken, setShowAppToken] = useState(false);
+  const [showBiohubToken, setShowBiohubToken] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
@@ -546,6 +547,37 @@ export default function SettingsModal() {
                       </div>
                       <p className={`text-[9px] leading-normal ${isDark ? "text-slate-500" : "text-slate-400"}`}>
                         Required to authorize structural mutations, AlphaFold proxies, and session creation on this private lab server.
+                      </p>
+                    </div>
+
+                    {/* Biohub API Token input */}
+                    <div className="space-y-1.5">
+                      <label className="font-semibold block text-xs">Biohub API Token</label>
+                      <div className="relative">
+                        <input
+                          type={showBiohubToken ? "text" : "password"}
+                          placeholder={settings.biohubApiToken ? "••••••••••••••••••••••••••••••••" : "Enter Biohub API key..."}
+                          value={settings.biohubApiToken || ""}
+                          onChange={(e) => {
+                            updateSetting("biohubApiToken", e.target.value.trim());
+                            setLinkError(null);
+                          }}
+                          className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
+                            isDark 
+                              ? "bg-slate-900 border-slate-800 text-indigo-300 placeholder-slate-500 focus:border-slate-700" 
+                              : "bg-slate-50 border-slate-200 text-indigo-700 placeholder-slate-400 focus:border-indigo-400"
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowBiohubToken(!showBiohubToken)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-500 cursor-pointer"
+                        >
+                          {showBiohubToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <p className={`text-[9px] leading-normal ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                        Enables ESMFold2 structure folding and ESMC deep representation metrics directly from Biohub.ai. Fallback applied if empty.
                       </p>
                     </div>
 
