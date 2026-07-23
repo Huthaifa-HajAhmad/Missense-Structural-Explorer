@@ -48,129 +48,9 @@ interface EvidenceDashboardCardProps {
 
 type TabType = "clinical" | "predictors" | "structure" | "perturbation" | "function" | "interactions" | "guidelines";
 
-interface MetricExplanation {
-  name: string;
-  category: string;
-  description: string;
-  interpretation: string;
-  paperTitle: string;
-  paperUrl: string;
-}
+import { type MetricExplanation, METRIC_EXPLANATIONS } from "./evidence/MetricExplanations";
 
-const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
-  am: {
-    name: "AlphaMissense",
-    category: "AI Pathogenicity Predictor",
-    description: "AlphaMissense adapts AlphaFold structural representation learning to predict the pathogenicity of missense variants. It leverages an unsupervised protein language model trained on evolutionary sequences alongside structural embeddings to score candidate substitutions.",
-    interpretation: "Scores range from 0 (benign) to 1 (pathogenic). Classifications include 'likely_benign' (≤ 0.340), 'uncertain', and 'likely_pathogenic' (≥ 0.564). ClinGen-calibrated thresholds are 0.983 (pathogenic) and 0.063 (benign).",
-    paperTitle: "Cheng et al. Science (2023)",
-    paperUrl: "https://doi.org/10.1126/science.adg7492"
-  },
-  cadd: {
-    name: "CADD PHRED",
-    category: "Genomic Annotation Integrator",
-    description: "Combined Annotation Dependent Depletion (CADD) is a framework for integrating diverse genomic annotations (conservation, epigenetic, functional) into a single score of relative deleteriousness.",
-    interpretation: "PHRED-scaled scores range from 0 to 99. A score ≥ 20 indicates the variant is predicted to be in the top 1% of most deleterious substitutions; ≥ 30 indicates the top 0.1%.",
-    paperTitle: "Kircher et al. Nat Genet (2014)",
-    paperUrl: "https://doi.org/10.1038/ng.2892"
-  },
-  revel: {
-    name: "REVEL",
-    category: "Ensemble Pathogenicity Predictor",
-    description: "Rare Exome Variant Ensemble Learner (REVEL) is an ensemble method that integrates pathogenicity predictions from 13 individual in-silico predictors (including SIFT, PolyPhen, MutationTaster, and GERP++).",
-    interpretation: "Scores range from 0 to 1. ClinGen SVI guidelines recommend REVEL ≥ 0.75 as strong evidence of pathogenicity (PP3_Strong), and < 0.15 as benign evidence (BP4).",
-    paperTitle: "Ioannidis et al. Am J Hum Genet (2016)",
-    paperUrl: "https://doi.org/10.1016/j.ajhg.2016.08.016"
-  },
-  eve: {
-    name: "EVE Model",
-    category: "Evolutionary Generative Model",
-    description: "Evolutionary Model of Variant Effect (EVE) uses deep generative models (variational autoencoders) trained on evolutionary sequence families to model the fitness landscape and predict pathogenicity.",
-    interpretation: "Continuous score from 0 (benign) to 1 (pathogenic), alongside classification classes: 'Benign' (≤ 0.25), 'Uncertain', or 'Pathogenic' (≥ 0.75).",
-    paperTitle: "Frazer et al. Nature (2021)",
-    paperUrl: "https://doi.org/10.1038/s41586-021-04043-8"
-  },
-  esm2: {
-    name: "VESM Co-distilled LLR",
-    category: "Protein Language Model",
-    description: "VESM (Variant Effect ESM) is a co-distilled protein language model that compresses the collective knowledge of the ESM family. It computes a log-likelihood ratio (LLR) reflecting variant effect predictions on ProteinGym without external structural or evolutionary inputs.",
-    interpretation: "LLR values range from -20 to +5. Informational only — no validated clinical threshold is applied, and it is excluded from ACMG concordance voting.",
-    paperTitle: "Ntranos Lab, bioRxiv (2024)",
-    paperUrl: "https://github.com/ntranoslab/vesm"
-  },
-  foldx: {
-    name: "FoldX ddG",
-    category: "Force-Field Biophysics",
-    description: "FoldX uses an empirical atomic force field to estimate the change in free energy (ΔΔG) upon mutation. It performs local sidechain repacking on a rigid backbone approximation of the protein structure.",
-    interpretation: "ΔΔG > 1.5 kcal/mol indicates strong structural destabilization (high risk of misfolding/degradation). Note that gain-of-function variants may not be destabilizing.",
-    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
-    paperUrl: "https://doi.org/10.1093/nar/gki387"
-  },
-  dynamut2: {
-    name: "DynaMut2",
-    category: "Normal Mode Analysis / Machine Learning",
-    description: "DynaMut2 predicts stability changes (ΔΔG) by combining normal mode analysis (NMA) metrics of protein flexibility and dynamics (using ENM models) with machine learning models trained on experimental stability data.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
-    paperTitle: "Rodrigues et al. Bioinformatics (2020)",
-    paperUrl: "https://doi.org/10.1093/bioinformatics/btaa784"
-  },
-  ddmut: {
-    name: "DDMut (Deep Learning)",
-    category: "Graph Deep Learning / Transformers",
-    description: "DDMut uses a Siamese neural network combining graph-based structural representations, convolutional layers, and Transformer encoders to predict free energy changes (ΔΔG) for single and multiple point mutations.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
-    paperTitle: "Zhou et al. Nucleic Acids Res (2022)",
-    paperUrl: "https://doi.org/10.1093/nar/gkac394"
-  },
-  rasp: {
-    name: "RaSP (Rapid Stability Prediction)",
-    category: "Structural Embeddings / MLP Stability Head",
-    description: "RaSP predicts thermodynamic stability changes (ΔΔG) using ESM-IF1 structural embeddings combined with a pre-trained multi-layer perceptron head trained on ~350k experimental stability datapoints. It operates directly on 3D structure.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
-    paperTitle: "Blaabjerg et al. Cell Systems (2023)",
-    paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
-  },
-  bayesdel: {
-    name: "BayesDel (noAF)",
-    category: "Meta-Predictor Integration",
-    description: "BayesDel is a meta-predictor that integrates multiple individual in-silico tools (including conservation and functional annotations) using a Bayesian approach. We use the version without allele frequency (noAF) to prevent double-counting frequency evidence.",
-    interpretation: "Scores range from -1.0 to 1.0. A score ≥ 0.133 indicates pathogenic support (PP3_Supporting), and ≤ -0.0404 indicates benign support (BP4).",
-    paperTitle: "Feng et al. Hum Mutat (2021)",
-    paperUrl: "https://doi.org/10.1002/humu.24155"
-  },
-  rmsd: {
-    name: "Sidechain RMSD",
-    category: "Structural Packing Deviation",
-    description: "Root-Mean-Square Deviation (RMSD) of the mutated sidechain relative to the wildtype conformation. It reflects the degree of local packing adjustments and steric displacement needed to accommodate the mutant residue.",
-    interpretation: "Values in Angstroms (Å). RMSD > 1.5 Å indicates substantial conformational repacking or steric displacements, signaling local structural rearrangement.",
-    paperTitle: "Guerois et al. J Mol Biol (2002)",
-    paperUrl: "https://doi.org/10.1006/jmbi.2002.5729"
-  },
-  vdw: {
-    name: "VdW Clash Delta",
-    category: "Steric Interaction Energy",
-    description: "Van der Waals (VdW) Clash Delta measures the change in steric repulsion (Lennard-Jones potentials) upon sidechain repacking. It identifies clashes when larger or bulkier residues are introduced into confined spaces.",
-    interpretation: "Delta values > 2.0 kcal/mol indicate significant steric clashes, suggesting local backbone distortion may be required to accommodate the mutant residue.",
-    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
-    paperUrl: "https://doi.org/10.1093/nar/gki387"
-  },
-  electrostatics: {
-    name: "Electrostatic Delta",
-    category: "Coulombic Interaction Energy",
-    description: "Electrostatic Delta calculates changes in Coulombic electrostatic interactions (such as salt bridges, hydrogen bonds, and charge-charge interactions) resulting from the mutation.",
-    interpretation: "Significant negative/positive deviations indicate disrupted salt bridges or altered local hydrogen bonding networks.",
-    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
-    paperUrl: "https://doi.org/10.1093/nar/gki387"
-  },
-  contact_density: {
-    name: "Cα Contact Density",
-    category: "Local Structural Density",
-    description: "Contact density counts the number of Cα atoms within a 10Å radius of the mutation site. This quantifies whether the residue is located in a densely packed core or a flexible surface loop.",
-    interpretation: "Core residues have ≥ 15 neighbors, boundary residues have 8-14, and surface residues have < 8 neighbors.",
-    paperTitle: "Pejaver et al. Nat Methods (2020)",
-    paperUrl: "https://doi.org/10.1038/s41592-020-0962-8"
-  }
-};
+
 
 export default function EvidenceDashboardCard({
   isDark,
@@ -468,7 +348,7 @@ export default function EvidenceDashboardCard({
     dynamut2: foldingEnergetics?.dynamut2 ?? result.dynamut2 ?? null,
     ddmut: foldingEnergetics?.ddmut ?? result.ddmut ?? null,
     rasp: foldingEnergetics?.rasp ?? result.rasp ?? null,
-    ddgun: foldingEnergetics?.ddgun ?? null,
+    thermompnn: foldingEnergetics?.thermompnn ?? result.thermompnn ?? null,
     bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null
   };
@@ -1006,59 +886,27 @@ export default function EvidenceDashboardCard({
           const wtRes = result.metadata?.wildType || "R";
           const mutRes = result.metadata?.mutant || "H";
           const pos = result.metadata?.residueIndex || 408;
-          const AMINO_ACIDS = ["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"];
 
-          const esmc = result.esmcEval || (() => {
-            const isSevere = result.disruptionPredictor?.level === "high" || 
-                             (result.conservationData?.revel !== null && result.conservationData?.revel !== undefined && result.conservationData.revel > 0.6);
-            
-            const wtProb = isSevere ? 0.785 : 0.452;
-            const mutProb = isSevere ? 0.001 : 0.084;
-            const llr = Math.log(mutProb) - Math.log(wtProb);
-            const mutRank = isSevere ? 18 : 6;
-            const entropy = isSevere ? 0.85 : 1.45;
-            const embeddingShift = isSevere ? 0.684 : 0.245;
-            
-            const rawPrefs = [
-              { aa: wtRes, prob: wtProb },
-              { aa: mutRes, prob: mutProb }
-            ];
-            const remainingAAs = AMINO_ACIDS.filter(a => a !== wtRes && a !== mutRes);
-            let remProb = 1.0 - wtProb - mutProb;
-            remainingAAs.forEach((aa, i) => {
-              const p = remProb * (i === 0 ? 0.4 : i === 1 ? 0.25 : 0.35 / remainingAAs.length);
-              rawPrefs.push({ aa, prob: Math.max(0.0001, p) });
-            });
-            const preferences = rawPrefs.sort((a, b) => b.prob - a.prob);
+          if (!result.esmcEval) {
+            return (
+              <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: "var(--cs-bg-subtle)", color: "var(--cs-text-muted)" }}>
+                  <Activity className="w-4 h-4" />
+                </div>
+                <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-text-primary)" }}>
+                  ESMC Representation Data Unavailable
+                </span>
+                <p className="text-[11px] max-w-md font-sans leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                  Deep transformer sequence metrics require an active Biohub API token. Configure your Biohub key in Settings to analyze zero-shot mutant likelihood ratios and local embedding disruption.
+                </p>
+              </div>
+            );
+          }
 
-            const localShiftMap = [];
-            for (let i = Math.max(1, pos - 10); i <= pos + 10; i++) {
-              const dist = Math.abs(i - pos);
-              const factor = Math.exp(-Math.pow(dist, 2) / 15.0);
-              const shift = embeddingShift * factor * (0.85 + (Math.sin(i) * 0.15));
-              localShiftMap.push({
-                position: i,
-                residue: i === pos ? mutRes : "A",
-                shift: parseFloat(shift.toFixed(4))
-              });
-            }
-            const localEmbeddingShift = localShiftMap.reduce((acc, x) => acc + x.shift, 0) / localShiftMap.length;
-
-            return {
-              wtProbability: wtProb,
-              mutProbability: mutProb,
-              llr,
-              preferences,
-              mutRank,
-              positionalEntropy: entropy,
-              embeddingShift,
-              localEmbeddingShift,
-              localShiftMap
-            };
-          })();
+          const esmc = result.esmcEval;
 
           // Construct SVG line chart details
-          const points = esmc.localShiftMap.map((d, index) => {
+          const points = (esmc.localShiftMap || []).map((d, index) => {
             const x = 40 + index * 24; // spaced across width
             const y = 140 - (d.shift / 1.0) * 110; // scaled to height
             return { x, y, position: d.position, residue: d.residue, shift: d.shift };
@@ -1162,68 +1010,74 @@ export default function EvidenceDashboardCard({
                     </span>
                   </div>
 
-                  <div className="relative w-full overflow-x-auto flex justify-center py-2">
-                    <svg className="w-full max-w-[580px] h-[170px]" viewBox="0 0 580 170">
-                      {/* Grid Lines */}
-                      <line x1="40" y1="140" x2="560" y2="140" stroke="var(--cs-border-subtle)" strokeWidth="1" />
-                      <line x1="40" y1="85" x2="560" y2="85" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
-                      <line x1="40" y1="30" x2="560" y2="30" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
+                  {points.length > 0 ? (
+                    <div className="relative w-full overflow-x-auto flex justify-center py-2">
+                      <svg className="w-full max-w-[580px] h-[170px]" viewBox="0 0 580 170">
+                        {/* Grid Lines */}
+                        <line x1="40" y1="140" x2="560" y2="140" stroke="var(--cs-border-subtle)" strokeWidth="1" />
+                        <line x1="40" y1="85" x2="560" y2="85" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
+                        <line x1="40" y1="30" x2="560" y2="30" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
 
-                      {/* Area under line */}
-                      <path 
-                        d={`${pathD} L ${points[points.length - 1].x} 140 L 40 140 Z`} 
-                        fill="url(#esmc-gradient)" 
-                        opacity="0.15" 
-                      />
+                        {/* Area under line */}
+                        <path 
+                          d={`${pathD} L ${points[points.length - 1].x} 140 L 40 140 Z`} 
+                          fill="url(#esmc-gradient)" 
+                          opacity="0.15" 
+                        />
 
-                      {/* Line */}
-                      <path 
-                        d={pathD} 
-                        fill="none" 
-                        stroke="var(--cs-accent-clay)" 
-                        strokeWidth="2" 
-                      />
+                        {/* Line */}
+                        <path 
+                          d={pathD} 
+                          fill="none" 
+                          stroke="var(--cs-accent-clay)" 
+                          strokeWidth="2" 
+                        />
 
-                      {/* Data Dots & Tooltips */}
-                      {points.map((p, idx) => {
-                        const isMutSite = p.position === pos;
-                        return (
-                          <g key={idx}>
-                            <circle 
-                              cx={p.x} 
-                              cy={p.y} 
-                              r={isMutSite ? 5 : 3.5} 
-                              fill={isMutSite ? "var(--cs-accent-clay)" : "var(--cs-surface)"} 
-                              stroke="var(--cs-accent-clay)" 
-                              strokeWidth="2" 
-                            />
-                            {/* X-Axis labels (Position) */}
-                            {idx % 3 === 0 || isMutSite ? (
-                              <text 
-                                x={p.x} 
-                                y="155" 
-                                textAnchor="middle" 
-                                fontSize="9" 
-                                fontFamily="monospace"
-                                fill={isMutSite ? "var(--cs-text-primary)" : "var(--cs-text-muted)"}
-                                fontWeight={isMutSite ? "bold" : "normal"}
-                              >
-                                {isMutSite ? `Mut:${p.position}` : p.position}
-                              </text>
-                            ) : null}
-                          </g>
-                        );
-                      })}
+                        {/* Data Dots & Tooltips */}
+                        {points.map((p, idx) => {
+                          const isMutSite = p.position === pos;
+                          return (
+                            <g key={idx}>
+                              <circle 
+                                cx={p.x} 
+                                cy={p.y} 
+                                r={isMutSite ? 5 : 3.5} 
+                                fill={isMutSite ? "var(--cs-accent-clay)" : "var(--cs-surface)"} 
+                                stroke="var(--cs-accent-clay)" 
+                                strokeWidth="2" 
+                              />
+                              {/* X-Axis labels (Position) */}
+                              {idx % 3 === 0 || isMutSite ? (
+                                <text 
+                                  x={p.x} 
+                                  y="155" 
+                                  textAnchor="middle" 
+                                  fontSize="9" 
+                                  fontFamily="monospace"
+                                  fill={isMutSite ? "var(--cs-text-primary)" : "var(--cs-text-muted)"}
+                                  fontWeight={isMutSite ? "bold" : "normal"}
+                                >
+                                  {isMutSite ? `Mut:${p.position}` : p.position}
+                                </text>
+                              ) : null}
+                            </g>
+                          );
+                        })}
 
-                      {/* Definitions for gradient */}
-                      <defs>
-                        <linearGradient id="esmc-gradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--cs-accent-clay)" />
-                          <stop offset="100%" stopColor="var(--cs-accent-clay)" stopOpacity="0" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                  </div>
+                        {/* Definitions for gradient */}
+                        <defs>
+                          <linearGradient id="esmc-gradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="var(--cs-accent-clay)" />
+                            <stop offset="100%" stopColor="var(--cs-accent-clay)" stopOpacity="0" />
+                          </linearGradient>
+                        </defs>
+                      </svg>
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center text-[11px] text-slate-400 font-mono">
+                      Local contextual embedding shift data unavailable for this window.
+                    </div>
+                  )}
                   <p className="text-[10px] italic leading-normal" style={{ color: "var(--cs-text-muted)" }}>
                     * Line plots trace cosine/Euclidean distance shifts in ESMC embedding coordinates across the structural neighborhood (\(\pm 10\) residues). High local shifts indicate significant structural/contextual disruptions.
                   </p>
@@ -1525,8 +1379,8 @@ export default function EvidenceDashboardCard({
                     const foldxVal = foldingDdG ?? null;
                     const dynamut2Val = result.dynamut2 ?? foldingEnergetics?.dynamut2 ?? null;
                     const ddmutVal = result.ddmut ?? foldingEnergetics?.ddmut ?? null;
-                    const ddgunVal = foldingEnergetics?.ddgun ?? null;
                     const raspVal = result.rasp ?? foldingEnergetics?.rasp ?? null;
+                    const thermompnnVal = foldingEnergetics?.thermompnn ?? result.thermompnn ?? null;
 
                     const gerpVal = result.conservationData?.gerp ?? null;
                     const phylopVal = result.conservationData?.phylop ?? null;
@@ -1644,13 +1498,13 @@ export default function EvidenceDashboardCard({
                     const ddmutStatus = ddmutVal !== null ? (ddmutVal <= -1.0 ? "path" : "benign") : "none";
                     rows.push(renderRow("ddmut", "DDMut ΔΔG", ddmutVal, ddmutVal ? `${ddmutVal.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", ddmutStatus, ddmutStatus === "path" ? "Destabilizing" : "Neutral"));
 
-                    // DDGun-Seq
-                    const ddgunStatus = ddgunVal !== null ? (ddgunVal <= -1.0 ? "path" : "benign") : "none";
-                    rows.push(renderRow("ddgun", "DDGun-Seq ΔΔG", ddgunVal, ddgunVal ? `${ddgunVal.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", ddgunStatus, ddgunStatus === "path" ? "Destabilizing" : "Neutral"));
-
                     // RaSP
                     const raspStatus = raspVal !== null ? (raspVal > 0.5 ? "path" : "benign") : "none";
                     rows.push(renderRow("rasp", "RaSP ΔΔG", raspVal, raspVal ? `${raspVal.toFixed(2)} kcal/mol` : "—", "-0.5 to +0.5", "> 0.50 kcal/mol", "PM1 / BP3", raspStatus, raspStatus === "path" ? "Destabilizing" : "Neutral"));
+
+                    // ThermoMPNN
+                    const thermompnnStatus = thermompnnVal !== null ? (thermompnnVal >= 1.0 ? "path" : "benign") : "none";
+                    rows.push(renderRow("thermompnn", "ThermoMPNN ΔΔG°", thermompnnVal, thermompnnVal ? `${thermompnnVal.toFixed(2)} kcal/mol` : "—", "< 1.00", ">= +1.00 kcal/mol", "PM1 / BP3", thermompnnStatus, thermompnnStatus === "path" ? "Destabilizing" : "Neutral"));
 
                     // --- CATEGORY 3: Evolutionary Conservation & Population Constraint ---
                     rows.push(renderCategoryHeader("cat-cons", "3. Evolutionary Conservation & Population Intolerance"));

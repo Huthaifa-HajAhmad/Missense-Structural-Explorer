@@ -89,9 +89,9 @@ export const THRESHOLDS = {
     /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
     destabilizing: -1.0,
   },
-  ddgun: {
-    /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
-    destabilizing: -1.0,
+  thermompnn: {
+    /** ΔΔG° ≥ 1.0 kcal/mol: predicted destabilization (ThermoMPNN ΔΔG = mutant - WT) */
+    destabilizing: 1.0,
   },
   bayesdel: {
     pathogenic: 0.133,
@@ -180,8 +180,8 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "DynaMut2 (Rodrigues 2021). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
   ddmut:
     "DDMut (BioSig 2022). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
-  ddgun:
-    "DDGun-Seq (Montanucci 2019/2022). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
+  thermompnn:
+    "ThermoMPNN (Pei 2024 / Tamarind Bio). Destabilizing ΔΔG ≥ +1.0 kcal/mol (ΔΔG = mutant - WT).",
   bayesdel:
     "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
   esm:
@@ -446,7 +446,7 @@ export function countPredictorConcordance(
  * Canonical Rule: Positive magnitude (> 0) indicates destabilization.
  */
 export function normalizeDestabilizationMagnitude(
-  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "ddgun",
+  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn",
   score: number | null
 ): { magnitude: number | null; isDestabilizing: boolean } {
   if (score === null || score === undefined || isNaN(score)) {
@@ -474,10 +474,10 @@ export function normalizeDestabilizationMagnitude(
       const isDestab = score <= -1.0;
       return { magnitude: -score, isDestabilizing: isDestab };
     }
-    case "ddgun": {
-      // DDGun: Negative score = destabilizing (threshold <= -1.0)
-      const isDestab = score <= THRESHOLDS.ddgun.destabilizing;
-      return { magnitude: -score, isDestabilizing: isDestab };
+    case "thermompnn": {
+      // ThermoMPNN: Positive score = destabilizing (threshold >= 1.0 kcal/mol, deltaG = mutant - WT)
+      const isDestab = score >= THRESHOLDS.thermompnn.destabilizing;
+      return { magnitude: score, isDestabilizing: isDestab };
     }
     default:
       return { magnitude: score, isDestabilizing: false };
@@ -494,7 +494,7 @@ export function computeConsensusVerdict(
     dynamut2?: number | null;
     ddmut?: number | null;
     rasp?: number | null;
-    ddgun?: number | null;
+    thermompnn?: number | null;
   } | null
 ): string {
   if (!energetics) return "Low Misfolding Risk (Neutral Stability)";
@@ -502,23 +502,23 @@ export function computeConsensusVerdict(
   const dynamut2 = energetics.dynamut2 ?? null;
   const ddmut = energetics.ddmut ?? null;
   const rasp = energetics.rasp ?? null;
-  const ddgun = energetics.ddgun ?? null;
+  const thermompnn = energetics.thermompnn ?? null;
 
   const foldxNorm = normalizeDestabilizationMagnitude("foldx", foldxVal);
   const dynamutNorm = normalizeDestabilizationMagnitude("dynamut2", dynamut2);
   const ddmutNorm = normalizeDestabilizationMagnitude("ddmut", ddmut);
   const raspNorm = normalizeDestabilizationMagnitude("rasp", rasp);
-  const ddgunNorm = normalizeDestabilizationMagnitude("ddgun", ddgun);
+  const tmNorm = normalizeDestabilizationMagnitude("thermompnn", thermompnn);
 
   const destabCount = [
     foldxNorm.isDestabilizing,
     dynamutNorm.isDestabilizing,
     ddmutNorm.isDestabilizing,
     raspNorm.isDestabilizing,
-    ddgunNorm.isDestabilizing
+    tmNorm.isDestabilizing
   ].filter(Boolean).length;
 
-  const availableCount = [foldxVal, dynamut2, ddmut, rasp, ddgun].filter(v => v !== null).length;
+  const availableCount = [foldxVal, dynamut2, ddmut, rasp, thermompnn].filter(v => v !== null).length;
 
   if (availableCount === 1) {
     return destabCount === 1

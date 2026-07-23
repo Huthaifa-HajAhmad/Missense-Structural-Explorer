@@ -110,7 +110,7 @@ const STEP_PROGRESS_SUBTEXT: Record<MasterView, string> = {
   structure: "Resolving AlphaFold, ESMFold & PDB structural models…",
   structure_alphafold: "Resolving AlphaFold, ESMFold & PDB structural models…",
   structure_esmfold: "Resolving ESMFold 3D structural models…",
-  energetics: "Calculating FoldX, DynaMut2, DDMut & DDGun stability changes…",
+  energetics: "Calculating FoldX, DynaMut2, DDMut & ThermoMPNN stability changes…",
   landscape: "Mapping sequence positioning & domain boundaries…",
   insights: "Synthesizing pathogenicity & ACMG/AMP criteria…",
   report: "Compiling clinical summary & evidence export…",
@@ -197,11 +197,49 @@ export default function ContextRail({
               </div>
             );
           })}
-        </div>
       </div>
+    </div>
+
+      {/* ── Sequence Length Status/Warning ── */}
+      {analysisResult && (
+        <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
+          <span className="text-[11px] font-medium uppercase tracking-wider font-sans mb-1.5 block" style={{ color: "var(--cs-text-secondary)" }}>
+            Sequence Status
+          </span>
+          <div className="p-2.5 rounded-lg border text-[11px] font-sans flex flex-col gap-1.5"
+               style={{
+                 background: "var(--cs-surface-2)",
+                 borderColor: "var(--cs-border-subtle)"
+               }}>
+            <div className="flex items-center justify-between font-mono">
+              <span style={{ color: "var(--cs-text-secondary)" }}>Length:</span>
+              <span className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>
+                {analysisResult.metadata?.mutatedSequence?.length || "—"} aa
+              </span>
+            </div>
+            {analysisResult.metadata?.mutatedSequence && (
+              <>
+                {analysisResult.metadata.mutatedSequence.length > 768 ? (
+                  <div className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400 font-sans mt-0.5">
+                    ⚠️ <strong>ESMFold2 Limit Exceeded:</strong> Protein exceeds Biohub's 768 aa limit. Switch 3D Structure tab to <strong>AlphaFold2</strong> to view modeling coordinates.
+                  </div>
+                ) : analysisResult.metadata.mutatedSequence.length > 400 ? (
+                  <div className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400 font-sans mt-0.5">
+                    ⚠️ <strong>ESMFold2 Token Required:</strong> Protein exceeds public 400 aa limit. An active Biohub API token is required in Settings to fold.
+                  </div>
+                ) : (
+                  <div className="text-[10px] leading-relaxed text-emerald-600 dark:text-emerald-400 font-sans mt-0.5">
+                    ✓ Suitable for all folding engines (under 400 aa).
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Alternative PDB Models (Homologs) ── */}
-      {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && setCustomPdbUrl && (
+      {(activeView === "structure" || activeView === "structure_alphafold") && setCustomPdbUrl && (
         <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
           <span className="text-[11px] font-medium uppercase tracking-wider font-sans mb-2 block" style={{ color: "var(--cs-text-secondary)" }}>
             PDB Models
@@ -239,32 +277,55 @@ export default function ContextRail({
             {!isHomologsLoading && homologs.map((hom) => {
               const homUrl = `https://files.rcsb.org/download/${hom.pdbId}.pdb`;
               const isSelected = customPdbUrl === homUrl;
+              const identityVal = typeof hom.identity === "number" ? hom.identity : Math.round((hom.score || 0) * 100);
+              const coverageVal = typeof hom.coverage === "number" ? hom.coverage : 80;
+
               return (
                 <button
                   key={hom.pdbId}
                   type="button"
                   onClick={() => setCustomPdbUrl(homUrl)}
-                  title={`${hom.title}\nOrganism: ${hom.organism}\nMethod: ${hom.method}\nResolution: ${hom.resolution ? `${hom.resolution} Å` : "N/A"}`}
+                  title={`${hom.title}\n• Sequence Identity: ${identityVal}% ID\n• Query Alignment Coverage: ${coverageVal}% Cov\n• Organism: ${hom.organism}\n• Method: ${hom.method}${hom.resolution ? ` (${hom.resolution} Å)` : ''}`}
                   className={`p-2 px-2.5 rounded-lg border text-[11px] transition-all flex items-center gap-2.5 w-full text-left cursor-pointer ${
                     isSelected 
-                      ? "border-[var(--cs-border)] shadow-none" 
-                      : "border-transparent hover:bg-[var(--cs-bg-subtle)]"
+                      ? "shadow-none" 
+                      : "hover:bg-[var(--cs-bg-subtle)]"
                   }`}
                   style={{
                     background: isSelected ? "var(--cs-surface-2)" : "transparent",
+                    borderColor: isSelected ? "var(--cs-accent)" : "var(--cs-border-subtle)"
                   }}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? "bg-emerald-500 animate-pulse" : "bg-[var(--cs-text-muted)]"}`} />
-                  <div className="flex flex-col text-left truncate w-full">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{
+                      backgroundColor: isSelected ? "var(--cs-accent)" : "var(--cs-text-muted)"
+                    }}
+                  />
+                  <div className="flex flex-col text-left truncate w-full gap-0.5">
                     <div className="flex items-center justify-between gap-1 w-full">
-                      <span className="font-mono font-semibold text-[12px]" style={{ color: "var(--cs-text-primary)" }}>{hom.pdbId}</span>
-                      <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono font-semibold">
-                        {(hom.score * 100).toFixed(0)}% ID
+                      <span className="font-mono font-semibold text-[11.5px]" style={{ color: "var(--cs-text-primary)" }}>
+                        {hom.pdbId}
+                      </span>
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold border shrink-0"
+                        style={{
+                          background: "var(--cs-surface-2)",
+                          borderColor: "var(--cs-border)",
+                          color: "var(--cs-text-secondary)"
+                        }}
+                      >
+                        {identityVal}% ID · {coverageVal}% Cov
                       </span>
                     </div>
-                    <span className="text-[10px] truncate font-sans italic" style={{ color: "var(--cs-text-secondary)" }}>
-                      {hom.organism}
-                    </span>
+                    <div className="flex items-center justify-between text-[10px] truncate font-sans" style={{ color: "var(--cs-text-secondary)" }}>
+                      <span className="truncate italic">{hom.organism}</span>
+                      {hom.resolution && (
+                        <span className="font-mono text-[9px] shrink-0 ml-1" style={{ color: "var(--cs-text-muted)" }}>
+                          {hom.resolution}Å
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -272,7 +333,7 @@ export default function ContextRail({
 
             {!isHomologsLoading && homologs.length === 0 && (
               <span className="text-[10px] p-2 italic font-mono" style={{ color: "var(--cs-text-muted)" }}>
-                No homologs found
+                No homologs found (≥35% ID)
               </span>
             )}
           </div>

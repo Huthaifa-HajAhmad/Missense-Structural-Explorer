@@ -134,6 +134,9 @@ export interface AnalysisResult {
   ddmutStatus?: string | null;
   ddmutJobId?: string | null;
   rasp?: number | null;
+  thermompnn?: number | null;
+  thermompnnStatus?: string | null;
+  thermompnnJobId?: string | null;
   foldingEnergetics?: EnergeticsData | null;
   esm3Eval?: {
     uniprotId: string;
@@ -148,8 +151,8 @@ export interface AnalysisResult {
     putativeStructuralChanges: string[];
     confidence: {
       level: "high" | "moderate" | "low";
-      plddt: number;
-      sequenceCoverage: number;
+      plddt?: number | null;
+      sequenceCoverage?: number | null;
     };
   } | null;
   esmcEval?: EsmcEvalResult | null;
@@ -255,6 +258,7 @@ export interface UserSettings {
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
   biohubApiToken?: string;
+  tamarindApiKey?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;
@@ -299,8 +303,8 @@ export interface EnergeticsData {
   dynamut2: number | null;
   ddmut?: number | null;
   rasp?: number | null;
+  thermompnn?: number | null;
   raspReason?: string;
-  ddgun?: number | null;
   consensusVerdict?: string | null;
   evidenceComplete?: boolean;
   pendingTools?: string[];
@@ -318,10 +322,15 @@ export interface StructuralDiffResult {
 }export interface PdbHomolog {
   pdbId: string;
   score: number;
+  identity: number;
+  coverage: number;
   title: string;
   organism: string;
   method: string;
   resolution: number | null;
+  isHuman: boolean;
+  unpStart?: number;
+  structStart?: number;
 }
 
 export interface EsmcPreference {

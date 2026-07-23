@@ -6,271 +6,26 @@ import "molstar/lib/mol-plugin-ui/skin/light.scss";
 import { useSettings } from "../context/SettingsContext";
 import { pocketFinderResponseSchema } from "../useVariantAnalysis";
 import { useVariantAnalysisContext } from "../context/VariantAnalysisContext";
-
+import { Layers, ChevronDown, ChevronUp, Sparkles, HelpCircle, Eye, Info, Settings, Camera, X, Activity, Cpu, Download, ClipboardCopy, Maximize2, Minimize2, Target } from "lucide-react";
+export type { PocketResidue, PocketResult } from './molstar/molstarThemes';
+export { CustomPLDDTColorTheme, CustomPLDDTColorThemeProvider, CustomBFactorColorTheme, CustomBFactorColorThemeProvider, CustomESM3AllostericColorTheme, CustomESM3AllostericColorThemeProvider } from './molstar/molstarThemes';
+import {
+  type PocketResidue,
+  type PocketResult,
+  type MolstarViewerProps,
+  CustomPLDDTColorTheme,
+  CustomPLDDTColorThemeProvider,
+  CustomBFactorColorTheme,
+  CustomBFactorColorThemeProvider,
+  CustomESM3AllostericColorTheme,
+  CustomESM3AllostericColorThemeProvider,
+  isValidPdbUrl,
+} from './molstar/molstarThemes';
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
-import { StructureSelection, StructureElement, StructureProperties, Unit, Bond } from "molstar/lib/mol-model/structure";
-import { Layers, ChevronDown, ChevronUp, Sparkles, HelpCircle, Eye, Info, Settings, Camera, X, Activity, Cpu, Download, ClipboardCopy, Maximize2, Minimize2 } from "lucide-react";
+import { StructureSelection, StructureElement, StructureProperties } from "molstar/lib/mol-model/structure";
 import { Vec3 } from "molstar/lib/mol-math/linear-algebra/3d/vec3";
 import { Color } from "molstar/lib/mol-util/color";
-import { ColorTheme } from "molstar/lib/mol-theme/color";
-import { TableLegend } from "molstar/lib/mol-util/legend";
-import { ColorThemeCategory } from "molstar/lib/mol-theme/color/categories";
-
-// Pocket coordinate-level structures
-export interface PocketResidue {
-  index: number;
-  name: string;
-  distance: number;
-  score: number;
-  role: string;
-  type: string;
-}
-
-export interface PocketResult {
-  pocketResidues: PocketResidue[];
-  pocketScore: number;
-  pocketVolume: number;
-  likelyCofactor: string;
-  pocketDistance: number | null;
-  status?: string;
-}
-
-const CustomPLDDTColors = {
-  'No Score': Color(0xaaaaaa),
-  'Very Low': Color(0xff7d45),
-  'Low': Color(0xffdb13),
-  'Confident': Color(0x65cbf3),
-  'Very High': Color(0x0053d6)
-};
-
-const CustomPLDDTLegend = TableLegend(Object.entries(CustomPLDDTColors) as any);
-
-export function CustomPLDDTColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0xaaaaaa);
-  
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0xaaaaaa);
-      
-      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
-      
-      if (score < 0 || typeof score !== 'number') {
-        return Color(0xaaaaaa);
-      } else if (score <= 50) {
-        return Color(0xff7d45); // Orange/Red
-      } else if (score <= 70) {
-        return Color(0xffdb13); // Yellow
-      } else if (score <= 90) {
-        return Color(0x65cbf3); // Cyan
-      } else {
-        return Color(0x0053d6); // Blue
-      }
-    };
-    
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) {
-        return getColor(location);
-      } else if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0xaaaaaa);
-    };
-  }
-  
-  return {
-    factory: CustomPLDDTColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'Custom pLDDT confidence coloring based on PDB B-factors',
-    legend: CustomPLDDTLegend
-  };
-}
-
-export const CustomPLDDTColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'plddt-confidence',
-  label: 'pLDDT Confidence (B-factor)',
-  category: ColorThemeCategory.Validation,
-  factory: CustomPLDDTColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure
-};
-
-export function CustomBFactorColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0xaaaaaa);
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0xaaaaaa);
-      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
-      if (score === null || score === undefined || typeof score !== 'number') {
-        return Color(0xaaaaaa);
-      } else if (score < 20) {
-        return Color(0x0053d6); // Blue (Highly Rigid)
-      } else if (score < 40) {
-        return Color(0x65cbf3); // Cyan (Stable)
-      } else if (score < 60) {
-        return Color(0xffdb13); // Yellow (Moderately Mobile)
-      } else {
-        return Color(0xff7d45); // Orange/Red (Highly Mobile)
-      }
-    };
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) return getColor(location);
-      if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0xaaaaaa);
-    };
-  }
-  return {
-    factory: CustomBFactorColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'Custom B-factor mobility coloring based on PDB temperature factors',
-    legend: TableLegend(Object.entries({
-      'Highly Rigid (<20)': Color(0x0053d6),
-      'Stable (20-40)': Color(0x65cbf3),
-      'Moderately Mobile (40-60)': Color(0xffdb13),
-      'Highly Mobile (>60)': Color(0xff7d45),
-    }) as any)
-  };
-}
-
-export const CustomBFactorColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'bfactor-mobility',
-  label: 'B-factor / Mobility',
-  category: ColorThemeCategory.Validation,
-  factory: CustomBFactorColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure
-};
-
-export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0x38bdf8);
-  const perturbationScores: number[] = props?.perturbationScores || [];
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0x38bdf8);
-      const seqNum = StructureProperties.residue.auth_seq_id(location);
-      const score = (perturbationScores && seqNum > 0 && seqNum <= perturbationScores.length)
-        ? perturbationScores[seqNum - 1]
-        : 0;
-      if (score <= 0.05) return Color(0x38bdf8); // Unperturbed Ice Cyan
-      if (score <= 0.15) return Color(0x34d399); // Minor Emerald
-      if (score <= 0.35) return Color(0xf59e0b); // Moderate Amber
-      return Color(0xe11d48); // High Disruption Rose/Crimson
-    };
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) return getColor(location);
-      if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0x38bdf8);
-    };
-  }
-  return {
-    factory: CustomESM3AllostericColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'ESM3 Allosteric Disruption Heatmap',
-    legend: TableLegend(Object.entries({
-      'Unperturbed (<0.05)': Color(0x38bdf8),
-      'Minor Shift (0.05-0.15)': Color(0x34d399),
-      'Moderate Shift (0.15-0.35)': Color(0xf59e0b),
-      'Severe Allosteric Hub (>0.35)': Color(0xe11d48),
-    }) as any)
-  };
-}
-
-export const CustomESM3AllostericColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'esm3-allosteric',
-  label: 'ESM3 Allosteric Perturbation',
-  category: ColorThemeCategory.Validation,
-  factory: CustomESM3AllostericColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure
-};
-
-function isValidPdbUrl(url: string): boolean {
-  if (!url) return false;
-  if (url.startsWith("/") || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-    return true;
-  }
-  try {
-    const parsed = new URL(url);
-    const allowedDomains = [
-      "alphafold.ebi.ac.uk",
-      "files.rcsb.org",
-      "pdbe.org",
-      "www.ebi.ac.uk"
-    ];
-    return allowedDomains.some(domain => 
-      parsed.hostname === domain || parsed.hostname.endsWith("." + domain)
-    );
-  } catch {
-    return false;
-  }
-}
-
-// Declare custom property to store selection status or custom controls if needed
-interface MolstarViewerProps {
-  residueIndex: number | null;
-  customPdbData?: string;
-  customPdbUrl?: string;
-  active3dModelTab?: "alphafold2" | "esmfold2";
-  uniprotId?: string;
-  gene?: string;
-  showPolarContacts?: boolean;
-  theme?: "dark" | "light";
-  onResidueHover?: (index: number | null) => void;
-  onResidueClick?: (index: number | null) => void;
-  comparePdbData?: string | null;
-  compareResidueIndex?: number | null;
-  compareVariant?: string | null;
-  disruptionWarning?: {
-    type: "both" | "clash" | "hbond";
-    title: string;
-    description: string;
-  } | null;
-  mutantStatus?: string | null;
-  mutantDdG?: number | null;
-  heightClass?: string;
-  variant?: string;
-  residueColorHex?: number;
-  cameraDuration?: number;
-  autoZoomOnSelect?: boolean;
-  neonHighContrast?: boolean;
-  energyUnit?: string;
-  fetchNearestResidues?: any;
-  onPdbTextLoaded?: (text: string) => void;
-  computedPocket?: PocketResult | null;
-  isPocketLoading?: boolean;
-  pocketError?: string | null;
-  pdbId?: string | null;
-  pdbSource?: string | null;
-}
 
 export default function MolstarViewer({ 
   residueIndex, 
@@ -331,6 +86,9 @@ export default function MolstarViewer({
   const pocketError = analysisState.pocketError;
   const pdbId = analysisState.analysisState.result?.metadata?.pdbId;
   const pdbSource = analysisState.analysisState.result?.metadata?.pdbSource;
+  const isEsmFolding = analysisState.isEsmFolding;
+  const esmFoldingError = analysisState.esmFoldingError;
+  const esmFoldPdb = analysisState.esmFoldPdb;
 
   const isDark = contextTheme !== "light";
   const showPolarContacts = contextShowPolarContacts;
@@ -348,7 +106,7 @@ export default function MolstarViewer({
   const [showPocket, setShowPocket] = useState<boolean>(false);
   const [isPocketPanelOpen, setIsPocketPanelOpen] = useState<boolean>(false);
   const pocketComponentRefRef = useRef<any[]>([]);
-  const [viewerStyle, setViewerStyle] = useState<"confidence" | "biomolecular">("confidence");
+  const [viewerStyle, setViewerStyle] = useState<"confidence" | "biomolecular" | "esm3-allosteric">("confidence");
 
   const [pocketErrorLocal, setPocketErrorLocal] = useState<string | null>(null);
   const setPocketError = setPocketErrorLocal;
@@ -902,14 +660,24 @@ export default function MolstarViewer({
             data: customPdbData,
             label: `${gene} (FoldX Biophysical Mutant)`
           });
-        } else if (active3dModelTab === "esmfold2" && analysisContext.state.esmFoldPdb) {
-          if (import.meta.env.DEV) {
-            console.log(`Molstar loading ESMFold2 predicted mutated PDB structure`);
+        } else if (active3dModelTab === "esmfold2") {
+          if (analysisContext.state.esmFoldPdb) {
+            if (import.meta.env.DEV) {
+              console.log(`Molstar loading ESMFold2 predicted mutated PDB structure`);
+            }
+            data = await localPlugin.builders.data.rawData({
+              data: analysisContext.state.esmFoldPdb,
+              label: `${gene} (ESMFold2 Mutant Structure)`
+            });
+          } else if (isEsmFolding) {
+            // Currently folding, do not set error, let the folding overlay handle it
+            setLoading(true);
+            return;
+          } else {
+            setLoadError(esmFoldingError || "ESMFold2 3D model generation unavailable. Ensure Biohub API token is configured in Settings or try again.");
+            setLoading(false);
+            return;
           }
-          data = await localPlugin.builders.data.rawData({
-            data: analysisContext.state.esmFoldPdb,
-            label: `${gene} (ESMFold2 Mutant Structure)`
-          });
         } else {
           const match = variant ? variant.match(/\d+/) : null;
           const posQuery = match ? `?pos=${match[0]}` : "";
@@ -1021,6 +789,15 @@ export default function MolstarViewer({
               color: 'element-symbol'
             });
           }
+        } else if (viewerStyle === "esm3-allosteric") {
+          await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
+            theme: {
+              globalName: 'esm3-allosteric',
+              props: {
+                perturbationScores: analysisContext.state.result?.esm3Eval?.perturbationScores || []
+              }
+            }
+          });
         } else {
           // Apply standard auto representation preset for robust loading/coloring representation
           // utilizing the built-in 'plddt-confidence' color theme (AlphaFold uses B-factor for pLDDT)
@@ -1101,7 +878,7 @@ export default function MolstarViewer({
       componentRefRef.current = null;
       componentRefRef2.current = null;
     };
-  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource, viewerStyle, active3dModelTab, analysisContext.state.esmFoldPdb]);
+  }, [pluginCreated, uniprotId, customPdbUrl, customPdbData, gene, comparePdbData, variant, plddtFilter, templateSource, viewerStyle, active3dModelTab, analysisContext.state.esmFoldPdb, isEsmFolding, esmFoldingError]);
 
   // Run dynamic highlight & representation updates selectively on residueIndex or contact toggle changes
   useEffect(() => {
@@ -1422,279 +1199,123 @@ export default function MolstarViewer({
       console.warn("Failed to focus pocket residue:", e);
     }
   };
-
   return (
-    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} flex flex-col overflow-hidden transition-all`}>
-      {/* Loading Overlay */}
-      {loading && (
-        <div className={`absolute inset-0 z-10 flex flex-col items-center justify-center p-6 backdrop-blur-sm transition-colors ${
-          isDark ? "bg-slate-950/80 text-white" : "bg-white/80 text-slate-900"
-        }`}>
-          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-indigo-500 font-mono text-sm tracking-widest uppercase animate-pulse">
-            {customPdbData ? "Rendering Mutant Structure..." : "Fetching AlphaFold Coordinates..."}
-          </p>
-          <p className={`text-xs mt-2 text-center max-w-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-            {customPdbData 
-              ? `Processing custom 3D mutant biophysical simulation via local FoldX engine...`
-              : `Downloading 3D PDB structure for UniProt accession: ${uniprotId}`}
-          </p>
-        </div>
-      )}
-
-      {/* Error Overlay */}
-      {loadError && (
-        <div className={`absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm ${
-          isDark ? "bg-[#111827]/90 text-rose-500" : "bg-slate-50/90 text-rose-600"
-        }`}>
-          <svg className="w-12 h-12 mb-3 stroke-current" fill="none" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <p className={`font-semibold text-lg mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>Structure Unavailable</p>
-          <p className={`text-sm max-w-md mb-4 ${isDark ? "text-slate-400" : "text-slate-600"}`}>{loadError}</p>
-          <div className={`text-xs p-3 rounded text-left font-mono max-w-md w-full overflow-hidden border ${
-            isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500"
-          }`}>
-             Source: <span className="text-rose-500 break-all font-semibold">
-              {customPdbData 
-                ? "Target FoldX Mutated Output" 
-                : customPdbUrl
-                  ? `Custom PDB Model (${customPdbUrl.split('/').pop() || customPdbUrl})`
-                  : pdbSource === "RCSB PDB" && pdbId 
-                    ? `RCSB PDB (ID: ${pdbId.toUpperCase()})` 
-                    : `AlphaFold DB v4 (AF-${uniprotId})`}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Onboarding Welcome Overlay */}
-      {!uniprotId && !customPdbData && (
-        <div className={`absolute inset-0 z-20 flex flex-col items-center justify-center p-8 text-center transition-all ${
-          isDark 
-            ? "bg-[#0b0f19] text-slate-300" 
-            : "bg-[#f8fafc] text-slate-600"
-        }`}>
-          <div className="relative mb-6 group cursor-default">
-            <div className="absolute inset-0 bg-indigo-500/20 rounded-full blur-2xl group-hover:bg-indigo-500/30 transition-all duration-750 scale-125"></div>
-            <div className="relative p-6 rounded-2xl border bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border-indigo-500/20 shadow-lg shadow-indigo-500/5 group-hover:scale-105 group-hover:-rotate-3 transition-all duration-500 ease-out">
-              <svg className="w-16 h-16 text-indigo-500 animate-[spin_10s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-              </svg>
-            </div>
-          </div>
-          
-          <h3 className={`text-sm font-semibold font-mono uppercase tracking-wider text-indigo-500 mb-3`} style={{ color: "var(--cs-accent-clay)" }}>
-            3D Molecular Workspace Ready
-          </h3>
-          <div className="w-16 h-[1px] bg-slate-800/10 dark:bg-slate-800/60 mx-auto mb-4"></div>
-          
-          <p className="text-xs max-w-sm mb-6 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-            Submit a genetic variant search query to load and inspect 3D protein structures. You can simulate mutation side-chains, calculate structural pockets, and analyze local structural disruptions.
-          </p>
-
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
-              isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500 shadow-sm"
-            }`}>
-              ⚡ AlphaFold 3D Structures
-            </span>
-            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
-              isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500 shadow-sm"
-            }`}>
-              🧪 FoldX Biophysics Engine
-            </span>
-            <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
-              isDark ? "bg-slate-900 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-500 shadow-sm"
-            }`}>
-              🧬 Variant Mutagenesis
-            </span>
-          </div>
-        </div>
-      )}
-
-
-      <div 
-         ref={containerRef} 
-      id="molstar-viewer-container" 
-         className={`w-full flex-1 min-h-0 text-slate-900 transition-all duration-700 ease-out ${
-           isTransitioning ? "opacity-35 scale-[0.985] blur-[1px]" : "opacity-100 scale-100 blur-0"
-         }`}
-      />
-      {/* FoldX / SCWRL4 result — top-left collapsible draggable badge */}
-      {customPdbData && mutantStatus && (
-        <div
-          className={`absolute z-20 max-w-[300px] pointer-events-auto select-none transition-shadow rounded-xl border border-l-4 border-l-indigo-500 overflow-hidden backdrop-blur-md ${
-            isFoldXDragging ? "shadow-2xl" : "shadow-md"
-          } ${
-            isDark
-              ? "bg-slate-900/95 border-slate-800 text-slate-100"
-              : "bg-white/95 border-slate-200 text-slate-800"
-          }`}
-          onMouseDown={handleFoldXMouseDown}
-          style={{
-            top: `calc(0.75rem + ${foldXPosition.y}px)`,
-            left: `calc(0.75rem + ${foldXPosition.x}px)`,
-            cursor: isFoldXDragging ? 'grabbing' : 'grab'
-          }}
-        >
-          {mutantStatus === "success" ? (
-            <div>
-              {/* Collapsed header / pill */}
-              <button
-                type="button"
-                onClick={() => setFoldxBannerCollapsed(p => !p)}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors ${
-                  isDark ? "hover:bg-slate-800/55" : "hover:bg-slate-100/50"
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3 h-3 text-indigo-500 shrink-0 animate-pulse" />
-                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider">
-                    FoldX Model
-                  </span>
-                  {mutantDdG !== null && mutantDdG !== undefined && (
-                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                      isDark ? "bg-slate-850 text-indigo-400" : "bg-indigo-50 text-indigo-600 border border-indigo-100/50"
-                    }`}>
-                      ΔΔG: {mutantDdG.toFixed(2)} kcal/mol
-                    </span>
-                  )}
-                </div>
-                {foldxBannerCollapsed
-                  ? <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                  : <ChevronUp className="w-3 h-3 text-slate-400 shrink-0" />}
-              </button>
-              {/* Expanded body */}
-              {!foldxBannerCollapsed && (
-                <div className={`px-3 pb-2.5 pt-0 text-[10px] font-mono border-t ${
-                  isDark ? "border-slate-800/40 text-slate-350" : "border-slate-200/60 text-slate-600"
-                }`}>
-                  <p className="leading-relaxed mt-1.5">
-                    <strong>Biophysically Repacked:</strong> Side-chain coordinates reflect local FoldX force-field energy minimisation.
-                    {mutantDdG !== null && mutantDdG !== undefined
-                      ? ` Predicted ΔΔG: ${formatDdG(mutantDdG, energyUnit)}.`
-                      : " ΔΔG unavailable."}
-                  </p>
-                  {templateSource === "alphafold" ? (
-                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-indigo-500/10 text-indigo-400 border-indigo-500/20 font-bold w-fit font-sans">
-                      confidence: inherited from WT
-                    </div>
-                  ) : templateSource === "experimental" ? (
-                    <div className="mt-2 text-[8px] px-1.5 py-0.5 rounded border bg-slate-500/10 text-slate-400 border-slate-500/20 font-bold w-fit font-sans">
-                      no AF confidence (experimental template)
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-      )}
-      {/* Bottom bar: Model Status info + actions all in one aligned bar below the viewport */}
-      <div className={`flex flex-col md:flex-row items-center justify-between gap-3 px-4 py-3 border-t z-10 transition-colors pointer-events-auto ${
-        isDark 
-          ? "bg-[#0b0f19] border-slate-800 text-slate-350" 
-          : "bg-slate-50 border-slate-200 text-slate-600 shadow-sm"
-      }`}>
-        {/* Left: Model Info (Pills/Capsules style instead of vertical dividers) */}
+    <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} flex flex-col overflow-hidden transition-all border rounded-xl`} style={{ background: "var(--cs-bg)", borderColor: "var(--cs-border)" }}>
+      
+      {/* TOP CONTROL TOOLBAR: Unified Protein Source Indicator & Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b z-20 shrink-0 pointer-events-auto shadow-xs" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+        {/* Left: Unified Protein Source Badge, Gene, Residue, Focus Button */}
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-          {/* Status badge pill */}
-          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
-            isDark ? "bg-indigo-950/40 border-indigo-500/25 text-indigo-400" : "bg-indigo-50 border-indigo-100 text-indigo-700"
-          }`}>
-            {comparePdbData ? (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-                <span>Superimposed</span>
-              </>
-            ) : customPdbData ? (
-              mutantStatus === "success" ? (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-                  <span>FoldX</span>
-                </>
+          <span 
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px]"
+            style={{
+              background: "var(--cs-surface-2)",
+              borderColor: "var(--cs-border)",
+              color: "var(--cs-text-primary)"
+            }}
+          >
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "var(--cs-accent)" }} />
+            <span>
+              {comparePdbData ? (
+                "Superimposed Structures"
+              ) : customPdbData ? (
+                mutantStatus === "success" ? "FoldX Mutant PDB" : "SCWRL4 Mutant PDB"
+              ) : active3dModelTab === "esmfold2" ? (
+                "ESMFold2 Mutant Model"
+              ) : customPdbUrl ? (
+                "Experimental Homolog PDB"
+              ) : pdbSource === "RCSB PDB" && pdbId ? (
+                `RCSB PDB: ${pdbId.toUpperCase()}`
+              ) : uniprotId ? (
+                `AlphaFold DB (AF-${uniprotId})`
               ) : (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
-                  <span className="text-amber-500">SCWRL4</span>
-                </>
-              )
-            ) : uniprotId ? (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
-                <span>{pdbSource === "RCSB PDB" && pdbId ? `PDB: ${pdbId.toUpperCase()}` : `AF-${uniprotId}`}</span>
-              </>
-            ) : (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                <span>No Structure</span>
-              </>
-            )}
+                "No Structure Loaded"
+              )}
+            </span>
           </span>
 
-          {/* Gene symbol pill */}
           {gene && (
-            <span className={`px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
-              isDark ? "bg-slate-900/60 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-600"
-            }`}>
-              Gene: <strong className={isDark ? "text-white" : "text-slate-900 font-bold"}>{gene}</strong>
+            <span 
+              className="px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px]"
+              style={{
+                background: "var(--cs-surface-2)",
+                borderColor: "var(--cs-border-subtle)",
+                color: "var(--cs-text-secondary)"
+              }}
+            >
+              Gene: <strong style={{ color: "var(--cs-text-primary)" }}>{gene}</strong>
             </span>
           )}
 
-          {/* Residue position pill */}
           {residueIndex !== null && (
-            <span className={`px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
-              isDark ? "bg-amber-950/20 border-amber-500/20 text-amber-500" : "bg-amber-50 border-amber-100 text-amber-600"
-            }`}>
+            <span 
+              className="px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px]"
+              style={{
+                background: "var(--cs-accent-mag-soft)",
+                borderColor: "var(--cs-accent-mag)",
+                color: "var(--cs-accent-mag)"
+              }}
+            >
               Residue: <strong>#{residueIndex}</strong>
             </span>
           )}
 
-          {/* Comparison Variant pill */}
-          {comparePdbData && compareResidueIndex !== null && compareResidueIndex !== undefined && (
-            <span className={`px-2.5 py-1 rounded-full border font-bold uppercase tracking-wide text-[10px] ${
-              isDark ? "bg-pink-950/20 border-pink-500/20 text-pink-400" : "bg-pink-50 border-pink-100 text-pink-600"
-            }`}>
-              Variant 2: <strong>#{compareResidueIndex} ({compareVariant || "Compare"})</strong>
-            </span>
+          {residueIndex !== null && (
+            <button
+              type="button"
+              onClick={() => focusOnPocketResidue(residueIndex)}
+              className="px-2.5 py-1 rounded-full border flex items-center gap-1.5 text-[10px] font-mono font-semibold transition-all hover:bg-[var(--cs-bg-subtle)] cursor-pointer"
+              style={{
+                background: "var(--cs-surface)",
+                borderColor: "var(--cs-border)",
+                color: "var(--cs-accent)"
+              }}
+              title={`Focus 3D camera on residue ${residueIndex}`}
+            >
+              <Target className="w-3 h-3" style={{ color: "var(--cs-accent)" }} />
+              <span>Focus Residue #{residueIndex}</span>
+            </button>
           )}
         </div>
 
-        {/* Right: Actions (PLDDT Filter, Fullscreen, Capture, Pocket Finder) */}
+        {/* Right: Actions (Representation, pLDDT Filter, Pocket Finder, Capture View, Fullscreen) */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Representation Style Selector */}
-          <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none font-mono">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden md:inline">
+          <div className="flex items-center gap-1.5 pl-2 border-l" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <span className="text-[10px] font-bold uppercase tracking-wider hidden md:inline" style={{ color: "var(--cs-text-muted)" }}>
               Representation:
             </span>
             <select
               value={viewerStyle}
-              onChange={(e) => setViewerStyle(e.target.value as "confidence" | "biomolecular")}
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
-                isDark 
-                  ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
-                  : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
-              }`}
+              onChange={(e) => setViewerStyle(e.target.value as "confidence" | "biomolecular" | "esm3-allosteric")}
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors"
+              style={{
+                background: "var(--cs-surface)",
+                borderColor: "var(--cs-border)",
+                color: "var(--cs-text-primary)"
+              }}
             >
               <option value="confidence">pLDDT / B-factor</option>
               <option value="biomolecular">Cartoon & Sticks</option>
+              <option value="esm3-allosteric">ESM3 Allosteric Heatmap</option>
             </select>
           </div>
 
+          {/* pLDDT Filter Selector */}
           {templateSource === "alphafold" && (
-            <div className="flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-800 pl-2.5 pr-0.5 select-none font-mono">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hidden md:inline">
+            <div className="flex items-center gap-1.5 pl-2 border-l" style={{ borderColor: "var(--cs-border-subtle)" }}>
+              <span className="text-[10px] font-bold uppercase tracking-wider hidden md:inline" style={{ color: "var(--cs-text-muted)" }}>
                 pLDDT Filter:
               </span>
               <select
                 value={plddtFilter}
                 onChange={(e) => setPlddtFilter(e.target.value as "none" | "30" | "50" | "70")}
-                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors ${
-                  isDark 
-                    ? "bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700" 
-                    : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
-                }`}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold outline-none cursor-pointer border transition-colors"
+                style={{
+                  background: "var(--cs-surface)",
+                  borderColor: "var(--cs-border)",
+                  color: "var(--cs-text-primary)"
+                }}
               >
                 <option value="none">Show All</option>
                 <option value="50">pLDDT &ge; 50</option>
@@ -1703,71 +1324,7 @@ export default function MolstarViewer({
             </div>
           )}
 
-          {/* Fullscreen Button */}
-          <button
-            type="button"
-            onClick={handleToggleFullscreen}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none ${
-              isDark
-                ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white"
-                : "bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-slate-900"
-            }`}
-            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-
-          {/* Capture View split button */}
-          <div className="relative flex" ref={captureMenuRef}>
-            <button
-              type="button"
-              onClick={() => setCaptureMenuOpen(p => !p)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none ${
-                captureMenuOpen
-                  ? isDark
-                    ? "bg-indigo-900/30 border-indigo-500/50 text-indigo-300"
-                    : "bg-indigo-50 border-indigo-355 text-indigo-700"
-                  : isDark
-                    ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white"
-                    : "bg-white hover:bg-slate-50 border-slate-300 text-slate-750 hover:text-slate-900"
-              }`}
-              title="Capture view options"
-            >
-              <Camera className="w-4 h-4 text-indigo-500" />
-              <span>Capture View</span>
-              <ChevronUp className={`w-3.5 h-3.5 transition-transform ${captureMenuOpen ? "" : "rotate-180"}`} />
-            </button>
-            
-            {/* Themed Dropdown menu — pops upward */}
-            {captureMenuOpen && (
-              <div 
-                className="absolute bottom-full right-0 mb-1.5 w-44 rounded-xl border overflow-hidden z-30 animate-slide-in font-mono"
-                style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
-              >
-                <button
-                  type="button"
-                  onClick={handleDownloadCapture}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors cursor-pointer text-left`}
-                  style={{ color: "var(--cs-text-primary)" }}
-                >
-                  <Download className="w-4 h-4 text-indigo-500 shrink-0" />
-                  <span>Download PNG</span>
-                </button>
-                <div className="h-px" style={{ background: "var(--cs-border-subtle)" }} />
-                <button
-                  type="button"
-                  onClick={handleCopyCapture}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors cursor-pointer text-left`}
-                  style={{ color: "var(--cs-text-primary)" }}
-                >
-                  <ClipboardCopy className="w-4 h-4 text-indigo-500 shrink-0" />
-                  <span>Copy Image</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Binding pocket identifier button */}
+          {/* Pocket Finder Action Button */}
           <button
             type="button"
             onClick={() => {
@@ -1775,55 +1332,278 @@ export default function MolstarViewer({
               setIsPocketPanelOpen(next);
               setShowPocket(next);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none ${
-              isPocketPanelOpen
-                ? "bg-amber-500 border-amber-600 text-slate-950 font-bold"
-                : isDark
-                  ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white"
-                  : "bg-white hover:bg-slate-50 border-slate-300 text-slate-750 hover:text-slate-900"
-            }`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none"
+            style={{
+              background: isPocketPanelOpen ? "var(--cs-accent-clay)" : "var(--cs-surface)",
+              borderColor: isPocketPanelOpen ? "var(--cs-accent-clay)" : "var(--cs-border)",
+              color: isPocketPanelOpen ? "#ffffff" : "var(--cs-text-primary)"
+            }}
             title="Run binding pocket analysis"
           >
-            <Cpu className={`w-4 h-4 ${isPocketPanelOpen ? "text-slate-950 animate-pulse" : "text-indigo-500"}`} />
+            <Cpu className={`w-4 h-4 ${isPocketPanelOpen ? "text-white animate-pulse" : ""}`} style={{ color: isPocketPanelOpen ? "#ffffff" : "var(--cs-accent)" }} />
             <span>Pocket Finder</span>
           </button>
+
+          {/* Capture View Dropdown Button */}
+          <div className="relative flex" ref={captureMenuRef}>
+            <button
+              type="button"
+              onClick={() => setCaptureMenuOpen(p => !p)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none"
+              style={{
+                background: captureMenuOpen ? "var(--cs-bg-subtle)" : "var(--cs-surface)",
+                borderColor: "var(--cs-border)",
+                color: "var(--cs-text-primary)"
+              }}
+              title="Capture view options"
+            >
+              <Camera className="w-4 h-4" style={{ color: "var(--cs-accent)" }} />
+              <span>Capture View</span>
+              <ChevronUp className={`w-3.5 h-3.5 transition-transform ${captureMenuOpen ? "" : "rotate-180"}`} />
+            </button>
+
+            {captureMenuOpen && (
+              <div 
+                className="absolute top-full right-0 mt-1.5 w-44 rounded-xl border overflow-hidden z-30 animate-slide-in font-mono shadow-lg"
+                style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+              >
+                <button
+                  type="button"
+                  onClick={handleDownloadCapture}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors cursor-pointer text-left hover:bg-[var(--cs-bg-subtle)]"
+                  style={{ color: "var(--cs-text-primary)" }}
+                >
+                  <Download className="w-4 h-4 shrink-0" style={{ color: "var(--cs-accent)" }} />
+                  <span>Download PNG</span>
+                </button>
+                <div className="h-px" style={{ background: "var(--cs-border-subtle)" }} />
+                <button
+                  type="button"
+                  onClick={handleCopyCapture}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors cursor-pointer text-left hover:bg-[var(--cs-bg-subtle)]"
+                  style={{ color: "var(--cs-text-primary)" }}
+                >
+                  <ClipboardCopy className="w-4 h-4 shrink-0" style={{ color: "var(--cs-accent)" }} />
+                  <span>Copy Image</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Fullscreen Button */}
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none hover:bg-[var(--cs-bg-subtle)]"
+            style={{
+              background: "var(--cs-surface)",
+              borderColor: "var(--cs-border)",
+              color: "var(--cs-text-primary)"
+            }}
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
         </div>
+      </div>
+
+      {/* Main Viewport Container */}
+      <div className="flex-1 min-h-0 relative w-full h-full">
+
+        {/* ESM3 Representation Data Unavailable Overlay */}
+        {viewerStyle === "esm3-allosteric" && !analysisContext.state.result?.esm3Eval && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
+            <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-muted)" }} />
+            <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>
+              ESM3 Representation Data Unavailable
+            </p>
+            <p className="text-xs max-w-md mb-4 text-center leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+              Allosteric perturbation heatmap requires an active Biohub API token. Configure your Biohub key in Settings to analyze structure-level attention maps.
+            </p>
+          </div>
+        )}
+
+        {/* ESMFold2 Active Prediction Loading State */}
+        {active3dModelTab === "esmfold2" && isEsmFolding && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
+            <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent)", borderTopColor: "transparent" }}></div>
+            <p className="font-mono text-xs font-bold tracking-wider uppercase animate-pulse" style={{ color: "var(--cs-accent)" }}>
+              Predicting 3D Mutant Fold via ESMFold2...
+            </p>
+            <p className="text-xs mt-2 text-center max-w-sm" style={{ color: "var(--cs-text-muted)" }}>
+              Running deep transformer sequence folding query on Biohub server...
+            </p>
+          </div>
+        )}
+
+        {/* Standard Model Loading Overlay */}
+        {loading && !isEsmFolding && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
+            <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent)", borderTopColor: "transparent" }}></div>
+            <p className="font-mono text-xs font-bold tracking-wider uppercase animate-pulse" style={{ color: "var(--cs-accent)" }}>
+              {customPdbData ? "Rendering Mutant Structure..." : "Fetching Structure Coordinates..."}
+            </p>
+            <p className="text-xs mt-2 text-center max-w-sm" style={{ color: "var(--cs-text-muted)" }}>
+              {customPdbData 
+                ? `Processing custom 3D mutant biophysical simulation via local FoldX engine...`
+                : `Downloading 3D PDB structure for UniProt accession: ${uniprotId}`}
+            </p>
+          </div>
+        )}
+
+        {/* Structure Load Error Overlay */}
+        {(loadError || (active3dModelTab === "esmfold2" && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
+            <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-danger)" }} />
+            <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>Structure Unavailable</p>
+            <p className="text-xs max-w-md mb-4" style={{ color: "var(--cs-text-secondary)" }}>
+              {loadError || esmFoldingError || "ESMFold2 3D model generation failed or endpoint is unreachable."}
+            </p>
+            <div className="text-xs p-3 rounded-lg text-left font-mono max-w-md w-full overflow-hidden border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
+              Source Diagnostic: <span className="font-semibold break-all" style={{ color: "var(--cs-text-danger)" }}>
+                {active3dModelTab === "esmfold2"
+                  ? (esmFoldingError || "Biohub API endpoint unreachable (HTTP 502 / Connection Timeout)")
+                  : customPdbData 
+                    ? "Target FoldX Mutated Output" 
+                    : customPdbUrl
+                      ? `Custom PDB Model (${customPdbUrl.split('/').pop() || customPdbUrl})`
+                      : pdbSource === "RCSB PDB" && pdbId 
+                        ? `RCSB PDB (ID: ${pdbId.toUpperCase()})` 
+                        : `AlphaFold DB v4 (AF-${uniprotId})`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Onboarding Welcome Overlay */}
+        {!uniprotId && !customPdbData && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-8 text-center" style={{ background: "var(--cs-bg)", color: "var(--cs-text-primary)" }}>
+            <div className="relative mb-6 group cursor-default">
+              <div className="relative p-6 rounded-2xl border transition-all duration-500 ease-out" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                <svg className="w-14 h-14 animate-[spin_10s_linear_infinite]" style={{ color: "var(--cs-accent)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+              </div>
+            </div>
+            
+            <h3 className="text-sm font-semibold font-mono uppercase tracking-wider mb-3" style={{ color: "var(--cs-accent)" }}>
+              3D Molecular Workspace Ready
+            </h3>
+            <div className="w-16 h-[1px] mx-auto mb-4" style={{ background: "var(--cs-border)" }}></div>
+            
+            <p className="text-xs max-w-sm mb-6 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
+              Submit a genetic variant search query to load and inspect 3D protein structures. You can simulate mutation side-chains, calculate structural pockets, and analyze local structural disruptions.
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 font-mono">
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
+                ⚡ AlphaFold 3D Structures
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
+                🧪 FoldX Biophysics Engine
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
+                🧬 Variant Mutagenesis
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div 
+          ref={containerRef} 
+          id="molstar-viewer-container" 
+          className={`w-full h-full text-slate-900 transition-all duration-700 ease-out ${
+            isTransitioning ? "opacity-35 scale-[0.985] blur-[1px]" : "opacity-100 scale-100 blur-0"
+          }`}
+        />
+
+        {/* FoldX / SCWRL4 result — collapsible draggable badge */}
+        {customPdbData && mutantStatus && (
+          <div
+            className={`absolute z-20 max-w-[300px] pointer-events-auto select-none transition-shadow rounded-xl border border-l-4 border-l-indigo-500 overflow-hidden backdrop-blur-md ${
+              isFoldXDragging ? "shadow-2xl" : "shadow-md"
+            }`}
+            onMouseDown={handleFoldXMouseDown}
+            style={{
+              top: `calc(0.75rem + ${foldXPosition.y}px)`,
+              left: `calc(0.75rem + ${foldXPosition.x}px)`,
+              cursor: isFoldXDragging ? 'grabbing' : 'grab',
+              background: "var(--cs-surface)",
+              borderColor: "var(--cs-border)",
+              color: "var(--cs-text-primary)"
+            }}
+          >
+            {mutantStatus === "success" ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setFoldxBannerCollapsed(p => !p)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 text-indigo-500 shrink-0 animate-pulse" />
+                    <span className="text-[10px] font-bold font-mono uppercase tracking-wider">
+                      FoldX Model
+                    </span>
+                    {mutantDdG !== null && mutantDdG !== undefined && (
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-accent)" }}>
+                        ΔΔG: {mutantDdG.toFixed(2)} kcal/mol
+                      </span>
+                    )}
+                  </div>
+                  {foldxBannerCollapsed
+                    ? <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                    : <ChevronUp className="w-3 h-3 text-slate-400 shrink-0" />}
+                </button>
+                {!foldxBannerCollapsed && (
+                  <div className="px-3 pb-2.5 pt-0 text-[10px] font-mono border-t" style={{ borderColor: "var(--cs-border-subtle)", color: "var(--cs-text-secondary)" }}>
+                    <p className="leading-relaxed mt-1.5">
+                      <strong>Biophysically Repacked:</strong> Side-chain coordinates reflect local FoldX force-field energy minimisation.
+                      {mutantDdG !== null && mutantDdG !== undefined
+                        ? ` Predicted ΔΔG: ${formatDdG(mutantDdG, energyUnit)}.`
+                        : " ΔΔG unavailable."}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* Slide-out Automated Pocket Control Panel */}
       {isPocketPanelOpen && (
         <div
           id="pocket-finder-suite-panel"
-          className={`absolute top-14 right-3 max-h-[calc(100%-80px)] h-fit w-[310px] z-20 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden shadow-2xl animate-fade-in pointer-events-auto transition-all ${
-            isDark
-              ? "bg-slate-900/95 border-slate-800 text-slate-100"
-              : "bg-white/95 border-slate-200 text-slate-900 shadow-indigo-100/30"
-          }`}
+          className="absolute top-14 right-3 max-h-[calc(100%-80px)] h-fit w-[310px] z-20 backdrop-blur-md rounded-xl border flex flex-col overflow-hidden shadow-2xl animate-fade-in pointer-events-auto transition-all"
           style={{
             transform: `translate(${pocketPosition.x}px, ${pocketPosition.y}px)`,
+            background: "var(--cs-surface)",
+            borderColor: "var(--cs-border)",
+            color: "var(--cs-text-primary)"
           }}
         >
           {/* Header */}
           <div 
-            className="flex items-center justify-between p-3.5 border-b border-indigo-500/10 bg-indigo-500/5 cursor-grab active:cursor-grabbing select-none"
+            className="flex items-center justify-between p-3.5 border-b cursor-grab active:cursor-grabbing select-none"
+            style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}
             onMouseDown={handlePocketMouseDown}
           >
             <div className="flex items-center gap-2.5">
-              <Activity className="w-4 h-4 text-amber-500 animate-pulse" />
+              <Activity className="w-4 h-4 animate-pulse" style={{ color: "var(--cs-accent)" }} />
               <div>
-                <h3 className="text-[11.5px] font-bold uppercase tracking-wider font-mono">Active Site Cavity Solver</h3>
-                <p className="text-[8.5px] opacity-75 font-mono">3D Spatial Proximity & Pocket Analysis</p>
+                <h3 className="text-[11.5px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-primary)" }}>Active Site Cavity Solver</h3>
+                <p className="text-[8.5px] font-mono" style={{ color: "var(--cs-text-muted)" }}>3D Spatial Proximity & Pocket Analysis</p>
               </div>
             </div>
             
             <button
               type="button"
               onClick={() => setIsPocketPanelOpen(false)}
-              className={`p-1 rounded-md transition-colors hover:bg-slate-500/10 cursor-pointer ${
-                isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-950"
-              }`}
+              className="p-1 rounded-md transition-colors hover:bg-[var(--cs-bg-subtle)] cursor-pointer"
+              style={{ color: "var(--cs-text-secondary)" }}
             >
-              <X className="w-3 h-3" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -1831,17 +1611,17 @@ export default function MolstarViewer({
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 custom-scrollbar">
             {residueIndex === null ? (
               <div className="text-center py-6">
-                <p className="text-xs text-slate-500 font-mono">Select a residue to run coordinate calculations.</p>
+                <p className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>Select a residue to run coordinate calculations.</p>
               </div>
             ) : isPocketLoading ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-[9px] font-mono text-slate-400 animate-pulse text-center uppercase tracking-wider px-2">
+                <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent)", borderTopColor: "transparent" }}></div>
+                <p className="text-[9px] font-mono animate-pulse text-center uppercase tracking-wider px-2" style={{ color: "var(--cs-text-muted)" }}>
                   Analyzing Local Spatial Proximities Server-side...
                 </p>
               </div>
             ) : pocketError ? (
-              <div className="text-center py-12 px-3 text-rose-500 font-mono text-xs border border-rose-500/20 rounded-lg bg-rose-500/5">
+              <div className="text-center py-12 px-3 font-mono text-xs border rounded-lg" style={{ borderColor: "var(--cs-border)", background: "var(--cs-surface-2)", color: "var(--cs-text-danger)" }}>
                 <p className="font-bold mb-1">Server Calculation Error</p>
                 <p className="text-[10px] opacity-80">{pocketError}</p>
               </div>
@@ -1849,69 +1629,62 @@ export default function MolstarViewer({
               <>
                 {/* Pocket Stats Bento Grid */}
                 <div className="grid grid-cols-2 gap-2.5 text-center font-mono">
-                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Pocket Volume</span>
-                    <strong className="text-[13.5px] text-indigo-400 block mt-0.5">{computedPocket.pocketVolume} Å³</strong>
+                  <div className="p-2.5 rounded-lg border text-center" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[9.5px] uppercase font-bold" style={{ color: "var(--cs-text-muted)" }}>Pocket Volume</span>
+                    <strong className="text-[13.5px] block mt-0.5" style={{ color: "var(--cs-accent)" }}>{computedPocket.pocketVolume} Å³</strong>
                   </div>
                   
-                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Affinity Prob.</span>
-                    <strong className="text-[13.5px] text-amber-500 block mt-0.5">{computedPocket.pocketScore}%</strong>
+                  <div className="p-2.5 rounded-lg border text-center" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[9.5px] uppercase font-bold" style={{ color: "var(--cs-text-muted)" }}>Affinity Prob.</span>
+                    <strong className="text-[13.5px] block mt-0.5" style={{ color: "var(--cs-accent)" }}>{computedPocket.pocketScore}%</strong>
                   </div>
 
-                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Centroid Dist.</span>
-                    <strong className={`text-[13.5px] block mt-0.5 ${
-                      computedPocket.pocketDistance !== null && computedPocket.pocketDistance < 10
-                        ? "text-rose-500"
-                        : "text-indigo-400"
-                    }`}>
+                  <div className="p-2.5 rounded-lg border text-center" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[9.5px] uppercase font-bold" style={{ color: "var(--cs-text-muted)" }}>Centroid Dist.</span>
+                    <strong className="text-[13.5px] block mt-0.5" style={{ color: computedPocket.pocketDistance !== null && computedPocket.pocketDistance < 10 ? "var(--cs-text-danger)" : "var(--cs-text-primary)" }}>
                       {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
                         ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
                         : "N/A"}
                     </strong>
                   </div>
 
-                  <div className={`p-2.5 rounded-lg border text-center ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"}`}>
-                    <span className="block text-[9.5px] uppercase text-slate-500 font-bold">Lining residues</span>
-                    <strong className="text-[13.5px] text-emerald-500 block mt-0.5">{computedPocket.pocketResidues?.length || 0}</strong>
+                  <div className="p-2.5 rounded-lg border text-center" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                    <span className="block text-[9.5px] uppercase font-bold" style={{ color: "var(--cs-text-muted)" }}>Lining residues</span>
+                    <strong className="text-[13.5px] block mt-0.5" style={{ color: "var(--cs-text-success)" }}>{computedPocket.pocketResidues?.length || 0}</strong>
                   </div>
                 </div>
 
                 {/* Predicted Substrate */}
-                <div className={`p-2.5 rounded-lg border ${
-                  isDark ? "bg-slate-900/50 border-slate-800" : "bg-slate-50 border-slate-200"
-                }`}>
-                  <span className="block text-[9.5px] uppercase text-slate-500 font-bold font-mono">
+                <div className="p-2.5 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                  <span className="block text-[9.5px] uppercase font-bold font-mono" style={{ color: "var(--cs-text-muted)" }}>
                     Likely Target Co-Factor
                   </span>
                   <div className="flex items-center gap-1.5 mt-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className="text-[11.5px] font-bold text-slate-400 truncate">{computedPocket.likelyCofactor}</span>
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-accent)" }} />
+                    <span className="text-[11.5px] font-bold truncate" style={{ color: "var(--cs-text-primary)" }}>{computedPocket.likelyCofactor}</span>
                   </div>
                 </div>
 
                 {/* Highlight Full Pocket Action */}
-                <div className="flex items-center justify-between border-t border-b border-indigo-500/10 py-2.5">
-                  <span className="text-[11px] font-bold font-mono text-slate-500 uppercase">3D Highlights</span>
+                <div className="flex items-center justify-between border-t border-b py-2.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                  <span className="text-[11px] font-bold font-mono uppercase" style={{ color: "var(--cs-text-muted)" }}>3D Highlights</span>
                   
                   <button
                     type="button"
                     onClick={() => setShowPocket(p => !p)}
-                    className={`px-3 py-1 rounded text-[10px] font-mono font-bold transition-all select-none cursor-pointer ${
-                      showPocket
-                        ? "bg-amber-500 hover:bg-amber-600 text-slate-950"
-                        : isDark ? "bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300" : "bg-slate-100 hover:bg-slate-200 text-slate-800"
-                    }`}
+                    className="px-3 py-1 rounded text-[10px] font-mono font-bold transition-all select-none cursor-pointer"
+                    style={{
+                      background: showPocket ? "var(--cs-accent)" : "var(--cs-surface-2)",
+                      borderColor: "var(--cs-border)",
+                      color: showPocket ? "#ffffff" : "var(--cs-text-primary)"
+                    }}
                   >
                     {showPocket ? " Cavity ON" : " Cavity OFF"}
                   </button>
                 </div>
 
-                {/* Info redirect block instead of crowded list */}
-                <div className={`p-3 rounded-lg border flex flex-col gap-1.5 leading-relaxed text-[11px] text-slate-500 ${
-                  isDark ? "bg-indigo-950/10 border-indigo-500/10" : "bg-indigo-50/20 border-indigo-100/50"
-                }`}>
+                {/* Info redirect block */}
+                <div className="p-3 rounded-lg border flex flex-col gap-1.5 leading-relaxed text-[11px]" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
                   <p>
                     💡 Detailed spatial lining residue metrics, distance calculations, and curated functional site annotations are available under the <strong>Function</strong> tab in the evidence dashboard.
                   </p>
@@ -1919,13 +1692,13 @@ export default function MolstarViewer({
               </>
             ) : (
               <div className="text-center py-6">
-                <p className="text-xs text-slate-500 font-mono">No pocket coordinate results loaded.</p>
+                <p className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>No pocket coordinate results loaded.</p>
               </div>
             )}
           </div>
           
           {/* Footer panel caption */}
-          <div className="p-2 border-t border-indigo-500/10 bg-indigo-500/5 text-center text-[7.5px] font-mono text-slate-500 uppercase select-none">
+          <div className="p-2 border-t text-center text-[7.5px] font-mono uppercase select-none" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)", color: "var(--cs-text-muted)" }}>
             Spatial Proximity Threshold &lt; 10.0 Å
           </div>
         </div>
@@ -1938,25 +1711,17 @@ export default function MolstarViewer({
           onMouseDown={handleMouseDown}
           style={{
             transform: `translate(${alertPosition.x}px, ${alertPosition.y}px)`,
-            cursor: isDragging ? 'grabbing' : 'grab'
+            cursor: isDragging ? 'grabbing' : 'grab',
+            background: "var(--cs-surface)",
+            borderColor: "var(--cs-border)",
+            color: "var(--cs-text-primary)"
           }}
-          className={`absolute top-3 right-12 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border border-l-4 border-l-rose-500 z-20 shadow-xl transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none ${
-            isDark
-              ? "bg-slate-900/95 border-slate-800 text-slate-200"
-              : "bg-white/95 border-slate-200 text-slate-800"
-          }`}
+          className="absolute top-3 right-12 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border border-l-4 border-l-rose-500 z-20 shadow-xl transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none"
         >
-          <div className="flex items-center justify-between gap-4 border-b pb-1.5 border-rose-500/10">
+          <div className="flex items-center justify-between gap-4 border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full animate-ping ${
-                disruptionWarning.type === 'hbond' ? 'bg-sky-500' : 'bg-rose-500'
-              }`}></span>
-              <span className={`w-1.5 h-1.5 rounded-full absolute ${
-                disruptionWarning.type === 'hbond' ? 'bg-sky-500' : 'bg-rose-500'
-              }`}></span>
-              <span className={`text-[9px] font-extrabold uppercase tracking-widest font-mono ${
-                disruptionWarning.type === 'hbond' ? 'text-sky-500' : 'text-rose-500'
-              }`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+              <span className="text-[9px] font-extrabold uppercase tracking-widest font-mono" style={{ color: "var(--cs-text-danger)" }}>
                 Biophysical Insight Alert
               </span>
             </div>
@@ -1967,9 +1732,8 @@ export default function MolstarViewer({
                 e.stopPropagation();
                 setIsAlertClosed(true);
               }}
-              className={`p-1 rounded-md transition-colors hover:bg-slate-500/10 cursor-pointer ${
-                isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-950"
-              }`}
+              className="p-1 rounded-md transition-colors hover:bg-[var(--cs-bg-subtle)] cursor-pointer"
+              style={{ color: "var(--cs-text-secondary)" }}
               title="Dismiss alert"
             >
               <X className="w-3.5 h-3.5" />
@@ -1979,11 +1743,11 @@ export default function MolstarViewer({
           <h4 className="text-xs font-bold leading-tight flex items-center gap-1">
             {disruptionWarning.title}
           </h4>
-          <p className={`text-[10px] leading-relaxed opacity-95 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+          <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
             {disruptionWarning.description}
           </p>
           
-          <div className="text-[8px] font-mono opacity-50 text-right mt-0.5 select-none text-slate-400">
+          <div className="text-[8px] font-mono text-right mt-0.5 select-none" style={{ color: "var(--cs-text-muted)" }}>
             ⌥ Click & drag to move
           </div>
         </div>
@@ -1991,3 +1755,4 @@ export default function MolstarViewer({
     </div>
   );
 }
+

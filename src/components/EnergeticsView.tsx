@@ -24,6 +24,7 @@ interface EnergeticsViewProps {
   foldingEnergetics?: EnergeticsData | null;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
+  thermompnnStatus?: "pending" | "unavailable" | "done" | null;
   disruptionPredictor?: { level: "high" | "low"; reason: string; plddt: number } | null;
   isFolding?: boolean;
   foldingError?: string | null;
@@ -72,13 +73,13 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Blaabjerg et al. Cell Systems (2023)",
     paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
   },
-  ddgun: {
-    name: "DDGun-Seq",
-    category: "Sequence/Evolution Integration",
-    description: "DDGun is a sequence-based method for predicting protein stability changes upon mutation (ΔΔG). It combines evolutionary information from sequence profiles with structural features estimated from sequences.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
-    paperTitle: "Montanucci et al. Brief Bioinform (2019)",
-    paperUrl: "https://doi.org/10.1093/bib/bby118"
+  thermompnn: {
+    name: "ThermoMPNN",
+    category: "Neural Backbone Stability (ProteinMPNN)",
+    description: "ThermoMPNN predicts thermodynamic stability changes (ΔΔG° = mutant - wildtype) using ProteinMPNN structural embeddings trained on >770,000 experimental measurements.",
+    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative scores represent predicted stabilizing variants.",
+    paperTitle: "Pei et al. bioRxiv / Tamarind Bio (2024)",
+    paperUrl: "https://docs.tamarind.bio/tools/thermompnn"
   },
   rmsd: {
     name: "Sidechain RMSD",
@@ -120,6 +121,7 @@ export default function EnergeticsView({
   foldingEnergetics,
   dynamut2Status,
   ddmutStatus,
+  thermompnnStatus,
   disruptionPredictor,
   isFolding = false,
   foldingError = null,
@@ -181,7 +183,7 @@ export default function EnergeticsView({
     dynamut2: foldingEnergetics?.dynamut2 ?? result.dynamut2 ?? null,
     ddmut: foldingEnergetics?.ddmut ?? result.ddmut ?? null,
     rasp: foldingEnergetics?.rasp ?? result.rasp ?? null,
-    ddgun: foldingEnergetics?.ddgun ?? null,
+    thermompnn: foldingEnergetics?.thermompnn ?? result.thermompnn ?? null,
     bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null,
     raspReason: (foldingEnergetics as any)?.raspReason
@@ -242,7 +244,7 @@ export default function EnergeticsView({
               <span>Biophysical Simulation Failed</span>
             </div>
             <p className="text-xs leading-relaxed opacity-90">
-              Simulation failed: <strong>{foldingError}</strong>. Displaying sequence-based (DDGun-Seq) fallback energetics only.
+              Simulation failed: <strong>{foldingError}</strong>. Displaying sequence-based and structure-based fallback predictions only.
             </p>
           </div>
         )}
@@ -266,7 +268,7 @@ export default function EnergeticsView({
               <span>FoldX Modeling Unavailable</span>
             </div>
             <p className="text-xs leading-relaxed opacity-90">
-              The local FoldX structural calculation engine is currently unavailable or failed in this environment. Displaying sequence-based (DDGun-Seq) and structural-based (DynaMut2 / DDMut) fallback energetics only.
+              The local FoldX structural calculation engine is currently unavailable or failed in this environment. Displaying sequence-based and structural-based (DynaMut2 / DDMut) fallback energetics only.
             </p>
           </div>
         )}
@@ -287,11 +289,13 @@ export default function EnergeticsView({
                   const isFoldxPending = (foldingStatus === null || isFolding) && energetics.foldxMean === null;
                   const isDynamutPending = (dynamut2Status === "pending" || (isFolding && energetics.dynamut2 === null));
                   const isDdmutPending = (ddmutStatus === "pending" || (isFolding && energetics.ddmut === null));
+                  const isThermompnnPending = (thermompnnStatus === "pending" || (isFolding && energetics.thermompnn === null));
 
                   const pendingList: { key: string; name: string }[] = [];
                   if (isFoldxPending) pendingList.push({ key: "foldx", name: "FoldX" });
                   if (isDynamutPending) pendingList.push({ key: "dynamut2", name: "DynaMut2" });
                   if (isDdmutPending) pendingList.push({ key: "ddmut", name: "DDMut (Deep Learning)" });
+                  if (isThermompnnPending) pendingList.push({ key: "thermompnn", name: "ThermoMPNN" });
 
                   const collapsePending = pendingList.length >= 2;
 
@@ -300,7 +304,7 @@ export default function EnergeticsView({
                     { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true, isPending: isDynamutPending },
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
                     { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: true, isPending: false },
-                    { key: "ddgun", name: "DDGun-Seq", type: "Sequence/Evolution Integration", val: energetics.ddgun, invertSign: true, isPending: false }
+                    { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending }
                   ];
 
                   const rows: React.ReactNode[] = [];
@@ -339,8 +343,17 @@ export default function EnergeticsView({
                       badge = { label: "Calculating", category: "Calculating", style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold" };
                     } else {
                       scoreText = "Unavailable";
-                      badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
+                      if (item.key === "rasp") {
+                        badge = { 
+                          label: "Not in Zenodo DB", 
+                          category: "Not in Zenodo DB", 
+                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" 
+                        };
+                      } else {
+                        badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
+                      }
                     }
+
 
                     rows.push(
                       <tr key={item.key} className="hover:bg-[var(--cs-bg-subtle)] transition-colors animate-fade-in" style={{ color: "var(--cs-text-primary)", borderBottom: idx < items.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
@@ -417,20 +430,20 @@ export default function EnergeticsView({
               const dynamut2 = energetics.dynamut2;
               const ddmut = energetics.ddmut;
               const rasp = energetics.rasp;
-              const ddgun = energetics.ddgun;
+              const thermompnn = energetics.thermompnn;
 
               const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
               const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
               const ddmutDestab = ddmut !== null && ddmut <= -1.0;
               const raspDestab = rasp !== null && rasp <= -1.0;
-              const ddgunDestab = ddgun !== null && ddgun <= -1.0;
+              const tmDestab = thermompnn !== null && thermompnn >= 1.0;
 
               const votes = [
                 { name: "FoldX", destab: foldxDestab, val: foldxMean },
                 { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
                 { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
                 { name: "RaSP", destab: raspDestab, val: rasp },
-                { name: "DDGun-Seq", destab: ddgunDestab, val: ddgun }
+                { name: "ThermoMPNN", destab: tmDestab, val: thermompnn }
               ];
 
               const activeVotes = votes.filter(v => v.val !== null);
@@ -439,7 +452,7 @@ export default function EnergeticsView({
 
               return (
                 <div className="flex flex-col gap-1.5 border-b pb-3 animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                  <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                   <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
                     {totalVotes === 5
                       ? "5-Method Consensus Stability Verdict"
                       : totalVotes === 4
@@ -460,20 +473,20 @@ export default function EnergeticsView({
                 const dynamut2 = energetics.dynamut2;
                 const ddmut = energetics.ddmut;
                 const rasp = energetics.rasp;
-                const ddgun = energetics.ddgun;
+                const thermompnn = energetics.thermompnn;
 
                 const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
                 const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
                 const ddmutDestab = ddmut !== null && ddmut <= -1.0;
                 const raspDestab = rasp !== null && rasp <= -1.0;
-                const ddgunDestab = ddgun !== null && ddgun <= -1.0;
+                const tmDestab = thermompnn !== null && thermompnn >= 1.0;
 
                 const votes = [
                   { name: "FoldX", destab: foldxDestab, val: foldxMean },
                   { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
                   { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
                   { name: "RaSP", destab: raspDestab, val: rasp },
-                  { name: "DDGun-Seq", destab: ddgunDestab, val: ddgun }
+                  { name: "ThermoMPNN", destab: tmDestab, val: thermompnn }
                 ];
 
                 const activeVotes = votes.filter(v => v.val !== null);
@@ -487,7 +500,7 @@ export default function EnergeticsView({
                 if (positiveVotes >= 2) {
                   label = "High-Risk Destabilizing (Consensus)";
                   styleClass = "bg-rose-500/10 text-rose-455 border-rose-500/20 font-bold";
-                  detailText = `${positiveVotes}/${totalVotes} methods predict significant destabilization (DynaMut2/DDMut/DDGun ≤ -1.0 kcal/mol or FoldX ≥ 1.5).`;
+                  detailText = `${positiveVotes}/${totalVotes} methods predict significant destabilization (DynaMut2/DDMut ≤ -1.0 kcal/mol or FoldX/ThermoMPNN ≥ +1.0 kcal/mol).`;
                 } else if (positiveVotes === 1) {
                   label = "Moderate-Risk Conflicting Support";
                   styleClass = "bg-amber-500/10 text-amber-450 border-amber-500/20 font-bold";

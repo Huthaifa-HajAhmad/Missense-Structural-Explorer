@@ -16,7 +16,7 @@ export function getWorkflowStageStatus(
   const defaultDescs: Record<string, string> = {
     evidence: "ClinVar, gnomAD & ACMG rules engine",
     structure: "AlphaFold DB, ESMFold & PDB 3D templates",
-    energetics: "FoldX, DynaMut2, DDMut & DDGun stability engines",
+    energetics: "FoldX, DynaMut2 & DDMut stability engines",
     landscape: "3D spatial mutation mapping & pocket impact",
     insights: "AI-driven variant interpretation narrative",
     report: "Downloadable clinical report & variant summary"
@@ -52,7 +52,7 @@ export function getWorkflowStageStatus(
       case "energetics":
         return {
           status: currentStep >= 4 ? "progress" : "pending",
-          desc: currentStep >= 4 ? "Modeling FoldX, DynaMut2, DDMut & DDGun biophysical energetics..." : "Awaiting free-energy stability calculations..."
+          desc: currentStep >= 4 ? "Modeling FoldX, DynaMut2 & DDMut biophysical energetics..." : "Awaiting free-energy stability calculations..."
         };
       case "insights":
         return {
@@ -99,16 +99,26 @@ export function getWorkflowStageStatus(
 
       const isProgress = isFolding || !!isBiophysicalLoading || isDynamicPredictorActive || !hasBiophysics;
       
-      const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.dynamut2;
-      const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol` : "Biophysical force-field active";
+      let activeDesc = "Calculating FoldX, DynaMut2, DDMut & ThermoMPNN energetics...";
+      if (isFolding) {
+        activeDesc = "Repacking mutant side-chains via FoldX force field...";
+      } else if (dynamut2Status === "pending" || dynamut2Status === "running") {
+        activeDesc = "Polling DynaMut2 normal mode analysis...";
+      } else if (ddmutStatus === "pending" || ddmutStatus === "running") {
+        activeDesc = "Running DDMut neural stability predictor...";
+      } else if (isBiophysicalLoading) {
+        activeDesc = "Calculating FoldX, DynaMut2, DDMut & ThermoMPNN energetics...";
+      }
+
+      const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.foldingEnergetics?.thermompnn ?? result.dynamut2;
+      const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "FoldX, DynaMut2, DDMut & ThermoMPNN stability ready";
 
       return {
         status: isProgress ? "progress" : "complete",
-        desc: isProgress
-          ? "Modeling FoldX, DynaMut2, DDMut & DDGun biophysical energetics..."
-          : ddgText
+        desc: isProgress ? activeDesc : ddgText
       };
     }
+
 
     if (view === "landscape") {
       const count = result.landscapeData?.length ?? 0;

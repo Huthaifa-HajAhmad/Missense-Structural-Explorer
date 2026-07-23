@@ -161,8 +161,8 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           foldx: "FoldX BuildModel 5.0",
           dynamut2: "DynaMut2 Consensus",
           ddmut: "DDMut Deep Learning",
-          ddgun: "DDGun-Seq",
           rasp: "RaSP Precomputed",
+          thermompnn: "ThermoMPNN Neural Stability",
           alphamissense: "AlphaMissense (via EVE/REVEL/AM)"
         }
       },
@@ -195,7 +195,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         dynamut2: foldingEnergetics?.dynamut2 ?? analysisState.result.dynamut2 ?? null,
         ddmut: foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null,
         rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
-        ddgun: foldingEnergetics?.ddgun ?? null,
+        thermompnn: foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null,
         consensusStabilityVerdict: foldingEnergetics?.consensusVerdict ?? null
       },
       acmgCriteriaSuggestions: {

@@ -69,6 +69,8 @@ export default function App() {
     foldingEnergetics,
     dynamut2Status,
     ddmutStatus,
+    thermompnnStatus,
+    compareThermompnnStatus,
     computedPocket,
     isPocketLoading,
     pocketError,
@@ -145,9 +147,16 @@ export default function App() {
     prevIsLoadingRef.current = state.analysisState.isLoading;
   }, [state.analysisState.isLoading, state.analysisState.result, masterView]);
 
+  useEffect(() => {
+    actions.setActive3dModelTab(masterView === "structure_esmfold" ? "esmfold2" : "alphafold2");
+  }, [masterView, actions]);
+
   // Trigger ESMFold folding when masterView is "structure_esmfold"
   useEffect(() => {
     if (masterView === "structure_esmfold") {
+      if (state.customPdbUrl !== null) {
+        actions.setCustomPdbUrl(null);
+      }
       const metadata = state.analysisState.result?.metadata;
       if (!metadata) return;
 
@@ -399,6 +408,7 @@ export default function App() {
                       foldingEnergetics={foldingEnergetics}
                       dynamut2Status={dynamut2Status}
                       ddmutStatus={ddmutStatus}
+                      thermompnnStatus={thermompnnStatus}
                       disruptionPredictor={disruptionPredictor}
                       isFolding={isFolding}
                       foldingError={foldingError}
@@ -409,36 +419,10 @@ export default function App() {
 
                 {/* STRUCTURE VIEW — always mounted to preserve Molstar WebGL context */}
                 <div
-                  className="h-full w-full flex flex-col"
+                  className="h-full w-full flex flex-col min-h-0"
                   style={{ display: (masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold") ? "flex" : "none" }}
                 >
-                  {/* Slim Viewport Header Bar */}
-                  <div className="flex items-center justify-between px-5 py-3 border-b shrink-0 transition-colors" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold tracking-wide uppercase" style={{ color: "var(--cs-text-primary)" }}>
-                        {masterView === "structure_esmfold" ? "ESMFold2 Mutant Structure" : "AlphaFold2 WT PDB Structure"}
-                      </span>
-                    </div>
 
-                    {masterView === "structure_esmfold" && (
-                      <div className="flex items-center gap-2 text-xs font-mono">
-                        {isEsmFolding ? (
-                          <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold animate-pulse">
-                            <span className="w-2.5 h-2.5 border-2 border-t-transparent rounded-full animate-spin border-amber-500" />
-                            Folding sequence...
-                          </span>
-                        ) : esmFoldingError ? (
-                          <span className="text-[10px] text-rose-455 font-bold">
-                            ⚠️ Folding failed
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 text-[10px]">
-                            ✓ De Novo Fold Ready
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
 
                   <div className="flex-1 min-h-0 relative">
                     <ErrorBoundary name="3D Structure">

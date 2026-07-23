@@ -1,266 +1,24 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { z } from "zod";
+export * from './variantAnalysisUtils';
+import {
+  getDeduplicatedPromise,
+  analyzeVariantResponseSchema,
+  generateMutantResponseSchema,
+  nearestResiduesResponseSchema,
+  pocketFinderResponseSchema,
+  resolveGeneResponseSchema,
+  translateVariantResponseSchema,
+  buildEnergeticsQueryString,
+  isVcfOrCdnaNotation,
+  AMINO_ACID_NAMES_MAP,
+  AMINO_ACID_PROPERTIES,
+  parseMutationResidues,
+  getAlternativeVariants,
+  fetchWithRetry,
+  getErrorMessage,
+  STORAGE_KEY
+} from './variantAnalysisUtils';
 
-const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
-const nullableFiniteNumber = z.number().nullable().refine(val => val === null || Number.isFinite(val), { message: "Number must be finite" });
-
-// Request deduplication cache for in-flight fetch promises (F-A2)
-const inFlightRequests = new Map<string, Promise<any>>();
-
-export function getDeduplicatedPromise<T>(key: string, promiseCreator: () => Promise<T>): Promise<T> {
-  let existing = inFlightRequests.get(key);
-  if (!existing) {
-    existing = promiseCreator().finally(() => {
-      inFlightRequests.delete(key);
-    });
-    inFlightRequests.set(key, existing);
-  }
-  return existing;
-}
-
-// Zod validation schemas for server responses (MOD-6)
-export const analyzeVariantResponseSchema = z.object({
-  analysis: z.string().nullable().optional(),
-  insights: z.object({
-    biochemicalShift: z.string(),
-    structuralImpact: z.string(),
-    pathogenicity: z.string().optional(),
-    plausibility: z.string().optional(),
-    acmgCriteria: z.preprocess(
-      (val) => val ?? [],
-      z.array(z.object({
-        code: z.string(),
-        reason: z.string(),
-        source: z.enum(["database_verified", "ai_suggested"]).optional()
-      }))
-    ),
-    acmgVerdict: z.string().optional(),
-    partialEvidence: z.object({
-      available: z.array(z.string()),
-      unavailable: z.array(z.string())
-    }).optional()
-  }).nullable().optional(),
-  ruleBasedInsights: z.object({
-    plausibility: z.string(),
-    acmgVerdict: z.string(),
-    acmgCriteria: z.array(z.object({
-      code: z.string(),
-      reason: z.string(),
-      source: z.enum(["database_verified", "ai_suggested"]).optional()
-    })),
-    partialEvidence: z.object({
-      available: z.array(z.string()),
-      unavailable: z.array(z.string())
-    }).optional()
-  }).nullable().optional(),
-  clinvar: z.object({
-    classification: z.string(),
-    lastEvaluated: z.string(),
-    reviewStatus: z.string(),
-    alleleFrequencies: z.array(z.object({
-      source: z.string(),
-      value: z.preprocess(
-        (val) => {
-          if (val === null || val === undefined) return null;
-          const parsed = typeof val === "number" ? val : parseFloat(String(val));
-          return isNaN(parsed) ? null : parsed;
-        },
-        nullableFiniteNumber
-      )
-    })),
-    trait: z.string(),
-    uid: z.string().nullable(),
-    hasOtherPathogenicVariantSameAA: z.boolean().optional()
-  }).nullable().optional(),
-  metadata: z.object({
-    gene: z.string(),
-    variant: z.string(),
-    uniprotId: z.string(),
-    residueIndex: nullableFiniteNumber,
-    wildType: z.string(),
-    mutant: z.string(),
-    pdbId: z.string().nullable().optional(),
-    pdbSource: z.string().nullable().optional(),
-    sequence: z.string().nullable().optional()
-  }),
-  predictorData: z.object({
-    available: z.boolean(),
-    amPathogenicity: nullableFiniteNumber,
-    amClass: z.string().nullable(),
-    caddPhred: nullableFiniteNumber,
-    eveScore: nullableFiniteNumber.optional(),
-    eveClass: z.string().nullable().optional(),
-    proteinName: z.string().nullable().optional()
-  }).nullable().optional(),
-  conservationData: z.object({
-    available: z.boolean(),
-    revel: nullableFiniteNumber,
-    gerp: nullableFiniteNumber,
-    phylop: nullableFiniteNumber,
-    consurf: nullableFiniteNumber,
-    bayesdel: nullableFiniteNumber.optional(),
-    metarnn: nullableFiniteNumber.optional(),
-    clinpred: nullableFiniteNumber.optional(),
-    eigenPhred: nullableFiniteNumber.optional(),
-    dann: nullableFiniteNumber.optional(),
-    esm1b: nullableFiniteNumber.optional(),
-    popeve: nullableFiniteNumber.optional()
-  }).nullable().optional(),
-  landscapeData: z.array(z.object({
-    residx: z.number(),
-    revelMean: z.number().nullable().optional(),
-    revelMedian: z.number().nullable().optional(),
-    revelMin: z.number().nullable().optional(),
-    revelMax: z.number().nullable().optional(),
-    revelCount: z.number().optional(),
-    amMean: z.number().nullable().optional(),
-    amMedian: z.number().nullable().optional(),
-    amMin: z.number().nullable().optional(),
-    amMax: z.number().nullable().optional(),
-    amCount: z.number().optional(),
-    gerp: z.number().nullable(),
-    phylop: z.number().nullable()
-  })).nullable().optional(),
-  stringInteractions: z.array(z.object({
-    partner: z.string(),
-    score: finiteNumber
-  })).nullable().optional(),
-  disruptionPredictor: z.object({
-    level: z.enum(["high", "low"]),
-    reason: z.string(),
-    plddt: z.number(),
-    burialStatus: z.enum(["core", "surface", "boundary"]).optional(),
-    neighborCount: z.number().optional(),
-    rsa: z.number().optional(),
-    sasa: z.number().optional()
-  }).optional(),
-  uniprotFeatures: z.object({
-    features: z.array(z.object({
-      type: z.string(),
-      description: z.string(),
-      start: z.number(),
-      end: z.number()
-    })),
-    geneName: z.string().optional()
-  }).nullable().optional(),
-  gnomadConstraint: z.object({
-    missense_z: z.number().nullable(),
-    oe_mis: z.number().nullable(),
-    pli: z.number().nullable(),
-    isPP2Constrained: z.boolean()
-  }).nullable().optional(),
-  transcriptId: z.string().optional(),
-  isCanonical: z.boolean().optional(),
-  transcriptWarning: z.string().optional(),
-  gnomadFrequency: z.object({
-    maxAF: z.number().nullable(),
-    groupMaxAF: z.number().nullable().optional(),
-    genomeAF: z.number().nullable(),
-    exomeAF: z.number().nullable(),
-    genomeAC: z.number().nullable().optional(),
-    exomeAC: z.number().nullable().optional(),
-    genomeAN: z.number().nullable().optional(),
-    exomeAN: z.number().nullable().optional(),
-    nHomozygous: z.number().nullable(),
-    dataset: z.string()
-  }).nullable().optional(),
-  aouFrequency: z.object({
-    aouAC: z.number().nullable().optional(),
-    aouAN: z.number().nullable().optional(),
-    aouHet: z.number().nullable().optional(),
-    aouHom: z.number().nullable().optional()
-  }).nullable().optional(),
-  esm2: z.object({
-    llr: z.number().nullable(),
-    verdict: z.string().nullable()
-  }).nullable().optional(),
-  esm3Eval: z.object({
-    uniprotId: z.string(),
-    position: z.number(),
-    wtResidue: z.string(),
-    mutResidue: z.string(),
-    pdbText: z.string().nullable(),
-    perturbationScores: z.array(z.number()),
-    maxDriftResidue: z.number(),
-    structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]),
-    microenvironments: z.array(z.string()),
-    putativeStructuralChanges: z.array(z.string()),
-    confidence: z.object({
-      level: z.enum(["high", "moderate", "low"]),
-      plddt: z.number(),
-      sequenceCoverage: z.number()
-    })
-  }).nullable().optional()
-});
-
-export const generateMutantResponseSchema = z.object({
-  pdb: z.string(),
-  ddG: nullableFiniteNumber,
-  status: z.string(),
-  foldedResidueIndex: finiteNumber,
-  energetics: z.object({
-    foldx: nullableFiniteNumber,
-    foldxMean: nullableFiniteNumber.optional(),
-    foldxSd: nullableFiniteNumber.optional(),
-    vdw: nullableFiniteNumber.optional(),
-    electrostatics: nullableFiniteNumber.optional(),
-    stericClashWarning: z.boolean().optional(),
-    localSidechainRmsd: nullableFiniteNumber.optional(),
-    dynamut2: nullableFiniteNumber,
-    ddmut: nullableFiniteNumber.optional(),
-    rasp: nullableFiniteNumber.optional(),
-    ddgun: nullableFiniteNumber.optional(),
-    consensusVerdict: z.string().nullable().optional(),
-    raspReason: z.string().optional(),
-    evidenceComplete: z.boolean().optional(),
-    pendingTools: z.array(z.string()).optional()
-  }).optional(),
-  dynamut2JobId: z.string().nullable().optional(),
-  dynamut2Status: z.string().nullable().optional(),
-  ddmutJobId: z.string().nullable().optional(),
-  ddmutStatus: z.string().nullable().optional()
-});
-
-export const nearestResiduesResponseSchema = z.object({
-  residues: z.array(z.object({
-    index: finiteNumber,
-    name: z.string(),
-    distance: finiteNumber,
-    properties: z.string(),
-    role: z.string(),
-    classBadge: z.string()
-  })),
-  source: z.string()
-});
-
-export const pocketFinderResponseSchema = z.object({
-  pocketResidues: z.array(z.object({
-    index: finiteNumber,
-    name: z.string(),
-    distance: finiteNumber,
-    score: finiteNumber,
-    role: z.string(),
-    type: z.string()
-  })),
-  pocketScore: finiteNumber,
-  pocketVolume: finiteNumber,
-  likelyCofactor: z.string(),
-  pocketDistance: nullableFiniteNumber,
-  status: z.enum(["success", "fallback"])
-});
-
-export const resolveGeneResponseSchema = z.object({
-  gene: z.string(),
-  uniprotId: z.string(),
-  pdbUrl: z.string().nullable()
-});
-
-export const translateVariantResponseSchema = z.object({
-  gene: z.string(),
-  variant: z.string(),
-  uniprotId: z.string(),
-  genomicCoordinates: z.string().nullable().optional()
-});
 import { VARIANT_PRESETS, FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "./data";
 import { AnalysisState, VariantPreset, UserSettings, AnalysisResult, NearestResidue, PocketResult, EnergeticsData, StructuralDiffResult, BiophysicalApiResponse, AcmgVerdict, ACMGCriteriaItem, PdbHomolog } from "./types";
 import { useSettings } from "./context/SettingsContext";
@@ -270,260 +28,6 @@ import { useBiophysicalModeling } from "./hooks/useBiophysicalModeling";
 import { usePredictorData } from "./hooks/usePredictorData";
 import { useClinicalEvidence } from "./hooks/useClinicalEvidence";
 import { computeConsensusVerdict } from "./shared/thresholds";
-
-export function buildEnergeticsQueryString(energetics: EnergeticsData | null): string {
-  if (!energetics) return "";
-  const q = new URLSearchParams();
-  const foldxVal = energetics.foldxMean ?? energetics.foldx;
-  if (foldxVal !== null && foldxVal !== undefined) q.set("foldx", foldxVal.toString());
-  if (energetics.ddgun !== null && energetics.ddgun !== undefined) q.set("ddgun", energetics.ddgun.toString());
-  if (energetics.rasp !== null && energetics.rasp !== undefined) q.set("rasp", energetics.rasp.toString());
-  if (energetics.ddmut !== null && energetics.ddmut !== undefined) q.set("ddmut", energetics.ddmut.toString());
-  if (energetics.dynamut2 !== null && energetics.dynamut2 !== undefined) q.set("dynamut2", energetics.dynamut2.toString());
-  return q.toString();
-}
-
-
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit & { timeout?: number } = {},
-  maxRetries = 3,
-  initialDelay = 1000,
-  backoffFactor = 2
-): Promise<Response> {
-  if (!navigator.onLine) {
-    throw new Error("You appear to be offline. Please verify your internet connection and try again.");
-  }
-  let attempt = 0;
-  
-  while (true) {
-    const controller = new AbortController();
-    const timeoutVal = options.timeout ?? 300000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutVal);
-    
-    const onSignalAbort = () => controller.abort();
-    if (options.signal) {
-      options.signal.addEventListener("abort", onSignalAbort);
-      if (options.signal.aborted) {
-        controller.abort();
-      }
-    }
-    
-    const fetchOptions = { ...options, signal: controller.signal };
-    try {
-      const response = await fetch(url, fetchOptions);
-      clearTimeout(timeoutId);
-      if (options.signal) {
-        options.signal.removeEventListener("abort", onSignalAbort);
-      }
-      if (response.ok) {
-        return response;
-      }
-      
-      const shouldRetryStatus = [502, 503, 504, 429].includes(response.status);
-      if (shouldRetryStatus && attempt < maxRetries) {
-        // Read body to see if it's an API key missing configuration error
-        try {
-          const clone = response.clone();
-          const text = await clone.text();
-          if (text.includes("API_KEY_MISSING") || text.includes("isConfigError")) {
-            return response; // Bypassing retry for missing/invalid credentials configuration (HIGH-3)
-          }
-        } catch (e) {
-          // ignore error
-        }
-
-        attempt++;
-        const delay = initialDelay * Math.pow(backoffFactor, attempt - 1);
-        console.warn(`[Retry] Endpoint ${url} returned status ${response.status}. Retrying attempt ${attempt}/${maxRetries} after ${delay}ms...`);
-        
-        await new Promise<void>((resolve, reject) => {
-          const onAbort = () => {
-            clearTimeout(timeoutIdDelay);
-            reject(new DOMException("The user aborted a request.", "AbortError"));
-          };
-          const timeoutIdDelay = setTimeout(() => {
-            if (options.signal) {
-              options.signal.removeEventListener("abort", onAbort);
-            }
-            resolve();
-          }, delay);
-          if (options.signal) {
-            options.signal.addEventListener("abort", onAbort, { once: true });
-          }
-        });
-        continue;
-      }
-      return response;
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (options.signal) {
-        options.signal.removeEventListener("abort", onSignalAbort);
-      }
-      
-      if (err.name === "AbortError") {
-        throw err;
-      }
-      if (attempt < maxRetries) {
-        attempt++;
-        const delay = initialDelay * Math.pow(backoffFactor, attempt - 1);
-        console.warn(`[Retry] Endpoint ${url} threw error: ${err.message || err}. Retrying attempt ${attempt}/${maxRetries} after ${delay}ms...`);
-        
-        await new Promise<void>((resolve, reject) => {
-          const onAbort = () => {
-            clearTimeout(timeoutIdDelay);
-            reject(new DOMException("The user aborted a request.", "AbortError"));
-          };
-          const timeoutIdDelay = setTimeout(() => {
-            if (options.signal) {
-              options.signal.removeEventListener("abort", onAbort);
-            }
-            resolve();
-          }, delay);
-          if (options.signal) {
-            options.signal.addEventListener("abort", onAbort, { once: true });
-          }
-        });
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-function getErrorMessage(data: any, defaultMsg = "Request failed"): string {
-  if (!data) return defaultMsg;
-  if (typeof data.error === "string") return data.error;
-  if (data.error && typeof data.error.message === "string") return data.error.message;
-  if (typeof data === "string") return data;
-  return defaultMsg;
-}
-
-// Local storage key for non-sensitive public variant history cache (non-PHI)
-const STORAGE_KEY = "variantHistory";
-
-// Coordinate pattern checkers for VCF and cDNA (F-3)
-export function isVcfOrCdnaNotation(input: string): boolean {
-  const trimmed = input.trim();
-  const genomicRegex = /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i;
-  const cdnaRegex = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
-  const dashedGenomicRegex = /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i;
-  return genomicRegex.test(trimmed) || cdnaRegex.test(trimmed) || dashedGenomicRegex.test(trimmed);
-}
-
-export const AMINO_ACID_NAMES_MAP: Record<string, string> = {
-  A: "Alanine [Ala]",
-  R: "Arginine [Arg]",
-  N: "Asparagine [Asn]",
-  D: "Aspartate [Asp]",
-  C: "Cysteine [Cys]",
-  Q: "Glutamine [Gln]",
-  E: "Glutamate [Glu]",
-  G: "Glycine [Gly]",
-  H: "Histidine [His]",
-  I: "Isoleucine [Ile]",
-  L: "Leucine [Leu]",
-  K: "Lysine [Lys]",
-  M: "Methionine [Met]",
-  F: "Phenylalanine [Phe]",
-  P: "Proline [Pro]",
-  S: "Serine [Ser]",
-  T: "Threonine [Thr]",
-  W: "Tryptophan [Trp]",
-  Y: "Tyrosine [Tyr]",
-  V: "Valine [Val]"
-};
-
-/**
- * Normalized physical and biochemical properties of amino acids (0-100 scale).
- * 
- * Citations & Scientific Sourcing:
- * - Hydrophobicity: Derived from the Kyte-Doolittle hydropathy scale.
- *   Kyte J, Doolittle RF. "A simple method for displaying the hydropathic character of a protein." 
- *   J Mol Biol. 1982 May 5;157(1):105-32. PMID: 7108955.
- * - Charge / Polarity: Standard biochemical classification of residues at physiological pH.
- * - Size: Based on amino acid van der Waals volume measurements, normalized.
- * - Grantham Scale comparisons are referenced downstream in the biochemical shift descriptions.
- *   Grantham R. "Amino acid difference formula to help explain protein evolution."
- *   Science. 1974 Sep 6;185(4154):862-4. PMID: 4843792.
- */
-export const AMINO_ACID_PROPERTIES: Record<string, { hydrophobicity: number; charge: number; size: number; polarity: number }> = {
-  A: { hydrophobicity: 60, charge: 50, size: 25, polarity: 15 },
-  R: { hydrophobicity: 5,  charge: 100,size: 85, polarity: 100 },
-  N: { hydrophobicity: 20, charge: 50, size: 50, polarity: 75 },
-  D: { hydrophobicity: 10, charge: 0,  size: 45, polarity: 100 },
-  C: { hydrophobicity: 70, charge: 35, size: 40, polarity: 60 },
-  E: { hydrophobicity: 10, charge: 0,  size: 60, polarity: 100 },
-  Q: { hydrophobicity: 20, charge: 50, size: 65, polarity: 75 },
-  G: { hydrophobicity: 45, charge: 50, size: 10, polarity: 15 },
-  H: { hydrophobicity: 25, charge: 75, size: 75, polarity: 85 },
-  I: { hydrophobicity: 100,charge: 50, size: 75, polarity: 10 },
-  L: { hydrophobicity: 95, charge: 50, size: 75, polarity: 10 },
-  K: { hydrophobicity: 5,  charge: 95, size: 80, polarity: 100 },
-  M: { hydrophobicity: 75, charge: 50, size: 75, polarity: 15 },
-  F: { hydrophobicity: 85, charge: 50, size: 90, polarity: 10 },
-  P: { hydrophobicity: 55, charge: 52, size: 55, polarity: 15 },
-  S: { hydrophobicity: 30, charge: 45, size: 30, polarity: 70 },
-  T: { hydrophobicity: 40, charge: 45, size: 45, polarity: 70 },
-  W: { hydrophobicity: 65, charge: 48, size: 100,polarity: 20 },
-  Y: { hydrophobicity: 50, charge: 45, size: 95, polarity: 50 },
-  V: { hydrophobicity: 90, charge: 50, size: 60, polarity: 10 }
-};
-
-export function parseMutationResidues(variantStr: string) {
-  const aminoAcidMap: Record<string, string> = {
-    Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
-    Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V"
-  };
-  const clean = variantStr.replace(/^p\./i, "").replace(/[()]/g, "");
-  
-  const normalize3 = (str: string) => {
-    if (str.length !== 3) return str;
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-  };
-
-  const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
-  if (match3) {
-    const wt3 = normalize3(match3[1]);
-    const mut3 = normalize3(match3[3]);
-    const wt = aminoAcidMap[wt3];
-    const mut = aminoAcidMap[mut3];
-    if (!wt || !mut) {
-      throw new Error(`Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'`);
-    }
-    return { wt, mut };
-  }
-
-  const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
-  if (match1) {
-    const wt = match1[1].toUpperCase();
-    const mut = match1[3].toUpperCase();
-    const validCodes = Object.values(aminoAcidMap);
-    if (!validCodes.includes(wt) || !validCodes.includes(mut)) {
-      throw new Error(`Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!validCodes.includes(wt) ? wt : mut}'`);
-    }
-    return { wt, mut };
-  }
-
-  throw new Error("Invalid HGVS missense format: Must represent a single amino acid substitution (e.g., p.Arg215Trp or R215W)");
-}
-
-export const getAlternativeVariants = (currentGene: string): string[] => {
-  const normalized = currentGene.toUpperCase();
-  if (normalized === "PAH") {
-    return ["p.Arg408Trp", "p.Arg261Gln", "p.Ala259Thr", "p.Gly272Cys"];
-  }
-  if (normalized === "FGFR3") {
-    return ["p.Gly380Arg", "p.Ala391Glu", "p.Lys650Glu", "p.Asn540Lys"];
-  }
-  if (normalized === "GBA1" || normalized === "GBA") {
-    return ["p.Leu483Pro", "p.Asn409Ser", "p.Asp448His", "p.Glu365Lys"];
-  }
-  if (normalized === "KIF1A") {
-    return ["p.Arg254Trp", "p.Val8Met", "p.Ala255Val", "p.Thr99Met"];
-  }
-  return ["p.Ala40Val", "p.Leu100Pro", "p.Glu150Lys"];
-};
-
 export default function useVariantAnalysis() {
   const {
     theme,
@@ -559,6 +63,9 @@ export default function useVariantAnalysis() {
     }
     if (settings.biohubApiToken) {
       headers["x-biohub-token"] = settings.biohubApiToken;
+    }
+    if (settings.tamarindApiKey) {
+      headers["x-tamarind-api-key"] = settings.tamarindApiKey;
     }
     
     let response = await fetchWithRetry(url, { ...options, headers });
@@ -699,6 +206,7 @@ export default function useVariantAnalysis() {
   const [esmFoldPdb, setEsmFoldPdb] = useState<string | null>(null);
   const [isEsmFolding, setIsEsmFolding] = useState<boolean>(false);
   const [esmFoldingError, setEsmFoldingError] = useState<string | null>(null);
+  const [active3dModelTab, setActive3dModelTab] = useState<"alphafold2" | "esmfold2">("alphafold2");
 
   const addNotification = useCallback((type: "success" | "info" | "error", message: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -732,10 +240,14 @@ export default function useVariantAnalysis() {
     compareDynamut2Status, setCompareDynamut2Status,
     ddmutStatus, setDdmutStatus,
     compareDdmutStatus, setCompareDdmutStatus,
+    thermompnnStatus, setThermompnnStatus,
+    compareThermompnnStatus, setCompareThermompnnStatus,
     dynamut2JobId, setDynamut2JobId,
     compareDynamut2JobId, setCompareDynamut2JobId,
     ddmutJobId, setDdmutJobId,
     compareDdmutJobId, setCompareDdmutJobId,
+    thermompnnJobId, setThermompnnJobId,
+    compareThermompnnJobId, setCompareThermompnnJobId,
     structuralDiff, setStructuralDiff,
     compareStructuralDiff, setCompareStructuralDiff,
     computedPocket, setComputedPocket,
@@ -743,9 +255,11 @@ export default function useVariantAnalysis() {
     pocketError, setPocketError,
     dynamutPollIntervalRef, dynamutComparePollIntervalRef,
     ddmutPollIntervalRef, ddmutComparePollIntervalRef,
+    thermompnnPollIntervalRef, thermompnnComparePollIntervalRef,
     lastFetchedFoldRef,
     clearDynaMutPoll, clearDynaMutComparePoll,
     clearDdmutPoll, clearDdmutComparePoll,
+    clearThermoMpnnPoll, clearThermoMpnnComparePoll,
     fetchPocketInfo
   } = biophysical;
 
@@ -1000,7 +514,7 @@ export default function useVariantAnalysis() {
     let biophysicalError: string | null = null;
 
     try {
-      // Trigger FoldX, DynaMut2, DDMut, and DDGun calculations concurrently at start of search submission
+      // Trigger FoldX, DynaMut2, and DDMut calculations concurrently at start of search submission
       fetchMutantFold(targetGene, targetVariant, targetUniprot, activeSignal);
 
       // Parallelize fetching of EBI AlphaFold structure to warm cache (HIGH-9)
@@ -1248,7 +762,9 @@ export default function useVariantAnalysis() {
             aouHet: validatedData.aouFrequency.aouHet ?? null,
             aouHom: validatedData.aouFrequency.aouHom ?? null
           } : null,
-          esm2: validatedData.esm2 || null
+          esm2: validatedData.esm2 || null,
+          esm3Eval: validatedData.esm3Eval || null,
+          esmcEval: validatedData.esmcEval || null
         }
       });
       addToHistory(targetGene, targetVariant, targetUniprot);
@@ -1511,95 +1027,35 @@ export default function useVariantAnalysis() {
       const controller = new AbortController();
       fetchPocketData(uniprotId, selectedResidueIndex, pdbText, controller.signal);
       return () => {
-        controller.abort();
+                controller.abort();
       };
     } else {
       setComputedPocket(null);
     }
   }, [pdbText, uniprotId, selectedResidueIndex, fetchPocketData]);
+
   const fetchHomologs = useCallback(async (targetUniprot: string, signal?: AbortSignal) => {
     setIsHomologsLoading(true);
     setHomologs([]);
     try {
-      const uniRes = await fetch(`https://rest.uniprot.org/uniprotkb/${targetUniprot}.json`, { signal });
-      if (!uniRes.ok) throw new Error(`UniProt API returned status ${uniRes.status}`);
-      const uniData = await uniRes.json();
-      const sequence = uniData.sequence?.value;
-      if (!sequence || sequence.length < 25) {
-        setIsHomologsLoading(false);
-        return;
+      const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(targetUniprot)}`, { signal });
+      if (!res.ok) {
+        throw new Error(`Homolog API returned status ${res.status}`);
       }
-
-      const searchRes = await fetch("https://search.rcsb.org/rcsbsearch/v2/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: {
-            type: "terminal",
-            service: "sequence",
-            parameters: {
-              evalue_cutoff: 10,
-              identity_cutoff: 0.2,
-              sequence_type: "protein",
-              value: sequence
-            }
-          },
-          return_type: "entry"
-        }),
-        signal
-      });
-
-      if (!searchRes.ok) throw new Error(`RCSB Search API returned status ${searchRes.status}`);
-      const searchData = await searchRes.json();
-      const hits = searchData.result_set?.slice(0, 5) || [];
-
-      const homologPromises = hits.map(async (hit: any) => {
-        const pdbId = hit.identifier;
-        const score = hit.score;
-        try {
-          const entryRes = await fetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbId}`, { signal });
-          const entryData = await entryRes.json();
-          const title = entryData.struct?.title || "No description";
-          const method = entryData.rcsb_entry_info?.experimental_method || "Unknown";
-          const resolution = entryData.rcsb_entry_info?.resolution_combined?.[0] || null;
-
-          let organism = "Unknown";
-          try {
-            const polyRes = await fetch(`https://data.rcsb.org/rest/v1/core/polymer_entity/${pdbId}/1`, { signal });
-            const polyData = await polyRes.json();
-            organism = polyData.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
-          } catch (polyErr) {
-            console.warn(`Failed to fetch polymer entity for ${pdbId}:`, polyErr);
-          }
-
-          return {
-            pdbId,
-            score,
-            title,
-            organism,
-            method,
-            resolution
-          } as PdbHomolog;
-        } catch (entryErr) {
-          console.warn(`Failed to fetch entry details for ${pdbId}:`, entryErr);
-          return null;
-        }
-      });
-
-      const resolved = (await Promise.all(homologPromises)).filter((h): h is PdbHomolog => h !== null);
-      if (!signal?.aborted) {
-        setHomologs(resolved);
+      const data = await res.json();
+      if (!signal?.aborted && Array.isArray(data.homologs)) {
+        setHomologs(data.homologs);
       }
     } catch (err: any) {
-      if (!signal?.aborted) {
-        console.error("Error fetching homologous structures:", err);
+      if (!signal?.aborted && err.name !== "AbortError") {
+        console.error("Error fetching homologous structures:", err.message || err);
       }
     } finally {
       if (!signal?.aborted) {
         setIsHomologsLoading(false);
       }
     }
-  }, []);
+  }, [fetchWithAuth]);
 
 
   const fetchNearestResidues = useCallback(async (
@@ -1826,17 +1282,15 @@ export default function useVariantAnalysis() {
                 }
                 if (pollData.status === "DONE" && pollData.prediction !== null) {
                   setFoldingEnergetics(prev => {
-                    const base = prev || {
+                    const base: EnergeticsData = prev || {
                       foldx: null,
-                      ddgun: null,
                       dynamut2: null,
                       ddmut: null,
                       rasp: null
                     };
-                    const updated = {
+                    const updated: EnergeticsData = {
                       ...base,
-                      dynamut2: pollData.prediction,
-                      ddgun: prev?.ddgun ?? pollData.ddgun ?? null
+                      dynamut2: pollData.prediction
                     };
                     updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
                     return updated;
@@ -1936,17 +1390,15 @@ export default function useVariantAnalysis() {
                 }
                 if (pollData.status === "DONE" && pollData.prediction !== null) {
                   setFoldingEnergetics(prev => {
-                    const base = prev || {
+                    const base: EnergeticsData = prev || {
                       foldx: null,
-                      ddgun: null,
                       dynamut2: null,
                       ddmut: null,
                       rasp: null
                     };
-                    const updated = {
+                    const updated: EnergeticsData = {
                       ...base,
-                      ddmut: pollData.prediction,
-                      ddgun: prev?.ddgun ?? pollData.ddgun ?? null
+                      ddmut: pollData.prediction
                     };
                     updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
                     return updated;
@@ -1995,16 +1447,32 @@ export default function useVariantAnalysis() {
       submitDynaMut2();
       submitDDMut();
 
-      console.log("[fetchMutantFold] Sending generate-mutant request with mutation:", mutation);
+      console.log("[fetchMutantFold] Sending verify-stability request with mutation:", mutation);
+      const foldxMutation = mapMutationToFoldXFormat(targetVariant);
+      const mutMatch = foldxMutation.match(/^([A-Z])([A-Z])(\d+)([A-Z])$/i);
+      if (!mutMatch) {
+        throw new Error(`Invalid mutation format: ${foldxMutation}`);
+      }
+      const wtLetter = mutMatch[1];
+      const chainLetter = mutMatch[2];
+      const posNum = parseInt(mutMatch[3], 10);
+      const mtLetter = mutMatch[4];
+
       const mutantKey = `mutant_${targetGene}_${targetVariant}_${effectiveUniprot}`;
       const responsePromise = getDeduplicatedPromise(mutantKey, () =>
-        fetchWithAuth("/api/v1/generate-mutant", {
+        fetchWithAuth("/api/v1/biophysics/verify-stability", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            wtPdb,
-            mutation,
-            uniprotId: effectiveUniprot
+            uniprotId: effectiveUniprot,
+            mutation: {
+              chain: chainLetter,
+              position: posNum,
+              wt: wtLetter,
+              mt: mtLetter
+            },
+            engine: active3dModelTab === "esmfold2" ? "esmfold" : "alphafold",
+            wtPdb
           }),
           signal: activeSignal,
           timeout: 300000
@@ -2033,21 +1501,113 @@ export default function useVariantAnalysis() {
       
       // Update energetics while merging existing background results (preventing races)
       setFoldingEnergetics(prev => {
-        const base = validatedData.energetics || {
+        const base: EnergeticsData = validatedData.energetics || {
           foldx: validatedData.ddG,
           dynamut2: null,
           ddmut: null,
           rasp: null,
-          ddgun: null
+          thermompnn: null
         };
-        const updated = {
+        const updated: EnergeticsData = {
           ...base,
           dynamut2: prev?.dynamut2 ?? base.dynamut2 ?? null,
-          ddmut: prev?.ddmut ?? base.ddmut ?? null
+          ddmut: prev?.ddmut ?? base.ddmut ?? null,
+          thermompnn: prev?.thermompnn ?? base.thermompnn ?? null
         };
         updated.consensusVerdict = computeConsensusVerdict(updated);
         return updated;
       });
+
+      // Start ThermoMPNN polling if pending
+      if (validatedData.thermompnnStatus === "pending" && validatedData.thermompnnJobId) {
+        setThermompnnStatus("pending");
+        setThermompnnJobId(validatedData.thermompnnJobId);
+        
+        let attempts = 0;
+        const maxAttempts = 60; // 10 mins (10s intervals)
+        const jobId = validatedData.thermompnnJobId;
+        addNotification("info", `ThermoMPNN calculation submitted. Polling in background...`);
+
+        let finished = false;
+        const poll = async () => {
+          if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+            clearThermoMpnnPoll();
+            return;
+          }
+          attempts++;
+          try {
+            const queryStr = buildEnergeticsQueryString(foldingEnergeticsRef.current) + `&uniprotId=${effectiveUniprot}&mutation=${mutation}`;
+            const pollRes = await fetchWithAuth(`/api/v1/thermompnn-job/${jobId}?${queryStr}`, {
+              method: "GET",
+              signal: activeSignal
+            });
+            if (pollRes.status === 429) {
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              thermompnnPollIntervalRef.current = setTimeout(poll, delay) as any;
+              return;
+            }
+            if (!pollRes.ok) {
+              throw new Error(`Poll request failed (status: ${pollRes.status})`);
+            }
+            const pollData = await pollRes.json();
+            if (targetGene !== currentGeneRef.current || targetVariant !== currentVariantRef.current) {
+              clearThermoMpnnPoll();
+              return;
+            }
+            if (pollData.status === "done" && pollData.prediction !== null) {
+              setFoldingEnergetics(prev => {
+                const base: EnergeticsData = prev || {
+                  foldx: null,
+                  dynamut2: null,
+                  ddmut: null,
+                  rasp: null,
+                  thermompnn: null
+                };
+                const updated: EnergeticsData = {
+                  ...base,
+                  thermompnn: pollData.prediction
+                };
+                updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
+                return updated;
+              });
+              setThermompnnStatus("done");
+              clearThermoMpnnPoll();
+              addNotification("success", `ThermoMPNN prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction.toFixed(2)} kcal/mol)`);
+              finished = true;
+            } else if (pollData.status === "error" || pollData.status === "failed") {
+              setThermompnnStatus("unavailable");
+              clearThermoMpnnPoll();
+              addNotification("error", `ThermoMPNN prediction failed for ${targetGene} ${targetVariant}.`);
+              finished = true;
+            }
+          } catch (pollErr: any) {
+            if (activeSignal?.aborted) return;
+            console.error("[ThermoMPNN Polling Error]:", pollErr);
+            setThermompnnStatus("unavailable");
+            clearThermoMpnnPoll();
+            finished = true;
+          }
+
+          if (!finished) {
+            if (attempts >= maxAttempts) {
+              setThermompnnStatus("unavailable");
+              clearThermoMpnnPoll();
+              addNotification("error", `ThermoMPNN prediction timed out for ${targetGene} ${targetVariant}.`);
+            } else {
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              thermompnnPollIntervalRef.current = setTimeout(poll, delay) as any;
+            }
+          }
+        };
+
+        poll();
+      } else {
+        setThermompnnStatus(
+          validatedData.thermompnnStatus === "done" || validatedData.thermompnnStatus === "unavailable"
+            ? (validatedData.thermompnnStatus as any)
+            : null
+        );
+      }
 
       const posVal = posMatch ? parseInt(posMatch[0], 10) : 0;
       if (validatedData.pdb && wtPdb && posVal) {
@@ -2103,18 +1663,29 @@ export default function useVariantAnalysis() {
       }
       const wtPdb = await wtPdbRes.text();
 
-      const mutation = mapMutationToFoldXFormat(targetVariant);
-      if (import.meta.env.DEV) {
-        console.log(`[Biophysical Modeling] Mapping comparison mutation to FoldX format: ${mutation}`);
+      const foldxMutation = mapMutationToFoldXFormat(targetVariant);
+      const mutMatch = foldxMutation.match(/^([A-Z])([A-Z])(\d+)([A-Z])$/i);
+      if (!mutMatch) {
+        throw new Error(`Invalid mutation format: ${foldxMutation}`);
       }
+      const wtLetter = mutMatch[1];
+      const chainLetter = mutMatch[2];
+      const posNum = parseInt(mutMatch[3], 10);
+      const mtLetter = mutMatch[4];
 
-      const response = await fetchWithAuth("/api/v1/generate-mutant", {
+      const response = await fetchWithAuth("/api/v1/biophysics/verify-stability", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          wtPdb,
-          mutation,
-          uniprotId: targetUniprot
+          uniprotId: targetUniprot,
+          mutation: {
+            chain: chainLetter,
+            position: posNum,
+            wt: wtLetter,
+            mt: mtLetter
+          },
+          engine: active3dModelTab === "esmfold2" ? "esmfold" : "alphafold",
+          wtPdb
         }),
         signal: activeSignal,
         timeout: 300000
@@ -2150,12 +1721,103 @@ export default function useVariantAnalysis() {
         dynamut2: null,
         ddmut: null,
         rasp: null,
-        ddgun: null
+        thermompnn: null
       });
 
       const posVal = posMatch ? parseInt(posMatch[0], 10) : 0;
       if (validatedData.pdb && wtPdb && posVal) {
         fetchStructuralDiff(wtPdb, validatedData.pdb, posVal, "A", true, activeSignal);
+      }
+
+      // Start comparison ThermoMPNN polling if pending
+      if (validatedData.thermompnnStatus === "pending" && validatedData.thermompnnJobId) {
+        setCompareThermompnnStatus("pending");
+        setCompareThermompnnJobId(validatedData.thermompnnJobId);
+        
+        let attempts = 0;
+        const maxAttempts = 60; // 10 mins (10s intervals)
+        const jobId = validatedData.thermompnnJobId;
+        addNotification("info", `Comparison ThermoMPNN calculation submitted. Polling in background...`);
+
+        let finished = false;
+        const poll = async () => {
+          if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
+            clearThermoMpnnComparePoll();
+            return;
+          }
+          attempts++;
+          try {
+            const queryStr = buildEnergeticsQueryString(compareFoldingEnergeticsRef.current) + `&uniprotId=${targetUniprot}&mutation=${foldxMutation}`;
+            const pollRes = await fetchWithAuth(`/api/v1/thermompnn-job/${jobId}?${queryStr}`, {
+              method: "GET",
+              signal: activeSignal
+            });
+            if (pollRes.status === 429) {
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              thermompnnComparePollIntervalRef.current = setTimeout(poll, delay) as any;
+              return;
+            }
+            if (!pollRes.ok) {
+              throw new Error(`Poll request failed (status: ${pollRes.status})`);
+            }
+            const pollData = await pollRes.json();
+            if (targetGene !== currentGeneRef.current || targetVariant !== currentCompareVariantRef.current) {
+              clearThermoMpnnComparePoll();
+              return;
+            }
+            if (pollData.status === "done" && pollData.prediction !== null) {
+              setCompareFoldingEnergetics(prev => {
+                const base: EnergeticsData = prev || {
+                  foldx: null,
+                  dynamut2: null,
+                  ddmut: null,
+                  rasp: null,
+                  thermompnn: null
+                };
+                const updated: EnergeticsData = {
+                  ...base,
+                  thermompnn: pollData.prediction
+                };
+                updated.consensusVerdict = pollData.consensusVerdict || computeConsensusVerdict(updated);
+                return updated;
+              });
+              setCompareThermompnnStatus("done");
+              clearThermoMpnnComparePoll();
+              addNotification("success", `Comparison ThermoMPNN prediction completed for ${targetGene} ${targetVariant}! (ΔΔG: ${pollData.prediction.toFixed(2)} kcal/mol)`);
+              finished = true;
+            } else if (pollData.status === "error" || pollData.status === "failed") {
+              setCompareThermompnnStatus("unavailable");
+              clearThermoMpnnComparePoll();
+              addNotification("error", `Comparison ThermoMPNN prediction failed for ${targetGene} ${targetVariant}.`);
+              finished = true;
+            }
+          } catch (pollErr: any) {
+            if (activeSignal?.aborted) return;
+            console.error("[Comparison ThermoMPNN Polling Error]:", pollErr);
+            setCompareThermompnnStatus("unavailable");
+            clearThermoMpnnComparePoll();
+            finished = true;
+          }
+
+          if (!finished) {
+            if (attempts >= maxAttempts) {
+              setCompareThermompnnStatus("unavailable");
+              clearThermoMpnnComparePoll();
+              addNotification("error", `Comparison ThermoMPNN prediction timed out for ${targetGene} ${targetVariant}.`);
+            } else {
+              const delay = Math.min(30000, 5000 * Math.pow(1.5, attempts - 1));
+              thermompnnComparePollIntervalRef.current = setTimeout(poll, delay) as any;
+            }
+          }
+        };
+
+        poll();
+      } else {
+        setCompareThermompnnStatus(
+          validatedData.thermompnnStatus === "done" || validatedData.thermompnnStatus === "unavailable"
+            ? (validatedData.thermompnnStatus as any)
+            : null
+        );
       }
 
       const returnedStatus = validatedData.dynamut2Status;
@@ -2209,14 +1871,13 @@ export default function useVariantAnalysis() {
             }
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setCompareFoldingEnergetics(prev => {
-                const base = prev || {
+                const base: EnergeticsData = prev || {
                   foldx: validatedData.ddG,
-                  ddgun: validatedData.energetics?.ddgun ?? null,
                   dynamut2: null,
                   ddmut: null,
                   rasp: null
                 };
-                const updated = {
+                const updated: EnergeticsData = {
                   ...base,
                   dynamut2: pollData.prediction
                 };
@@ -2294,14 +1955,13 @@ export default function useVariantAnalysis() {
             }
             if (pollData.status === "DONE" && pollData.prediction !== null) {
               setCompareFoldingEnergetics(prev => {
-                const base = prev || {
+                const base: EnergeticsData = prev || {
                   foldx: validatedData.ddG,
-                  ddgun: validatedData.energetics?.ddgun ?? null,
                   dynamut2: null,
                   ddmut: null,
                   rasp: null
                 };
-                const updated = {
+                const updated: EnergeticsData = {
                   ...base,
                   ddmut: pollData.prediction
                 };
@@ -2392,14 +2052,13 @@ export default function useVariantAnalysis() {
       const pollData = await pollRes.json();
       if (pollData.status === "DONE" && pollData.prediction !== null) {
         setFoldingEnergetics(prev => {
-          const base = prev || {
+          const base: EnergeticsData = prev || {
             foldx: null,
-            ddgun: null,
             dynamut2: null,
             ddmut: null,
             rasp: null
           };
-          const updated = {
+          const updated: EnergeticsData = {
             ...base,
             [jobType]: pollData.prediction
           };
@@ -2651,6 +2310,7 @@ export default function useVariantAnalysis() {
       copied,
       customPdbUrl,
       viewMode,
+      active3dModelTab,
       disruptionPredictor,
       triageOverride,
       mutantPdb,
@@ -2674,6 +2334,8 @@ export default function useVariantAnalysis() {
       compareDynamut2Status,
       ddmutStatus,
       compareDdmutStatus,
+      thermompnnStatus,
+      compareThermompnnStatus,
       structuralDiff,
       compareStructuralDiff,
       showPolarContacts,
@@ -2741,6 +2403,7 @@ export default function useVariantAnalysis() {
       setCopied,
       setCustomPdbUrl,
       setViewMode,
+      setActive3dModelTab,
       setTriageOverride,
       setMutantPdb,
       setFoldedResidueIndex,
@@ -2759,6 +2422,8 @@ export default function useVariantAnalysis() {
       setCompareFoldingDdG,
       setCompareFoldingEnergetics,
       setComparisonLayout,
+      setThermompnnStatus,
+      setCompareThermompnnStatus,
       setShowPolarContacts,
       setPdbText,
       setComputedPocket,

@@ -31,6 +31,86 @@ export default function SettingsModal() {
   const [showBiohubToken, setShowBiohubToken] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [biohubTesting, setBiohubTesting] = useState(false);
+  const [biohubValidationStatus, setBiohubValidationStatus] = useState<{ valid: boolean; message: string } | null>(null);
+
+  const testBiohubToken = async () => {
+    const token = settings.biohubApiToken;
+    if (!token) {
+      setBiohubValidationStatus({ valid: false, message: "No Biohub API key entered." });
+      return;
+    }
+    setBiohubTesting(true);
+    setBiohubValidationStatus(null);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (settings.appApiToken) {
+        headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+      }
+      const res = await fetch("/api/v1/validate-biohub-token", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (res.status === 401 || data.error) {
+        setBiohubValidationStatus({ 
+          valid: false, 
+          message: data.error?.message || "App authorization failed. Please check your App API Token." 
+        });
+      } else {
+        setBiohubValidationStatus({ valid: data.valid, message: data.message });
+      }
+    } catch (err: any) {
+      setBiohubValidationStatus({ valid: false, message: `Validation error: ${err.message || "Failed to reach server"}` });
+    } finally {
+      setBiohubTesting(false);
+    }
+  };
+  const [showTamarindToken, setShowTamarindToken] = useState(false);
+  const [tamarindTesting, setTamarindTesting] = useState(false);
+  const [tamarindValidationStatus, setTamarindValidationStatus] = useState<{ valid: boolean; message: string } | null>(null);
+
+  const testTamarindToken = async () => {
+    const token = settings.tamarindApiKey;
+    if (!token) {
+      setTamarindValidationStatus({ valid: false, message: "No Tamarind Bio API key entered." });
+      return;
+    }
+    setTamarindTesting(true);
+    setTamarindValidationStatus(null);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (settings.appApiToken) {
+        headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+      }
+      const res = await fetch("/api/v1/test-tamarind-connection", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ tamarindApiKey: token })
+      });
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Invalid server response (HTTP ${res.status})`);
+      }
+      if (res.status === 401 || data.error) {
+        setTamarindValidationStatus({ 
+          valid: false, 
+          message: data.error?.message || data.error || "App authorization failed. Please check your App API Token." 
+        });
+      } else {
+        setTamarindValidationStatus({ valid: data.valid, message: data.message });
+      }
+    } catch (err: any) {
+      setTamarindValidationStatus({ valid: false, message: `Validation error: ${err.message || "Failed to reach server"}` });
+    } finally {
+      setTamarindTesting(false);
+    }
+  };
+
 
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -552,7 +632,23 @@ export default function SettingsModal() {
 
                     {/* Biohub API Token input */}
                     <div className="space-y-1.5">
-                      <label className="font-semibold block text-xs">Biohub API Token</label>
+                      <div className="flex items-center justify-between">
+                        <label className="font-semibold block text-xs">Biohub API Token</label>
+                        <button
+                          type="button"
+                          onClick={testBiohubToken}
+                          disabled={biohubTesting}
+                          className={`px-2.5 py-0.5 rounded text-[10px] font-mono font-semibold border transition-all cursor-pointer ${
+                            biohubTesting
+                              ? "opacity-50 cursor-wait"
+                              : isDark
+                                ? "bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300"
+                                : "bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700"
+                          }`}
+                        >
+                          {biohubTesting ? "Testing..." : "Test Token Connection"}
+                        </button>
+                      </div>
                       <div className="relative">
                         <input
                           type={showBiohubToken ? "text" : "password"}
@@ -561,6 +657,7 @@ export default function SettingsModal() {
                           onChange={(e) => {
                             updateSetting("biohubApiToken", e.target.value.trim());
                             setLinkError(null);
+                            setBiohubValidationStatus(null);
                           }}
                           className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
                             isDark 
@@ -576,8 +673,79 @@ export default function SettingsModal() {
                           {showBiohubToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
-                      <p className={`text-[9px] leading-normal ${isDark ? "text-slate-500" : "text-slate-400"}`}>
-                        Enables ESMFold2 structure folding and ESMC deep representation metrics directly from Biohub.ai. Fallback applied if empty.
+                      {biohubValidationStatus && (
+                        <div className={`p-2.5 rounded-lg text-[11px] font-mono border flex items-center gap-2 ${
+                          biohubValidationStatus.valid
+                            ? isDark ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300" : "bg-emerald-50 border-emerald-300 text-emerald-800"
+                            : isDark ? "bg-rose-950/40 border-rose-500/40 text-rose-300" : "bg-rose-50 border-rose-300 text-rose-800 font-semibold"
+                        }`}>
+                          <span className="shrink-0 text-xs">{biohubValidationStatus.valid ? "✓" : "⚠️"}</span>
+                          <span className="font-sans font-medium text-[11px]">
+                            {biohubValidationStatus.message || (biohubValidationStatus.valid ? "API token active & valid" : "Endpoint unreachable / invalid token")}
+                          </span>
+                        </div>
+                      )}
+                      <p className={`text-[10px] leading-normal ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                        Enables ESMFold2 3D folding and ESMC deep representation metrics directly from EvolutionaryScale Forge API.
+                      </p>
+                    </div>
+
+                    {/* Tamarind Bio API Key input */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="font-semibold block text-xs">Tamarind Bio API Key</label>
+                        <button
+                          type="button"
+                          onClick={testTamarindToken}
+                          disabled={tamarindTesting}
+                          className={`px-2.5 py-0.5 rounded text-[10px] font-mono font-semibold border transition-all cursor-pointer ${
+                            tamarindTesting
+                              ? "opacity-50 cursor-wait"
+                              : isDark
+                                ? "bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300"
+                                : "bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700"
+                          }`}
+                        >
+                          {tamarindTesting ? "Testing..." : "Test Connection"}
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showTamarindToken ? "text" : "password"}
+                          placeholder={settings.tamarindApiKey ? "••••••••••••••••••••••••••••••••" : "Enter Tamarind Bio API key..."}
+                          value={settings.tamarindApiKey || ""}
+                          onChange={(e) => {
+                            updateSetting("tamarindApiKey", e.target.value.trim());
+                            setTamarindValidationStatus(null);
+                          }}
+                          className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
+                            isDark 
+                              ? "bg-slate-900 border-slate-800 text-indigo-300 placeholder-slate-500 focus:border-slate-700" 
+                              : "bg-slate-50 border-slate-200 text-indigo-700 placeholder-slate-400 focus:border-indigo-400"
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowTamarindToken(!showTamarindToken)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-500 cursor-pointer"
+                        >
+                          {showTamarindToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {tamarindValidationStatus && (
+                        <div className={`p-2.5 rounded-lg text-[11px] font-mono border flex items-center gap-2 ${
+                          tamarindValidationStatus.valid
+                            ? isDark ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300" : "bg-emerald-50 border-emerald-300 text-emerald-800"
+                            : isDark ? "bg-rose-950/40 border-rose-500/40 text-rose-300" : "bg-rose-50 border-rose-300 text-rose-800 font-semibold"
+                        }`}>
+                          <span className="shrink-0 text-xs">{tamarindValidationStatus.valid ? "✓" : "⚠️"}</span>
+                          <span className="font-sans font-medium text-[11px]">
+                            {tamarindValidationStatus.message || (tamarindValidationStatus.valid ? "API key active & valid" : "Endpoint unreachable / invalid key")}
+                          </span>
+                        </div>
+                      )}
+                      <p className={`text-[10px] leading-normal ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                        Enables remote neural ThermoMPNN $\Delta\Delta G^\circ$ thermodynamic stability calculations via Tamarind Bio REST API.
                       </p>
                     </div>
 

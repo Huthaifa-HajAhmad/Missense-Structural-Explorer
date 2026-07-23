@@ -75,6 +75,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       geminiSessionExpiresAt: 0,
       appApiToken: "",
       biohubApiToken: "",
+      tamarindApiKey: "",
       cameraDuration: 1200,
       autoZoomOnSelect: true,
       showAtomInteractions: true,

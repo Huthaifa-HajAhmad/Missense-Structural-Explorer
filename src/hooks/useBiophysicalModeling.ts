@@ -32,11 +32,15 @@ export function useBiophysicalModeling(
   const [compareDynamut2Status, setCompareDynamut2Status] = useState<"pending" | "unavailable" | "done" | null>(null);
   const [ddmutStatus, setDdmutStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
   const [compareDdmutStatus, setCompareDdmutStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
+  const [thermompnnStatus, setThermompnnStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
+  const [compareThermompnnStatus, setCompareThermompnnStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
   
   const [dynamut2JobId, setDynamut2JobId] = useState<string | null>(null);
   const [compareDynamut2JobId, setCompareDynamut2JobId] = useState<string | null>(null);
   const [ddmutJobId, setDdmutJobId] = useState<string | null>(null);
   const [compareDdmutJobId, setCompareDdmutJobId] = useState<string | null>(null);
+  const [thermompnnJobId, setThermompnnJobId] = useState<string | null>(null);
+  const [compareThermompnnJobId, setCompareThermompnnJobId] = useState<string | null>(null);
 
   const [structuralDiff, setStructuralDiff] = useState<StructuralDiffResult | null>(null);
   const [compareStructuralDiff, setCompareStructuralDiff] = useState<StructuralDiffResult | null>(null);
@@ -49,6 +53,8 @@ export function useBiophysicalModeling(
   const dynamutComparePollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const ddmutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const ddmutComparePollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
+  const thermompnnPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
+  const thermompnnComparePollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const lastFetchedFoldRef = useRef<string>("");
 
   const clearDynaMutPoll = useCallback(() => {
@@ -76,6 +82,20 @@ export function useBiophysicalModeling(
     if (ddmutComparePollIntervalRef.current) {
       clearTimeout(ddmutComparePollIntervalRef.current as any);
       ddmutComparePollIntervalRef.current = null;
+    }
+  }, []);
+
+  const clearThermoMpnnPoll = useCallback(() => {
+    if (thermompnnPollIntervalRef.current) {
+      clearTimeout(thermompnnPollIntervalRef.current as any);
+      thermompnnPollIntervalRef.current = null;
+    }
+  }, []);
+
+  const clearThermoMpnnComparePoll = useCallback(() => {
+    if (thermompnnComparePollIntervalRef.current) {
+      clearTimeout(thermompnnComparePollIntervalRef.current as any);
+      thermompnnComparePollIntervalRef.current = null;
     }
   }, []);
 
@@ -148,6 +168,10 @@ export function useBiophysicalModeling(
     setDdmutStatus,
     compareDdmutStatus,
     setCompareDdmutStatus,
+    thermompnnStatus,
+    setThermompnnStatus,
+    compareThermompnnStatus,
+    setCompareThermompnnStatus,
     dynamut2JobId,
     setDynamut2JobId,
     compareDynamut2JobId,
@@ -156,6 +180,10 @@ export function useBiophysicalModeling(
     setDdmutJobId,
     compareDdmutJobId,
     setCompareDdmutJobId,
+    thermompnnJobId,
+    setThermompnnJobId,
+    compareThermompnnJobId,
+    setCompareThermompnnJobId,
     structuralDiff,
     setStructuralDiff,
     compareStructuralDiff,
@@ -170,11 +198,15 @@ export function useBiophysicalModeling(
     dynamutComparePollIntervalRef,
     ddmutPollIntervalRef,
     ddmutComparePollIntervalRef,
+    thermompnnPollIntervalRef,
+    thermompnnComparePollIntervalRef,
     lastFetchedFoldRef,
     clearDynaMutPoll,
     clearDynaMutComparePoll,
     clearDdmutPoll,
     clearDdmutComparePoll,
+    clearThermoMpnnPoll,
+    clearThermoMpnnComparePoll,
     fetchPocketInfo
   };
 }
