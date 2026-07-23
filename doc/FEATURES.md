@@ -68,8 +68,8 @@ This advanced research feature models mutated coordinate structures on the fly:
 * **Stochastic Multi-Run Folding**: Runs FoldX `BuildModel` 3 times to calculate average stability ($\Delta\Delta G$ Mean $\pm$ SD) to ensure rotamer sampling reproducibility and clamp severe outliers.
 * **Smart Triage Classification**: Evaluates secondary structure patterns (e.g. Proline/Glycine substitutions in helices/sheets), volume expansion in hydrophobic cores, and pLDDT structure confidence to classify variants before executing heavy simulations.
 - **Triage Override**: Allows researchers to force-enable mutant structure modeling even for low-disruption variants where WT and Mutant rigid backbones are identical, preventing misleading structural comparisons.
-- **Evolutionary/Sequence Delta-Delta G**: Computes sequence-based stability predictions via a local DDGun-Seq sidecar.
-- **2/3 Biophysical Consensus**: Aggregates FoldX, DynaMut2, and DDGun-Seq predictions to determine a consolidated stability verdict (High-Risk, Moderate-Risk, or Low-Risk).
+- **Multi-Method Consensus Verdict**: Aggregates FoldX, DynaMut2, DDMut, RaSP, and ThermoMPNN (via Tamarind Bio remote REST API) predictions to determine a consolidated stability verdict (High Misfolding Risk, Moderate Misfolding Risk, or Low Misfolding Risk).
+* **ThermoMPNN Deep Learning Integration**: Integrates ThermoMPNN predictions trained on >770,000 experimental measurements to evaluate thermodynamic stability changes ($\Delta\Delta G^\circ$) with ProteinMPNN structural embeddings.
 * The 3D viewer displays the mutated structure overlay, enabling direct visual comparison of how a sequence change affects the local spatial pocket architecture.
 
 ---

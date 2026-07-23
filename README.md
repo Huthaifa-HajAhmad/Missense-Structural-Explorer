@@ -55,9 +55,9 @@ The application pre-loads three canonical rare disease presets, complete with hi
     2. Place the downloaded Windows executable (e.g. `foldx_1_20270131.exe`) inside the `tools/foldx/` folder.
     3. Copy the `molecules/` folder containing standard amino acid parameter/rotamer libraries (such as `rotabase.txt`) from your FoldX distribution directly into the `tools/foldx/molecules/` directory.
     4. (Optional) Alternatively, you can define `FOLDX_BINARY` in your `.env` pointing to the absolute path of the executable.
-*   **Python 3 (Required for Sequence-Based Stability predictions)**:
+*   **Python 3 (Required for ESMC Local Embedding Shift predictions)**:
     1. Ensure Python 3 is installed and executable on the local system path.
-    2. The application utilizes a python-based sidecar (`tools/ddgun/ddgun_seq.py`) to run evolutionary sequence checks.
+    2. The application utilizes a python-based sidecar (`tools/model_server.py`) to run local deep learning models.
 
 ### Installation & Execution
 1.  **Clone the Repository**:
@@ -73,6 +73,7 @@ The application pre-loads three canonical rare disease presets, complete with hi
     Create a `.env` file in the root directory:
     ```env
     GEMINI_API_KEY=your_free_gemini_api_key_here
+    TAMARIND_API_KEY=your_tamarind_bio_api_key_here
     APP_API_TOKEN=optional_secret_api_token
     ```
 4.  **Run Development Server**:
