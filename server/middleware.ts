@@ -31,7 +31,11 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
   // 1. Allow public metadata/session endpoints to bypass auth
   const PUBLIC_ENDPOINTS = [
     "/health",
-    "/version"
+    "/version",
+    "/sequence",                 // Public UniProt sequence proxy — no user data
+    "/alphafold-pdb",            // Public AlphaFold structure proxy — no user data
+    "/validate-biohub-token",    // Credential test endpoint
+    "/test-tamarind-connection", // Credential test endpoint
   ];
   
   const pathToCheck = req.path;

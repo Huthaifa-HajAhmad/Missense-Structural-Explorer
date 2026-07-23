@@ -27,6 +27,11 @@ async function startServer() {
   if (!process.env.SIDECAR_SECRET) {
     process.env.SIDECAR_SECRET = crypto.randomUUID();
   }
+  try {
+    fs.writeFileSync(path.join(process.cwd(), ".sidecar_secret"), process.env.SIDECAR_SECRET, "utf8");
+  } catch (secretWriteErr: any) {
+    console.error("Failed to write .sidecar_secret:", secretWriteErr.message);
+  }
 
   // Spawn the local ML model server sidecar with auto-restart (A-6, P2-7)
   let restartAttempts = 0;

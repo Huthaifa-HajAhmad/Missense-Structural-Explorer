@@ -20,7 +20,7 @@ export interface ESM3StructureEvalResult {
   };
 }
 
-export const esm3StructureCache = new LRUCache<string, ESM3StructureEvalResult>({
+export const esm3StructureCache = new LRUCache<string, any>({
   max: 500,
   ttl: 24 * 60 * 60 * 1000 // 24 hours TTL
 });
@@ -30,11 +30,12 @@ export async function fetchEsm3StructureEval(
   position: number,
   wtResidue: string,
   mutResidue: string,
-  wtPdbText?: string | null
-): Promise<ESM3StructureEvalResult> {
+  wtPdbText?: string | null,
+  biohubToken?: string | null
+): Promise<ESM3StructureEvalResult | null> {
   const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}`;
   const cached = esm3StructureCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
 
   const wt1 = wtResidue.length === 3 ? AMINO_ACID_3_TO_1[wtResidue.toUpperCase()] || wtResidue : wtResidue.toUpperCase();
   const mut1 = mutResidue.length === 3 ? AMINO_ACID_3_TO_1[mutResidue.toUpperCase()] || mutResidue : mutResidue.toUpperCase();
@@ -43,14 +44,13 @@ export async function fetchEsm3StructureEval(
   let perturbationScores: number[] = [];
   let seqLen = 300;
 
-  // Attempt to call Biohub ESM3 API if API key is provided
-  const apiKey = process.env.ESM3_FORGE_API_KEY;
-  if (apiKey) {
+  // Remote ESM3 predict API call via Biohub Platform
+  if (biohubToken) {
     try {
-      const forgeRes = await fetchWithRetry("https://api.biohub.ai/v1/esm3/predict", {
+      const forgeRes = await fetchWithRetry("https://biohub.ai/api/v1/esm3/predict", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${biohubToken}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -63,10 +63,12 @@ export async function fetchEsm3StructureEval(
       if (forgeRes.ok) {
         const forgeData = await forgeRes.json() as any;
         if (forgeData.pdb_string) pdbText = forgeData.pdb_string;
-        if (Array.isArray(forgeData.perturbation_scores)) perturbationScores = forgeData.perturbation_scores;
+        if (Array.isArray(forgeData.perturbation_scores)) {
+          perturbationScores = forgeData.perturbation_scores;
+        }
       }
     } catch (err: any) {
-      console.warn("[ESM3 Forge API] Falling back to biophysical evaluation:", err.message);
+      console.warn("[ESM3 Forge API] Remote ESM3 predict call failed:", err.message);
     }
   }
 
@@ -111,17 +113,10 @@ export async function fetchEsm3StructureEval(
     if (targetAtomCount > 0) targetPlddt = targetB / targetAtomCount;
   }
 
-  // Generate synthetic smooth perturbation Gaussian curve centered at position if API skipped
+  // If we could not retrieve real perturbation scores from the API, we return null to avoid fabricating data
   if (perturbationScores.length === 0) {
-    const arrLen = Math.max(seqLen, position + 20);
-    perturbationScores = new Array(arrLen).fill(0.02);
-    const sigma = 8;
-    const peakDrift = (wt1 === "P" || mut1 === "P" || wt1 === "W" || mut1 === "W") ? 0.45 : 0.28;
-    for (let i = 1; i <= arrLen; i++) {
-      const dist = Math.abs(i - position);
-      const val = peakDrift * Math.exp(-Math.pow(dist, 2) / (2 * Math.pow(sigma, 2)));
-      perturbationScores[i - 1] = parseFloat(Math.max(0.02, val).toFixed(3));
-    }
+    esm3StructureCache.set(cacheKey, null);
+    return null;
   }
 
   const maxVal = Math.max(...perturbationScores);

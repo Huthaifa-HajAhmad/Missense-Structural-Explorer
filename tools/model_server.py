@@ -13,7 +13,7 @@
 import os
 import sys
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uvicorn
 from contextlib import asynccontextmanager
@@ -60,6 +60,15 @@ app = FastAPI(title="Missense Structural Explorer Model Server", lifespan=lifesp
 @app.middleware("http")
 async def verify_secret_header(request: Request, call_next):
     expected_secret = os.environ.get("SIDECAR_SECRET")
+    # Read dynamic secret from .sidecar_secret if exists, else fallback to env
+    secret_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".sidecar_secret")
+    if os.path.exists(secret_file):
+        try:
+            with open(secret_file, "r") as f:
+                expected_secret = f.read().strip()
+        except Exception:
+            pass
+
     if expected_secret and request.url.path != "/health":
         client_secret = request.headers.get("X-Sidecar-Secret")
         if client_secret != expected_secret:
@@ -97,6 +106,7 @@ def predict_vesm(req: VesmRequest):
         if sequence[pos - 1] != wt:
             raise HTTPException(status_code=400, detail=f"Wild-type AA mismatch at position {pos}.")
 
+        # 1. Logits and LLR (Masked Marginal Approach)
         seq_chars = list(sequence)
         seq_chars[pos - 1] = vesm_tokenizer.mask_token
         masked_seq = "".join(seq_chars)
@@ -119,7 +129,48 @@ def predict_vesm(req: VesmRequest):
         wt_log_prob = pos_log_probs[wt_id].item()
 
         llr = round(mut_log_prob - wt_log_prob, 4)
-        return {"status": "success", "llr": llr, "verdict": "raw score"}
+
+        # 2. Embedding Shifts (Unmasked hidden state representation differences)
+        wt_seq = sequence
+        mut_seq_chars = list(sequence)
+        mut_seq_chars[pos - 1] = mut
+        mut_seq = "".join(mut_seq_chars)
+
+        wt_inputs = vesm_tokenizer(wt_seq, return_tensors="pt")
+        mut_inputs = vesm_tokenizer(mut_seq, return_tensors="pt")
+
+        with torch.no_grad():
+            wt_outputs = vesm_model(**wt_inputs, output_hidden_states=True)
+            mut_outputs = vesm_model(**mut_inputs, output_hidden_states=True)
+            
+            wt_emb = wt_outputs.hidden_states[-1][0]  # Shape: [seq_len, hidden_dim]
+            mut_emb = mut_outputs.hidden_states[-1][0]  # Shape: [seq_len, hidden_dim]
+            
+            seq_len = min(wt_emb.size(0), mut_emb.size(0))
+            diff = wt_emb[:seq_len] - mut_emb[:seq_len]
+            distances = torch.norm(diff, p=2, dim=-1)  # Shape: [seq_len]
+
+        embedding_shift = round(distances[pos].item(), 4)
+        
+        local_shift_map = []
+        for i in range(-10, 11):
+            target_pos = pos + i
+            if 1 <= target_pos < seq_len - 1:  # avoid <cls> (0) and <eos> (seq_len - 1)
+                shift_val = distances[target_pos].item()
+                res_char = sequence[target_pos - 1]
+                local_shift_map.append({
+                    "position": target_pos,
+                    "residue": res_char,
+                    "shift": round(shift_val, 4)
+                })
+
+        return {
+            "status": "success",
+            "llr": llr,
+            "verdict": "raw score",
+            "embeddingShift": embedding_shift,
+            "localShiftMap": local_shift_map
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

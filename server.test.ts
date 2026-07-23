@@ -1065,9 +1065,7 @@ END
           foldedResidueIndex: 1
         });
 
-        const ddgunSpy = vi.spyOn(biophysics, "runDdgunSeq").mockResolvedValue(0.3);
         const raspSpy = vi.spyOn(biophysics, "runRaspLocal").mockResolvedValue(null);
-        const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("D");
         const dynamutSpy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("12345");
         const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("67890");
 
@@ -1105,17 +1103,59 @@ END
         await handler(req, res, () => {});
         
         expect(mutantSpy).toHaveBeenCalled();
-        expect(ddgunSpy).toHaveBeenCalled();
         expect(jsonVal).toBeDefined();
         expect(jsonVal.energetics.foldx).toBe(1.25);
-        expect(jsonVal.energetics.ddgun).toBe(0.3);
 
         mutantSpy.mockRestore();
-        ddgunSpy.mockRestore();
         raspSpy.mockRestore();
-        seqSpy.mockRestore();
         dynamutSpy.mockRestore();
         ddmutSpy.mockRestore();
+      });
+
+      it("should handle /test-tamarind-connection endpoint successfully", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/test-tamarind-connection");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /test-tamarind-connection not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const biophysics = await import("./server/services/biophysics.ts");
+        const testSpy = vi.spyOn(biophysics, "testTamarindConnection").mockResolvedValue({
+          valid: true,
+          message: "Connection verified"
+        });
+
+        let jsonVal: any = null;
+        const req: any = { body: { tamarindApiKey: "test_key" }, headers: {} };
+        const res: any = { json(body: any) { jsonVal = body; return this; } };
+
+        await handler(req, res, () => {});
+        expect(testSpy).toHaveBeenCalledWith("test_key");
+        expect(jsonVal).toEqual({ valid: true, message: "Connection verified" });
+
+        testSpy.mockRestore();
+      });
+
+      it("should handle /thermompnn-job/:jobId polling endpoint", async () => {
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/thermompnn-job/:jobId");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /thermompnn-job/:jobId not found");
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+        const biophysics = await import("./server/services/biophysics.ts");
+        const pollSpy = vi.spyOn(biophysics, "pollThermoMpnnJob").mockResolvedValue({
+          status: "done",
+          prediction: -1.85
+        });
+
+        let jsonVal: any = null;
+        const req: any = { params: { jobId: "tm-123" }, query: { tamarindApiKey: "test_key" }, headers: {} };
+        const res: any = { json(body: any) { jsonVal = body; return this; } };
+
+        await handler(req, res, () => {});
+        expect(pollSpy).toHaveBeenCalledWith("tm-123", "test_key");
+        expect(jsonVal).toEqual({ jobId: "tm-123", status: "done", prediction: -1.85, error: undefined });
+
+        pollSpy.mockRestore();
       });
 
       it("should submit DynaMut2 job successfully when calling /dynamut2-submit", async () => {
@@ -1885,8 +1925,7 @@ ATOM      3  CA  ASP A   3       1.000   0.000   1.000  1.00  0.00           C
       const { computeConsensusVerdict } = await import("./src/shared/thresholds.ts");
       const verdict = computeConsensusVerdict({
         foldxMean: 4.85, // Strongly destabilizing ΔΔG
-        rasp: -3.2,      // Strongly destabilizing RaSP
-        ddgun: -2.1      // Destabilizing DDGun
+        rasp: -3.2       // Strongly destabilizing RaSP
       });
       expect(verdict).toBe("High Misfolding Risk (Destabilizing Consensus)");
     });
@@ -2050,15 +2089,15 @@ END
 
     it("should validate and compute consensus verdict stability correctly", () => {
       // High-risk: >= 2 destabilizing
-      const highRisk = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2, ddgun: null });
+      const highRisk = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2 });
       expect(highRisk).toBe("High Misfolding Risk (Destabilizing Consensus)");
 
       // Conflicting: 1 destabilizing, >= 2 available
-      const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, ddgun: 0.2 });
+      const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, ddmut: 0.2 });
       expect(conflicting).toBe("Moderate Misfolding Risk (Conflicting Stability)");
 
       // Neutral: 0 destabilizing
-      const neutral = computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2, ddgun: null });
+      const neutral = computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2 });
       expect(neutral).toBe("Low Misfolding Risk (Neutral Stability)");
     });
   });
@@ -2375,6 +2414,144 @@ END
         expect(score).toBeCloseTo(-3.775, 2);
       }
     }, 15000);
+  });
+
+  describe("ThermoMPNN and Folding Engine verifyStability Bridges", () => {
+    it("should correctly mutate sequences using applyMutation utility", async () => {
+      const { applyMutation } = await import("./server/utils/mutation.ts");
+      const seq = "MTEYKLVVVGAGGVGKSALTIQLI";
+      // Mutate G12V (which is index 12, 1-indexed)
+      const mutated = applyMutation(seq, { chain: "A", position: 12, wt: "G", mt: "V" });
+      expect(mutated).toBe("MTEYKLVVVGAVGVGKSALTIQLI");
+      expect(mutated[11]).toBe("V");
+
+      // Test bounds error
+      expect(() => applyMutation(seq, { chain: "A", position: 100, wt: "G", mt: "V" })).toThrow();
+    });
+
+    it("should verify stability and coordinate FoldingEngine structure outputs", async () => {
+      const { verifyStability } = await import("./server/services/biophysics-bridge.ts");
+      const { ESMFoldEngine } = await import("./server/services/folding-engines.ts");
+
+      // Mock remote Tamarind API fetch
+      const globalFetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url) => {
+        if (url === "https://app.tamarind.bio/api/submit-job") {
+          return {
+            ok: true,
+            json: async () => ({ jobId: "test-thermo-job", prediction: -2.3, status: "done" })
+          } as any;
+        }
+        if (url === "https://biohub.ai/api/v1/fold_all_atom") {
+          return {
+            ok: true,
+            json: async () => ({
+              complex: {
+                sequence: ["MET", "ALA"],
+                atom_positions: [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                atom_elements: ["C", "C"],
+                atom_names: ["CA", "CA"],
+                token_to_atoms: [[0, 1], [1, 2]],
+                plddt: [0.9, 0.9]
+              }
+            })
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      });
+
+      const engine = new ESMFoldEngine();
+      const res = await verifyStability(
+        "MA",
+        { chain: "A", position: 2, wt: "A", mt: "V" },
+        engine,
+        {
+          wtPdb: "ATOM ...",
+          uniprotId: "P12345",
+          jobDir: "./temp_jobs",
+          mutationCode: "AA2V",
+          biohubToken: "dummy-token"
+        },
+        "dummy-api-key"
+      );
+
+      expect(res.ddG).toBe(-2.3);
+      expect(res.thermompnnStatus).toBe("done");
+      expect(res.structure.status).toBe("success");
+      expect(res.structure.pdb).toContain("ATOM");
+
+      globalFetchSpy.mockRestore();
+    });
+
+    it("should mount and respond correctly on /biophysics/verify-stability endpoint", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/biophysics/verify-stability");
+      expect(route).toBeDefined();
+
+      // Test valid post validation
+      const mockReq = {
+        body: {
+          uniprotId: "P00439",
+          mutation: { chain: "A", position: 2, wt: "T", mt: "V" },
+          engine: "esmfold",
+          wtPdb: "ATOM 1 CA ALA A 1 0.000 0.000 0.000 1.00 90.00 C",
+          wtSeq: "MTEYKL"
+        },
+        headers: {
+          "x-tamarind-api-key": "test-key",
+          "x-biohub-token": "test-token"
+        }
+      } as any;
+
+      let responseJson: any = null;
+      let responseStatus: number = 200;
+      const mockRes = {
+        status: (code: number) => {
+          responseStatus = code;
+          return mockRes;
+        },
+        json: (data: any) => {
+          responseJson = data;
+          return mockRes;
+        },
+        getHeader: () => undefined
+      } as any;
+
+      // Mock inner fetch calls inside endpoint
+      const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url) => {
+        if (url === "https://app.tamarind.bio/api/submit-job") {
+          return {
+            ok: true,
+            json: async () => ({ jobId: "thermo-job-123", prediction: 1.25, status: "done" })
+          } as any;
+        }
+        if (url === "https://biohub.ai/api/v1/fold_all_atom") {
+          return {
+            ok: true,
+            json: async () => ({
+              complex: {
+                sequence: ["MET", "VAL", "GLU", "TYR", "LYS", "LEU"],
+                atom_positions: [[0,0,0],[1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5]],
+                atom_elements: ["C","C","C","C","C","C"],
+                atom_names: ["CA","CA","CA","CA","CA","CA"],
+                token_to_atoms: [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]],
+                plddt: [0.8,0.8,0.8,0.8,0.8,0.8]
+              }
+            })
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      });
+
+      if (route && route.route) {
+        const handler = route.route.stack[route.route.stack.length - 1].handle;
+        await handler(mockReq, mockRes, () => {});
+      }
+      expect(responseJson).toBeDefined();
+      expect(responseJson.ddG).toBe(1.25);
+      expect(responseJson.structure.status).toBe("success");
+      expect(responseJson.structure.pdb).toContain("ATOM");
+
+      fetchSpy.mockRestore();
+    });
   });
 });
 
