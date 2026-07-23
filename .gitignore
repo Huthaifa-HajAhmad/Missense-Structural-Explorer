@@ -37,3 +37,10 @@ tools/vesm/
 data/*.csv
 data/*.sqlite
 
+# Repowise cache and databases
+.repowise/
+
+# Local secrets
+.sidecar_secret
+
+
