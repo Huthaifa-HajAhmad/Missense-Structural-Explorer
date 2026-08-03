@@ -15,7 +15,7 @@ export function registerSessionRoutes(apiRouter: Router, jsonParserRegular: any)
         sendError(res, 400, "BAD_REQUEST", "Invalid API key format or length.");
         return;
       }
-      const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour session
+      const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes session (SEC-13)
       const secret = process.env.APP_SESSION_SECRET;
       if (!secret) {
         throw new Error("APP_SESSION_SECRET is not configured in the environment.");
@@ -24,7 +24,7 @@ export function registerSessionRoutes(apiRouter: Router, jsonParserRegular: any)
 
       res.json({ sessionId, expiresAt });
     } catch (err: any) {
-      sendError(res, 500, "INTERNAL_ERROR", err.message || "Failed to create session.");
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to create session.");
     }
   });
 }

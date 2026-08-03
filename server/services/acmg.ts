@@ -209,11 +209,15 @@ export function computeRuleBasedACMG(
     exomeAF: number | null;
     nHomozygous: number | null;
     dataset: string;
+    groupMaxAFIsFallback?: boolean;
   } | null,
   acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard",
   esm2?: { llr: number | null; verdict: string } | null,
   uniprotFeatures?: any | null,
-  sequence?: string | null
+  sequence?: string | null,
+  esmcEval?: any | null,
+  esm2Eval?: any | null,
+  saprotEval?: any | null
 ): RuleBasedInsights {
   const criteria: ACMGItem[] = [];
 
@@ -298,13 +302,15 @@ export function computeRuleBasedACMG(
     predictorData?.amPathogenicity,
     predictorData?.amClass,
     conservationData?.bayesdel,
-    esm2?.llr,
+    esmcEval?.llr ?? esm2?.llr,
     {
       metarnn: conservationData?.metarnn,
       clinpred: conservationData?.clinpred,
       eigenPhred: conservationData?.eigenPhred,
       dann: conservationData?.dann,
       popeve: conservationData?.popeve,
+      esm2Llr: esm2Eval?.llr,
+      saprotLlr: saprotEval?.llr,
     }
   );
 
@@ -317,7 +323,9 @@ export function computeRuleBasedACMG(
     `AlphaMissense: ${predictorData?.amClass ?? "N/A"}, ` +
     `popEVE: ${signals.popeve ? signals.popeve.toUpperCase() : "N/A"}, ` +
     `BayesDel: ${conservationData?.bayesdel ?? "N/A"}, ` +
-    `VESM LLR: ${esm2?.llr !== undefined && esm2?.llr !== null ? esm2.llr.toFixed(2) : "N/A"}` +
+    `ESMC LLR: ${esmcEval?.llr !== undefined && esmcEval?.llr !== null ? esmcEval.llr.toFixed(2) : (esm2?.llr !== undefined && esm2?.llr !== null ? esm2.llr.toFixed(2) : "N/A")}, ` +
+    `ESM-2 3B LLR: ${esm2Eval?.llr !== undefined && esm2Eval?.llr !== null ? esm2Eval.llr.toFixed(2) : "N/A"}, ` +
+    `SaProt LLR: ${saprotEval?.llr !== undefined && saprotEval?.llr !== null ? saprotEval.llr.toFixed(2) : "N/A"}` +
     (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "");
 
   if (nPathogenic > nBenign && !skipPathogenicComp) {
@@ -375,15 +383,19 @@ export function computeRuleBasedACMG(
   }
 
   if (hasFreq) {
+    const fallbackSuffix = gnomadFrequency?.groupMaxAFIsFallback
+      ? " (note: groupMaxAF fell back to global maxAF due to low population counts)"
+      : "";
+
     if (maxFreq > 0.05) {
       criteria.push({
         code: "BA1",
-        reason: `Allele frequency is stand-alone benign (${(maxFreq * 100).toFixed(3)}% > 5.0% in population database).`,
+        reason: `Allele frequency is stand-alone benign (${(maxFreq * 100).toFixed(3)}% > 5.0% in population database)${fallbackSuffix}.`,
       });
     } else if (maxFreq > 0.01) {
       criteria.push({
         code: "BS1",
-        reason: `Allele frequency significantly higher than expected for disorder (${(maxFreq * 100).toFixed(3)}% > 1.0%).`,
+        reason: `Allele frequency significantly higher than expected for disorder (${(maxFreq * 100).toFixed(3)}% > 1.0%)${fallbackSuffix}.`,
       });
     } else {
       // PM2 inheritance-mode awareness (dominant: < 0.01%, recessive: < 0.1%)
@@ -402,7 +414,7 @@ export function computeRuleBasedACMG(
         if (!skipPathogenicComp) {
           criteria.push({
             code: "PM2",
-            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% threshold for ${inheritanceModeText} inheritance).`,
+            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% threshold for ${inheritanceModeText} inheritance)${fallbackSuffix}.`,
           });
         }
       }

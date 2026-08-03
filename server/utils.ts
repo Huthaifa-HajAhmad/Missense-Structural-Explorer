@@ -15,12 +15,16 @@ export class Semaphore {
   private activeCount = 0;
   private queue: { resolve: () => void; reject: (err: Error) => void }[] = [];
 
-  constructor(private maxConcurrency: number) {}
+  constructor(private maxConcurrency: number, private maxQueueLength = 20) {}
 
   async acquire(timeoutMs = 30000): Promise<void> {
     if (this.activeCount < this.maxConcurrency) {
       this.activeCount++;
       return;
+    }
+
+    if (this.queue.length >= this.maxQueueLength) {
+      throw new Error("Concurrency limit reached. Biophysical server queue is full.");
     }
 
     return new Promise<void>((resolve, reject) => {
@@ -168,12 +172,20 @@ export function sanitizeErrorMessage(err: any): string {
     return "Evaluation algorithm encountered an internal data processing mismatch.";
   }
   
-  const allowedKeywords = ["invalid", "session", "expired", "synonymous", "token", "missing", "unsupported"];
-  if (allowedKeywords.some(kw => msg.toLowerCase().includes(kw))) {
-    return msg;
+  // Denylist of internal developer errors, stack traces, paths, and credentials to prevent information leakage
+  const denylistKeywords = [
+    "TypeError", "ReferenceError", "SyntaxError", "RangeError", "EvalError", "URIError",
+    "dbNSFP", "FoldX", "DynaMut2", "DDMut", "ThermoMPNN", "ESMFold", "ESM2", "ESM3", "ESMC", "SaProt",
+    "password", "secret", "token", "apiKey", "credential", "authCheck", "sessionSecret", "sessionKey",
+    "C:\\", "/Users/", "/home/", "node_modules", " at ", ".ts:", ".js:", "mongodb", "postgres", "mysql",
+    "select", "insert", "update", "delete", "sql"
+  ];
+
+  if (denylistKeywords.some(kw => msg.includes(kw) || msg.toLowerCase().includes(kw.toLowerCase()))) {
+    return "An internal server error occurred while processing the request.";
   }
-  
-  return "An internal server error occurred while processing the request.";
+
+  return msg;
 }
 
 export function sendError(res: express.Response, status: number, code: string, message: string, details?: any) {
@@ -252,6 +264,23 @@ export class AuditLogger {
       if (!fs.existsSync(dir)) {
         await fs.promises.mkdir(dir, { recursive: true });
       }
+
+      // Rotate log if it exceeds 10MB
+      try {
+        if (fs.existsSync(this.logPath)) {
+          const stats = await fs.promises.stat(this.logPath);
+          if (stats.size > 10 * 1024 * 1024) { // 10 MB
+            const backupPath = path.join(dir, "audit.1.jsonl");
+            if (fs.existsSync(backupPath)) {
+              await fs.promises.unlink(backupPath);
+            }
+            await fs.promises.rename(this.logPath, backupPath);
+          }
+        }
+      } catch (rotationErr: any) {
+        console.error("[AuditLogger] Log rotation failed:", rotationErr.message);
+      }
+
       await fs.promises.appendFile(this.logPath, entryStr + "\n", "utf8");
     } catch (err: any) {
       AuditLogger.failureCount++;
@@ -266,17 +295,17 @@ export function filterPII(text: string): string {
   // Email pattern
   filtered = filtered.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED EMAIL]");
   
-  // Phone number pattern (anchored to require leading '+' or parenthesized area code to prevent over-redacting coordinate numbers)
-  filtered = filtered.replace(/(?:\+\d{1,4}[-.\s]?)?\(?\d{3,4}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+\d{1,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}[-.\s]?\d{4}/g, "[REDACTED PHONE]");
+  // Phone number pattern (including bare 10-digit phones and standard variants)
+  filtered = filtered.replace(/\b\d{10}\b|(?:\+\d{1,4}[-.\s]?)?\(?\d{3,4}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\+\d{1,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}[-.\s]?\d{4}/g, "[REDACTED PHONE]");
   
-  // Social Security Number (SSN) pattern
-  filtered = filtered.replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED SSN]");
+  // Social Security Number (SSN) pattern (dashed and prefixed undashed)
+  filtered = filtered.replace(/\b\d{3}-\d{2}-\d{4}\b|\b(?:ssn|social\s*security(?:[-_\s]*number)?|tax\s*id)[:\s-]*\d{9}\b/gi, "[REDACTED SSN]");
   
-  // Date of Birth (DOB) patterns (e.g. DOB: 01/02/1990)
-  filtered = filtered.replace(/\b(?:dob|date\s+of\s+birth)\b[:\s]+(?:\d{1,2}[-./]\d{1,2}[-./]\d{2,4})/gi, "[REDACTED DOB]");
+  // Date of Birth (DOB) patterns (unanchored)
+  filtered = filtered.replace(/(?:dob|date\s+of\s+birth|birthdate|birth\s+date)[:\s-]*(?:\d{1,2}[-./]\d{1,2}[-./]\d{2,4})/gi, "[REDACTED DOB]");
   
-  // Patient ID / MRN patterns (e.g. MRN: 1234567, Patient ID: abc-123)
-  filtered = filtered.replace(/\b(?:mrn|patient\s*id|medical\s*record\s*number)\b[:\s]+[a-zA-Z0-9-]{4,15}/gi, "[REDACTED PATIENT ID]");
+  // Patient ID / MRN patterns (unanchored)
+  filtered = filtered.replace(/(?:mrn|patient\s*id|medical\s*record\s*number)[:\s-]*[a-zA-Z0-9-]{4,15}/gi, "[REDACTED PATIENT ID]");
   
   return filtered;
 }
@@ -289,6 +318,12 @@ export interface SessionPayload {
 
 const pbkdf2KeyCache = new Map<string, Buffer>();
 
+/**
+ * NOTE: The PBKDF2 salt is deterministic (derived from the secret key) to allow caching
+ * the resulting stretched key. If we used a random salt per session token, we could
+ * not cache the key and would need to execute 100,000 PBKDF2 iterations on every single
+ * incoming request, resulting in severe CPU overhead and susceptibility to Denial of Service (DoS).
+ */
 function getDerivedSessionKey(secret: string): Buffer {
   let key = pbkdf2KeyCache.get(secret);
   if (!key) {
@@ -369,32 +404,67 @@ export function getApiKeyFromSession(sessionId: string): string | undefined {
  */
 export function runTempJobsJanitor() {
   const tempJobsDir = path.join(process.cwd(), "temp_jobs");
+  const cacheDir = path.join(process.cwd(), "logs", "gemini_cache");
   const MAX_AGE = 30 * 60 * 1000; // 30 minutes TTL (M-4)
+  const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days TTL (M-6)
   const RUN_INTERVAL = 5 * 60 * 1000; // run every 5 minutes (M-4)
 
   setInterval(async () => {
+    // 1. Sweep temp jobs
     try {
-      if (!fs.existsSync(tempJobsDir)) return;
-      const files = await fs.promises.readdir(tempJobsDir);
-      const now = Date.now();
+      if (fs.existsSync(tempJobsDir)) {
+        const files = await fs.promises.readdir(tempJobsDir);
+        const now = Date.now();
 
-      for (const file of files) {
-        const filePath = path.join(tempJobsDir, file);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          if (stats.isDirectory()) {
-            const age = now - stats.mtimeMs;
-            if (age > MAX_AGE) {
-              console.log(`[Janitor] Deleting expired job directory: ${filePath} (age: ${Math.round(age / 1000 / 60)} mins)`);
-              await fs.promises.rm(filePath, { recursive: true, force: true });
+        for (const file of files) {
+          const filePath = path.join(tempJobsDir, file);
+          try {
+            const stats = await fs.promises.stat(filePath);
+            if (stats.isDirectory()) {
+              const age = now - stats.mtimeMs;
+              if (age > MAX_AGE) {
+                console.log(`[Janitor] Deleting expired job directory: ${filePath} (age: ${Math.round(age / 1000 / 60)} mins)`);
+                await fs.promises.rm(filePath, { recursive: true, force: true });
+              }
             }
+          } catch (fileErr: any) {
+            console.error(`[Janitor] Failed to inspect/delete ${filePath}:`, fileErr.message);
           }
-        } catch (fileErr: any) {
-          console.error(`[Janitor] Failed to inspect/delete ${filePath}:`, fileErr.message);
         }
       }
     } catch (err: any) {
       console.error("[Janitor] Failed to read temp_jobs directory:", err.message);
     }
+
+    // 2. Sweep stale Gemini disk cache files (prevents unbounded disk growth)
+    try {
+      if (fs.existsSync(cacheDir)) {
+        const files = await fs.promises.readdir(cacheDir);
+        const now = Date.now();
+
+        for (const file of files) {
+          const filePath = path.join(cacheDir, file);
+          try {
+            const stats = await fs.promises.stat(filePath);
+            const age = now - stats.mtimeMs;
+            if (age > CACHE_MAX_AGE) {
+              console.log(`[Janitor] Deleting expired Gemini cache file: ${filePath}`);
+              await fs.promises.unlink(filePath);
+            }
+          } catch (fileErr: any) {
+            console.error(`[Janitor] Failed to inspect/delete cache file ${filePath}:`, fileErr.message);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("[Janitor] Failed to read Gemini cache directory:", err.message);
+    }
   }, RUN_INTERVAL);
+}
+
+export function formatZodError(error: any): string {
+  if (error && Array.isArray(error.issues)) {
+    return error.issues.map((e: any) => `${e.path.join(".")}: ${e.message}`).join(", ");
+  }
+  return "Invalid request body format.";
 }

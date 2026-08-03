@@ -1,3 +1,4 @@
+import { LRUCache } from "lru-cache";
 import { uniprotCache, uniprotFeaturesCache } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 
@@ -42,16 +43,24 @@ export async function resolveGeneToUniprot(gene: string): Promise<string | null>
   return null;
 }
 
+export const uniprotSeqCache = new LRUCache<string, string>({ max: 500 });
+
 export async function fetchUniprotSequence(uniprotId: string): Promise<string> {
-  const url = `https://rest.uniprot.org/uniprotkb/${uniprotId}.fasta`;
+  const key = uniprotId.toUpperCase();
+  const cached = uniprotSeqCache.get(key);
+  if (cached) return cached;
+
+  const url = `https://rest.uniprot.org/uniprotkb/${key}.fasta`;
   const response = await fetchWithRetry(url, { timeout: 15000 });
   if (!response.ok) {
-    throw new Error(`Failed to fetch UniProt sequence for ${uniprotId} (status ${response.status})`);
+    throw new Error(`Failed to fetch UniProt sequence for ${key} (status ${response.status})`);
   }
   const text = await response.text();
   const lines = text.split("\n");
   const sequenceLines = lines.filter(line => !line.startsWith(">") && line.trim() !== "");
-  return sequenceLines.join("").replace(/\s/g, "");
+  const seq = sequenceLines.join("").replace(/\s/g, "");
+  uniprotSeqCache.set(key, seq);
+  return seq;
 }
 
 export interface UniprotFeature {

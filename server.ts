@@ -1,65 +1,153 @@
+import dotenv from "dotenv";
+dotenv.config();
+
+import crypto from "crypto";
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { spawn, ChildProcess } from "child_process";
+import { spawn, execSync, exec, ChildProcess } from "child_process";
 import helmet from "helmet";
 import cors from "cors";
-import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 
 import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
-import { runTempJobsJanitor, AuditLogger } from "./server/utils.ts";
+import { runTempJobsJanitor, AuditLogger, sendError } from "./server/utils.ts";
 import { initializeRaspDatabase } from "./server/services/biophysics.ts";
-
-dotenv.config();
 
 let modelServerProcess: ChildProcess | null = null;
 
 async function startServer() {
+  // Ensure python user scripts directory is in PATH on Windows (helps find user-installed uv.exe)
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || "";
+    const pythonDir = path.join(appData, "Python");
+    if (fs.existsSync(pythonDir)) {
+      try {
+        const subdirs = fs.readdirSync(pythonDir);
+        for (const subdir of subdirs) {
+          const scriptsPath = path.join(pythonDir, subdir, "Scripts");
+          if (fs.existsSync(scriptsPath) && !process.env.PATH?.includes(scriptsPath)) {
+            process.env.PATH = `${scriptsPath};${process.env.PATH || ""}`;
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   // Start the background temp_jobs janitor (M-8)
   runTempJobsJanitor();
 
   // Initialize the RaSP database (background download/load if missing) (E-4)
   initializeRaspDatabase();
 
-  // Generate in-memory SIDECAR_SECRET token for sidecar authentication (P2-7)
+  // Generate or load SIDECAR_SECRET token for sidecar authentication (P2-7)
+  // Kept in-memory only (S1) to prevent filesystem-level credentials access
   if (!process.env.SIDECAR_SECRET) {
+    console.warn(`[WARNING] SIDECAR_SECRET is not configured in the environment. Generating a random UUID in-memory. If the model sidecar is deployed separately, this will trigger authentication failures.`);
     process.env.SIDECAR_SECRET = crypto.randomUUID();
-  }
-  try {
-    fs.writeFileSync(path.join(process.cwd(), ".sidecar_secret"), process.env.SIDECAR_SECRET, "utf8");
-  } catch (secretWriteErr: any) {
-    console.error("Failed to write .sidecar_secret:", secretWriteErr.message);
   }
 
   // Spawn the local ML model server sidecar with auto-restart (A-6, P2-7)
   let restartAttempts = 0;
+  let stableTimer: NodeJS.Timeout | null = null;
+  let restartTimer: NodeJS.Timeout | null = null;
+  let isSpawning = false;
+
   function spawnModelServer() {
+    if (isSpawning || restartTimer) {
+      console.log("[Startup] Sidecar spawn already in progress or scheduled, ignoring request.");
+      return;
+    }
+    isSpawning = true;
     console.log("[Startup] Launching local ML model server sidecar...");
     const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
-    modelServerProcess = spawn("python", ["-m", "uv", "run", modelServerScript], {
-      stdio: "inherit",
-      env: { ...process.env, SIDECAR_SECRET: process.env.SIDECAR_SECRET }
-    });
+    const cleanSystemKeys = [
+      "path", "systemroot", "systemdrive", "appdata", "localappdata", 
+      "temp", "tmp", "userprofile", "home", "pwd", "comspec",
+      "os", "windir"
+    ];
+    const sidecarEnv: Record<string, string> = {
+      SIDECAR_SECRET: process.env.SIDECAR_SECRET || ""
+    };
+    for (const key of Object.keys(process.env)) {
+      if (cleanSystemKeys.includes(key.toLowerCase())) {
+        sidecarEnv[key] = process.env[key] || "";
+      }
+    }
+
+    // Auto-discover local virtualenv python
+    const venvPythonPath = process.platform === "win32"
+      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
+      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+
+    let useStandaloneUv = false;
+    try {
+      const checkCmd = process.platform === "win32" ? "where uv" : "which uv";
+      execSync(checkCmd, { stdio: "ignore" });
+      useStandaloneUv = true;
+    } catch (e) {
+      // Standalone uv not on PATH
+    }
+
+    if (fs.existsSync(venvPythonPath)) {
+      console.log(`[Startup] Found local virtualenv python at ${venvPythonPath}. Launching model server sidecar directly...`);
+      modelServerProcess = spawn(venvPythonPath, [modelServerScript], {
+        stdio: "inherit",
+        env: sidecarEnv
+      });
+    } else if (useStandaloneUv) {
+      console.log("[Startup] Found global uv executable. Launching model server sidecar via standalone uv...");
+      modelServerProcess = spawn("uv", ["run", "--project", "tools", modelServerScript], {
+        stdio: "inherit",
+        env: sidecarEnv
+      });
+    } else {
+      console.log("[Startup] Standalone uv not found in PATH. Launching model server sidecar via python -m uv...");
+      modelServerProcess = spawn("python", ["-m", "uv", "run", "--project", "tools", modelServerScript], {
+        stdio: "inherit",
+        env: sidecarEnv
+      });
+    }
+
+    // Reset restart counter after 30 seconds of stable running (A2)
+    if (stableTimer) clearTimeout(stableTimer);
+    stableTimer = setTimeout(() => {
+      if (modelServerProcess) {
+        console.log("[Model Server] Sidecar process stable. Resetting restart attempts counter.");
+        restartAttempts = 0;
+      }
+    }, 30000);
     
     modelServerProcess.on("error", (err) => {
       console.error("[Model Server] Failed to start sidecar:", err.message);
       AuditLogger.log("SIDECAR_ERROR", { message: err.message });
+      isSpawning = false;
     });
 
     modelServerProcess.on("exit", (code, signal) => {
       console.warn(`[Model Server] Sidecar exited with code ${code} and signal ${signal}.`);
       modelServerProcess = null;
+      isSpawning = false;
+      if (stableTimer) {
+        clearTimeout(stableTimer);
+        stableTimer = null;
+      }
+
+      // Exponential backoff recovery (A2)
       if (restartAttempts < 10) {
         restartAttempts++;
-        console.log(`[Model Server] Restarting sidecar process (attempt ${restartAttempts}/10) in 2 seconds...`);
+        const backoffDelay = Math.min(2000 * Math.pow(2, restartAttempts - 1), 60000);
+        console.log(`[Model Server] Restarting sidecar process (attempt ${restartAttempts}/10) in ${backoffDelay / 1000} seconds...`);
         AuditLogger.log("SIDECAR_RESTART", { attempt: restartAttempts, code, signal });
-        setTimeout(() => {
+        
+        if (restartTimer) clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => {
+          restartTimer = null;
           spawnModelServer();
-        }, 2000);
+        }, backoffDelay);
       } else {
-        console.error("[Model Server] Max restart attempts reached. Sidecar will remain offline.");
+        console.error("[Model Server] Max restart attempts reached. Sidecar will remain offline until health check recovery.");
         AuditLogger.log("SIDECAR_FATAL_OFFLINE", { restartAttempts, code, signal });
       }
     });
@@ -67,10 +155,47 @@ async function startServer() {
 
   spawnModelServer();
 
-  const app = express();
-  const PORT = 3000;
+  // Background health-check recovery loop (A2)
+  setInterval(async () => {
+    let sidecarHealthy = false;
+    try {
+      const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(1000) });
+      if (sidecarRes.ok) {
+        const data = await sidecarRes.json() as any;
+        sidecarHealthy = data.status === "healthy";
+      }
+    } catch (_) {
+      sidecarHealthy = false;
+    }
 
-  // Set trust proxy to true (or 1) for reverse proxies
+    if (sidecarHealthy) {
+      // If healthy, reset counter to 0 (A2)
+      restartAttempts = 0;
+    } else {
+      console.warn("[Model Server] Background health check failed. Attempting sidecar recovery...");
+      if (modelServerProcess) {
+        console.warn("[Model Server] Terminating unresponsive sidecar process...");
+        try {
+          if (process.platform === "win32" && modelServerProcess.pid) {
+            execSync(`taskkill /F /T /PID ${modelServerProcess.pid}`, { stdio: "ignore" });
+          } else {
+            modelServerProcess.kill("SIGKILL");
+          }
+        } catch (_) {}
+      } else if (!restartTimer) {
+        console.warn("[Model Server] Sidecar not running and no restart scheduled. Spawning new process...");
+        restartAttempts = 0;
+        spawnModelServer();
+      }
+    }
+  }, 60000);
+
+  const app = express();
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  // Set trust proxy to true (or 1) for reverse proxies.
+  // Architectural Assumption: The application is deployed behind a single reverse proxy (e.g., GCP LB or Caddy).
+  // This instructs Express to trust the first hop upstream and correctly parse X-Forwarded-For headers for rate limiting.
   app.set('trust proxy', 1);
 
   // Fail-closed API token validation on startup
@@ -86,8 +211,10 @@ async function startServer() {
 
   // Fail-closed session secret validation on startup (D-2) (H-1)
   const sessionSecret = process.env.APP_SESSION_SECRET;
-  if (!sessionSecret || (process.env.NODE_ENV === "production" && sessionSecret === "dev-session-secret-must-be-changed-in-prod")) {
-    console.error("FATAL: APP_SESSION_SECRET is not set or is using the development fallback in production. Refusing to start.");
+  if (!sessionSecret || (process.env.NODE_ENV === "production" && 
+    (sessionSecret === "dev-session-secret-must-be-changed-in-prod" || 
+     sessionSecret === "dev_session_secret_must_be_changed_in_prod_32_bytes_long"))) {
+    console.error("FATAL: APP_SESSION_SECRET is not set or is using a development fallback in production. Refusing to start.");
     process.exit(1);
   }
 
@@ -96,15 +223,55 @@ async function startServer() {
   app.use(validateContentType);
 
   // Security Middleware (SEC-3, SEC-8, A-7)
+  app.use((req, res, next) => {
+    res.locals.nonce = crypto.randomBytes(16).toString("base64");
+    next();
+  });
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (!isProd) {
+    console.warn("[WARNING] Content-Security-Policy enables 'unsafe-inline' and 'unsafe-eval' in development. Do NOT deploy this configuration to production.");
+  }
+
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'wasm-unsafe-eval'", "'unsafe-inline'"],
+        scriptSrc: isProd 
+          ? [
+              "'self'",
+              "'wasm-unsafe-eval'",
+              (req, res) => `'nonce-${(res as any).locals.nonce}'`
+            ]
+          : [
+              "'self'",
+              "'unsafe-inline'",
+              "'unsafe-eval'"
+            ],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        imgSrc: ["'self'", "data:", "blob:", "https:"],
-        connectSrc: ["'self'", "https://*.ebi.ac.uk", "https://alphafold.ebi.ac.uk", "https://*.uniprot.org", "https://myvariant.info", "https://*.rcsb.org"]
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: isProd
+          ? [
+              "'self'",
+              "https://*.ebi.ac.uk",
+              "https://alphafold.ebi.ac.uk",
+              "https://*.uniprot.org",
+              "https://myvariant.info",
+              "https://*.rcsb.org"
+            ]
+          : [
+              "'self'",
+              "https://*.ebi.ac.uk",
+              "https://alphafold.ebi.ac.uk",
+              "https://*.uniprot.org",
+              "https://myvariant.info",
+              "https://*.rcsb.org",
+              "ws://localhost:*",
+              "ws://127.0.0.1:*",
+              "ws:",
+              "wss:"
+            ]
       }
     }
   }));
@@ -128,12 +295,9 @@ async function startServer() {
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error("[Global Error Handler]:", err);
     const status = err.status || err.statusCode || 500;
-    res.status(status).json({
-      error: {
-        message: err.message || "An internal server error occurred.",
-        code: err.code || "INTERNAL_SERVER_ERROR"
-      }
-    });
+    const code = err.code || "INTERNAL_SERVER_ERROR";
+    const message = err.message || "An internal server error occurred.";
+    sendError(res, status, code, message);
   });
 
   // Vite middleware for development / Static assets serving for production
@@ -147,8 +311,19 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get('*', async (req, res) => {
+      try {
+        const htmlPath = path.join(distPath, 'index.html');
+        let html = await fs.promises.readFile(htmlPath, 'utf8');
+        const nonce = res.locals.nonce;
+        if (nonce) {
+          html = html.replace(/<script/g, `<script nonce="${nonce}"`);
+        }
+        res.type('html').send(html);
+      } catch (err: any) {
+        console.error("[SPA Fallback Warning] Failed to inject CSP nonce into index.html:", err.message);
+        res.sendFile(path.join(distPath, 'index.html'));
+      }
     });
   }
 
@@ -163,7 +338,6 @@ async function startServer() {
       console.log("[Shutdown] Terminating model server sidecar process tree...");
       if (process.platform === "win32") {
         try {
-          const { exec } = require("child_process");
           exec(`taskkill /F /T /PID ${modelServerProcess.pid}`);
         } catch (_) {}
       } else {

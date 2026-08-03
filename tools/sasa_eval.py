@@ -1,6 +1,7 @@
 # /// script
 # dependencies = [
-#   "biopython"
+#   "biopython",
+#   "biotite"
 # ]
 # ///
 
@@ -9,6 +10,9 @@ import json
 import os
 from Bio.PDB import PDBParser
 from Bio.PDB.SASA import ShrakeRupley
+import biotite.structure as stripe
+import biotite.structure.io as stripe_io
+from biotite.structure.sse import annotate_sse
 
 # Tien et al. 2013 Max SASA values (empirical max SASA in Gly-X-Gly tripeptide)
 MAX_SASA = {
@@ -48,7 +52,6 @@ def main():
             if chain_id in model:
                 chain = model[chain_id]
                 for residue in chain:
-                    # check residue sequence identifier
                     if residue.id[1] == pos:
                         target_res = residue
                         break
@@ -69,14 +72,29 @@ def main():
         max_sasa = MAX_SASA.get(resname, 200.0) # fallback
         rsa = sasa / max_sasa
         
-        # Classify based on standard Relative Solvent Accessibility (RSA) thresholds:
-        # core: RSA < 0.05, surface: RSA > 0.25, boundary: 0.05 <= RSA <= 0.25
         if rsa < 0.05:
             burial_status = "core"
         elif rsa > 0.25:
             burial_status = "surface"
         else:
             burial_status = "boundary"
+
+        # Calculate Secondary Structure using Biotite (completely DSSP-free)
+        sse_char = "c"
+        try:
+            biotite_struct = stripe_io.load_structure(pdb_file)
+            if isinstance(biotite_struct, stripe.AtomArrayStack):
+                biotite_struct = biotite_struct[0]
+            ca_atoms = biotite_struct[biotite_struct.atom_name == "CA"]
+            sse_chars = annotate_sse(biotite_struct)
+            
+            for i, atom in enumerate(ca_atoms):
+                if atom.res_id == pos and (atom.chain_id == chain_id or not chain_id):
+                    if i < len(sse_chars):
+                        sse_char = sse_chars[i].lower()
+                    break
+        except Exception as sse_err:
+            pass
 
         print(json.dumps({
             "status": "success",
@@ -85,7 +103,8 @@ def main():
             "sasa": round(sasa, 2),
             "maxSasa": max_sasa,
             "rsa": round(rsa, 4),
-            "burialStatus": burial_status
+            "burialStatus": burial_status,
+            "sse": sse_char # 'a' = helix, 'b' = sheet, 'c' = coil/loop
         }))
         
     except Exception as e:
@@ -93,3 +112,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

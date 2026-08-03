@@ -11,9 +11,6 @@ interface GenosCacheEntry {
 const genosResultCache = new Map<string, GenosCacheEntry>();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-const GENOS_EMAIL = process.env.GENOS_EMAIL || 'hh745@exeter.ac.uk';
-const GENOS_ACCESS_KEY = process.env.GENOS_ACCESS_KEY || '6dd13';
-
 interface GenosQueryResponse {
   query_id: string;
   tabs: Record<string, any>;
@@ -25,15 +22,23 @@ async function login(): Promise<string> {
     return cachedCookie;
   }
 
-  console.log(`[Genos Web Query] Authenticating as ${GENOS_EMAIL}...`);
+  const email = process.env.GENOS_EMAIL;
+  const accessKey = process.env.GENOS_ACCESS_KEY;
+
+  if (!email || !accessKey) {
+    throw new Error("Genos credentials (GENOS_EMAIL, GENOS_ACCESS_KEY) not found in process environment");
+  }
+
+  console.log(`[Genos Web Query] Authenticating as ${email}...`);
   const res = await fetch('https://query.genos.us/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       user_type: 'academic',
-      email: GENOS_EMAIL,
-      access_key: GENOS_ACCESS_KEY
-    })
+      email: email,
+      access_key: accessKey
+    }),
+    signal: AbortSignal.timeout(15000)
   });
 
   if (!res.ok) {
@@ -93,7 +98,8 @@ export async function queryGenosWebservice(
       body: JSON.stringify({
         variants: [variantQuery],
         genome_build: 'hg38'
-      })
+      }),
+      signal: AbortSignal.timeout(15000)
     });
 
     if (!queryRes.ok) {
@@ -118,7 +124,7 @@ export async function queryGenosWebservice(
         try {
           const resTable = await fetch(
             `https://query.genos.us/api/query/${qid}/tables/${tbl}?offset=0&limit=1`,
-            { headers }
+            { headers, signal: AbortSignal.timeout(15000) }
           );
           if (resTable.ok) {
             const data = await resTable.json();
@@ -163,7 +169,9 @@ export async function queryGenosWebservice(
       esm1b: val(fPred.ESM1b_score),
       popeve: val(fPred.popEVE_score),
       aou_ac: val(aFreq.AllofUs_ALL_AC),
-      aou_an: val(aFreq.AllofUs_ALL_AN)
+      aou_an: val(aFreq.AllofUs_ALL_AN),
+      aou_het: val(aFreq.AllofUs_ALL_het),
+      aou_hom: val(aFreq.AllofUs_ALL_hom)
     };
     genosResultCache.set(cacheKey, {
       expiresAt: Date.now() + CACHE_TTL,

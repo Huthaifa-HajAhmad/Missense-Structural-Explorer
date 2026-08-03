@@ -7,6 +7,18 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "
 import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
 
+function safeParseFloat(val: any): number | null {
+  if (val === undefined || val === null || val === "." || val === "") return null;
+  const num = parseFloat(String(val));
+  return isNaN(num) ? null : num;
+}
+
+function safeParseInt(val: any): number | null {
+  if (val === undefined || val === null || val === "." || val === "") return null;
+  const num = parseInt(String(val), 10);
+  return isNaN(num) ? null : num;
+}
+
 export interface PredictorData {
   available: boolean;
   amPathogenicity: number | null;
@@ -15,6 +27,11 @@ export interface PredictorData {
   gnomadVariantId?: string | null;
   eveScore?: number | null;
   eveClass?: string | null;
+  transcriptId?: string;
+  isManeSelect?: boolean;
+  isManePlusClinical?: boolean;
+  isCanonical?: boolean;
+  maneRefSeqId?: string;
 }
 export interface ConservationData {
   available: boolean;
@@ -45,17 +62,19 @@ const vepResponseSchema = z.array(z.object({
   seq_region_name: z.string().optional(),
   start: z.number().optional(),
   allele_string: z.string().optional(),
-  transcript_consequences: z.array(z.object({
-    canonical: z.union([z.number(), z.boolean()]).optional(),
-    mane_select: z.string().optional(),
-    alphamissense: z.object({
-      am_pathogenicity: z.any().optional(),
-      am_class: z.string().optional()
-    }).optional(),
-    cadd_phred: z.any().optional(),
-    eve_score: z.any().optional(),
-    eve_class: z.any().optional()
-  })).optional()
+    transcript_consequences: z.array(z.object({
+      transcript_id: z.string().optional(),
+      canonical: z.union([z.number(), z.boolean()]).optional(),
+      mane_select: z.any().optional(),
+      mane_plus_clinical: z.any().optional(),
+      alphamissense: z.object({
+        am_pathogenicity: z.any().optional(),
+        am_class: z.string().optional()
+      }).optional(),
+      cadd_phred: z.any().optional(),
+      eve_score: z.any().optional(),
+      eve_class: z.any().optional()
+    })).optional()
 })).min(1);
 
 const myVariantResponseSchema = z.object({
@@ -104,7 +123,7 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
         const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined || c.eve_score !== undefined;
         let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
         if (!tc) {
-          tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || c.canonical === "1") && hasPredictor(c));
+          tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
         }
         if (!tc) {
           tc = consequences.find(hasPredictor);
@@ -113,11 +132,11 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
           tc = consequences[0];
         }
         if (tc) {
-          const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? parseFloat(tc.alphamissense.am_pathogenicity) : null;
+          const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
           const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
-          const caddPhred = tc.cadd_phred !== undefined ? parseFloat(tc.cadd_phred) : null;
+          const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
           
-          const eveScore = tc.eve_score !== undefined ? parseFloat(tc.eve_score) : null;
+          const eveScore = tc.eve_score !== undefined ? safeParseFloat(tc.eve_score) : null;
           const eveClass = tc.eve_class !== undefined ? String(tc.eve_class) : null;
 
           // Parse genomic coordinates from root VEP object to construct GRCh38 gnomAD-compatible variant ID
@@ -132,7 +151,31 @@ export async function fetchPredictorData(gene: string, variant: string): Promise
             }
           }
 
-          const resVal = { available: true, amPathogenicity, amClass, caddPhred, gnomadVariantId, eveScore, eveClass };
+          let maneRefSeqId: string | undefined = undefined;
+          if (tc.mane_select && typeof tc.mane_select === "string") {
+            maneRefSeqId = tc.mane_select;
+          } else if (tc.mane_select && typeof tc.mane_select === "object") {
+            maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
+          } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
+            maneRefSeqId = tc.mane_plus_clinical;
+          } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
+            maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
+          }
+
+          const resVal = { 
+            available: true, 
+            amPathogenicity, 
+            amClass, 
+            caddPhred, 
+            gnomadVariantId, 
+            eveScore, 
+            eveClass,
+            transcriptId: tc.transcript_id,
+            isManeSelect: !!tc.mane_select,
+            isManePlusClinical: !!tc.mane_plus_clinical,
+            isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
+            maneRefSeqId
+          };
           predictorCache.set(cacheKey, resVal);
           return resVal;
         }
@@ -380,7 +423,9 @@ export async function fetchConservationData(
     if (cached.popeve !== null) {
       return cached;
     }
-    const onlineScore = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+    const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
+    const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
+    const onlineScore = await Promise.race([onlinePromise, fastTimeout]);
     if (onlineScore !== null) {
       cached.popeve = onlineScore;
       conservationCache.set(cacheKey, cached);
@@ -443,7 +488,9 @@ export async function fetchConservationData(
 
         let popEVEVal = rec.popeve ?? popEVEScore;
         if (popEVEVal === null) {
-          popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+          const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
+          const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
+          popEVEVal = await Promise.race([onlinePromise, fastTimeout]);
         }
 
         const resVal: ConservationData = {
@@ -509,11 +556,11 @@ export async function fetchConservationData(
         esm1b: activeGenosRec.esm1b,
         esm1bPred: null,
         popeve: popEVEVal,
-        aouFrequency: activeGenosRec.aou_ac !== null ? {
+        aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
           aouAC: activeGenosRec.aou_ac,
-          aouAN: activeGenosRec.aou_an,
-          aouHet: activeGenosRec.aou_ac,
-          aouHom: 0
+          aouAN: activeGenosRec.aou_an ?? null,
+          aouHet: activeGenosRec.aou_het ?? null,
+          aouHom: activeGenosRec.aou_hom ?? null
         } : null
       };
       conservationCache.set(cacheKey, resVal);
@@ -588,7 +635,7 @@ export async function fetchConservationData(
           if (dbnsfp.revel) {
             let rVal = dbnsfp.revel.score !== undefined ? dbnsfp.revel.score : dbnsfp.revel;
             if (Array.isArray(rVal)) rVal = rVal[0];
-            revel = rVal !== undefined && rVal !== null ? parseFloat(rVal) : null;
+            revel = safeParseFloat(rVal);
           }
 
           // Parse GERP score (handles multiple schema keys: gerp++, gerp++_rs, gerp.elements)
@@ -596,7 +643,7 @@ export async function fetchConservationData(
           const gerpObj = dbnsfp["gerp++"] || dbnsfp.gerp || {};
           let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : (gerpObj.elements || gerpObj["gerp++_rs"] || null);
           if (Array.isArray(gerpVal)) gerpVal = gerpVal[0];
-          gerp = gerpVal !== undefined && gerpVal !== null ? parseFloat(gerpVal) : null;
+          gerp = safeParseFloat(gerpVal);
 
           // Parse PhyloP score (handles multiple schema keys: 100way_vertebrate, phylop100way_vertebrate, vertebrate)
           let phylop: any = null;
@@ -605,7 +652,7 @@ export async function fetchConservationData(
               ? dbnsfp.phylop["100way_vertebrate"].score 
               : (dbnsfp.phylop.vertebrate || dbnsfp.phylop["phylop100way_vertebrate"] || null);
             if (Array.isArray(phylopVal)) phylopVal = phylopVal[0];
-            phylop = phylopVal !== undefined && phylopVal !== null ? parseFloat(phylopVal) : null;
+            phylop = safeParseFloat(phylopVal);
           }
 
           // Parse BayesDel score (handles both dbnsfp.bayesdel.no_af.score and dbnsfp.bayesdel_noaf_score formats)
@@ -613,11 +660,11 @@ export async function fetchConservationData(
           if (dbnsfp.bayesdel?.no_af?.score !== undefined && dbnsfp.bayesdel?.no_af?.score !== null) {
             let bVal = dbnsfp.bayesdel.no_af.score;
             if (Array.isArray(bVal)) bVal = bVal[0];
-            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? parseFloat(bVal) : null;
+            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
           } else if (dbnsfp.bayesdel_noaf_score !== undefined && dbnsfp.bayesdel_noaf_score !== null) {
             let bVal = dbnsfp.bayesdel_noaf_score;
             if (Array.isArray(bVal)) bVal = bVal[0];
-            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? parseFloat(bVal) : null;
+            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
           }
 
           // Parse MetaRNN
@@ -626,7 +673,7 @@ export async function fetchConservationData(
           if (dbnsfp.metarnn) {
             let v = dbnsfp.metarnn.score;
             if (Array.isArray(v)) v = v[0];
-            metarnn = v != null ? parseFloat(v) : null;
+            metarnn = v != null ? safeParseFloat(v) : null;
             let p = dbnsfp.metarnn.pred;
             if (Array.isArray(p)) p = p[0];
             metarnnPred = typeof p === "string" ? p : null;
@@ -636,7 +683,7 @@ export async function fetchConservationData(
           let clinpred: number | null = null;
           let clinpredPred: string | null = null;
           if (dbnsfp.clinpred) {
-            clinpred = dbnsfp.clinpred.score != null ? parseFloat(dbnsfp.clinpred.score) : null;
+            clinpred = dbnsfp.clinpred.score != null ? safeParseFloat(dbnsfp.clinpred.score) : null;
             clinpredPred = typeof dbnsfp.clinpred.pred === "string" ? dbnsfp.clinpred.pred : null;
           }
 
@@ -644,8 +691,8 @@ export async function fetchConservationData(
           let eigenPhred: number | null = null;
           let eigenRaw: number | null = null;
           if (dbnsfp.eigen) {
-            eigenPhred = dbnsfp.eigen.phred_coding != null ? parseFloat(dbnsfp.eigen.phred_coding) : null;
-            eigenRaw = dbnsfp.eigen.raw_coding != null ? parseFloat(dbnsfp.eigen.raw_coding) : null;
+            eigenPhred = dbnsfp.eigen.phred_coding != null ? safeParseFloat(dbnsfp.eigen.phred_coding) : null;
+            eigenRaw = dbnsfp.eigen.raw_coding != null ? safeParseFloat(dbnsfp.eigen.raw_coding) : null;
           }
 
           // Parse DANN
@@ -653,7 +700,7 @@ export async function fetchConservationData(
           if (dbnsfp.dann) {
             let d = dbnsfp.dann.score;
             if (Array.isArray(d)) d = d[0];
-            dann = d != null ? parseFloat(d) : null;
+            dann = d != null ? safeParseFloat(d) : null;
           }
 
           // Parse ESM-1b
@@ -662,7 +709,7 @@ export async function fetchConservationData(
           if (dbnsfp.esm1b) {
             let s = dbnsfp.esm1b.score;
             if (Array.isArray(s)) s = s[0];
-            esm1b = s != null ? parseFloat(s) : null;
+            esm1b = s != null ? safeParseFloat(s) : null;
             let ep = dbnsfp.esm1b.pred;
             if (Array.isArray(ep)) ep = ep[0];
             esm1bPred = typeof ep === "string" ? ep : null;
@@ -673,8 +720,8 @@ export async function fetchConservationData(
           if (finalPopEVE === null && dbnsfp.eve?.score !== undefined) {
             let eVal = dbnsfp.eve.score;
             if (Array.isArray(eVal)) eVal = eVal[0];
-            const parsed = parseFloat(eVal);
-            if (!isNaN(parsed)) finalPopEVE = parsed;
+            const parsed = safeParseFloat(eVal);
+            if (parsed !== null) finalPopEVE = parsed;
           }
           if (finalPopEVE === null) {
             finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
@@ -688,19 +735,19 @@ export async function fetchConservationData(
 
           if (dbnsfp.aou_ac !== undefined) {
             let val = Array.isArray(dbnsfp.aou_ac) ? dbnsfp.aou_ac[0] : dbnsfp.aou_ac;
-            aouAC = val !== null && val !== "" ? parseInt(val, 10) : null;
+            aouAC = safeParseInt(val);
           }
           if (dbnsfp.aou_an !== undefined) {
             let val = Array.isArray(dbnsfp.aou_an) ? dbnsfp.aou_an[0] : dbnsfp.aou_an;
-            aouAN = val !== null && val !== "" ? parseInt(val, 10) : null;
+            aouAN = safeParseInt(val);
           }
           if (dbnsfp.aou_het !== undefined) {
             let val = Array.isArray(dbnsfp.aou_het) ? dbnsfp.aou_het[0] : dbnsfp.aou_het;
-            aouHet = val !== null && val !== "" ? parseInt(val, 10) : null;
+            aouHet = safeParseInt(val);
           }
           if (dbnsfp.aou_hom !== undefined) {
             let val = Array.isArray(dbnsfp.aou_hom) ? dbnsfp.aou_hom[0] : dbnsfp.aou_hom;
-            aouHom = val !== null && val !== "" ? parseInt(val, 10) : null;
+            aouHom = safeParseInt(val);
           }
 
           const hasAou = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;

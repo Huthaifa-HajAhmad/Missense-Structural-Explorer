@@ -1,51 +1,6 @@
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
-import { stringCache, gnomadFreqCache, gnomadConstraintCache } from "./cache.ts";
+import { gnomadFreqCache, gnomadConstraintCache } from "./cache.ts";
 
-export interface StringInteraction {
-  partner: string;
-  score: number;
-}
-
-export async function fetchStringInteractions(gene: string): Promise<StringInteraction[]> {
-  const normGene = normalizeGeneSymbol(gene);
-  const cacheKey = normGene;
-  const cached = stringCache.get(cacheKey);
-  if (cached) return cached;
-
-  const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606`;
-  
-  try {
-    const res = await fetchWithRetry(url, { timeout: 15000 });
-    if (res.ok) {
-      const data = await res.json() as any;
-      if (Array.isArray(data)) {
-        const partnersMap = new Map<string, number>();
-        const targetUpper = gene.toUpperCase();
-        for (const item of data) {
-          const nameA = (item.preferredName_A || "").toUpperCase();
-          const nameB = (item.preferredName_B || "").toUpperCase();
-          const score = item.score !== undefined ? parseFloat(item.score) : 0.4;
-          
-          if (nameA === targetUpper && nameB !== targetUpper) {
-            partnersMap.set(nameB, Math.max(partnersMap.get(nameB) || 0, score));
-          } else if (nameB === targetUpper && nameA !== targetUpper) {
-            partnersMap.set(nameA, Math.max(partnersMap.get(nameA) || 0, score));
-          }
-        }
-        const parsed = Array.from(partnersMap.entries()).map(([partner, score]) => ({ partner, score }));
-        parsed.sort((a, b) => b.score - a.score);
-        const sliced = parsed.slice(0, 5);
-        stringCache.set(cacheKey, sliced);
-        return sliced;
-      }
-    }
-  } catch (err: any) {
-    console.warn(`[STRING Network Fetch Error] Failed to fetch STRING network: ${err.message}`);
-  }
-
-  stringCache.set(cacheKey, [], { ttl: 5 * 60 * 1000 });
-  return [];
-}
 
 export interface GnomadVariantFrequency {
   /** Max allele frequency across gnomAD v4 sub-populations */
@@ -68,6 +23,8 @@ export interface GnomadVariantFrequency {
   nHomozygous: number | null;
   /** Dataset used */
   dataset: string;
+  /** Whether groupMaxAF fell back to global maxAF due to low population counts */
+  groupMaxAFIsFallback?: boolean;
 }
 
 /**
@@ -145,6 +102,10 @@ export async function fetchGnomadVariantFrequency(
     const exomeAC:  number | null = v.exome?.ac  ?? null;
     const genomeAN: number | null = v.genome?.an ?? null;
     const exomeAN:  number | null = v.exome?.an  ?? null;
+    // NOTE (High #gnomAD-homozygotes): gnomAD v4 uses disjoint cohorts — whole-genome and
+    // whole-exome individuals are not shared between datasets.  Summing homozygote_count
+    // across genome and exome is therefore the correct approach and does NOT double-count.
+    // Ref: gnomAD v4 release notes, Nov 2023 (https://gnomad.broadinstitute.org/news/2023-11-gnomad-v4-0).
     const nHomozygous: number | null =
       (v.genome?.homozygote_count != null || v.exome?.homozygote_count != null)
         ? (v.genome?.homozygote_count ?? 0) + (v.exome?.homozygote_count ?? 0)
@@ -180,6 +141,7 @@ export async function fetchGnomadVariantFrequency(
 
     const validPops = populations.filter(p => p.an >= 2000 && p.af !== null && p.af !== undefined);
     let groupMaxAF: number | null = null;
+    let groupMaxAFIsFallback = false;
     if (validPops.length > 0) {
       let maxVal = 0;
       for (const p of validPops) {
@@ -189,8 +151,12 @@ export async function fetchGnomadVariantFrequency(
       }
       groupMaxAF = maxVal;
     } else {
-      // Fallback to global maxAF if no sub-population matches criteria
+      // NOTE (High #gnomAD-groupMaxAF-fallback): No population had AN >= 2000 (all too small to
+      // trust AF estimates for ACMG PS4/PM2/BS1/BA1 evaluation).  Falling back to global maxAF.
+      // Callers should be aware this is a coarser estimate; the fallback is logged to surface it.
+      console.warn(`[gnomAD] No populations with AN >= 2000 for variant ${variantId}; groupMaxAF falling back to global maxAF (${maxAF}).`);
       groupMaxAF = maxAF;
+      groupMaxAFIsFallback = true;
     }
 
     const result: GnomadVariantFrequency = {
@@ -204,6 +170,7 @@ export async function fetchGnomadVariantFrequency(
       exomeAN,
       nHomozygous,
       dataset: "gnomad_r4",
+      groupMaxAFIsFallback,
     };
 
     gnomadFreqCache.set(variantId, result);
@@ -221,6 +188,7 @@ export interface GnomadGeneConstraint {
   loeuf: number | null;
   isPP2Constrained: boolean;
   regions?: any[];
+  hasRegionalData?: boolean;
   regionalConstraint?: {
     isConstrained: boolean;
     oeRatio: number | null;
@@ -299,7 +267,8 @@ export async function fetchGnomadGeneConstraint(
             pli,
             loeuf,
             isPP2Constrained,
-            regions: rmc?.regions || []
+            regions: rmc?.regions || [],
+            hasRegionalData: !!(rmc && rmc.regions && rmc.regions.length > 0)
           };
           gnomadConstraintCache.set(key, cached);
         }

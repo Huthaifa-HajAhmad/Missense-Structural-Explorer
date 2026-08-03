@@ -5,7 +5,11 @@ import path from "path";
 import { AuditLogger } from "../utils.ts";
 
 export function registerHealthRoutes(apiRouter: Router): void {
-  apiRouter.get("/health", async (req, res) => {
+  apiRouter.get("/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  apiRouter.get("/diagnostics", async (req, res) => {
     // foldxReady: check binary exists (no exec)
     const foldxBinEnv = process.env.FOLDX_BINARY || "";
     let foldxReady = false;
@@ -37,7 +41,14 @@ export function registerHealthRoutes(apiRouter: Router): void {
       modelServerReady = false;
     }
 
-    res.json({ status: "ok", timestamp: new Date().toISOString(), foldxReady, geminiReady, modelServerReady, auditLogFailures: AuditLogger.failureCount });
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      foldxReady,
+      geminiReady,
+      modelServerReady,
+      auditLogFailures: AuditLogger.failureCount
+    });
   });
 
   apiRouter.get("/version", (req, res) => {

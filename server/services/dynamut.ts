@@ -149,7 +149,7 @@ export async function pollDdmutJob(
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
         "Content-Length": Buffer.byteLength(body)
       },
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
       timeout: 15000
     };
 

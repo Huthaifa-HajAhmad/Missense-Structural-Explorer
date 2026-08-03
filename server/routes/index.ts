@@ -2,7 +2,7 @@
  * index.ts — Route coordinator.
  * Registers all route groups on the shared apiRouter instance.
  */
-import { type Router } from "express";
+import { type Router, type RequestHandler } from "express";
 import { registerHealthRoutes } from "./health.ts";
 import { registerVariantRoutes } from "./variant.ts";
 import { registerStructureRoutes } from "./structure.ts";
@@ -11,8 +11,8 @@ import { registerSessionRoutes } from "./session.ts";
 
 export function registerAllRoutes(
   apiRouter: Router,
-  jsonParserRegular: any,
-  jsonParserPdb: any
+  jsonParserRegular: RequestHandler,
+  jsonParserPdb: RequestHandler
 ): void {
   registerHealthRoutes(apiRouter);
   registerVariantRoutes(apiRouter, jsonParserRegular);

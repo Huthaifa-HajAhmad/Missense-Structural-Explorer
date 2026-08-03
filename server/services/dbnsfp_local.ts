@@ -5,6 +5,48 @@ import * as self from './dbnsfp_local.ts';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
 
+/**
+ * Intended SQLite schema for the local dbNSFP database.
+ * The database is populated by a future ingestion script that reads dbNSFP v5.
+ *
+ * Part4 #2 architectural fix: two indexes are required —
+ *   idx_dbnsfp_gene_aa   — existing path: look up by gene + amino-acid position
+ *   idx_dbnsfp_genomic   — NEW: look up by chromosome:position:ref:alt (VCF/GnomAD-style)
+ *
+ * CREATE TABLE variant_scores (
+ *   id              INTEGER PRIMARY KEY,
+ *   gene            TEXT    NOT NULL,
+ *   chr             TEXT,            -- hg38 chromosome, e.g. '12'
+ *   pos_genomic     INTEGER,         -- hg38 1-based position
+ *   pos             INTEGER NOT NULL, -- amino-acid position
+ *   ref             TEXT,            -- nucleotide reference allele
+ *   alt             TEXT,            -- nucleotide alternate allele
+ *   aa_change       TEXT,
+ *   revel           REAL,
+ *   alphamissense   REAL,
+ *   gerp            REAL,
+ *   phylop          REAL,
+ *   bayesdel        REAL,
+ *   metarnn         REAL,
+ *   clinpred        REAL,
+ *   dann            REAL,
+ *   eigen           REAL,
+ *   esm1b           REAL,
+ *   popeve          REAL,
+ *   cadd            REAL,
+ *   gnomad_ac       INTEGER,
+ *   gnomad_an       INTEGER,
+ *   gnomad_hom      INTEGER,
+ *   aou_ac          INTEGER,
+ *   aou_an          INTEGER,
+ *   aou_het         INTEGER,
+ *   aou_hom         INTEGER
+ * ) STRICT;
+ *
+ * CREATE INDEX idx_dbnsfp_gene_aa  ON variant_scores(gene, pos);
+ * CREATE INDEX idx_dbnsfp_genomic  ON variant_scores(chr, pos_genomic, ref, alt);
+ */
+
 let localDb: DatabaseSync | null = null;
 let dbCheckFailed = false;
 
@@ -50,6 +92,10 @@ export function getDbInstance(): DatabaseSync | null {
 
 export interface LocalDbnsfpRecord {
   gene: string;
+  /** hg38 chromosome, e.g. "12" (null until dbNSFP ingest populates it) */
+  chr: string | null;
+  /** hg38 1-based genomic position (null until dbNSFP ingest populates it) */
+  pos_genomic: number | null;
   pos: number;
   ref: string | null;
   alt: string | null;
@@ -258,4 +304,63 @@ export async function queryLocalDbnsfpLandscape(
     console.warn(`[Local dbNSFP Error] landscape query failed:`, err.message);
   }
   return null;
+}
+
+/**
+ * Look up a variant by genomic coordinates (Part4 #2 architectural fix).
+ *
+ * This is the new lookup path that uses the idx_dbnsfp_genomic index on
+ * (chr, pos_genomic, ref, alt), enabling VCF-style and gnomAD-style queries
+ * without a round-trip to the Ensembl VEP API.
+ *
+ * @param chr         - hg38 chromosome, e.g. "12" or "chr12" (prefix normalised internally)
+ * @param posGenomic  - hg38 1-based position
+ * @param ref         - reference allele (uppercase)
+ * @param alt         - alternate allele (uppercase)
+ * @returns The best-matching record, or null when unavailable / not found.
+ *
+ * NOTE: Returns null (not an error) when:
+ *   - The local database has not yet been built (ENABLE_LOCAL_DBNSFP != 'true')
+ *   - The chr/pos_genomic columns are not yet populated (awaiting ingest)
+ *   - The specific variant is absent from dbNSFP v5
+ */
+export async function queryLocalDbnsfpByGenomic(
+  chr: string,
+  posGenomic: number,
+  ref: string,
+  alt: string
+): Promise<LocalDbnsfpRecord | null> {
+  const db = self.getDbInstance();
+  if (!db) return null;
+
+  // Normalise chromosome: strip "chr" prefix so both "chr12" and "12" work
+  const normChr = chr.replace(/^chr/i, '');
+
+  try {
+    // Check that the genomic columns exist (they are absent in pre-migration DBs)
+    const cols = (db.prepare("PRAGMA table_info(variant_scores)").all as any)() as Array<{ name: string }>;
+    const hasGenomic = cols.some(c => c.name === 'pos_genomic');
+    if (!hasGenomic) {
+      // Database exists but was built without genomic columns \u2014 can't serve this query.
+      // Callers should fall back to the Ensembl VEP translation path.
+      return null;
+    }
+
+    const stmt = db.prepare(`
+      SELECT * FROM variant_scores
+      WHERE chr = ? AND pos_genomic = ? AND ref = ? AND alt = ?
+      LIMIT 1
+    `);
+    const row = (stmt.get as any)(
+      normChr,
+      posGenomic,
+      ref.trim().toUpperCase(),
+      alt.trim().toUpperCase()
+    ) as LocalDbnsfpRecord | undefined;
+
+    return row ?? null;
+  } catch (err: any) {
+    console.warn(`[Local dbNSFP Error] genomic lookup failed:`, err.message);
+    return null;
+  }
 }

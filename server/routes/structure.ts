@@ -7,7 +7,8 @@
  *   POST /structural-diff
  */
 import { type Router } from "express";
-import { sendError, validateUniProt, AuditLogger } from "../utils.ts";
+import { sendError, validateUniProt, AuditLogger, formatZodError } from "../utils.ts";
+import { z } from "zod";
 import {
   fetchAlphafoldPdb,
   fetchBestPdbStructure,
@@ -18,7 +19,7 @@ import {
 } from "../services/external.ts";
 import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
 import { foldSequence } from "../services/esmfold.ts";
-import { computeStructuralDiff } from "../services/biophysics.ts";
+import { computeStructuralDiff, alignMutantToWt } from "../services/biophysics.ts";
 import fs from "fs";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
@@ -59,7 +60,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         uniprotId: validatedUniprot,
         message: err.message
       });
-      sendError(res, 424, "SEQUENCE_UNAVAILABLE", `Could not retrieve UniProt sequence for accession: ${validatedUniprot}. The UniProt REST API may be temporarily unavailable — please retry.`);
+      sendError(res, 502, "BAD_GATEWAY", `Could not retrieve UniProt sequence for accession: ${validatedUniprot}. The UniProt REST API may be temporarily unavailable — please retry.`);
     }
   });
 
@@ -139,17 +140,41 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       }
     } catch (err: any) {
       console.error(`PDB Proxy error:`, err);
-      sendError(res, 500, "INTERNAL_ERROR", err.message || "Failed proxying PDB structure.");
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed proxying PDB structure.");
     }
   });
 
+  const esmfoldSchema = z.object({
+    sequence: z.string().min(5).max(768)
+  });
+
+  const validateBiohubTokenSchema = z.object({
+    token: z.string().min(8).optional()
+  });
+
+  const esm3StructureEvalSchema = z.object({
+    uniprotId: z.string(),
+    position: z.union([z.number(), z.string()]),
+    wtResidue: z.string(),
+    mutResidue: z.string(),
+    wtPdbText: z.string().optional()
+  });
+
+  const structuralDiffSchema = z.object({
+    wtPdb: z.string(),
+    mutPdb: z.string(),
+    pos: z.union([z.number(), z.string()]),
+    chain: z.string()
+  });
+
   apiRouter.post("/esmfold", jsonParserRegular, async (req, res) => {
+    const parseResult = esmfoldSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
     try {
-      const { sequence } = req.body;
-      if (!sequence || typeof sequence !== "string" || sequence.length < 5) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid protein sequence provided.");
-        return;
-      }
+      const { sequence } = parseResult.data;
       const headerVal = req.headers["x-biohub-token"];
       const token = Array.isArray(headerVal) ? headerVal[0] : headerVal || process.env.ESM3_FORGE_API_KEY;
       const pdb = await foldSequence(sequence, token);
@@ -160,8 +185,13 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
   });
 
   apiRouter.post("/validate-biohub-token", jsonParserRegular, async (req, res) => {
+    const parseResult = validateBiohubTokenSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
     try {
-      const token = req.body?.token || (Array.isArray(req.headers["x-biohub-token"]) ? req.headers["x-biohub-token"][0] : req.headers["x-biohub-token"]);
+      const token = parseResult.data.token || (Array.isArray(req.headers["x-biohub-token"]) ? req.headers["x-biohub-token"][0] : req.headers["x-biohub-token"]);
       if (!token || typeof token !== "string" || token.trim().length < 8) {
         res.json({ valid: false, message: "Token format invalid (must be at least 8 characters)." });
         return;
@@ -169,13 +199,15 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
       // Attempt lightweight ping call to EvolutionaryScale / ESM Atlas endpoint
       try {
-        const testRes = await fetch("https://forge.evolutionaryscale.ai", {
-          method: "HEAD",
+        const testRes = await fetch("https://biohub.ai/v1/models", {
+          method: "GET",
           headers: { "Authorization": `Bearer ${token}` },
           signal: AbortSignal.timeout(4000)
         });
-        if (testRes.ok || testRes.status === 401 || testRes.status === 403 || testRes.status === 405) {
+        if (testRes.status === 200) {
           res.json({ valid: true, message: "Biohub / EvolutionaryScale API key registered & active." });
+        } else if (testRes.status === 401 || testRes.status === 403) {
+          res.json({ valid: false, message: "Invalid or unauthorized Biohub API token." });
         } else {
           res.json({ valid: false, message: `API endpoint returned HTTP ${testRes.status}.` });
         }
@@ -195,45 +227,99 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     }
   });
 
-
-
   apiRouter.post("/esm3-structure-eval", jsonParserPdb, async (req, res) => {
+    const parseResult = esm3StructureEvalSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
     try {
-      const { uniprotId, position, wtResidue, mutResidue, wtPdbText } = req.body;
-      if (!uniprotId || position === undefined || !wtResidue || !mutResidue) {
-        sendError(res, 400, "BAD_REQUEST", "Missing required fields: uniprotId, position, wtResidue, mutResidue");
+      const { uniprotId, position, wtResidue, mutResidue, wtPdbText } = parseResult.data;
+      const posVal = typeof position === "string" ? parseInt(position, 10) : position;
+      if (isNaN(posVal) || posVal <= 0) {
+        sendError(res, 400, "BAD_REQUEST", "Position must be a valid positive number (> 0).");
         return;
       }
-      const posVal = parseInt(position, 10);
-      if (isNaN(posVal)) {
-        sendError(res, 400, "BAD_REQUEST", "Position must be a valid number.");
-        return;
+      const biohubToken = (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null;
+      const evalResult = await fetchEsm3StructureEval(uniprotId, posVal, wtResidue, mutResidue, wtPdbText, biohubToken);
+
+      let expectedSeqLen = 0;
+      if (wtPdbText) {
+        const lines = wtPdbText.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("ATOM ") && line.substring(12, 16).trim() === "CA") {
+            expectedSeqLen++;
+          }
+        }
       }
-      const evalResult = await fetchEsm3StructureEval(uniprotId, posVal, wtResidue, mutResidue, wtPdbText);
+
+      if (evalResult && evalResult.perturbationScores && expectedSeqLen > 0) {
+        if (evalResult.perturbationScores.length !== expectedSeqLen) {
+          sendError(res, 502, "BAD_GATEWAY", `ESM3 structural evaluation score length mismatch (got ${evalResult.perturbationScores.length}, expected ${expectedSeqLen}).`);
+          return;
+        }
+      }
+
       res.json(evalResult);
     } catch (error: any) {
       console.error("ESM3 structure eval endpoint failure:", error);
-      sendError(res, 500, "INTERNAL_ERROR", error.message || "Failed to evaluate ESM3 structure.");
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "Failed to evaluate ESM3 structure.");
     }
   });
 
   apiRouter.post("/structural-diff", jsonParserPdb, async (req, res) => {
+    const parseResult = structuralDiffSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
     try {
-      const { wtPdb, mutPdb, pos, chain } = req.body;
-      if (!wtPdb || !mutPdb || pos === undefined || !chain) {
-        sendError(res, 400, "BAD_REQUEST", "Missing required fields: wtPdb, mutPdb, pos, chain");
-        return;
-      }
-      const posVal = parseInt(pos, 10);
-      if (isNaN(posVal)) {
-        sendError(res, 400, "BAD_REQUEST", "Position (pos) must be a number");
+      const { wtPdb, mutPdb, pos, chain } = parseResult.data;
+      const posVal = typeof pos === "string" ? parseInt(pos, 10) : pos;
+      if (isNaN(posVal) || posVal <= 0) {
+        sendError(res, 400, "BAD_REQUEST", "Position (pos) must be a positive number (> 0).");
         return;
       }
       const diff = await computeStructuralDiff(wtPdb, mutPdb, posVal, chain);
       res.json(diff);
     } catch (error: any) {
       console.error("Structural diff endpoint failure:", error);
-      sendError(res, 500, "INTERNAL_ERROR", error.message || "Failed to compute structural difference.");
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "Failed to compute structural difference.");
+    }
+  });
+
+  apiRouter.post("/structural-align", jsonParserPdb, async (req, res) => {
+    const parseResult = structuralDiffSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    try {
+      const { wtPdb, mutPdb, pos, chain } = parseResult.data;
+      const posVal = typeof pos === "string" ? parseInt(pos, 10) : pos;
+      if (isNaN(posVal) || posVal <= 0) {
+        sendError(res, 400, "BAD_REQUEST", "Position (pos) must be a positive number (> 0).");
+        return;
+      }
+      const alignResult = await alignMutantToWt(wtPdb, mutPdb, posVal, chain);
+      res.json({
+        alignedPdb: alignResult.alignedMutPdb,
+        metrics: {
+          ...alignResult,
+          // Compatibility renames for legacy or alternative readers
+          localBackboneRmsd: alignResult.localWindowRmsd,
+          maxCaDisplacement: alignResult.displacements && alignResult.displacements.length > 0
+            ? Math.max(...alignResult.displacements.map(d => d.displacement))
+            : 0,
+          deltaSasa: alignResult.sasaChange,
+          sasaDiff: { delta: alignResult.sasaChange },
+          hBondsDiff: { lostCount: alignResult.lostHBonds, gainedCount: alignResult.gainedHBonds },
+          contactsDiff: { lostCount: alignResult.lostContacts, gainedCount: alignResult.gainedContacts }
+        }
+      });
+    } catch (error: any) {
+      console.error("Structural align endpoint failure:", error);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "Failed to align structures.");
     }
   });
 }

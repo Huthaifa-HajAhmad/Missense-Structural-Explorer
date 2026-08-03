@@ -86,26 +86,11 @@ export function writeToCache(cacheKey: string, data: any) {
     }
     const filename = getCacheFilename(cacheKey);
     const cacheDir = path.dirname(filename);
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(filename, JSON.stringify(entry), "utf-8");
 
-    // Bounded disk cache eviction (older than 7 days) - async execution in background so it never blocks the event loop
-    fs.promises.readdir(cacheDir)
-      .then(files => {
-        const now = Date.now();
-        const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
-        return Promise.all(files.map(async file => {
-          const filePath = path.join(cacheDir, file);
-          try {
-            const stats = await fs.promises.stat(filePath);
-            if (now - stats.mtimeMs > maxAgeMs) {
-              await fs.promises.unlink(filePath);
-            }
-          } catch (_) {}
-        }));
-      })
+    fs.promises.mkdir(cacheDir, { recursive: true })
+      .then(() => fs.promises.writeFile(filename, JSON.stringify(entry), "utf-8"))
       .catch(err => {
-        console.error("[Cache Eviction Error]", err.message);
+        console.error("[Cache Write Error]", err.message);
       });
   } catch (err) {
     console.error("Error writing disk cache:", err);

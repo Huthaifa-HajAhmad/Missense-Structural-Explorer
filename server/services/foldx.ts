@@ -12,12 +12,56 @@ import {
   parseResiduesFromPdbMaybeAsync,
   parseAtomsFromPdb
 } from "./pdb-parser.ts";
+import { calculateLocalSidechainRmsd } from "./structural-diff.ts";
+
 
 export const mutantCache = new LRUCache<string, any>({
   max: 100,
   maxSize: 100 * 1024 * 1024, // 100MB limit (M-6)
   sizeCalculation: (value) => (value && typeof value.pdb === "string" ? value.pdb.length : 1000)
 });
+
+const FOLDX_CACHE_DIR = path.join(process.cwd(), "logs", "foldx_cache");
+if (!fs.existsSync(FOLDX_CACHE_DIR)) {
+  fs.mkdirSync(FOLDX_CACHE_DIR, { recursive: true });
+}
+
+function getCacheFilename(cacheKey: string): string {
+  const hash = crypto.createHash("sha256").update(cacheKey).digest("hex");
+  return path.join(FOLDX_CACHE_DIR, `${hash}.json`);
+}
+
+export function getMutantFromCache(cacheKey: string): any | null {
+  const memCached = mutantCache.get(cacheKey);
+  if (memCached) return memCached;
+
+  try {
+    const filename = getCacheFilename(cacheKey);
+    if (fs.existsSync(filename)) {
+      const raw = fs.readFileSync(filename, "utf-8");
+      const parsed = JSON.parse(raw);
+      mutantCache.set(cacheKey, parsed);
+      return parsed;
+    }
+  } catch (err: any) {
+    console.error("[FoldX Cache Read Error]", err.message);
+  }
+  return null;
+}
+
+export function writeMutantToCache(cacheKey: string, result: any) {
+  try {
+    mutantCache.set(cacheKey, result);
+    const filename = getCacheFilename(cacheKey);
+    fs.promises.mkdir(FOLDX_CACHE_DIR, { recursive: true })
+      .then(() => fs.promises.writeFile(filename, JSON.stringify(result), "utf-8"))
+      .catch(err => {
+        console.error("[FoldX Cache Write Error]", err.message);
+      });
+  } catch (err: any) {
+    console.error("[FoldX Cache Set Error]", err.message);
+  }
+}
 
 export interface FoldxParsedResult {
   ddG: number | null;
@@ -153,11 +197,16 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
 
   const stericClashWarning = meanVdw > 2.0;
 
-  // H-5 Fix: Detect extreme unphysical energy artifacts (> 20 kcal/mol)
-  // If FoldX RepairPDB failed or un-repaired clashes exploded, return null and exclude from consensus
-  const isDegenerate = Math.abs(meanDdG) > 20.0;
-  if (isDegenerate) {
+  // H-5 Fix: Detect extreme unphysical energy artifacts (> 20 kcal/mol) or degenerate runs (SD < 0.001)
+  // If all 5 runs produced identical values, the FoldX stochastic simulation failed to explore conformation space correctly.
+  const isExtreme = Math.abs(meanDdG) > 20.0;
+  const isIdentical = validDdGs.length > 1 && sd < 0.001;
+  const isDegenerate = isExtreme || isIdentical;
+  if (isExtreme) {
     console.warn(`[FoldX Warning] Extreme unphysical energy artifact detected (mean ΔΔG = ${meanDdG.toFixed(2)} kcal/mol > 20 kcal/mol). Excluding from consensus.`);
+  }
+  if (isIdentical) {
+    console.warn(`[FoldX Warning] Degenerate runs detected (SD = ${sd.toFixed(5)} < 0.001). All FoldX BuildModel runs returned identical values, indicating failed minimization.`);
   }
   const finalDdG = isDegenerate ? null : parseFloat(meanDdG.toFixed(4));
 
@@ -172,7 +221,67 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
   };
 }
 
-const execFileAsync = promisify(execFile);
+function execFileAsync(
+  file: string,
+  args: string[],
+  options: { timeout?: number; cwd?: string; signal?: AbortSignal }
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    let killed = false;
+    const child = execFile(file, args, { maxBuffer: 16 * 1024 * 1024, ...options }, (err, stdout, stderr) => {
+      if (err) {
+        if (!killed) {
+          killed = true;
+          const pid = child.pid;
+          if (pid) {
+            if (process.platform === "win32") {
+              try {
+                const { exec } = require("child_process");
+                exec(`taskkill /F /T /PID ${pid}`);
+              } catch (_) {}
+            } else {
+              try {
+                const { exec } = require("child_process");
+                exec(`kill -9 ${pid}`);
+              } catch (_) {}
+            }
+          }
+        }
+        reject(err);
+      } else {
+        resolve({ stdout, stderr });
+      }
+    });
+
+    if (options.signal) {
+      const onAbort = () => {
+        if (!killed) {
+          killed = true;
+          const pid = child.pid;
+          if (pid) {
+            if (process.platform === "win32") {
+              try {
+                const { exec } = require("child_process");
+                exec(`taskkill /F /T /PID ${pid}`);
+              } catch (_) {}
+            } else {
+              try {
+                const { exec } = require("child_process");
+                exec(`kill -9 ${pid}`);
+              } catch (_) {}
+            }
+          }
+        }
+      };
+      options.signal.addEventListener("abort", onAbort);
+      const cleanListener = () => {
+        options.signal?.removeEventListener("abort", onAbort);
+      };
+      child.on("exit", cleanListener);
+      child.on("error", cleanListener);
+    }
+  });
+}
 
 // A-4 Fix: Dynamically size biophysical semaphore concurrency based on CPU core availability
 const defaultConcurrency = parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "", 10) || Math.max(1, os.cpus().length - 1);
@@ -183,16 +292,23 @@ const biophysicalConcurrency = process.env.BIOPHYSICAL_CONCURRENCY
   : 2;
 const foldxSemaphore = new Semaphore(biophysicalConcurrency);
 
+export interface FoldxOptions {
+  pH?: number;
+  temperature?: number;
+  ionicStrength?: number;
+}
+
 export async function generateMutantPdb(
   wtPdb: string,
   validatedMutation: string,
   uniprotId: string | undefined,
   jobDir: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: FoldxOptions
 ): Promise<{ pdb: string; ddG: number | null; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const pdbHash = crypto.createHash("sha256").update(wtPdb).digest("hex");
-  const cacheKey = `${pdbHash}_${validatedMutation}`;
-  const cached = mutantCache.get(cacheKey);
+  const cacheKey = `${pdbHash}_${validatedMutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}`;
+  const cached = getMutantFromCache(cacheKey);
   if (cached) {
     if (process.env.NODE_ENV !== "production") {
       console.log(`[Biophysical Caching] Cache Hit for mutant mutation: ${validatedMutation}`);
@@ -202,72 +318,75 @@ export async function generateMutantPdb(
   
   await foldxSemaphore.acquire();
   try {
-    const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, signal);
-    mutantCache.set(cacheKey, result);
+    const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, signal, options);
+    writeMutantToCache(cacheKey, result);
     return result;
   } finally {
     foldxSemaphore.release();
   }
 }
 
-export function calculateLocalSidechainRmsd(wtAtoms: PdbAtom[], mutAtoms: PdbAtom[], pos: number, chain: string): number {
-  const windowSize = 3;
-  const wtWindowAtoms = wtAtoms.filter(a => Math.abs(a.resSeq - pos) <= windowSize && a.chain === chain);
-  const mutWindowAtoms = mutAtoms.filter(a => Math.abs(a.resSeq - pos) <= windowSize && a.chain === chain);
-
-  if (wtWindowAtoms.length === 0 || mutWindowAtoms.length === 0) {
-    return 0.0;
+export function detectBFactorProvenance(wtPdb: string): { source: "alphafold" | "experimental" | "unknown"; semantic: "plddt" | "temperature_factor"; inherited: boolean } {
+  const upper = wtPdb.toUpperCase();
+  
+  const isAlphaFoldHeader = 
+    upper.includes("ALPHAFOLD") || 
+    upper.includes("AF-") || 
+    upper.includes("COMPL_MODEL") ||
+    upper.includes("CREATOR OF MODEL: ALPHAFOLD") ||
+    upper.includes("MODEL FROM ALPHAFOLD");
+    
+  if (isAlphaFoldHeader) {
+    return { source: "alphafold", semantic: "plddt", inherited: true };
   }
-
-  const wtTargetCa = wtWindowAtoms.find(a => a.resSeq === pos && a.name === "CA");
-  const mutTargetCa = mutWindowAtoms.find(a => a.resSeq === pos && a.name === "CA");
-
-  let dx = 0, dy = 0, dz = 0;
-  if (wtTargetCa && mutTargetCa) {
-    dx = wtTargetCa.x - mutTargetCa.x;
-    dy = wtTargetCa.y - mutTargetCa.y;
-    dz = wtTargetCa.z - mutTargetCa.z;
-  }
-
-  let sumSqDist = 0;
-  let count = 0;
-  const backboneAtomNames = new Set(["N", "CA", "C", "O", "H", "HA", "HN"]);
-
-  for (const wtA of wtWindowAtoms) {
-    if (backboneAtomNames.has(wtA.name)) continue;
-    if (wtA.resSeq === pos) {
-      if (wtA.name !== "CB") continue;
+  
+  const lines = wtPdb.split(/\r?\n/);
+  let atomCount = 0;
+  let inPLDDTRangeCount = 0;
+  
+  for (const line of lines) {
+    if (line.startsWith("ATOM")) {
+      const bFactorStr = line.slice(60, 66).trim();
+      const bFactor = parseFloat(bFactorStr);
+      if (!isNaN(bFactor)) {
+        atomCount++;
+        if (bFactor >= 0.0 && bFactor <= 100.0) {
+          inPLDDTRangeCount++;
+        }
+      }
     }
-
-    const mutA = mutWindowAtoms.find(a => a.resSeq === wtA.resSeq && a.name === wtA.name);
-    if (mutA) {
-      const mx = mutA.x + dx;
-      const my = mutA.y + dy;
-      const mz = mutA.z + dz;
-      const distSq = Math.pow(wtA.x - mx, 2) + Math.pow(wtA.y - my, 2) + Math.pow(wtA.z - mz, 2);
-      sumSqDist += distSq;
-      count++;
+    if (atomCount >= 100) break;
+  }
+  
+  if (atomCount > 0 && inPLDDTRangeCount === atomCount) {
+    if (upper.includes("MODEL") || upper.includes("DATABASE") || upper.includes("ACCESSION")) {
+      return { source: "alphafold", semantic: "plddt", inherited: true };
     }
   }
-
-  if (count === 0) return 0.0;
-  const rmsd = Math.sqrt(sumSqDist / count);
-  return parseFloat(rmsd.toFixed(4));
+  
+  if (upper.includes("HEADER") || upper.includes("EXPDTA") || upper.includes("REMARK")) {
+    return { source: "experimental", semantic: "temperature_factor", inherited: true };
+  }
+  
+  return { source: "unknown", semantic: "temperature_factor", inherited: true };
 }
+
 
 async function generateMutantPdbInternal(
   wtPdb: string,
   validatedMutation: string,
   uniprotId: string | undefined,
   jobDir: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: FoldxOptions
 ): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   const fullWtPath = path.join(jobDir, "wt.pdb");
   const fullMutPath = path.join(jobDir, "individual_list.txt");
 
-  // 1. Write WT PDB data to temporary file
+  // 1. Write WT PDB data to temporary file (cleaned of HETATMs to prevent RepairPDB crashes)
   await fs.promises.mkdir(jobDir, { recursive: true });
-  await fs.promises.writeFile(fullWtPath, wtPdb, "utf8");
+  const cleanedWt = cleanPdbForFoldX(wtPdb);
+  await fs.promises.writeFile(fullWtPath, cleanedWt, "utf8");
 
   // 2. Create mutation configuration text file (FoldX format: R A 215 W;)
   const mutMatch = validatedMutation.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
@@ -281,18 +400,11 @@ async function generateMutantPdbInternal(
 
   // 3. Validate pos exists in WT PDB structure and resolve correct chain
   const pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
-  let targetRes = pdbResidues.find(r => r.resSeq === pos && (chain === "" || r.chain === chain));
+  let targetRes = pdbResidues.find(r => r.resSeq === pos && r.chain === chain);
   let resolvedChain = chain;
 
   if (!targetRes) {
-    const fallbackRes = pdbResidues.find(r => r.resSeq === pos);
-    if (fallbackRes) {
-      console.log(`[Biophysical Modeling] Target residue position ${pos} not found on requested chain ${chain || "any"}, but found on chain ${fallbackRes.chain}. Automatically resolving chain to ${fallbackRes.chain}.`);
-      targetRes = fallbackRes;
-      resolvedChain = fallbackRes.chain;
-    } else {
-      throw new Error(`Target residue position ${pos} on chain ${chain || "any"} is not found in the PDB structure.`);
-    }
+    throw new Error(`Target residue position ${pos} on chain ${chain} is not found in the PDB structure.`);
   }
 
   const expectedWt3 = AMINO_ACID_1_TO_3[wt1];
@@ -334,15 +446,38 @@ async function generateMutantPdbInternal(
     const sourceMolecules = path.join(foldxDir, "molecules");
     const destMolecules = path.join(jobDir, "molecules");
     if (fs.existsSync(sourceMolecules)) {
-      console.log(`[Biophysical Modeling] Copying FoldX molecules parameters to workspace...`);
-      fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
+      try {
+        console.log(`[Biophysical Modeling] Creating symlink/junction for FoldX molecules parameters...`);
+        const type = process.platform === "win32" ? "junction" : "dir";
+        fs.symlinkSync(sourceMolecules, destMolecules, type);
+      } catch (err: any) {
+        console.warn(`[Biophysical Modeling] Symlink molecules failed, falling back to copy: ${err.message}`);
+        fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
+      }
     }
     const sourceRotabase = path.join(foldxDir, "rotabase.txt");
     const destRotabase = path.join(jobDir, "rotabase.txt");
     if (fs.existsSync(sourceRotabase)) {
-      console.log(`[Biophysical Modeling] Copying FoldX rotabase parameters to workspace...`);
-      fs.copyFileSync(sourceRotabase, destRotabase);
+      try {
+        console.log(`[Biophysical Modeling] Creating symlink for FoldX rotabase...`);
+        fs.symlinkSync(sourceRotabase, destRotabase, "file");
+      } catch (err: any) {
+        console.warn(`[Biophysical Modeling] Symlink rotabase failed, falling back to copy: ${err.message}`);
+        fs.copyFileSync(sourceRotabase, destRotabase);
+      }
     }
+  }
+
+
+  const extraArgs: string[] = ["--timeSeedRotabase=false"];
+  if (options?.pH !== undefined && options?.pH !== null) {
+    extraArgs.push(`--pH=${options.pH}`);
+  }
+  if (options?.temperature !== undefined && options?.temperature !== null) {
+    extraArgs.push(`--temperature=${options.temperature}`);
+  }
+  if (options?.ionicStrength !== undefined && options?.ionicStrength !== null) {
+    extraArgs.push(`--ionStrength=${options.ionicStrength}`);
   }
 
   let foldxSuccess = false;
@@ -351,27 +486,42 @@ async function generateMutantPdbInternal(
   let overallSd: number = 0;
   let status: "success" = "success";
   let parsedResult: FoldxParsedResult | null = null;
+  let foldxRepairFailed = false;
+  let foldxRepairSkipped = false;
+  const residueCount = pdbResidues.length;
+  const shouldRepair = residueCount <= 400;
 
   try {
-    // 1. Run FoldX RepairPDB first to resolve starting steric clashes and stabilize energy delta
-    console.log(`[Biophysical Modeling] Running FoldX RepairPDB: ${foldxBin}...`);
-    try {
-      await execFileAsync(foldxBin, [
-        "--command=RepairPDB",
-        "--pdb=wt.pdb"
-      ], {
-        timeout: 45000,
-        cwd: jobDir,
-        signal
-      });
-      const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
-      if (fs.existsSync(repairedPdbPath)) {
-        console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
-        await fs.promises.rename(repairedPdbPath, fullWtPath);
+    if (shouldRepair) {
+      // 1. Run FoldX RepairPDB first to resolve starting steric clashes and stabilize energy delta
+      console.log(`[Biophysical Modeling] Running FoldX RepairPDB: ${foldxBin}...`);
+      try {
+        await execFileAsync(foldxBin, [
+          "--command=RepairPDB",
+          "--pdb=wt.pdb",
+          ...extraArgs
+        ], {
+          timeout: 120000,
+          cwd: jobDir,
+          signal
+        });
+        const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
+        if (fs.existsSync(repairedPdbPath)) {
+          console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
+          await fs.promises.rename(repairedPdbPath, fullWtPath);
+        } else {
+          console.warn(`[Biophysical Modeling] RepairPDB warning: wt_Repair.pdb not found. Continuing with un-repaired structure.`);
+          foldxRepairFailed = true;
+        }
+      } catch (repairErr: any) {
+        console.warn(`[Biophysical Modeling] RepairPDB warning (failed):`, repairErr.message);
+        foldxRepairFailed = true;
       }
-    } catch (repairErr: any) {
-      console.warn(`[Biophysical Modeling] RepairPDB warning (failed or skipped):`, repairErr.message);
+    } else {
+      console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for large protein structure (${residueCount} residues) to expedite calculations.`);
+      foldxRepairSkipped = true;
     }
+
 
     if (signal?.aborted) {
       throw new Error("Aborted");
@@ -385,9 +535,10 @@ async function generateMutantPdbInternal(
         "--command=BuildModel",
         "--pdb=wt.pdb",
         "--mutant-file=individual_list.txt",
-        "--numberOfRuns=5"
+        "--numberOfRuns=5",
+        ...extraArgs
       ], {
-        timeout: 60000,
+        timeout: 180000,
         cwd: jobDir,
         signal
       });
@@ -395,18 +546,7 @@ async function generateMutantPdbInternal(
       stderr = execRes.stderr;
     } catch (execErr: any) {
       if (execErr.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || execErr.killed || execErr.signal === "SIGTERM") {
-        console.warn(`[Biophysical Modeling] FoldX execution timed out or killed. Cleaning up process tree.`);
-        if (process.platform === "win32") {
-          try {
-            const { exec } = require("child_process");
-            exec(`taskkill /F /IM foldx.exe /T`);
-          } catch (_) {}
-        } else {
-          try {
-            const { exec } = require("child_process");
-            exec(`pkill -f foldx`);
-          } catch (_) {}
-        }
+        console.warn(`[Biophysical Modeling] FoldX execution timed out or killed.`);
       }
       throw execErr;
     }
@@ -459,14 +599,22 @@ async function generateMutantPdbInternal(
       console.error(`[Biophysical Modeling] Failed to calculate local sidechain RMSD:`, rmsdErr.message);
     }
 
-    const energetics = parsedResult ? {
-      foldxMean: parsedResult.ddG,
-      foldxSd: parsedResult.sd,
-      vdw: parsedResult.vdw,
-      electrostatics: parsedResult.electrostatics,
-      stericClashWarning: parsedResult.stericClashWarning,
-      localSidechainRmsd
-    } : undefined;
+    const bFactorMetadata = detectBFactorProvenance(wtPdb);
+
+    const energetics = {
+      ...(parsedResult ? {
+        foldxMean: parsedResult.ddG,
+        foldxSd: parsedResult.sd,
+        vdw: parsedResult.vdw,
+        electrostatics: parsedResult.electrostatics,
+        stericClashWarning: parsedResult.stericClashWarning,
+      } : {}),
+      localSidechainRmsd,
+      foldxRepairFailed,
+      foldxRepairSkipped,
+      bFactorMetadata
+    };
+
 
     return { 
       pdb: mutantPdbContent, 
@@ -526,4 +674,18 @@ function injectBFactorsFromWtPdb(wtPdb: string, mutPdb: string): string {
   });
   
   return updatedLines.join("\n");
+}
+
+export function cleanPdbForFoldX(pdbContent: string): string {
+  const lines = pdbContent.split(/\r?\n/);
+  const cleaned = lines.filter(line => {
+    if (line.startsWith("ATOM")) {
+      return true;
+    }
+    if (line.startsWith("TER") || line.startsWith("ENDMDL") || line.startsWith("END")) {
+      return true;
+    }
+    return false;
+  });
+  return cleaned.join("\n");
 }

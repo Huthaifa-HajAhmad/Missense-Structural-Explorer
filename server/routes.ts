@@ -39,8 +39,8 @@ export { activeBackgroundTasks, inFlightPrewarms } from "./routes/state.ts";
 // ---------------------------------------------------------------------------
 export const apiRouter = express.Router();
 
-const jsonParserRegular = express.json({ limit: "1mb" });
-const jsonParserPdb = express.json({ limit: "5mb" });
+const jsonParserRegular = express.json({ limit: "5mb" });
+const jsonParserPdb = express.json({ limit: "10mb" });
 
 // Apply authCheck and apiLimiter globally to the API Router
 apiRouter.use(authCheck);

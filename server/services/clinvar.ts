@@ -62,7 +62,16 @@ export async function fetchClinVarData(gene: string, variant: string, originalNo
   };
   
   const normGene = normalizeGeneSymbol(gene);
-  const term = `${normGene} ${variant}`;
+  const cleanVar = variant.replace(/^p\./i, "").trim();
+  
+  let term = "";
+  if (/^(?:VCV)?\d+$/i.test(cleanVar)) {
+    // If it's a ClinVar Variation ID (e.g. VCV000123456 or 123456), search directly by Variation ID
+    const varId = cleanVar.replace(/^VCV/i, "").replace(/^0+/, "");
+    term = `${varId}[Variation ID]`;
+  } else {
+    term = `${normGene}[gene] AND (${variant}[variant name] OR ${cleanVar}[variant name])`;
+  }
   
   const apiKey = process.env.NCBI_API_KEY;
   const apiKeyParam = apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : "";
@@ -95,6 +104,7 @@ export async function fetchClinVarData(gene: string, variant: string, originalNo
   
   const summaryJson = await summaryRes.json();
   const summaryData = clinvarSummaryResponseSchema.parse(summaryJson);
+  const isDirectIdSearch = /^(?:VCV)?\d+$/i.test(cleanVar);
   const resultObj = summaryData.result || {};
   const queryNorm = (() => {
     const clean = variant.replace(/^p\./i, "").trim().toLowerCase();
@@ -121,8 +131,8 @@ export async function fetchClinVarData(gene: string, variant: string, originalNo
     if (!entry) continue;
     
     const title = (entry.title || "").toLowerCase();
-    let isMatch = false;
-    if (queryNorm) {
+    let isMatch = isDirectIdSearch;
+    if (!isMatch && queryNorm) {
       const pChangeMatches = title.match(/p\.[a-z]{1,3}\d+[a-z]{1,3}/g);
       if (pChangeMatches) {
         for (const pMatch of pChangeMatches) {

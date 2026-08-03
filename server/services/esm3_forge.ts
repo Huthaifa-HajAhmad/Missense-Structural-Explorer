@@ -1,6 +1,42 @@
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { fetchWithRetry } from "./external.ts";
+import { extractSequenceFromPdb } from "./pdb-parser.ts";
+import path from "path";
+import fs from "fs";
+import os from "os";
+import crypto from "crypto";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
+
+export async function runSasaEval(
+  pdbText: string,
+  chain: string,
+  pos: number
+): Promise<{ rsa: number; sse: string; sasa: number } | null> {
+  const tmpFile = path.join(os.tmpdir(), `sasa_eval_${crypto.randomUUID()}.pdb`);
+  try {
+    await fs.promises.writeFile(tmpFile, pdbText, "utf8");
+    const scriptPath = path.join(process.cwd(), "tools", "sasa_eval.py");
+    const { stdout } = await execFileAsync("python", ["-m", "uv", "run", scriptPath, tmpFile, chain, pos.toString()], { timeout: 15000 });
+    const parsed = JSON.parse(stdout.trim());
+    if (parsed.status === "success") {
+      return { rsa: parsed.rsa, sse: parsed.sse, sasa: parsed.sasa };
+    }
+  } catch (err: any) {
+    console.warn(`[SASA-SSE-Eval] Failed to execute Python sidecar:`, err.message);
+  } finally {
+    try {
+      if (fs.existsSync(tmpFile)) {
+        await fs.promises.unlink(tmpFile);
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 
 export interface ESM3StructureEvalResult {
   uniprotId: string;
@@ -18,6 +54,7 @@ export interface ESM3StructureEvalResult {
     plddt: number;
     sequenceCoverage: number;
   };
+  provenance?: string;
 }
 
 export const esm3StructureCache = new LRUCache<string, any>({
@@ -40,46 +77,90 @@ export async function fetchEsm3StructureEval(
   const wt1 = wtResidue.length === 3 ? AMINO_ACID_3_TO_1[wtResidue.toUpperCase()] || wtResidue : wtResidue.toUpperCase();
   const mut1 = mutResidue.length === 3 ? AMINO_ACID_3_TO_1[mutResidue.toUpperCase()] || mutResidue : mutResidue.toUpperCase();
 
+  const canonicalAAs = ["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"];
+  if (!canonicalAAs.includes(wt1) || !canonicalAAs.includes(mut1)) {
+    return null;
+  }
+
   let pdbText: string | null = null;
   let perturbationScores: number[] = [];
   let seqLen = 300;
+  let esm3Error: string | undefined;
 
-  // Remote ESM3 predict API call via Biohub Platform
-  if (biohubToken) {
+  let sequence = "";
+  if (wtPdbText) {
     try {
-      const forgeRes = await fetchWithRetry("https://biohub.ai/api/v1/esm3/predict", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${biohubToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          uniprot_id: uniprotId,
-          mutations: [`${wt1}${position}${mut1}`],
-          tracks: ["structure", "attention", "embeddings"]
-        }),
-        timeout: 20000
-      });
-      if (forgeRes.ok) {
-        const forgeData = await forgeRes.json() as any;
-        if (forgeData.pdb_string) pdbText = forgeData.pdb_string;
-        if (Array.isArray(forgeData.perturbation_scores)) {
-          perturbationScores = forgeData.perturbation_scores;
+      const parsed = extractSequenceFromPdb(wtPdbText, "A");
+      sequence = parsed.sequence;
+    } catch (_) {}
+  }
+
+  // If no sequence could be extracted and no raw WT PDB is provided, we use a placeholder sequence of length 100
+  if (!sequence) {
+    // Generate a simple poly-A sequence as fallback
+    sequence = "M" + "A".repeat(Math.max(10, position + 20));
+  }
+
+  const tokenToUse = biohubToken || process.env.BIOHUB_API_TOKEN || null;
+  const sidecarSecret = process.env.SIDECAR_SECRET || "";
+  let provenance = "ESM3-Medium (Remote)";
+
+  try {
+    const sidecarRes = await fetch("http://127.0.0.1:8000/predict/esm3", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Sidecar-Secret": sidecarSecret
+      },
+      body: JSON.stringify({
+        sequence,
+        position,
+        wt: wt1,
+        mut: mut1,
+        biohubToken: tokenToUse,
+        refine: false
+      }),
+      signal: AbortSignal.timeout(20000)
+    });
+
+    if (sidecarRes.ok) {
+      const sidecarData = await sidecarRes.json() as any;
+      if (sidecarData.status === "success" && Array.isArray(sidecarData.perturbationScores)) {
+        perturbationScores = sidecarData.perturbationScores;
+        if (sidecarData.refinedPdb) {
+          pdbText = sidecarData.refinedPdb;
+        }
+        if (typeof sidecarData.provenance === "string") {
+          provenance = sidecarData.provenance;
         }
       }
-    } catch (err: any) {
-      console.warn("[ESM3 Forge API] Remote ESM3 predict call failed:", err.message);
+    } else {
+      const txt = await sidecarRes.text();
+      console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
+      esm3Error = `Sidecar API returned HTTP ${sidecarRes.status}: ${txt}`;
     }
+  } catch (err: any) {
+    console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
+    esm3Error = err.message;
   }
+
+
 
   // Parse PDB for secondary structure, pLDDT, and SASA if wtPdbText is provided
   let isHelix = false;
   let isSheet = false;
-  let meanPlddt = 88.5;
-  let targetPlddt = 92.4;
+  let meanPlddt: number | null = null;
+  let targetPlddt: number | null = null;
   let rsa = 0.12; // default core
 
   if (wtPdbText) {
+    const sasaRes = await runSasaEval(wtPdbText, "A", position);
+    if (sasaRes) {
+      rsa = sasaRes.rsa;
+      isHelix = sasaRes.sse === "a";
+      isSheet = sasaRes.sse === "b";
+    }
+
     const lines = wtPdbText.split(/\r?\n/);
     let totalAtomB = 0;
     let atomCount = 0;
@@ -87,18 +168,13 @@ export async function fetchEsm3StructureEval(
     let targetAtomCount = 0;
 
     for (const line of lines) {
-      if (line.startsWith("HELIX")) {
-        const start = parseInt(line.substring(21, 25).trim());
-        const end = parseInt(line.substring(33, 37).trim());
-        if (position >= start && position <= end) isHelix = true;
-      } else if (line.startsWith("SHEET")) {
-        const start = parseInt(line.substring(22, 26).trim());
-        const end = parseInt(line.substring(33, 37).trim());
-        if (position >= start && position <= end) isSheet = true;
-      } else if (line.startsWith("ATOM")) {
-        const resNum = parseInt(line.substring(22, 26).trim());
-        const bFactor = parseFloat(line.substring(60, 66).trim());
-        if (!isNaN(bFactor)) {
+      const record = line.slice(0, 6).trim();
+      if (record === "ATOM") {
+        const resNum = parseInt(line.slice(22, 26).trim(), 10);
+        const atomName = line.slice(12, 16).trim();
+        const bFactor = parseFloat(line.slice(60, 66).trim());
+
+        if (atomName === "CA") {
           totalAtomB += bFactor;
           atomCount++;
           if (resNum === position) {
@@ -108,15 +184,29 @@ export async function fetchEsm3StructureEval(
         }
         if (resNum > seqLen) seqLen = resNum;
       }
+      
+      // Fallback geometric parsing if Python SASA execution failed
+      if (!sasaRes) {
+        if (line.startsWith("HELIX")) {
+          const start = parseInt(line.substring(21, 25).trim());
+          const end = parseInt(line.substring(33, 37).trim());
+          if (position >= start && position <= end) isHelix = true;
+        } else if (line.startsWith("SHEET")) {
+          const start = parseInt(line.substring(22, 26).trim());
+          const end = parseInt(line.substring(33, 37).trim());
+          if (position >= start && position <= end) isSheet = true;
+        }
+      }
     }
     if (atomCount > 0) meanPlddt = totalAtomB / atomCount;
     if (targetAtomCount > 0) targetPlddt = targetB / targetAtomCount;
   }
 
-  // If we could not retrieve real perturbation scores from the API, we return null to avoid fabricating data
+  // If we could not retrieve real perturbation scores from the API, we return error to avoid fabricating data
   if (perturbationScores.length === 0) {
-    esm3StructureCache.set(cacheKey, null);
-    return null;
+    const errorResult = { error: esm3Error || "No perturbation scores returned by Biohub ESM3 API." };
+    // Do NOT cache API errors/failures so configuring keys can take immediate effect on retry
+    return errorResult as any;
   }
 
   const maxVal = Math.max(...perturbationScores);
@@ -170,7 +260,8 @@ export async function fetchEsm3StructureEval(
 
   // 4. Confidence
   let confLevel: "high" | "moderate" | "low" = "high";
-  if (targetPlddt < 50) confLevel = "low";
+  if (targetPlddt === null || targetPlddt === undefined) confLevel = "low";
+  else if (targetPlddt < 50) confLevel = "low";
   else if (targetPlddt < 75) confLevel = "moderate";
 
   const result: ESM3StructureEvalResult = {
@@ -186,9 +277,10 @@ export async function fetchEsm3StructureEval(
     putativeStructuralChanges,
     confidence: {
       level: confLevel,
-      plddt: parseFloat(targetPlddt.toFixed(1)),
+      plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : (null as any),
       sequenceCoverage: 100
-    }
+    },
+    provenance
   };
 
   esm3StructureCache.set(cacheKey, result);

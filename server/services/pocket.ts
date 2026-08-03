@@ -23,6 +23,11 @@ export const pocketCache = new LRUCache<string, any>({
   }
 });
 
+/**
+ * Returns empirical amino acid propensities for protein-ligand binding pockets.
+ * Weights and roles are derived from Bogan & Thorn (1998) hot spot propensities
+ * and classic amino acid chemical properties in structural biology.
+ */
 export function getAaPropensities(): Record<string, { weight: number; role: string; type: string }> {
   return {
     HIS: { weight: 3.5, role: "Metal Coordination / Basic Catalytic Residue", type: "Charged (Basic)" },
@@ -48,19 +53,24 @@ export function getAaPropensities(): Record<string, { weight: number; role: stri
   };
 }
 
+/**
+ * Heuristically estimates the chemical nature of the likely binding partner/cofactor
+ * based on the composition of pocket residues. This is a simplified composition-based
+ * heuristic and does not represent an explicit molecular docking or ligand-affinity calculation.
+ */
 export function determineLikelyCofactor(typesCount: Record<string, number>): string {
   if (typesCount["Charged (Basic)"] && typesCount["Charged (Basic)"] >= 2 && typesCount["Aromatic"]) {
-    return "Adenosine Triphosphate nucleotides (ATP / ADP)";
+    return "Composition heuristic: Possible nucleotide/ATP-binding cavity (enriched in Basic & Aromatic residues)";
   } else if (typesCount["Charged (Acidic)"] && typesCount["Charged (Basic)"] && typesCount["Charged (Acidic)"] >= 1) {
-    return "Divalent Metal Ions Cations (Mg²⁺, Zn²⁺, Ca²⁺)";
+    return "Composition heuristic: Possible metal-binding or charged polar cavity (enriched in Acidic & Basic residues)";
   } else if (typesCount["Sulfur-reactive"] && typesCount["Sulfur-reactive"] >= 1) {
-    return "Iron-Sulfur [Fe-S] or Zinc Finger metal clusters";
+    return "Composition heuristic: Possible metal-coordinating / Zinc-finger-like cavity (enriched in Cys residues)";
   } else if (typesCount["Aromatic"] && typesCount["Aromatic"] >= 2) {
-    return "Folate / Heme cofactors or Aromatic Substrates";
+    return "Composition heuristic: Possible aromatic/folate/heme binding cavity (enriched in Aromatic residues)";
   } else if (typesCount["Aliphatic"] && typesCount["Aliphatic"] >= 3) {
-    return "Co-enzyme A / Fatty Acid hydrophobic substrates";
+    return "Composition heuristic: Hydrophobic/aliphatic lipid-like cavity (enriched in Aliphatic residues)";
   }
-  return "Organic substrates / Substrate cavity";
+  return "Composition heuristic: General organic substrate / ligand-binding cavity";
 }
 
 export async function findBindingPocket(
@@ -309,6 +319,8 @@ async function findBindingPocketInternal(
           pocketResidues = Object.values(pocketResiduesMap);
           pocketResidues.sort((a, b) => b.score - a.score);
 
+          // Note: P2Rank outputs a raw unbound score. We scale it here for normalization
+          // purposes to represent relative pocket confidence, capped at 98.
           pocketScore = Math.round(selectedPocket.probability * 100);
           if (isNaN(pocketScore) || pocketScore === 0) {
             pocketScore = Math.min(98, Math.round(selectedPocket.score * 5));

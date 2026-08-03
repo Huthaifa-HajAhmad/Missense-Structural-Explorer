@@ -10,7 +10,7 @@
  * This module has zero dependencies on other server/services modules,
  * making it safe to import anywhere without circular references.
  */
-import { CircuitBreaker } from "../utils.ts";
+import { CircuitBreaker, Semaphore } from "../utils.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../src/aminoAcids.ts";
 
 export function normalizeGeneSymbol(gene: string): string {
@@ -20,6 +20,7 @@ export function normalizeGeneSymbol(gene: string): string {
 }
 
 const hostBreakers = new Map<string, CircuitBreaker>();
+const hostSemaphores = new Map<string, Semaphore>();
 
 function getHostBreaker(hostname: string): CircuitBreaker {
   let breaker = hostBreakers.get(hostname);
@@ -30,77 +31,92 @@ function getHostBreaker(hostname: string): CircuitBreaker {
   return breaker;
 }
 
+function getHostSemaphore(hostname: string): Semaphore {
+  let sem = hostSemaphores.get(hostname);
+  if (!sem) {
+    sem = new Semaphore(5); // max 5 concurrent requests per host (A3)
+    hostSemaphores.set(hostname, sem);
+  }
+  return sem;
+}
+
 export async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
   let hostname = "unknown";
   try {
     hostname = new URL(url).hostname;
   } catch (_) {}
 
-  const breaker = getHostBreaker(hostname);
-  if (!breaker.canExecute()) {
-    throw new Error(`Upstream service ${hostname} is temporarily unavailable (circuit breaker open).`);
-  }
+  const sem = getHostSemaphore(hostname);
+  await sem.acquire(120000); // Wait up to 120s to acquire hostname lock (A3)
+  try {
+    const breaker = getHostBreaker(hostname);
+    if (!breaker.canExecute()) {
+      throw new Error(`Upstream service ${hostname} is temporarily unavailable (circuit breaker open).`);
+    }
 
-  const timeoutMs = options.timeout ?? 15000;
-  let lastStatus = 200;
-  for (let i = 0; i < retries; i++) {
-    try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutMs = options.timeout ?? 15000;
+    let lastStatus = 200;
+    for (let i = 0; i < retries; i++) {
+      try {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
 
-      const res = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      clearTimeout(id);
+        const res = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
+        clearTimeout(id);
 
-      if (res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503) {
-        breaker.recordFailure();
-        lastStatus = res.status;
-        let backoff = delay * (2 ** i);
-        let hasRetryAfter = false;
-        if (res.status === 429) {
-          const retryAfterHeader = res.headers.get("Retry-After");
-          if (retryAfterHeader) {
-            const seconds = parseInt(retryAfterHeader, 10);
-            if (!isNaN(seconds)) {
-              backoff = seconds * 1000;
-              hasRetryAfter = true;
-            } else {
-              const date = Date.parse(retryAfterHeader);
-              if (!isNaN(date)) {
-                backoff = Math.max(0, date - Date.now());
+        if (res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503) {
+          breaker.recordFailure();
+          lastStatus = res.status;
+          let backoff = delay * (2 ** i);
+          let hasRetryAfter = false;
+          if (res.status === 429) {
+            const retryAfterHeader = res.headers.get("Retry-After");
+            if (retryAfterHeader) {
+              const seconds = parseInt(retryAfterHeader, 10);
+              if (!isNaN(seconds)) {
+                backoff = seconds * 1000;
                 hasRetryAfter = true;
+              } else {
+                const date = Date.parse(retryAfterHeader);
+                if (!isNaN(date)) {
+                  backoff = Math.max(0, date - Date.now());
+                  hasRetryAfter = true;
+                }
               }
             }
           }
+          if (!hasRetryAfter) {
+            const jitter = 0.5 + Math.random() * 0.5;
+            backoff = Math.round(backoff * jitter);
+          }
+          console.warn(`[Upstream Fetch ${res.status}] error/limit on ${url}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
+          await new Promise(resolve => setTimeout(resolve, backoff));
+          continue;
         }
-        if (!hasRetryAfter) {
-          const jitter = 0.5 + Math.random() * 0.5;
-          backoff = Math.round(backoff * jitter);
-        }
-        console.warn(`[Upstream Fetch ${res.status}] error/limit on ${url}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
-        await new Promise(resolve => setTimeout(resolve, backoff));
-        continue;
-      }
 
-      breaker.recordSuccess();
-      return res;
-    } catch (err: any) {
-      breaker.recordFailure();
-      if (i === retries - 1) {
-        err.statusCode = lastStatus;
-        throw err;
+        breaker.recordSuccess();
+        return res;
+      } catch (err: any) {
+        breaker.recordFailure();
+        if (i === retries - 1) {
+          err.statusCode = lastStatus;
+          throw err;
+        }
+        const jitter = 0.5 + Math.random() * 0.5;
+        const backoff = Math.round(delay * (2 ** i) * jitter);
+        console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoff));
       }
-      const jitter = 0.5 + Math.random() * 0.5;
-      const backoff = Math.round(delay * (2 ** i) * jitter);
-      console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
-      await new Promise(resolve => setTimeout(resolve, backoff));
     }
+    const errObj = new Error(`Failed to fetch ${url} after ${retries} attempts.`);
+    (errObj as any).statusCode = lastStatus;
+    throw errObj;
+  } finally {
+    sem.release();
   }
-  const errObj = new Error(`Failed to fetch ${url} after ${retries} attempts.`);
-  (errObj as any).statusCode = lastStatus;
-  throw errObj;
 }
 
 export function normalizeVariantTo3Letter(variant: string): string {

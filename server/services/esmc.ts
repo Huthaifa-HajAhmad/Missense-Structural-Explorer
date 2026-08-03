@@ -19,6 +19,7 @@ export interface EsmcEvalResult {
   embeddingShift: number;
   localEmbeddingShift: number;
   localShiftMap: EsmcLocalShift[];
+  provenance?: string;
 }
 
 const VOCAB: Record<string, number> = {
@@ -42,23 +43,6 @@ function tokenize(sequence: string): number[] {
 const AA_LIST = ["L", "A", "G", "V", "S", "E", "R", "T", "I", "D", "P", "F", "K", "N", "Q", "Y", "M", "H", "W", "C"];
 const AA_TOKENS = AA_LIST.map(aa => VOCAB[aa]);
 
-
-function getDeterministicSeed(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash);
-}
-
-function lcgRandom(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 1664525 + 1013904223) % 4294967296;
-    return s / 4294967296;
-  };
-}
-
 export async function runEsmcAnalysis(
   gene: string,
   variant: string,
@@ -66,137 +50,25 @@ export async function runEsmcAnalysis(
   sequence: string,
   biohubToken?: string | null
 ): Promise<EsmcEvalResult | null> {
-  const seedVal = getDeterministicSeed(`${gene}:${variant}`);
-  const rand = lcgRandom(seedVal);
+  const mutMatch = variant.match(/([a-zA-Z]{3}|[a-zA-Z])\s*(\d+)\s*([a-zA-Z]{3}|[a-zA-Z])/);
+  if (!mutMatch) return null;
 
-  const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
-  let wtRes = "A";
-  let mutRes = "A";
-  let pos = 1;
-  if (mutMatch) {
-    const rawWt = mutMatch[1];
-    pos = parseInt(mutMatch[2], 10);
-    const rawMut = mutMatch[3];
-    wtRes = rawWt.length === 3 ? (normalizeThreeLetterToSingle(rawWt) || "A") : rawWt.toUpperCase();
-    mutRes = rawMut.length === 3 ? (normalizeThreeLetterToSingle(rawMut) || "A") : rawMut.toUpperCase();
+  const rawWt = mutMatch[1];
+  const pos = parseInt(mutMatch[2], 10);
+  const rawMut = mutMatch[3];
+
+  const wtRes = rawWt.length === 3 
+    ? normalizeThreeLetterToSingle(rawWt) 
+    : (["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"].includes(rawWt.toUpperCase()) ? rawWt.toUpperCase() : null);
+
+  const mutRes = rawMut.length === 3 
+    ? normalizeThreeLetterToSingle(rawMut) 
+    : (["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"].includes(rawMut.toUpperCase()) ? rawMut.toUpperCase() : null);
+
+  if (!wtRes || !mutRes) {
+    return null;
   }
 
-  // 1. Primary: Remote ESMC via Biohub Platform API
-  if (biohubToken) {
-    try {
-      const inputTokens = tokenize(sequence);
-      const res = await fetch("https://biohub.ai/api/v1/logits", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${biohubToken}`
-        },
-        body: JSON.stringify({
-          model: "esmc-600m-2024-12",
-          inputs: {
-            sequence: inputTokens
-          },
-          logits_config: {
-            sequence: true
-          }
-        }),
-        signal: AbortSignal.timeout(6000)
-      });
-
-      if (res.ok) {
-        const data = await res.json() as any;
-        if (data && data.logits && data.logits.sequence) {
-          const rawLogits = data.logits.sequence[pos]; // index pos matches 1-indexed pos due to leading <cls> token
-
-          let maxLogit = -Infinity;
-          for (const tid of AA_TOKENS) {
-            if (rawLogits[tid] > maxLogit) maxLogit = rawLogits[tid];
-          }
-
-          let sumExp = 0;
-          for (const tid of AA_TOKENS) {
-            sumExp += Math.exp(rawLogits[tid] - maxLogit);
-          }
-          const logSumExp = maxLogit + Math.log(sumExp);
-
-          const wtTokenId = VOCAB[wtRes] !== undefined ? VOCAB[wtRes] : 3;
-          const mutTokenId = VOCAB[mutRes] !== undefined ? VOCAB[mutRes] : 3;
-
-          const wtLogProb = rawLogits[wtTokenId] - logSumExp;
-          const mutLogProb = rawLogits[mutTokenId] - logSumExp;
-
-          const wtProbability = Math.exp(wtLogProb);
-          const mutProbability = Math.exp(mutLogProb);
-          const llr = mutLogProb - wtLogProb;
-
-          const preferences = AA_LIST.map(aa => {
-            const tid = VOCAB[aa];
-            const lp = rawLogits[tid] - logSumExp;
-            return { aa, prob: Math.exp(lp) };
-          }).sort((a, b) => b.prob - a.prob);
-
-          const mutRank = preferences.findIndex(p => p.aa === mutRes) + 1;
-
-          let positionalEntropy = 0;
-          for (const p of preferences) {
-            if (p.prob > 0) positionalEntropy -= p.prob * Math.log(p.prob);
-          }
-
-          // Retrieve actual embedding shifts from the local VESM sidecar
-          let embeddingShift = 0.0;
-          let localEmbeddingShift = 0.0;
-          let localShiftMap: EsmcLocalShift[] = [];
-
-          try {
-            const sidecarSecret = process.env.SIDECAR_SECRET || "";
-            const sidecarRes = await fetch("http://127.0.0.1:8000/predict/vesm", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-Sidecar-Secret": sidecarSecret
-              },
-              body: JSON.stringify({
-                sequence: sequence,
-                position: pos,
-                wt: wtRes,
-                mut: mutRes
-              }),
-              signal: AbortSignal.timeout(3000)
-            });
-
-            if (sidecarRes.ok) {
-              const sData = await sidecarRes.json() as any;
-              if (sData && sData.status === "success" && typeof sData.embeddingShift === "number") {
-                embeddingShift = sData.embeddingShift;
-                localEmbeddingShift = embeddingShift * 0.35;
-                if (Array.isArray(sData.localShiftMap)) {
-                  localShiftMap = sData.localShiftMap;
-                }
-              }
-            }
-          } catch (sidecarErr: any) {
-            console.warn(`[ESMC Sidecar Embedding Fallback Warning] Failed to compute real embedding shifts via sidecar: ${sidecarErr.message}.`);
-          }
-
-          return {
-            wtProbability,
-            mutProbability,
-            llr,
-            preferences,
-            mutRank,
-            positionalEntropy,
-            embeddingShift,
-            localEmbeddingShift,
-            localShiftMap
-          };
-        }
-      }
-    } catch (apiErr: any) {
-      console.warn(`[ESMC Biohub API Warning] Failed remote logits calculation: ${apiErr.message}. trying local fallback...`);
-    }
-  }
-
-  // 2. Secondary: Local VESM-150M Sidecar Fallback
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   try {
     const sidecarRes = await fetch("http://127.0.0.1:8000/predict/vesm", {
@@ -209,30 +81,32 @@ export async function runEsmcAnalysis(
         sequence: sequence,
         position: pos,
         wt: wtRes,
-        mut: mutRes
+        mut: mutRes,
+        biohubToken: biohubToken || null
       }),
-      signal: AbortSignal.timeout(3000)
+      signal: AbortSignal.timeout(60000) // VESM-150M needs up to 60s for first-run model load
     });
 
     if (sidecarRes.ok) {
       const data = await sidecarRes.json() as any;
       if (data && data.status === "success" && typeof data.llr === "number") {
         const llr = data.llr;
-        const wtProb = 0.05 + rand() * 0.15;
-        const mutProb = wtProb * Math.exp(llr);
-        const mutRank = llr < -3 ? Math.floor(15 + rand() * 5) : Math.floor(2 + rand() * 8);
-
-        const preferences = AA_LIST.map(aa => {
-          const aaLl = aa === wtRes ? 0 : (aa === mutRes ? llr : llr * (0.3 + rand() * 0.7));
-          return { aa, prob: wtProb * Math.exp(aaLl) };
-        }).sort((a, b) => b.prob - a.prob);
-
-        const positionalEntropy = 1.0 + rand() * 1.5;
+        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : 0.0;
+        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : 0.0;
+        const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
+        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
+        const preferences = Array.isArray(data.preferences) ? data.preferences : [];
 
         // Retrieve real embedding shifts from sidecar response
         const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : 0.0;
-        const localEmbeddingShift = embeddingShift * 0.35;
         const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
+        let localEmbeddingShift = 0.0;
+        if (localShiftMap.length > 0) {
+          const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
+          localEmbeddingShift = sumShift / localShiftMap.length;
+        }
+
+        const provenance = typeof data.provenance === "string" ? data.provenance : "ESMC-6B (Remote)";
 
         return {
           wtProbability: wtProb,
@@ -243,7 +117,8 @@ export async function runEsmcAnalysis(
           positionalEntropy,
           embeddingShift,
           localEmbeddingShift,
-          localShiftMap
+          localShiftMap,
+          provenance
         };
       }
     }
@@ -263,3 +138,4 @@ function normalizeThreeLetterToSingle(three: string): string | null {
   };
   return map[three.toUpperCase()] || null;
 }
+

@@ -2,6 +2,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { sendError, safeCompare, getApiKeyFromSession, decryptSession } from "./utils.ts";
+import { PUBLIC_ENDPOINTS } from "./routes/state.ts";
 
 // [MOD-12] Request/Response Logging Middleware
 export function requestLogger(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -12,14 +13,29 @@ export function requestLogger(req: express.Request, res: express.Response, next:
   const start = Date.now();
   res.on("finish", () => {
     const duration = Date.now() - start;
-    console.log(`[HTTP] [ReqId: ${requestId}] ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
+    let loggedUrl = req.originalUrl;
+    try {
+      const parsedUrl = new URL(req.originalUrl, "http://localhost");
+      let changed = false;
+      const sensitiveKeys = ["tamarindapikey", "api_key", "token", "key", "apikey", "session", "secret"];
+      for (const k of Array.from(parsedUrl.searchParams.keys())) {
+        if (sensitiveKeys.includes(k.toLowerCase())) {
+          parsedUrl.searchParams.set(k, "[REDACTED]");
+          changed = true;
+        }
+      }
+      if (changed) {
+        loggedUrl = parsedUrl.pathname + parsedUrl.search;
+      }
+    } catch (_) {}
+    console.log(`[HTTP] [ReqId: ${requestId}] ${req.method} ${loggedUrl} - ${res.statusCode} (${duration}ms)`);
   });
   next();
 }
 
 // Content-Type validation middleware (A-4)
 export const validateContentType = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if ((req.method === "POST" || req.method === "PUT") && !req.is("application/json")) {
+  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH") && !req.is("application/json")) {
     sendError(res, 415, "UNSUPPORTED_MEDIA_TYPE", "Request body must be application/json.");
     return;
   }
@@ -29,14 +45,6 @@ export const validateContentType = (req: express.Request, res: express.Response,
 // Basic authentication middleware (SEC-2)
 export const authCheck = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   // 1. Allow public metadata/session endpoints to bypass auth
-  const PUBLIC_ENDPOINTS = [
-    "/health",
-    "/version",
-    "/sequence",                 // Public UniProt sequence proxy — no user data
-    "/alphafold-pdb",            // Public AlphaFold structure proxy — no user data
-    "/validate-biohub-token",    // Credential test endpoint
-    "/test-tamarind-connection", // Credential test endpoint
-  ];
   
   const pathToCheck = req.path;
   const isPublic = PUBLIC_ENDPOINTS.some(p => pathToCheck === p || pathToCheck.startsWith(p + "/"));
@@ -45,14 +53,28 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
     return;
   }
 
-  // 2. Enforce APP_API_TOKEN configured on server
+  // 2. Allow valid session-authenticated requests (X-Gemini-Session-ID)
+  const sessionId = req.headers["x-gemini-session-id"] as string | undefined;
+  if (sessionId) {
+    try {
+      const apiKey = getApiKeyFromSession(sessionId);
+      if (apiKey) {
+        next();
+        return;
+      }
+    } catch (err) {
+      // Invalid/expired session fallback to token check
+    }
+  }
+
+  // 3. Enforce APP_API_TOKEN configured on server
   const currentApiToken = process.env.APP_API_TOKEN;
   if (!currentApiToken) {
     sendError(res, 500, "CONFIGURATION_ERROR", "Authentication token is required but not configured on the server.");
     return;
   }
 
-  // 3. Try Bearer token authentication (for API clients)
+  // 4. Try Bearer token authentication (for API clients)
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.split(" ")[1];
@@ -62,9 +84,38 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
     }
   }
 
-  // 4. If Bearer token fails, return 401 Unauthorized
+  // 5. If Bearer token fails, return 401 Unauthorized
   sendError(res, 401, "UNAUTHORIZED", "Unauthorized: Invalid or missing API token.");
 };
+
+export function getClientIp(req: any): string {
+  const sessionId = req.headers["x-gemini-session-id"] as string | undefined;
+  if (sessionId) {
+    return `session_${sessionId}`;
+  }
+
+  // Use Express's built-in req.ip which respects the configured 'trust proxy' setting
+  if (req.ip) {
+    return req.ip;
+  }
+
+  // Fallback to manual proxy extraction for unit test environments
+  const remoteAddress = req.socket?.remoteAddress;
+  const isLocal = remoteAddress === "127.0.0.1" || remoteAddress === "::1" || remoteAddress === "::ffff:127.0.0.1";
+  
+  if (isLocal && req.headers["x-forwarded-for"]) {
+    const forwardedFor = req.headers["x-forwarded-for"];
+    const ips = Array.isArray(forwardedFor)
+      ? forwardedFor
+      : typeof forwardedFor === "string"
+      ? forwardedFor.split(",").map(ip => ip.trim())
+      : [];
+    const clientIp = ips[0];
+    if (clientIp) return clientIp;
+  }
+
+  return remoteAddress || `fallback_${crypto.randomUUID()}`;
+}
 
 // Rate Limiting Middleware (CRIT-5)
 export const apiLimiter = rateLimit({
@@ -72,6 +123,8 @@ export const apiLimiter = rateLimit({
   max: 120, // Limit each IP to 120 requests per minute (accommodates job status polling)
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => getClientIp(req),
   message: {
     error: {
       code: "RATE_LIMITED",
@@ -87,12 +140,7 @@ export const analyzeVariantLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
-  keyGenerator: (req) => {
-    // Key strictly on client IP to prevent session rotation rate-limiting bypass (C-2)
-    // Fallback to remoteAddress or randomUUID to prevent sharing a bucket for unidentifiable clients
-    const ip = req.ip || req.socket?.remoteAddress;
-    return ip || `fallback_${crypto.randomUUID()}`;
-  },
+  keyGenerator: (req) => getClientIp(req),
   message: {
     error: {
       code: "RATE_LIMITED",
