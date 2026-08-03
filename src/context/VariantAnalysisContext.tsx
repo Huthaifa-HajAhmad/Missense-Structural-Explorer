@@ -1,30 +1,70 @@
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useRef } from "react";
+import { createStore, StoreApi } from "zustand";
+import { useStore } from "zustand";
 
-interface VariantAnalysisContextType {
+interface StoreState {
   state: any;
   actions: any;
 }
 
-const VariantAnalysisContext = createContext<VariantAnalysisContextType | null>(null);
+export const VariantAnalysisStoreContext = createContext<StoreApi<StoreState> | null>(null);
 
 export function VariantAnalysisProvider({ 
-  value, 
+  state,
+  actions, 
   children 
 }: { 
-  value: VariantAnalysisContextType; 
+  state: any;
+  actions: any;
   children: React.ReactNode; 
 }) {
+  const storeRef = useRef<StoreApi<StoreState> | null>(null);
+  if (!storeRef.current) {
+    storeRef.current = createStore<StoreState>(() => ({
+      state,
+      actions,
+    }));
+  } else {
+    // Sync state and actions to the store directly in render
+    const currentStore = storeRef.current.getState();
+    if (currentStore.state !== state || currentStore.actions !== actions) {
+      storeRef.current.setState({ state, actions });
+    }
+  }
+
   return (
-    <VariantAnalysisContext.Provider value={value}>
+    <VariantAnalysisStoreContext.Provider value={storeRef.current}>
       {children}
-    </VariantAnalysisContext.Provider>
+    </VariantAnalysisStoreContext.Provider>
   );
 }
 
-export function useVariantAnalysisContext(): VariantAnalysisContextType {
-  const context = useContext(VariantAnalysisContext);
-  if (!context) {
-    return { state: {} as any, actions: {} as any };
+// 1. Selector-based hook for fine-grained state subscriptions
+export function useVariantAnalysisStore<T>(selector: (state: any) => T): T {
+  const store = useContext(VariantAnalysisStoreContext);
+  if (!store) {
+    throw new Error("useVariantAnalysisStore must be used within a VariantAnalysisProvider");
   }
-  return context;
+  return useStore(store, (s) => selector(s.state));
+}
+
+// 2. Hook to fetch actions (static, doesn't cause re-renders)
+export function useVariantAnalysisActions(): any {
+  const store = useContext(VariantAnalysisStoreContext);
+  if (!store) return {};
+  return store.getState().actions;
+}
+
+// 3. Legacy compatibility hooks:
+export function useVariantAnalysisState(): any {
+  const store = useContext(VariantAnalysisStoreContext);
+  if (!store) return {};
+  return useStore(store, (s) => s.state);
+}
+
+export function useVariantAnalysisContext(): { state: any; actions: any } {
+  const store = useContext(VariantAnalysisStoreContext);
+  if (!store) return { state: {}, actions: {} };
+  const storeState = useStore(store);
+  return { state: storeState.state, actions: storeState.actions };
 }
