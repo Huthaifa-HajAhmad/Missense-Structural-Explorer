@@ -67,66 +67,170 @@ export interface ClinVarData {
   uid: string | null;
 }
 
-export interface AnalysisResult {
-  analysis?: string | null;
-  insights?: ClinicalInsight | null;
-  ruleBasedInsights?: {
-    plausibility: string;
-    acmgVerdict: AcmgVerdict;
-    acmgCriteria: ACMGCriteriaItem[];
-    partialEvidence?: { available: string[]; unavailable: string[] };
+export interface RuleBasedInsights {
+  plausibility: string;
+  acmgVerdict: AcmgVerdict;
+  acmgCriteria: ACMGCriteriaItem[];
+  partialEvidence?: { available: string[]; unavailable: string[] };
+}
+
+export interface PredictorData {
+  amPathogenicity: number | null;
+  amClass: string | null;
+  caddPhred: number | null;
+  available?: boolean;
+  eveScore?: number | null;
+  eveClass?: string | null;
+  proteinName?: string | null;
+  gnomadVariantId?: string | null;
+  transcriptId?: string;
+  isManeSelect?: boolean;
+  isManePlusClinical?: boolean;
+  isCanonical?: boolean;
+  maneRefSeqId?: string;
+}
+
+export interface ConservationData {
+  revel: number | null;
+  gerp: number | null;
+  phylop: number | null;
+  consurf: number | null;
+  bayesdel?: number | null;
+  available?: boolean;
+  metarnn?: number | null;
+  metarnnPred?: string | null;
+  clinpred?: number | null;
+  clinpredPred?: string | null;
+  eigenPhred?: number | null;
+  eigenRaw?: number | null;
+  dann?: number | null;
+  esm1b?: number | null;
+  esm1bPred?: string | null;
+  popeve?: number | null;
+}
+
+export interface LandscapeResidueItem {
+  residx: number;
+  revelMean?: number | null;
+  revelMedian?: number | null;
+  revelMin?: number | null;
+  revelMax?: number | null;
+  revelCount?: number;
+  amMean?: number | null;
+  amMedian?: number | null;
+  amMin?: number | null;
+  amMax?: number | null;
+  amCount?: number;
+  gerp: number | null;
+  phylop: number | null;
+  consurf?: number | null;
+  residue?: string;
+}
+
+export interface StringInteractionItem {
+  partner: string;
+  score: number;
+}
+
+export interface Esm3EvalResult {
+  uniprotId: string;
+  position: number;
+  wtResidue: string;
+  mutResidue: string;
+  pdbText: string | null;
+  perturbationScores: number[];
+  maxDriftResidue: number;
+  structuralChangeLevel: "none" | "minor" | "moderate" | "major";
+  microenvironments: string[];
+  putativeStructuralChanges: string[];
+  confidence: {
+    level: "high" | "moderate" | "low";
+    plddt?: number | null;
+    sequenceCoverage?: number | null;
+  };
+}
+
+export interface VariantMetadata {
+  gene: string;
+  variant: string;
+  uniprotId: string;
+  residueIndex: number | null;
+  wildType: string;
+  mutant: string;
+  pdbId?: string | null;
+  pdbSource?: string | null;
+  alternativeVariants?: any;
+  mutatedSequence?: string | null;
+  analysisVersion?: {
+    thresholds: string;
+    geminiModel: string;
+    foldxVersion: string;
+    timestamp: string;
   } | null;
-  clinvar?: ClinVarData | null;
-  predictorData?: {
-    amPathogenicity: number | null;
-    amClass: string | null;
-    caddPhred: number | null;
-    available?: boolean;
-    eveScore?: number | null;
-    eveClass?: string | null;
-    proteinName?: string | null;
-    gnomadVariantId?: string | null;
+}
+
+export interface DisruptionPredictorResult {
+  level: "high" | "low" | "unknown";
+  reason: string;
+  plddt: number | null;
+  burialStatus?: "core" | "surface" | "boundary";
+  neighborCount?: number;
+  rsa?: number | null;
+  sasa?: number | null;
+}
+
+export interface UniprotFeaturesData {
+  features: {
+    type: UniprotFeatureType;
+    description: string;
+    start: number;
+    end: number;
+  }[];
+  geneName?: string;
+}
+
+export interface GnomadConstraintData {
+  missense_z: number | null;
+  oe_mis: number | null;
+  pli: number | null;
+  loeuf?: number | null;
+  isPP2Constrained: boolean;
+  hasRegionalData?: boolean;
+  regionalConstraint?: {
+    isConstrained: boolean;
+    oeRatio: number | null;
+    pValue: number | null;
+    regionText: string | null;
   } | null;
-  conservationData?: {
-    revel: number | null;
-    gerp: number | null;
-    phylop: number | null;
-    consurf: number | null;
-    bayesdel?: number | null;
-    available?: boolean;
-    metarnn?: number | null;
-    metarnnPred?: string | null;
-    clinpred?: number | null;
-    clinpredPred?: string | null;
-    eigenPhred?: number | null;
-    eigenRaw?: number | null;
-    dann?: number | null;
-    esm1b?: number | null;
-    esm1bPred?: string | null;
-    popeve?: number | null;
-  } | null;
-  landscapeData?: {
-    residx: number;
-    revelMean?: number | null;
-    revelMedian?: number | null;
-    revelMin?: number | null;
-    revelMax?: number | null;
-    revelCount?: number;
-    amMean?: number | null;
-    amMedian?: number | null;
-    amMin?: number | null;
-    amMax?: number | null;
-    amCount?: number;
-    gerp: number | null;
-    phylop: number | null;
-    consurf?: number | null;
-    residue?: string;
-  }[] | null;
-  stringInteractions?: {
-    partner: string;
-    score: number;
-  }[] | null;
-  isDemoData?: boolean;
+}
+
+export interface GnomadFrequencyData {
+  maxAF: number | null;
+  groupMaxAF: number | null;
+  genomeAF: number | null;
+  exomeAF: number | null;
+  genomeAC: number | null;
+  exomeAC: number | null;
+  genomeAN: number | null;
+  exomeAN: number | null;
+  nHomozygous: number | null;
+  dataset: string;
+  groupMaxAFIsFallback?: boolean;
+}
+
+export interface AouFrequencyData {
+  aouAC: number | null;
+  aouAN: number | null;
+  aouHet: number | null;
+  aouHom: number | null;
+}
+
+export interface Esm2ScoreData {
+  llr: number | null;
+  verdict: string | null;
+}
+
+export interface BiophysicalModelingData {
   dynamut2?: number | null;
   dynamut2Status?: string | null;
   dynamut2JobId?: string | null;
@@ -138,100 +242,42 @@ export interface AnalysisResult {
   thermompnnStatus?: string | null;
   thermompnnJobId?: string | null;
   foldingEnergetics?: EnergeticsData | null;
-  esm3Eval?: {
-    uniprotId: string;
-    position: number;
-    wtResidue: string;
-    mutResidue: string;
-    pdbText: string | null;
-    perturbationScores: number[];
-    maxDriftResidue: number;
-    structuralChangeLevel: "none" | "minor" | "moderate" | "major";
-    microenvironments: string[];
-    putativeStructuralChanges: string[];
-    confidence: {
-      level: "high" | "moderate" | "low";
-      plddt?: number | null;
-      sequenceCoverage?: number | null;
-    };
-  } | null;
-  esmcEval?: EsmcEvalResult | null;
-  metadata?: {
-    gene: string;
-    variant: string;
-    uniprotId: string;
-    residueIndex: number | null;
-    wildType: string;
-    mutant: string;
-    pdbId?: string | null;
-    pdbSource?: string | null;
-    alternativeVariants?: any;
-    mutatedSequence?: string | null;
-    analysisVersion?: {
-      thresholds: string;
-      geminiModel: string;
-      foldxVersion: string;
-      timestamp: string;
-    } | null;
-  };
   biophysicalEnergetics?: any;
-  disruptionPredictor?: {
-    level: "high" | "low";
-    reason: string;
-    plddt: number;
-    burialStatus?: "core" | "surface" | "boundary";
-    neighborCount?: number;
-    rsa?: number;
-    sasa?: number;
-  };
-  uniprotFeatures?: {
-    features: {
-      type: UniprotFeatureType;
-      description: string;
-      start: number;
-      end: number;
-    }[];
-    geneName?: string;
-  } | null;
-  gnomadConstraint?: {
-    missense_z: number | null;
-    oe_mis: number | null;
-    pli: number | null;
-    loeuf?: number | null;
-    isPP2Constrained: boolean;
-    regionalConstraint?: {
-      isConstrained: boolean;
-      oeRatio: number | null;
-      pValue: number | null;
-      regionText: string | null;
-    } | null;
-  } | null;
-  /** Transcript metadata from /translate-variant (populated only when VCF/cDNA input is used) */
+}
+
+export interface TranscriptMetadata {
   transcriptId?: string;
+  isManeSelect?: boolean;
+  isManePlusClinical?: boolean;
   isCanonical?: boolean;
+  maneRefSeqId?: string;
   transcriptWarning?: string;
-  gnomadFrequency?: {
-    maxAF: number | null;
-    groupMaxAF: number | null;
-    genomeAF: number | null;
-    exomeAF: number | null;
-    genomeAC: number | null;
-    exomeAC: number | null;
-    genomeAN: number | null;
-    exomeAN: number | null;
-    nHomozygous: number | null;
-    dataset: string;
-  } | null;
-  aouFrequency?: {
-    aouAC: number | null;
-    aouAN: number | null;
-    aouHet: number | null;
-    aouHom: number | null;
-  } | null;
-  esm2?: {
-    llr: number | null;
-    verdict: string | null;
-  } | null;
+}
+
+export interface LanguageModelEvaluations {
+  esm3Eval?: Esm3EvalResult | { error: string } | null;
+  esmcEval?: EsmcEvalResult | null;
+  esm2Eval?: EsmcEvalResult | null;
+  saprotEval?: (EsmcEvalResult & { conformationState?: string | null; klDivergence?: number | null }) | null;
+  esm2?: Esm2ScoreData | null;
+}
+
+export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetadata, LanguageModelEvaluations {
+  analysis?: string | null;
+  insights?: ClinicalInsight | null;
+  ruleBasedInsights?: RuleBasedInsights | null;
+  clinvar?: ClinVarData | null;
+  predictorData?: PredictorData | null;
+  conservationData?: ConservationData | null;
+  landscapeData?: LandscapeResidueItem[] | null;
+  stringInteractions?: StringInteractionItem[] | null;
+  isDemoData?: boolean;
+  metadata?: VariantMetadata;
+  disruptionPredictor?: DisruptionPredictorResult;
+  uniprotFeatures?: UniprotFeaturesData | null;
+  gnomadConstraint?: GnomadConstraintData | null;
+  gnomadFrequency?: GnomadFrequencyData | null;
+  aouFrequency?: AouFrequencyData | null;
 }
 
 export interface AnalysisState {
@@ -259,6 +305,7 @@ export interface UserSettings {
   appApiToken?: string;
   biohubApiToken?: string;
   tamarindApiKey?: string;
+  hfToken?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;
@@ -300,7 +347,8 @@ export interface EnergeticsData {
   electrostatics?: number | null;
   stericClashWarning?: boolean;
   localSidechainRmsd?: number | null;
-  dynamut2: number | null;
+  foldxRepairFailed?: boolean;
+  dynamut2?: number | null;
   ddmut?: number | null;
   rasp?: number | null;
   thermompnn?: number | null;
@@ -308,6 +356,37 @@ export interface EnergeticsData {
   consensusVerdict?: string | null;
   evidenceComplete?: boolean;
   pendingTools?: string[];
+}
+
+export interface StructuralMetrics {
+  // Flat properties
+  localWindowRmsd?: number;
+  globalRmsd?: number;
+  chi1Deviation?: number | null;
+  sasaChange?: number;
+  lostHBonds?: number;
+  gainedHBonds?: number;
+  lostContacts?: number;
+  gainedContacts?: number;
+  displacements?: { resSeq: number; resName: string; displacement: number }[];
+  wtSasa?: number;
+  mutSasa?: number;
+  wtChi1?: number | null;
+  mutChi1?: number | null;
+
+  // Nested structures for viewer rendering compatibility
+  sasaDiff?: { delta: number };
+  hBondsDiff?: { lostCount: number; gainedCount: number };
+  contactsDiff?: { lostCount: number; gainedCount: number };
+
+  // Mapped/deprecated properties
+  localBackboneRmsd?: number;
+  maxCaDisplacement?: number;
+  sidechainRmsd?: number;
+  deltaSasa?: number;
+  hbondDelta?: number;
+  saltBridgeDelta?: number;
+  foldxSd?: number;
 }
 
 export interface StructuralDiffResult {
@@ -319,7 +398,9 @@ export interface StructuralDiffResult {
     mutClashCount: number;
     diff: number;
   };
-}export interface PdbHomolog {
+}
+
+export interface PdbHomolog {
   pdbId: string;
   score: number;
   identity: number;
@@ -355,4 +436,3 @@ export interface EsmcEvalResult {
   localEmbeddingShift: number;
   localShiftMap: EsmcLocalShift[];
 }
-

@@ -154,6 +154,65 @@ export const CustomBFactorColorThemeProvider: ColorTheme.Provider<any, any> = {
   isApplicable: (ctx: any) => !!ctx.structure
 };
 
+export function CustomDisplacementColorTheme(ctx: any, props: any) {
+  let color = (location: any) => Color(0x3b82f6);
+  if (ctx.structure) {
+    const l = StructureElement.Location.create(ctx.structure.root);
+    const getColor = (location: any) => {
+      const { unit, element } = location;
+      if (!Unit.isAtomic(unit)) return Color(0x3b82f6);
+      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
+      if (score === null || score === undefined || typeof score !== 'number' || isNaN(score)) {
+        return Color(0x3b82f6);
+      } else if (score < 0.2) {
+        return Color(0x3b82f6); // Negligible (<0.2 Å) Blue
+      } else if (score < 0.5) {
+        return Color(0x65cbf3); // Minor (0.2-0.5 Å) Cyan/Light Blue
+      } else if (score < 1.0) {
+        return Color(0x10b981); // Moderate (0.5-1.0 Å) Green
+      } else if (score < 2.5) {
+        return Color(0xf59e0b); // Significant (1.0-2.5 Å) Orange/Yellow
+      } else {
+        return Color(0xef4444); // Severe (>=2.5 Å) Red
+      }
+    };
+    color = (location: any) => {
+      if (StructureElement.Location.is(location)) return getColor(location);
+      if (Bond.isLocation(location)) {
+        l.unit = location.aUnit;
+        l.element = location.aUnit.elements[location.aIndex];
+        return getColor(l);
+      }
+      return Color(0x3b82f6);
+    };
+  }
+  return {
+    factory: CustomDisplacementColorTheme,
+    granularity: 'group' as any,
+    preferSmoothing: true,
+    color,
+    props,
+    description: 'Custom backbone Cα displacement heatmap coloring',
+    legend: TableLegend(Object.entries({
+      'Negligible (<0.2 Å)': Color(0x3b82f6),
+      'Minor (0.2-0.5 Å)': Color(0x65cbf3),
+      'Moderate (0.5-1.0 Å)': Color(0x10b981),
+      'Significant (1.0-2.5 Å)': Color(0xf59e0b),
+      'Severe (≥2.5 Å)': Color(0xef4444)
+    }) as any)
+  };
+}
+
+export const CustomDisplacementColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: 'backbone-displacement',
+  label: 'Backbone Displacement (heatmap)',
+  category: ColorThemeCategory.Validation,
+  factory: CustomDisplacementColorTheme,
+  getParams: () => ({}),
+  defaultValues: {},
+  isApplicable: (ctx: any) => !!ctx.structure
+};
+
 export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
   let color = (location: any) => Color(0x38bdf8);
   const perturbationScores: number[] = props?.perturbationScores || [];
@@ -165,7 +224,8 @@ export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
       const seqNum = StructureProperties.residue.auth_seq_id(location);
       const score = (perturbationScores && seqNum > 0 && seqNum <= perturbationScores.length)
         ? perturbationScores[seqNum - 1]
-        : 0;
+        : -1;
+      if (score === null || score === undefined || score < 0 || isNaN(score)) return Color(0x94a3b8); // Uncomputed Grey
       if (score <= 0.05) return Color(0x38bdf8); // Unperturbed Ice Cyan
       if (score <= 0.15) return Color(0x34d399); // Minor Emerald
       if (score <= 0.35) return Color(0xf59e0b); // Moderate Amber
@@ -189,6 +249,7 @@ export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
     props,
     description: 'ESM3 Allosteric Disruption Heatmap',
     legend: TableLegend(Object.entries({
+      'No Data / Uncomputed': Color(0x94a3b8),
       'Unperturbed (<0.05)': Color(0x38bdf8),
       'Minor Shift (0.05-0.15)': Color(0x34d399),
       'Moderate Shift (0.15-0.35)': Color(0xf59e0b),
@@ -197,13 +258,23 @@ export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
   };
 }
 
+import { ParamDefinition as PD } from "molstar/lib/mol-util/param-definition";
+
+export const CustomESM3AllostericColorThemeParams = {
+  perturbationScores: PD.Value<number[]>([], { isEssential: true })
+};
+
+export function getCustomESM3AllostericColorThemeParams(ctx: any) {
+  return CustomESM3AllostericColorThemeParams;
+}
+
 export const CustomESM3AllostericColorThemeProvider: ColorTheme.Provider<any, any> = {
   name: 'esm3-allosteric',
   label: 'ESM3 Allosteric Perturbation',
   category: ColorThemeCategory.Validation,
   factory: CustomESM3AllostericColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
+  getParams: getCustomESM3AllostericColorThemeParams,
+  defaultValues: PD.getDefaultValues(CustomESM3AllostericColorThemeParams),
   isApplicable: (ctx: any) => !!ctx.structure
 };
 
@@ -233,7 +304,7 @@ export interface MolstarViewerProps {
   residueIndex: number | null;
   customPdbData?: string;
   customPdbUrl?: string;
-  active3dModelTab?: "alphafold2" | "esmfold2";
+  active3dModelTab?: "alphafold2" | "esm3";
   uniprotId?: string;
   gene?: string;
   showPolarContacts?: boolean;
@@ -264,4 +335,5 @@ export interface MolstarViewerProps {
   pocketError?: string | null;
   pdbId?: string | null;
   pdbSource?: string | null;
+  metrics?: any | null;
 }

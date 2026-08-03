@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
-import { useVariantAnalysisContext } from "../context/VariantAnalysisContext";
+import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
 
 interface VariantSearchPanelProps {
@@ -63,7 +63,7 @@ async function pasteFromClipboard(setter: (val: string) => void) {
   }
 }
 
-export default function VariantSearchPanel({
+function VariantSearchPanel({
   isDark,
   classInput,
   classBorderSec,
@@ -85,16 +85,15 @@ export default function VariantSearchPanel({
   onViewChange,
 }: VariantSearchPanelProps) {
   const [historyOpen, setHistoryOpen] = useState(true);
-  const context = useVariantAnalysisContext();
-  const userDirections = context?.state?.userDirections ?? "";
-  const setUserDirections = context?.actions?.setUserDirections ?? (() => {});
-  const loadingStep = context?.state?.loadingStep ?? "";
-  const isFolding = context?.state?.isFolding ?? false;
-  const isBiophysicalLoading = context?.state?.isBiophysicalLoading ?? false;
-  const isClinicalLoading = context?.state?.isClinicalLoading ?? false;
-  const isPocketLoading = context?.state?.isPocketLoading ?? false;
-  const dynamut2Status = context?.state?.dynamut2Status ?? null;
-  const ddmutStatus = context?.state?.ddmutStatus ?? null;
+  const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
+  const loadingStep = useVariantAnalysisStore(s => s.loadingStep ?? "");
+  const isFolding = useVariantAnalysisStore(s => s.isFolding ?? false);
+  const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading ?? false);
+  const isClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading ?? false);
+  const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading ?? false);
+  const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
+  const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
+  const { setUserDirections } = useVariantAnalysisActions();
   const result = analysisState.result;
 
   const isGenomicVariant = (customVariant && (
@@ -113,7 +112,7 @@ export default function VariantSearchPanel({
       tabIndex={-1}
       title="Paste from clipboard"
       onClick={() => pasteFromClipboard(setter)}
-      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity cursor-pointer text-[#8F897E] hover:text-[#C46849] active:scale-95"
+      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity cursor-pointer text-cs-text-muted hover:text-cs-accent-clay active:scale-95"
     >
       <Clipboard className="w-3.5 h-3.5" />
     </button>
@@ -197,6 +196,7 @@ export default function VariantSearchPanel({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
                     <label 
+                      htmlFor="input-gene-symbol"
                       className="text-[12px] font-medium flex justify-between items-center"
                       style={{ color: "var(--cs-text-secondary)" }}
                     >
@@ -204,6 +204,7 @@ export default function VariantSearchPanel({
                     </label>
                     <div className="relative">
                       <input
+                        id="input-gene-symbol"
                         type="text"
                         required={isGeneRequired}
                         placeholder="e.g. CNNM2"
@@ -218,6 +219,7 @@ export default function VariantSearchPanel({
 
                   <div className="flex flex-col gap-1.5">
                     <label 
+                      htmlFor="input-variant-notation"
                       className="text-[12px] font-medium flex justify-between items-center"
                       style={{ color: "var(--cs-text-secondary)" }}
                     >
@@ -225,6 +227,7 @@ export default function VariantSearchPanel({
                     </label>
                     <div className="relative">
                       <input
+                        id="input-variant-notation"
                         type="text"
                         required={isVariantRequired}
                         placeholder="e.g. p.Gly380Arg"
@@ -241,6 +244,7 @@ export default function VariantSearchPanel({
                 {/* Row 2: Genomic Coordinates */}
                 <div className="flex flex-col gap-1.5">
                   <label 
+                    htmlFor="input-genomic-coords"
                     className="text-[12px] font-medium flex justify-between items-center"
                     style={{ color: "var(--cs-text-secondary)" }}
                   >
@@ -248,6 +252,7 @@ export default function VariantSearchPanel({
                   </label>
                   <div className="relative">
                     <input
+                      id="input-genomic-coords"
                       type="text"
                       placeholder="e.g. 20-23365054-G-A"
                       value={customGenomic}
@@ -262,6 +267,7 @@ export default function VariantSearchPanel({
                 {/* Row 3: UniProt Accession */}
                 <div className="flex flex-col gap-1.5 mt-1">
                   <label 
+                    htmlFor="input-uniprot-acc"
                     className="text-[12px] font-medium flex justify-between items-center"
                     style={{ color: "var(--cs-text-secondary)" }}
                   >
@@ -269,6 +275,7 @@ export default function VariantSearchPanel({
                   </label>
                   <div className="relative">
                     <input
+                      id="input-uniprot-acc"
                       type="text"
                       placeholder="e.g. Q9H8M5 (Auto-resolved if omitted)"
                       value={customUniprot}
@@ -300,6 +307,8 @@ export default function VariantSearchPanel({
                         </span>
                       </div>
                       <textarea
+                        id="textarea-user-directions"
+                        aria-label="AI Focus Area & Custom Analysis Instructions"
                         placeholder="e.g. Focus on structural disruption of cofactor binding loop, evaluate ACMG PM2/PS3 rules, or analyze active site residue proximity..."
                         value={userDirections}
                         onChange={(e) => {
@@ -322,6 +331,7 @@ export default function VariantSearchPanel({
                 <button
                   type="submit"
                   disabled={analysisState.isLoading}
+                  aria-label="Analyze Variant"
                   className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 active:scale-[0.99]"
                   style={{ background: "var(--cs-accent-clay)" }}
                 >
@@ -495,3 +505,5 @@ export default function VariantSearchPanel({
     </div>
   );
 }
+
+export default React.memo(VariantSearchPanel);

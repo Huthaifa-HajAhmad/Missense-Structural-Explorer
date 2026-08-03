@@ -6,6 +6,7 @@ import {
 import { AnalysisResult, PdbHomolog } from "../types";
 import { MasterView } from "./MasterSidebar";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
+import LandscapeMinimap from "./LandscapeMinimap";
 
 interface ContextRailProps {
   activeView: MasterView;
@@ -25,6 +26,14 @@ interface ContextRailProps {
   isPocketLoading?: boolean;
   dynamut2Status?: string | null;
   ddmutStatus?: string | null;
+  metricMode?: "mean" | "max";
+  setMetricMode?: (mode: "mean" | "max") => void;
+  windowSize?: number;
+  setWindowSize?: (size: number) => void;
+  viewMode?: "wildtype" | "mutant";
+  setViewMode?: (mode: "wildtype" | "mutant") => void;
+  foldingStatus?: "failed" | "success" | null;
+  foldingDdG?: number | null;
 }
 
 const WORKFLOW_STEPS: { view: MasterView; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -114,10 +123,11 @@ const STEP_PROGRESS_SUBTEXT: Record<MasterView, string> = {
   landscape: "Mapping sequence positioning & domain boundaries…",
   insights: "Synthesizing pathogenicity & ACMG/AMP criteria…",
   report: "Compiling clinical summary & evidence export…",
+  console: "Surfacing real-time system logs and diagnostic events…",
   search: "",
 };
 
-export default function ContextRail({
+function ContextRail({
   activeView,
   onViewChange,
   analysisResult,
@@ -135,6 +145,14 @@ export default function ContextRail({
   isPocketLoading = false,
   dynamut2Status = null,
   ddmutStatus = null,
+  metricMode = "max",
+  setMetricMode,
+  windowSize = 31,
+  setWindowSize,
+  viewMode = "wildtype",
+  setViewMode,
+  foldingStatus = null,
+  foldingDdG = null,
 }: ContextRailProps) {
   const quickLinks = getQuickLinks(activeView);
 
@@ -197,51 +215,67 @@ export default function ContextRail({
               </div>
             );
           })}
+        </div>
       </div>
-    </div>
 
-      {/* ── Sequence Length Status/Warning ── */}
-      {analysisResult && (
+      {/* ── Structure Variant (WT vs Mutant) ── */}
+      {(activeView === "structure" || activeView === "structure_alphafold") && setViewMode && (
         <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
-          <span className="text-[11px] font-medium uppercase tracking-wider font-sans mb-1.5 block" style={{ color: "var(--cs-text-secondary)" }}>
-            Sequence Status
+          <span className="context-rail-section-label">
+            Structure Variant
           </span>
-          <div className="p-2.5 rounded-lg border text-[11px] font-sans flex flex-col gap-1.5"
-               style={{
-                 background: "var(--cs-surface-2)",
-                 borderColor: "var(--cs-border-subtle)"
-               }}>
-            <div className="flex items-center justify-between font-mono">
-              <span style={{ color: "var(--cs-text-secondary)" }}>Length:</span>
-              <span className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-                {analysisResult.metadata?.mutatedSequence?.length || "—"} aa
-              </span>
-            </div>
-            {analysisResult.metadata?.mutatedSequence && (
-              <>
-                {analysisResult.metadata.mutatedSequence.length > 768 ? (
-                  <div className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400 font-sans mt-0.5">
-                    ⚠️ <strong>ESMFold2 Limit Exceeded:</strong> Protein exceeds Biohub's 768 aa limit. Switch 3D Structure tab to <strong>AlphaFold2</strong> to view modeling coordinates.
-                  </div>
-                ) : analysisResult.metadata.mutatedSequence.length > 400 ? (
-                  <div className="text-[10px] leading-relaxed text-amber-600 dark:text-amber-400 font-sans mt-0.5">
-                    ⚠️ <strong>ESMFold2 Token Required:</strong> Protein exceeds public 400 aa limit. An active Biohub API token is required in Settings to fold.
-                  </div>
-                ) : (
-                  <div className="text-[10px] leading-relaxed text-emerald-600 dark:text-emerald-400 font-sans mt-0.5">
-                    ✓ Suitable for all folding engines (under 400 aa).
-                  </div>
-                )}
-              </>
-            )}
+          <div className="grid grid-cols-2 gap-2 mt-1.5">
+            <button
+              type="button"
+              onClick={() => setViewMode("wildtype")}
+              className={`p-2 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer ${
+                viewMode === "wildtype"
+                  ? "border-[var(--cs-border)] shadow-none"
+                  : "border-transparent hover:bg-[var(--cs-bg-subtle)]"
+              }`}
+              style={{
+                background: viewMode === "wildtype" ? "var(--cs-surface-2)" : "transparent",
+                color: viewMode === "wildtype" ? "var(--cs-text-primary)" : "var(--cs-text-secondary)"
+              }}
+            >
+              Wild-Type (AF2)
+            </button>
+            <button
+              type="button"
+              disabled={isFolding || foldingStatus !== "success"}
+              onClick={() => setViewMode("mutant")}
+              className={`p-2 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer ${
+                viewMode === "mutant"
+                  ? "border-[var(--cs-border)] shadow-none"
+                  : "border-transparent hover:bg-[var(--cs-bg-subtle)]"
+              } ${isFolding || foldingStatus !== "success" ? "opacity-40 cursor-not-allowed" : ""}`}
+              style={{
+                background: viewMode === "mutant" ? "var(--cs-surface-2)" : "transparent",
+                color: viewMode === "mutant" ? "var(--cs-text-primary)" : "var(--cs-text-secondary)"
+              }}
+              title={
+                isFolding 
+                  ? "Folding mutant structure..." 
+                  : foldingStatus !== "success" 
+                    ? "FoldX Mutant structure simulation not computed. Run biophysical evaluation first." 
+                    : "Show FoldX biophysical mutant structure"
+              }
+            >
+              {isFolding ? "Folding..." : "Mutant (FoldX)"}
+            </button>
           </div>
+          {foldingStatus === "success" && foldingDdG !== null && (
+            <div className="mt-2 text-[10px] leading-normal p-2 rounded border font-mono" style={{ background: "rgba(16, 185, 129, 0.05)", borderColor: "rgba(16, 185, 129, 0.15)", color: "var(--cs-text-success)" }}>
+              <span>FoldX ΔΔG: <strong>{foldingDdG.toFixed(2)}</strong> kcal/mol</span>
+            </div>
+          )}
         </div>
       )}
 
       {/* ── Alternative PDB Models (Homologs) ── */}
       {(activeView === "structure" || activeView === "structure_alphafold") && setCustomPdbUrl && (
         <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
-          <span className="text-[11px] font-medium uppercase tracking-wider font-sans mb-2 block" style={{ color: "var(--cs-text-secondary)" }}>
+          <span className="context-rail-section-label">
             PDB Models
           </span>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -337,6 +371,25 @@ export default function ContextRail({
               </span>
             )}
           </div>
+
+          {/* ESM3 warnings */}
+          {analysisResult && (
+            <div className="mt-2.5 text-[10px] leading-relaxed font-sans">
+              {analysisResult.metadata?.mutatedSequence && (
+                <>
+                  {analysisResult.metadata.mutatedSequence.length > 768 ? (
+                    <div className="text-amber-600 dark:text-amber-400 p-2.5 rounded-lg border bg-cs-surface-2 border-cs-border-subtle">
+                      ⚠️ <strong>ESM3 Limit Exceeded:</strong> Protein exceeds Biohub's 768 aa limit. Switch 3D Structure tab to <strong>AlphaFold2</strong> to view modeling coordinates.
+                    </div>
+                  ) : analysisResult.metadata.mutatedSequence.length > 400 ? (
+                    <div className="text-amber-600 dark:text-amber-400 p-2.5 rounded-lg border bg-cs-surface-2 border-cs-border-subtle">
+                      ⚠️ <strong>ESM3 Token Required:</strong> Protein exceeds public 400 aa limit. An active Biohub API token is required in Settings to fold.
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -383,8 +436,81 @@ export default function ContextRail({
         </div>
       )}
 
+      {/* ── Visualizer Controls ── */}
+      {analysisResult && activeView === "landscape" && (
+        <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
+          <span className="context-rail-section-label">
+            Visual Controls
+          </span>
+          <div className="flex flex-col gap-3 p-2.5 rounded-lg border text-[11px] font-sans bg-cs-surface-2 border-cs-border-subtle animate-fade-in">
+            {/* Toggle */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] uppercase font-mono font-bold tracking-wider text-cs-text-muted">Metric Mode</span>
+              <div className="flex rounded-lg border border-cs-border p-0.5 font-sans font-semibold text-[11px] bg-cs-surface">
+                <button
+                  type="button"
+                  onClick={() => setMetricMode && setMetricMode("mean")}
+                  className={`flex-1 py-1 rounded-md transition-all cursor-pointer text-center ${
+                    metricMode === "mean"
+                      ? "bg-cs-accent-clay text-white shadow-sm font-bold"
+                      : "text-cs-text-muted hover:text-cs-text-primary"
+                  }`}
+                >
+                  Mean
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMetricMode && setMetricMode("max")}
+                  className={`flex-1 py-1 rounded-md transition-all cursor-pointer text-center ${
+                    metricMode === "max"
+                      ? "bg-cs-accent-clay text-white shadow-sm font-bold"
+                      : "text-cs-text-muted hover:text-cs-text-primary"
+                  }`}
+                >
+                  Peak
+                </button>
+              </div>
+            </div>
+            {/* Window Dropdown */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] uppercase font-mono font-bold tracking-wider text-cs-text-muted">Window Size</span>
+              <div className="relative">
+                <select
+                  value={windowSize}
+                  onChange={(e) => setWindowSize && setWindowSize(Number(e.target.value))}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-cs-border text-[11px] font-sans font-semibold bg-cs-surface text-cs-text-secondary cursor-pointer focus:outline-none focus:ring-1 focus:ring-cs-accent-clay"
+                >
+                  {[15, 21, 31, 41].map((size) => (
+                    <option key={size} value={size}>
+                      {size} residues
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Landscape Minimap Scatter ── */}
+      {analysisResult && activeView === "landscape" && (
+        <div className="context-rail-section border-t pt-3 mt-1" style={{ borderColor: "var(--cs-border-subtle)" }}>
+          <span className="context-rail-section-label">
+            Landscape Minimap
+          </span>
+          <LandscapeMinimap
+            landscapeData={analysisResult.landscapeData}
+            currentAM={analysisResult.predictorData?.amPathogenicity}
+            currentREVEL={analysisResult.conservationData?.revel}
+            metricMode={metricMode}
+          />
+        </div>
+      )}
+
     </aside>
   );
 }
+
+export default React.memo(ContextRail);
 
 

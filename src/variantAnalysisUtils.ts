@@ -1,4 +1,5 @@
 
+import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3 } from "./aminoAcids";
 import { z } from "zod";
 
 const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
@@ -90,7 +91,12 @@ export const analyzeVariantResponseSchema = z.object({
     caddPhred: nullableFiniteNumber,
     eveScore: nullableFiniteNumber.optional(),
     eveClass: z.string().nullable().optional(),
-    proteinName: z.string().nullable().optional()
+    proteinName: z.string().nullable().optional(),
+    transcriptId: z.string().optional(),
+    isManeSelect: z.boolean().optional(),
+    isManePlusClinical: z.boolean().optional(),
+    isCanonical: z.boolean().optional(),
+    maneRefSeqId: z.string().optional()
   }).nullable().optional(),
   conservationData: z.object({
     available: z.boolean(),
@@ -126,13 +132,13 @@ export const analyzeVariantResponseSchema = z.object({
     score: finiteNumber
   })).nullable().optional(),
   disruptionPredictor: z.object({
-    level: z.enum(["high", "low"]),
+    level: z.enum(["high", "low", "unknown"]),
     reason: z.string(),
-    plddt: z.number(),
+    plddt: z.number().nullable(),
     burialStatus: z.enum(["core", "surface", "boundary"]).optional(),
     neighborCount: z.number().optional(),
-    rsa: z.number().optional(),
-    sasa: z.number().optional()
+    rsa: z.number().nullable().optional(),
+    sasa: z.number().nullable().optional()
   }).optional(),
   uniprotFeatures: z.object({
     features: z.array(z.object({
@@ -147,10 +153,21 @@ export const analyzeVariantResponseSchema = z.object({
     missense_z: z.number().nullable(),
     oe_mis: z.number().nullable(),
     pli: z.number().nullable(),
-    isPP2Constrained: z.boolean()
+    loeuf: z.number().nullable().optional(),
+    isPP2Constrained: z.boolean(),
+    hasRegionalData: z.boolean().optional(),
+    regionalConstraint: z.object({
+      isConstrained: z.boolean(),
+      oeRatio: z.number().nullable(),
+      pValue: z.number().nullable(),
+      regionText: z.string().nullable()
+    }).nullable().optional()
   }).nullable().optional(),
   transcriptId: z.string().optional(),
+  isManeSelect: z.boolean().optional(),
+  isManePlusClinical: z.boolean().optional(),
   isCanonical: z.boolean().optional(),
+  maneRefSeqId: z.string().optional(),
   transcriptWarning: z.string().optional(),
   gnomadFrequency: z.object({
     maxAF: z.number().nullable(),
@@ -172,25 +189,30 @@ export const analyzeVariantResponseSchema = z.object({
   }).nullable().optional(),
   esm2: z.object({
     llr: z.number().nullable(),
-    verdict: z.string().nullable()
+    verdict: z.string().nullable().optional()
   }).nullable().optional(),
-  esm3Eval: z.object({
-    uniprotId: z.string(),
-    position: z.number(),
-    wtResidue: z.string(),
-    mutResidue: z.string(),
-    pdbText: z.string().nullable(),
-    perturbationScores: z.array(z.number()),
-    maxDriftResidue: z.number(),
-    structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]),
-    microenvironments: z.array(z.string()),
-    putativeStructuralChanges: z.array(z.string()),
-    confidence: z.object({
-      level: z.enum(["high", "moderate", "low"]),
-      plddt: z.number().nullable().optional(),
-      sequenceCoverage: z.number().nullable().optional()
+  esm3Eval: z.union([
+    z.object({
+      uniprotId: z.string(),
+      position: z.number(),
+      wtResidue: z.string(),
+      mutResidue: z.string(),
+      pdbText: z.string().nullable(),
+      perturbationScores: z.array(z.number()),
+      maxDriftResidue: z.number(),
+      structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]),
+      microenvironments: z.array(z.string()),
+      putativeStructuralChanges: z.array(z.string()),
+      confidence: z.object({
+        level: z.enum(["high", "moderate", "low"]),
+        plddt: z.number().nullable().optional(),
+        sequenceCoverage: z.number().nullable().optional()
+      })
+    }),
+    z.object({
+      error: z.string()
     })
-  }).nullable().optional(),
+  ]).nullable().optional(),
   esmcEval: z.object({
     wtProbability: z.number(),
     mutProbability: z.number(),
@@ -208,14 +230,54 @@ export const analyzeVariantResponseSchema = z.object({
       residue: z.string(),
       shift: z.number()
     }))
+  }).nullable().optional(),
+  esm2Eval: z.object({
+    wtProbability: z.number(),
+    mutProbability: z.number(),
+    llr: z.number(),
+    preferences: z.array(z.object({
+      aa: z.string(),
+      prob: z.number()
+    })),
+    mutRank: z.number(),
+    positionalEntropy: z.number(),
+    embeddingShift: z.number(),
+    localEmbeddingShift: z.number(),
+    localShiftMap: z.array(z.object({
+      position: z.number(),
+      residue: z.string(),
+      shift: z.number()
+    })),
+    klDivergence: z.number().nullable().optional()
+  }).nullable().optional(),
+  saprotEval: z.object({
+    wtProbability: z.number(),
+    mutProbability: z.number(),
+    llr: z.number(),
+    preferences: z.array(z.object({
+      aa: z.string(),
+      prob: z.number()
+    })),
+    mutRank: z.number(),
+    positionalEntropy: z.number(),
+    embeddingShift: z.number(),
+    localEmbeddingShift: z.number(),
+    localShiftMap: z.array(z.object({
+      position: z.number(),
+      residue: z.string(),
+      shift: z.number()
+    })),
+    klDivergence: z.number().nullable().optional(),
+    conformationState: z.string().nullable().optional()
   }).nullable().optional()
 });
 
 export const generateMutantResponseSchema = z.object({
-  pdb: z.string(),
+  pdb: z.string().nullable().optional(),
   ddG: nullableFiniteNumber,
   status: z.string(),
-  foldedResidueIndex: finiteNumber,
+  error: z.string().nullable().optional(),
+  foldedResidueIndex: nullableFiniteNumber.optional(),
   energetics: z.object({
     foldx: nullableFiniteNumber,
     foldxMean: nullableFiniteNumber.optional(),
@@ -224,7 +286,8 @@ export const generateMutantResponseSchema = z.object({
     electrostatics: nullableFiniteNumber.optional(),
     stericClashWarning: z.boolean().optional(),
     localSidechainRmsd: nullableFiniteNumber.optional(),
-    dynamut2: nullableFiniteNumber,
+    foldxRepairFailed: z.boolean().optional(),
+    dynamut2: nullableFiniteNumber.optional(),
     ddmut: nullableFiniteNumber.optional(),
     rasp: nullableFiniteNumber.optional(),
     thermompnn: nullableFiniteNumber.optional(),
@@ -238,7 +301,8 @@ export const generateMutantResponseSchema = z.object({
   ddmutJobId: z.string().nullable().optional(),
   ddmutStatus: z.string().nullable().optional(),
   thermompnnJobId: z.string().nullable().optional(),
-  thermompnnStatus: z.string().nullable().optional()
+  thermompnnStatus: z.string().nullable().optional(),
+  thermompnnError: z.string().nullable().optional()
 });
 
 export const nearestResiduesResponseSchema = z.object({
@@ -279,6 +343,12 @@ export const translateVariantResponseSchema = z.object({
   gene: z.string(),
   variant: z.string(),
   uniprotId: z.string(),
+  transcriptId: z.string().optional(),
+  isManeSelect: z.boolean().optional(),
+  isManePlusClinical: z.boolean().optional(),
+  isCanonical: z.boolean().optional(),
+  maneRefSeqId: z.string().optional(),
+  transcriptWarning: z.string().optional(),
   genomicCoordinates: z.string().nullable().optional()
 });
 import { EnergeticsData } from "./types";
@@ -292,6 +362,7 @@ export function buildEnergeticsQueryString(energetics: EnergeticsData | null): s
   if (energetics.ddmut !== null && energetics.ddmut !== undefined) q.set("ddmut", energetics.ddmut.toString());
   if (energetics.dynamut2 !== null && energetics.dynamut2 !== undefined) q.set("dynamut2", energetics.dynamut2.toString());
   if (energetics.thermompnn !== null && energetics.thermompnn !== undefined) q.set("thermompnn", energetics.thermompnn.toString());
+  if (energetics.foldxRepairFailed) q.set("foldxRepairFailed", "true");
   return q.toString();
 }
 
@@ -535,4 +606,40 @@ export const getAlternativeVariants = (currentGene: string): string[] => {
   }
   return ["p.Ala40Val", "p.Leu100Pro", "p.Glu150Lys"];
 };
+
+export function mapMutationToFoldXFormat(variantStr: string): string {
+  const clean = variantStr.replace(/^p\./i, "");
+  
+  const normalize3 = (str: string) => {
+    if (str.length !== 3) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  };
+
+  const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
+  if (match3) {
+    const wt3 = normalize3(match3[1]);
+    const pos = parseInt(match3[2], 10);
+    const mut3 = normalize3(match3[3]);
+    const wt = AMINO_ACID_3_TO_1[wt3];
+    const mut = AMINO_ACID_3_TO_1[mut3];
+    if (!wt || !mut) {
+      throw new Error(`Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'`);
+    }
+    return `${wt}A${pos}${mut}`;
+  }
+
+  const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+  if (match1) {
+    const wt = match1[1].toUpperCase();
+    const pos = match1[2];
+    const mut = match1[3].toUpperCase();
+    if (!AMINO_ACID_1_TO_3[wt] || !AMINO_ACID_1_TO_3[mut]) {
+      throw new Error(`Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!AMINO_ACID_1_TO_3[wt] ? wt : mut}'`);
+    }
+    return `${wt}A${pos}${mut}`;
+  }
+
+  throw new Error("Invalid HGVS missense format: Must represent a single amino acid substitution (e.g., p.Arg215Trp or R215W)");
+}
+
 

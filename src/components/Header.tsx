@@ -27,8 +27,7 @@ export default function Header({
       {/* Brand */}
       <div className="flex items-center gap-2.5 shrink-0">
         <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "#C46849" }}
+          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-cs-accent-clay"
         >
           <Dna className="w-3.5 h-3.5 text-white stroke-[2.2]" />
         </div>
@@ -50,11 +49,7 @@ export default function Header({
           type="button"
           onClick={toggleTheme}
           title={isDark ? "Switch to light" : "Switch to dark"}
-          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-            isDark
-              ? "border-[#3C3934] text-[#B2ABA0] hover:text-[#F9F8F6] hover:bg-[#322F2A]"
-              : "border-[#DDD6ED] text-[#8E82A0] hover:text-[#1A1523] hover:bg-[#F2EEF9]"
-          }`}
+          className="p-1.5 rounded-lg border border-cs-border text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-all cursor-pointer"
         >
           {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
@@ -64,11 +59,7 @@ export default function Header({
           type="button"
           onClick={() => setIsSettingsOpen(true)}
           title="Settings"
-          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-            isDark
-              ? "border-[#3C3934] text-[#B2ABA0] hover:text-[#F9F8F6] hover:bg-[#322F2A]"
-              : "border-[#DDD6ED] text-[#8E82A0] hover:text-[#1A1523] hover:bg-[#F2EEF9]"
-          }`}
+          className="p-1.5 rounded-lg border border-cs-border text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-all cursor-pointer"
         >
           <SettingsIcon className="w-4 h-4" />
         </button>

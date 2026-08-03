@@ -93,6 +93,10 @@ export const THRESHOLDS = {
     /** ΔΔG° ≥ 1.0 kcal/mol: predicted destabilization (ThermoMPNN ΔΔG = mutant - WT) */
     destabilizing: 1.0,
   },
+  rasp: {
+    /** ΔΔG ≥ 1.0 kcal/mol: predicted destabilization */
+    destabilizing: 1.0,
+  },
   bayesdel: {
     pathogenic: 0.133,
     benign: -0.0404,
@@ -154,6 +158,9 @@ export const THRESHOLDS = {
   },
 } as const;
 
+export const LOCAL_STRUCTURAL_WINDOW = 5;
+
+
 /**
  * Human-readable citation strings for display in the UI.
  * Shown in threshold tables and tooltips to direct researchers to primary sources.
@@ -195,7 +202,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   dann:
     "DANN (deep learning score ≥ 0.96 deleterious).",
   esm1b:
-    "ESM-1b (evolutionary LMs, score ≤ -7.5 deleterious, ≥ -5.0 benign).",
+    "ESM-1b (Brandes et al. 2023, Nature Genetics; score ≤ -7.5 pathogenic, ≥ -5.0 benign).",
   popEve:
     "popEVE (Population-calibrated EVE, Nature 2024). Severe pathogenic LLR ≤ -5.056 (99.99% likelihood), " +
     "Moderate pathogenic LLR ≤ -4.617 (99% likelihood), Supporting LLR ≤ -2.0; Benign LLR ≥ -1.0. " +
@@ -251,9 +258,17 @@ export function evaluateBayesdel(score: number | null | undefined): PredictorSig
 }
 
 export function evaluateEsm(llr: number | null | undefined): PredictorSignal {
+  // ESM-2 3B, ESM-C, and SaProt 650M do not have peer-reviewed clinical classification thresholds,
+  // so they are treated as purely informational VUS signals.
   if (llr === null || llr === undefined) return "unavailable";
-  if (llr <= THRESHOLDS.esm.pathogenic) return "pathogenic";
-  if (llr >= THRESHOLDS.esm.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateEsm1b(llr: number | null | undefined): PredictorSignal {
+  // ESM-1b clinical thresholds sourced from Brandes et al., 2023 (Nature Genetics)
+  if (llr === null || llr === undefined) return "unavailable";
+  if (llr <= THRESHOLDS.esm1b.pathogenic) return "pathogenic";
+  if (llr >= THRESHOLDS.esm1b.benign) return "benign";
   return "vus";
 }
 
@@ -332,6 +347,8 @@ export function countPredictorConcordance(
     eigenPhred?: number | null;
     dann?: number | null;
     popeve?: number | null;
+    esm2Llr?: number | null;
+    saprotLlr?: number | null;
   }
 ): PredictorConcordance {
   const toolDefs: PredictorToolDetails[] = [
@@ -391,9 +408,23 @@ export function countPredictorConcordance(
     },
     {
       key: "esm",
-      name: "ESM",
-      signal: evaluateEsm(esmLlr),
+      name: "ESM-1b",
+      signal: evaluateEsm1b(esmLlr),
       scoreLabel: esmLlr !== null && esmLlr !== undefined ? `${esmLlr.toFixed(2)}` : "—",
+      isInformationalOnly: true,
+    },
+    {
+      key: "esm2_3b",
+      name: "ESM-2 3B",
+      signal: evaluateEsm(extra?.esm2Llr),
+      scoreLabel: extra?.esm2Llr !== null && extra?.esm2Llr !== undefined ? `${extra.esm2Llr.toFixed(2)}` : "—",
+      isInformationalOnly: true,
+    },
+    {
+      key: "saprot",
+      name: "SaProt 650M",
+      signal: evaluateEsm(extra?.saprotLlr),
+      scoreLabel: extra?.saprotLlr !== null && extra?.saprotLlr !== undefined ? `${extra.saprotLlr.toFixed(2)}` : "—",
       isInformationalOnly: true,
     },
   ];
@@ -470,9 +501,9 @@ export function normalizeDestabilizationMagnitude(
       return { magnitude: -score, isDestabilizing: isDestab };
     }
     case "rasp": {
-      // RaSP: Negative score = destabilizing (threshold <= -1.0)
-      const isDestab = score <= -1.0;
-      return { magnitude: -score, isDestabilizing: isDestab };
+      // RaSP: Positive score = destabilizing (threshold >= 1.0)
+      const isDestab = score >= THRESHOLDS.rasp.destabilizing;
+      return { magnitude: score, isDestabilizing: isDestab };
     }
     case "thermompnn": {
       // ThermoMPNN: Positive score = destabilizing (threshold >= 1.0 kcal/mol, deltaG = mutant - WT)
@@ -495,10 +526,12 @@ export function computeConsensusVerdict(
     ddmut?: number | null;
     rasp?: number | null;
     thermompnn?: number | null;
+    foldxRepairFailed?: boolean;
   } | null
 ): string {
   if (!energetics) return "Low Misfolding Risk (Neutral Stability)";
-  const foldxVal = energetics.foldxMean ?? energetics.foldx ?? null;
+  const isFoldxExcluded = !!energetics.foldxRepairFailed;
+  const foldxVal = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx ?? null);
   const dynamut2 = energetics.dynamut2 ?? null;
   const ddmut = energetics.ddmut ?? null;
   const rasp = energetics.rasp ?? null;
@@ -526,9 +559,45 @@ export function computeConsensusVerdict(
       : "Low Misfolding Risk (Single-Tool Estimate)";
   }
 
-  if (destabCount >= 2) {
+  // Confidence weights based on predictor accuracy profiles (D2)
+  const weights = {
+    foldx: 1.2,
+    dynamut2: 1.0,
+    ddmut: 1.0,
+    rasp: 1.5,
+    thermompnn: 2.0
+  };
+
+  let totalAvailableWeight = 0;
+  let totalDestabWeight = 0;
+
+  if (foldxVal !== null) {
+    totalAvailableWeight += weights.foldx;
+    if (foldxNorm.isDestabilizing) totalDestabWeight += weights.foldx;
+  }
+  if (dynamut2 !== null) {
+    totalAvailableWeight += weights.dynamut2;
+    if (dynamutNorm.isDestabilizing) totalDestabWeight += weights.dynamut2;
+  }
+  if (ddmut !== null) {
+    totalAvailableWeight += weights.ddmut;
+    if (ddmutNorm.isDestabilizing) totalDestabWeight += weights.ddmut;
+  }
+  if (rasp !== null) {
+    totalAvailableWeight += weights.rasp;
+    if (raspNorm.isDestabilizing) totalDestabWeight += weights.rasp;
+  }
+  if (thermompnn !== null) {
+    totalAvailableWeight += weights.thermompnn;
+    if (tmNorm.isDestabilizing) totalDestabWeight += weights.thermompnn;
+  }
+
+  const weightedRatio = totalAvailableWeight > 0 ? totalDestabWeight / totalAvailableWeight : 0;
+
+  // Verdict logic based on confidence-weighted ratio (D2)
+  if (weightedRatio >= 0.44) {
     return "High Misfolding Risk (Destabilizing Consensus)";
-  } else if (destabCount === 1 && availableCount >= 2) {
+  } else if (weightedRatio > 0.0) {
     return "Moderate Misfolding Risk (Conflicting Stability)";
   }
   return "Low Misfolding Risk (Neutral Stability)";

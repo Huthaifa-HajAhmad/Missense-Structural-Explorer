@@ -1,7 +1,7 @@
 import React, { useRef, useCallback } from "react";
 import {
   Dna, BarChart2, Layers, Activity, Map,
-  FlaskConical, FileText, Search,
+  FlaskConical, FileText, Search, Terminal,
   Settings, Sun, Moon,
   PanelLeftClose, PanelLeftOpen,
   CheckCircle2, Circle,
@@ -18,7 +18,8 @@ export type MasterView =
   | "energetics"
   | "landscape"
   | "insights"
-  | "report";
+  | "report"
+  | "console";
 
 interface MasterSidebarProps {
   activeView: MasterView;
@@ -42,6 +43,7 @@ interface MasterSidebarProps {
   ddmutStatus?: string | null;
   isLoadingSearch?: boolean;
   loadingStep?: string;
+  unreadConsoleCount?: number;
 }
 
 interface NavItem {
@@ -79,6 +81,12 @@ const NAV_ZONES: NavZone[] = [
       { id: "report",   label: "Report",   sublabel: "Clinical narrative",     Icon: FileText     },
     ],
   },
+  {
+    zoneLabel: "Developer",
+    items: [
+      { id: "console",  label: "Console",  sublabel: "Errors · Logs · Network", Icon: Terminal     },
+    ],
+  },
 ];
 
 const EVIDENCE_SUB_ITEMS = [
@@ -93,7 +101,7 @@ const EVIDENCE_SUB_ITEMS = [
 
 const STRUCTURE_SUB_ITEMS = [
   { id: "structure_alphafold", label: "AlphaFold2" },
-  { id: "structure_esmfold",   label: "ESMFold2"   },
+  { id: "structure_esmfold",   label: "ESM3 Model"   },
 ];
 
 /** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */
@@ -123,7 +131,7 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
   );
 }
 
-export default function MasterSidebar({
+function MasterSidebar({
   activeView,
   onViewChange,
   isDark,
@@ -144,6 +152,7 @@ export default function MasterSidebar({
   ddmutStatus = null,
   isLoadingSearch = false,
   loadingStep = "",
+  unreadConsoleCount = 0,
 }: MasterSidebarProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
 
@@ -359,11 +368,24 @@ export default function MasterSidebar({
                       </span>
                     )}
 
-                    {/* Completion indicator (right edge, expanded only) */}
-                    {!isCollapsed && (
+                    {/* Completion indicator or Console badge (right edge) */}
+                    {!isCollapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
+                      <span className="ml-auto flex-shrink-0 dev-console-badge">
+                        {(unreadConsoleCount ?? 0) > 99 ? "99+" : unreadConsoleCount}
+                      </span>
+                    )}
+
+                    {!isCollapsed && id !== "console" && (
                       <span className="ml-auto flex-shrink-0">
                         <StepIcon status={status} />
                       </span>
+                    )}
+
+                    {isCollapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
+                      <span
+                        className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"
+                        title={`${unreadConsoleCount} unread console entries`}
+                      />
                     )}
                   </button>
 
@@ -572,3 +594,5 @@ export default function MasterSidebar({
     </aside>
   );
 }
+
+export default React.memo(MasterSidebar);

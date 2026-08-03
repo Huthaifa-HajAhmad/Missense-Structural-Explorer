@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Search, Sparkles, History, Trash2, Loader2, Clipboard, ShieldAlert, X, ChevronDown } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
-import { useVariantAnalysisContext } from "../context/VariantAnalysisContext";
+import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 
 interface QueryStripProps {
   isDark: boolean;
@@ -55,9 +55,8 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const geneInputRef = useRef<HTMLInputElement>(null);
-  const { state: analysisStateCtx, actions: analysisActionsCtx } = useVariantAnalysisContext();
-  const userDirections = analysisStateCtx.userDirections;
-  const setUserDirections = analysisActionsCtx.setUserDirections;
+  const userDirections = useVariantAnalysisStore(s => s.userDirections);
+  const { setUserDirections } = useVariantAnalysisActions();
   const isGenomicVariant = (customVariant && (
     /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
     /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||

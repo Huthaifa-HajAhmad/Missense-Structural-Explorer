@@ -124,8 +124,6 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
 
   const getEsmSignal = (llr: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
     if (llr === null) return "unavailable";
-    if (llr <= THRESHOLDS.esm1b.pathogenic) return "pathogenic";
-    if (llr >= THRESHOLDS.esm1b.benign) return "benign";
     return "vus";
   };
 
@@ -243,7 +241,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   </h4>
                   <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Co-distilled ESM-3/ESM2 LLR score</p>
                 </div>
-                {renderBadge(getEsmSignal(esm2Score ?? null))}
+                {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null ? "Not validated / Informational Only" : undefined)}
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>

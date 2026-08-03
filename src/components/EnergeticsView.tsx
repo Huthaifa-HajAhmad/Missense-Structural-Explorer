@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { 
   Activity, 
   ShieldAlert, 
-  Info, 
+  Info,
   ExternalLink,
   Circle,
   CheckCircle2
 } from "lucide-react";
-import { AnalysisState, EnergeticsData, StructuralDiffResult } from "../types";
+import { AnalysisState, EnergeticsData } from "../types";
 import { useSettings } from "../context/SettingsContext";
+import { THRESHOLDS } from "../shared/thresholds";
 
 interface EnergeticsViewProps {
   isDark: boolean;
@@ -24,11 +25,11 @@ interface EnergeticsViewProps {
   foldingEnergetics?: EnergeticsData | null;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
-  thermompnnStatus?: "pending" | "unavailable" | "done" | null;
-  disruptionPredictor?: { level: "high" | "low"; reason: string; plddt: number } | null;
+  thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | null;
+  thermompnnError?: string | null;
+  disruptionPredictor?: { level: "high" | "low" | "unknown"; reason: string; plddt: number | null } | null;
   isFolding?: boolean;
   foldingError?: string | null;
-  structuralDiff?: StructuralDiffResult | null;
 }
 
 interface MetricExplanation {
@@ -69,7 +70,7 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "RaSP (Rapid Stability Prediction)",
     category: "Structural Embeddings / MLP Stability Head",
     description: "RaSP predicts thermodynamic stability changes (ΔΔG) using ESM-IF1 structural embeddings combined with a pre-trained multi-layer perceptron head trained on ~350k experimental stability datapoints. It operates directly on 3D structure.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
+    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative/neutral scores represent stabilizing/neutral variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
     paperTitle: "Blaabjerg et al. Cell Systems (2023)",
     paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
   },
@@ -107,7 +108,7 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
   }
 };
 
-export default function EnergeticsView({
+const EnergeticsView = memo(function EnergeticsView({
   isDark,
   classCard,
   classCardHeader,
@@ -122,10 +123,10 @@ export default function EnergeticsView({
   dynamut2Status,
   ddmutStatus,
   thermompnnStatus,
+  thermompnnError = null,
   disruptionPredictor,
   isFolding = false,
-  foldingError = null,
-  structuralDiff = null
+  foldingError = null
 }: EnergeticsViewProps) {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const { settings } = useSettings();
@@ -186,7 +187,8 @@ export default function EnergeticsView({
     thermompnn: foldingEnergetics?.thermompnn ?? result.thermompnn ?? null,
     bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null,
-    raspReason: (foldingEnergetics as any)?.raspReason
+    raspReason: (foldingEnergetics as any)?.raspReason,
+    foldxRepairFailed: foldingEnergetics?.foldxRepairFailed ?? false
   };
 
   return (
@@ -201,7 +203,7 @@ export default function EnergeticsView({
       <div className="p-5 flex-grow overflow-y-auto space-y-4">
         <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Consensus Biophysical Stability (ΔΔG)</h4>
         
-        {disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70 && (
+        {disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && (
           <div className="p-3 rounded-lg border flex flex-col gap-1 animate-fade-in" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
             <div className="flex items-center gap-1.5 font-bold text-xs">
               <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
@@ -209,6 +211,18 @@ export default function EnergeticsView({
             </div>
             <p className="text-[10px] leading-relaxed">
               The local template structure at this residue has low confidence (pLDDT &lt; 70). Predictions generated from rigid-backbone models or biophysical force fields (e.g. FoldX, DynaMut2) are highly speculative in disordered or low-confidence regions.
+            </p>
+          </div>
+        )}
+
+        {!isFolding && !foldingError && energetics.foldxRepairFailed && (
+          <div className="p-3 rounded-lg border flex flex-col gap-1 animate-fade-in" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
+            <div className="flex items-center gap-1.5 font-bold text-xs">
+              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+              <span>FoldX Repair Failure Warning</span>
+            </div>
+            <p className="text-[10px] leading-relaxed">
+              FoldX RepairPDB phase failed for this structure. Calculations proceeded using the unrepaired starting structure. Results are of lower confidence and have been excluded from the biophysical stability consensus calculation.
             </p>
           </div>
         )}
@@ -303,7 +317,7 @@ export default function EnergeticsView({
                     { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (5 runs)", val: energetics.foldxMean, invertSign: false, isPending: isFoldxPending },
                     { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true, isPending: isDynamutPending },
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
-                    { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: true, isPending: false },
+                    { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: false, isPending: false },
                     { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending }
                   ];
 
@@ -331,10 +345,17 @@ export default function EnergeticsView({
                       }
                       const badgeVal = item.invertSign ? -item.val : item.val;
                       badge = getDdGBadge(badgeVal);
-                      if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70) {
+                      if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70) {
                         badge = {
                           ...badge,
                           category: `${badge.category} (Speculative)`,
+                          style: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-amber-500/30 font-semibold"
+                        };
+                      }
+                      if (item.key === "foldx" && energetics.foldxRepairFailed) {
+                        badge = {
+                          ...badge,
+                          category: `${badge.category} (Low Confidence - Repair Failed)`,
                           style: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-amber-500/30 font-semibold"
                         };
                       }
@@ -348,6 +369,13 @@ export default function EnergeticsView({
                           label: "Not in Zenodo DB", 
                           category: "Not in Zenodo DB", 
                           style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" 
+                        };
+                      } else if (item.key === "thermompnn" && thermompnnStatus === "error") {
+                        scoreText = "Error";
+                        badge = { 
+                          label: "API Error", 
+                          category: "API Error", 
+                          style: "bg-rose-500/10 text-rose-500 border border-rose-500/20 font-semibold" 
                         };
                       } else {
                         badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
@@ -402,6 +430,15 @@ export default function EnergeticsView({
             </tbody>
           </table>
         </div>
+        {thermompnnStatus === "error" && thermompnnError && (
+          <div className="p-3.5 rounded-lg border space-y-1 bg-rose-50 border-rose-100 text-rose-800 animate-fade-in flex gap-2.5 text-[11px] leading-relaxed">
+            <ShieldAlert className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block mb-0.5 font-sans uppercase text-[10px] tracking-wider">ThermoMPNN Prediction Failed</span>
+              {thermompnnError}
+            </div>
+          </div>
+        )}
       </div>
 
         {/* Extended Biophysical Details & Consensus Verdict */}
@@ -435,7 +472,7 @@ export default function EnergeticsView({
               const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
               const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
               const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-              const raspDestab = rasp !== null && rasp <= -1.0;
+              const raspDestab = rasp !== null && rasp >= THRESHOLDS.rasp.destabilizing;
               const tmDestab = thermompnn !== null && thermompnn >= 1.0;
 
               const votes = [
@@ -478,7 +515,7 @@ export default function EnergeticsView({
                 const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
                 const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
                 const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-                const raspDestab = rasp !== null && rasp <= -1.0;
+                const raspDestab = rasp !== null && rasp >= THRESHOLDS.rasp.destabilizing;
                 const tmDestab = thermompnn !== null && thermompnn >= 1.0;
 
                 const votes = [
@@ -506,12 +543,12 @@ export default function EnergeticsView({
                   styleClass = "bg-amber-500/10 text-amber-450 border-amber-500/20 font-bold";
                   detailText = "Conflicting evidence: 1 method predicts destabilization while others suggest neutrality.";
                 } else if (totalVotes === 0) {
-                  label = "UNAVAILABLE";
+                          label = "UNAVAILABLE";
                   styleClass = "bg-slate-500/10 text-slate-400 border-slate-500/20";
                   detailText = "Energetics data is currently processing or unavailable.";
                 }
 
-                if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt < 70 && totalVotes > 0) {
+                if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && totalVotes > 0) {
                   label = `${label} (Speculative - Low pLDDT)`;
                   styleClass = "bg-amber-500/10 text-amber-455 border border-amber-500/20 font-bold";
                   detailText = `${detailText} WARNING: Template structure has low confidence (pLDDT < 70) at this residue position. Biophysical predictions are speculative and should be interpreted with caution.`;
@@ -535,120 +572,9 @@ export default function EnergeticsView({
               })()}
             </div>
 
-            {/* Additional Biophysical Metrics Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[10.5px] pt-1">
-              <button
-                type="button"
-                onClick={() => setSelectedMetric("rmsd")}
-                className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
-                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Sidechain RMSD</span>
-                  <Info className="w-3 h-3 text-slate-400 shrink-0" />
-                </div>
-                <strong className={`text-[12px] font-bold block mt-1 ${
-                  energetics.localSidechainRmsd !== null && energetics.localSidechainRmsd > 1.5 
-                    ? "text-rose-455" 
-                    : energetics.localSidechainRmsd !== null && energetics.localSidechainRmsd > 0.8
-                      ? "text-amber-500"
-                      : "text-emerald-450"
-                }`}>
-                  {energetics.localSidechainRmsd !== null 
-                    ? `${energetics.localSidechainRmsd.toFixed(2)} Å` 
-                    : "N/A"}
-                </strong>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedMetric("vdw")}
-                className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
-                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">VdW Clash Delta</span>
-                  <Info className="w-3 h-3 text-slate-400 shrink-0" />
-                </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <strong className={`text-[12px] font-bold ${
-                    energetics.stericClashWarning ? "text-rose-455" : "text-emerald-450"
-                  }`}>
-                    {energetics.vdw !== null ? `${energetics.vdw.toFixed(2)} ${settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol"}` : "N/A"}
-                  </strong>
-                  {energetics.stericClashWarning && (
-                    <span className="text-[7px] bg-rose-500/10 border border-rose-500/20 text-rose-455 px-1 py-0.2 rounded font-bold uppercase shrink-0">
-                      Clash
-                    </span>
-                  )}
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedMetric("electrostatics")}
-                className="p-2.5 rounded-lg border flex flex-col justify-between font-mono text-left w-full hover:border-[#C46849]/50 transition-colors cursor-pointer focus:outline-none"
-                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span className="block text-[8.5px] uppercase font-bold text-slate-500 tracking-wider">Electrostatic Delta</span>
-                  <Info className="w-3 h-3 text-slate-400 shrink-0" />
-                </div>
-                <strong className="text-[12px] font-bold block mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                  {energetics.electrostatics !== null ? `${energetics.electrostatics.toFixed(2)} ${settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol"}` : "N/A"}
-                </strong>
-              </button>
-            </div>
           </div>
         )}
 
-        {structuralDiff && (
-          <div className="p-3.5 rounded-lg border space-y-3.5 animate-fade-in" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-            <h5 className="font-bold text-xs uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-secondary)" }}>
-              Kabsch-Aligned Structural Displacements
-            </h5>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-              <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Global RMSD</div>
-                <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.rmsd.toFixed(4)} Å</div>
-              </div>
-              <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Local RMSD</div>
-                <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                  {structuralDiff.localRmsd !== null ? `${structuralDiff.localRmsd.toFixed(4)} Å` : "N/A"}
-                </div>
-              </div>
-              <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">WT Clashes</div>
-                <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.clashes.wtClashCount}</div>
-              </div>
-              <div className="p-2 border rounded" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Clash Diff</div>
-                <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                  <span className={structuralDiff.clashes.diff > 0 ? "text-rose-455" : "text-emerald-450"}>
-                    {structuralDiff.clashes.diff > 0 ? `+${structuralDiff.clashes.diff}` : structuralDiff.clashes.diff}
-                  </span>
-                </div>
-              </div>
-            </div>
-            {structuralDiff.windowDisplacements && structuralDiff.windowDisplacements.length > 0 && (
-              <div className="pt-2">
-                <span className="block text-[9px] uppercase font-bold text-slate-500 tracking-wider mb-2 font-mono">Local Window Displacements</span>
-                <div className="flex flex-wrap gap-1.5 font-mono text-[9px]">
-                  {structuralDiff.windowDisplacements.map((d, index) => (
-                    <div key={index} className="px-2 py-1 rounded border flex items-center gap-1" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                      <span style={{ color: "var(--cs-text-secondary)" }}>{d.resName}{d.resSeq}:</span>
-                      <span className={d.displacement > 0.5 ? "text-rose-455 font-bold" : "text-emerald-450"}>
-                        {d.displacement.toFixed(2)} Å
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        
         <div className="text-[9px] p-2.5 rounded border italic" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
           * Consensus calculations are derived from FoldX energy grids and sequence-based evolutionary alignment dynamics.
         </div>
@@ -663,7 +589,7 @@ export default function EnergeticsView({
             <div 
               className="w-full max-w-md rounded-2xl border shadow-2xl p-6 relative flex flex-col gap-4 animate-slide-in"
               style={{ 
-                background: isDark ? "#1C1A17" : "#FAF9F6", 
+                background: "var(--cs-surface-2)", 
                 borderColor: "var(--cs-border)",
                 color: "var(--cs-text-primary)"
               }}
@@ -746,4 +672,6 @@ export default function EnergeticsView({
       })()}
     </div>
   );
-}
+})
+
+export default EnergeticsView;

@@ -1,4 +1,4 @@
-import React, { memo, useCallback } from "react";
+import React, { memo, useCallback, useRef, useState, useLayoutEffect } from "react";
 import { 
   FileText, 
   CheckCircle2, 
@@ -21,6 +21,34 @@ import {
   ResponsiveContainer, 
   Tooltip 
 } from "recharts";
+
+function SafeResponsiveContainer({ children }: { children: React.ReactElement }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isReady, setIsReady] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+    const checkSize = () => {
+      if (containerRef.current && containerRef.current.clientWidth > 0 && containerRef.current.clientHeight > 0) {
+        setIsReady(true);
+      }
+    };
+    checkSize();
+    const observer = new ResizeObserver(checkSize);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="w-full h-full min-h-[155px]">
+      {isReady ? (
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          {children}
+        </ResponsiveContainer>
+      ) : null}
+    </div>
+  );
+}
 import Markdown from "react-markdown";
 import { VARIANT_PRESETS, getNearestResidues } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
@@ -103,13 +131,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         { subject: "Polarity", WT: wtData.polarity, MUT: mutData.polarity }
       ];
 
-      const wtColor = "#10b981"; // Emerald
-      const mutColor = "#f43f5e"; // Rose
+      const wtColor = "var(--cs-good)";
+      const mutColor = "var(--cs-danger)";
 
       return (
         <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-3 rounded-lg border cs-surface-card transition-colors">
           <div className="w-full sm:w-[50%] h-[155px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <SafeResponsiveContainer>
               <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
                 <PolarGrid stroke={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)"} />
                 <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: "var(--cs-text-secondary)" }} />
@@ -118,7 +146,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                 <Radar name="Mutant" dataKey="MUT" stroke={mutColor} fill={mutColor} fillOpacity={0.12} />
                 <Tooltip contentStyle={{ fontSize: 10, background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} />
               </RadarChart>
-            </ResponsiveContainer>
+            </SafeResponsiveContainer>
           </div>
           <div className="w-full sm:w-[45%] flex flex-col gap-1.5 text-[10.5px]">
             <div className="flex items-center gap-2 pb-1 border-b cs-border-card-sep border-dashed">

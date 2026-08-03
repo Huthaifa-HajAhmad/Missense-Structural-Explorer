@@ -13,45 +13,54 @@ interface LandscapeMinimapProps {
   landscapeData?: LandscapePoint[] | null;
   currentAM?: number | null;
   currentREVEL?: number | null;
-  isDark: boolean;
+  metricMode?: "mean" | "max";
 }
 
-const W = 40;
-const H = 76;
-const PAD = 4;
-const PLOT_W = W - PAD * 2;
-const PLOT_H = H - PAD * 2 - 10; // leave 10px at top for label
+// Relaxed expanded coordinate resolution for higher fidelity rendering and label separation
+const W = 240;
+const H = 220;
+const PAD_LEFT = 45;   // Increased to prevent y-axis overlap
+const PAD_BOTTOM = 40; // Increased to prevent x-axis overlap
+const PAD_RIGHT = 12;
+const PAD_TOP = 15;
+const PLOT_W = W - PAD_LEFT - PAD_RIGHT;
+const PLOT_H = H - PAD_TOP - PAD_BOTTOM;
 
 export default function LandscapeMinimap({
   landscapeData,
   currentAM,
   currentREVEL,
-  isDark,
+  metricMode = "max",
 }: LandscapeMinimapProps) {
   const points = useMemo(() => {
     if (!landscapeData?.length) return [];
     return landscapeData
       .map((d) => {
-        const revel = d.revelMean ?? d.revelMax ?? null;
-        const am = d.amMean ?? d.amMax ?? null;
+        // Respect the selected metricMode (default to max for clinical safety)
+        const revel = metricMode === "mean"
+          ? (d.revelMean ?? d.revelMax ?? null)
+          : (d.revelMax ?? d.revelMean ?? null);
+        const am = metricMode === "mean"
+          ? (d.amMean ?? d.amMax ?? null)
+          : (d.amMax ?? d.amMean ?? null);
         return { revel, am };
       })
       .filter((d) => d.am !== null && d.revel !== null)
       .map((d) => ({
-        x: PAD + (d.revel! * PLOT_W),
-        y: PAD + 10 + ((1 - d.am!) * PLOT_H),
+        x: PAD_LEFT + (d.revel! * PLOT_W),
+        // y is inverted (1.0 pathogenicity at top, 0.0 at bottom)
+        y: PAD_TOP + ((1 - d.am!) * PLOT_H),
         am: d.am!,
         revel: d.revel!,
-        isCurrent: false,
       }));
-  }, [landscapeData]);
+  }, [landscapeData, metricMode]);
 
-  // Current variant dot
+  // Current query variant dot coordinates (representing single variant)
   const currentPoint =
     currentAM != null && currentREVEL != null
       ? {
-          x: PAD + currentREVEL * PLOT_W,
-          y: PAD + 10 + (1 - currentAM) * PLOT_H,
+          x: PAD_LEFT + currentREVEL * PLOT_W,
+          y: PAD_TOP + (1 - currentAM) * PLOT_H,
         }
       : null;
 
@@ -60,81 +69,215 @@ export default function LandscapeMinimap({
   const dotColor = (am: number, revel: number): string => {
     // Pathogenic: AM Likely Pathogenic or REVEL Strong
     if (am >= THRESHOLDS.alphaMissense.pathogenicSupporting || revel >= THRESHOLDS.revel.pathogenicStrong) {
-      return "#DC2626";   // pathogenic red
+      return "var(--cs-danger)";
     }
     // Ambiguous/Supporting: AM Ambiguous or REVEL Supporting
     if (am > THRESHOLDS.alphaMissense.likelyBenign || revel >= THRESHOLDS.revel.pathogenicSupporting) {
-      return "#D97706";  // uncertain amber
+      return "var(--cs-warn)";
     }
-    return "#16A34A";                     // benign green
+    return "var(--cs-good)";
   };
 
+  const revelThresholds = [
+    THRESHOLDS.revel.benign,
+    THRESHOLDS.revel.pathogenicSupporting,
+    THRESHOLDS.revel.pathogenicStrong
+  ];
+
+  const amThresholds = [
+    THRESHOLDS.alphaMissense.likelyBenign,
+    THRESHOLDS.alphaMissense.pathogenicSupporting
+  ];
+
   return (
-    <div className="sidebar-minimap" title="AM vs REVEL landscape scatter">
-      <span className="sidebar-minimap-label">AM×REVEL</span>
-      <svg
-        width={W}
-        height={H}
-        viewBox={`0 0 ${W} ${H}`}
-        style={{ display: "block", overflow: "visible" }}
+    <div className="flex flex-col gap-2 animate-fade-in w-full items-center justify-center">
+      <div 
+        className="relative flex items-center justify-center overflow-visible select-none w-full" 
+        title="Pathogenicity scatter plot comparing REVEL vs AlphaMissense scores across all positions of the gene, with the current query variant highlighted."
       >
-        {/* Axis lines */}
-        <line
-          x1={PAD} y1={PAD + 10 + PLOT_H}
-          x2={PAD + PLOT_W} y2={PAD + 10 + PLOT_H}
-          stroke={isDark ? "#3C3934" : "#E5E1DC"} strokeWidth={0.5}
-        />
-        <line
-          x1={PAD} y1={PAD + 10}
-          x2={PAD} y2={PAD + 10 + PLOT_H}
-          stroke={isDark ? "#3C3934" : "#E5E1DC"} strokeWidth={0.5}
-        />
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full h-auto max-w-[240px]"
+          style={{ display: "block", overflow: "visible" }}
+          role="img"
+          aria-label="AlphaMissense vs REVEL pathogenicity landscape"
+        >
+          <title>Pathogenicity Scatter Map</title>
+          <desc>
+            A two-dimensional scatter plot graphing AlphaMissense pathogenicity scores on the Y-axis against REVEL pathogenicity scores on the X-axis, with ClinGen decision boundary lines.
+          </desc>
 
-        {!hasData && (
-          <text
-            x={W / 2} y={H / 2 + 4}
-            textAnchor="middle"
-            fontSize={6}
-            fill={isDark ? "#4B5563" : "#9CA3AF"}
-            fontFamily="Inter, sans-serif"
-          >
-            No data
-          </text>
-        )}
+          {/* Grid Decision boundaries (translucent ClinGen quadrants) */}
+          {revelThresholds.map((t, idx) => (
+            <line
+              key={`x-guide-${idx}`}
+              x1={PAD_LEFT + t * PLOT_W}
+              y1={PAD_TOP}
+              x2={PAD_LEFT + t * PLOT_W}
+              y2={PAD_TOP + PLOT_H}
+              stroke="var(--cs-grid-line)"
+              strokeWidth={0.5}
+              strokeDasharray="1.5 2"
+            />
+          ))}
 
-        {/* Background dots (landscape variants) */}
-        {points.map((p, i) => (
-          <circle
-            key={i}
-            cx={p.x}
-            cy={p.y}
-            r={1.2}
-            fill={dotColor(p.am, p.revel)}
-            opacity={0.55}
+          {amThresholds.map((t, idx) => (
+            <line
+              key={`y-guide-${idx}`}
+              x1={PAD_LEFT}
+              y1={PAD_TOP + (1 - t) * PLOT_H}
+              x2={PAD_LEFT + PLOT_W}
+              y2={PAD_TOP + (1 - t) * PLOT_H}
+              stroke="var(--cs-grid-line)"
+              strokeWidth={0.5}
+              strokeDasharray="1.5 2"
+            />
+          ))}
+
+          {/* Axis lines */}
+          <line
+            x1={PAD_LEFT}
+            y1={PAD_TOP + PLOT_H}
+            x2={PAD_LEFT + PLOT_W}
+            y2={PAD_TOP + PLOT_H}
+            stroke="var(--cs-border)"
+            strokeWidth={0.75}
           />
-        ))}
+          <line
+            x1={PAD_LEFT}
+            y1={PAD_TOP}
+            x2={PAD_LEFT}
+            y2={PAD_TOP + PLOT_H}
+            stroke="var(--cs-border)"
+            strokeWidth={0.75}
+          />
 
-        {/* Current variant — highlighted clay dot with ring */}
-        {currentPoint && (
-          <>
+          {/* X Axis Tick Labels (0, 0.5, 1.0) */}
+          {[0, 0.5, 1.0].map((val) => {
+            const x = PAD_LEFT + val * PLOT_W;
+            return (
+              <g key={`x-tick-${val}`}>
+                <line
+                  x1={x}
+                  y1={PAD_TOP + PLOT_H}
+                  x2={x}
+                  y2={PAD_TOP + PLOT_H + 2.5}
+                  stroke="var(--cs-border)"
+                  strokeWidth={0.5}
+                />
+                <text
+                  x={x}
+                  y={PAD_TOP + PLOT_H + 9}
+                  textAnchor="middle"
+                  className="font-sans text-[8px] font-medium fill-cs-text-muted"
+                >
+                  {val.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Y Axis Tick Labels (0, 0.5, 1.0) */}
+          {[0, 0.5, 1.0].map((val) => {
+            const y = PAD_TOP + (1 - val) * PLOT_H;
+            return (
+              <g key={`y-tick-${val}`}>
+                <line
+                  x1={PAD_LEFT}
+                  y1={y}
+                  x2={PAD_LEFT - 2.5}
+                  y2={y}
+                  stroke="var(--cs-border)"
+                  strokeWidth={0.5}
+                />
+                <text
+                  x={PAD_LEFT - 5}
+                  y={y + 1.5}
+                  textAnchor="end"
+                  className="font-sans text-[8px] font-medium fill-cs-text-muted"
+                >
+                  {val.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Axis Titles */}
+          <text
+            x={PAD_LEFT + PLOT_W / 2}
+            y={H - 6}
+            textAnchor="middle"
+            className="font-sans text-[9px] fill-cs-text-muted uppercase tracking-wider font-semibold"
+          >
+            REVEL
+          </text>
+          
+          {/* Rotated Y Axis Title - offset to x=12 to clear tick values */}
+          <text
+            x={12}
+            y={PAD_TOP + PLOT_H / 2}
+            textAnchor="middle"
+            transform={`rotate(-90 12,${PAD_TOP + PLOT_H / 2})`}
+            className="font-sans text-[9px] fill-cs-text-muted uppercase tracking-wider font-semibold"
+          >
+            AlphaMissense
+          </text>
+
+          {!hasData && (
+            <text
+              x={PAD_LEFT + PLOT_W / 2}
+              y={PAD_TOP + PLOT_H / 2 + 3}
+              textAnchor="middle"
+              className="font-sans text-[9px] fill-cs-text-muted"
+            >
+              No landscape scores
+            </text>
+          )}
+
+          {/* Background dots (landscape variants) */}
+          {points.map((p, i) => (
             <circle
-              cx={currentPoint.x}
-              cy={currentPoint.y}
-              r={3.5}
-              fill="none"
-              stroke="#C46849"
-              strokeWidth={1}
-              opacity={0.5}
+              key={i}
+              cx={p.x}
+              cy={p.y}
+              r={0.9}
+              fill={dotColor(p.am, p.revel)}
+              className="opacity-[var(--cs-dot-opacity-faint)]"
             />
-            <circle
-              cx={currentPoint.x}
-              cy={currentPoint.y}
-              r={2}
-              fill="#C46849"
-            />
-          </>
-        )}
-      </svg>
+          ))}
+
+          {/* Current variant — highlighted clay dot with ring */}
+          {currentPoint && (
+            <g>
+              <circle
+                cx={currentPoint.x}
+                cy={currentPoint.y}
+                r={4}
+                fill="none"
+                stroke="var(--cs-accent-clay)"
+                strokeWidth={1}
+                className="opacity-50 animate-pulse"
+              />
+              <circle
+                cx={currentPoint.x}
+                cy={currentPoint.y}
+                r={2.2}
+                fill="var(--cs-accent-clay)"
+                className="opacity-[var(--cs-dot-opacity-focus)]"
+              />
+            </g>
+          )}
+        </svg>
+      </div>
+
+      {currentPoint && (
+        <div className="flex items-center gap-1.5 justify-center mt-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay shrink-0" />
+          <span className="text-[9px] font-mono text-cs-text-muted uppercase tracking-wide">
+            Clay Dot: Query Variant
+          </span>
+        </div>
+      )}
     </div>
   );
 }

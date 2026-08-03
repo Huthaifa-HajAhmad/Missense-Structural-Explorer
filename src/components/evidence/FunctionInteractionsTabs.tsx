@@ -1,0 +1,235 @@
+import React from "react";
+import { ShieldAlert } from "lucide-react";
+import { TabComponentProps } from "./types";
+
+export function FunctionTab({
+  analysisState,
+  computedPocket,
+  isPocketLoading,
+  pocketError
+}: TabComponentProps) {
+  const result = analysisState.result;
+  if (!result) return null;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="screen-title">Function</h1>
+        <p className="screen-tab-description">Ligand-binding pocket proximity (P2Rank / heuristic fallback) and UniProt-curated functional site annotations at this residue.</p>
+      </div>
+      {isPocketLoading ? (
+        <div className="flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mb-2" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
+          <span className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Calculating ligand-binding pockets via P2Rank/Heuristic...</span>
+        </div>
+      ) : pocketError ? (
+        <div className="p-3 text-center text-rose-455 border border-dashed border-rose-500/20 bg-rose-500/5 rounded-lg">
+          <ShieldAlert className="w-5 h-5 mx-auto mb-1 text-rose-500" />
+          <span>Failed to calculate pockets: {pocketError}</span>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {computedPocket ? (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>P2Rank Ligand-Binding Pocket Distance</h4>
+                <span className="badge-data-source">
+                  {computedPocket.status === "success" ? "P2Rank Live" : "Heuristic Fallback"}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="metric-card">
+                  <span className="metric-card-label">Pocket Distance</span>
+                  <span className={`metric-card-value ${
+                    computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance < 10
+                      ? "text-[var(--cs-text-danger)]"
+                      : ""
+                  }`}>
+                    {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
+                      ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
+                      : "N/A"}
+                  </span>
+                  <span className="metric-card-desc">Distance to pocket centroid</span>
+                </div>
+
+                <div className="metric-card">
+                  <span className="metric-card-label">Binding Probability</span>
+                  <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
+                    {computedPocket.status === "success" ? `${computedPocket.pocketScore}%` : "N/A"}
+                  </span>
+                  <span className="metric-card-desc">P2Rank affinity index</span>
+                </div>
+
+                <div className="metric-card">
+                  <span className="metric-card-label">Pocket Volume</span>
+                  <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
+                    {computedPocket.pocketVolume ? `${computedPocket.pocketVolume} Å³` : "N/A"}
+                  </span>
+                  <span className="metric-card-desc">Spatial cavity volume</span>
+                </div>
+              </div>
+
+              {computedPocket.status !== "success" && (
+                <div className="p-3 rounded-lg border text-[11px] leading-relaxed" style={{ background: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)", color: "var(--cs-text-warning)" }}>
+                  <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider">ML Model Offline:</span>
+                  P2Rank machine learning service is currently offline. Pocket affinity scores and cavity volumes are unavailable. Utilizing sequence-based functional proximity heuristics.
+                </div>
+              )}
+
+              <div className="p-3.5 rounded-xl border space-y-2.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Likely Co-Factor / Target Ligand:</span>
+                  <span className="font-semibold font-mono text-[12px]" style={{ color: "var(--cs-text-primary)" }}>{computedPocket.likelyCofactor}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Spatial Classification:</span>
+                  <span className="badge-data-source">
+                    {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance <= 8.0
+                      ? "ACTIVE_SITE_PROXIMATE"
+                      : "DISTAL_SURFACE"}
+                  </span>
+                </div>
+              </div>
+
+              {computedPocket.pocketResidues && computedPocket.pocketResidues.length > 0 && (
+                <div className="space-y-2 mt-3.5">
+                  <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
+                    Pocket Lining Residues (Top 7)
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {computedPocket.pocketResidues.slice(0, 7).map((res: any, idx: number) => (
+                      <div key={idx} className="p-2.5 px-3.5 rounded-lg flex justify-between items-center transition-all border border-[var(--cs-border)] bg-[var(--cs-bg-subtle)] shadow-none">
+                        <span style={{ fontSize: "var(--cs-font-size-numeric)", fontFamily: "var(--cs-font-mono)", fontWeight: "var(--cs-font-weight-semibold)", color: "var(--cs-text-primary)" }}>{res.name}{res.index}</span>
+                        <span style={{ fontSize: "var(--cs-font-size-caption)", fontFamily: "var(--cs-font-mono)", color: "var(--cs-text-muted)" }}>Dist: {res.distance} Å</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="empty-state-box">
+              No active pocket computations found. Click 3D coordinates on the model to trigger solver.
+            </div>
+          )}
+
+          {/* UniProt Curated Features */}
+          {(() => {
+            const features = result.uniprotFeatures?.features ?? [];
+            const pos = result.metadata?.residueIndex;
+            if (pos === null || pos === undefined) return null;
+
+            const matchingFeatures = features.filter(
+              (f) => pos >= f.start && pos <= f.end
+            );
+
+            return (
+              <div className="space-y-3 pt-3 border-t" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
+                  UniProt Curated Site &amp; Interface Annotations
+                </h4>
+
+                {matchingFeatures.length > 0 ? (
+                  <div className="space-y-2">
+                    {matchingFeatures.map((f, idx) => {
+                      let badgeColor = "badge-metric-neutral";
+
+                      return (
+                        <div
+                          key={idx}
+                          className="p-3 rounded-lg border leading-relaxed text-xs shadow-sm transition-all"
+                          style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold font-mono uppercase ${badgeColor}`}>
+                              {f.type}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold" style={{ color: "var(--cs-text-muted)" }}>
+                              Residue {f.start === f.end ? f.start : `${f.start}-${f.end}`}
+                            </span>
+                          </div>
+                          <p className="mt-1.5 text-xs font-sans" style={{ color: "var(--cs-text-secondary)" }}>
+                            {f.description || "Curated functional feature at this site."}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="empty-state-box">
+                    No curated UniProt functional features (active sites, metal bindings, interface regions) recorded at residue {pos}.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function InteractionsTab({ analysisState }: TabComponentProps) {
+  const result = analysisState.result;
+  if (!result) return null;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="screen-title">Interactions</h1>
+        <p className="screen-tab-description">Top functional protein-protein interaction partners and confidence scores from STRING DB.</p>
+      </div>
+      
+      {(() => {
+        const interactions = result.stringInteractions;
+        if (interactions && interactions.length > 0) {
+          return (
+            <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
+              <div className="overflow-x-auto">
+                <table className="w-full font-sans border-collapse">
+                  <thead>
+                    <tr className="table-header-row border-b border-[var(--cs-border)]" style={{ background: "var(--cs-surface-2)" }}>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Associated Partner</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Score</th>
+                      <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/3" style={{ color: "var(--cs-text-secondary)" }}>Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {interactions.map((partner, pIdx) => {
+                      const pct = (partner.score * 100).toFixed(0);
+                      const isHigh = partner.score >= 0.7;
+                      return (
+                        <tr key={pIdx} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: pIdx < interactions.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
+                          <td className="p-3 px-4 text-[12px] font-semibold text-left w-1/3 border-r border-[var(--cs-border-subtle)]">
+                            <span style={{ color: "var(--cs-text-primary)" }}>{partner.partner}</span>
+                          </td>
+                          <td className="p-3 px-4 text-center font-mono text-[12px] w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
+                            {partner.score.toFixed(3)}
+                          </td>
+                          <td className="p-3 px-4 text-center w-1/3">
+                            <div className="inline-flex items-center justify-center gap-2 w-full">
+                              <span className="font-mono text-xs" style={{ color: "var(--cs-text-secondary)" }}>{pct}%</span>
+                              <span className="badge-data-source">
+                                {isHigh ? "High" : "Medium"}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="empty-state-box">
+            No STRING DB interaction partners found for gene {result.metadata?.gene}.
+          </div>
+        );
+      })()}
+    </div>
+  );
+}

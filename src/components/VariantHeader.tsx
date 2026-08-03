@@ -48,25 +48,30 @@ function amBadgeClass(score: number | null, amClass: string | null): string {
   return "cs-badge cs-badge-vus";
 }
 
-export default function VariantHeader({
+function VariantHeader({
   gene,
   variant,
   uniprotId,
   analysisResult,
 }: VariantHeaderProps) {
-  const clinvar       = analysisResult?.clinvar;
   const gnomad        = analysisResult?.gnomadConstraint;
   const predictorData = analysisResult?.predictorData;
   const conservation  = analysisResult?.conservationData;
 
-  const clinvarClass  = clinvar?.classification
-    ? clinvarBadgeClass(clinvar.classification)
-    : null;
-
   const misZ          = gnomad?.missense_z ?? null;
+  const loeuf         = gnomad?.loeuf ?? null;
+  const hasRegionalData = gnomad?.hasRegionalData ?? false;
+  const regional      = gnomad?.regionalConstraint ?? null;
   const amScore       = predictorData?.amPathogenicity ?? null;
   const amClass       = predictorData?.amClass ?? null;
   const revelScore    = conservation?.revel ?? null;
+
+  // Retrieve transcript metadata from top level or predictorData
+  const transcriptId  = analysisResult?.transcriptId ?? predictorData?.transcriptId ?? null;
+  const isManeSelect  = analysisResult?.isManeSelect ?? predictorData?.isManeSelect ?? false;
+  const isManePlusClinical = analysisResult?.isManePlusClinical ?? predictorData?.isManePlusClinical ?? false;
+  const isCanonical   = analysisResult?.isCanonical ?? predictorData?.isCanonical ?? false;
+  const maneRefSeqId  = analysisResult?.maneRefSeqId ?? predictorData?.maneRefSeqId ?? null;
 
   return (
     <div className="variant-header" role="banner" aria-label="Active variant">
@@ -80,26 +85,96 @@ export default function VariantHeader({
 
       {/* Tier 3 — Verdict badges */}
       <div className="variant-header-badges">
-        {/* ClinVar — clinical badge */}
-        {clinvar?.classification && clinvarClass && (
-          <span className={clinvarClass} title={`ClinVar: ${clinvar.classification}`}>
+        {/* Transcript Badge */}
+        {transcriptId && (
+          <span
+            className={
+              isManeSelect
+                ? "cs-badge cs-badge-ben"
+                : isManePlusClinical
+                ? "cs-badge cs-badge-mag"
+                : isCanonical
+                ? "cs-badge cs-badge-vus"
+                : "cs-badge cs-badge-muted"
+            }
+            title={`Transcript: ${transcriptId}${
+              isManeSelect
+                ? " (MANE Select / clinical gold standard)"
+                : isManePlusClinical
+                ? " (MANE Plus Clinical)"
+                : isCanonical
+                ? " (Ensembl Canonical)"
+                : " (Alternative / Fallback)"
+            }${maneRefSeqId ? ` | RefSeq: ${maneRefSeqId}` : ""}`}
+          >
             <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-              ClinVar
+              Transcript
             </span>{" "}
-            {clinvarShortLabel(clinvar.classification)}
+            {transcriptId}
+            {isManeSelect ? " (MANE)" : isManePlusClinical ? " (MANE+)" : ""}
           </span>
         )}
 
-        {/* MIS Z — constraint badge */}
+        {/* MIS Z — gene-level constraint badge (gnomAD v2) */}
         {misZ !== null && (
           <span
             className={misZBadgeClass(misZ)}
-            title={`Missense Z-score: ${misZ > 0 ? "+" : ""}${misZ}`}
+            title={`gnomAD v2 Gene Missense Z-score: ${misZ > 0 ? "+" : ""}${misZ}`}
           >
             <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-              Mis Z
+              Mis Z (gnomAD v2)
             </span>{" "}
             {misZ > 0 ? `+${misZ.toFixed(2)}` : misZ.toFixed(2)}
+          </span>
+        )}
+
+        {/* LOEUF — gene loss-of-function intolerance badge (gnomAD v2) */}
+        {loeuf !== null && (
+          <span
+            className={
+              loeuf < 0.35
+                ? "cs-badge cs-badge-path" // Pathogenic red
+                : loeuf < 1.0
+                ? "cs-badge cs-badge-vus" // VUS yellow
+                : "cs-badge cs-badge-ben" // Benign green
+            }
+            title={`gnomAD v2 Loss-of-function Observed/Expected Upper bound Fraction (LOEUF): ${loeuf.toFixed(2)}. Lower values (typically < 0.35) indicate strong intolerance to loss-of-function variants.`}
+          >
+            <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              LOEUF (gnomAD v2)
+            </span>{" "}
+            {loeuf.toFixed(2)}
+          </span>
+        )}
+
+        {/* RMC — subgenic regional missense constraint badge (gnomAD v2) */}
+        {hasRegionalData ? (
+          regional && (
+            <span
+              className={regional.isConstrained ? "cs-badge cs-badge-path" : "cs-badge cs-badge-ben"}
+              title={`gnomAD v2 Regional Missense Constraint (RMC): ${
+                regional.isConstrained 
+                  ? `Subgenic Constrained (O/E = ${regional.oeRatio ?? "N/A"}${regional.pValue != null ? `, p = ${regional.pValue}` : ""}${regional.regionText ? `, Residues: ${regional.regionText}` : ""})` 
+                  : "This residue position is not within a subgenic constrained region."
+              }`}
+            >
+              <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                RMC (gnomAD v2)
+              </span>{" "}
+              {regional.isConstrained 
+                ? (regional.oeRatio !== null ? `O/E ${regional.oeRatio.toFixed(2)}` : "Constrained")
+                : "Unconstrained"}
+            </span>
+          )
+        ) : (
+          <span
+            className="cs-badge cs-badge-muted"
+            title="No Regional Missense Constraint (RMC) data is available for this gene in gnomAD v2 (either did not pass QC or gene has no regional constraint blocks)."
+          >
+            <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              RMC (gnomAD v2)
+            </span>{" "}
+            No RMC Data
           </span>
         )}
 
@@ -158,3 +233,5 @@ export default function VariantHeader({
     </div>
   );
 }
+
+export default React.memo(VariantHeader);

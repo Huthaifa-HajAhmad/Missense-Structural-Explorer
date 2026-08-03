@@ -4,13 +4,16 @@ import App from './App.tsx';
 import './index.css';
 import { SettingsProvider } from './context/SettingsContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { DevConsoleProvider } from './context/DevConsoleContext.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <SettingsProvider>
-      <ErrorBoundary name="Missense Structural Explorer">
-        <App />
-      </ErrorBoundary>
-    </SettingsProvider>
+    <DevConsoleProvider>
+      <SettingsProvider>
+        <ErrorBoundary name="Missense Structural Explorer">
+          <App />
+        </ErrorBoundary>
+      </SettingsProvider>
+    </DevConsoleProvider>
   </StrictMode>,
 );

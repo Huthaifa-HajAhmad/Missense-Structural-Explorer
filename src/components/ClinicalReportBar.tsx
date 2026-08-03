@@ -35,7 +35,7 @@ const VERDICT_STYLES = {
   },
 };
 
-export default function ClinicalReportBar({ analysisState, isDark, fullPage = false }: ClinicalReportBarProps) {
+function ClinicalReportBar({ analysisState, isDark, fullPage = false }: ClinicalReportBarProps) {
   const result = analysisState.result;
   const hasResult = !!result;
   const [isOpen, setIsOpen] = useState(fullPage ? true : false);
@@ -138,7 +138,7 @@ export default function ClinicalReportBar({ analysisState, isDark, fullPage = fa
                 onClick={handleCopy}
                 className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all cursor-pointer"
                 style={{
-                  color: copied ? "#16A34A" : "var(--cs-text-muted)",
+                  color: copied ? "var(--cs-good)" : "var(--cs-text-muted)",
                   background: "var(--cs-surface-2)",
                   border: "1px solid var(--cs-border)",
                 }}
@@ -217,7 +217,7 @@ export default function ClinicalReportBar({ analysisState, isDark, fullPage = fa
               onClick={(e) => { e.stopPropagation(); handleCopy(); }}
               className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded transition-all cursor-pointer"
               style={{
-                color: copied ? "#16A34A" : "var(--cs-text-muted)",
+                color: copied ? "var(--cs-good)" : "var(--cs-text-muted)",
                 background: "var(--cs-surface-2)",
                 border: "1px solid var(--cs-border)",
               }}
@@ -250,3 +250,5 @@ export default function ClinicalReportBar({ analysisState, isDark, fullPage = fa
     </div>
   );
 }
+
+export default React.memo(ClinicalReportBar);

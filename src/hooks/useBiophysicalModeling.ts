@@ -6,7 +6,7 @@ import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 
 export function useBiophysicalModeling(
   settings: UserSettings,
-  addNotification: (type: "success" | "info" | "error", message: string) => void,
+  addNotification: (type: "success" | "info" | "error" | "warn", message: string) => void,
   fetchWithAuth: (url: string, init?: RequestInit & { timeout?: number }) => Promise<Response>
 ) {
   const [mutantPdb, setMutantPdb] = useState<string | null>(null);
@@ -32,8 +32,10 @@ export function useBiophysicalModeling(
   const [compareDynamut2Status, setCompareDynamut2Status] = useState<"pending" | "unavailable" | "done" | null>(null);
   const [ddmutStatus, setDdmutStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
   const [compareDdmutStatus, setCompareDdmutStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
-  const [thermompnnStatus, setThermompnnStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
-  const [compareThermompnnStatus, setCompareThermompnnStatus] = useState<"pending" | "unavailable" | "done" | null>(null);
+  const [thermompnnStatus, setThermompnnStatus] = useState<"pending" | "unavailable" | "done" | "error" | null>(null);
+  const [compareThermompnnStatus, setCompareThermompnnStatus] = useState<"pending" | "unavailable" | "done" | "error" | null>(null);
+  const [thermompnnError, setThermompnnError] = useState<string | null>(null);
+  const [compareThermompnnError, setCompareThermompnnError] = useState<string | null>(null);
   
   const [dynamut2JobId, setDynamut2JobId] = useState<string | null>(null);
   const [compareDynamut2JobId, setCompareDynamut2JobId] = useState<string | null>(null);
@@ -172,6 +174,10 @@ export function useBiophysicalModeling(
     setThermompnnStatus,
     compareThermompnnStatus,
     setCompareThermompnnStatus,
+    thermompnnError,
+    setThermompnnError,
+    compareThermompnnError,
+    setCompareThermompnnError,
     dynamut2JobId,
     setDynamut2JobId,
     compareDynamut2JobId,

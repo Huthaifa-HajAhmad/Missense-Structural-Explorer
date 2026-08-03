@@ -1,0 +1,532 @@
+import { useState, useRef, useEffect } from "react";
+import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
+import { Script } from "molstar/lib/mol-script/script";
+import { StructureSelection } from "molstar/lib/mol-model/structure";
+import { Color } from "molstar/lib/mol-util/color";
+import { isValidPdbUrl } from "./molstarThemes";
+
+export interface UseMolstarStructureOptions {
+  pluginRef: React.MutableRefObject<any>;
+  pluginCreated: boolean;
+  uniprotId?: string | null;
+  gene?: string | null;
+  customPdbData?: string | null;
+  customPdbUrl?: string | null;
+  comparePdbData?: string | null;
+  residueIndex?: number | null;
+  compareResidueIndex?: number | null;
+  showPolarContacts: boolean;
+  show3DLabels: boolean;
+  residueColorHex: number;
+  autoZoomOnSelect: boolean;
+  cameraDuration: number;
+  showPocket: boolean;
+  computedPocket: any;
+  pocketComponentRefRef: React.MutableRefObject<any[]>;
+  fetchWithAuth: (url: string, options?: any) => Promise<Response>;
+  fetchNearestResidues: (uniprotId: string, variant: string, residueIndex: number, pdbText: string) => void;
+  onPdbTextLoaded?: (pdbText: string) => void;
+  variant?: string | null;
+  esmFoldPdb?: string | null;
+  esm3Eval?: any;
+  setLoading: (loading: boolean) => void;
+  setLoadError: (err: string | null) => void;
+}
+
+export function useMolstarStructure({
+  pluginRef,
+  pluginCreated,
+  uniprotId,
+  gene,
+  customPdbData,
+  customPdbUrl,
+  comparePdbData,
+  residueIndex,
+  compareResidueIndex,
+  showPolarContacts,
+  show3DLabels,
+  residueColorHex,
+  autoZoomOnSelect,
+  cameraDuration,
+  showPocket,
+  computedPocket,
+  pocketComponentRefRef,
+  fetchWithAuth,
+  fetchNearestResidues,
+  onPdbTextLoaded,
+  variant,
+  esmFoldPdb,
+  esm3Eval,
+  setLoading,
+  setLoadError
+}: UseMolstarStructureOptions) {
+  const structureRef = useRef<any>(null);
+  const structure2Ref = useRef<any>(null);
+  const componentRefRef = useRef<any>(null);
+  const componentRefRef2 = useRef<any>(null);
+
+  const [plddtFilter, setPlddtFilter] = useState<"none" | "30" | "50" | "70">("none");
+  const [templateSource, setTemplateSource] = useState<"experimental" | "alphafold" | null>(null);
+  const [viewerStyle, setViewerStyle] = useState<"confidence" | "biomolecular" | "esm3-allosteric" | "displacement">("confidence");
+  const [pdbText, setPdbText] = useState<string | null>(null);
+  const [bFactorMetadata, setBFactorMetadata] = useState<{ source: "alphafold" | "experimental" | "unknown"; semantic: "plddt" | "temperature_factor"; inherited: boolean } | null>(null);
+
+  useEffect(() => {
+    if (comparePdbData) {
+      setViewerStyle("displacement");
+    }
+  }, [comparePdbData]);
+
+  // Determine B-factor metadata
+  useEffect(() => {
+    if (!pdbText) {
+      setBFactorMetadata(null);
+      return;
+    }
+    const upper = pdbText.toUpperCase();
+    const isAlphaFoldHeader =
+      upper.includes("ALPHAFOLD") ||
+      upper.includes("AF-") ||
+      upper.includes("COMPL_MODEL") ||
+      upper.includes("CREATOR OF MODEL: ALPHAFOLD") ||
+      upper.includes("MODEL FROM ALPHAFOLD");
+
+    const lines = pdbText.split(/\r?\n/);
+    let maxB = 0;
+    let bCount = 0;
+    for (let i = 0; i < lines.length && i < 2000; i++) {
+      const line = lines[i];
+      if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
+        if (line.length >= 66) {
+          const bFactorStr = line.slice(60, 66).trim();
+          const bFactor = parseFloat(bFactorStr);
+          if (!isNaN(bFactor)) {
+            if (bFactor > maxB) maxB = bFactor;
+            bCount++;
+          }
+        }
+      }
+    }
+
+    if (isAlphaFoldHeader || (maxB > 50 && maxB <= 100)) {
+      setBFactorMetadata({ source: "alphafold", semantic: "plddt", inherited: true });
+    } else if (maxB > 0 && maxB <= 50) {
+      setBFactorMetadata({ source: "experimental", semantic: "temperature_factor", inherited: false });
+    } else {
+      setBFactorMetadata({ source: "unknown", semantic: "plddt", inherited: false });
+    }
+  }, [pdbText]);
+
+  // Main structure loading effect
+  useEffect(() => {
+    if (!pluginCreated || !pluginRef.current) return;
+    const localPlugin = pluginRef.current;
+    let active = true;
+
+    async function loadStructure() {
+      setLoading(true);
+      setLoadError(null);
+      setPdbText(null);
+      setTemplateSource(null);
+
+      try {
+        await localPlugin.clear();
+        structureRef.current = null;
+        structure2Ref.current = null;
+        componentRefRef.current = null;
+        componentRefRef2.current = null;
+        pocketComponentRefRef.current = [];
+
+        let data: any = null;
+        let fetchedPdbText: string | null = null;
+
+        if (esmFoldPdb) {
+          data = await localPlugin.builders.data.rawData({
+            data: esmFoldPdb,
+            label: `${gene || 'ESMFold'} (${variant || 'Mutant'})`
+          });
+          fetchedPdbText = esmFoldPdb;
+          setTemplateSource("alphafold");
+        } else if (customPdbData) {
+          data = await localPlugin.builders.data.rawData({
+            data: customPdbData,
+            label: `${gene || 'Custom'} (${uniprotId || 'PDB'})`
+          });
+          fetchedPdbText = customPdbData;
+        } else if (customPdbUrl) {
+          if (!isValidPdbUrl(customPdbUrl)) {
+            throw new Error(`Invalid custom PDB URL (${customPdbUrl}). Only RCSB PDB, AlphaFold DB, or local API proxies are permitted.`);
+          }
+          data = await localPlugin.builders.data.download({
+            url: customPdbUrl,
+            isBinary: false,
+            label: `${gene || 'Custom'} (${uniprotId || 'PDB'})`
+          });
+        } else if (uniprotId) {
+          const match = variant ? variant.match(/\d+/) : null;
+          const posQuery = match ? `?pos=${match[0]}` : "";
+          const res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`);
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            let msg = errData.error || `Structure fetch failed (status ${res.status})`;
+            if (res.status === 404) {
+              msg = `No PDB structure found for UniProt ID ${uniprotId}.`;
+            }
+            throw new Error(msg);
+          }
+
+          const sourceHeader = res.headers.get("X-Template-Source");
+          if (sourceHeader === "experimental") {
+            setTemplateSource("experimental");
+          } else {
+            setTemplateSource("alphafold");
+          }
+
+          const resData = await res.json();
+          if (!resData.pdbText) {
+            throw new Error(`Invalid structure payload returned for ${uniprotId}.`);
+          }
+
+          fetchedPdbText = resData.pdbText;
+          data = await localPlugin.builders.data.rawData({
+            data: resData.pdbText,
+            label: `${gene || 'Protein'} (${uniprotId})`
+          });
+        }
+
+        if (!active) return;
+        if (!data) {
+          setLoading(false);
+          return;
+        }
+
+        if (fetchedPdbText) {
+          setPdbText(fetchedPdbText);
+          if (onPdbTextLoaded) onPdbTextLoaded(fetchedPdbText);
+        }
+
+        const trajectory = await localPlugin.builders.structure.parseTrajectory(data, "pdb");
+        const model = await localPlugin.builders.structure.createModel(trajectory);
+        const structure = await localPlugin.builders.structure.createStructure(model);
+        structureRef.current = structure;
+
+        let targetStructure = structure;
+        if (plddtFilter !== "none") {
+          const threshold = parseInt(plddtFilter, 10);
+          const expression = MS.struct.generator.atomGroups({
+            'atom-test': MS.core.rel.gre([
+              MS.struct.atomProperty.macromolecular.B_iso_or_equiv(),
+              threshold
+            ])
+          });
+          const filteredComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+            structure,
+            expression,
+            'filtered-structure',
+            { label: `pLDDT >= ${threshold}` }
+          );
+          if (filteredComponent) {
+            targetStructure = filteredComponent;
+          }
+        }
+
+        if (viewerStyle === "biomolecular") {
+          const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+          if (proteinComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
+              type: 'cartoon',
+              color: 'uniform',
+              colorParams: { value: Color(0x00bcd4) }
+            });
+          }
+          const nucleicComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'nucleic');
+          if (nucleicComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
+              type: 'cartoon',
+              color: 'uniform',
+              colorParams: { value: Color(0x888888) }
+            });
+          }
+        } else if (viewerStyle === "esm3-allosteric") {
+          await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
+            theme: {
+              globalName: 'esm3-allosteric',
+              globalColorParams: {
+                perturbationScores: esm3Eval?.perturbationScores || []
+              }
+            }
+          });
+        } else if (viewerStyle === "displacement") {
+          if (comparePdbData) {
+            const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+            if (proteinComp) {
+              await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
+                type: 'cartoon',
+                color: 'uniform',
+                colorParams: { value: Color(0xd3d3d3) }
+              });
+            }
+          } else {
+            await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
+              theme: { globalName: 'backbone-displacement' }
+            });
+          }
+        } else {
+          await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
+            theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
+          });
+        }
+
+        // Compare structure if present
+        if (comparePdbData) {
+          const data2 = await localPlugin.builders.data.rawData({
+            data: comparePdbData,
+            label: `${gene || 'Protein'} (Comparison Mutant)`
+          });
+          const trajectory2 = await localPlugin.builders.structure.parseTrajectory(data2, "pdb");
+          const model2 = await localPlugin.builders.structure.createModel(trajectory2);
+          const structure2 = await localPlugin.builders.structure.createStructure(model2);
+          structure2Ref.current = structure2;
+
+          let targetStructure2 = structure2;
+          if (viewerStyle === "displacement") {
+            await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
+              theme: { globalName: 'backbone-displacement' }
+            });
+          } else {
+            await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
+              theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
+            });
+          }
+        }
+
+        if (active) {
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (!active) return;
+        console.error("Structure rendering error:", err);
+        setLoadError(err.message || "Failed to render protein structure.");
+        setLoading(false);
+      }
+    }
+
+    loadStructure();
+  }, [
+    pluginCreated,
+    uniprotId,
+    gene,
+    customPdbData,
+    customPdbUrl,
+    comparePdbData,
+    plddtFilter,
+    viewerStyle,
+    esmFoldPdb
+  ]);
+
+  // Residue focus & highlight effect
+  useEffect(() => {
+    if (!pluginCreated || !pluginRef.current || !structureRef.current) return;
+    const localPlugin = pluginRef.current;
+    const structure = structureRef.current;
+    const structure2 = structure2Ref.current;
+
+    async function applyResidueHighlight() {
+      try {
+        if (componentRefRef.current) {
+          try {
+            await localPlugin.managers.structure.hierarchy.removeComponent([componentRefRef.current]);
+          } catch (e) {}
+          componentRefRef.current = null;
+        }
+        if (componentRefRef2.current) {
+          try {
+            await localPlugin.managers.structure.hierarchy.removeComponent([componentRefRef2.current]);
+          } catch (e) {}
+          componentRefRef2.current = null;
+        }
+
+        if (pocketComponentRefRef.current.length > 0) {
+          try {
+            await localPlugin.managers.structure.hierarchy.removeComponent(pocketComponentRefRef.current);
+          } catch (e) {}
+          pocketComponentRefRef.current = [];
+        }
+
+        if (!residueIndex) {
+          localPlugin.managers.structure.selection.clear();
+          if (autoZoomOnSelect) {
+            try {
+              localPlugin.managers.camera.reset();
+            } catch (camErr) {}
+          }
+          return;
+        }
+
+        let lociList: any[] = [];
+        const expression = MS.struct.generator.atomGroups({
+          'residue-test': MS.core.rel.eq([
+            MS.struct.atomProperty.macromolecular.auth_seq_id(),
+            residueIndex
+          ])
+        });
+
+        const residueComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+          structure,
+          expression,
+          'mutated-residue',
+          { label: `Mutated Residue ${residueIndex}` }
+        );
+
+        if (residueComponent) {
+          componentRefRef.current = residueComponent.ref;
+
+          await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
+            type: 'ball-and-stick',
+            color: 'uniform',
+            colorParams: { value: residueColorHex }
+          });
+
+          if (showPolarContacts) {
+            try {
+              await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
+                type: 'interactions',
+                color: 'uniform',
+                colorParams: { value: 0x38BDF8 }
+              });
+            } catch (intrErr) {}
+          }
+
+          if (show3DLabels) {
+            try {
+              await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
+                type: 'label',
+                typeParams: {
+                  level: 'residue',
+                  background: true,
+                  backgroundOpacity: 0.85,
+                  backgroundColor: 0x090d16,
+                  borderWidth: 0.2,
+                  residueScale: 1.3,
+                  offsetX: 2.0,
+                  offsetY: 2.0,
+                  offsetZ: 1.5,
+                  tether: true,
+                  tetherLength: 1.5,
+                  tetherBaseWidth: 0.3,
+                  attachment: 'bottom-left'
+                }
+              });
+            } catch (labelErr) {}
+          }
+
+          try {
+            const selection = Script.getStructureSelection(expression, structure.obj.data);
+            const loci = StructureSelection.toLociWithSourceUnits(selection);
+            lociList.push(loci);
+          } catch (e) {}
+        }
+
+        if (structure2 && compareResidueIndex !== null && compareResidueIndex !== undefined) {
+          const expression2 = MS.struct.generator.atomGroups({
+            'residue-test': MS.core.rel.eq([
+              MS.struct.atomProperty.macromolecular.auth_seq_id(),
+              compareResidueIndex
+            ])
+          });
+
+          const residueComponent2 = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+            structure2,
+            expression2,
+            'compare-mutated-residue',
+            { label: `Compare Residue ${compareResidueIndex}` }
+          );
+
+          if (residueComponent2) {
+            componentRefRef2.current = residueComponent2.ref;
+            await localPlugin.builders.structure.representation.addRepresentation(residueComponent2, {
+              type: 'ball-and-stick',
+              color: 'uniform',
+              colorParams: { value: 0xEC4899 }
+            });
+            try {
+              const selection2 = Script.getStructureSelection(expression2, structure2.obj.data);
+              const loci2 = StructureSelection.toLociWithSourceUnits(selection2);
+              lociList.push(loci2);
+            } catch (e) {}
+          }
+        }
+
+        // Pocket highlights
+        if (showPocket && computedPocket && computedPocket.pocketResidues.length > 0) {
+          const refs: any[] = [];
+          for (const res of computedPocket.pocketResidues) {
+            try {
+              const pExpression = MS.struct.generator.atomGroups({
+                'residue-test': MS.core.rel.eq([
+                  MS.struct.atomProperty.macromolecular.auth_seq_id(),
+                  res.index
+                ])
+              });
+
+              const pocketResComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+                structure,
+                pExpression,
+                `pocket-res-${res.index}`,
+                { label: `Pocket ${res.name}` }
+              );
+
+              if (pocketResComponent) {
+                refs.push(pocketResComponent.ref);
+                await localPlugin.builders.structure.representation.addRepresentation(pocketResComponent, {
+                  type: 'ball-and-stick',
+                  color: 'uniform',
+                  colorParams: { value: 0xEAB308 }
+                });
+              }
+            } catch (pErr) {}
+          }
+          pocketComponentRefRef.current = refs;
+        }
+
+        if (lociList.length > 0) {
+          localPlugin.managers.structure.selection.clear();
+          for (const loci of lociList) {
+            localPlugin.managers.structure.selection.fromLoci('add', loci);
+          }
+          if (autoZoomOnSelect) {
+            localPlugin.managers.camera.focusLoci(lociList, { durationMs: cameraDuration });
+          }
+        }
+      } catch (err) {
+        console.error("Residue focus error:", err);
+      }
+    }
+
+    applyResidueHighlight();
+  }, [
+    pluginCreated,
+    residueIndex,
+    compareResidueIndex,
+    showPolarContacts,
+    show3DLabels,
+    residueColorHex,
+    autoZoomOnSelect,
+    cameraDuration,
+    showPocket,
+    computedPocket
+  ]);
+
+  return {
+    structureRef,
+    structure2Ref,
+    componentRefRef,
+    componentRefRef2,
+    plddtFilter, setPlddtFilter,
+    templateSource, setTemplateSource,
+    viewerStyle, setViewerStyle,
+    pdbText, setPdbText,
+    bFactorMetadata
+  };
+}
