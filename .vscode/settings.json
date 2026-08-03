@@ -1,3 +1,5 @@
 {
-  "workbench.startupEditor": "readme"
+  "workbench.startupEditor": "readme",
+  "window.title": "${activeEditorShort}${dirty}",
+  "workbench.editor.showTabs": "multiple"
 }

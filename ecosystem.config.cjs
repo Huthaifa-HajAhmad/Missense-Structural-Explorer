@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "missense-fold",
       script: "dist/server.cjs",
-      cwd: "c:\\Users\\HSA19\\antigravity\\Missense-Structural-Explorer",
+      cwd: __dirname,
       instances: 1,
       exec_mode: "fork",
       max_memory_restart: "1G",
@@ -15,7 +15,7 @@ module.exports = {
       out_file: "logs/pm2-out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
       env: {
-        NODE_ENV: "development",
+        NODE_ENV: "production",
         PORT: "3000"
       },
       env_production: {

@@ -1,0 +1,8 @@
+node_modules
+.git
+.github
+logs
+dist
+temp_jobs
+tools/.venv
+tools/__pycache__
