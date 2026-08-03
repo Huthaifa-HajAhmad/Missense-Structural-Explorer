@@ -49,10 +49,10 @@ This application resolves these bottlenecks by bridging the gap between flat tex
 
 ## 4. Primary User Workflows
 
-### Workflow 1: The Preset Diagnostic Walkthrough
-1. **Selection**: User clicks on a predefined clinical variant preset (e.g., `PAH p.Arg408Trp` - Phenylketonuria risk).
+### Workflow 1: Querying a Reference Variant
+1. **Search**: User inputs a well-documented variant (e.g. `PAH p.Arg408Trp`).
 2. **Auto-Display**: The 3D viewport instantly downloads the PAH structure, highlights residue 408, zooms into the tetramerization subunit interface, and renders nearby residues.
-3. **Medical Insights**: The report panel opens, presenting pre-analyzed clinical data showing why disrupting these subunit hydrogen bonds causes tetramer destabilization.
+3. **Medical Insights**: The report panel opens, presenting live clinical and biophysical metrics showing why disrupting these subunit hydrogen bonds causes tetramer destabilization.
 
 ### Workflow 2: The Custom Mutation Discovery Walkthrough
 1. **Search & Resolve**: User types a novel gene (e.g., `LPCAT3`) and its clinical amino acid variant (e.g., `p.Lys115Met`).

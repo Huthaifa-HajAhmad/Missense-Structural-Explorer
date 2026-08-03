@@ -30,34 +30,35 @@ By unifying GPU-accelerated **3D structural visualization (Molstar)**, **determi
 > This application is built for research and educational purposes. It is **not** certified for clinical diagnostic use, nor is it HIPAA-compliant.
 > 
 > * **No Protected Health Information (PHI)**: You must not enter, upload, or process any patient-identifiable data (e.g., patient names, MRNs, patient-linked DNA profiles).
-> * **Third-Party API Disclosures**: Genomic variants, protein designations, and transcript parameters are transmitted to third-party endpoints to perform lookup operations, including **Google Gemini AI**, **NCBI ClinVar**, **EBI AlphaFold**, and **Ensembl VEP** APIs.
-> * **Audit Trails**: Backend security audit logs only record public genomic notations (such as HGVS or UniProt accession IDs) and never ingest patient-identifying data.
+> * **Third-Party API Disclosures**: Genomic variants, protein designations, and transcript parameters are transmitted to third-party endpoints to perform lookup operations, including **Google Gemini AI**, **NCBI ClinVar**, **EBI AlphaFold**, **Ensembl VEP**, **Tamarind Bio (ThermoMPNN)**, and **Genos.us** APIs.
+* **Audit Trails**: Backend security audit logs only record public genomic notations (such as HGVS or UniProt accession IDs) and never ingest patient-identifying data.
 
 ---
 
-## 🗂️ Rare Disease Presets & Fallback Dataset
+## 🗂️ Dynamic Clinical Variant Querying
 
-The application pre-loads three canonical rare disease presets, complete with high-fidelity pre-analyzed fallback profiles for offline/sandbox environments:
+Rather than relying on static, hardcoded variants, the application dynamically processes, folds, and analyzes user-submitted genes and missense mutations on-the-fly. For testing and demonstration, canonical rare disease variants can be directly queried:
 
-1.  **PAH (p.Arg408Trp)** — *Phenylketonuria (PKU)*: Catalytic domain substitution that abolishes crucial inter-subunit salt bridges with Asp315 and Asp320, disrupting quaternary tetramerization and causing enzyme aggregation.
-2.  **FGFR3 (p.Gly380Arg)** — *Achondroplasia*: Transmembrane domain mutation that stabilizes ligand-independent helix dimerization, leading to constitutive activation and severe growth plate inhibition (dwarfism).
-3.  **GBA1 (p.Leu483Pro)** — *Gaucher Disease*: Ig-like domain mutation where Proline acts as a beta-sheet breaker, triggering structural folding collapse and ER-associated degradation.
+1. **PAH (p.Arg408Trp)** — *Phenylketonuria (PKU)*: Catalytic domain substitution that abolishes crucial inter-subunit salt bridges with Asp315 and Asp320, disrupting quaternary tetramerization and causing enzyme aggregation.
+2. **FGFR3 (p.Gly380Arg)** — *Achondroplasia*: Transmembrane domain mutation that stabilizes ligand-independent helix dimerization, leading to constitutive activation and severe growth plate inhibition (dwarfism).
+3. **GBA1 (p.Leu483Pro)** — *Gaucher Disease*: Ig-like domain mutation where Proline acts as a beta-sheet breaker, triggering structural folding collapse and ER-associated degradation.
 
 ---
 
 ## 🚀 Local Quickstart
 
 ### Prerequisites
-*   **Node.js** (v20+ recommended)
+*   **Node.js** (>=22.5.0 required, matches runtime engine)
 *   **Google Gemini API Key**: Anyone with a Google account can obtain a free API key from [Google AI Studio](https://aistudio.google.com/).
 *   **FoldX Local Setup (Required for Biophysical Modeling)**:
     1. Register and download FoldX 5 from the [FoldX Suite](https://foldxsuite.crg.eu/) (Academic/Non-commercial license is free).
     2. Place the downloaded Windows executable (e.g. `foldx_1_20270131.exe`) inside the `tools/foldx/` folder.
-    3. Copy the `molecules/` folder containing standard amino acid parameter/rotamer libraries (such as `rotabase.txt`) from your FoldX distribution directly into the `tools/foldx/molecules/` directory.
+    3. Copy the `molecules/` folder and the `rotabase.txt` file from your FoldX distribution directly into the `tools/foldx/` directory.
     4. (Optional) Alternatively, you can define `FOLDX_BINARY` in your `.env` pointing to the absolute path of the executable.
-*   **Python 3 (Required for ESMC Local Embedding Shift predictions)**:
-    1. Ensure Python 3 is installed and executable on the local system path.
-    2. The application utilizes a python-based sidecar (`tools/model_server.py`) to run local deep learning models.
+*   **Python 3 & uv tool (Required for local VESM sidecar predictions)**:
+    1. Ensure Python 3 (v3.10+) is installed.
+    2. Install the **uv** command-line manager (highly optimized package runner) by running `pip install uv`.
+    3. The application spawns the sidecar in the background using `python -m uv run tools/model_server.py`.
 
 ### Installation & Execution
 1.  **Clone the Repository**:
@@ -73,7 +74,8 @@ The application pre-loads three canonical rare disease presets, complete with hi
     Create a `.env` file in the root directory:
     ```env
     GEMINI_API_KEY=your_free_gemini_api_key_here
-    TAMARIND_API_KEY=your_tamarind_bio_api_key_here
+    APP_SESSION_SECRET=32_character_random_string_here
+    BIOHUB_API_TOKEN=your_biohub_api_token_here
     APP_API_TOKEN=optional_secret_api_token
     ```
 4.  **Run Development Server**:
@@ -111,4 +113,5 @@ For deep-dives into specific product features and designs, refer to the `/doc` i
 *   **[Technical Architecture Design](./doc/ARCHITECTURE.md)**: Network topology, API gateway routes, and database proxy mechanics.
 *   **[Interactive Feature Catalog](./doc/FEATURES.md)**: 3D presets, secondary structure color themes, and residue properties sourcing.
 *   **[Technical Limitations & Constraints](./doc/LIMITATIONS.md)**: Biophysical modeling boundaries, EBI rate limits, and GPU sandboxing constraints.
+*   **[Future Work & Enhancements Roadmap](./doc/FUTURE_WORK.md)**: Alternative machine learning models, visualization upgrades, and technical roadmap items.
 *   **[Documentation Index](./doc/README.md)**: Detailed navigation directory.

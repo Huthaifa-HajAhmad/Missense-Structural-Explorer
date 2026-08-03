@@ -88,3 +88,26 @@ In production, the application is designed to be hosted in a containerized envir
 * **PII Redaction**: Free-text clinical narrative directions (`userDirections`) undergo regular-expression-based screening to redact phone numbers, emails, SSNs, dates of birth, and patient/medical record IDs before sending to third-party APIs.
 * **HTTPS Enforcement**: The Node.js Express server runs on plain HTTP (port 3000) inside its isolated container or sandbox environment. Secure HTTPS/TLS termination is decoupled from the application layer and must be handled at the ingress or load balancer layer (e.g., GCP HTTPS Load Balancer) to ensure all clinical variant data in transit is encrypted.
 * **Access Controls**: Production access can be secured using GCP Identity-Aware Proxy (IAP) to authenticate users via corporate Single Sign-On (SSO) before they can connect to the application.
+* **Horizontal Scaling State Coordination**: All process-level transient locks (such as in-flight FoldX prewarms) are persisted in a shared SQLite database (`data/shared_state.sqlite`) using Node 22's built-in `node:sqlite` database, allowing multiple server replicas to coordinate tasks and prevent duplicate background runs without in-memory synchronization.
+
+---
+
+## 5. Architectural Principles: Non-Blocking Fast-Degradation Design
+
+To ensure MissenseResolve® provides instant UI responsiveness (<1.5s initial load) even when invoking multiple third-party academic servers, external APIs, or local deep learning models, all agents and developers modifying this codebase MUST strictly follow the **Non-Blocking Fast-Degradation Principle**:
+
+### A. Strict Timeout & Fast-Race Deadlines
+- **Deep Learning Model Sidecars** (`ESM-3`, `ESM-C`, `ESM-2 3B`, `SaProt`):
+  Inside `POST /api/v1/analyze-variant`, deep learning sidecar promises MUST be raced against a **2.5-second fast deadline** (`Promise.race([sidecarPromise, timeoutPromise])`). Slow ML sidecars must NEVER delay the primary Clinical, ClinVar, ACMG, and Predictor evidence rendering.
+- **External Web Service Submissions** (`DynaMut2`, `DDMut`, `ThermoMPNN`):
+  Inside `POST /api/v1/biophysics/verify-stability`, remote job submission calls MUST be raced against a **300ms deadline**. Local FoldX predictions (~2ms cached) and mutant PDB coordinate buffers MUST return immediately to the frontend, allowing remote job submissions to continue asynchronously in the background.
+- **Online Conservation & API Queries** (`popEVE`, `NCBI E-utilities`):
+  Online HTTP lookups to external academic databases (e.g., `data.evemodel.org`) MUST be raced with a **2.0-second deadline** so external network latency does not freeze the Evidence tab.
+
+### B. Mandatory LRU Caching Layer for All External Data
+- All external data fetching functions MUST implement a dedicated in-memory `LRUCache` instance (or check persistent disk caches).
+- Every newly created data stream (e.g. UniProt FASTA sequences via `uniprotSeqCache`, ClinVar queries, STRING-db interactions, popEVE scores, PDB coordinate files) MUST check its cache key at `t=0` before making an HTTP network call.
+
+### C. Asynchronous Progressive Enhancement (UI/UX)
+- Heavy LLM narrative text generations (e.g., `POST /api/v1/analyze-variant-narrative`) MUST be invoked asynchronously by the client AFTER the initial JSON evidence payload is set, allowing UI components to render structured evidence metrics instantly while narratives stream in the background.
+- The UI MUST gracefully handle `null` or `unavailable` states from slow or timed-out sub-modules without crashing or blocking other evidence cards.

@@ -4,8 +4,8 @@ The **MissenseResolve®** offers a suite of interactive, clinical-grade tools de
 
 ---
 
-## 1. Clinically Significant Variant Presets
-To facilitate immediate evaluation, the dashboard pre-loads highly documented, pathogenic, and VUS (Variant of Uncertain Significance) presets. Selecting a preset loads its corresponding physical coordinates instantly:
+## 1. Dynamic Clinical Variant Querying
+Instead of relying on static pre-calculated variants, the dashboard dynamically processes, aligns, and models user-submitted missense mutations on-the-fly. Key clinical variants often used for testing include:
 
 * **PAH (p.Arg408Trp)**: Phenylalanine-4-hydroxylase catalytic domain mutation. Disrupts crucial inter-subunit salt bridges (with Asp315 and Asp320), destabilizing the tetrameric oligomerization interface and causing severe classical Phenylketonuria.
 * **FGFR3 (p.Gly380Arg)**: Fibroblast growth factor receptor 3 transmembrane mutation. Stabilizes ligand-independent receptor dimerization in the lipid bilayer, leading to constitutive activation and Achondroplasia dwarfism.
@@ -65,7 +65,7 @@ Provides automated screening for several variant rules based on the ACMG guideli
 ## 5. Biophysical Mutant Modeling Engine & Consensus Stability Verdicts
 This advanced research feature models mutated coordinate structures on the fly:
 
-* **Stochastic Multi-Run Folding**: Runs FoldX `BuildModel` 3 times to calculate average stability ($\Delta\Delta G$ Mean $\pm$ SD) to ensure rotamer sampling reproducibility and clamp severe outliers.
+* **Stochastic Multi-Run Folding**: Runs FoldX `BuildModel` 5 times to calculate average stability ($\Delta\Delta G$ Mean $\pm$ SD) to ensure rotamer sampling reproducibility and clamp severe outliers.
 * **Smart Triage Classification**: Evaluates secondary structure patterns (e.g. Proline/Glycine substitutions in helices/sheets), volume expansion in hydrophobic cores, and pLDDT structure confidence to classify variants before executing heavy simulations.
 - **Triage Override**: Allows researchers to force-enable mutant structure modeling even for low-disruption variants where WT and Mutant rigid backbones are identical, preventing misleading structural comparisons.
 - **Multi-Method Consensus Verdict**: Aggregates FoldX, DynaMut2, DDMut, RaSP, and ThermoMPNN (via Tamarind Bio remote REST API) predictions to determine a consolidated stability verdict (High Misfolding Risk, Moderate Misfolding Risk, or Low Misfolding Risk).
@@ -118,4 +118,13 @@ The biophysical properties are derived and normalized (0–100 scale) from estab
     *   *Citation*: Zamyatnin AA. "Protein volume in solution." *Prog Biophys Mol Biol.* 1972;24:107-23. PMID: 4566650.
 *   **Polarity & Charge**: Classified according to standard amino acid properties at physiological pH (pH 7.4). Comparisons align with the **Grantham scale** difference calculations.
     *   *Citation*: Grantham R. "Amino acid difference formula to help explain protein evolution." *Science.* 1974 Sep 6;185(4154):862-4. PMID: 4843792.
+
+---
+
+## 9. ESM Representation Models & ESM3 Allosteric Perturbations
+To capture sequence-context constraints and allosteric disruptions, the diagnostic pipeline integrates deep transformer-based protein representations:
+
+* **ESMC-6B & VESM-150M zero-shot sequence constraints**: Renders actual, non-fabricated likelihoods ($P_{wt}$, $P_{mut}$), log-likelihood ratios ($\Delta$ LLR), zero-shot mutant percentile rank, and positional Shannon entropy in bits, computed from the model logits.
+* **ESM3 3D Allosteric Disruption**: Computes L2-norm distance metrics of the hidden state embeddings between WT and Mutant sequences across the structure, plotting localized perturbation profiles and mapping allosteric structural drift.
+* **Generative Local Coordinate Refinement**: Leverages ESM3's structural track and coordinate masking to perform localized mutant sidechain conformation refinement, aligning with standard biophysical simulations.
 

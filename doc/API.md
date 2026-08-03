@@ -213,3 +213,41 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Route**: `GET /api/v1/alphafold-pdb/:uniprotId`
 * **Auth**: 🔒 (Bearer Token)
 * **Description**: Proxies coordinate fetching for AlphaFold models from the EMBL-EBI CDN to bypass browser cross-origin constraints.
+
+### 12. Submit Biophysical Stability Job
+* **Routes**: 
+  - `POST /api/v1/dynamut2-submit`
+  - `POST /api/v1/ddmut-submit`
+  - `POST /api/v1/thermompnn-submit`
+* **Auth**: 🔒 (Bearer Token)
+* **Request Body**: (JSON payload containing mutation coordinates and parameters)
+* **Description**: Starts an asynchronous stability job via remote server request and returns a tracking `jobId` immediately.
+
+### 13. Poll Biophysical Stability Job
+* **Routes**: 
+  - `GET /api/v1/dynamut2-job/:jobId`
+  - `GET /api/v1/ddmut-job/:jobId`
+  - `GET /api/v1/thermompnn-job/:jobId`
+* **Auth**: 🔒 (Bearer Token)
+* **Description**: Retrieves current simulation execution progress. Once complete, returns stability change values (ddG) and status values.
+
+### 14. ESMfold & ESM3 Structure Validation
+* **Routes**:
+  - `POST /api/v1/esmfold` (Predict structures from primary sequence using ESMFold)
+  - `POST /api/v1/esm3-structure-eval` (Evaluate 3D templates with remote ESM3 models)
+  - `POST /api/v1/validate-biohub-token` (Check status of the BioHub API token)
+* **Auth**: 🔒 (Bearer Token)
+* **Description**: Interface modules to evaluate remote language model predictions and generate structures.
+
+### 15. Structural Diff & Superposition
+* **Routes**:
+  - `POST /api/v1/structural-diff` (Align wt/mutant Cα atoms and compute local RMSD displacements)
+  - `POST /api/v1/structural-align` (Superimpose two arbitrary structure coordinate files using Kabsch's SVD algorithm)
+* **Auth**: 🔒 (Bearer Token)
+* **Description**: High-performance alignment pipelines utilizing Singular Value Decomposition to map conformational shifts.
+
+### 16. Server Diagnostics
+* **Route**: `GET /api/v1/diagnostics`
+* **Auth**: None
+* **Description**: Provides runtime statistics, sidecar availability checks, FoldX local build state, and process memory configurations.
+

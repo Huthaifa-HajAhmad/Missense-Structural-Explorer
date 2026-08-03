@@ -6,7 +6,7 @@ This document outlines the step-by-step procedure to deploy the Missense & Fold 
 
 ## Prerequisites
 
-1. **Node.js**: Install Node.js LTS (v20+ recommended).
+1. **Node.js**: Install Node.js LTS (v22+ required for built-in `node:sqlite` support).
 2. **PM2**: Install globally via npm:
    ```bash
    npm install -g pm2
@@ -60,6 +60,12 @@ APP_API_TOKEN="generated-24-byte-token"
 
 # Generate via: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 APP_SESSION_SECRET="generated-32-byte-session-secret"
+
+# Secret key for sidecar inter-process authentication (optional, auto-generated at startup if left blank)
+SIDECAR_SECRET=""
+
+# Optional token used to authenticate requests to the BioHub ESM3 API
+BIOHUB_API_TOKEN="your_biohub_api_token_here"
 ```
 
 ### Step 3: Build & Bundle the Application
@@ -124,7 +130,7 @@ Expected output:
 ```
 
 ### Audit Log Rotation
-Audit logs are written to `logs/audit.jsonl`. Server stdout and stderr logs are managed by PM2 and written to `logs/pm2-out.log` and `logs/pm2-err.log`. You can install the PM2 logrotate module to handle automatic logs compression and rotation:
+Audit logs are written to `logs/audit.jsonl` and are automatically rotated by the application once the file exceeds 10MB (rotated to `audit.1.jsonl`). Server stdout and stderr logs are managed by PM2 and written to `logs/pm2-out.log` and `logs/pm2-err.log`. You can install the PM2 logrotate module to handle automatic logs compression and rotation for PM2's own logs:
 ```bash
 pm2 install pm2-logrotate
 ```
