@@ -1,0 +1,16 @@
+/* ============================================================
+   MOLSTAR OVERRIDES
+   ============================================================ */
+.msp-control-row input[type="range"],
+.msp-slider-track,
+.msp-slider-thumb {
+  accent-color: var(--cs-accent-clay) !important;
+}
+.msp-control-row select {
+  border-radius: 6px !important;
+  color: inherit !important;
+  background-color: transparent !important;
+}
+.msp-viewport-controls { justify-content: flex-end !important; }
+.msp-viewport-controls-bottom { justify-content: flex-end !important; }
+.msp-viewport-controls-buttons { justify-content: flex-end !important; }

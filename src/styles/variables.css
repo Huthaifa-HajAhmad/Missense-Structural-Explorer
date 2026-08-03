@@ -1,0 +1,172 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ============================================================
+   CLAUDE SCIENCE DESIGN SYSTEM
+   Tokens extracted from claude.com/product/claude-science
+   Background: warm cream neutrals (#F9F8F6)
+   Cards: white #FFFFFF with hairline borders
+   Accent: magenta/pink #D946AA (pathogenic), clay #C46849 (brand)
+   ============================================================ */
+
+:root {
+  /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
+  --cs-bg:            #F9F8F6;   /* warm paper-white background */
+  --cs-bg-subtle:     #F3F0EA;   /* subtle hover state background */
+  --cs-surface:       #FFFFFF;   /* clean white card surfaces */
+  --cs-surface-2:     #FAF9F6;   /* nested panel sub-surface */
+
+  --cs-border:        #E5E1DC;   /* hairline border color */
+  --cs-border-subtle: #ECEAE4;   /* divider line color */
+
+  --cs-text-primary:  #191816;   /* near-black ink color */
+  --cs-text-secondary:#666055;   /* elegant charcoal secondary text */
+  --cs-text-muted:    #8F897E;   /* dimmed label colors */
+
+  --cs-accent-clay:   #C46849;   /* Anthropic brand terracotta / clay */
+  --cs-accent-mag:    #D946AA;   /* variant marker hot pink */
+  --cs-accent-mag-soft: #FDF2F9; /* light pink background */
+
+  /* pLDDT quality colors */
+  --cs-plddt-vhigh:   #2055FF;   /* ≥90 — deep blue */
+  --cs-plddt-high:    #00CFCF;   /* 70-90 — cyan */
+  --cs-plddt-low:     #F5D900;   /* 50-70 — yellow */
+  --cs-plddt-vlow:    #FF7D45;   /* <50 — orange */
+
+  --cs-radius-card:   12px;
+  --cs-radius-input:  8px;
+  --cs-radius-badge:  6px;
+  --cs-radius-pill:   999px;
+
+  --cs-shadow-card:   0 1px 3px rgba(25, 24, 22, 0.04), 0 0 0 1px var(--cs-border);
+  --cs-shadow-sm:     0 1px 2px rgba(25, 24, 22, 0.03);
+
+  /* === FONTS === */
+  --cs-font-serif:    'Lora', Georgia, 'Times New Roman', serif;
+  --cs-font-sans:     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --cs-font-mono:     'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* === TYPE SCALE (8 Tiers + Stat Value) === */
+  --cs-font-size-display:       22px;
+  --cs-font-weight-display:     500;
+  
+  --cs-font-size-screen-title:  18px;
+  --cs-font-weight-screen-title: 500;
+  
+  --cs-font-size-section-label: 13px;
+  --cs-font-weight-section-label: 500;
+  
+  --cs-font-size-body:          14px;
+  --cs-font-weight-body:        400;
+  
+  --cs-font-size-table-header:  12px;
+  --cs-font-weight-table-header: 500;
+  
+  --cs-font-size-numeric:       13px;
+  --cs-font-weight-numeric:     400;
+  
+  --cs-font-size-caption:       12px;
+  --cs-font-weight-caption:     400;
+  
+  --cs-font-size-badge:         11px;
+  --cs-font-weight-badge:       500;
+
+  --cs-font-size-stat-value:    20px;
+  --cs-font-weight-stat-value:  600;
+
+  /* Weight Primitives */
+  --cs-font-weight-regular:     400;
+  --cs-font-weight-medium:      500;
+  --cs-font-weight-semibold:    600;
+
+  /* === LAYOUT DIMENSIONS === */
+  --cs-chrome-height:           56px;
+  --cs-content-max-width:       680px;
+  --cs-search-max-width:        1280px;
+  --cs-context-rail-width:      35%;
+
+  /* === SEMANTIC COLOR ROLES (Light Mode) === */
+  --cs-accent:                  var(--cs-accent-clay);
+  --cs-text-success:            #16A34A;
+  --cs-bg-success:              #DCFCE7;
+  --cs-text-warning:            #D97706;
+  --cs-bg-warning:              #FEF3C7;
+  --cs-text-danger:             #DC2626;
+  --cs-bg-danger:               #FEE2E2;
+  --cs-surface-1:               #FFFFFF;
+  --cs-surface-2:               #FAF9F6;
+
+  /* Legacy mappings for backward compatibility */
+  --cs-good:                    var(--cs-text-success);
+  --cs-good-soft:               var(--cs-bg-success);
+  --cs-warn:                    var(--cs-text-warning);
+  --cs-warn-soft:               var(--cs-bg-warning);
+  --cs-danger:                  var(--cs-text-danger);
+  --cs-danger-soft:             var(--cs-bg-danger);
+
+  --cs-text-display:            var(--cs-font-size-display);
+  --cs-text-screen:             var(--cs-font-size-screen-title);
+  --cs-text-section:            var(--cs-font-size-section-label);
+  --cs-text-body:               var(--cs-font-size-body);
+  --cs-text-th:                 var(--cs-font-size-table-header);
+  --cs-text-numeric:            var(--cs-font-size-numeric);
+  --cs-text-caption:            var(--cs-font-size-caption);
+  --cs-text-badge:              var(--cs-font-size-badge);
+
+  /* Micro text and SVG dot variables */
+  --cs-text-micro:              10px;
+  --cs-font-weight-micro:       500;
+  --cs-dot-opacity-faint:       0.35;
+  --cs-dot-opacity-focus:       1.0;
+  --cs-grid-line:               var(--cs-border-subtle);
+}
+
+/* === DARK MODE OVERRIDES === */
+.dark {
+  --cs-bg:            #191816;   /* deep ink-black background */
+  --cs-bg-subtle:     #23211E;
+  --cs-surface:       #2A2724;   /* dark card surfaces */
+  --cs-surface-2:     #201E1B;
+
+  --cs-border:        #3C3934;
+  --cs-border-subtle: #322F2A;
+
+  --cs-text-primary:  #F9F8F6;
+  --cs-text-secondary:#B2ABA0;
+  --cs-text-muted:    #827B70;
+
+  --cs-shadow-card:   0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px var(--cs-border);
+
+  /* === SEMANTIC COLOR ROLES (Dark Mode) === */
+  --cs-accent:                  var(--cs-accent-clay);
+  --cs-text-success:            #4ADE80;
+  --cs-bg-success:              rgba(22, 163, 74, 0.15);
+  --cs-text-warning:            #FBBF24;
+  --cs-bg-warning:              rgba(217, 119, 6, 0.15);
+  --cs-text-danger:             #F87171;
+  --cs-bg-danger:               rgba(220, 38, 38, 0.15);
+  --cs-surface-1:               #2A2724;
+  --cs-surface-2:               #201E1B;
+}
+
+@theme {
+  --color-cs-bg: var(--cs-bg);
+  --color-cs-bg-subtle: var(--cs-bg-subtle);
+  --color-cs-surface: var(--cs-surface);
+  --color-cs-surface-2: var(--cs-surface-2);
+  --color-cs-border: var(--cs-border);
+  --color-cs-border-subtle: var(--cs-border-subtle);
+  --color-cs-text-primary: var(--cs-text-primary);
+  --color-cs-text-secondary: var(--cs-text-secondary);
+  --color-cs-text-muted: var(--cs-text-muted);
+  --color-cs-accent-clay: var(--cs-accent-clay);
+  --color-cs-accent-mag: var(--cs-accent-mag);
+  --color-cs-good: var(--cs-good);
+  --color-cs-good-soft: var(--cs-good-soft);
+  --color-cs-warn: var(--cs-warn);
+  --color-cs-warn-soft: var(--cs-warn-soft);
+  --color-cs-danger: var(--cs-danger);
+  --color-cs-danger-soft: var(--cs-danger-soft);
+  
+  --font-size-cs-micro: var(--cs-text-micro);
+  --font-weight-cs-micro: var(--cs-font-weight-micro);
+}
