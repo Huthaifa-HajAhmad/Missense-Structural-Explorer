@@ -54,3 +54,11 @@ Avoid wildcard file reads or large grep sweeps. Use symbol indexing to navigate 
 ```bash
 repowise search --mode symbol <symbol_name>
 ```
+
+---
+
+## 6. Non-Blocking Fast-Degradation Design Principle
+When modifying or creating API routes, endpoints, or data fetching services, you MUST enforce the **Non-Blocking Fast-Degradation Design Principle**:
+1. **Never Block on Slow Sub-Services**: Deep learning model sidecars (`ESM-3`, `ESM-C`, `SaProt`, `ESM-2`) MUST be raced with a **2.5s deadline** so primary genomic/clinical evidence renders in <1.5s.
+2. **Never Block on Remote Web Service Submissions**: Remote submissions (`DynaMut2`, `DDMut`, `ThermoMPNN`) in `/verify-stability` MUST be raced with a **300ms deadline** so local FoldX PDB structures return instantly.
+3. **Mandatory Caching**: Every external network query MUST check a dedicated `LRUCache` at `t=0`.
