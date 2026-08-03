@@ -1,0 +1,193 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { apiRouter } from "../routes.ts";
+import { encryptSession } from "../utils.ts";
+
+describe("Session Authentication & Key Validation", () => {
+  beforeEach(() => {
+    process.env.APP_SESSION_SECRET = "dev-session-secret-must-be-changed-in-prod";
+  });
+
+  describe("/analyze-variant Session Validation", () => {
+    it("should return SESSION_EXPIRED when session has expired on /analyze-variant", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /analyze-variant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const biophysicsServices = await import("../services/biophysics.ts");
+
+      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M");
+      const clinvarSpy = vi.spyOn(externalServices, "fetchClinVarData").mockResolvedValue({} as any);
+      const predSpy = vi.spyOn(externalServices, "fetchPredictorData").mockResolvedValue({} as any);
+      const consSpy = vi.spyOn(externalServices, "fetchConservationData").mockResolvedValue({} as any);
+      const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
+      const freqSpy = vi.spyOn(externalServices, "fetchGnomadVariantFrequency").mockResolvedValue({} as any);
+      const pdbSpy = vi.spyOn(externalServices, "fetchBestPdbStructure").mockResolvedValue({} as any);
+      const afPdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
+      const constSpy = vi.spyOn(externalServices, "fetchGnomadGeneConstraint").mockResolvedValue({} as any);
+      const featSpy = vi.spyOn(externalServices, "fetchUniprotFeatures").mockResolvedValue({} as any);
+
+      const disSpy = vi.spyOn(biophysicsServices, "predictStructuralDisruption").mockResolvedValue({ level: "low", reason: "mocked", plddt: 100 } as any);
+      const esmSpy = vi.spyOn(biophysicsServices, "runEsm2Eval").mockResolvedValue({ llr: -5, verdict: "neutral" } as any);
+
+      const encryptSecret = "dev-session-secret-must-be-changed-in-prod";
+      const expiredSessionId = encryptSession(
+        { apiKey: "test-key-expired", expiresAt: Date.now() - 5000 },
+        encryptSecret
+      );
+      
+      const req: any = {
+        body: {
+          gene: "PAH",
+          variant: "p.Met1Val",
+          uniprotId: "P00439"
+        },
+        headers: {
+          "authorization": "Bearer dummy-token",
+          "x-gemini-session-id": expiredSessionId
+        }
+      };
+      
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+      
+      await handler(req, res, () => {});
+      
+      expect(statusCode).toBe(401);
+      expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
+
+      seqSpy.mockRestore();
+      clinvarSpy.mockRestore();
+      predSpy.mockRestore();
+      consSpy.mockRestore();
+      strSpy.mockRestore();
+      freqSpy.mockRestore();
+      pdbSpy.mockRestore();
+      afPdbSpy.mockRestore();
+      constSpy.mockRestore();
+      featSpy.mockRestore();
+      disSpy.mockRestore();
+      esmSpy.mockRestore();
+    });
+
+    it("should return SESSION_EXPIRED when session is completely invalid on /analyze-variant", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /analyze-variant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const biophysicsServices = await import("../services/biophysics.ts");
+
+      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M");
+      const clinvarSpy = vi.spyOn(externalServices, "fetchClinVarData").mockResolvedValue({} as any);
+      const predSpy = vi.spyOn(externalServices, "fetchPredictorData").mockResolvedValue({} as any);
+      const consSpy = vi.spyOn(externalServices, "fetchConservationData").mockResolvedValue({} as any);
+      const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
+      const freqSpy = vi.spyOn(externalServices, "fetchGnomadVariantFrequency").mockResolvedValue({} as any);
+      const pdbSpy = vi.spyOn(externalServices, "fetchBestPdbStructure").mockResolvedValue({} as any);
+      const afPdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
+      const constSpy = vi.spyOn(externalServices, "fetchGnomadGeneConstraint").mockResolvedValue({} as any);
+      const featSpy = vi.spyOn(externalServices, "fetchUniprotFeatures").mockResolvedValue({} as any);
+
+      const disSpy = vi.spyOn(biophysicsServices, "predictStructuralDisruption").mockResolvedValue({ level: "low", reason: "mocked", plddt: 100 } as any);
+      const esmSpy = vi.spyOn(biophysicsServices, "runEsm2Eval").mockResolvedValue({ llr: -5, verdict: "neutral" } as any);
+
+      const req: any = {
+        body: {
+          gene: "PAH",
+          variant: "p.Met1Val",
+          uniprotId: "P00439"
+        },
+        headers: {
+          "authorization": "Bearer dummy-token",
+          "x-gemini-session-id": "completely-invalid-session-id-format"
+        }
+      };
+      
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+      
+      await handler(req, res, () => {});
+      
+      expect(statusCode).toBe(401);
+      expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
+
+      seqSpy.mockRestore();
+      clinvarSpy.mockRestore();
+      predSpy.mockRestore();
+      consSpy.mockRestore();
+      strSpy.mockRestore();
+      freqSpy.mockRestore();
+      pdbSpy.mockRestore();
+      afPdbSpy.mockRestore();
+      constSpy.mockRestore();
+      featSpy.mockRestore();
+      disSpy.mockRestore();
+      esmSpy.mockRestore();
+    });
+  });
+
+  describe("API Key Regex Validation", () => {
+    it("should validate relaxed API key format with special characters", () => {
+      const relaxedRegex = /^[a-zA-Z0-9_\-\.\+\=\/]+$/;
+      
+      expect(relaxedRegex.test("AIzaSyB123_456-789")).toBe(true);
+      expect(relaxedRegex.test("AIzaSyB123.456.789")).toBe(true);
+      expect(relaxedRegex.test("AIzaSyB123+456/789=")).toBe(true);
+      expect(relaxedRegex.test("AIzaSyB123 456")).toBe(false);
+      expect(relaxedRegex.test("AIzaSyB123\"456")).toBe(false);
+    });
+  });
+
+  describe("Legacy settings key scrub", () => {
+    it("should scrub geminiApiKey from localStorage and return it empty in parsed settings", () => {
+      const legacySettings = {
+        residueColor: "#F97316",
+        primaryAccent: "indigo",
+        geminiApiKey: "legacy-api-key-12345",
+        geminiSessionId: "session-id-123"
+      };
+      
+      const store: Record<string, string> = {
+        missenseUserSettings: JSON.stringify(legacySettings)
+      };
+      const localStorageMock = {
+        getItem(key: string) { return store[key] || null; },
+        setItem(key: string, val: string) { store[key] = val; }
+      };
+      
+      const saved = localStorageMock.getItem("missenseUserSettings");
+      let parsed = saved ? JSON.parse(saved) : null;
+      if (parsed && parsed.geminiApiKey !== undefined) {
+        delete parsed.geminiApiKey;
+        localStorageMock.setItem("missenseUserSettings", JSON.stringify(parsed));
+      }
+      
+      expect(parsed.geminiApiKey).toBeUndefined();
+      const updatedStore = JSON.parse(store.missenseUserSettings);
+      expect(updatedStore.geminiApiKey).toBeUndefined();
+    });
+  });
+});

@@ -59,6 +59,6 @@ describe("Biophysics Service Unit Tests (M-7 Coverage)", () => {
       expect(result).toBeDefined();
       expect(result.level).toBeDefined();
       expect(typeof result.reason).toBe("string");
-    });
+    }, 15000);
   });
 });

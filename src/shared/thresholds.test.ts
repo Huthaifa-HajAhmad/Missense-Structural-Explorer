@@ -6,8 +6,11 @@ import {
   evaluatePopEve,
   evaluateBayesdel,
   evaluateEsm,
+  evaluateEsm1b,
   countPredictorConcordance,
-  computeConsensusVerdict
+  computeConsensusVerdict,
+  normalizeDestabilizationMagnitude,
+  THRESHOLDS
 } from "./thresholds";
 
 describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
@@ -50,23 +53,29 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateBayesdel(null)).toBe("unavailable");
     });
 
-    it("should evaluate ESM co-distilled score correctly", () => {
-      expect(evaluateEsm(-6.0)).toBe("pathogenic");
-      expect(evaluateEsm(-3.0)).toBe("vus");
-      expect(evaluateEsm(-1.0)).toBe("benign");
+    it("should evaluate ESM (ESM-2/SaProt) scores as purely informational VUS", () => {
+      expect(evaluateEsm(-6.0)).toBe("vus");
+      expect(evaluateEsm(-1.0)).toBe("vus");
       expect(evaluateEsm(null)).toBe("unavailable");
+    });
+
+    it("should evaluate ESM-1b scores correctly using peer-reviewed thresholds", () => {
+      expect(evaluateEsm1b(-8.0)).toBe("pathogenic");
+      expect(evaluateEsm1b(-6.0)).toBe("vus");
+      expect(evaluateEsm1b(-4.0)).toBe("benign");
+      expect(evaluateEsm1b(null)).toBe("unavailable");
     });
   });
 
   describe("Predictor Concordance Counts", () => {
     it("should count concordance correctly and exclude ESM from active consensus voting counts", () => {
-      // 3 pathogenic tools (CADD, REVEL, AM) + 1 vus (BayesDel) + 1 pathogenic popEVE + 1 pathogenic informational ESM
+      // 3 pathogenic tools (CADD, REVEL, AM) + 1 vus (BayesDel) + 1 pathogenic popEVE + 1 pathogenic informational ESM-1b
       const res = countPredictorConcordance(
         28, // CADD -> pathogenic
         0.8, // REVEL -> pathogenic
         0.99, "pathogenic", // AM -> pathogenic
         0.0, // BayesDel -> vus
-        -6.0, // ESM -> pathogenic (but informational, excluded from voting)
+        -8.0, // ESM-1b -> pathogenic (informational, excluded from voting)
         { popeve: -3.775 } // popEVE -> pathogenic
       );
 
@@ -75,7 +84,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.nBenign).toBe(0);
       expect(res.nTolerated).toBe(0);
       expect(res.signals.esm).toBe("pathogenic");
-      expect(res.available).toContain("ESM");
+      expect(res.available).toContain("ESM-1B");
       expect(res.available).toContain("POPEVE");
     });
   });
@@ -106,6 +115,132 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         ddmut: 0.2
       });
       expect(res).toBe("High Misfolding Risk (Destabilizing Consensus)");
+    });
+
+    it("should correctly evaluate positive RaSP scores as destabilizing", () => {
+      const res = computeConsensusVerdict({
+        rasp: 1.5, // Destabilizing (>= 1.0) on the new positive sign convention
+        thermompnn: 0.2
+      });
+      expect(res).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+
+      const resSingle = computeConsensusVerdict({
+        rasp: 1.5
+      });
+      expect(resSingle).toBe("Elevated Misfolding Risk (Single-Tool Estimate)");
+
+      const resHigh = computeConsensusVerdict({
+        rasp: 1.2, // Destabilizing
+        thermompnn: 1.8 // Destabilizing (>= 1.0)
+      });
+      expect(resHigh).toBe("High Misfolding Risk (Destabilizing Consensus)");
+    });
+
+    it("should exclude FoldX from consensus if foldxRepairFailed is true", () => {
+      const res = computeConsensusVerdict({
+        foldxMean: 2.5, // Destabilizing
+        rasp: 0.1,      // Neutral
+        foldxRepairFailed: true
+      });
+      expect(res).toBe("Low Misfolding Risk (Single-Tool Estimate)");
+
+      const resTwoTools = computeConsensusVerdict({
+        foldxMean: 2.5, // Destabilizing
+        rasp: 1.2,      // Destabilizing
+        thermompnn: 0.1,
+        foldxRepairFailed: true
+      });
+      expect(resTwoTools).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+    });
+
+    it("should resolve consensus using confidence weights under conflicting conditions (D2)", () => {
+      // 1. Two weak tools (DynaMut2 + DDMut) are destabilizing: total destab weight = 2.0. Total available weight = 6.7.
+      // ratio = 2.0 / 6.7 = 29.8% (< 44%) -> Moderate Misfolding Risk (Conflicting Stability)
+      const resWeak = computeConsensusVerdict({
+        foldxMean: 0.1,
+        dynamut2: -1.5, // Destab
+        ddmut: -1.5,    // Destab
+        rasp: 0.1,
+        thermompnn: 0.1
+      });
+      expect(resWeak).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+
+      // 2. High-accuracy tools (ThermoMPNN + RaSP) are destabilizing: total destab weight = 3.5. Total available = 6.7.
+      // ratio = 3.5 / 6.7 = 52.2% (>= 44%) -> High Misfolding Risk (Destabilizing Consensus)
+      const resStrong = computeConsensusVerdict({
+        foldxMean: 0.1,
+        dynamut2: 0.1,
+        ddmut: 0.1,
+        rasp: 1.2,       // Destab
+        thermompnn: 1.5  // Destab
+      });
+      expect(resStrong).toBe("High Misfolding Risk (Destabilizing Consensus)");
+
+      // 3. ThermoMPNN (weight 2.0) + DDMut (weight 1.0) are destabilizing: total destab weight = 3.0. Total available = 6.7.
+      // ratio = 3.0 / 6.7 = 44.8% (>= 44%) -> High Misfolding Risk (Destabilizing Consensus)
+      const resThermoAndWeak = computeConsensusVerdict({
+        foldxMean: 0.1,
+        dynamut2: 0.1,
+        ddmut: -1.5,     // Destab
+        rasp: 0.1,
+        thermompnn: 1.5  // Destab
+      });
+      expect(resThermoAndWeak).toBe("High Misfolding Risk (Destabilizing Consensus)");
+    });
+  });
+
+  describe("normalizeDestabilizationMagnitude (P3-2, H-4)", () => {
+    it("should handle null, undefined, and NaN inputs by returning null magnitude", () => {
+      expect(normalizeDestabilizationMagnitude("foldx", null)).toEqual({ magnitude: null, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("dynamut2", null)).toEqual({ magnitude: null, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("ddmut", null)).toEqual({ magnitude: null, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("rasp", null)).toEqual({ magnitude: null, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("thermompnn", null)).toEqual({ magnitude: null, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("foldx", NaN)).toEqual({ magnitude: null, isDestabilizing: false });
+    });
+
+    it("should correctly normalize FoldX where positive indicates destabilization", () => {
+      // FoldX threshold is >= 1.5
+      expect(normalizeDestabilizationMagnitude("foldx", 2.0)).toEqual({ magnitude: 2.0, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("foldx", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("foldx", 1.4)).toEqual({ magnitude: 1.4, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("foldx", -0.5)).toEqual({ magnitude: -0.5, isDestabilizing: false });
+    });
+
+    it("should correctly normalize DynaMut2 where negative indicates destabilization (and magnitude is sign-inverted)", () => {
+      // DynaMut2 threshold is <= -1.0
+      expect(normalizeDestabilizationMagnitude("dynamut2", -1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("dynamut2", -1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("dynamut2", -0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("dynamut2", 0.5)).toEqual({ magnitude: -0.5, isDestabilizing: false });
+    });
+
+    it("should correctly normalize DDMut where negative indicates destabilization (and magnitude is sign-inverted)", () => {
+      // DDMut threshold is <= -1.0
+      expect(normalizeDestabilizationMagnitude("ddmut", -1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("ddmut", -1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("ddmut", -0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
+      expect(normalizeDestabilizationMagnitude("ddmut", 0.5)).toEqual({ magnitude: -0.5, isDestabilizing: false });
+    });
+
+    it("should correctly normalize RaSP where positive indicates destabilization", () => {
+      // RaSP threshold is >= 1.0
+      expect(normalizeDestabilizationMagnitude("rasp", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("rasp", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("rasp", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
+    });
+
+    it("should correctly normalize ThermoMPNN where positive indicates destabilization", () => {
+      // ThermoMPNN threshold is >= 1.0
+      expect(normalizeDestabilizationMagnitude("thermompnn", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("thermompnn", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("thermompnn", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
+    });
+
+    it("should verify component and thresholds.ts share one RaSP convention", () => {
+      expect(THRESHOLDS.rasp).toBeDefined();
+      expect(THRESHOLDS.rasp.destabilizing).toBe(1.0);
+      expect(normalizeDestabilizationMagnitude("rasp", THRESHOLDS.rasp.destabilizing).isDestabilizing).toBe(true);
     });
   });
 });
