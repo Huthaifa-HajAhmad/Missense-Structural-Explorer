@@ -2,10 +2,12 @@ import { z } from "zod";
 import { TabixIndexedFile } from "@gmod/tabix";
 import path from "path";
 import fs from "fs";
+import { LRUCache } from "lru-cache";
 import { predictorCache, conservationCache, popEVECache, popEveOnlineCache, refseqCache } from "./cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "./http-client.ts";
 import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
+import { resolveSpliceProximity } from "./splice_resolver.ts";
 
 function safeParseFloat(val: any): number | null {
   if (val === undefined || val === null || val === "." || val === "") return null;
@@ -32,7 +34,9 @@ export interface PredictorData {
   isManePlusClinical?: boolean;
   isCanonical?: boolean;
   maneRefSeqId?: string;
+  source?: string;
 }
+
 export interface ConservationData {
   available: boolean;
   revel: number | null;
@@ -56,6 +60,36 @@ export interface ConservationData {
     aouHet: number | null;
     aouHom: number | null;
   } | null;
+  spliceProximity?: {
+    distance: number;
+    isNearSpliceSite: boolean;
+    exonNumber?: number | null;
+    totalExons?: number | null;
+    exonId?: string | null;
+    exonStart?: number | null;
+    exonEnd?: number | null;
+    exonLength?: number | null;
+    intronNumber?: number | null;
+    junctionType?: "donor" | "acceptor" | "terminal" | null;
+    adjacentIntronNumber?: number | null;
+    regionType?: "exonic" | "intronic" | null;
+    strand?: "+" | "-" | null;
+    transcriptId?: string | null;
+    genomicPos?: number | null;
+    nearestJunctionCoord?: number | null;
+  } | null;
+  spliceai?: {
+    ds_ag: number | null;
+    ds_al: number | null;
+    ds_dg: number | null;
+    ds_dl: number | null;
+    max_ds: number | null;
+  } | null;
+  dbscsnv?: {
+    ada_score: number | null;
+    rf_score: number | null;
+  } | null;
+  source?: string;
 }
 
 const vepResponseSchema = z.array(z.object({
@@ -96,93 +130,204 @@ const myVariantResponseSchema = z.object({
       aou_ac: z.any().optional(),
       aou_an: z.any().optional(),
       aou_het: z.any().optional(),
-      aou_hom: z.any().optional()
+      aou_hom: z.any().optional(),
+      spliceai: z.any().optional(),
+      SpliceAI_pred_DS_AG: z.any().optional(),
+      SpliceAI_pred_DS_AL: z.any().optional(),
+      SpliceAI_pred_DS_DG: z.any().optional(),
+      SpliceAI_pred_DS_DL: z.any().optional(),
+      dbscsnv: z.any().optional(),
+      dbscsnv_ada_score: z.any().optional(),
+      dbscsnv_rf_score: z.any().optional(),
+      dbscSNV_ADA_SCORE: z.any().optional(),
+      dbscSNV_RF_SCORE: z.any().optional()
     }).optional()
   })).optional()
 });
 
-export async function fetchPredictorData(gene: string, variant: string): Promise<PredictorData> {
-  const cacheKey = `${gene}_${variant}`;
+interface TranscriptMapping {
+  refseqId: string | null;
+  ensemblId: string | null;
+}
+const transcriptMappingCache = new LRUCache<string, TranscriptMapping>({
+  max: 1000,
+  ttl: 1000 * 60 * 60 * 24 * 7
+});
+
+async function getTranscriptsForProtein(proteinOrGene: string): Promise<TranscriptMapping> {
+  const cached = transcriptMappingCache.get(proteinOrGene);
+  if (cached) return cached;
+
+  try {
+    const isUniprot = /^[A-Z0-9]{6,10}$/i.test(proteinOrGene);
+    const url = isUniprot 
+      ? `https://rest.uniprot.org/uniprotkb/${proteinOrGene}.json`
+      : `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${proteinOrGene}+AND+organism_id:9606&format=json`;
+
+    const res = await fetchWithRetry(url, { timeout: 10000 });
+    if (!res.ok) {
+      const fallback = { refseqId: null, ensemblId: null };
+      transcriptMappingCache.set(proteinOrGene, fallback);
+      return fallback;
+    }
+    const data = await res.json() as any;
+    let dbXrefs: any[] = [];
+    if (isUniprot) {
+      dbXrefs = data.uniProtKBCrossReferences || [];
+    } else if (data.results && data.results.length > 0) {
+      dbXrefs = data.results[0].uniProtKBCrossReferences || [];
+    }
+
+    const refseqXrefs = dbXrefs.filter((x: any) => x.database === "RefSeq");
+    let refseqId: string | null = null;
+    const refseqEntry = refseqXrefs.find((x: any) => {
+      const nucProp = x.properties?.find((p: any) => p.key === "NucleotideSequenceId");
+      return nucProp && typeof nucProp.value === "string" && nucProp.value.startsWith("NM_");
+    });
+    if (refseqEntry) {
+      const nucProp = refseqEntry.properties.find((p: any) => p.key === "NucleotideSequenceId");
+      refseqId = nucProp.value;
+    } else {
+      refseqId = refseqXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("NM_"))?.id 
+              || refseqXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("NP_"))?.id 
+              || refseqXrefs[0]?.id || null;
+    }
+
+    const ensemblXrefs = dbXrefs.filter((x: any) => x.database === "Ensembl");
+    const ensemblId = ensemblXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("ENST"))?.id 
+                   || ensemblXrefs[0]?.id || null;
+
+    const result = { refseqId, ensemblId };
+    transcriptMappingCache.set(proteinOrGene, result);
+    return result;
+  } catch (err: any) {
+    console.warn(`[VEP Transcript Resolver] Warning resolving transcripts for ${proteinOrGene}: ${err.message}`);
+    const fallback = { refseqId: null, ensemblId: null };
+    transcriptMappingCache.set(proteinOrGene, fallback);
+    return fallback;
+  }
+}
+
+export async function fetchPredictorData(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
+  const cacheKey = `${gene}_${variant}_${uniprotId || ""}`;
   const cached = predictorCache.get(cacheKey);
   if (cached) return cached;
 
   const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(normGene)}:p.${encodeURIComponent(cleanVar)}?content-type=application/json&AlphaMissense=1&CADD=1&EVE=1&mane=1`;
-  
+
+  let queryTargets: string[] = [];
+  if (uniprotId) {
+    const transcripts = await getTranscriptsForProtein(uniprotId);
+    if (transcripts.refseqId && transcripts.refseqId.startsWith("NM_")) {
+      const cleanRefseq = transcripts.refseqId.split(".")[0];
+      queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
+    }
+    if (transcripts.ensemblId) {
+      const cleanEnsembl = transcripts.ensemblId.split(".")[0];
+      queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
+    }
+  }
+  queryTargets.push(`${normGene}:p.${cleanVar}`);
+
+  let parsedData: any = null;
+  let errorMsg = "";
+
+  for (const target of queryTargets) {
+    const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(target)}?content-type=application/json&AlphaMissense=1&CADD=1&EVE=1&mane=1`;
+    try {
+      console.log(`[VEP Fetch] Querying target: ${target}`);
+      const res = await fetchWithRetry(url, {
+        headers: { "Accept": "application/json" },
+        timeout: 8000
+      }, 2);
+      if (res.ok) {
+        const data = await res.json() as any;
+        parsedData = vepResponseSchema.parse(data);
+        if (parsedData.length > 0 && parsedData[0].transcript_consequences) {
+          console.log(`[VEP Fetch] Successfully resolved predictors via target: ${target}`);
+          break;
+        }
+      } else {
+        const errText = await res.text().catch(() => "");
+        errorMsg = `Status ${res.status}: ${errText}`;
+      }
+    } catch (err: any) {
+      errorMsg = err.message || String(err);
+    }
+  }
+
   try {
-    const res = await fetchWithRetry(url, {
-      headers: { "Accept": "application/json" },
-      timeout: 15000
-    });
-    if (res.ok) {
-      const data = await res.json() as any;
-      const parsedData = vepResponseSchema.parse(data);
-      if (parsedData.length > 0 && parsedData[0].transcript_consequences) {
-        const consequences = parsedData[0].transcript_consequences;
-        const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined || c.eve_score !== undefined;
-        let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
-        if (!tc) {
-          tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
-        }
-        if (!tc) {
-          tc = consequences.find(hasPredictor);
-        }
-        if (!tc) {
-          tc = consequences[0];
-        }
-        if (tc) {
-          const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
-          const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
-          const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
-          
-          const eveScore = tc.eve_score !== undefined ? safeParseFloat(tc.eve_score) : null;
-          const eveClass = tc.eve_class !== undefined ? String(tc.eve_class) : null;
+    if (parsedData && parsedData.length > 0 && parsedData[0].transcript_consequences) {
+       const consequences = parsedData[0].transcript_consequences;
+      const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined || c.eve_score !== undefined;
+      let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
+      if (!tc) {
+        tc = consequences.find((c: any) => c.mane_plus_clinical && hasPredictor(c));
+      }
+      if (!tc) {
+        tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
+      }
+      if (!tc) {
+        tc = consequences.find((c: any) => typeof c.transcript_id === "string" && c.transcript_id.startsWith("NM_") && hasPredictor(c));
+      }
+      if (!tc) {
+        tc = consequences.find(hasPredictor);
+      }
+      if (!tc) {
+        tc = consequences[0];
+      }
+      if (tc) {
+        const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
+        const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
+        const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
+        
+        const eveScore = tc.eve_score !== undefined ? safeParseFloat(tc.eve_score) : null;
+        const eveClass = tc.eve_class !== undefined ? String(tc.eve_class) : null;
 
-          // Parse genomic coordinates from root VEP object to construct GRCh38 gnomAD-compatible variant ID
-          const chr = parsedData[0].seq_region_name;
-          const startPos = parsedData[0].start;
-          const alleleStr = parsedData[0].allele_string;
-          let gnomadVariantId: string | null = null;
-          if (chr && startPos && typeof alleleStr === "string") {
-            const parts = alleleStr.split("/");
-            if (parts.length >= 2) {
-              gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
-            }
+        const chr = parsedData[0].seq_region_name;
+        const startPos = parsedData[0].start;
+        const alleleStr = parsedData[0].allele_string;
+        let gnomadVariantId: string | null = null;
+        if (chr && startPos && typeof alleleStr === "string") {
+          const parts = alleleStr.split("/");
+          if (parts.length >= 2) {
+            gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
           }
-
-          let maneRefSeqId: string | undefined = undefined;
-          if (tc.mane_select && typeof tc.mane_select === "string") {
-            maneRefSeqId = tc.mane_select;
-          } else if (tc.mane_select && typeof tc.mane_select === "object") {
-            maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
-          } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
-            maneRefSeqId = tc.mane_plus_clinical;
-          } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
-            maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
-          }
-
-          const resVal = { 
-            available: true, 
-            amPathogenicity, 
-            amClass, 
-            caddPhred, 
-            gnomadVariantId, 
-            eveScore, 
-            eveClass,
-            transcriptId: tc.transcript_id,
-            isManeSelect: !!tc.mane_select,
-            isManePlusClinical: !!tc.mane_plus_clinical,
-            isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
-            maneRefSeqId
-          };
-          predictorCache.set(cacheKey, resVal);
-          return resVal;
         }
+
+        let maneRefSeqId: string | undefined = undefined;
+        if (tc.mane_select && typeof tc.mane_select === "string") {
+          maneRefSeqId = tc.mane_select;
+        } else if (tc.mane_select && typeof tc.mane_select === "object") {
+          maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
+        } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
+          maneRefSeqId = tc.mane_plus_clinical;
+        } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
+          maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
+        }
+
+        const resVal = { 
+          available: true, 
+          amPathogenicity, 
+          amClass, 
+          caddPhred, 
+          gnomadVariantId, 
+          eveScore, 
+          eveClass,
+          transcriptId: tc.transcript_id,
+          isManeSelect: !!tc.mane_select,
+          isManePlusClinical: !!tc.mane_plus_clinical,
+          isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
+          maneRefSeqId,
+          source: "Ensembl VEP API"
+        };
+        predictorCache.set(cacheKey, resVal);
+        return resVal;
       }
     }
   } catch (err: any) {
-    console.warn(`[Predictors Fetch Error] Failed to fetch VEP predictors: ${err.message}`);
+    console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);
   }
 
   const defaultRes = {
@@ -204,7 +349,7 @@ export async function fetchRealConsurfData(pdbId: string, chainId: string, pos: 
   
   const selUrl = `https://consurfdb.tau.ac.il/scripts/chain_selection.php?pdb_ID=${cleanPdb}`;
   try {
-    const selRes = await fetchWithRetry(selUrl, { timeout: 10000 });
+    const selRes = await fetchWithRetry(selUrl, { timeout: 3000 }, 1);
     if (!selRes.ok) return null;
     const html = await selRes.text();
     
@@ -220,7 +365,7 @@ export async function fetchRealConsurfData(pdbId: string, chainId: string, pos: 
     if (!hash) return null;
     
     const sumUrl = `https://consurfdb.tau.ac.il/DB/${hash}/consurf_summary.txt`;
-    const sumRes = await fetchWithRetry(sumUrl, { timeout: 10000 });
+    const sumRes = await fetchWithRetry(sumUrl, { timeout: 3000 }, 1);
     if (!sumRes.ok) return null;
     const txt = await sumRes.text();
     
@@ -361,14 +506,15 @@ export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: str
     }
 
     const csvUrl = `https://data.evemodel.org/popeve/v1.1/mutations/${refseqId}.csv`;
-    const res = await fetchWithRetry(csvUrl, { timeout: 15000 });
+    const res = await fetchWithRetry(csvUrl, { timeout: 3000 }, 1);
     if (!res.ok) {
       popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
       return null;
     }
     const csvText = await res.text();
 
-    const match = variant.match(/([A-Z]{1,3})[=:/]?(\d+)[=:/]?([A-Z]{1,3})/i);
+    const cleanVariant = variant.replace(/^p\./i, "");
+    const match = cleanVariant.match(/([A-Z]{1,3})[=:/]?(\d+)[=:/]?([A-Z]{1,3})/i);
     if (!match) {
       popEveOnlineCache.set(cacheKey, null);
       return null;
@@ -415,7 +561,9 @@ export async function fetchConservationData(
   pos?: number | null,
   gnomadVariantId?: string | null,
   genosRec?: any | null,
-  uniprotId?: string | null
+  uniprotId?: string | null,
+  transcriptId?: string | null,
+  genomicPos?: number | null
 ): Promise<ConservationData> {
   const cacheKey = `${gene}_${variant}_${pdbId || ""}_${chainId || ""}_${pos || ""}_${gnomadVariantId || ""}`;
   const cached = conservationCache.get(cacheKey);
@@ -440,6 +588,10 @@ export async function fetchConservationData(
         return match ? parseInt(match[0], 10) : null;
       })();
 
+  const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null)
+    ? await resolveSpliceProximity(transcriptId, genomicPos)
+    : null;
+
   const defaultRes: ConservationData = {
     available: false,
     revel: null,
@@ -457,7 +609,9 @@ export async function fetchConservationData(
     esm1b: null,
     esm1bPred: null,
     popeve: null,
-    aouFrequency: null
+    aouFrequency: null,
+    spliceProximity,
+    spliceai: null
   };
 
   if (isLocalDbnsfpAvailable() && resolvedPos !== null) {
@@ -515,7 +669,27 @@ export async function fetchConservationData(
             aouAN: rec.aou_an,
             aouHet: rec.aou_het,
             aouHom: rec.aou_hom
-          }
+          },
+          spliceProximity,
+          spliceai: (rec as any).SpliceAI_pred_DS_AG !== undefined || (rec as any).spliceai_ds_ag !== undefined ? (() => {
+            const ag = safeParseFloat((rec as any).SpliceAI_pred_DS_AG ?? (rec as any).spliceai_ds_ag);
+            const al = safeParseFloat((rec as any).SpliceAI_pred_DS_AL ?? (rec as any).spliceai_ds_al);
+            const dg = safeParseFloat((rec as any).SpliceAI_pred_DS_DG ?? (rec as any).spliceai_ds_dg);
+            const dl = safeParseFloat((rec as any).SpliceAI_pred_DS_DL ?? (rec as any).spliceai_ds_dl);
+            const hasAny = ag !== null || al !== null || dg !== null || dl !== null;
+            return {
+              ds_ag: ag,
+              ds_al: al,
+              ds_dg: dg,
+              ds_dl: dl,
+              max_ds: hasAny ? Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0) : null
+            };
+          })() : null,
+          dbscsnv: ((rec as any).dbscSNV_ADA_SCORE !== undefined || (rec as any).dbscsnv_ada_score !== undefined || (rec as any).dbscSNV_RF_SCORE !== undefined || (rec as any).dbscsnv_rf_score !== undefined) ? {
+            ada_score: safeParseFloat((rec as any).dbscSNV_ADA_SCORE ?? (rec as any).dbscsnv_ada_score),
+            rf_score: safeParseFloat((rec as any).dbscSNV_RF_SCORE ?? (rec as any).dbscsnv_rf_score)
+          } : null,
+          source: "local dbNSFP"
         };
         conservationCache.set(cacheKey, resVal);
         return resVal;
@@ -561,7 +735,25 @@ export async function fetchConservationData(
           aouAN: activeGenosRec.aou_an ?? null,
           aouHet: activeGenosRec.aou_het ?? null,
           aouHom: activeGenosRec.aou_hom ?? null
-        } : null
+        } : null,
+        spliceProximity,
+        spliceai: activeGenosRec.spliceai ? {
+          ds_ag: activeGenosRec.spliceai.ds_ag,
+          ds_al: activeGenosRec.spliceai.ds_al,
+          ds_dg: activeGenosRec.spliceai.ds_dg,
+          ds_dl: activeGenosRec.spliceai.ds_dl,
+          max_ds: (activeGenosRec.spliceai.ds_ag !== null || activeGenosRec.spliceai.ds_al !== null || activeGenosRec.spliceai.ds_dg !== null || activeGenosRec.spliceai.ds_dl !== null) ? Math.max(
+            activeGenosRec.spliceai.ds_ag || 0,
+            activeGenosRec.spliceai.ds_al || 0,
+            activeGenosRec.spliceai.ds_dg || 0,
+            activeGenosRec.spliceai.ds_dl || 0
+          ) : null
+        } : null,
+        dbscsnv: activeGenosRec.dbscsnv ? {
+          ada_score: activeGenosRec.dbscsnv.ada_score,
+          rf_score: activeGenosRec.dbscsnv.rf_score
+        } : null,
+        source: "Genos Web Query"
       };
       conservationCache.set(cacheKey, resVal);
       return resVal;
@@ -613,14 +805,26 @@ export async function fetchConservationData(
       const data = await res.json() as any;
       const parsedData = myVariantResponseSchema.parse(data);
       if (parsedData.hits && parsedData.hits.length > 0) {
-        const matchTerm = `p.${cleanVar}`;
+        const matchTerm3 = `p.${cleanVar}`.toLowerCase();
+        const AMINO_ACID_3_TO_1_MAP: Record<string, string> = {
+          ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLU:'E', GLN:'Q', GLY:'G', HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S', THR:'T', TRP:'W', TYR:'Y', VAL:'V'
+        };
+        const mutMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+        let matchTerm1 = "";
+        if (mutMatch) {
+          const to1 = (aa: string) => aa.length === 1 ? aa.toUpperCase() : (AMINO_ACID_3_TO_1_MAP[aa.toUpperCase()] || aa);
+          matchTerm1 = `p.${to1(mutMatch[1])}${mutMatch[2]}${to1(mutMatch[3])}`.toLowerCase();
+        }
+
         let hit = parsedData.hits.find(h => {
           const hgvspField = h.dbnsfp?.hgvsp;
           if (!hgvspField) return false;
           const hgvspArray = Array.isArray(hgvspField) ? hgvspField : [hgvspField];
-          return hgvspArray.some(hVal => 
-            typeof hVal === "string" && hVal.toLowerCase().includes(matchTerm.toLowerCase())
-          );
+          return hgvspArray.some(hVal => {
+            if (typeof hVal !== "string") return false;
+            const hLower = hVal.toLowerCase();
+            return hLower.includes(matchTerm3) || (matchTerm1 && hLower.includes(matchTerm1));
+          });
         }) || parsedData.hits[0];
 
         if (!hit) {
@@ -752,6 +956,18 @@ export async function fetchConservationData(
 
           const hasAou = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;
 
+          const getFirstOrVal = (v: any) => Array.isArray(v) ? v[0] : v;
+          const db = dbnsfp as any;
+          const rawAda = getFirstOrVal(db.dbscsnv?.ada_score ?? db.dbscsnv_ada_score ?? db.dbscSNV_ADA_SCORE ?? (db.dbscsnv && db.dbscsnv['ada_score']));
+          const rawRf = getFirstOrVal(db.dbscsnv?.rf_score ?? db.dbscsnv_rf_score ?? db.dbscSNV_RF_SCORE ?? (db.dbscsnv && db.dbscsnv['rf_score']));
+          const hasDbscsnv = rawAda !== undefined || rawRf !== undefined;
+
+          const ag = safeParseFloat(getFirstOrVal(db.spliceai?.ds_ag ?? db.spliceai_pred_ds_ag ?? db.SpliceAI_pred_DS_AG ?? db.spliceai_ds_ag ?? (db.spliceai && db.spliceai['ds_ag'])));
+          const al = safeParseFloat(getFirstOrVal(db.spliceai?.ds_al ?? db.spliceai_pred_ds_al ?? db.SpliceAI_pred_DS_AL ?? db.spliceai_ds_al ?? (db.spliceai && db.spliceai['ds_al'])));
+          const dg = safeParseFloat(getFirstOrVal(db.spliceai?.ds_dg ?? db.spliceai_pred_ds_dg ?? db.SpliceAI_pred_DS_DG ?? db.spliceai_ds_dg ?? (db.spliceai && db.spliceai['ds_dg'])));
+          const dl = safeParseFloat(getFirstOrVal(db.spliceai?.ds_dl ?? db.spliceai_pred_ds_dl ?? db.SpliceAI_pred_DS_DL ?? db.spliceai_ds_dl ?? (db.spliceai && db.spliceai['ds_dl'])));
+          const hasSpliceAI = ag !== null || al !== null || dg !== null || dl !== null;
+
           const resVal: ConservationData = { 
             available: true, 
             revel, 
@@ -774,7 +990,20 @@ export async function fetchConservationData(
               aouAN,
               aouHet,
               aouHom
-            } : null
+            } : null,
+            spliceProximity,
+            spliceai: hasSpliceAI ? {
+              ds_ag: ag,
+              ds_al: al,
+              ds_dg: dg,
+              ds_dl: dl,
+              max_ds: Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0)
+            } : null,
+            dbscsnv: hasDbscsnv ? {
+              ada_score: safeParseFloat(Array.isArray(rawAda) ? rawAda[0] : rawAda),
+              rf_score: safeParseFloat(Array.isArray(rawRf) ? rawRf[0] : rawRf)
+            } : null,
+            source: "myvariant.info"
           };
           conservationCache.set(cacheKey, resVal);
           return resVal;
