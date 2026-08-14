@@ -1,9 +1,10 @@
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult, StructuralMetrics } from "../../types";
 
-export type TabType = "clinical" | "predictors" | "structure" | "perturbation" | "function" | "interactions" | "guidelines";
+export type TabType = "clinical" | "predictors" | "structure" | "perturbation" | "function" | "interactions" | "guidelines" | "splicing";
 
 export interface EvidenceDashboardCardProps {
   isDark: boolean;
+  isBiophysicalLoading?: boolean;
   classCard: string;
   classCardHeader: string;
   classCardTitle: string;

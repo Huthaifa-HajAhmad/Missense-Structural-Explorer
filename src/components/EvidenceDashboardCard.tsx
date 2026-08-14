@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { Database } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { EvidenceDashboardCardProps, TabType } from "./evidence/types";
-import { EvidenceHeaderAndNav } from "./evidence/EvidenceHeaderAndNav";
 import { ClinicalTab } from "./evidence/ClinicalTab";
+import { SplicingTab } from "./evidence/SplicingTab";
 import { PredictorsTab } from "./evidence/PredictorsTab";
 import { StructureTab } from "./evidence/StructureTab";
 import { PerturbationTab } from "./evidence/PerturbationTab";
@@ -140,11 +140,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         </div>
       )}
 
-      <EvidenceHeaderAndNav 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        classBorderSec={classBorderSec} 
-      />
+
 
       <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
@@ -153,6 +149,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "perturbation" && <PerturbationTab {...tabProps} />}
         {activeTab === "function" && <FunctionTab {...tabProps} />}
         {activeTab === "interactions" && <InteractionsTab {...tabProps} />}
+        {activeTab === "splicing" && <SplicingTab {...tabProps} />}
         {activeTab === "guidelines" && <GuidelinesTab {...tabProps} />}
 
         <MetricExplanationModal 

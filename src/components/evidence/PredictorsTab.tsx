@@ -3,7 +3,7 @@ import { TabComponentProps } from "./types";
 import { countPredictorConcordance } from "../../shared/thresholds";
 import { PredictorSpecialistPanels } from "../PredictorSpecialistPanels";
 
-export function PredictorsTab({ analysisState }: TabComponentProps) {
+export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabComponentProps) {
   const result = analysisState.result;
   if (!result) return null;
 
@@ -15,24 +15,46 @@ export function PredictorsTab({ analysisState }: TabComponentProps) {
       </div>
       
       {/* Transcript Context & Warning (TRANSCRIPT-BANNER) */}
-      {result.transcriptId && (
-        <div className={`p-3 rounded-lg border text-xs leading-relaxed ${
-          result.isCanonical
-            ? "bg-slate-500/5 text-slate-400 border-slate-500/10"
-            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-        }`}>
-          <div className="font-bold flex items-center gap-1.5 uppercase tracking-wider text-[9px] font-mono">
-            <span>Transcript Info</span>
+      {result.transcriptId && (() => {
+        const isMane = result.isManeSelect;
+        const isManePlus = result.isManePlusClinical;
+        const isCanonical = result.isCanonical;
+
+        let tierLabel = "";
+        let tierDesc = "";
+        let bannerStyle = "";
+
+        if (isMane) {
+          tierLabel = "MANE Select";
+          tierDesc = "Gold-standard clinical transcript.";
+          bannerStyle = "bg-emerald-500/5 text-emerald-800 border-emerald-500/15 dark:text-emerald-400";
+        } else if (isManePlus) {
+          tierLabel = "MANE Plus Clinical";
+          tierDesc = "Alternative clinical transcript.";
+          bannerStyle = "bg-blue-500/5 text-blue-800 border-blue-500/15 dark:text-blue-400";
+        } else if (isCanonical) {
+          tierLabel = "Ensembl Canonical";
+          tierDesc = "Ensembl canonical isoform.";
+          bannerStyle = "bg-slate-500/5 text-slate-700 border-slate-500/15 dark:text-slate-400";
+        } else {
+          tierLabel = "Non-canonical Fallback";
+          tierDesc = "Non-canonical isoform. Predictor scores may vary.";
+          bannerStyle = "bg-amber-500/5 text-amber-800 border-amber-500/15 dark:text-amber-400";
+        }
+
+        const warningMsg = result.transcriptWarning ? ` | Warning: ${result.transcriptWarning}` : "";
+
+        return (
+          <div className={`px-3 py-2.5 rounded-lg border text-xs font-sans font-medium ${bannerStyle}`}>
+            Mapped using transcript: <span className="font-mono font-bold">{result.transcriptId}</span>
+            <span className="mx-2 opacity-50">•</span>
+            <span className="font-bold">{tierLabel}</span>
+            <span className="mx-2 opacity-50">•</span>
+            <span className="opacity-90">{tierDesc}{warningMsg}</span>
           </div>
-          <p className="mt-1 text-[10px] opacity-90">
-            Mapped using transcript ID: <span className="font-mono font-bold">{result.transcriptId}</span>
-            {result.isCanonical ? " (canonical MANE / Ensembl select isoform)." : " (non-canonical fallback)."}
-          </p>
-          {result.transcriptWarning && (
-            <p className="mt-1 text-[10px] text-amber-500 font-semibold">{result.transcriptWarning}</p>
-          )}
-        </div>
-      )}
+        );
+      })()}
+
 
       {/* Unified In-Silico Consensus & Coverage Card */}
       {(() => {
@@ -49,6 +71,9 @@ export function PredictorsTab({ analysisState }: TabComponentProps) {
           eigenPhred: result.conservationData?.eigenPhred,
           dann: result.conservationData?.dann,
           popeve: result.conservationData?.popeve,
+          spliceProximity: result.conservationData?.spliceProximity,
+          spliceai: result.conservationData?.spliceai,
+          dbscsnv: result.conservationData?.dbscsnv
         });
         const total = concordance.available.length;
         if (total === 0) return null;
@@ -186,6 +211,7 @@ export function PredictorsTab({ analysisState }: TabComponentProps) {
         predictorData={result.predictorData}
         conservationData={result.conservationData}
         esm2Score={result.esm2?.llr}
+        isLoading={analysisState.isLoading || isBiophysicalLoading}
       />
     </div>
   );
