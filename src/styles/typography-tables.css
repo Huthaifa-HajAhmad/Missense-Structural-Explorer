@@ -1,0 +1,190 @@
+/* ============================================================
+   TYPOGRAPHY, TABLES & EDITORIAL PROSE
+   ============================================================ */
+
+/* TABLE TYPOGRAPHY UTILITIES */
+.table-numeric {
+  font-family: var(--cs-font-mono) !important;
+  text-align: right !important;
+  font-size: var(--cs-font-size-numeric, var(--cs-text-numeric)) !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.table-th {
+  font-size: var(--cs-text-th);
+  font-weight: 500;
+  color: var(--cs-text-muted);
+  text-align: left;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+  white-space: nowrap;
+}
+.table-th.numeric {
+  text-align: right;
+}
+.table-pending-summary {
+  font-size: var(--cs-text-body);
+  font-weight: 400;
+  color: var(--cs-text-muted);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+/* REPORT PROSE — editorial mode, serif body for clinical narrative */
+.report-prose-wrapper {
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 0 8px;
+}
+.report-prose {
+  font-family: var(--cs-font-serif);
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--cs-text-primary);
+}
+.report-prose p {
+  margin-bottom: 1.1em;
+  margin-top: 0;
+}
+.report-prose h1,
+.report-prose h2,
+.report-prose h3 {
+  font-family: var(--cs-font-serif);
+  font-weight: 600;
+  color: var(--cs-text-primary);
+  margin-top: 1.6em;
+  margin-bottom: 0.4em;
+  line-height: 1.3;
+}
+.report-prose h1 { font-size: 18px; }
+.report-prose h2 { font-size: 16px; }
+.report-prose h3 { font-size: 15px; }
+.report-prose ul,
+.report-prose ol {
+  padding-left: 1.4em;
+  margin-bottom: 1em;
+}
+.report-prose li { margin-bottom: 0.4em; }
+.report-prose strong {
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.report-prose code {
+  font-family: var(--cs-font-mono);
+  font-size: 13px;
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* STEP INDICATORS */
+.cs-step-icon-not-started {
+  color: var(--cs-text-muted) !important;
+}
+.cs-step-icon-in-progress {
+  color: var(--cs-accent) !important;
+}
+.cs-step-icon-complete {
+  color: var(--cs-text-success) !important;
+}
+
+/* NEUTRAL BADGES */
+.badge-metric-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  padding: 2.5px 7px;
+  border-radius: var(--cs-radius-badge);
+  font-size: var(--cs-font-size-badge);
+  font-weight: var(--cs-font-weight-badge);
+  background: var(--cs-surface-2);
+  color: var(--cs-text-secondary);
+  border: 1px solid var(--cs-border);
+}
+
+/* DATA SOURCE PROVENANCE BADGES */
+.badge-data-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  padding: 2.5px 7px;
+  border-radius: var(--cs-radius-badge);
+  font-size: var(--cs-font-size-badge);
+  font-weight: var(--cs-font-weight-badge);
+  background: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+.dark .badge-data-source {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93C5FD;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* METRIC CARD LAYOUT */
+.metric-card {
+  padding: 12px;
+  background: var(--cs-surface-1);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  transition: border-color 0.15s ease;
+}
+.metric-card-label {
+  display: block;
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-caption);
+  color: var(--cs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.metric-card-value {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-stat-value);
+  font-weight: var(--cs-font-weight-stat-value);
+  color: var(--cs-text-primary);
+  line-height: 1.2;
+}
+.metric-card-desc {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-caption);
+  color: var(--cs-text-muted);
+}
+
+/* EMPTY STATE BOXES */
+.empty-state-box {
+  border: 1px dashed var(--cs-border);
+  color: var(--cs-text-muted);
+  font-style: italic;
+  text-align: center;
+  font-size: var(--cs-font-size-caption);
+  font-family: var(--cs-font-sans);
+  padding: 16px;
+  border-radius: var(--cs-radius-input);
+}
+
+/* TABLE OVERRIDES & CARD CONTAINERS */
+.table-container-card {
+  background: var(--cs-surface) !important;
+  border: 1px solid var(--cs-border) !important;
+  border-radius: var(--cs-radius-lg) !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px 0 rgba(0, 0, 0, 0.04) !important;
+  overflow: hidden;
+}
+
+.table-header-row {
+  background: var(--cs-surface-2) !important;
+  border-bottom: 1px solid var(--cs-border) !important;
+}
+
+.table-header-row th {
+  font-size: var(--cs-font-size-table-header) !important;
+  font-weight: var(--cs-font-weight-table-header) !important;
+  color: var(--cs-text-secondary) !important;
+}

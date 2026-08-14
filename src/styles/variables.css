@@ -37,8 +37,8 @@
   --cs-radius-badge:  6px;
   --cs-radius-pill:   999px;
 
-  --cs-shadow-card:   0 1px 3px rgba(25, 24, 22, 0.04), 0 0 0 1px var(--cs-border);
-  --cs-shadow-sm:     0 1px 2px rgba(25, 24, 22, 0.03);
+  --cs-shadow-card:   none;
+  --cs-shadow-sm:     none;
 
   /* === FONTS === */
   --cs-font-serif:    'Lora', Georgia, 'Times New Roman', serif;
@@ -134,7 +134,7 @@
   --cs-text-secondary:#B2ABA0;
   --cs-text-muted:    #827B70;
 
-  --cs-shadow-card:   0 2px 8px rgba(0,0,0,0.5), 0 0 0 1px var(--cs-border);
+  --cs-shadow-card:   none;
 
   /* === SEMANTIC COLOR ROLES (Dark Mode) === */
   --cs-accent:                  var(--cs-accent-clay);

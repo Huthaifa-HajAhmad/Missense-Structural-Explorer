@@ -1,0 +1,259 @@
+/* ============================================================
+   COMPONENT PRIMITIVES & BASE UTILITY CLASSES
+   ============================================================ */
+
+/* Gene stat pill (like "189 aa", "91.5 mean pLDDT") */
+.cs-stat-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-shadow-sm);
+}
+.cs-stat-pill-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cs-text-primary);
+  line-height: 1.2;
+}
+.cs-stat-pill-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--cs-text-muted);
+  text-transform: lowercase;
+  letter-spacing: 0.01em;
+}
+
+/* Card surface */
+.cs-card {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
+  box-shadow: none;
+}
+
+/* Card section header */
+.cs-card-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cs-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+  margin-bottom: 12px;
+}
+
+/* Sub-card (nested surface) */
+.cs-sub-card {
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+}
+
+/* Input field */
+.cs-input {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  color: var(--cs-text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: 'Inter', sans-serif;
+}
+.cs-input::placeholder { color: var(--cs-text-muted); }
+.cs-input:focus {
+  border-color: var(--cs-accent-clay);
+  box-shadow: 0 0 0 3px rgba(196, 104, 73, 0.12);
+}
+
+/* Primary button (clay / brand) */
+.cs-btn-primary {
+  background: var(--cs-accent-clay);
+  color: #fff;
+  border: none;
+  border-radius: var(--cs-radius-input);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Inter', sans-serif;
+}
+.cs-btn-primary:hover { background: #b55a3e; }
+.cs-btn-primary:active { transform: scale(0.98); }
+.cs-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Ghost button */
+.cs-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  color: var(--cs-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'Inter', sans-serif;
+}
+.cs-btn-ghost:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+
+/* Segmented control (Wild-Type / Mutant) */
+.cs-seg-control {
+  display: inline-flex;
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  padding: 2px;
+  gap: 2px;
+}
+.cs-seg-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-secondary);
+  transition: background 0.12s, color 0.12s;
+  font-family: 'Inter', sans-serif;
+}
+.cs-seg-btn:hover { color: var(--cs-text-primary); }
+.cs-seg-btn.active {
+  background: var(--cs-surface);
+  color: var(--cs-text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(80,40,120,0.1);
+}
+
+/* History chip */
+.cs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-pill);
+  background: var(--cs-surface);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  color: var(--cs-text-secondary);
+}
+.cs-chip:hover {
+  background: var(--cs-bg-subtle);
+  border-color: var(--cs-accent-clay);
+  color: var(--cs-text-primary);
+}
+.cs-chip.active {
+  background: var(--cs-surface-2);
+  border-color: var(--cs-border);
+  color: var(--cs-text-primary);
+}
+
+/* Badge variants */
+.cs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: var(--cs-radius-badge);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.cs-badge-path  { background: var(--cs-danger-soft);  color: var(--cs-danger);  }
+.cs-badge-vus   { background: var(--cs-warn-soft);    color: var(--cs-warn);    }
+.cs-badge-ben   { background: var(--cs-good-soft);    color: var(--cs-good);    }
+.cs-badge-mag   { background: var(--cs-accent-mag-soft); color: var(--cs-accent-mag); }
+.cs-badge-clay  { background: #FBF0EB; color: var(--cs-accent-clay); }
+.cs-badge-muted { background: var(--cs-surface-2); color: var(--cs-text-muted); border: 1px solid var(--cs-border-subtle); }
+
+/* Source chip (database citation) */
+.cs-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  color: var(--cs-text-muted);
+}
+
+/* pLDDT legend segment */
+.cs-plddt-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  gap: 1px;
+}
+.cs-plddt-vhigh { background: var(--cs-plddt-vhigh); }
+.cs-plddt-high  { background: var(--cs-plddt-high); }
+.cs-plddt-low   { background: var(--cs-plddt-low); }
+.cs-plddt-vlow  { background: var(--cs-plddt-vlow); }
+
+/* Live indicator dot */
+.cs-live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: cs-pulse-soft 2s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* Divider */
+.cs-divider {
+  height: 1px;
+  background: var(--cs-border-subtle);
+  margin: 12px 0;
+}
+
+/* CUSTOM UTILITY CLASSES */
+.cs-surface-card {
+  background: var(--cs-surface);
+  border-color: var(--cs-border);
+}
+.cs-surface-card-2 {
+  background: var(--cs-surface-2);
+  border-color: var(--cs-border-subtle);
+}
+.cs-text-primary {
+  color: var(--cs-text-primary);
+}
+.cs-text-secondary {
+  color: var(--cs-text-secondary);
+}
+.cs-text-muted {
+  color: var(--cs-text-muted);
+}
+.cs-border-card-sep {
+  border-color: var(--cs-border-subtle);
+}
+
+/* THREE-STATE STEP ICONS */
+.cs-step-complete  { color: var(--cs-good);        }
+.cs-step-progress  { color: var(--cs-accent-clay);  }
+.cs-step-pending   { color: var(--cs-text-muted);   }
