@@ -23,6 +23,7 @@ import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { Readable } from "stream";
 import { finished } from "stream/promises";
 import crypto from "crypto";
+import { anySignal } from "../utils.ts";
 import { DatabaseSync } from "node:sqlite";
 import * as self from "./energy-models.ts";
 
@@ -489,7 +490,8 @@ export async function testTamarindConnection(apiKey?: string): Promise<{ valid: 
 export async function submitThermoMpnnJob(
   pdbContent: string,
   mutation: string,
-  apiKey?: string
+  apiKey?: string,
+  signal?: AbortSignal
 ): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error"; error?: string }> {
   const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
   if (!keyToUse) {
@@ -509,6 +511,10 @@ export async function submitThermoMpnnJob(
   }
 
   try {
+    const fetchSignal = signal
+      ? anySignal([signal, AbortSignal.timeout(15000)])
+      : AbortSignal.timeout(15000);
+
     const response = await fetch("https://app.tamarind.bio/api/submit-job", {
       method: "POST",
       headers: {
@@ -528,7 +534,7 @@ export async function submitThermoMpnnJob(
           chains: [chain]
         }
       }),
-      signal: AbortSignal.timeout(15000)
+      signal: fetchSignal
     });
 
     if (!response.ok) {

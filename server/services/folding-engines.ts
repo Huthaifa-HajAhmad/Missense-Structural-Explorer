@@ -14,6 +14,7 @@ export interface FoldingContext {
   jobDir: string;
   mutationCode: string; // e.g. "R408H"
   biohubToken?: string | null;
+  signal?: AbortSignal;
 }
 
 export interface FoldingEngine {
@@ -48,7 +49,8 @@ export class FoldxEngine implements FoldingEngine {
         context.wtPdb,
         context.mutationCode,
         context.uniprotId,
-        context.jobDir
+        context.jobDir,
+        context.signal
       );
       if (res && res.pdb) {
         return {

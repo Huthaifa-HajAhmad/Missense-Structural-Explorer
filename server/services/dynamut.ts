@@ -7,7 +7,8 @@ export async function submitDynaMut2Job(
   chain: string,
   pos: number,
   wtRes: string,
-  mutRes: string
+  mutRes: string,
+  signal?: AbortSignal
 ): Promise<string | null> {
   const url = "https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single";
   const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
@@ -22,11 +23,13 @@ export async function submitDynaMut2Job(
     const response = await fetchWithRetry(url, {
       method: "POST",
       body: formData,
-      timeout: 20000
+      timeout: 60000,
+      signal
     });
 
     if (!response.ok) {
-      throw new Error(`Submit job failed (status: ${response.status})`);
+      const bodyText = typeof response.text === "function" ? await response.text().catch(() => "") : "";
+      throw new Error(`Submit job failed (status: ${response.status}, body: ${String(bodyText).slice(0, 200)})`);
     }
 
     const data = await response.json() as any;
@@ -37,7 +40,7 @@ export async function submitDynaMut2Job(
     console.log(`[DynaMut2 API] Job submitted successfully. Job ID: ${jobId}`);
     return String(jobId);
   } catch (err: any) {
-    console.error(`[DynaMut2 API] Error during submission:`, err.message);
+    console.error(`[DynaMut2 API] Error during submission (service unavailable):`, err.message);
     return null;
   }
 }
@@ -50,7 +53,7 @@ export async function pollDynaMut2Job(
     const pollUrl = `${url}?job_id=${jobId}`;
     const pollRes = await fetchWithRetry(pollUrl, {
       method: "GET",
-      timeout: 10000
+      timeout: 15000
     });
 
     if (!pollRes.ok) {
@@ -96,7 +99,8 @@ export async function submitDdmutJob(
   chain: string,
   pos: number,
   wtRes: string,
-  mutRes: string
+  mutRes: string,
+  signal?: AbortSignal
 ): Promise<string | null> {
   const url = "https://biosig.lab.uq.edu.au/ddmut/api/prediction_single";
   const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
@@ -111,11 +115,13 @@ export async function submitDdmutJob(
     const response = await fetchWithRetry(url, {
       method: "POST",
       body: formData,
-      timeout: 20000
+      timeout: 60000,
+      signal
     });
 
     if (!response.ok) {
-      throw new Error(`Submit job failed (status: ${response.status})`);
+      const bodyText = typeof response.text === "function" ? await response.text().catch(() => "") : "";
+      throw new Error(`Submit job failed (status: ${response.status}, body: ${String(bodyText).slice(0, 200)})`);
     }
 
     const data = await response.json() as any;
@@ -126,7 +132,7 @@ export async function submitDdmutJob(
     console.log(`[DDMut API] Job submitted successfully. Job ID: ${jobId}`);
     return String(jobId);
   } catch (err: any) {
-    console.error(`[DDMut API] Error during submission:`, err.message);
+    console.error(`[DDMut API] Error during submission (service unavailable):`, err.message);
     return null;
   }
 }
@@ -134,66 +140,71 @@ export async function submitDdmutJob(
 export async function pollDdmutJob(
   jobId: string
 ): Promise<{ status: "RUNNING" | "DONE" | "ERROR"; prediction: number | null } | null> {
-  const boundary = `----WebKitFormBoundary${crypto.randomBytes(8).toString("hex")}`;
-  const body = `--${boundary}\r\nContent-Disposition: form-data; name="job_id"\r\n\r\n${jobId}\r\n--${boundary}--\r\n`;
+  const url = "https://biosig.lab.uq.edu.au/ddmut/api/prediction_single";
+  try {
+    const boundary = `----DDMutFormBoundary${crypto.randomBytes(8).toString("hex")}`;
+    const body = `--${boundary}\r\nContent-Disposition: form-data; name="job_id"\r\n\r\n${jobId}\r\n--${boundary}--\r\n`;
 
-  console.log(`[DDMut API] Polling status for job ${jobId} using GET with multipart form-data...`);
-
-  return new Promise((resolve) => {
-    const options = {
-      hostname: "biosig.lab.uq.edu.au",
-      port: 443,
-      path: "/ddmut/api/prediction_single",
-      method: "GET",
-      headers: {
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        "Content-Length": Buffer.byteLength(body)
-      },
-      rejectUnauthorized: true,
-      timeout: 15000
-    };
-
-    const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => { data += chunk; });
-      res.on("end", () => {
-        try {
-          if (res.statusCode !== 200) {
-            console.warn(`[DDMut API] Polling failed (status: ${res.statusCode})`);
-            resolve({ status: "ERROR", prediction: null });
-            return;
+    const pollJson = await new Promise<any>((resolve, reject) => {
+      const req = https.request(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": Buffer.byteLength(body),
+          "User-Agent": "Missense-Structural-Explorer/1.0"
+        },
+        timeout: 15000
+      }, (res) => {
+        let data = "";
+        res.on("data", chunk => data += chunk);
+        res.on("end", () => {
+          if (res.statusCode && res.statusCode === 429) {
+            const err: any = new Error("DDMut upstream rate limit reached");
+            err.statusCode = 429;
+            return reject(err);
           }
-          const pollJson = JSON.parse(data);
-          if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
-            const ddG = parseFloat(pollJson.prediction);
-            console.log(`[DDMut API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
-            resolve({ status: "DONE", prediction: isNaN(ddG) ? null : ddG });
-            return;
+          if (res.statusCode && res.statusCode >= 400) {
+            return reject(new Error(`DDMut polling HTTP ${res.statusCode}: ${data}`));
           }
-          if (
-            pollJson.status === "RUNNING" ||
-            pollJson.message === "RUNNING" ||
-            pollJson.status === "QUEUED" ||
-            pollJson.message === "QUEUED"
-          ) {
-            resolve({ status: "RUNNING", prediction: null });
-            return;
+          try {
+            resolve(JSON.parse(data));
+          } catch (e: any) {
+            reject(new Error(`Failed to parse DDMut JSON response: ${e.message}`));
           }
-          console.warn(`[DDMut API] Polling returned error or unexpected format:`, pollJson);
-          resolve({ status: "ERROR", prediction: null });
-        } catch (e: any) {
-          console.error(`[DDMut API] Parse error during polling:`, e.message);
-          resolve({ status: "ERROR", prediction: null });
-        }
+        });
       });
+
+      req.on("error", reject);
+      req.on("timeout", () => {
+        req.destroy(new Error("DDMut polling request timed out"));
+      });
+      req.write(body);
+      req.end();
     });
 
-    req.on("error", (err: any) => {
-      console.error(`[DDMut API] Network error during polling:`, err.message);
-      resolve({ status: "ERROR", prediction: null });
-    });
+    if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
+      const ddG = parseFloat(pollJson.prediction);
+      console.log(`[DDMut API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
+      return { status: "DONE", prediction: isNaN(ddG) ? null : ddG };
+    }
 
-    req.write(body);
-    req.end();
-  });
+    if (
+      pollJson.status === "RUNNING" ||
+      pollJson.message === "RUNNING" ||
+      pollJson.status === "QUEUED" ||
+      pollJson.message === "QUEUED" ||
+      (pollJson.prediction === undefined && !pollJson.error)
+    ) {
+      return { status: "RUNNING", prediction: null };
+    }
+
+    console.warn(`[DDMut API] Polling returned error or unexpected format:`, pollJson);
+    return { status: "ERROR", prediction: null };
+  } catch (err: any) {
+    console.error(`[DDMut API] Error polling job ${jobId}:`, err.message);
+    if (err.statusCode === 429) {
+      throw err;
+    }
+    return { status: "ERROR", prediction: null };
+  }
 }

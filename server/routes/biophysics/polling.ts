@@ -19,8 +19,9 @@ import {
   submitThermoMpnnJob,
   pollThermoMpnnJob,
 } from "../../services/biophysics.ts";
-import { computeConsensusVerdict } from "../../../src/shared/thresholds.ts";
-import { recordJobInRegistry, REGISTRY_PATH, type RegistryJob } from "../shared.ts";
+import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
+import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
+import { recordJobInRegistry, REGISTRY_PATH, type RegistryJob, enrichBiophysicalResult } from "../shared.ts";
 
 const dynamut2SubmitSchema = z.object({
   wtPdb: z.string(),
@@ -39,6 +40,82 @@ const thermompnnSubmitSchema = z.object({
 
 export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): void {
 
+  apiRouter.get("/foldx-job/:jobId", async (req, res) => {
+    const { jobId } = req.params;
+    if (!jobId || !/^[a-zA-Z0-9_\-]{1,100}$/.test(jobId)) {
+      sendError(res, 400, "BAD_REQUEST", "Invalid FoldX Job ID format.");
+      return;
+    }
+
+    try {
+      const queue = BiophysicalJobQueue.getInstance();
+      const jobInfo = await queue.getJobStatus(jobId);
+
+      if (!jobInfo) {
+        sendError(res, 404, "NOT_FOUND", `FoldX job ${jobId} not found.`);
+        return;
+      }
+
+      const jobData = await queue.getJobData(jobId);
+      const remoteJobs = jobData?.remoteJobs || {
+        dynamut2JobId: null,
+        dynamut2Status: "pending",
+        ddmutJobId: null,
+        ddmutStatus: "pending",
+        thermompnnJobId: null,
+        thermompnnStatus: "pending",
+        thermompnnError: null,
+        thermompnnVal: null,
+        stabilityoracleVal: null
+      };
+
+      if (jobInfo.status === "completed") {
+        const mutation = jobInfo.result?.mutation || jobData?.mutation || "";
+        const numMatch = mutation.match(/\d+/);
+        const posNum = numMatch ? parseInt(numMatch[0], 10) : 0;
+        const structureProvenance = jobInfo.result?.provenance || jobData?.structureProvenance || {};
+
+        const enriched = enrichBiophysicalResult(jobInfo.result, remoteJobs, structureProvenance, posNum);
+
+        return res.json({
+          jobId,
+          status: "completed",
+          result: enriched,
+          dynamut2JobId: remoteJobs.dynamut2JobId,
+          dynamut2Status: remoteJobs.dynamut2Status,
+          ddmutJobId: remoteJobs.ddmutJobId,
+          ddmutStatus: remoteJobs.ddmutStatus,
+          thermompnnJobId: remoteJobs.thermompnnJobId,
+          thermompnnStatus: remoteJobs.thermompnnStatus,
+          thermompnnError: remoteJobs.thermompnnError
+        });
+      }
+
+      if (jobInfo.status === "failed") {
+        return res.json({
+          jobId,
+          status: "failed",
+          error: jobInfo.error || "FoldX job failed during execution"
+        });
+      }
+
+      return res.json({
+        jobId,
+        status: jobInfo.status,
+        dynamut2JobId: remoteJobs.dynamut2JobId,
+        dynamut2Status: remoteJobs.dynamut2Status,
+        ddmutJobId: remoteJobs.ddmutJobId,
+        ddmutStatus: remoteJobs.ddmutStatus,
+        thermompnnJobId: remoteJobs.thermompnnJobId,
+        thermompnnStatus: remoteJobs.thermompnnStatus,
+        thermompnnError: remoteJobs.thermompnnError
+      });
+    } catch (err: any) {
+      console.error(`[Route Error] FoldX job polling failed for ${jobId}:`, err.message);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", `FoldX job polling failed: ${err.message}`);
+    }
+  });
+
   apiRouter.get("/thermompnn-job/:jobId", async (req, res) => {
     const jobId = req.params.jobId;
     if (!jobId || !/^[a-zA-Z0-9_\-]{1,100}$/.test(jobId)) {
@@ -48,18 +125,17 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     try {
       const apiKey = (req.headers["x-tamarind-api-key"] as string) || (req.query?.tamarindApiKey as string) || (req.query?.apiKey as string) || process.env.TAMARIND_API_KEY;
       const result = await pollThermoMpnnJob(jobId, apiKey);
-      if (result.status === "error") {
-        sendError(res, 502, "BAD_GATEWAY", result.error || "ThermoMPNN job execution failed on upstream server.");
-        return;
-      }
+      // Always return 200 so the client can deterministically terminate polling on
+      // terminal statuses (error/done) instead of rescheduling on 502/504. (P0-3)
       return res.json({
         jobId,
         status: result.status,
-        prediction: result.prediction
+        prediction: result.prediction,
+        error: result.status === "error" ? (result.error || "ThermoMPNN job execution failed on upstream server.") : undefined
       });
     } catch (err: any) {
       console.error(`[Route Error] ThermoMPNN job polling failed for ${jobId}:`, err.message);
-      sendError(res, 502, "BAD_GATEWAY", `ThermoMPNN job polling failed: ${err.message}`);
+      return res.json({ jobId, status: "error", prediction: null, error: `ThermoMPNN job polling failed: ${err.message}` });
     }
   });
 
@@ -81,30 +157,29 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollDynaMut2Job(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
-        sendError(res, 502, "BAD_GATEWAY", "DynaMut2 job polling failed: upstream server returned an error.");
-        return;
+        // Terminal error: return 200 so client treats it as final, not a reschedule signal (P0-3)
+        return res.json({ jobId, status: "ERROR", prediction: null, error: "DynaMut2 job polling failed: upstream server returned an error." });
       }
 
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
 
-      const consensusVerdict = result.status === "DONE" && result.prediction !== null
-        ? computeConsensusVerdict({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, foldxRepairFailed })
+      const calResult = result.status === "DONE" && result.prediction !== null
+        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, foldxRepairFailed })
         : null;
 
       res.json({
         jobId,
         status: result.status,
         prediction: result.prediction,
-        consensusVerdict
+        consensusVerdict: calResult ? calResult.consensusVerdict : null,
+        consensusProbability: calResult ? calResult.consensusProbability : null,
+        consensusConfMin: calResult ? calResult.consensusConfMin : null,
+        consensusConfMax: calResult ? calResult.consensusConfMax : null
       });
     } catch (err: any) {
       console.error(`[Route Error] DynaMut2 job polling failed for ${jobId}:`, err.message);
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
-      if (err.statusCode === 429) {
-        sendError(res, 429, "RATE_LIMIT_ERROR", "Upstream DynaMut2 API rate limit reached.");
-        return;
-      }
-      sendError(res, 502, "BAD_GATEWAY", `DynaMut2 job polling failed: ${err.message}`);
+      return res.json({ jobId, status: "ERROR", prediction: null, error: `DynaMut2 job polling failed: ${err.message}` });
     }
   });
 
@@ -128,8 +203,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
           if (ageMs > DDM_MAX_AGE_MS) {
             console.warn(`[DDMut Staleness] Job ${jobId} is ${Math.round(ageMs / 60000)}m old and still RUNNING — treating as ERROR (zombie job).`);
             await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "STALE_ERROR", ageMs });
-            sendError(res, 504, "GATEWAY_TIMEOUT", "Job execution timed out or hung on the upstream server.");
-            return;
+            return res.json({ jobId, status: "ERROR", prediction: null, error: "Job execution timed out or hung on the upstream server." });
           }
         }
       }
@@ -146,30 +220,28 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollDdmutJob(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
-        sendError(res, 502, "BAD_GATEWAY", "DDMut job polling failed: upstream server returned an error.");
-        return;
+        return res.json({ jobId, status: "ERROR", prediction: null, error: "DDMut job polling failed: upstream server returned an error." });
       }
 
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
 
-      const consensusVerdict = result.status === "DONE" && result.prediction !== null
-        ? computeConsensusVerdict({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, foldxRepairFailed })
+      const calResult = result.status === "DONE" && result.prediction !== null
+        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, foldxRepairFailed })
         : null;
 
       res.json({
         jobId,
         status: result.status,
         prediction: result.prediction,
-        consensusVerdict
+        consensusVerdict: calResult ? calResult.consensusVerdict : null,
+        consensusProbability: calResult ? calResult.consensusProbability : null,
+        consensusConfMin: calResult ? calResult.consensusConfMin : null,
+        consensusConfMax: calResult ? calResult.consensusConfMax : null
       });
     } catch (err: any) {
       console.error(`[Route Error] DDMut job polling failed for ${jobId}:`, err.message);
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
-      if (err.statusCode === 429) {
-        sendError(res, 429, "RATE_LIMIT_ERROR", "Upstream DDMut API rate limit reached.");
-        return;
-      }
-      sendError(res, 502, "BAD_GATEWAY", `DDMut job polling failed: ${err.message}`);
+      return res.json({ jobId, status: "ERROR", prediction: null, error: `DDMut job polling failed: ${err.message}` });
     }
   });
 

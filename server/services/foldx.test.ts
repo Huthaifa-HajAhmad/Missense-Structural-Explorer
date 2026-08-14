@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { parseFoldxDifFile, generateMutantPdb } from "./foldx.ts";
+import { parseFoldxDifFile, generateMutantPdb, cleanPdbForFoldX } from "./foldx.ts";
 
 describe("FoldX Service & Parser Unit Tests", () => {
   describe("parseFoldxDifFile", () => {
@@ -99,7 +99,7 @@ wt_1.pdb\t11.8627\t1.97785
   });
 
   describe("FoldX execution failure and error propagation", () => {
-    it("should throw a hard modeling engine unavailable error when FoldX execution fails", async () => {
+    it("should fail fast with an explicit engine-unavailable error when the FoldX binary is missing", async () => {
       const dummyPdb = `
 HEADER    EXPERIMENTAL STRUCTURE
 ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
@@ -113,9 +113,11 @@ END
       process.env.FOLDX_BINARY = "non-existent-foldx-binary";
       
       try {
+        // P0-1.5: the route must surface an explicit engine-unavailable error immediately,
+        // not queue forever behind a dead binary.
         await expect(
           generateMutantPdb(dummyPdb, "DA1W", "P00439", tempJobDir)
-        ).rejects.toThrow("Biophysical modeling engine unavailable");
+        ).rejects.toThrow(/FoldX binary not found or not executable|Biophysical modeling engine unavailable/);
       } finally {
         process.env.FOLDX_BINARY = oldFoldxBin;
         if (fs.existsSync(tempJobDir)) {
@@ -136,7 +138,7 @@ wt_2.pdb	12.50	3.04	9.00	2.10	2.20
 wt_3.pdb	12.50	3.04	9.00	2.10	2.20
       `.trim();
       const res = parseFoldxDifFile(mockFxout);
-      expect(res.ddG).toBe(null);
+      expect(res.ddG).toBe(2.50);
       expect(res.isDegenerate).toBe(true);
       expect(res.sd).toBe(0.0);
     });
@@ -179,4 +181,60 @@ wt_3.pdb	12.50	3.04	9.00	2.10	2.20
       }
     });
   });
+
+  describe("FoldX seed exposure and rawDdGs", () => {
+    it("should parse and return rawDdGs arrays in parseFoldxDifFile", () => {
+      const mockFxout = `
+# FoldX output file
+Pdb	Total energy	Backbone Hbond	Sidechain Hbond	Van der Waals	Electrostatics
+wt.pdb	10.00	2.50	8.00	1.50	2.00
+wt_1.pdb	12.00	3.04	9.00	2.10	2.20
+wt_2.pdb	13.00	3.04	9.00	2.20	2.30
+wt_3.pdb	14.00	3.04	9.00	2.30	2.40
+      `.trim();
+      const res = parseFoldxDifFile(mockFxout);
+      expect(res.rawDdGs).toEqual([2.0, 3.0, 4.0]);
+    });
+  });
+
+  describe("PDB normalization and AlphaFold detection", () => {
+    it("should clean PDB content and generate consistent cache keys", () => {
+      const pdbWithHeader = `
+HEADER    PREDICTED STRUCTURE
+REMARK    ALPHAFOLD DBREF
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+TER       2      ASP A   1
+END
+      `.trim();
+      
+      const pdbWithoutHeader = `
+ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C
+TER       2      ASP A   1
+END
+      `.trim();
+      
+      const cleanedWithHeader = cleanPdbForFoldX(pdbWithHeader);
+      const cleanedWithoutHeader = cleanPdbForFoldX(pdbWithoutHeader);
+      
+      expect(cleanedWithHeader).toBe(cleanedWithoutHeader);
+      
+      const hash1 = crypto.createHash("sha256").update(cleanedWithHeader).digest("hex");
+      const hash2 = crypto.createHash("sha256").update(cleanedWithoutHeader).digest("hex");
+      expect(hash1).toBe(hash2);
+    });
+
+    it("should correctly identify AlphaFold structures using regex patterns", () => {
+      const afRegex = /ALPHAFOLD|DBREF.*AF\-/i;
+      const remarkRegex = /^REMARK.*ALPHAFOLD/mi;
+      const headerRegex = /^HEADER.*PREDICTED/mi;
+
+      expect(afRegex.test("REMARK CREATOR OF MODEL: ALPHAFOLD")).toBe(true);
+      expect(afRegex.test("DBREF AF-P00439-F1")).toBe(true);
+      expect(remarkRegex.test("REMARK 999 ALPHAFOLD MODEL")).toBe(true);
+      expect(headerRegex.test("HEADER PREDICTED STRUCTURE")).toBe(true);
+
+      expect(afRegex.test("HEADER EXPERIMENTAL STRUCTURE")).toBe(false);
+    });
+  });
 });
+

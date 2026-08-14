@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   sendError,
   formatZodError,
+  anySignal,
 } from "../../utils.ts";
 import { fetchAlphafoldPdb } from "../../services/structure-fetcher.ts";
 import {
@@ -95,9 +96,11 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
       return;
     }
-    try {
-      const { uniprotId, mutation, engine, wtPdb } = req.body;
+    const { uniprotId, mutation, engine, wtPdb } = req.body;
+    const jobId = crypto.randomUUID();
+    const jobDir = path.join(process.cwd(), "temp_jobs", jobId);
 
+    try {
       if (!uniprotId || !mutation || !engine) {
         sendError(res, 400, "BAD_REQUEST", "Missing required parameters: uniprotId, mutation, or engine.");
         return;
@@ -152,8 +155,15 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      const jobId = crypto.randomUUID();
-      const jobDir = path.join(process.cwd(), "temp_jobs", jobId);
+      const clientAbortController = new AbortController();
+      if (req && typeof req.on === "function") {
+        req.on("close", () => {
+          if (!res.headersSent) clientAbortController.abort();
+        });
+      }
+      const timeoutSignal = AbortSignal.timeout(240000);
+      const combinedSignal = anySignal([clientAbortController.signal, timeoutSignal]);
+
       const mutationCode = `${wt}${chain}${position}${mt}`;
       const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || process.env.TAMARIND_API_KEY;
       const biohubToken = (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN;
@@ -163,64 +173,60 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
         uniprotId,
         jobDir,
         mutationCode,
-        biohubToken
+        biohubToken,
+        signal: combinedSignal
       };
 
+      const verifyResult = await verifyStability(
+        wtSeq,
+        mutation,
+        foldingEngine,
+        context,
+        tamarindApiKey
+      );
+
+      res.json({
+        pdb: verifyResult.structure.pdb,
+        ddG: verifyResult.ddG,
+        status: verifyResult.structure.status,
+        error: verifyResult.structure.error ?? null,
+        structure: verifyResult.structure,
+        foldedResidueIndex: position,
+        resolvedChain: chain,
+        dynamut2JobId: verifyResult.dynamut2JobId,
+        dynamut2Status: verifyResult.dynamut2Status,
+        ddmutJobId: verifyResult.ddmutJobId,
+        ddmutStatus: verifyResult.ddmutStatus,
+        thermompnnJobId: verifyResult.thermompnnJobId,
+        thermompnnStatus: verifyResult.thermompnnStatus,
+        thermompnnError: (verifyResult as any).thermompnnError ?? null,
+        energetics: {
+          foldx: verifyResult.structure.energetics?.foldxMean ?? null,
+          dynamut2: null,
+          ddmut: null,
+          rasp: null,
+          consensusVerdict: null,
+          evidenceComplete: verifyResult.thermompnnStatus !== "pending" && verifyResult.dynamut2Status !== "pending" && verifyResult.ddmutStatus !== "pending",
+          pendingTools: [
+            ...(verifyResult.thermompnnStatus === "pending" ? ["ThermoMPNN"] : []),
+            ...(verifyResult.dynamut2Status === "pending" ? ["DynaMut2"] : []),
+            ...(verifyResult.ddmutStatus === "pending" ? ["DDMut"] : [])
+          ],
+          ...verifyResult.structure.energetics,
+          thermompnn: verifyResult.ddG !== undefined && verifyResult.ddG !== null ? verifyResult.ddG : (verifyResult.structure.energetics?.thermompnn ?? null)
+        }
+      });
+    } catch (runErr: any) {
+      console.error("[Biophysics Route verify-stability Error]:", runErr);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", runErr.message || "Stability verification failed.");
+    } finally {
       try {
-        const verifyResult = await verifyStability(
-          wtSeq,
-          mutation,
-          foldingEngine,
-          context,
-          tamarindApiKey
-        );
-
-        try {
-          if (fs.existsSync(jobDir)) {
-            await fs.promises.rm(jobDir, { recursive: true, force: true });
-          }
-        } catch (cleanupErr) {}
-
-        res.json({
-          pdb: verifyResult.structure.pdb,
-          ddG: verifyResult.ddG,
-          status: verifyResult.structure.status,
-          error: verifyResult.structure.error ?? null,
-          structure: verifyResult.structure,
-          foldedResidueIndex: position,
-          resolvedChain: chain,
-          dynamut2JobId: null,
-          dynamut2Status: "unavailable",
-          ddmutJobId: null,
-          ddmutStatus: "unavailable",
-          thermompnnJobId: verifyResult.thermompnnJobId,
-          thermompnnStatus: verifyResult.thermompnnStatus,
-          thermompnnError: (verifyResult as any).thermompnnError ?? null,
-          energetics: {
-            foldx: verifyResult.structure.energetics?.foldxMean ?? null,
-            dynamut2: null,
-            ddmut: null,
-            rasp: null,
-            consensusVerdict: null,
-            evidenceComplete: verifyResult.thermompnnStatus !== "pending",
-            pendingTools: verifyResult.thermompnnStatus === "pending" ? ["ThermoMPNN"] : [],
-            ...verifyResult.structure.energetics,
-            thermompnn: verifyResult.ddG !== undefined && verifyResult.ddG !== null ? verifyResult.ddG : (verifyResult.structure.energetics?.thermompnn ?? null)
-          }
-        });
-      } catch (runErr: any) {
-        try {
-          if (fs.existsSync(jobDir)) {
-            await fs.promises.rm(jobDir, { recursive: true, force: true });
-          }
-        } catch (cleanupErr) {}
-
-        console.error("[Biophysics Route verify-stability Error]:", runErr);
-        sendError(res, 500, "INTERNAL_SERVER_ERROR", runErr.message || "Stability verification failed.");
+        if (fs.existsSync(jobDir)) {
+          await fs.promises.rm(jobDir, { recursive: true, force: true });
+        }
+      } catch (cleanupErr: any) {
+        console.error("[Biophysics Route verify-stability Cleanup Error]:", cleanupErr.message || cleanupErr);
       }
-    } catch (routeErr: any) {
-      console.error("[Route verify-stability Crash]:", routeErr);
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", routeErr.message || "An unexpected route crash occurred.");
     }
   });
 }

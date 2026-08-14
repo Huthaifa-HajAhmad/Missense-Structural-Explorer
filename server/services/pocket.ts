@@ -13,13 +13,111 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+let cachedJavaHome: string | null = null;
+let cachedJavaHomeChecked = false;
+
+async function checkJavaVersion(javaExePath: string): Promise<boolean> {
+  try {
+    const { stderr, stdout } = await execFileAsync(javaExePath, ["-version"], { timeout: 3000 });
+    const versionStr = (stderr || stdout || "").toString();
+    // Check if the version output is NOT Java 8/7/6/5 (meaning it starts with 9+ or similar, and doesn't match 1.[5-8])
+    return !/version\s+"1\.[5-8]\./i.test(versionStr);
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function discoverJavaHome(): Promise<string | null> {
+  if (cachedJavaHomeChecked) {
+    return cachedJavaHome;
+  }
+
+  // 1. Check existing env JAVA_HOME
+  if (process.env.JAVA_HOME) {
+    const candidatePath = path.join(process.env.JAVA_HOME, "bin", process.platform === "win32" ? "java.exe" : "java");
+    if (fs.existsSync(candidatePath) && await checkJavaVersion(candidatePath)) {
+      cachedJavaHome = process.env.JAVA_HOME;
+      cachedJavaHomeChecked = true;
+      return cachedJavaHome;
+    }
+  }
+
+  // 2. Check system default 'java'
+  const defaultJavaExe = process.platform === "win32" ? "java.exe" : "java";
+  if (await checkJavaVersion(defaultJavaExe)) {
+    // If system default java is already Java 17+, we don't need to override JAVA_HOME
+    cachedJavaHome = "";
+    cachedJavaHomeChecked = true;
+    return cachedJavaHome;
+  }
+
+  // 3. Scan user directories and other standard JDK locations
+  const candidates: string[] = [];
+  const userProfile = process.env.USERPROFILE || process.env.HOME || "";
+
+  if (userProfile) {
+    const gradleJdksDir = path.join(userProfile, ".gradle", "jdks");
+    if (fs.existsSync(gradleJdksDir)) {
+      try {
+        const folders = fs.readdirSync(gradleJdksDir);
+        for (const folder of folders) {
+          candidates.push(path.join(gradleJdksDir, folder));
+        }
+      } catch (_) {}
+    }
+
+    const jdksDir = path.join(userProfile, ".jdks");
+    if (fs.existsSync(jdksDir)) {
+      try {
+        const folders = fs.readdirSync(jdksDir);
+        for (const folder of folders) {
+          candidates.push(path.join(jdksDir, folder));
+        }
+      } catch (_) {}
+    }
+  }
+
+  const standardDirs = [
+    "C:\\Program Files\\Java",
+    "C:\\Program Files\\Android\\Android Studio\\jbr"
+  ];
+  for (const sDir of standardDirs) {
+    if (fs.existsSync(sDir)) {
+      candidates.push(sDir);
+      try {
+        const folders = fs.readdirSync(sDir);
+        for (const folder of folders) {
+          candidates.push(path.join(sDir, folder));
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Probe candidates sequentially
+  for (const candidate of candidates) {
+    const javaExe = path.join(candidate, "bin", process.platform === "win32" ? "java.exe" : "java");
+    if (fs.existsSync(javaExe)) {
+      if (await checkJavaVersion(javaExe)) {
+        cachedJavaHome = candidate;
+        cachedJavaHomeChecked = true;
+        console.log(`[Pocket Finder ML] Auto-discovered compatible Java 17+ home: ${candidate}`);
+        return cachedJavaHome;
+      }
+    }
+  }
+
+  cachedJavaHome = null;
+  cachedJavaHomeChecked = true;
+  return null;
+}
+
 export const pocketCache = new LRUCache<string, any>({
   max: 100,
   maxSize: 50 * 1024 * 1024, // 50MB limit (M-6)
   sizeCalculation: (value) => {
     if (!value) return 1000;
     const residueCount = Array.isArray(value.pocketResidues) ? value.pocketResidues.length : 0;
-    return residueCount * 50;
+    return Math.max(1, residueCount * 50);
   }
 });
 
@@ -77,7 +175,8 @@ export async function findBindingPocket(
   pdbText: string,
   targetIndex: number,
   jobDir: string,
-  targetChain?: string
+  targetChain?: string,
+  signal?: AbortSignal
 ): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback"; pocketDistance?: number | null }> {
   const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
   const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}`;
@@ -88,7 +187,7 @@ export async function findBindingPocket(
     }
     return cached;
   }
-  const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain);
+  const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
   pocketCache.set(cacheKey, result);
   return result;
 }
@@ -97,7 +196,8 @@ async function findBindingPocketInternal(
   pdbText: string,
   targetIndex: number,
   jobDir: string,
-  targetChain?: string
+  targetChain?: string,
+  signal?: AbortSignal
 ): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback"; pocketDistance?: number | null }> {
   const fullPdbPath = path.join(jobDir, "wt.pdb");
   const fullOutDir = path.join(jobDir, "out");
@@ -184,7 +284,13 @@ async function findBindingPocketInternal(
     }
 
     let execArgs = ["predict", "-f", path.resolve(fullPdbPath), "-o", path.resolve(fullOutDir)];
-    let options: any = { timeout: 25000, cwd: jobDir };
+    let env = { ...process.env };
+    const discoveredJavaHome = await discoverJavaHome();
+    if (discoveredJavaHome) {
+      env.JAVA_HOME = discoveredJavaHome;
+      console.log(`[Pocket Finder ML] Injecting discovered JAVA_HOME: ${discoveredJavaHome}`);
+    }
+    let options: any = { timeout: 25000, cwd: jobDir, signal, env };
     if (p2rankCmd.endsWith(".bat") || p2rankCmd.endsWith(".cmd")) {
       options.shell = true;
     }
@@ -371,11 +477,191 @@ async function findBindingPocketInternal(
       }
     }
   } catch (p2rankErr: any) {
-    console.warn(`[Pocket Finder ML] P2Rank execution failed or not installed. Falling back to heuristic. Error:`, p2rankErr.message);
+    console.warn(`[Pocket Finder ML] P2Rank execution failed or not installed. Error:`, p2rankErr.message);
   }
 
+  let fpocketSuccess = false;
   if (!p2rankSuccess) {
-    throw new Error("P2Rank pocket detection failed: No high-confidence binding pocket could be resolved for the specified mutation index.");
+    try {
+      console.log(`[Pocket Finder Fallback] P2Rank failed/offline. Executing fpocket...`);
+      let useDocker = false;
+      try {
+        // Probe if native fpocket exists
+        await execFileAsync(process.platform === "win32" ? "fpocket.exe" : "fpocket", ["-v"]);
+      } catch (err: any) {
+        if (err.code === "ENOENT") {
+          // Fall back to checking if docker is available
+          try {
+            await execFileAsync("docker", ["--version"]);
+            useDocker = true;
+            console.log(`[Pocket Finder Fallback] Native fpocket not found, but Docker detected. Using dockerized fpocket/fpocket...`);
+          } catch (_) {
+            console.log(`[Pocket Finder Fallback] Neither native fpocket nor Docker is available.`);
+          }
+        }
+      }
+
+      if (useDocker) {
+        const absoluteJobDir = path.resolve(jobDir);
+        const volumeMount = `${absoluteJobDir}:/workdir`;
+        await execFileAsync("docker", [
+          "run",
+          "--rm",
+          "-v",
+          volumeMount,
+          "fpocket/fpocket",
+          "fpocket",
+          "-f",
+          "/workdir/wt.pdb"
+        ], { timeout: 30000, signal });
+      } else {
+        await execFileAsync("fpocket", ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal });
+      }
+      
+      const infoPath = path.join(jobDir, "wt_out", "wt_info.txt");
+      const pocketsDir = path.join(jobDir, "wt_out", "pockets");
+      
+      if (fs.existsSync(infoPath) && fs.existsSync(pocketsDir)) {
+        const infoText = await fs.promises.readFile(infoPath, "utf8");
+        const pocketData: Record<number, { score: number; volume: number }> = {};
+        const pocketBlocks = infoText.split(/Pocket\s+(\d+)\s*:/i);
+        
+        for (let i = 1; i < pocketBlocks.length; i += 2) {
+          const pId = parseInt(pocketBlocks[i], 10);
+          const blockContent = pocketBlocks[i + 1] || "";
+          const scoreMatch = blockContent.match(/Score\s*:\s*([\d.]+)/i);
+          const volMatch = blockContent.match(/Volume\s*:\s*([\d.]+)/i);
+          const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+          const volume = volMatch ? parseFloat(volMatch[1]) : 0;
+          pocketData[pId] = { score, volume };
+        }
+
+        const files = fs.readdirSync(pocketsDir);
+        const pockets: any[] = [];
+        for (const file of files) {
+          const atmMatch = file.match(/^pocket(\d+)_atm\.pdb$/i);
+          if (atmMatch) {
+            const pId = parseInt(atmMatch[1], 10);
+            const filePath = path.join(pocketsDir, file);
+            const pdbContent = await fs.promises.readFile(filePath, "utf8");
+            
+            const pocketAtoms = parseAtomsFromPdb(pdbContent);
+            const residueKeys = Array.from(new Set(pocketAtoms.map(a => `${a.chain}_${a.resSeq}`)));
+            const residueIndices = Array.from(new Set(pocketAtoms.map(a => a.resSeq)));
+            
+            const stats = pocketData[pId] || { score: 0, volume: 0 };
+            pockets.push({
+              id: pId,
+              score: stats.score,
+              volume: stats.volume,
+              probability: stats.score,
+              sasPoints: pocketAtoms.length,
+              residueKeys,
+              residueIndices
+            });
+          }
+        }
+
+        let selectedPocket = pockets.find(p => p.residueKeys.includes(`${chainToUse}_${mutIndex}`));
+        if (!selectedPocket) {
+          selectedPocket = pockets.find(p => p.residueIndices.includes(mutIndex));
+        }
+        if (!selectedPocket && pockets.length > 0) {
+          let minDist = 999999;
+          for (const p of pockets) {
+            const pAtoms = atoms.filter(a => p.residueKeys.includes(`${a.chain}_${a.resSeq}`));
+            if (pAtoms.length > 0) {
+              let sumX = 0, sumY = 0, sumZ = 0;
+              pAtoms.forEach(a => { sumX += a.x; sumY += a.y; sumZ += a.z; });
+              const cX = sumX / pAtoms.length;
+              const cY = sumY / pAtoms.length;
+              const cZ = sumZ / pAtoms.length;
+              const dist = Math.sqrt(Math.pow(cX - mutX, 2) + Math.pow(cY - mutY, 2) + Math.pow(cZ - mutZ, 2));
+              if (dist < minDist) {
+                minDist = dist;
+                selectedPocket = p;
+              }
+            }
+          }
+        }
+
+        if (selectedPocket) {
+          const pocketResiduesMap: Record<string, any> = {};
+          const propensities = getAaPropensities();
+          const atomsByResKey = new Map<string, PdbAtom[]>();
+          for (const a of atoms) {
+            const key = `${a.chain}_${a.resSeq}`;
+            const list = atomsByResKey.get(key) || [];
+            list.push(a);
+            atomsByResKey.set(key, list);
+          }
+
+          for (const rKey of selectedPocket.residueKeys) {
+            const resAtoms = atomsByResKey.get(rKey) || [];
+            if (resAtoms.length > 0) {
+              let rX = 0, rY = 0, rZ = 0;
+              resAtoms.forEach(a => { rX += a.x; rY += a.y; rZ += a.z; });
+              rX /= resAtoms.length;
+              rY /= resAtoms.length;
+              rZ /= resAtoms.length;
+              
+              const distance = Math.sqrt(Math.pow(rX - mutX, 2) + Math.pow(rY - mutY, 2) + Math.pow(rZ - mutZ, 2));
+              const resName = resAtoms[0].resName;
+              const prop = propensities[resName] || { weight: 1.0, role: "Backbone structural spacer", type: "Aliphatic" };
+              const parts = rKey.split("_");
+              const rIndex = parseInt(parts[parts.length - 1], 10);
+
+              pocketResiduesMap[rKey] = {
+                index: rIndex,
+                chain: parts[0],
+                name: resName,
+                distance: parseFloat(distance.toFixed(2)),
+                score: prop.weight,
+                role: prop.role,
+                type: prop.type
+              };
+            }
+          }
+
+          pocketResidues = Object.values(pocketResiduesMap);
+          pocketResidues.sort((a, b) => b.score - a.score);
+
+          pocketScore = Math.min(98, Math.round(selectedPocket.score * 100));
+          pocketVolume = Math.round(selectedPocket.volume);
+
+          const typesCount = pocketResidues.reduce((acc, curr) => {
+            acc[curr.type] = (acc[curr.type] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
+          likelyCofactor = determineLikelyCofactor(typesCount);
+
+          const pAtoms = atoms.filter(a => selectedPocket.residueKeys.includes(`${a.chain}_${a.resSeq}`));
+          if (pAtoms.length > 0) {
+            let sumPX = 0, sumPY = 0, sumPZ = 0;
+            pAtoms.forEach(a => { sumPX += a.x; sumPY += a.y; sumPZ += a.z; });
+            const pcX = sumPX / pAtoms.length;
+            const pcY = sumPY / pAtoms.length;
+            const pcZ = sumPZ / pAtoms.length;
+            pocketDistance = parseFloat(Math.sqrt(Math.pow(pcX - mutX, 2) + Math.pow(pcY - mutY, 2) + Math.pow(pcZ - mutZ, 2)).toFixed(2));
+          }
+
+          fpocketSuccess = true;
+        }
+      }
+    } catch (fpocketErr: any) {
+      console.warn(`[Pocket Finder Fallback] fpocket execution or parsing failed:`, fpocketErr.message);
+    }
+  }
+
+  if (!p2rankSuccess && !fpocketSuccess) {
+    return {
+      pocketResidues: [],
+      pocketScore: 0,
+      pocketVolume: 0,
+      likelyCofactor: "None",
+      status: "fallback",
+      pocketDistance: null
+    };
   }
 
   return {

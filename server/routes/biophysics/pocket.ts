@@ -10,33 +10,42 @@ import {
   formatZodError,
 } from "../../utils.ts";
 import {
-  biophysicalSemaphore,
   findBindingPocket,
   parseResiduesFromPdbMaybeAsync,
   getResidueDetails,
 } from "../../services/biophysics.ts";
+import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 
 const pocketFinderSchema = z.object({
   pdbText: z.string(),
-  targetIndex: z.union([z.number(), z.string()])
+  targetIndex: z.union([z.number(), z.string()]).optional(),
+  mutIndex: z.union([z.number(), z.string()]).optional(),
+  targetChain: z.string().optional()
+}).refine(data => data.targetIndex !== undefined || data.mutIndex !== undefined, {
+  message: "Either targetIndex or mutIndex must be specified."
 });
 
 const nearestResiduesSchema = z.object({
   pdbText: z.string(),
   targetIndex: z.union([z.number(), z.string()]),
+  targetChain: z.string().optional(),
+  distanceThreshold: z.union([z.number(), z.string()]).refine(
+    value => Number(value) > 0,
+    "distanceThreshold must be positive"
+  ).optional(),
   n: z.union([z.number(), z.string()]).optional()
 });
 
 export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): void {
 
-  apiRouter.post("/pocket-finder", jsonParserPdb, async (req, res) => {
+  const pocketHandler = async (req: any, res: any) => {
     const parseResult = pocketFinderSchema.safeParse(req.body);
     if (!parseResult.success) {
       sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
       return;
     }
     try {
-      const { pdbText, targetIndex } = req.body;
+      const { pdbText, targetIndex, mutIndex, targetChain } = req.body;
 
       if (!pdbText || typeof pdbText !== "string" || (!pdbText.includes("ATOM") && !pdbText.includes("HETATM"))) {
         sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records.");
@@ -47,9 +56,10 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         return;
       }
 
-      const mutIndex = targetIndex !== undefined && targetIndex !== null ? Number(targetIndex) : null;
-      if (mutIndex === null || isNaN(mutIndex) || mutIndex <= 0 || mutIndex > 99999) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid targetIndex: must be a positive integer.");
+      const targetIdx = targetIndex !== undefined ? targetIndex : mutIndex;
+      const mutIndexVal = targetIdx !== undefined && targetIdx !== null ? Number(targetIdx) : null;
+      if (mutIndexVal === null || isNaN(mutIndexVal) || mutIndexVal <= 0 || mutIndexVal > 99999) {
+        sendError(res, 400, "BAD_REQUEST", "Invalid targetIndex/mutIndex: must be a positive integer.");
         return;
       }
 
@@ -58,9 +68,11 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         if (!parsedResidues || parsedResidues.length === 0) {
           throw new Error("PDB structure contains no parseable residues.");
         }
-        const targetRes = parsedResidues.find(r => r.resSeq === mutIndex);
+        const targetRes = parsedResidues.find(r =>
+          r.resSeq === mutIndexVal && (!targetChain || r.chain === targetChain)
+        );
         if (!targetRes) {
-          sendError(res, 400, "BAD_REQUEST", `Target residue index #${mutIndex} was not found in the PDB structure.`);
+          sendError(res, 400, "BAD_REQUEST", `Target residue index #${mutIndexVal} was not found in the PDB structure.`);
           return;
         }
       } catch (parseErr: any) {
@@ -68,32 +80,26 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         return;
       }
 
-      let acquired = false;
-      try {
-        await biophysicalSemaphore.acquire();
-        acquired = true;
-      } catch (semErr: any) {
-        sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Please try again later.");
-        return;
-      }
-
       const jobId = crypto.randomUUID();
       const jobDir = path.join(process.cwd(), "temp_jobs", jobId);
 
-      async function cleanupPocketFiles() {
-        try {
-          if (fs.existsSync(jobDir)) {
-            await fs.promises.rm(jobDir, { recursive: true, force: true });
-            console.log(`[Cleanup] Deleted temporary pocket job directory: ${jobDir}`);
-          }
-        } catch (cleanupErr: any) {
-          console.error("[Pocket Cleanup Error] Cleanup failed:", cleanupErr.message);
-        }
-      }
-
       try {
-        const result = await findBindingPocket(pdbText, mutIndex, jobDir);
-        res.json(result);
+        const queue = BiophysicalJobQueue.getInstance();
+        let queueJobId: string;
+        try {
+          queueJobId = await queue.pushJob("p2rank", { pdbText, mutIndex: mutIndexVal, targetChain, jobDir });
+        } catch (queueErr: any) {
+          if (queueErr.message.includes("BUSY")) {
+            sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Queue limit reached.");
+            return;
+          }
+          throw queueErr;
+        }
+
+        res.json({
+          status: "queued",
+          pocketJobId: queueJobId
+        });
 
       } catch (err: any) {
         console.error("Pocket finder route failure:", err);
@@ -107,14 +113,58 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         } else {
           sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "An error occurred during pocket finding.");
         }
-      } finally {
-        await cleanupPocketFiles();
-        if (acquired) {
-          biophysicalSemaphore.release();
-        }
       }
     } catch (outerErr: any) {
       sendError(res, 500, "INTERNAL_SERVER_ERROR", outerErr.message || "An unexpected error occurred.");
+    }
+  };
+
+  apiRouter.post("/pocket-finder", jsonParserPdb, pocketHandler);
+  apiRouter.post("/pocket-detect", jsonParserPdb, pocketHandler);
+
+  apiRouter.get("/pocket-job/:jobId", async (req, res) => {
+    try {
+      const jobId = req.params.jobId;
+      const queue = BiophysicalJobQueue.getInstance();
+      const jobInfo = await queue.getJobStatus(jobId);
+
+      if (!jobInfo) {
+        sendError(res, 404, "NOT_FOUND", "Pocket job not found.");
+        return;
+      }
+
+      res.json({
+        jobId,
+        status: jobInfo.status,
+        result: jobInfo.result,
+        error: jobInfo.error
+      });
+    } catch (err: any) {
+      console.error("Pocket job polling route failure:", err);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to poll pocket job status.");
+    }
+  });
+
+  apiRouter.get("/biophysics/pocket-job/:jobId", async (req, res) => {
+    try {
+      const jobId = req.params.jobId;
+      const queue = BiophysicalJobQueue.getInstance();
+      const jobInfo = await queue.getJobStatus(jobId);
+
+      if (!jobInfo) {
+        sendError(res, 404, "NOT_FOUND", "Pocket job not found.");
+        return;
+      }
+
+      res.json({
+        jobId,
+        status: jobInfo.status,
+        result: jobInfo.result,
+        error: jobInfo.error
+      });
+    } catch (err: any) {
+      console.error("Pocket job polling route failure:", err);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to poll pocket job status.");
     }
   });
 
@@ -125,7 +175,10 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       return;
     }
     try {
-      const { pdbText, targetIndex } = req.body;
+      const { pdbText, targetIndex, targetChain } = req.body;
+      const distanceThreshold = req.body.distanceThreshold !== undefined
+        ? Number(req.body.distanceThreshold)
+        : null;
       let n = req.body.n !== undefined ? Number(req.body.n) : 5;
 
       if (!pdbText || typeof pdbText !== "string" || (!pdbText.includes("ATOM") && !pdbText.includes("HETATM"))) {
@@ -150,7 +203,9 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       }
 
       const residues = await parseResiduesFromPdbMaybeAsync(pdbText);
-      const targetRes = residues.find(r => r.resSeq === targetIndexNum);
+      const targetRes = residues.find(r =>
+        r.resSeq === targetIndexNum && (!targetChain || r.chain === targetChain)
+      );
       if (!targetRes) {
         sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${targetIndexNum} is not found in the PDB structure.`);
         return;
@@ -164,12 +219,14 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       const computedNeighbors: any[] = [];
       for (const r of residues) {
         if (r.resSeq === targetIndexNum) continue;
+        if (targetChain && r.chain !== targetChain) continue;
         if (r.x === undefined || r.y === undefined || r.z === undefined) continue;
 
         const dx = r.x - targetRes.x;
         const dy = r.y - targetRes.y;
         const dz = r.z - targetRes.z;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distanceThreshold !== null && dist > distanceThreshold) continue;
 
         const details = getResidueDetails(r.resName3);
         computedNeighbors.push({

@@ -13,34 +13,45 @@ import {
   MUTATION_FOLDX_PATTERN,
   getApiKeyFromSession,
   formatZodError,
+  anySignal,
 } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import {
-  biophysicalSemaphore,
   generateMutantPdb,
+  getMutantFromCache,
   parseResiduesFromPdbMaybeAsync,
   runRaspLocal,
   submitThermoMpnnJob,
+  getFoldxCacheKey,
+  cleanPdbForFoldX,
 } from "../../services/biophysics.ts";
+import { runStabilityOracleAnalysis } from "../../services/stabilityoracle.ts";
+import { fetchUniprotSequence } from "../../services/uniprot.ts";
+import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import {
   performGeminiBiophysicalAnalysis,
+  getConfiguredGeminiModels,
 } from "../../services/gemini.ts";
 import {
   submitDynaMut2Job,
   submitDdmutJob,
+  fetchAlphafoldPdb,
 } from "../../services/external.ts";
+import { resolveStructure, type ResolvedStructure } from "../../services/structure-resolver.ts";
 import { type FoldXResult } from "../state.ts";
-import { computeConsensusVerdict } from "../../../src/shared/thresholds.ts";
-import { getFromCache, writeToCache, recordJobInRegistry } from "../shared.ts";
+import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
+import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
 
 const generateMutantSchema = z.object({
-  wtPdb: z.string(),
+  wtPdb: z.string().optional(),
   mutation: z.string(),
   uniprotId: z.string().optional(),
   pH: z.union([z.number(), z.string()]).optional(),
   temperature: z.union([z.number(), z.string()]).optional(),
   ionicStrength: z.union([z.number(), z.string()]).optional()
 });
+
+const activeFoldxJobs = new Map<string, string>();
 
 export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any): void {
 
@@ -56,7 +67,20 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         return;
       }
 
-      const cacheKey = `biophysical_${uniprotId}_${variant}`;
+      const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
+      let customApiKey: string | undefined;
+      if (customSessionId) {
+        customApiKey = getApiKeyFromSession(customSessionId);
+        if (!customApiKey) {
+          sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate in Settings.");
+          return;
+        }
+      }
+
+      const activeApiKey = customApiKey || process.env.GEMINI_API_KEY || "no_key";
+      const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
+      const model = getConfiguredGeminiModels()[0];
+      const cacheKey = `biophysical_${uniprotId}_${variant}_key:${keyHash}_model:${model}_schema:v2`;
       const cached = getFromCache(cacheKey);
       if (cached) {
         console.log(`[Cache Hit] Serving cached biophysical Gemini insights for ${cacheKey}`);
@@ -75,17 +99,15 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           const residueIndex = mutMatch[2];
           const mutant = mutMatch[3];
 
-          const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
-          let customApiKey: string | undefined;
-          if (customSessionId) {
-            customApiKey = getApiKeyFromSession(customSessionId);
-            if (!customApiKey) {
-              sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate in Settings.");
-              return;
-            }
+          const clientAbortController = new AbortController();
+          if (req && typeof req.on === "function") {
+            req.on("close", () => {
+              if (!res.headersSent) clientAbortController.abort();
+            });
           }
 
           const timeoutSignal = AbortSignal.timeout(60000);
+          const combinedSignal = anySignal([clientAbortController.signal, timeoutSignal]);
           let result;
           try {
             result = await performGeminiBiophysicalAnalysis(
@@ -96,7 +118,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               wildType,
               mutant,
               customApiKey,
-              timeoutSignal
+              combinedSignal as AbortSignal
             );
             writeToCache(cacheKey, result);
           } catch (err: any) {
@@ -133,14 +155,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
     try {
       const { wtPdb, mutation, uniprotId } = req.body;
 
-      if (!wtPdb || typeof wtPdb !== "string" || (!wtPdb.includes("ATOM") && !wtPdb.includes("HETATM"))) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records.");
-        return;
-      }
-      if (wtPdb.length > 5 * 1024 * 1024) {
-        sendError(res, 400, "BAD_REQUEST", "PDB file exceeds maximum size of 5MB.");
-        return;
-      }
       if (!mutation || typeof mutation !== "string" || !MUTATION_FOLDX_PATTERN.test(mutation.trim())) {
         sendError(res, 400, "BAD_REQUEST", "Invalid mutation code: must match FoldX format (e.g., RA215W).");
         return;
@@ -164,22 +178,27 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
 
       let resolvedChain = chainParam;
       let pdbResidues: any[] | null = null;
-      try {
-        pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
-        const targetRes = pdbResidues.find(r => r.resSeq === posNum && r.chain === chainParam);
-        if (targetRes) {
-          resolvedChain = targetRes.chain;
-        } else {
-          sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum} on chain ${chainParam} is not found in the PDB structure.`);
-          return;
+      if (wtPdb) {
+        try {
+          pdbResidues = await parseResiduesFromPdbMaybeAsync(wtPdb);
+          const targetRes = pdbResidues.find(r => r.resSeq === posNum && r.chain === chainParam);
+          if (targetRes) {
+            resolvedChain = targetRes.chain;
+          } else {
+            sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum} on chain ${chainParam} is not found in the PDB structure.`);
+            return;
+          }
+        } catch (pdbErr) {
+          console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
         }
-      } catch (pdbErr) {
-        console.warn("[PDB Parse Warning] Failed to parse residues for chain resolution:", pdbErr);
       }
-      const resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+      let resolvedChainUpper = resolvedChain.toUpperCase() || "A";
 
       const jobId = crypto.randomUUID();
       const jobDir = path.join(process.cwd(), "temp_jobs", jobId);
+
+      let isCacheHit = false;
+      let isExistingActiveJob = false;
 
       async function cleanupFiles() {
         try {
@@ -207,231 +226,338 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let thermompnnVal: number | null = null;
         let rasp: number | null = null;
         let raspReason: string | undefined = undefined;
+        let stabilityoracleVal: number | null = null;
 
         const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || process.env.TAMARIND_API_KEY;
 
-        const pHVal = req.body.pH !== undefined ? parseFloat(String(req.body.pH)) : undefined;
-        const tempVal = req.body.temperature !== undefined ? parseFloat(String(req.body.temperature)) : undefined;
-        const ionVal = req.body.ionicStrength !== undefined ? parseFloat(String(req.body.ionicStrength)) : undefined;
+      const pHVal = req.body.pH !== undefined ? parseFloat(String(req.body.pH)) : undefined;
+      const tempVal = req.body.temperature !== undefined ? parseFloat(String(req.body.temperature)) : undefined;
+      const ionVal = req.body.ionicStrength !== undefined ? parseFloat(String(req.body.ionicStrength)) : undefined;
+      const seedVal = req.body.seed !== undefined ? parseInt(String(req.body.seed), 10) : undefined;
+
+      // ── Authoritative server-side structure resolution ────────────────────────
+      // resolveStructure() uses the same LRU-cached fetchers as the /pdb/ route, so
+      // this is typically a cache hit (no extra network round-trip).
+      let resolvedStructure: ResolvedStructure | null = null;
+      try {
+        resolvedStructure = await resolveStructure(uniprotId, posNum);
+        if (resolvedStructure && resolvedStructure.provenance.source !== "alphafold") {
+          try {
+            const residues = await parseResiduesFromPdbMaybeAsync(resolvedStructure.pdbText);
+            const targetChain = resolvedStructure.provenance.chainId || chainParam;
+            const hasResidue = residues.some(r => r.resSeq === posNum && r.chain.toUpperCase() === targetChain.toUpperCase());
+            if (!hasResidue) {
+              console.warn(`[generate-mutant] Resolved structure ${resolvedStructure.provenance.pdbId} is missing coordinates for residue ${posNum} on chain ${targetChain}. Falling back to AlphaFold.`);
+              const afData = await fetchAlphafoldPdb(uniprotId);
+              if (afData) {
+                resolvedStructure = {
+                  pdbText: afData,
+                  provenance: { source: "alphafold" }
+                };
+              }
+            }
+          } catch (checkErr: any) {
+            console.warn("[generate-mutant] Failed to verify residue coverage in resolved structure:", checkErr.message);
+          }
+        }
+      } catch (resolveErr: any) {
+        console.warn("[generate-mutant] resolveStructure failed, falling back to client-provided PDB:", resolveErr.message);
+      }
+      // Use server-resolved PDB if available; otherwise trust the client-provided wtPdb
+      const effectiveWtPdb = resolvedStructure?.pdbText ?? wtPdb;
+
+      if (resolvedStructure && resolvedStructure.provenance.chainId) {
+        resolvedChain = resolvedStructure.provenance.chainId;
+        resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+      }
+      const wt1 = mutTrimmed[0].toUpperCase();
+      const mut1 = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+      const actualMutation = `${wt1}${resolvedChain}${posNum}${mut1}`;
+
+      if (!effectiveWtPdb || typeof effectiveWtPdb !== "string" || (!effectiveWtPdb.includes("ATOM") && !effectiveWtPdb.includes("HETATM"))) {
+        sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records, and structure could not be resolved from UniProt.");
+        return;
+      }
+      if (effectiveWtPdb.length > 5 * 1024 * 1024) {
+        sendError(res, 400, "BAD_REQUEST", "Resolved or provided PDB file exceeds maximum size of 5MB.");
+        return;
+      }
 
         const foldxOptions = {
           pH: isNaN(pHVal as number) ? undefined : pHVal,
           temperature: isNaN(tempVal as number) ? undefined : tempVal,
-          ionicStrength: isNaN(ionVal as number) ? undefined : ionVal
+          ionicStrength: isNaN(ionVal as number) ? undefined : ionVal,
+          seed: isNaN(seedVal as number) ? undefined : seedVal
         };
 
-        const runFoldX = async (): Promise<FoldXResult | null> => {
-          let acquired = false;
-          try {
-            await biophysicalSemaphore.acquire();
-            acquired = true;
+        const clientAbortController = new AbortController();
+        if (req && typeof req.on === "function") {
+          req.on("close", () => {
+            if (!res.headersSent) clientAbortController.abort();
+          });
+        }
+        const combinedSignal = anySignal([clientAbortController.signal, AbortSignal.timeout(240000)]);
 
+        // 1. Calculate cache key for FoldX mutant (consistent with foldx.ts)
+        const normalizedPdb = cleanPdbForFoldX(effectiveWtPdb);
+        const pdbHash = crypto.createHash("sha256").update(normalizedPdb).digest("hex");
+        const foldxCacheKey = getFoldxCacheKey(pdbHash, actualMutation, foldxOptions);
+
+        const cachedFoldx = getMutantFromCache(foldxCacheKey);
+
+        let queueJobId: string | null = null;
+        isExistingActiveJob = false;
+
+        if (!cachedFoldx) {
+          const queue = BiophysicalJobQueue.getInstance();
+          const existingJobId = activeFoldxJobs.get(foldxCacheKey);
+          if (existingJobId) {
+            const statusInfo = await queue.getJobStatus(existingJobId);
+            if (statusInfo && (statusInfo.status === "queued" || statusInfo.status === "running")) {
+              queueJobId = existingJobId;
+              isExistingActiveJob = true;
+              const existingJobData = await queue.getJobData(existingJobId);
+              if (existingJobData && existingJobData.remoteJobs) {
+                dynamut2JobId = existingJobData.remoteJobs.dynamut2JobId;
+                dynamut2Status = existingJobData.remoteJobs.dynamut2Status;
+                ddmutJobId = existingJobData.remoteJobs.ddmutJobId;
+                ddmutStatus = existingJobData.remoteJobs.ddmutStatus;
+                thermompnnJobId = existingJobData.remoteJobs.thermompnnJobId;
+                thermompnnStatus = existingJobData.remoteJobs.thermompnnStatus;
+                thermompnnError = existingJobData.remoteJobs.thermompnnError;
+              }
+              console.log(`[Biophysical Deduplication] Joined existing active queued/running FoldX job: ${queueJobId}`);
+            } else {
+              activeFoldxJobs.delete(foldxCacheKey);
+            }
+          }
+
+          if (!isExistingActiveJob) {
             await AuditLogger.log("GENERATE_MUTANT", {
-              mutation: mutTrimmed
+              mutation: actualMutation
+            });
+            try {
+              queueJobId = await queue.pushJob("foldx", {
+                wtPdb: effectiveWtPdb,
+                mutation: actualMutation,
+                uniprotId,
+                jobDir,
+                options: foldxOptions,
+                structureProvenance: {
+                  source: resolvedStructure?.provenance.source ?? "client-provided",
+                  pdbId: resolvedStructure?.provenance.pdbId ?? null,
+                  chainId: resolvedStructure?.provenance.chainId ?? null,
+                  resolution: resolvedStructure?.provenance.resolution ?? null,
+                  method: resolvedStructure?.provenance.method ?? null,
+                  identity: resolvedStructure?.provenance.identity ?? null,
+                  raspDatasetSnapshot: "2023-Zenodo-6835877",
+                  vesmModel: "VESM_150M_v1",
+                  timestamp: new Date().toISOString()
+                },
+                remoteJobs: {
+                  dynamut2JobId: null,
+                  dynamut2Status: "pending",
+                  ddmutJobId: null,
+                  ddmutStatus: "pending",
+                  thermompnnJobId: null,
+                  thermompnnStatus: "pending",
+                  thermompnnError: null,
+                  thermompnnVal: null,
+                  stabilityoracleVal: null
+                }
+              });
+              activeFoldxJobs.set(foldxCacheKey, queueJobId);
+            } catch (queueErr: any) {
+              if (queueErr.message.includes("BUSY")) {
+                throw queueErr;
+              }
+              throw queueErr;
+            }
+          }
+        }
+
+        async function updateQueueJobRemoteData(updates: any) {
+          if (!queueJobId || isExistingActiveJob) return;
+          try {
+            const queue = BiophysicalJobQueue.getInstance();
+            const jobData = await queue.getJobData(queueJobId);
+            if (jobData && jobData.remoteJobs) {
+              jobData.remoteJobs = {
+                ...jobData.remoteJobs,
+                ...updates
+              };
+              await queue.updateJobData(queueJobId, jobData);
+            }
+          } catch (err: any) {
+            console.warn("[updateQueueJobRemoteData Warning] Failed to update queue job:", err.message);
+          }
+        }
+
+        let d2Promise = Promise.resolve();
+        let ddmutPromise = Promise.resolve();
+        let tmPromise = Promise.resolve();
+        let stabilityOraclePromise = Promise.resolve();
+
+        if (!cachedFoldx && !isExistingActiveJob) {
+          const backgroundRemoteSignal = AbortSignal.timeout(180000);
+          const cleanedRemotePdb = cleanPdbForFoldX(effectiveWtPdb);
+
+          d2Promise = submitDynaMut2Job(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
+            .then(async (id) => {
+              if (id) {
+                dynamut2JobId = id;
+                dynamut2Status = "pending";
+                await recordJobInRegistry(id, "dynamut2", actualMutation);
+              } else {
+                dynamut2Status = "unavailable";
+              }
+              await updateQueueJobRemoteData({ dynamut2JobId, dynamut2Status });
+            })
+            .catch(async (err) => {
+              console.warn("[DynaMut2 Background Submission Error] Failed to submit:", err.message);
+              dynamut2Status = "unavailable";
+              await updateQueueJobRemoteData({ dynamut2Status });
             });
 
-            await fs.promises.mkdir(jobDir, { recursive: true });
-            return await generateMutantPdb(wtPdb, mutTrimmed, uniprotId, jobDir, undefined, foldxOptions);
-          } catch (err: any) {
-            foldxError = err;
-            return null;
-          } finally {
-            if (acquired) {
-              biophysicalSemaphore.release();
-            }
-          }
-        };
-
-        const d2Promise = submitDynaMut2Job(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter)
-          .then(async (id) => {
-            if (id) {
-              dynamut2JobId = id;
-              dynamut2Status = "pending";
-              await recordJobInRegistry(id, "dynamut2", mutTrimmed);
-            } else {
-              dynamut2Status = "unavailable";
-            }
-          })
-          .catch(err => {
-            console.warn("[DynaMut2 Background Submission Error] Failed to submit:", err.message);
-            dynamut2Status = "unavailable";
-          });
-
-        const ddmutPromise = submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter)
-          .then(async (id) => {
-            if (id) {
-              ddmutJobId = id;
-              ddmutStatus = "pending";
-              await recordJobInRegistry(id, "ddmut", mutTrimmed);
-            } else {
+          ddmutPromise = submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
+            .then(async (id) => {
+              if (id) {
+                ddmutJobId = id;
+                ddmutStatus = "pending";
+                await recordJobInRegistry(id, "ddmut", actualMutation);
+              } else {
+                ddmutStatus = "unavailable";
+              }
+              await updateQueueJobRemoteData({ ddmutJobId, ddmutStatus });
+            })
+            .catch(async (err) => {
+              console.warn("[DDMut Background Submission Error] Failed to submit:", err.message);
               ddmutStatus = "unavailable";
-            }
-          })
-          .catch(err => {
-            console.warn("[DDMut Background Submission Error] Failed to submit:", err.message);
-            ddmutStatus = "unavailable";
-          });
+              await updateQueueJobRemoteData({ ddmutStatus });
+            });
 
-        const tmPromise = submitThermoMpnnJob(wtPdb, mutTrimmed, tamarindApiKey)
-          .then(async (resObj) => {
-            if (resObj.status === "done" && resObj.prediction !== null) {
-              thermompnnVal = resObj.prediction;
-              thermompnnStatus = "done";
-            } else if (resObj.jobId && resObj.status === "pending") {
-              thermompnnJobId = resObj.jobId;
-              thermompnnStatus = "pending";
-              await recordJobInRegistry(resObj.jobId, "thermompnn", mutTrimmed);
-            } else if (resObj.status === "error") {
+          tmPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, tamarindApiKey, backgroundRemoteSignal)
+            .then(async (resObj) => {
+              if (resObj.status === "done" && resObj.prediction !== null) {
+                thermompnnVal = resObj.prediction;
+                thermompnnStatus = "done";
+              } else if (resObj.jobId && resObj.status === "pending") {
+                thermompnnJobId = resObj.jobId;
+                thermompnnStatus = "pending";
+                await recordJobInRegistry(resObj.jobId, "thermompnn", actualMutation);
+              } else if (resObj.status === "error") {
+                thermompnnStatus = "error";
+                thermompnnError = resObj.error || "ThermoMPNN API submission error";
+              } else {
+                thermompnnStatus = "unavailable";
+              }
+              await updateQueueJobRemoteData({
+                thermompnnJobId,
+                thermompnnStatus,
+                thermompnnError,
+                thermompnnVal
+              });
+            })
+            .catch(async (err) => {
+              console.warn("[ThermoMPNN Background Submission Error] Failed to submit:", err.message);
               thermompnnStatus = "error";
-              thermompnnError = resObj.error || "ThermoMPNN API submission error";
-            } else {
-              thermompnnStatus = "unavailable";
-            }
-          })
-          .catch(err => {
-            console.warn("[ThermoMPNN Background Submission Error] Failed to submit:", err.message);
-            thermompnnStatus = "error";
-            thermompnnError = err.message;
-          });
+              thermompnnError = err.message;
+              await updateQueueJobRemoteData({
+                thermompnnStatus,
+                thermompnnError
+              });
+            });
 
-        foldxResult = await runFoldX();
+          const sequence = await fetchUniprotSequence(uniprotId).catch(() => "");
+          stabilityOraclePromise = runStabilityOracleAnalysis(
+            "UNKNOWN",
+            `${wtLetter}${posNum}${mutLetter}`,
+            uniprotId,
+            sequence,
+            effectiveWtPdb
+          )
+            .then(async (resObj) => {
+              if (resObj) {
+                stabilityoracleVal = resObj.ddG;
+              }
+              await updateQueueJobRemoteData({ stabilityoracleVal });
+            })
+            .catch(err => {
+              console.warn("[StabilityOracle Background Error] Failed:", err.message);
+            });
+        }
 
-        const remoteSubmissions = Promise.all([d2Promise, ddmutPromise, tmPromise]);
-        const fastTimeout = new Promise(resolve => setTimeout(resolve, 300));
-        await Promise.race([remoteSubmissions, fastTimeout]);
+        // Detach: keep a settled handler so Node does not surface unhandled rejection warnings.
+        Promise.allSettled([d2Promise, ddmutPromise, tmPromise, stabilityOraclePromise]);
 
-        if (foldxError) {
-          console.warn(`[Biophysical Server Route] FoldX execution error:`, foldxError.message);
-          const reqId = req.headers["x-request-id"] as string;
-          await AuditLogger.log("GENERATE_MUTANT_FAILED", {
-            reqId,
-            message: foldxError.message
-          });
+        // P0-1.2: Fire remote submissions asynchronously in the background.
+        // The queue worker already records remote-job state via `updateQueueJobRemoteData`,
+        // so the client can poll `/foldx-job/:jobId` to see DynaMut2/DDMut/ThermoMPNN progress.
+        // Do not block the response on those submissions — they are optional enrichment and
+        // must never stall the FoldX enqueue when their upstream is degraded.
+        if (cachedFoldx) {
+          // Cache hit: return full result synchronously
+          console.log(`[Cache Hit] Serving cached mutant simulation for ${foldxCacheKey}`);
+          isCacheHit = true;
 
-          if (foldxError.message.includes("semaphore") || foldxError.message.includes("Concurrency limit") || foldxError.message.includes("queue is full")) {
-            sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Please try again later.");
-            return;
-          }
+          const enriched = enrichBiophysicalResult(cachedFoldx, {
+            dynamut2JobId,
+            dynamut2Status,
+            ddmutJobId,
+            ddmutStatus,
+            thermompnnJobId,
+            thermompnnStatus,
+            thermompnnError,
+            thermompnnVal,
+            stabilityoracleVal
+          }, {
+            source: resolvedStructure?.provenance.source ?? "client-provided",
+            pdbId: resolvedStructure?.provenance.pdbId ?? null,
+            chainId: resolvedStructure?.provenance.chainId ?? null,
+            resolution: resolvedStructure?.provenance.resolution ?? null,
+            method: resolvedStructure?.provenance.method ?? null,
+            identity: resolvedStructure?.provenance.identity ?? null,
+            raspDatasetSnapshot: "2023-Zenodo-6835877",
+            vesmModel: "VESM_150M_v1",
+            timestamp: new Date().toISOString()
+          }, posNum);
 
-          if (foldxError.message.includes("not found in PDB") || foldxError.message.includes("mismatch")) {
-            sendError(res, 422, "UNPROCESSABLE_ENTITY", foldxError.message);
-            return;
-          }
-
-          sendError(res, 503, "MODELING_UNAVAILABLE", `Biophysical modeling engine unavailable (FoldX execution failed: ${foldxError.message})`);
+          res.json(enriched);
           return;
         }
 
-        const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
-        await AuditLogger.log("DYNAMUT2_SUBMIT", {
-          reqId,
-          dynamut2JobId,
-          status: dynamut2Status
-        });
-
-        await AuditLogger.log("DDMUT_SUBMIT", {
-          reqId,
-          ddmutJobId,
-          status: ddmutStatus
-        });
-
-        await AuditLogger.log("THERMOMPNN_SUBMIT", {
-          reqId,
-          thermompnnJobId,
-          status: thermompnnStatus
-        });
-
-        if (foldxResult?.pdb) {
-          try {
-            const wtPdbPath = path.join(jobDir, "wt_for_rasp.pdb");
-            const mutPdbPath = path.join(jobDir, "mut_for_rasp.pdb");
-            await fs.promises.mkdir(jobDir, { recursive: true });
-            await fs.promises.writeFile(wtPdbPath, wtPdb, "utf8");
-            await fs.promises.writeFile(mutPdbPath, foldxResult.pdb, "utf8");
-            const raspRes = await runRaspLocal(wtPdbPath, mutPdbPath, resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
-            if (raspRes !== null) {
-              rasp = raspRes.score;
-              raspReason = raspRes.reason;
-              console.log(`[RaSP] ΔΔG prediction: ${rasp} kcal/mol (reason: ${raspReason || 'none'})`);
-            }
-            await Promise.allSettled([
-              fs.promises.unlink(wtPdbPath),
-              fs.promises.unlink(mutPdbPath)
-            ]);
-          } catch (raspErr: any) {
-            console.warn(`[RaSP] Failed to compute prediction:`, raspErr.message);
-          }
-        }
-
-        const finalPdb = foldxResult ? foldxResult.pdb : wtPdb;
-        const finalDdG = foldxResult ? foldxResult.ddG : null;
-        const finalStatus = foldxResult ? foldxResult.status : "failed";
-
-        const foldxMean = foldxResult?.energetics?.foldxMean ?? finalDdG;
-        const foldxSd = foldxResult?.energetics?.foldxSd ?? null;
-        const vdw = foldxResult?.energetics?.vdw ?? null;
-        const electrostatics = foldxResult?.energetics?.electrostatics ?? null;
-        const stericClashWarning = foldxResult?.energetics?.stericClashWarning ?? false;
-        const localSidechainRmsd = foldxResult?.energetics?.localSidechainRmsd ?? null;
-
-        const pendingTools: string[] = [];
-        if (dynamut2Status === "pending") pendingTools.push("DynaMut2");
-        if (ddmutStatus === "pending") pendingTools.push("DDMut");
-        if (thermompnnStatus === "pending") pendingTools.push("ThermoMPNN");
-
-        const evidenceComplete = pendingTools.length === 0;
-        const foldxRepairFailed = foldxResult?.energetics?.foldxRepairFailed ?? false;
-        const rawConsensusVerdict = computeConsensusVerdict({ foldxMean, rasp, thermompnn: thermompnnVal, foldxRepairFailed });
-        const consensusVerdict = (!evidenceComplete && rawConsensusVerdict)
-          ? `${rawConsensusVerdict} (Preliminary - pending: ${pendingTools.join(", ")})`
-          : rawConsensusVerdict;
-
         res.json({
-          pdb: finalPdb,
-          ddG: finalDdG,
-          foldxDdG: foldxMean,
-          thermompnnDdG: thermompnnVal,
-          status: finalStatus,
-          foldedResidueIndex: posNum,
-          resolvedChain: resolvedChainUpper,
+          status: "queued",
+          foldxJobId: queueJobId,
           dynamut2JobId,
           dynamut2Status,
           ddmutJobId,
           ddmutStatus,
           thermompnnJobId,
           thermompnnStatus,
-          thermompnnError,
-          energetics: {
-            foldx: finalDdG,
-            foldxMean,
-            foldxSd,
-            vdw,
-            electrostatics,
-            stericClashWarning,
-            localSidechainRmsd,
-            foldxRepairFailed,
-            dynamut2: null,
-            ddmut: null,
-            rasp,
-            raspReason,
-            thermompnn: thermompnnVal,
-            consensusVerdict,
-            evidenceComplete,
-            pendingTools
-          },
-          provenance: {
-            foldxVersion: "5.0",
-            foldxRuns: 5,
-            raspDatasetSnapshot: "2023-Zenodo-6835877",
-            vesmModel: "VESM_150M_v1",
-            timestamp: new Date().toISOString()
-          }
+          thermompnnError
         });
+      } catch (err: any) {
+        if (err.message.includes("BUSY")) {
+          sendError(res, 503, "SERVICE_UNAVAILABLE", "Biophysical queue is busy. Please try again later.");
+        } else {
+          throw err;
+        }
       } finally {
-        await cleanupFiles();
+        if (isCacheHit || isExistingActiveJob) {
+          try {
+            await cleanupFiles();
+          } catch (cleanupErr: any) {
+            console.warn(`[Cleanup Warning] Failed to cleanup temp files: ${cleanupErr.message}`);
+          }
+        }
       }
     } catch (outerErr: any) {
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", outerErr.message || "An unexpected error occurred.");
+      if (!res.headersSent) {
+        sendError(res, 500, "INTERNAL_SERVER_ERROR", outerErr.message || "An unexpected error occurred.");
+      } else {
+        console.error(`[Generation Error after headers sent]`, outerErr);
+      }
     }
   });
 }
