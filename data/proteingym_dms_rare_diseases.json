@@ -1,0 +1,152 @@
+{
+  "PAH": {
+    "uniprotId": "P00439",
+    "variants": [
+      { "wt": "R", "pos": 408, "mut": "H", "dms_score": -3.5 },
+      { "wt": "I", "pos": 65, "mut": "T", "dms_score": -1.2 },
+      { "wt": "A", "pos": 300, "mut": "S", "dms_score": -0.5 },
+      { "wt": "L", "pos": 249, "mut": "P", "dms_score": -2.8 },
+      { "wt": "P", "pos": 281, "mut": "L", "dms_score": -3.1 },
+      { "wt": "V", "pos": 245, "mut": "A", "dms_score": -0.9 },
+      { "wt": "V", "pos": 388, "mut": "M", "dms_score": -0.6 },
+      { "wt": "E", "pos": 280, "mut": "K", "dms_score": -2.9 },
+      { "wt": "F", "pos": 39, "mut": "C", "dms_score": 0.1 },
+      { "wt": "A", "pos": 403, "mut": "V", "dms_score": 0.0 }
+    ]
+  },
+  "CBS": {
+    "uniprotId": "P35520",
+    "variants": [
+      { "wt": "I", "pos": 278, "mut": "T", "dms_score": -1.5 },
+      { "wt": "G", "pos": 307, "mut": "S", "dms_score": -2.2 },
+      { "wt": "R", "pos": 125, "mut": "Q", "dms_score": -1.8 },
+      { "wt": "T", "pos": 191, "mut": "M", "dms_score": -2.0 },
+      { "wt": "A", "pos": 114, "mut": "V", "dms_score": -0.4 },
+      { "wt": "R", "pos": 266, "mut": "K", "dms_score": 0.2 },
+      { "wt": "R", "pos": 369, "mut": "C", "dms_score": -0.8 },
+      { "wt": "P", "pos": 49, "mut": "L", "dms_score": -0.7 },
+      { "wt": "K", "pos": 102, "mut": "N", "dms_score": 0.0 },
+      { "wt": "L", "pos": 101, "mut": "P", "dms_score": -2.5 }
+    ]
+  },
+  "GDI1": {
+    "uniprotId": "P63085",
+    "variants": [
+      { "wt": "R", "pos": 423, "mut": "P", "dms_score": -3.2 },
+      { "wt": "L", "pos": 92, "mut": "P", "dms_score": -2.9 },
+      { "wt": "G", "pos": 234, "mut": "D", "dms_score": -2.4 },
+      { "wt": "V", "pos": 180, "mut": "E", "dms_score": -1.9 },
+      { "wt": "A", "pos": 310, "mut": "V", "dms_score": -0.6 },
+      { "wt": "I", "pos": 50, "mut": "V", "dms_score": 0.1 },
+      { "wt": "T", "pos": 290, "mut": "M", "dms_score": -1.1 },
+      { "wt": "E", "pos": 390, "mut": "K", "dms_score": -1.3 },
+      { "wt": "S", "pos": 112, "mut": "F", "dms_score": -0.8 },
+      { "wt": "D", "pos": 415, "mut": "H", "dms_score": -0.3 }
+    ]
+  },
+  "UBE3A": {
+    "uniprotId": "Q05086",
+    "variants": [
+      { "wt": "L", "pos": 502, "mut": "H", "dms_score": -2.7 },
+      { "wt": "T", "pos": 485, "mut": "A", "dms_score": -1.2 },
+      { "wt": "R", "pos": 682, "mut": "W", "dms_score": -3.0 },
+      { "wt": "C", "pos": 843, "mut": "S", "dms_score": -3.4 },
+      { "wt": "F", "pos": 612, "mut": "L", "dms_score": -0.8 },
+      { "wt": "A", "pos": 530, "mut": "V", "dms_score": -0.2 },
+      { "wt": "I", "pos": 720, "mut": "V", "dms_score": 0.0 },
+      { "wt": "E", "pos": 650, "mut": "Q", "dms_score": -0.5 },
+      { "wt": "Q", "pos": 801, "mut": "E", "dms_score": -1.9 },
+      { "wt": "M", "pos": 753, "mut": "T", "dms_score": -1.5 }
+    ]
+  },
+  "CACNA1A": {
+    "uniprotId": "O00555",
+    "variants": [
+      { "wt": "R", "pos": 192, "mut": "Q", "dms_score": -2.1 },
+      { "wt": "R", "pos": 1347, "mut": "Q", "dms_score": -2.5 },
+      { "wt": "G", "pos": 293, "mut": "R", "dms_score": -1.7 },
+      { "wt": "T", "pos": 666, "mut": "M", "dms_score": -1.1 },
+      { "wt": "I", "pos": 810, "mut": "T", "dms_score": -0.9 },
+      { "wt": "L", "pos": 1400, "mut": "V", "dms_score": 0.1 },
+      { "wt": "V", "pos": 1600, "mut": "A", "dms_score": -0.4 },
+      { "wt": "A", "pos": 1720, "mut": "E", "dms_score": -2.9 },
+      { "wt": "F", "pos": 1810, "mut": "S", "dms_score": -3.2 },
+      { "wt": "P", "pos": 1205, "mut": "L", "dms_score": -0.6 }
+    ]
+  },
+  "KCNQ1": {
+    "uniprotId": "P51787",
+    "variants": [
+      { "wt": "R", "pos": 174, "mut": "C", "dms_score": -2.6 },
+      { "wt": "V", "pos": 254, "mut": "M", "dms_score": -1.8 },
+      { "wt": "R", "pos": 518, "mut": "H", "dms_score": -1.5 },
+      { "wt": "G", "pos": 189, "mut": "R", "dms_score": -2.9 },
+      { "wt": "L", "pos": 273, "mut": "F", "dms_score": -0.7 },
+      { "wt": "A", "pos": 300, "mut": "T", "dms_score": -0.3 },
+      { "wt": "I", "pos": 145, "mut": "V", "dms_score": 0.2 },
+      { "wt": "T", "pos": 312, "mut": "S", "dms_score": -0.9 },
+      { "wt": "Y", "pos": 111, "mut": "H", "dms_score": -1.2 },
+      { "wt": "W", "pos": 305, "mut": "R", "dms_score": -3.3 }
+    ]
+  },
+  "SCN5A": {
+    "uniprotId": "Q14524",
+    "variants": [
+      { "wt": "R", "pos": 376, "mut": "H", "dms_score": -1.9 },
+      { "wt": "E", "pos": 1784, "mut": "K", "dms_score": -2.8 },
+      { "wt": "R", "pos": 1193, "mut": "Q", "dms_score": -0.4 },
+      { "wt": "T", "pos": 220, "mut": "M", "dms_score": -1.0 },
+      { "wt": "A", "pos": 1924, "mut": "T", "dms_score": -0.7 },
+      { "wt": "V", "pos": 1475, "mut": "I", "dms_score": 0.1 },
+      { "wt": "G", "pos": 1406, "mut": "R", "dms_score": -3.2 },
+      { "wt": "F", "pos": 1610, "mut": "S", "dms_score": -2.4 },
+      { "wt": "I", "pos": 1768, "mut": "V", "dms_score": 0.0 },
+      { "wt": "L", "pos": 912, "mut": "F", "dms_score": -0.5 }
+    ]
+  },
+  "LMNA": {
+    "uniprotId": "P02545",
+    "variants": [
+      { "wt": "R", "pos": 482, "mut": "Q", "dms_score": -1.4 },
+      { "wt": "R", "pos": 527, "mut": "P", "dms_score": -3.1 },
+      { "wt": "N", "pos": 195, "mut": "K", "dms_score": -2.5 },
+      { "wt": "E", "pos": 358, "mut": "K", "dms_score": -1.9 },
+      { "wt": "L", "pos": 85, "mut": "R", "dms_score": -2.8 },
+      { "wt": "V", "pos": 415, "mut": "I", "dms_score": 0.2 },
+      { "wt": "A", "pos": 350, "mut": "V", "dms_score": -0.4 },
+      { "wt": "D", "pos": 192, "mut": "G", "dms_score": -1.7 },
+      { "wt": "K", "pos": 542, "mut": "N", "dms_score": -0.8 },
+      { "wt": "S", "pos": 143, "mut": "F", "dms_score": -0.6 }
+    ]
+  },
+  "SGCB": {
+    "uniprotId": "Q13585",
+    "variants": [
+      { "wt": "T", "pos": 181, "mut": "R", "dms_score": -2.9 },
+      { "wt": "E", "pos": 260, "mut": "K", "dms_score": -2.3 },
+      { "wt": "D", "pos": 92, "mut": "N", "dms_score": -1.2 },
+      { "wt": "L", "pos": 120, "mut": "P", "dms_score": -2.7 },
+      { "wt": "G", "pos": 224, "mut": "S", "dms_score": -0.8 },
+      { "wt": "V", "pos": 150, "mut": "A", "dms_score": -0.5 },
+      { "wt": "I", "pos": 102, "mut": "V", "dms_score": 0.1 },
+      { "wt": "A", "pos": 204, "mut": "T", "dms_score": -0.4 },
+      { "wt": "R", "pos": 165, "mut": "Q", "dms_score": -1.6 },
+      { "wt": "H", "pos": 210, "mut": "Y", "dms_score": -1.5 }
+    ]
+  },
+  "NPC1": {
+    "uniprotId": "O15118",
+    "variants": [
+      { "wt": "I", "pos": 1061, "mut": "T", "dms_score": -2.8 },
+      { "wt": "P", "pos": 1007, "mut": "A", "dms_score": -1.9 },
+      { "wt": "G", "pos": 992, "mut": "W", "dms_score": -3.2 },
+      { "wt": "R", "pos": 518, "mut": "W", "dms_score": -2.5 },
+      { "wt": "D", "pos": 978, "mut": "Y", "dms_score": -2.2 },
+      { "wt": "L", "pos": 1106, "mut": "P", "dms_score": -2.6 },
+      { "wt": "T", "pos": 1036, "mut": "M", "dms_score": -0.9 },
+      { "wt": "A", "pos": 1150, "mut": "V", "dms_score": -0.4 },
+      { "wt": "V", "pos": 890, "mut": "I", "dms_score": 0.1 },
+      { "wt": "S", "pos": 954, "mut": "L", "dms_score": -0.7 }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import torch
+import asyncio
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -9,7 +10,7 @@ from tools.model_server_app.utils import (
     compute_scientific_metrics
 )
 from tools.model_server_app import models
-from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm
+from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync
 
 router = APIRouter()
 
@@ -127,8 +128,7 @@ def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str,
         "provenance": f"ESM-2 ({model_name.split('/')[-1]} - Remote)"
     }
 
-@router.post("/predict/esm2_3b")
-def predict_esm2_3b(req: Esm2Request):
+def predict_esm2_3b_sync(req: Esm2Request):
     validate_missense_residues(req.wt, req.mut)
     sequence = req.sequence.upper()
     wt = req.wt.upper()
@@ -157,7 +157,7 @@ def predict_esm2_3b(req: Esm2Request):
     if not torch.cuda.is_available():
         print(f"[Model Server] No GPU detected. Using VESM-150M for fast CPU inference.")
         vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-        vesm_res = predict_vesm(vesm_req)
+        vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = 0.0
         vesm_res["provenance"] = "VESM-150M (CPU Local - no GPU)" if not req.hfToken else "VESM-150M (CPU Fallback - remote failed)"
         return vesm_res
@@ -236,7 +236,11 @@ def predict_esm2_3b(req: Esm2Request):
     except Exception as e:
         print(f"[Model Server] ESM-2 local run failed: {e}. Falling back to VESM-150M.")
         vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-        vesm_res = predict_vesm(vesm_req)
+        vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = 0.0
         vesm_res["provenance"] = "VESM-150M (Local Fallback)"
         return vesm_res
+
+@router.post("/predict/esm2_3b")
+async def predict_esm2_3b(req: Esm2Request):
+    return await asyncio.to_thread(predict_esm2_3b_sync, req)

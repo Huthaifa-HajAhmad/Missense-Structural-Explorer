@@ -3,8 +3,9 @@ import torch
 import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import asyncio
 from tools.model_server_app.utils import validate_missense_residues
-from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm
+from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync
 
 router = APIRouter()
 
@@ -17,8 +18,7 @@ class Esm3Request(BaseModel):
     refine: bool = False
     wtPdb: str | None = None
 
-@router.post("/predict/esm3")
-def predict_esm3(req: Esm3Request):
+def predict_esm3_sync(req: Esm3Request):
     validate_missense_residues(req.wt, req.mut)
     sequence = req.sequence.upper()
     wt = req.wt.upper()
@@ -27,7 +27,7 @@ def predict_esm3(req: Esm3Request):
 
     if not req.biohubToken:
         vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-        vesm_res = predict_vesm(vesm_req)
+        vesm_res = predict_vesm_sync(vesm_req)
         full_length_scores = [-1.0] * len(sequence)
         for item in vesm_res.get("localShiftMap", []):
             res_pos = item.get("position")
@@ -193,7 +193,7 @@ def predict_esm3(req: Esm3Request):
         print(f"[Model Server Remote ESM3 Error]: {e}. Falling back to local model.")
         try:
             vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-            vesm_res = predict_vesm(vesm_req)
+            vesm_res = predict_vesm_sync(vesm_req)
             full_length_scores = [0.0] * len(sequence)
             for item in vesm_res.get("localShiftMap", []):
                 res_pos = item.get("position")
@@ -209,3 +209,7 @@ def predict_esm3(req: Esm3Request):
             }
         except Exception as local_err:
             raise HTTPException(status_code=500, detail=f"ESM-3 failed and local fallback failed: {local_err}")
+
+@router.post("/predict/esm3")
+async def predict_esm3(req: Esm3Request):
+    return await asyncio.to_thread(predict_esm3_sync, req)

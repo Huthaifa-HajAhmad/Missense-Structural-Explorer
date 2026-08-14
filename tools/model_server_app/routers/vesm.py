@@ -1,4 +1,5 @@
 import torch
+import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from tools.model_server_app.utils import (
@@ -18,8 +19,7 @@ class VesmRequest(BaseModel):
     mut: str
     biohubToken: str | None = None
 
-@router.post("/predict/vesm")
-def predict_vesm(req: VesmRequest):
+def predict_vesm_sync(req: VesmRequest):
     validate_missense_residues(req.wt, req.mut)
     sequence = req.sequence.upper()
     wt = req.wt.upper()
@@ -209,3 +209,7 @@ def predict_vesm(req: VesmRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/predict/vesm")
+async def predict_vesm(req: VesmRequest):
+    return await asyncio.to_thread(predict_vesm_sync, req)

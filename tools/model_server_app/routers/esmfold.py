@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import asyncio
 
 router = APIRouter()
 
@@ -7,8 +8,7 @@ class EsmfoldRequest(BaseModel):
     sequence: str
     biohubToken: str | None = None
 
-@router.post("/predict/esmfold")
-def predict_esmfold(req: EsmfoldRequest):
+def predict_esmfold_sync(req: EsmfoldRequest):
     if not req.biohubToken:
         raise HTTPException(status_code=400, detail="Biohub token is required for remote ESMFold folding.")
     try:
@@ -32,3 +32,7 @@ def predict_esmfold(req: EsmfoldRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/predict/esmfold")
+async def predict_esmfold(req: EsmfoldRequest):
+    return await asyncio.to_thread(predict_esmfold_sync, req)
