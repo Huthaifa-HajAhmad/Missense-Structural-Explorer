@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockGenerateContent = vi.fn();
+const mockRetrieveRelevantLiterature = vi.fn().mockResolvedValue([]);
 
 vi.mock("@google/genai", () => {
   return {
     GoogleGenAI: class {
       models = {
+        countTokens: vi.fn().mockResolvedValue({ totalTokens: 10 }),
         generateContent: (...args: any[]) => mockGenerateContent(...args)
       };
     },
@@ -17,9 +19,17 @@ vi.mock("@google/genai", () => {
   };
 });
 
+vi.mock("./literature-rag.ts", () => {
+  return {
+    retrieveRelevantLiterature: (...args: any[]) => mockRetrieveRelevantLiterature(...args)
+  };
+});
+
 describe("Gemini API Fallback Cascade and Error Mapping", () => {
   beforeEach(() => {
     mockGenerateContent.mockReset();
+    mockRetrieveRelevantLiterature.mockReset();
+    mockRetrieveRelevantLiterature.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -74,6 +84,134 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       process.env.GEMINI_MODEL = oldModel;
       process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
     }
+  });
+
+  it("should use supported defaults when model environment variables are omitted", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    delete process.env.GEMINI_MODEL;
+    delete process.env.GEMINI_MODEL_FALLBACKS;
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        analysis: "Default model analysis",
+        plausibility: "Insufficient evidence",
+        acmgCriteria: []
+      })
+    });
+
+    try {
+      await geminiService.performGeminiAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
+      );
+      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.5-flash-lite");
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
+  });
+
+  it("should forward the deadline to optional RAG and the GenAI SDK", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    process.env.GEMINI_MODEL = "primary";
+    process.env.GEMINI_MODEL_FALLBACKS = "";
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({ analysis: "Signal-aware analysis", plausibility: "Unknown", acmgCriteria: [] })
+    });
+    const controller = new AbortController();
+
+    try {
+      await geminiService.performGeminiAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", controller.signal
+      );
+      expect(mockRetrieveRelevantLiterature).toHaveBeenCalledWith(
+        "PAH",
+        "PAH p.Arg408Trp functional activity pathogenicity stability",
+        "dummy-key",
+        expect.any(AbortSignal)
+      );
+      expect(mockGenerateContent.mock.calls[0][0].config.abortSignal).toBeInstanceOf(AbortSignal);
+      expect(mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout).toBe(30000);
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
+  });
+
+  it("should replace retired configured models with supported defaults", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    process.env.GEMINI_MODEL = "gemini-2.0-flash";
+    process.env.GEMINI_MODEL_FALLBACKS = "gemini-1.5-flash";
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({ analysis: "Retired model fallback", plausibility: "Unknown", acmgCriteria: [] })
+    });
+
+    try {
+      await geminiService.performGeminiAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
+      );
+      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.5-flash-lite");
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
+  });
+
+  it("should stop before model generation when the narrative deadline is already expired", async () => {
+    const geminiService = await import("./gemini.ts");
+    const controller = new AbortController();
+    controller.abort(new Error("Deadline exceeded or request timed out"));
+
+    await expect(
+      geminiService.performGeminiAnalysis(
+        "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", controller.signal
+      )
+    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED", status: 504 });
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
+  it("should preserve a custom-key model error when no system key is configured", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    const oldSystemKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_MODEL = "primary";
+    process.env.GEMINI_MODEL_FALLBACKS = "";
+    delete process.env.GEMINI_API_KEY;
+    mockGenerateContent.mockRejectedValueOnce({ message: "model unavailable", status: 500 });
+
+    try {
+      await expect(
+        geminiService.performGeminiAnalysis(
+          "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
+        )
+      ).rejects.toMatchObject({ code: "MODEL_UNAVAILABLE", status: 503 });
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+      if (oldSystemKey === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = oldSystemKey;
+    }
+  });
+
+  it("should reject common placeholder keys regardless of case", async () => {
+    const geminiService = await import("./gemini.ts");
+    expect(geminiService.isGeminiApiKeyPlaceholder("your_free_gemini_api_key_here")).toBe(true);
+    expect(geminiService.isGeminiApiKeyPlaceholder("MY_GEMINI_API_KEY")).toBe(true);
+    expect(geminiService.isGeminiApiKeyPlaceholder("your-real-ai-studio-api-key")).toBe(true);
+    expect(geminiService.isGeminiApiKeyPlaceholder("AIzaSyB1234567890-real")).toBe(false);
   });
 
   it("should map specific SDK errors to correct GeminiError instances", async () => {

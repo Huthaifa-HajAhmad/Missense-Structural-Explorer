@@ -1,40 +1,81 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Keep direct service imports and bundled production startup on the same root .env.
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
 import { PredictorData, ConservationData, StringInteraction, type ClinVarData } from "./external.ts";
 import { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../src/types.ts";
+import { anySignal } from "../utils.ts";
 
-let aiClient: GoogleGenAI | null = null;
+const geminiClientCache = new Map<string, GoogleGenAI>();
+
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+export const DEFAULT_GEMINI_FALLBACK_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+] as const;
+const RETIRED_GEMINI_MODELS = new Set([
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-3.1-pro",   // 404 for new accounts — use gemini-3.1-flash-lite instead
+  "gemini-2.5-pro",   // 404: no longer available to new users
+]);
+
+export function isGeminiApiKeyPlaceholder(value: string | undefined): boolean {
+  const normalized = (value || "").trim().toUpperCase();
+  return normalized.length === 0
+    || normalized.includes("YOUR_GEMINI_API_KEY")
+    || normalized.includes("MY_GEMINI_API_KEY")
+    || normalized.includes("CHANGE_ME")
+    || normalized.includes("API_KEY_HERE")
+    || normalized.includes("YOUR-REAL-AI-STUDIO-API-KEY")
+    || normalized.includes("YOUR_REAL_AI_STUDIO_API_KEY");
+}
+
+export function getConfiguredGeminiModels(): string[] {
+  const configuredPrimary = process.env.GEMINI_MODEL?.trim();
+  const primary = configuredPrimary && !RETIRED_GEMINI_MODELS.has(configuredPrimary.toLowerCase())
+    ? configuredPrimary
+    : DEFAULT_GEMINI_MODEL;
+  const fallbackValue = process.env.GEMINI_MODEL_FALLBACKS;
+  const fallbacks = fallbackValue === undefined
+    ? [...DEFAULT_GEMINI_FALLBACK_MODELS]
+    : fallbackValue
+        .split(",")
+        .map(model => model.trim())
+        .filter(model => model && !RETIRED_GEMINI_MODELS.has(model.toLowerCase()));
+  return [...new Set([primary, ...fallbacks])];
+}
 
 export function getGeminiClient(customApiKey?: string): GoogleGenAI {
-  const apiKey = customApiKey || process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY" || apiKey === "CHANGE_ME" || apiKey.includes("YOUR_") || apiKey.trim() === "") {
+  const apiKey = (customApiKey || process.env.GEMINI_API_KEY || "").trim();
+  if (isGeminiApiKeyPlaceholder(apiKey)) {
     throw new Error("GEMINI_API_KEY environment variable is required and must not be a placeholder value.");
   }
-  
-  if (customApiKey) {
-    return new GoogleGenAI({
-      apiKey: customApiKey,
-      httpOptions: {
-        timeout: 40000,
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
+
+  const cached = geminiClientCache.get(apiKey);
+  if (cached) {
+    return cached;
   }
 
-  if (!aiClient) {
-    aiClient = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        timeout: 40000,
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
+  const client = new GoogleGenAI({
+    apiKey: apiKey,
+    httpOptions: {
+      timeout: 40000,
+      headers: {
+        'User-Agent': 'aistudio-build',
       }
-    });
-  }
-  return aiClient;
+    }
+  });
+  geminiClientCache.set(apiKey, client);
+  return client;
 }
 
 export class GeminiError extends Error {
@@ -44,15 +85,114 @@ export class GeminiError extends Error {
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage = "Timeout"): Promise<T> {
+/**
+ * Performs a minimal live request so the UI does not report a session as active
+ * when the supplied BYOK credential is only syntactically valid.
+ */
+export async function validateGeminiApiKey(apiKey: string): Promise<void> {
+  const cleanKey = apiKey.trim();
+  if (isGeminiApiKeyPlaceholder(cleanKey)) {
+    throw new GeminiError("API_KEY_MISSING", "Google Gemini API key is missing or is a placeholder value.", 400);
+  }
+
+  let lastError: any = null;
+  let hadTransientError = false;
+  for (const modelName of getConfiguredGeminiModels()) {
+    try {
+      const client = getGeminiClient(cleanKey);
+      await client.models.generateContent({
+        model: modelName,
+        contents: "Reply with OK.",
+        config: {
+          temperature: 0,
+          maxOutputTokens: 1,
+          httpOptions: { timeout: 10000 },
+          abortSignal: AbortSignal.timeout(12000)
+        }
+      });
+      return;
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = String(err?.message || "").toLowerCase();
+      const errStatus = Number(err?.status || 0);
+      // Track server-side transient errors (overloaded / 503 / 429) so that if
+      // ALL models fail this way we surface a retryable error, not MODEL_UNAVAILABLE.
+      if (
+        errStatus === 503 || errStatus === 429 ||
+        errMsg.includes("overload") ||
+        errMsg.includes("overloaded") ||
+        errMsg.includes("service unavailable") ||
+        errMsg.includes("quota") ||
+        errMsg.includes("rate limit") ||
+        errMsg.includes("exhausted") ||
+        errMsg.includes("timeout") ||
+        errMsg.includes("abort") ||
+        errMsg.includes("deadline")
+      ) {
+        hadTransientError = true;
+      }
+    }
+  }
+
+  console.error("[validateGeminiApiKey] API validation failed. lastError:", lastError);
+  const message = String(lastError?.message || "").toLowerCase();
+  const status = Number(lastError?.status || 0);
+  if (status === 401 || status === 403 || message.includes("api key") || message.includes("unauthorized") || message.includes("permission")) {
+    throw new GeminiError("API_KEY_INVALID", "Gemini API key is invalid or unauthorized.", 403);
+  }
+  if (status === 429 || message.includes("quota") || message.includes("rate limit") || message.includes("exhausted")) {
+    throw new GeminiError("RESOURCE_EXHAUSTED", "Gemini API quota is exhausted. Please try again later.", 429);
+  }
+  if (
+    message.includes("timeout") || message.includes("abort") || message.includes("deadline") ||
+    message.includes("overload") || message.includes("service unavailable") ||
+    (status === 503 && hadTransientError)
+  ) {
+    throw new GeminiError("TIMEOUT", "Gemini API is temporarily overloaded or timed out. Please try again.", 504);
+  }
+  if (message.includes("enotfound") || message.includes("fetch failed") || message.includes("econnrefused") || message.includes("network") || message.includes("dns")) {
+    throw new GeminiError("NETWORK_ERROR", "Gemini API service is unreachable. Please verify your network connection and try again.", 502);
+  }
+  // If any attempt had a transient error and nothing more specific matched, treat as temporary.
+  if (hadTransientError) {
+    throw new GeminiError("TIMEOUT", "Gemini API is temporarily overloaded. Please try again in a moment.", 504);
+  }
+  throw new GeminiError("MODEL_UNAVAILABLE", "Gemini API could not validate this key with the configured models.", 503);
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorMessage = "Timeout",
+  outerSignal?: AbortSignal,
+  onTimeout?: () => void
+): Promise<T> {
   let timeoutId: any;
+  let onAbort: (() => void) | undefined;
+
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      onTimeout?.();
       reject(new Error(errorMessage));
     }, timeoutMs);
+
+    if (outerSignal) {
+      if (outerSignal.aborted) {
+        reject(outerSignal.reason || new Error("Aborted"));
+        return;
+      }
+      onAbort = () => {
+        reject(outerSignal.reason || new Error("Aborted"));
+      };
+      outerSignal.addEventListener("abort", onAbort);
+    }
   });
+
   return Promise.race([promise, timeoutPromise]).finally(() => {
     clearTimeout(timeoutId);
+    if (outerSignal && onAbort) {
+      outerSignal.removeEventListener("abort", onAbort);
+    }
   });
 }
 
@@ -72,7 +212,34 @@ export async function performGeminiAnalysis(
   conservationData?: ConservationData | null,
   stringInteractions?: StringInteraction[] | null
 ) {
-  const client = getGeminiClient(customApiKey);
+  // Validate key is usable early (throws if placeholder/missing)
+  getGeminiClient(customApiKey);
+
+  // Retrieve relevant publications from the local SQLite/Europe PMC RAG cache
+  let literatureEvidence = "";
+  try {
+    const { retrieveRelevantLiterature } = await import("./literature-rag.ts");
+    const queryText = `${gene} ${variant} functional activity pathogenicity stability`;
+    // Literature is optional context and must not consume the entire narrative deadline.
+    const literatureSignal = anySignal([timeoutSignal, AbortSignal.timeout(5000)]);
+    const citations = await retrieveRelevantLiterature(gene, queryText, customApiKey, literatureSignal);
+    if (citations && citations.length > 0) {
+      literatureEvidence = `
+[CITED SCIENTIFIC LITERATURE & CLINICAL ABSTRACTS]:
+${citations.map((c, i) => `
+Citation #${i + 1}:
+- Title: ${c.title}
+- Authors: ${c.authors} (${c.year})
+- Journal: ${c.journal}
+- Abstract Excerpt: ${c.abstract.slice(0, 800)}...
+`).join("\n")}
+
+INSTRUCTION: Ground your clinical analysis in the findings from these cited papers. When describing functional effects or pathogenicity assertions, reference the authors and year (e.g. "Smith et al. (2023) demonstrated...") to ground your reasoning in the provided abstracts. Do not speculate or extrapolate beyond the cited passages.
+`;
+    }
+  } catch (err: any) {
+    console.warn("[RAG Warning] Failed to retrieve literature citations:", err.message);
+  }
 
   let userFocusInstructions = "";
   if (userDirections && userDirections.trim()) {
@@ -179,6 +346,7 @@ ${predictorEvidence}
 ${conservationEvidence}
 ${stringEvidence}
 ${weightingInstructions}
+${literatureEvidence}
 
 Please perform both a detailed clinical and biophysical narrative analysis and generate a highly compact structured report.
 
@@ -213,11 +381,14 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
 `;
 
 
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
-  const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
+  const modelsToTry = getConfiguredGeminiModels();
+  console.log(`[Gemini Entry] models=${modelsToTry[0]}, hasKey=${!!customApiKey}, signalAborted=${timeoutSignal?.aborted}`);
 
-  const keysToTry = [customApiKey, undefined].filter((k, i, self) => i === self.indexOf(k));
+  // Do not replace a valid BYOK failure with a misleading missing-system-key error.
+  // Only try the system key when it is actually configured and usable.
+  const keysToTry = customApiKey && !isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
+    ? [customApiKey, undefined]
+    : [customApiKey];
 
   let fullText = "";
   let lastError: any = null;
@@ -228,43 +399,53 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     try {
       client = getGeminiClient(apiKey);
     } catch (clientErr) {
+      lastError = clientErr;
       continue;
     }
 
+    let keyAttempts = 0;
+    const maxAttempts = 5;
+
+    // Waits with exponential backoff + jitter before the next attempt.
+    // Honours the outer timeoutSignal so we don't wait past the deadline.
+    const backoffWait = async (attempt: number) => {
+      const baseMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // 1s, 2s, 4s, 8s cap
+      const jitterMs = Math.random() * 500;
+      const waitMs = baseMs + jitterMs;
+      console.log(`[Gemini Backoff] Waiting ${Math.round(waitMs)}ms before attempt ${attempt + 1}...`);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, waitMs);
+        if (timeoutSignal) {
+          const onAbort = () => { clearTimeout(timer); reject(new Error("Aborted during backoff")); };
+          timeoutSignal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+    };
+
     for (const modelName of modelsToTry) {
+      if (keyAttempts >= maxAttempts) {
+        break;
+      }
       if (timeoutSignal?.aborted) {
         throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
       }
       try {
-        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key`);
+        keyAttempts++;
+        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${keyAttempts}/${maxAttempts})`);
         const attemptController = new AbortController();
         const signal = timeoutSignal 
-          ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
+          ? anySignal([timeoutSignal, attemptController.signal])
           : attemptController.signal;
 
-        // Pre-count tokens for developer observability and budget enforcement (M-5)
-        try {
-          const countRes = await (client.models.countTokens as any)({
-            model: modelName,
-            contents: prompt
-          });
-          const totalTokens = countRes.totalTokens || 0;
-          console.log(`[Gemini Analysis] Prompt token count: ${totalTokens} for model ${modelName}`);
-          if (totalTokens > 1048576) { // 1M token budget limit
-            throw new GeminiError("INVALID_ARGUMENT", `Prompt token count (${totalTokens}) exceeds 1M token budget.`, 400);
-          }
-        } catch (countErr: any) {
-          if (countErr instanceof GeminiError) throw countErr;
-          console.warn("[Gemini Warning] Failed to count tokens:", countErr.message);
-        }
-
         const response = await withTimeout<any>(
-          (client.models.generateContent as any)({
+          client.models.generateContent({
             model: modelName,
             contents: prompt,
             config: {
               temperature: 0.0,
               responseMimeType: "application/json",
+              abortSignal: signal,
+              httpOptions: { timeout: 30000 },
               responseSchema: {
                 type: Type.OBJECT,
                 properties: {
@@ -299,40 +480,59 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
                 required: ["analysis", "biochemicalShift", "structuralImpact", "plausibility", "acmgCriteria"]
               }
             }
-          }, {
-            signal
           }),
-          35000,
-          "Google GenAI SDK request timed out"
-        ).catch(err => {
-          attemptController.abort();
-          throw err;
-        });
+          30000,
+          "Google GenAI SDK request timed out",
+          timeoutSignal,
+          () => attemptController.abort()
+        );
 
-        fullText = response.text || "";
+        fullText = response?.text || response?.candidates?.[0]?.content?.parts?.[0]?.text || "";
         if (fullText) {
           console.log(`[Gemini Analysis] Successfully generated response using model: ${modelName} with ${apiKey ? "custom" : "system"} API key`);
           lastError = null;
           success = true;
           break;
+        } else {
+          console.warn(`[Gemini Analysis] Model ${modelName} returned empty text. promptFeedback:`, JSON.stringify(response?.promptFeedback), "candidates:", response?.candidates?.length);
         }
       } catch (err: any) {
-        console.warn(`[Gemini Model Error] Model ${modelName} failed with ${apiKey ? "custom" : "system"} API key:`, err.message);
+        const errMsg = String(err?.message || "").toLowerCase();
+        const errStatus = Number(err?.status || 0);
+        const errDetails = {
+          message: err?.message,
+          status: errStatus,
+          code: err?.code,
+          name: err?.name,
+          signalAborted: timeoutSignal?.aborted
+        };
+        console.warn(`[Gemini Model Error] Model ${modelName} failed:`, JSON.stringify(errDetails));
         lastError = err;
-        
-        const errMsg = (err.message || "").toLowerCase();
-        if (
-          errMsg.includes("not found") || 
-          errMsg.includes("model_unavailable") || 
-          errMsg.includes("not enabled") || 
-          errMsg.includes("404") ||
-          errMsg.includes("invalid_argument") ||
-          errMsg.includes("invalid model") ||
-          errMsg.includes("developer") ||
-          errMsg.includes("timeout") ||
-          errMsg.includes("timed out")
-        ) {
-          continue;
+        if (timeoutSignal?.aborted) {
+          throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+        }
+        // Non-retryable errors — stop immediately, don't waste attempts
+        const isNonRetryable = (
+          errStatus === 401 || errStatus === 403 ||
+          errMsg.includes("api key") || errMsg.includes("unauthorized") ||
+          errMsg.includes("permission") || errMsg.includes("placeholder")
+        );
+        if (isNonRetryable) {
+          break;
+        }
+        // Retryable overload/rate-limit — backoff before next attempt
+        const isRetryableOverload = (
+          errStatus === 429 || errStatus === 503 ||
+          errMsg.includes("overload") || errMsg.includes("rate limit") ||
+          errMsg.includes("quota") || errMsg.includes("exhausted") ||
+          errMsg.includes("service unavailable")
+        );
+        if (isRetryableOverload && keyAttempts < maxAttempts && !timeoutSignal?.aborted) {
+          try {
+            await backoffWait(keyAttempts);
+          } catch {
+            // aborted during wait — outer deadline check will handle it
+          }
         }
       }
     }
@@ -345,12 +545,16 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     const errMsg = (lastError.message || "").toLowerCase();
     const status = lastError.status || 500;
     
-    if (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid key") || status === 403) {
+    if (errMsg.includes("placeholder") || errMsg.includes("required") || errMsg.includes("must not be a placeholder")) {
+      throw new GeminiError("API_KEY_MISSING", "Google Gemini API Key is not configured or is a placeholder value.", 401);
+    } else if (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid key") || status === 403) {
       throw new GeminiError("API_KEY_INVALID", "Gemini API key is invalid or unauthorized.", 403);
     } else if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("rate limit") || status === 429) {
       throw new GeminiError("RESOURCE_EXHAUSTED", "Gemini API quota has been exhausted. Please try again later.", 429);
     } else if (errMsg.includes("timeout") || errMsg.includes("abort") || errMsg.includes("deadline") || status === 504) {
       throw new GeminiError("TIMEOUT", "Gemini API request timed out.", 504);
+    } else if (errMsg.includes("overload") || errMsg.includes("overloaded") || errMsg.includes("service unavailable") || status === 503) {
+      throw new GeminiError("TIMEOUT", "Gemini API is temporarily overloaded. Please try again in a moment.", 504);
     } else {
       throw new GeminiError("MODEL_UNAVAILABLE", `Gemini model analysis failed: ${lastError.message}`, 503);
     }
@@ -394,6 +598,8 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
   // Define Zod schema for validation (E-5)
   const geminiResponseSchema = z.object({
     analysis: z.string().optional().default(""),
+    biochemicalShift: z.string().optional().default(""),
+    structuralImpact: z.string().optional().default(""),
     plausibility: z.string().optional().default(""),
     acmgCriteria: z.array(
       z.object({
@@ -432,8 +638,8 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
   return {
     analysis: validatedData.analysis,
     insights: {
-      biochemicalShift: "",
-      structuralImpact: "",
+      biochemicalShift: validatedData.biochemicalShift,
+      structuralImpact: validatedData.structuralImpact,
       pathogenicity: "(Clinician Assigned)",
       plausibility: validatedData.plausibility,
       acmgCriteria
@@ -451,8 +657,6 @@ export async function performGeminiBiophysicalAnalysis(
   customApiKey: string | undefined,
   timeoutSignal: AbortSignal
 ) {
-  const client = getGeminiClient(customApiKey);
-
   const prompt = `You are an expert computational structural biologist.
 Analyze the following missense variant from a biophysical and biochemical perspective:
 - Gene Symbol: ${gene}
@@ -465,11 +669,13 @@ Generate a JSON object with:
 - structuralImpact: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
 `;
 
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const fallbackEnv = process.env.GEMINI_MODEL_FALLBACKS || "gemini-2.5-flash,gemini-2.0-flash";
-  const modelsToTry = [primaryModel, ...fallbackEnv.split(",").map(m => m.trim()).filter(Boolean)];
+  const modelsToTry = getConfiguredGeminiModels();
 
-  const keysToTry = [customApiKey, undefined].filter((k, i, self) => i === self.indexOf(k));
+  // Do not replace a valid BYOK failure with a misleading missing-system-key error.
+  // Only try the system key when it is actually configured and usable.
+  const keysToTry = customApiKey && !isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
+    ? [customApiKey, undefined]
+    : [customApiKey];
 
   let lastError: any = null;
   let parsed: any = null;
@@ -480,27 +686,37 @@ Generate a JSON object with:
     try {
       client = getGeminiClient(apiKey);
     } catch (clientErr) {
+      lastError = clientErr;
       continue;
     }
 
+    let keyAttempts = 0;
+    const maxAttempts = 3;
+
     for (const modelName of modelsToTry) {
+      if (keyAttempts >= maxAttempts) {
+        break;
+      }
       if (timeoutSignal?.aborted) {
         throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
       }
       try {
-        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key`);
+        keyAttempts++;
+        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${keyAttempts}/${maxAttempts})`);
         const attemptController = new AbortController();
         const signal = timeoutSignal 
-          ? AbortSignal.any([timeoutSignal, attemptController.signal]) 
+          ? anySignal([timeoutSignal, attemptController.signal])
           : attemptController.signal;
 
         const response = await withTimeout<any>(
-          (client.models.generateContent as any)({
+          client.models.generateContent({
             model: modelName,
             contents: prompt,
             config: {
               temperature: 0.0,
               responseMimeType: "application/json",
+              abortSignal: signal,
+              httpOptions: { timeout: 30000 },
               responseSchema: {
                 type: Type.OBJECT,
                 properties: {
@@ -518,11 +734,10 @@ Generate a JSON object with:
             }
           }),
           30000,
-          "Gemini request timed out"
-        ).catch(err => {
-          attemptController.abort();
-          throw err;
-        });
+          "Gemini request timed out",
+          timeoutSignal,
+          () => attemptController.abort()
+        );
 
         const cleanedText = response.text.trim();
         try {
@@ -556,6 +771,7 @@ Generate a JSON object with:
       } catch (err: any) {
         console.warn(`[Gemini Biophysical Analysis] Model ${modelName} failed with ${apiKey ? "custom" : "system"} API key:`, err.message);
         lastError = err;
+        continue;
       }
     }
     if (success) {
