@@ -194,6 +194,47 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(resVus.signals.am).toBe("vus");
   });
 
+  it("should respect splice-site adjacent and SpliceAI signals in PP3/BP4 concordance calculations", () => {
+    // 1. Splice-site adjacent should vote pathogenic and trigger PP3
+    const resSpliceAdjacent = computeRuleBasedACMG(
+      "GBA1",
+      "p.Asn370Ser",
+      null,
+      {
+        available: true,
+        amPathogenicity: 0.1,
+        amClass: "benign",
+        caddPhred: 10,
+      },
+      {
+        available: true,
+        revel: 0.05,
+        spliceProximity: { distance: 2, isNearSpliceSite: true },
+        spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
+      }
+    );
+    // Revel/AM/Cadd say benign, but splicing proximity says pathogenic. This results in conflicting signals.
+    const concAdj = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
+      spliceProximity: { distance: 2, isNearSpliceSite: true },
+      spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
+    });
+    expect(concAdj.signals.splice).toBe("pathogenic");
+
+    // 2. High SpliceAI score should vote pathogenic and trigger PP3
+    const concSpliceAI = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
+      spliceProximity: { distance: 15, isNearSpliceSite: false },
+      spliceai: { ds_ag: 0.25, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.25 }
+    });
+    expect(concSpliceAI.signals.splice).toBe("pathogenic");
+
+    // 3. Far distance and low SpliceAI should vote benign
+    const concBenign = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
+      spliceProximity: { distance: 15, isNearSpliceSite: false },
+      spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
+    });
+    expect(concBenign.signals.splice).toBe("benign");
+  });
+
   it("should throttle concurrent operations using ConcurrencySemaphore", async () => {
     const sem = new Semaphore(2);
     let activeCount = 0;

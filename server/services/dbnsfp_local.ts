@@ -123,8 +123,8 @@ export interface LocalDbnsfpRecord {
 
 function matchAminoAcidChange(variantStr: string, dbAaChange: string | null): boolean {
   if (!dbAaChange) return false;
-  const norm1 = variantStr.replace(/^p\./, '').toUpperCase();
-  const norm2 = dbAaChange.replace(/^p\./, '').toUpperCase();
+  const norm1 = variantStr.replace(/^p\./i, '').toUpperCase();
+  const norm2 = dbAaChange.replace(/^p\./i, '').toUpperCase();
   if (norm1 === norm2) return true;
 
   const parse = (s: string) => {

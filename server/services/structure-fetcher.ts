@@ -252,14 +252,21 @@ export async function fetchPdbFromRcsb(
   return null;
 }
 
-export async function fetchPdbHomologs(uniprotId: string): Promise<PdbHomolog[]> {
+export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
   const validatedUniprot = validateUniProt(uniprotId);
   const cacheKey = `homologs_${validatedUniprot}`;
   if (pdbCache.has(cacheKey)) {
     const cachedData = pdbCache.get(cacheKey);
     if (cachedData) {
       try {
-        return JSON.parse(cachedData);
+        const parsed: PdbHomolog[] = JSON.parse(cachedData);
+        // Apply position coverage filter post-cache if pos is provided
+        return pos !== undefined
+          ? parsed.filter(h =>
+              h.querySeqFrom === undefined || h.querySeqTo === undefined ||
+              (pos >= h.querySeqFrom && pos <= h.querySeqTo)
+            )
+          : parsed;
       } catch (_) {}
     }
   }
@@ -275,15 +282,29 @@ export async function fetchPdbHomologs(uniprotId: string): Promise<PdbHomolog[]>
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query: {
-          type: "terminal",
-          service: "sequence",
-          parameters: {
-            evalue_cutoff: 0.1,
-            identity_cutoff: 0.3,
-            sequence_type: "protein",
-            value: sequence
-          }
-
+          type: "group",
+          logical_operator: "and",
+          nodes: [
+            {
+              type: "terminal",
+              service: "sequence",
+              parameters: {
+                evalue_cutoff: 0.1,
+                identity_cutoff: 0.3,
+                sequence_type: "protein",
+                value: sequence
+              }
+            },
+            {
+              type: "terminal",
+              service: "text",
+              parameters: {
+                attribute: "rcsb_entry_info.structure_determination_methodology",
+                operator: "exact_match",
+                value: "experimental"
+              }
+            }
+          ]
         },
         return_type: "entry"
       }),
@@ -299,7 +320,7 @@ export async function fetchPdbHomologs(uniprotId: string): Promise<PdbHomolog[]>
 
 
     const searchData = await searchRes.json() as any;
-    const hits = searchData.result_set?.slice(0, 10) || [];
+    const hits = searchData.result_set?.slice(0, 30) || [];
     if (hits.length === 0) return [];
 
     const pdbIds = hits.map((hit: any) => hit.identifier);
@@ -348,16 +369,24 @@ export async function fetchPdbHomologs(uniprotId: string): Promise<PdbHomolog[]>
     }
 
     const seqLen = sequence.length;
-    const homologs: PdbHomolog[] = hits
+    const filteredMapped: PdbHomolog[] = hits
       .filter((hit: any) => {
         const pdbId = hit.identifier.toUpperCase();
         const entryMeta = metadataMap[pdbId] || {};
+        // Exclude computationally-determined structures (AF, RoseTTAFold, etc.)
         const isComp = entryMeta.rcsb_entry_info?.structure_determination_methodology === "computational";
         if (isComp) return false;
 
-        const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "";
-        const isHuman = organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human");
-        return !isHuman;
+        // If a mutation position is provided, verify the aligned region covers it.
+        // Human paralogs and human structures are now included — experimental > AF regardless of species.
+        if (pos !== undefined && hit.services?.[0]?.nodes?.[0]?.match_context?.[0]) {
+          const mc = hit.services[0].nodes[0].match_context[0];
+          const qFrom: number = mc.query_sequence_from ?? 1;
+          const qTo: number = mc.query_sequence_to ?? seqLen;
+          if (pos < qFrom || pos > qTo) return false;
+        }
+
+        return true;
       })
       .map((hit: any) => {
         const pdbId = hit.identifier.toUpperCase();
@@ -384,6 +413,7 @@ export async function fetchPdbHomologs(uniprotId: string): Promise<PdbHomolog[]>
         const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
         const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
 
+        const mc2 = hit.services?.[0]?.nodes?.[0]?.match_context?.[0];
         return {
           pdbId,
           score: hit.score || 0,
@@ -391,14 +421,37 @@ export async function fetchPdbHomologs(uniprotId: string): Promise<PdbHomolog[]>
           coverage: coveragePercent,
           title,
           organism,
+          isHuman: organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human"),
           method,
           resolution,
+          querySeqFrom: typeof mc2?.query_sequence_from === "number" ? mc2.query_sequence_from : undefined,
+          querySeqTo: typeof mc2?.query_sequence_to === "number" ? mc2.query_sequence_to : undefined,
         };
       })
-      .filter((h: PdbHomolog | null): h is PdbHomolog => h !== null)
-      .slice(0, 5);
+      .filter((h: PdbHomolog | null): h is PdbHomolog => h !== null);
 
-    homologs.sort((a, b) => b.identity - a.identity);
+    // Sort by identity descending first, to prioritize closer homologs in deduplication
+    filteredMapped.sort((a, b) => b.identity - a.identity);
+
+    // Apply identity ceiling (< 95%) to exclude self-hits and deduplicate by organism + title
+    const seenKeys = new Set<string>();
+    const getTitleKey = (t: string) => {
+      return t.toLowerCase()
+        .replace(/crystal|structure|of|the|in|complex|with|refinement|at|resolution|domain/g, "")
+        .replace(/[^a-z0-9]/g, "")
+        .slice(0, 20);
+    };
+
+    const homologs: PdbHomolog[] = [];
+    for (const h of filteredMapped) {
+      if (h.identity >= 95) continue;
+      
+      const key = `${getTitleKey(h.title)}_${h.organism.toLowerCase()}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      homologs.push(h);
+      if (homologs.length >= 5) break;
+    }
 
     pdbCache.set(cacheKey, JSON.stringify(homologs));
     return homologs;

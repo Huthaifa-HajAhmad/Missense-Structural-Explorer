@@ -128,7 +128,22 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
           uniprotId = validateUniProt(selectedTc.swissprot[0].split(".")[0]);
         }
       } catch (valErr: any) {
-        sendError(res, 422, "UNPROCESSABLE_ENTITY", `Resolved variant values are invalid: ${valErr.message}`);
+        const isNonMissense = valErr.message.includes("Nonsense") ||
+          valErr.message.includes("Frameshift") ||
+          valErr.message.includes("Insertion/deletion") ||
+          valErr.message.includes("Synonymous");
+
+        const errorCode = isNonMissense ? "NON_MISSENSE_VARIANT" : "UNPROCESSABLE_ENTITY";
+        const errorMsg = isNonMissense
+          ? `Genomic coordinate translated to non-missense consequence (${selectedTc.gene_symbol || "Gene"} ${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}): ${valErr.message}`
+          : `Resolved variant values are invalid: ${valErr.message}`;
+
+        sendError(res, 422, errorCode, errorMsg, {
+          gene: selectedTc.gene_symbol,
+          hgvsp: selectedTc.hgvsp,
+          consequence: (selectedTc as any).consequence_terms,
+          uniprotId: selectedTc.swissprot?.[0]?.split(".")[0]
+        });
         return;
       }
 
