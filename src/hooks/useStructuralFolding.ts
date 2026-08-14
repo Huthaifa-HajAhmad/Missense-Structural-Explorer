@@ -39,10 +39,12 @@ export function useStructuralFolding() {
   }, []);
 
   const fetchEsmFold = useCallback(async (
-    fetchWithAuth: (url: string, options?: any) => Promise<Response>,
+    apiClient: any,
     addNotification: (type: "success" | "info" | "error" | "warn", message: string) => void,
     uniprotIdArg?: string,
-    variantArg?: string
+    variantArg?: string,
+    wtSeq?: string,
+    mutSeq?: string
   ) => {
     if (!uniprotIdArg || !variantArg) {
       addNotification("warn", "ESMFold requires a valid UniProt ID and mutant variant.");
@@ -68,22 +70,22 @@ export function useStructuralFolding() {
     try {
       addNotification("info", `Initiating ESMFold full-sequence 3D structure generation for ${uniprotIdArg} ${variantArg}...`);
 
-      const foldRes = await fetchWithAuth("/api/v1/esmfold", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uniprotId: uniprotIdArg,
-          variant: variantArg
-        })
+      const foldData = await apiClient.foldSequence({
+        uniprotId: uniprotIdArg,
+        variant: variantArg,
+        wtSeq,
+        mutSeq
       });
 
-      if (!foldRes.ok) {
-        const errData = await foldRes.json().catch(() => ({}));
-        throw new Error(getErrorMessage(errData, `ESMFold generation failed (status ${foldRes.status})`));
-      }
-
-      const foldData = await foldRes.json();
       if (!foldData.wtPdb || !foldData.mutPdb) {
+        if (foldData.pdb) {
+          setEsmFoldWtPdb(foldData.pdb);
+          setEsmFoldMutPdb(foldData.pdb);
+          setEsmFoldAlignedPdb(foldData.pdb);
+          setEsmFoldMetrics(null);
+          addNotification("success", "Single ESMFold structure generated successfully.");
+          return;
+        }
         throw new Error("ESMFold endpoint did not return valid WT and mutant PDB structures.");
       }
 
@@ -93,25 +95,13 @@ export function useStructuralFolding() {
 
       const posMatch = variantArg.match(/\d+/);
       const position = posMatch ? parseInt(posMatch[0], 10) : 1;
-      const chain = foldData.chain || "A";
 
-      const alignRes = await fetchWithAuth("/api/v1/structural-align", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          wtPdb: foldData.wtPdb,
-          mutPdb: foldData.mutPdb,
-          pos: position,
-          chain: chain
-        })
+      const alignData = await apiClient.structuralAlign({
+        pdb1: foldData.wtPdb,
+        pdb2: foldData.mutPdb,
+        targetIndex: position
       });
 
-      if (!alignRes.ok) {
-        const errData = await alignRes.json().catch(() => ({}));
-        throw new Error(getErrorMessage(errData, `ESMFold structural alignment failed (status ${alignRes.status})`));
-      }
-
-      const alignData = await alignRes.json();
       if (alignData.alignedPdb) {
         setEsmFoldAlignedPdb(alignData.alignedPdb);
         setEsmFoldMetrics(alignData.metrics);

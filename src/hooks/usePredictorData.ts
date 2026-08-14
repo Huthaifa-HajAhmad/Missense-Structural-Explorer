@@ -10,6 +10,7 @@ export function usePredictorData() {
   const [loadingStep, setLoadingStep] = useState<string>("");
   const [isBiophysicalLoading, setIsBiophysicalLoading] = useState(false);
   const [isClinicalLoading, setIsClinicalLoading] = useState(false);
+  const [isNarrativeLoading, setIsNarrativeLoading] = useState(false);
 
   return {
     analysisState,
@@ -19,6 +20,8 @@ export function usePredictorData() {
     isBiophysicalLoading,
     setIsBiophysicalLoading,
     isClinicalLoading,
-    setIsClinicalLoading
+    setIsClinicalLoading,
+    isNarrativeLoading,
+    setIsNarrativeLoading
   };
 }

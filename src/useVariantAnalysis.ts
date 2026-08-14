@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 export * from './variantAnalysisUtils';
-import { PdbHomolog, VariantPreset } from "./types";
+import { generateMutantResponseSchema } from "./variantAnalysisUtils";
+import { PdbHomolog, VariantPreset, StructureProvenance } from "./types";
 import { useSettings } from "./context/SettingsContext";
 import { useApiClient } from "./apiClient";
 import { useSearchHistory } from "./hooks/useSearchHistory";
@@ -29,7 +30,7 @@ export default function useVariantAnalysis() {
     setIsSettingsOpen,
   } = useSettings();
 
-  const { fetchWithAuth } = useApiClient();
+  const { fetchWithAuth, apiClient } = useApiClient();
 
   // 1. Notification system hook
   const { notifications, addNotification, removeNotification } = useNotificationSystem();
@@ -44,16 +45,16 @@ export default function useVariantAnalysis() {
   const predictor = usePredictorData();
   const clinical = useClinicalEvidence();
 
+  const [pdbText, setPdbText] = useState<string | null>(null);
+
   // 5. Biophysical modeling hook
-  const biophysical = useBiophysicalModeling(settings, addNotification, fetchWithAuth);
+  const biophysical = useBiophysicalModeling(settings, addNotification, apiClient, fetchWithAuth, pdbText);
 
   // 6. ESMFold / ESM3 structural folding hook
   const structuralFolding = useStructuralFolding();
 
   // 7. Main analysis execution & API pipeline hook
   const pipeline = useAnalysisPipeline();
-
-  const [pdbText, setPdbText] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"wildtype" | "mutant">("wildtype");
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState<boolean>(false);
   const [isLegendOpen, setIsLegendOpen] = useState<boolean>(false);
@@ -66,6 +67,8 @@ export default function useVariantAnalysis() {
     biophysical.clearDynaMutComparePoll();
     biophysical.clearDdmutPoll();
     biophysical.clearDdmutComparePoll();
+    biophysical.clearThermoMpnnPoll();
+    biophysical.clearThermoMpnnComparePoll();
     setViewMode("wildtype");
     biophysical.setMutantPdb(null);
     structuralFolding.resetEsmFoldState();
@@ -86,30 +89,29 @@ export default function useVariantAnalysis() {
     biophysical.setCompareFoldingDdG(null);
     biophysical.setCompareFoldingEnergetics(null);
     biophysical.setCompareDynamut2Status(null);
+
+    // Reset all remote predictor job IDs, statuses, errors, and structural differences
+    biophysical.setDdmutStatus(null);
+    biophysical.setCompareDdmutStatus(null);
+    biophysical.setThermompnnStatus(null);
+    biophysical.setCompareThermompnnStatus(null);
+    biophysical.setThermompnnError(null);
+    biophysical.setCompareThermompnnError(null);
+    biophysical.setDynamut2JobId(null);
+    biophysical.setCompareDynamut2JobId(null);
+    biophysical.setDdmutJobId(null);
+    biophysical.setCompareDdmutJobId(null);
+    biophysical.setThermompnnJobId(null);
+    biophysical.setCompareThermompnnJobId(null);
+    biophysical.setStructuralDiff(null);
+    biophysical.setCompareStructuralDiff(null);
+
     setPdbText(null);
     biophysical.setComputedPocket(null);
     biophysical.setIsPocketLoading(false);
     biophysical.lastFetchedFoldRef.current = "";
     biophysical.setPocketError(null);
   }, [biophysical, structuralFolding]);
-
-  const handleSelectHistoryItem = useCallback((item: { gene: string; variant: string; uniprotId: string }) => {
-    search.handleSelectHistoryItem(item, {
-      abortAllPendingRequests: () => pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
-      resetViewerState,
-      analysisAbortRef: pipeline.analysisAbortRef,
-      executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
-      setAnalysisState: predictor.setAnalysisState
-    });
-  }, [search, pipeline, biophysical, resetViewerState, predictor.setAnalysisState]);
-
-  const handleSelectPreset = useCallback((preset: VariantPreset) => {
-    search.handleSelectPreset(preset, {
-      abortAllPendingRequests: () => pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
-      resetViewerState,
-      setAnalysisState: predictor.setAnalysisState
-    });
-  }, [search, pipeline, biophysical, resetViewerState, predictor.setAnalysisState]);
 
   const executeAnalysisWrapper = useCallback((
     targetGene: string,
@@ -119,12 +121,14 @@ export default function useVariantAnalysis() {
   ) => {
     return pipeline.executeAnalysis(targetGene, targetVariant, targetUniprot, providedSignal, {
       fetchWithAuth,
+      apiClient,
       settings,
       userDirections: search.userDirections,
       setAnalysisState: predictor.setAnalysisState,
       setLoadingStep: predictor.setLoadingStep,
       setIsBiophysicalLoading: predictor.setIsBiophysicalLoading,
       setIsClinicalLoading: predictor.setIsClinicalLoading,
+      setIsNarrativeLoading: predictor.setIsNarrativeLoading,
       setGene: search.setGene,
       setVariant: search.setVariant,
       setUniprotId: search.setUniprotId,
@@ -141,21 +145,80 @@ export default function useVariantAnalysis() {
       addToHistory,
       resetViewerState,
       clearDynaMutPoll: biophysical.clearDynaMutPoll,
-      clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll
+      clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll,
+      // Biophysical modeling setters for concurrent FoldX execution
+      setIsFolding: biophysical.setIsFolding,
+      setFoldingError: biophysical.setFoldingError,
+      setFoldingStatus: biophysical.setFoldingStatus,
+      setMutantPdb: biophysical.setMutantPdb,
+      setFoldedResidueIndex: biophysical.setFoldedResidueIndex,
+      setFoldingDdG: biophysical.setFoldingDdG,
+      setFoldingEnergetics: biophysical.setFoldingEnergetics,
+      setDynamut2JobId: biophysical.setDynamut2JobId,
+      setDynamut2Status: biophysical.setDynamut2Status,
+      setDdmutJobId: biophysical.setDdmutJobId,
+      setDdmutStatus: biophysical.setDdmutStatus,
+      setThermompnnJobId: biophysical.setThermompnnJobId,
+      setThermompnnStatus: biophysical.setThermompnnStatus,
+      setThermompnnError: biophysical.setThermompnnError,
+      lastFetchedFoldRef: biophysical.lastFetchedFoldRef
     });
-  }, [pipeline, fetchWithAuth, settings, search, predictor, biophysical, addToHistory, resetViewerState]);
+  }, [pipeline, fetchWithAuth, apiClient, settings, search, predictor, biophysical, addToHistory, resetViewerState]);
+
+  const handleSelectHistoryItem = useCallback((item: { gene: string; variant: string; uniprotId: string }) => {
+    search.handleSelectHistoryItem(item, {
+      abortAllPendingRequests: () => pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
+      resetViewerState,
+      executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
+      setAnalysisState: predictor.setAnalysisState
+    });
+  }, [search, pipeline, biophysical, resetViewerState, predictor.setAnalysisState, executeAnalysisWrapper]);
+
+  const handleSelectPreset = useCallback((preset: VariantPreset) => {
+    search.handleSelectPreset(preset, {
+      abortAllPendingRequests: () => pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
+      resetViewerState,
+      setAnalysisState: predictor.setAnalysisState
+    });
+  }, [search, pipeline, biophysical, resetViewerState, predictor.setAnalysisState]);
+
+  const handleSearchSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    const targetGene = search.customGene.trim();
+    const targetVariant = search.customGenomic.trim() ? search.customGenomic.trim() : search.customVariant.trim();
+    const targetUniprot = search.customUniprot.trim();
+    executeAnalysisWrapper(targetGene, targetVariant, targetUniprot);
+  }, [search.customGene, search.customVariant, search.customGenomic, search.customUniprot, executeAnalysisWrapper]);
+
+  const handleCopyReport = useCallback(async () => {
+    const result = predictor.analysisState.result;
+    if (!result) return;
+    const classification = result?.clinvar?.classification ?? result?.ruleBasedInsights?.acmgVerdict ?? "";
+    const narrative     = result?.analysis ?? "";
+    const acmgCriteria  = (result?.insights?.acmgCriteria ?? result?.ruleBasedInsights?.acmgCriteria ?? []).map((c: any) => c.code);
+
+    try {
+      await navigator.clipboard.writeText(
+        `${classification}\n\n${narrative}\n\nACMG Evidence: ${acmgCriteria.join(", ")}`
+      );
+      search.setCopied(true);
+      setTimeout(() => search.setCopied(false), 2000);
+    } catch (err) {
+      console.error("[Copy Report Error] Clipboard write failed:", err);
+    }
+  }, [predictor.analysisState.result, search.setCopied]);
 
   const translateVariantNotationWrapper = useCallback((notation: string, signal: AbortSignal) => {
     return pipeline.translateVariantNotation(notation, signal, {
-      fetchWithAuth,
+      apiClient,
       setAnalysisState: predictor.setAnalysisState,
       setLoadingStep: predictor.setLoadingStep
     });
-  }, [pipeline, fetchWithAuth, predictor.setAnalysisState, predictor.setLoadingStep]);
+  }, [pipeline, apiClient, predictor.setAnalysisState, predictor.setLoadingStep]);
 
   const fetchHomologsWrapper = useCallback((targetUniprot: string, signal?: AbortSignal) => {
-    return pipeline.fetchHomologs(targetUniprot, fetchWithAuth, signal);
-  }, [pipeline, fetchWithAuth]);
+    return pipeline.fetchHomologs(targetUniprot, apiClient, signal);
+  }, [pipeline, apiClient]);
 
   const fetchNearestResiduesWrapper = useCallback((
     targetUniprot: string,
@@ -164,12 +227,19 @@ export default function useVariantAnalysis() {
     pdbStr: string,
     signal?: AbortSignal
   ) => {
-    return pipeline.fetchNearestResidues(targetUniprot, targetVariant, residueIndex, pdbStr, fetchWithAuth, signal);
-  }, [pipeline, fetchWithAuth]);
+    return pipeline.fetchNearestResidues(targetUniprot, targetVariant, residueIndex, pdbStr, apiClient, signal);
+  }, [pipeline, apiClient]);
 
-  const fetchEsmFoldWrapper = useCallback((uniprotIdArg?: string, variantArg?: string) => {
-    return structuralFolding.fetchEsmFold(fetchWithAuth, addNotification, uniprotIdArg || search.uniprotId, variantArg || search.variant);
-  }, [structuralFolding, fetchWithAuth, addNotification, search.uniprotId, search.variant]);
+  const fetchEsmFoldWrapper = useCallback((uniprotIdArg?: string, variantArg?: string, wtSeq?: string, mutSeq?: string) => {
+    return structuralFolding.fetchEsmFold(
+      apiClient,
+      addNotification,
+      uniprotIdArg || search.uniprotId,
+      variantArg || search.variant,
+      wtSeq,
+      mutSeq
+    );
+  }, [structuralFolding, apiClient, addNotification, search.uniprotId, search.variant]);
 
   const formatEnergyString = useCallback((text: string | null | undefined): string => {
     if (!text) return "";
@@ -219,6 +289,7 @@ export default function useVariantAnalysis() {
     loadingStep: predictor.loadingStep,
     isBiophysicalLoading: predictor.isBiophysicalLoading,
     isClinicalLoading: predictor.isClinicalLoading,
+    isNarrativeLoading: predictor.isNarrativeLoading,
     triageOverride: clinical.triageOverride,
     pdbText,
     isHowToInspectOpen,
@@ -294,6 +365,8 @@ export default function useVariantAnalysis() {
     setActive3dModelTab: structuralFolding.setActive3dModelTab,
     handleSelectHistoryItem,
     handleSelectPreset,
+    handleSearchSubmit,
+    handleCopyReport,
     addToHistory,
     clearHistory,
     setAnalysisState: predictor.setAnalysisState,

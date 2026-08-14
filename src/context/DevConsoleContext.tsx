@@ -33,6 +33,7 @@ function createInitialStreamState(storageKey: string): StreamState {
 const initialState: DevConsoleState = {
   errorState: createInitialStreamState(ERROR_STORAGE_KEY),
   liveState: createInitialStreamState(LIVE_STORAGE_KEY),
+  telemetrySpans: [],
   activeTab: "error",
 };
 
@@ -152,6 +153,24 @@ function devConsoleReducer(state: DevConsoleState, action: DevConsoleAction): De
         ...state,
         activeTab: action.tab,
       };
+    case "ADD_TELEMETRY_SPAN": {
+      const newSpan = {
+        ...action.span,
+        timestamp: Date.now(),
+      };
+      // Keep up to 50 spans
+      const updated = [newSpan, ...state.telemetrySpans].slice(0, 50);
+      return {
+        ...state,
+        telemetrySpans: updated,
+      };
+    }
+    case "CLEAR_TELEMETRY": {
+      return {
+        ...state,
+        telemetrySpans: [],
+      };
+    }
     default:
       return state;
   }
@@ -268,11 +287,11 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
 
   // Install Interceptors
   useEffect(() => {
-    const origLog = console.log;
-    const origInfo = console.info;
-    const origError = console.error;
-    const origWarn = console.warn;
-    const origFetch = window.fetch;
+    const origLog = console.log.bind(console);
+    const origInfo = console.info.bind(console);
+    const origError = console.error.bind(console);
+    const origWarn = console.warn.bind(console);
+    const origFetch = window.fetch.bind(window);
 
     console.log = (...args: any[]) => {
       origLog(...args);

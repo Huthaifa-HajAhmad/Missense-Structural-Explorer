@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef } from "react";
+import React, { createContext, useContext, useRef, useEffect } from "react";
 import { createStore, StoreApi } from "zustand";
 import { useStore } from "zustand";
 
@@ -24,13 +24,17 @@ export function VariantAnalysisProvider({
       state,
       actions,
     }));
-  } else {
-    // Sync state and actions to the store directly in render
-    const currentStore = storeRef.current.getState();
-    if (currentStore.state !== state || currentStore.actions !== actions) {
-      storeRef.current.setState({ state, actions });
-    }
   }
+
+  // Sync state and actions to the store asynchronously after render commits
+  useEffect(() => {
+    if (storeRef.current) {
+      const currentStore = storeRef.current.getState();
+      if (currentStore.state !== state || currentStore.actions !== actions) {
+        storeRef.current.setState({ state, actions });
+      }
+    }
+  }, [state, actions]);
 
   return (
     <VariantAnalysisStoreContext.Provider value={storeRef.current}>

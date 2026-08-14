@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { MasterView } from "../components/MasterSidebar";
+import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 
 interface UseAppEffectsParams {
   state: any;
@@ -24,7 +25,8 @@ export function useAppEffects({
 }: UseAppEffectsParams) {
   const {
     uniprotId,
-    esmFoldPdb,
+    variant,
+    esmFoldWtPdb,
     isEsmFolding,
     esmFoldingError
   } = state;
@@ -35,17 +37,19 @@ export function useAppEffects({
     setCustomPdbUrl
   } = actions;
 
-  // Auto-navigate to Evidence view when analysis completes
-  const prevIsLoadingRef = useRef(state.analysisState.isLoading);
+  // Stable refs for actions and callbacks called inside effects to prevent dependency cycles
+  const fetchWithAuthRef = useRef(fetchWithAuth);
+  const fetchEsmFoldRef = useRef(fetchEsmFold);
+  const setCustomPdbUrlRef = useRef(setCustomPdbUrl);
+
   useEffect(() => {
-    if (prevIsLoadingRef.current && !state.analysisState.isLoading && state.analysisState.result) {
-      if (masterView === "search") {
-        setMasterView("evidence");
-        setActiveEvidenceTab("clinical");
-      }
-    }
-    prevIsLoadingRef.current = state.analysisState.isLoading;
-  }, [state.analysisState.isLoading, state.analysisState.result, masterView, setMasterView, setActiveEvidenceTab]);
+    fetchWithAuthRef.current = fetchWithAuth;
+    fetchEsmFoldRef.current = fetchEsmFold;
+    setCustomPdbUrlRef.current = setCustomPdbUrl;
+  }, [fetchWithAuth, fetchEsmFold, setCustomPdbUrl]);
+
+  const lastFoldedKeyRef = useRef<string>("");
+
 
   // Synchronize active 3D model tab
   useEffect(() => {
@@ -55,36 +59,51 @@ export function useAppEffects({
   // Trigger ESMFold folding when masterView is "structure_esmfold"
   useEffect(() => {
     if (masterView === "structure_esmfold") {
-      if (state.customPdbUrl !== null) {
-        setCustomPdbUrl(null);
-      }
       const metadata = state.analysisState.result?.metadata;
       if (!metadata) return;
 
-      const runFolding = async () => {
-        let mutSeq = metadata.mutatedSequence;
-        let wtSeq = "";
-        const pos = metadata.residueIndex;
-        const mutRes = metadata.mutant;
-        const activeUniprot = uniprotId || metadata.uniprotId;
+      const pos = metadata.residueIndex;
+      const mutRes = metadata.mutant;
+      const activeUniprot = uniprotId || metadata.uniprotId;
+      const foldKey = `${activeUniprot}_${pos}_${mutRes}`;
 
-        if (activeUniprot) {
+      // Prevent redundant fetches / folding routines if we already fold this variant
+      if (lastFoldedKeyRef.current === foldKey) return;
+
+      if (state.customPdbUrl !== null) {
+        setCustomPdbUrlRef.current(null);
+      }
+
+      if (esmFoldWtPdb || isEsmFolding || esmFoldingError) {
+        return;
+      }
+
+      const runFolding = async () => {
+        lastFoldedKeyRef.current = foldKey;
+        let mutSeq = metadata.mutatedSequence;
+        let wtSeq = metadata.sequence || "";
+
+        if (!wtSeq && activeUniprot) {
           try {
-            const res = await fetchWithAuth(`/api/v1/sequence/${activeUniprot}`);
+            const res = await fetchWithAuthRef.current(`/api/v1/sequence/${activeUniprot}`);
             if (res.ok) {
               const data = await res.json();
               wtSeq = data.sequence;
-              if (wtSeq && pos && mutRes && !mutSeq) {
-                const mut1 = mutRes.length === 3 ? (mutRes === "Ala" ? "A" : mutRes === "Arg" ? "R" : mutRes) : mutRes;
-                mutSeq = wtSeq.substring(0, pos - 1) + mut1 + wtSeq.substring(pos);
-              }
             }
           } catch (err) {
             console.error("Failed to resolve mutated sequence for ESMFold:", err);
           }
         }
-        if (wtSeq && mutSeq && pos && !esmFoldPdb && !isEsmFolding && !esmFoldingError) {
-          fetchEsmFold(wtSeq, mutSeq, pos, "A");
+
+        if (wtSeq && pos && mutRes && !mutSeq) {
+          const mutUpper = mutRes.toUpperCase();
+          const mut1 = AMINO_ACID_3_TO_1[mutRes] || AMINO_ACID_3_TO_1[mutUpper] || (mutRes.length === 1 ? mutUpper : "A");
+          mutSeq = wtSeq.substring(0, pos - 1) + mut1 + wtSeq.substring(pos);
+        }
+
+        if (wtSeq && mutSeq && pos && !esmFoldWtPdb && !isEsmFolding && !esmFoldingError) {
+          const variantString = metadata.variant || variant || `p.${metadata.wildType}${pos}${metadata.mutant}`;
+          fetchEsmFoldRef.current(activeUniprot, variantString, wtSeq, mutSeq);
         }
       };
 
@@ -93,13 +112,10 @@ export function useAppEffects({
   }, [
     masterView,
     state.analysisState.result?.metadata,
-    esmFoldPdb,
+    esmFoldWtPdb,
     isEsmFolding,
     esmFoldingError,
-    fetchEsmFold,
     uniprotId,
-    setCustomPdbUrl,
-    fetchWithAuth,
     state.customPdbUrl
   ]);
 

@@ -5,8 +5,7 @@ import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../data";
 export interface UseVariantSearchOptions {
   abortAllPendingRequests: () => void;
   resetViewerState: () => void;
-  analysisAbortRef: React.MutableRefObject<AbortController | null>;
-  executeAnalysis: (gene: string, variant: string, uniprotId: string, signal: AbortSignal) => void;
+  executeAnalysis: (gene: string, variant: string, uniprotId: string, signal?: AbortSignal) => void;
   setAnalysisState: React.Dispatch<React.SetStateAction<any>>;
 }
 
@@ -34,10 +33,6 @@ export function useVariantSearch() {
   ) => {
     options.abortAllPendingRequests();
 
-    const controller = new AbortController();
-    options.analysisAbortRef.current = controller;
-    const activeSignal = controller.signal;
-
     setGene(item.gene);
     setVariant(item.variant);
     setUniprotId(item.uniprotId);
@@ -57,7 +52,7 @@ export function useVariantSearch() {
       setSelectedResidueIndex(null);
     }
 
-    options.executeAnalysis(item.gene, item.variant, item.uniprotId, activeSignal);
+    options.executeAnalysis(item.gene, item.variant, item.uniprotId);
   };
 
   const handleSelectPreset = (
@@ -102,7 +97,7 @@ export function useVariantSearch() {
             mutant: "",
             analysisVersion: {
               thresholds: "ACMG v1.0.0-concordance",
-              geminiModel: "gemini-2.5-flash",
+              geminiModel: "gemini-3.5-flash",
               foldxVersion: "FoldX 5.0",
               timestamp: new Date().toISOString()
             }

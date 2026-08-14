@@ -10,14 +10,18 @@ export function useNotificationSystem() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const addNotification = useCallback((type: "success" | "info" | "error" | "warn", message: string) => {
-    if (type === "error") {
-      console.error(`[Notification Error] ${message}`);
-    } else if (type === "warn") {
-      console.warn(`[Notification Warn] ${message}`);
-    } else if (type === "info") {
-      console.info(`[Notification] ${message}`);
-    } else if (type === "success") {
-      console.info(`[Notification Success] ${message}`);
+    try {
+      if (type === "error") {
+        console.error(`[Notification Error] ${message}`);
+      } else if (type === "warn") {
+        console.warn(`[Notification Warn] ${message}`);
+      } else if (type === "info") {
+        console.info(`[Notification] ${message}`);
+      } else if (type === "success") {
+        console.info(`[Notification Success] ${message}`);
+      }
+    } catch (e) {
+      // Ignore console failures to prevent notification crash
     }
     const id = Math.random().toString(36).substring(2, 9);
     setNotifications(prev => [...prev, { id, type, message }]);
