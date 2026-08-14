@@ -199,9 +199,17 @@ export default function SettingsModal() {
   }, [isSettingsOpen, setIsSettingsOpen]);
 
   const handleLinkApiKey = async () => {
-    if (!settings.geminiApiKey) return;
+    const apiKey = settings.geminiApiKey?.trim() || "";
+    if (!apiKey) return;
+
     setIsLinking(true);
     setLinkError(null);
+
+    // Do not leave an older token marked active while this key is being
+    // validated. The server token is stateless and tied to the submitted key.
+    updateSetting("geminiSessionId", "");
+    updateSetting("geminiSessionExpiresAt", 0);
+
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -212,16 +220,18 @@ export default function SettingsModal() {
       const response = await fetch("/api/v1/session/keys", {
         method: "POST",
         headers,
-        body: JSON.stringify({ apiKey: settings.geminiApiKey }),
+        body: JSON.stringify({ apiKey }),
       });
+      const responseData = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || "Failed to link API key.");
+        const serverError = responseData.error;
+        const code = serverError?.code ? `[${serverError.code}] ` : "";
+        const requestId = serverError?.requestId ? ` (request ${serverError.requestId})` : "";
+        throw new Error(`${code}${serverError?.message || `Failed to link API key (HTTP ${response.status}).`}${requestId}`);
       }
-      const data = await response.json();
-      if (data.sessionId) {
-        updateSetting("geminiSessionId", data.sessionId);
-        updateSetting("geminiSessionExpiresAt", data.expiresAt || (Date.now() + 3600000));
+      if (responseData.sessionId) {
+        updateSetting("geminiSessionId", responseData.sessionId);
+        updateSetting("geminiSessionExpiresAt", responseData.expiresAt || (Date.now() + 15 * 60 * 1000));
       } else {
         throw new Error("No session ID returned from server.");
       }

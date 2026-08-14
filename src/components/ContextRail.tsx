@@ -15,6 +15,7 @@ interface ContextRailProps {
   isFolding: boolean;
   isBiophysicalLoading: boolean;
   isClinicalLoading: boolean;
+  isNarrativeLoading?: boolean;
   gene: string;
   variant: string;
   homologs?: PdbHomolog[];
@@ -125,6 +126,7 @@ const STEP_PROGRESS_SUBTEXT: Record<MasterView, string> = {
   report: "Compiling clinical summary & evidence export…",
   console: "Surfacing real-time system logs and diagnostic events…",
   search: "",
+  literature: "Displaying PubMed and ClinVar literature summaries…",
 };
 
 function ContextRail({
@@ -134,6 +136,7 @@ function ContextRail({
   isFolding,
   isBiophysicalLoading,
   isClinicalLoading,
+  isNarrativeLoading = false,
   gene,
   variant,
   homologs = [],
@@ -174,7 +177,8 @@ function ContextRail({
               loadingStep,
               isPocketLoading,
               dynamut2Status,
-              ddmutStatus
+              ddmutStatus,
+              isNarrativeLoading
             );
             const isCurrent =
               activeView === view ||

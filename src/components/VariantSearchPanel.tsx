@@ -90,6 +90,7 @@ function VariantSearchPanel({
   const isFolding = useVariantAnalysisStore(s => s.isFolding ?? false);
   const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading ?? false);
   const isClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading ?? false);
+  const isNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading ?? false);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading ?? false);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
@@ -130,7 +131,8 @@ function VariantSearchPanel({
       loadingStep,
       isPocketLoading,
       dynamut2Status,
-      ddmutStatus
+      ddmutStatus,
+      isNarrativeLoading
     );
     const statusMap: Record<string, string> = {
       complete: "Complete",
@@ -433,10 +435,14 @@ function VariantSearchPanel({
             </div>
 
             {/* Pipeline Live Status Footer */}
-            <div className="p-3 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[11px] leading-relaxed flex items-center justify-between" style={{ color: "var(--cs-text-muted)" }}>
-              <span className="flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
-                {analysisState.isLoading ? loadingStep || "Processing query..." : result ? "Click any stage card to open analysis tab" : "Parallel biophysical computation engine"}
+            <div className="p-3.5 rounded-lg bg-[var(--cs-surface-2)] border border-[var(--cs-border-subtle)] text-[11px] leading-relaxed flex items-center gap-2.5" style={{ color: "var(--cs-text-secondary)" }}>
+              <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
+              <span>
+                {analysisState.isLoading 
+                  ? loadingStep || "Processing query..." 
+                  : result 
+                    ? "Analysis complete! Click on any pipeline step card above to navigate and explore the results." 
+                    : "Parallel biophysical computation engine"}
               </span>
             </div>
           </div>

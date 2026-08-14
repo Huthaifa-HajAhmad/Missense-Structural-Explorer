@@ -5,11 +5,13 @@ import {
   Info,
   ExternalLink,
   Circle,
-  CheckCircle2
+  CheckCircle2,
+  Database,
+  FlaskConical
 } from "lucide-react";
-import { AnalysisState, EnergeticsData } from "../types";
+import { AnalysisState, EnergeticsData, StructureProvenance } from "../types";
 import { useSettings } from "../context/SettingsContext";
-import { THRESHOLDS } from "../shared/thresholds";
+import { THRESHOLDS, computeCalibratedConsensus, calibrateRawScore } from "../shared/thresholds";
 
 interface EnergeticsViewProps {
   isDark: boolean;
@@ -202,7 +204,78 @@ const EnergeticsView = memo(function EnergeticsView({
 
       <div className="p-5 flex-grow overflow-y-auto space-y-4">
         <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Consensus Biophysical Stability (ΔΔG)</h4>
-        
+
+        {/* ── Structure Provenance Badge ──────────────────────────────────── */}
+        {foldingEnergetics?.structureProvenance && !isFolding && (
+          (() => {
+            const prov: StructureProvenance = foldingEnergetics.structureProvenance!;
+            const isExperimental = prov.source === "experimental";
+            const isHomolog = prov.source === "homolog";
+            const label = isExperimental
+              ? "Experimental Structure"
+              : isHomolog
+              ? "Structural Homolog"
+              : "AlphaFold Prediction";
+            const methodClean = prov.method
+              ? prov.method.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+              : null;
+            return (
+              <div
+                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-lg border text-[10px] font-mono animate-fade-in"
+                style={{
+                  background: isExperimental || isHomolog
+                    ? "color-mix(in srgb, var(--cs-bg-success) 30%, transparent)"
+                    : "var(--cs-surface-2)",
+                  borderColor: isExperimental || isHomolog
+                    ? "color-mix(in srgb, var(--cs-text-success) 40%, transparent)"
+                    : "var(--cs-border-subtle)"
+                }}
+                title="Structure template used for FoldX ΔΔG computation"
+              >
+                {isExperimental || isHomolog
+                  ? <Database className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-success)" }} />
+                  : <FlaskConical className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-muted)" }} />
+                }
+                <span className="font-bold" style={{ color: isExperimental || isHomolog ? "var(--cs-text-success)" : "var(--cs-text-muted)" }}>
+                  {label}
+                </span>
+                {prov.pdbId && (
+                  <a
+                    href={`https://www.rcsb.org/structure/${prov.pdbId.toUpperCase()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded border font-bold uppercase hover:opacity-80 transition-opacity"
+                    style={{
+                      background: "var(--cs-surface)",
+                      borderColor: "var(--cs-border)",
+                      color: "var(--cs-accent)"
+                    }}
+                    title={`Open ${prov.pdbId.toUpperCase()} in RCSB PDB`}
+                  >
+                    {prov.pdbId.toUpperCase()}
+                    {prov.chainId && <span style={{ color: "var(--cs-text-muted)" }}>:{prov.chainId}</span>}
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+                {methodClean && (
+                  <span style={{ color: "var(--cs-text-secondary)" }}>{methodClean}</span>
+                )}
+                {prov.resolution != null && (
+                  <span className="font-semibold" style={{ color: "var(--cs-text-secondary)" }}>
+                    {prov.resolution.toFixed(1)} Å
+                  </span>
+                )}
+                {isHomolog && prov.identity != null && (
+                  <span style={{ color: "var(--cs-text-muted)" }}>
+                    {prov.identity.toFixed(0)}% identity
+                  </span>
+                )}
+              </div>
+            );
+          })()
+        )}
+        {/* ─────────────────────────────────────────────────────────────────── */}
+
         {disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && (
           <div className="p-3 rounded-lg border flex flex-col gap-1 animate-fade-in" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
             <div className="flex items-center gap-1.5 font-bold text-xs">
@@ -305,14 +378,6 @@ const EnergeticsView = memo(function EnergeticsView({
                   const isDdmutPending = (ddmutStatus === "pending" || (isFolding && energetics.ddmut === null));
                   const isThermompnnPending = (thermompnnStatus === "pending" || (isFolding && energetics.thermompnn === null));
 
-                  const pendingList: { key: string; name: string }[] = [];
-                  if (isFoldxPending) pendingList.push({ key: "foldx", name: "FoldX" });
-                  if (isDynamutPending) pendingList.push({ key: "dynamut2", name: "DynaMut2" });
-                  if (isDdmutPending) pendingList.push({ key: "ddmut", name: "DDMut (Deep Learning)" });
-                  if (isThermompnnPending) pendingList.push({ key: "thermompnn", name: "ThermoMPNN" });
-
-                  const collapsePending = pendingList.length >= 2;
-
                   const items = [
                     { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (5 runs)", val: energetics.foldxMean, invertSign: false, isPending: isFoldxPending },
                     { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true, isPending: isDynamutPending },
@@ -321,13 +386,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending }
                   ];
 
-                  const rows: React.ReactNode[] = [];
-
-                  items.forEach((item, idx) => {
-                    if (collapsePending && item.isPending) {
-                      return;
-                    }
-
+                  return items.map((item, idx) => {
                     let scoreText = "N/A";
                     let badge = { label: "N/A", category: "N/A", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
 
@@ -382,8 +441,7 @@ const EnergeticsView = memo(function EnergeticsView({
                       }
                     }
 
-
-                    rows.push(
+                    return (
                       <tr key={item.key} className="hover:bg-[var(--cs-bg-subtle)] transition-colors animate-fade-in" style={{ color: "var(--cs-text-primary)", borderBottom: idx < items.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
                         <td className="p-3 px-4 font-semibold text-[12px] text-left w-1/4 border-r border-[var(--cs-border-subtle)]">
                           <button
@@ -409,24 +467,7 @@ const EnergeticsView = memo(function EnergeticsView({
                       </tr>
                     );
                   });
-
-                if (collapsePending) {
-                  rows.push(
-                    <tr key="pending-summary" className="table-pending-summary" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
-                      <td colSpan={4} className="p-2.5 text-left text-xs italic font-sans" style={{ color: "var(--cs-text-muted)" }}>
-                        <div className="flex items-center gap-2">
-                          <span className="cs-spinner cs-spinner-sm cs-step-icon-in-progress flex-shrink-0" style={{ width: 12, height: 12 }} />
-                          <span>
-                            Multiple biophysical simulations calculating: {pendingList.map(p => p.name).join(", ")}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                }
-
-                return rows;
-              })()}
+                })()}
             </tbody>
           </table>
         </div>
@@ -442,7 +483,7 @@ const EnergeticsView = memo(function EnergeticsView({
       </div>
 
         {/* Extended Biophysical Details & Consensus Verdict */}
-        {energetics.foldxMean !== null && (
+        {(energetics.foldxMean !== null || energetics.dynamut2 !== null || energetics.ddmut !== null || energetics.rasp !== null || energetics.thermompnn !== null) && (
           <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
             <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-amber-500/5 text-amber-500/90" style={{ borderColor: "rgba(245, 158, 11, 0.15)" }}>
               <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
@@ -463,48 +504,98 @@ const EnergeticsView = memo(function EnergeticsView({
             )}
 
             {(() => {
+              const uniprotFeatures = analysisState.result?.uniprotFeatures?.features;
+              const residueIndex = analysisState.result?.metadata?.residueIndex ?? 0;
+              const calConsensus = computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex);
               const foldxMean = energetics.foldxMean ?? energetics.foldx;
               const dynamut2 = energetics.dynamut2;
               const ddmut = energetics.ddmut;
               const rasp = energetics.rasp;
               const thermompnn = energetics.thermompnn;
 
-              const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-              const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
-              const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-              const raspDestab = rasp !== null && rasp >= THRESHOLDS.rasp.destabilizing;
-              const tmDestab = thermompnn !== null && thermompnn >= 1.0;
+              const activeToolsCount = [foldxMean, dynamut2, ddmut, rasp, thermompnn].filter(v => v !== null).length;
 
-              const votes = [
-                { name: "FoldX", destab: foldxDestab, val: foldxMean },
-                { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
-                { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
-                { name: "RaSP", destab: raspDestab, val: rasp },
-                { name: "ThermoMPNN", destab: tmDestab, val: thermompnn }
-              ];
+              let styleClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+              if (calConsensus.consensusVerdict.includes("High")) {
+                styleClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold";
+              } else if (calConsensus.consensusVerdict.includes("Moderate") || calConsensus.consensusVerdict.includes("Elevated")) {
+                styleClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold";
+              }
 
-              const activeVotes = votes.filter(v => v.val !== null);
-              const positiveVotes = activeVotes.filter(v => v.destab).length;
-              const totalVotes = activeVotes.length;
+              const pPercent = Math.round(calConsensus.consensusProbability * 100);
+              const minPercent = Math.round(calConsensus.consensusConfMin * 100);
+              const maxPercent = Math.round(calConsensus.consensusConfMax * 100);
+
+              let detailText = "Variant consensus exhibits neutral biophysical stability.";
+              if (calConsensus.consensusVerdict.includes("High")) {
+                detailText = "Calibrated consensus indicates high probability of protein destabilization.";
+              } else if (calConsensus.consensusVerdict.includes("Moderate")) {
+                detailText = "Moderate or conflicting stability predictions warrant clinical caution.";
+              }
+
+              if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && activeToolsCount > 0) {
+                detailText = `${detailText} WARNING: Low template confidence (pLDDT < 70) at this position; predictions are speculative.`;
+              }
 
               return (
-                <div className="flex flex-col gap-1.5 border-b pb-3 animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                   <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
-                    {totalVotes === 5
-                      ? "5-Method Consensus Stability Verdict"
-                      : totalVotes === 4
-                        ? "4-Method Consensus Stability Verdict"
-                        : totalVotes === 3
-                          ? "3-Method Consensus Stability Verdict" 
-                          : totalVotes > 0 
-                            ? `${totalVotes}-Method Consensus Stability Verdict` 
-                            : "Consensus Stability Verdict"}:
-                  </span>
+                <div className="flex flex-col gap-3 border-b pb-4 animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                      {activeToolsCount}-Method Calibrated Consensus
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded border ${styleClass}`}>
+                      {calConsensus.consensusVerdict}
+                    </span>
+                  </div>
+
+                  {activeToolsCount > 0 ? (
+                    <div className="space-y-3 mt-1 pl-2">
+                      <div className="flex justify-between items-center text-[10px] font-mono">
+                        <span style={{ color: "var(--cs-text-secondary)" }}>Calibrated Probability of Destabilization:</span>
+                        <span className="font-bold text-[var(--cs-accent-clay)]">{pPercent}%</span>
+                      </div>
+                      
+                      {/* Gauge Bar */}
+                      <div className="relative w-full h-3 rounded-full bg-slate-800/80 border border-slate-700/50 overflow-visible">
+                        {/* Conformal range band */}
+                        <div 
+                          className="absolute h-full rounded-full opacity-35 bg-amber-500"
+                          style={{
+                            left: `${minPercent}%`,
+                            width: `${Math.max(2, maxPercent - minPercent)}%`
+                          }}
+                        />
+                        {/* Single Point estimate indicator */}
+                        <div 
+                          className="absolute w-2 h-5 -top-1 rounded bg-[var(--cs-accent-clay)] shadow-md"
+                          style={{
+                            left: `calc(${pPercent}% - 4px)`
+                          }}
+                        />
+                      </div>
+
+                      {/* Conformal Interval Details */}
+                      <div className="flex justify-between items-center text-[9px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                        <span>90% Conformal Prediction Interval:</span>
+                        <span>[{minPercent}% – {maxPercent}%]</span>
+                      </div>
+                      <p className="text-[10px] leading-relaxed mt-1" style={{ color: "var(--cs-text-secondary)" }}>
+                        {detailText}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] italic text-slate-400">
+                      Biophysical predictions are currently processing or unavailable.
+                    </p>
+                  )}
                 </div>
               );
             })()}
 
-            <div className="space-y-4 pl-5">
+            <div className="space-y-2 pl-2 mt-4">
+              <span className="text-[9px] font-bold uppercase tracking-wider font-mono block mb-2" style={{ color: "var(--cs-text-muted)" }}>
+                Calibrated Tool Breakdown:
+              </span>
               {(() => {
                 const foldxMean = energetics.foldxMean ?? energetics.foldx;
                 const dynamut2 = energetics.dynamut2;
@@ -512,63 +603,32 @@ const EnergeticsView = memo(function EnergeticsView({
                 const rasp = energetics.rasp;
                 const thermompnn = energetics.thermompnn;
 
-                const foldxDestab = foldxMean !== null && foldxMean >= 1.5;
-                const dynamutDestab = dynamut2 !== null && dynamut2 <= -1.0;
-                const ddmutDestab = ddmut !== null && ddmut <= -1.0;
-                const raspDestab = rasp !== null && rasp >= THRESHOLDS.rasp.destabilizing;
-                const tmDestab = thermompnn !== null && thermompnn >= 1.0;
-
-                const votes = [
-                  { name: "FoldX", destab: foldxDestab, val: foldxMean },
-                  { name: "DynaMut2", destab: dynamutDestab, val: dynamut2 },
-                  { name: "DDMut (Deep Learning)", destab: ddmutDestab, val: ddmut },
-                  { name: "RaSP", destab: raspDestab, val: rasp },
-                  { name: "ThermoMPNN", destab: tmDestab, val: thermompnn }
+                const toolsList = [
+                  { name: "FoldX (Ensemble ddG)", val: foldxMean, key: "foldx" as const },
+                  { name: "DynaMut2 (Normal Mode Analysis)", val: dynamut2, key: "dynamut2" as const },
+                  { name: "DDMut (Deep Learning)", val: ddmut, key: "ddmut" as const },
+                  { name: "RaSP (Rapid ddG)", val: rasp, key: "rasp" as const },
+                  { name: "ThermoMPNN (Language Model)", val: thermompnn, key: "thermompnn" as const }
                 ];
 
-                const activeVotes = votes.filter(v => v.val !== null);
-                const positiveVotes = activeVotes.filter(v => v.destab).length;
-                const totalVotes = activeVotes.length;
+                return toolsList.map(t => {
+                  if (t.val === null) return null;
+                  const cal = calibrateRawScore(t.key, t.val);
+                  if (!cal) return null;
+                  const prob = Math.round(cal.p * 100);
+                  const lower = Math.round(cal.lower * 100);
+                  const upper = Math.round(cal.upper * 100);
 
-                let label = "Low-Risk (Neutral Consensus)";
-                let styleClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-                let detailText = "All active methods agree on fold stability.";
-
-                if (positiveVotes >= 2) {
-                  label = "High-Risk Destabilizing (Consensus)";
-                  styleClass = "bg-rose-500/10 text-rose-455 border-rose-500/20 font-bold";
-                  detailText = `${positiveVotes}/${totalVotes} methods predict significant destabilization (DynaMut2/DDMut ≤ -1.0 kcal/mol or FoldX/ThermoMPNN ≥ +1.0 kcal/mol).`;
-                } else if (positiveVotes === 1) {
-                  label = "Moderate-Risk Conflicting Support";
-                  styleClass = "bg-amber-500/10 text-amber-450 border-amber-500/20 font-bold";
-                  detailText = "Conflicting evidence: 1 method predicts destabilization while others suggest neutrality.";
-                } else if (totalVotes === 0) {
-                          label = "UNAVAILABLE";
-                  styleClass = "bg-slate-500/10 text-slate-400 border-slate-500/20";
-                  detailText = "Energetics data is currently processing or unavailable.";
-                }
-
-                if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && totalVotes > 0) {
-                  label = `${label} (Speculative - Low pLDDT)`;
-                  styleClass = "bg-amber-500/10 text-amber-455 border border-amber-500/20 font-bold";
-                  detailText = `${detailText} WARNING: Template structure has low confidence (pLDDT < 70) at this residue position. Biophysical predictions are speculative and should be interpreted with caution.`;
-                }
-
-                return (
-                  <div className="flex flex-col gap-1 animate-fade-in">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] px-2 py-0.5 rounded border ${styleClass}`}>
-                        {label}
-                      </span>
-                      <span className="text-[9px] font-mono font-bold" style={{ color: "var(--cs-text-muted)" }}>
-                        Votes: {positiveVotes}/{totalVotes} Destabilizing
-                      </span>
+                  return (
+                    <div key={t.key} className="flex justify-between items-center text-[10px] font-mono py-1.5 border-b border-dashed" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
+                      <span style={{ color: "var(--cs-text-secondary)" }}>{t.name}:</span>
+                      <div className="flex gap-2">
+                        <span className="font-bold" style={{ color: "var(--cs-text-primary)" }}>{t.val.toFixed(2)} kcal/mol</span>
+                        <span className="text-slate-400">| P: {prob}% [{lower}%–{upper}%]</span>
+                      </div>
                     </div>
-                    <p className="text-[10px] leading-relaxed mt-1" style={{ color: "var(--cs-text-secondary)" }}>
-                      {detailText}
-                    </p>
-                  </div>
-                );
+                  );
+                });
               })()}
             </div>
 

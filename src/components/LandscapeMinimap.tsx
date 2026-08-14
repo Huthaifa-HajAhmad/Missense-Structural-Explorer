@@ -45,13 +45,19 @@ export default function LandscapeMinimap({
           : (d.amMax ?? d.amMean ?? null);
         return { revel, am };
       })
-      .filter((d) => d.am !== null && d.revel !== null)
+      // Keep points where at least ONE predictor has data (not requiring both)
+      .filter((d) => d.am !== null || d.revel !== null)
       .map((d) => ({
-        x: PAD_LEFT + (d.revel! * PLOT_W),
+        // If only one score is available, use 0.5 as the neutral position for the missing axis
+        x: d.revel != null
+          ? PAD_LEFT + d.revel * PLOT_W
+          : PAD_LEFT + 0.5 * PLOT_W,
         // y is inverted (1.0 pathogenicity at top, 0.0 at bottom)
-        y: PAD_TOP + ((1 - d.am!) * PLOT_H),
-        am: d.am!,
-        revel: d.revel!,
+        y: d.am != null
+          ? PAD_TOP + ((1 - d.am) * PLOT_H)
+          : PAD_TOP + 0.5 * PLOT_H,
+        am: d.am,
+        revel: d.revel,
       }));
   }, [landscapeData, metricMode]);
 
@@ -66,13 +72,15 @@ export default function LandscapeMinimap({
 
   const hasData = points.length > 0 || currentPoint;
 
-  const dotColor = (am: number, revel: number): string => {
+  const dotColor = (am: number | null, revel: number | null): string => {
+    const amVal = am ?? 0;
+    const revVal = revel ?? 0;
     // Pathogenic: AM Likely Pathogenic or REVEL Strong
-    if (am >= THRESHOLDS.alphaMissense.pathogenicSupporting || revel >= THRESHOLDS.revel.pathogenicStrong) {
+    if (amVal >= THRESHOLDS.alphaMissense.pathogenicSupporting || revVal >= THRESHOLDS.revel.pathogenicStrong) {
       return "var(--cs-danger)";
     }
     // Ambiguous/Supporting: AM Ambiguous or REVEL Supporting
-    if (am > THRESHOLDS.alphaMissense.likelyBenign || revel >= THRESHOLDS.revel.pathogenicSupporting) {
+    if (amVal > THRESHOLDS.alphaMissense.likelyBenign || revVal >= THRESHOLDS.revel.pathogenicSupporting) {
       return "var(--cs-warn)";
     }
     return "var(--cs-good)";

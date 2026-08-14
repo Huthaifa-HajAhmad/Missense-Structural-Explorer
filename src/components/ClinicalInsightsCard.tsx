@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useRef, useState, useLayoutEffect } from "react";
+import { getResidueContext, getCalibration } from "../shared/uncertainty";
 import { 
   FileText, 
   CheckCircle2, 
@@ -79,6 +80,7 @@ interface ClinicalInsightsCardProps {
   computedResiduesCache?: Record<string, NearestResidue[]>;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
+  isNarrativeLoading?: boolean;
   foldingEnergetics?: any;
   disruptionPredictor?: any;
 }
@@ -104,6 +106,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   computedResiduesCache,
   isBiophysicalLoading: propIsBiophysicalLoading,
   isClinicalLoading: propIsClinicalLoading,
+  isNarrativeLoading: propIsNarrativeLoading,
   foldingEnergetics,
   disruptionPredictor
 }: ClinicalInsightsCardProps) {
@@ -116,7 +119,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   const isClinicalLoading = propIsClinicalLoading !== undefined
     ? propIsClinicalLoading
     : !!(analysisState.result && !analysisState.result.analysis);
-  const isNarrativeLoading = isClinicalLoading;
+  const isNarrativeLoading = propIsNarrativeLoading !== undefined
+    ? propIsNarrativeLoading
+    : isClinicalLoading;
 
   const renderResiduePropertyRadar = useCallback(() => {
     try {
@@ -224,7 +229,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         ddmut: foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null,
         rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
         thermompnn: foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null,
-        consensusStabilityVerdict: foldingEnergetics?.consensusVerdict ?? null
+        consensusStabilityVerdict: foldingEnergetics?.consensusVerdict ?? null,
+        consensusProbability: (foldingEnergetics as any)?.consensusProbability ?? null,
+        consensusConfMin: (foldingEnergetics as any)?.consensusConfMin ?? null,
+        consensusConfMax: (foldingEnergetics as any)?.consensusConfMax ?? null
       },
       acmgCriteriaSuggestions: {
         ruleBased: analysisState.result.ruleBasedInsights || null,
@@ -349,6 +357,56 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         ) : analysisState.result ? (
           /* Analysis result presenting structured key metrics and narrative report */
           <div className="flex flex-col gap-5 w-full text-slate-300">
+            {/* Raw Gemini narrative — keep the primary report visible in the Insights view. */}
+            {typeof analysisState.result.analysis === "string" && analysisState.result.analysis.trim() && (
+              <div className="rounded-xl border p-4 space-y-3" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+                <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Clinical Narrative</span>
+                </div>
+                <div className="pl-5 space-y-3 text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-primary)" }}>
+                  {analysisState.result.analysis.split("\\n\\n").map((paragraph: string, index: number) => (
+                    <p key={index} className="whitespace-pre-wrap">{paragraph}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Splicing Warning Alert */}
+            {((analysisState.result.conservationData?.spliceProximity?.isNearSpliceSite) || 
+              (analysisState.result.conservationData?.spliceai && analysisState.result.conservationData.spliceai.max_ds !== null && analysisState.result.conservationData.spliceai.max_ds >= 0.10)) && (
+              <div className="rounded-xl border p-4 flex flex-col gap-2 border-rose-500/20 bg-rose-500/5 text-rose-200">
+                <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider text-rose-400">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Splicing Disruption Warning</span>
+                </div>
+                <p className="text-[12px] leading-relaxed pl-5 font-sans">
+                  {analysisState.result.conservationData?.spliceProximity?.isNearSpliceSite && (
+                    <>Variant is located <strong>{analysisState.result.conservationData.spliceProximity.distance} bp</strong> from a splice junction. </>
+                  )}
+                  {analysisState.result.conservationData?.spliceai && analysisState.result.conservationData.spliceai.max_ds !== null && analysisState.result.conservationData.spliceai.max_ds >= 0.10 && (
+                    <>SpliceAI predicts high probability of splicing disruption (Max Delta Score: <strong>{analysisState.result.conservationData.spliceai.max_ds.toFixed(2)}</strong>). </>
+                  )}
+                  ACMG PP3 in-silico predictor concordance voting includes this splice disruption signal.
+                </p>
+              </div>
+            )}
+
+            {/* Multimer Warning Alert */}
+            {analysisState.result.uniprotFeatures?.isMultimer && (
+              <div className="rounded-xl border p-4 flex flex-col gap-2 border-amber-500/20 bg-amber-500/5 text-amber-200">
+                <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider text-amber-400">
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>Quaternary Assembly Detected</span>
+                </div>
+                <p className="text-[12px] leading-relaxed pl-5 font-sans">
+                  This protein forms a <strong>{analysisState.result.uniprotFeatures.subunitComment}</strong>.
+                  Monomeric stability analysis misses quaternary tetramerization/oligomerization defects.
+                  It is strongly recommended to run advanced quaternary whole-complex modeling (Boltz-1/Chai-1) to evaluate interface disruption.
+                </p>
+              </div>
+            )}
+
             {/* Structured Dynamic Insights Panel */}
             {isNarrativeLoading ? (
               <div className="rounded-xl border p-4 space-y-4 transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
@@ -395,6 +453,74 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                     </div>
                   </>
                 )}
+
+                {/* Predictor Uncertainty & Local Calibration Dashboard */}
+                <div className={`pt-3 border-t ${classBorderSec}`}>
+                  <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-2.5" style={{ color: "var(--cs-accent-clay)" }}>
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>Predictor Local Calibration & Uncertainty</span>
+                  </div>
+                  <div className="pl-5 space-y-3.5">
+                    {(() => {
+                      const uniprotFeatures = analysisState.result?.uniprotFeatures?.features;
+                      const residueIndex = analysisState.result?.metadata?.residueIndex ?? 0;
+                      const context = getResidueContext(uniprotFeatures, residueIndex);
+
+                      const contextLabels: Record<string, string> = {
+                        globular: "Structured / Globular Domain",
+                        transmembrane: "Transmembrane / Hydrophobic Helix",
+                        disordered: "Intrinsically Disordered Region (IDR) / Loop"
+                      };
+
+                      const predictors = [
+                        { name: "revel", label: "REVEL", score: analysisState.result?.conservationData?.revel },
+                        { name: "alphaMissense", label: "AlphaMissense", score: analysisState.result?.predictorData?.amPathogenicity },
+                        { name: "cadd", label: "CADD PHRED", score: analysisState.result?.predictorData?.caddPhred },
+                        { name: "popEVE", label: "PopEVE", score: analysisState.result?.conservationData?.popeve },
+                        { name: "foldx", label: "FoldX ddG", score: foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx ?? null },
+                        { name: "thermompnn", label: "ThermoMPNN ddG", score: foldingEnergetics?.thermompnn ?? null }
+                      ].filter(pred => pred.score !== undefined && pred.score !== null);
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <span className="text-cs-text-muted font-medium">Mapped Residue Context:</span>
+                            <span className="font-bold px-2 py-0.5 rounded text-[10px] bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20" style={{ color: "var(--cs-accent-clay)" }}>
+                              {contextLabels[context] || "Standard Context"}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            {predictors.map(pred => {
+                              const cal = getCalibration(pred.name, context);
+                              const isHigh = cal.auc >= 0.85;
+                              const isLow = cal.auc < 0.65;
+                              const calibrationBadgeStyle = isHigh
+                                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                                : isLow
+                                ? "bg-rose-500/10 text-rose-500 border-rose-500/20"
+                                : "bg-amber-500/10 text-amber-500 border-amber-500/20";
+                              
+                              return (
+                                <div key={pred.name} className="p-3 rounded-lg border bg-[var(--cs-surface-2)] flex flex-col justify-between" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
+                                  <div className="flex items-center justify-between flex-wrap gap-1">
+                                    <span className="text-[11px] font-bold" style={{ color: "var(--cs-text-primary)" }}>{pred.label}</span>
+                                    <span className={`text-[9px] font-mono px-1.5 py-0.5 border rounded font-semibold ${calibrationBadgeStyle}`}>
+                                      AUC {cal.auc.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] leading-relaxed mt-1" style={{ color: "var(--cs-text-muted)" }}>
+                                    {cal.comment || `Standard performance mapping for this structural context.`}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
 
                 {/* Chemical Property Similarity Radar Chart */}
                 <div className={`pt-3 border-t ${classBorderSec}`}>
@@ -472,7 +598,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                           </div>
                         )}
                         
-                        {isClinicalLoading ? (
+                        {isNarrativeLoading ? (
                           <div className="rounded-lg p-3 border flex items-center justify-center min-h-[60px]" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
                             <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
                           </div>

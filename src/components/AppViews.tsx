@@ -9,6 +9,7 @@ import ClinicalReportBar from "./ClinicalReportBar";
 import DevConsolePanel from "./DevConsolePanel";
 import ContextRail from "./ContextRail";
 import { ErrorBoundary } from "./ErrorBoundary";
+import LiteratureView from "./LiteratureView";
 
 const MolstarViewerLazy = lazy(() => import("./MolstarViewer"));
 
@@ -86,6 +87,7 @@ export function AppViews({
     computedResiduesCache,
     isBiophysicalLoading,
     isClinicalLoading,
+    isNarrativeLoading,
     copied,
     loadingStep,
     settings,
@@ -146,6 +148,7 @@ export function AppViews({
                     setCustomGenomic={setCustomGenomic}
                     analysisState={analysisState}
                     handleSearchSubmit={(e) => {
+                      setMasterView("insights");
                       handleSearchSubmit(e);
                     }}
                     gene={gene}
@@ -176,6 +179,7 @@ export function AppViews({
               >
                 <EvidenceDashboardCard
                   isDark={isDark}
+                  isBiophysicalLoading={isBiophysicalLoading}
                   classCard="h-full flex flex-col border-0 rounded-none shadow-none"
                   classCardHeader={classCardHeader}
                   classCardTitle={classCardTitle}
@@ -336,6 +340,7 @@ export function AppViews({
                   computedResiduesCache={computedResiduesCache}
                   isBiophysicalLoading={isBiophysicalLoading}
                   isClinicalLoading={isClinicalLoading}
+                  isNarrativeLoading={isNarrativeLoading}
                   foldingEnergetics={foldingEnergetics}
                   disruptionPredictor={disruptionPredictor}
                 />
@@ -357,6 +362,25 @@ export function AppViews({
                 <ClinicalReportBar analysisState={analysisState} isDark={isDark} fullPage />
               </ErrorBoundary>
             )}
+
+            {/* LITERATURE VIEW — always mounted to preserve state and avoid re-fetch on tab switch */}
+            <div
+              className="h-full w-full flex flex-col min-h-0"
+              style={{ display: masterView === "literature" ? "flex" : "none" }}
+            >
+              <ErrorBoundary
+                name="Literature View"
+                onError={(error, errorInfo) => pushErrorEntry({
+                  level: "error",
+                  source: "component",
+                  message: `[ErrorBoundary: Literature View] ${error.message}`,
+                  detail: error.stack,
+                  meta: { componentStack: errorInfo.componentStack },
+                })}
+              >
+                <LiteratureView gene={gene} variant={variant} uniprotId={uniprotId} />
+              </ErrorBoundary>
+            </div>
 
             {/* DEVELOPER CONSOLE VIEW */}
             {masterView === "console" && (
@@ -384,6 +408,7 @@ export function AppViews({
               isFolding={isFolding}
               isBiophysicalLoading={isBiophysicalLoading}
               isClinicalLoading={isClinicalLoading}
+              isNarrativeLoading={isNarrativeLoading}
               gene={gene}
               variant={variant}
               homologs={state.homologs}

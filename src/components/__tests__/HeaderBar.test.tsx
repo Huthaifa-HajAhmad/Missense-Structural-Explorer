@@ -6,24 +6,24 @@ import HeaderBar from "../HeaderBar";
 
 describe("HeaderBar Component Tests (C-7)", () => {
   it("should render correctly with default state", () => {
-    render(<HeaderBar masterView="search" isBiophysicalLoading={false} isOffline={false} />);
+    render(<HeaderBar masterView="search" isBiophysicalLoading={false} isOffline={false} isSearchOpen={false} setIsSearchOpen={() => {}} />);
     expect(screen.queryByText("Evidence")).not.toBeInTheDocument();
     expect(screen.queryByText("Computing…")).not.toBeInTheDocument();
     expect(screen.queryByText("OFFLINE")).not.toBeInTheDocument();
   });
 
   it("should display breadcrumb title when not on search view", () => {
-    render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={false} />);
+    render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={false} isSearchOpen={false} setIsSearchOpen={() => {}} />);
     expect(screen.getByText("Evidence")).toBeInTheDocument();
   });
 
   it("should render computing status when isBiophysicalLoading is true", () => {
-    render(<HeaderBar masterView="evidence" isBiophysicalLoading={true} isOffline={false} />);
+    render(<HeaderBar masterView="evidence" isBiophysicalLoading={true} isOffline={false} isSearchOpen={false} setIsSearchOpen={() => {}} />);
     expect(screen.getByText(/Computing/i)).toBeInTheDocument();
   });
 
   it("should display offline label when isOffline is true", () => {
-    render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={true} />);
+    render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={true} isSearchOpen={false} setIsSearchOpen={() => {}} />);
     expect(screen.getByText("OFFLINE")).toBeInTheDocument();
   });
 });

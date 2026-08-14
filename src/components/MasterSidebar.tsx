@@ -4,7 +4,7 @@ import {
   FlaskConical, FileText, Search, Terminal,
   Settings, Sun, Moon,
   PanelLeftClose, PanelLeftOpen,
-  CheckCircle2, Circle,
+  CheckCircle2, Circle, BookOpen,
 } from "lucide-react";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
@@ -19,6 +19,7 @@ export type MasterView =
   | "landscape"
   | "insights"
   | "report"
+  | "literature"
   | "console";
 
 interface MasterSidebarProps {
@@ -79,6 +80,7 @@ const NAV_ZONES: NavZone[] = [
     items: [
       { id: "insights", label: "Insights", sublabel: "Variant interpretation", Icon: FlaskConical },
       { id: "report",   label: "Report",   sublabel: "Clinical narrative",     Icon: FileText     },
+      { id: "literature", label: "Literature", sublabel: "Citations & PubMed", Icon: BookOpen     },
     ],
   },
   {
@@ -92,6 +94,7 @@ const NAV_ZONES: NavZone[] = [
 const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population Frequencies" },
   { id: "predictors",   label: "In-Silico Predictors"   },
+  { id: "splicing",     label: "RNA Splicing"            },
   { id: "structure",    label: "Residue Shifts"          },
   { id: "perturbation", label: "Structural Perturbation" },
   { id: "function",     label: "Functional Site"         },

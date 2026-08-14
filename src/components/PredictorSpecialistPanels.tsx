@@ -9,6 +9,7 @@ interface PredictorSpecialistPanelsProps {
     caddPhred: number | null;
     eveScore?: number | null;
     eveClass?: string | null;
+    source?: string;
   } | null;
   conservationData?: {
     revel: number | null;
@@ -26,8 +27,10 @@ interface PredictorSpecialistPanelsProps {
     esm1b?: number | null;
     esm1bPred?: string | null;
     popeve?: number | null;
+    source?: string;
   } | null;
   esm2Score?: number | null;
+  isLoading?: boolean;
 }
 
 type TabType = "lms" | "meta" | "annotations" | "evolution";
@@ -35,9 +38,31 @@ type TabType = "lms" | "meta" | "annotations" | "evolution";
 export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps> = ({
   predictorData,
   conservationData,
-  esm2Score
+  esm2Score,
+  isLoading = false
 }) => {
+  const renderScoreValue = (val: number | null, decimals = 3) => {
+    if (val !== null && val !== undefined) {
+      return decimals === 0 ? val.toString() : val.toFixed(decimals);
+    }
+    if (isLoading) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-indigo-400 font-medium animate-pulse">
+          <span className="w-1 h-1 rounded-full bg-indigo-500 animate-ping shrink-0" />
+          <span>Computing...</span>
+        </span>
+      );
+    }
+    return "N/A";
+  };
   const [activeTab, setActiveTab] = useState<TabType>("lms");
+  const renderSourceLabel = (source: string) => {
+    return (
+      <div className="text-[10px] mt-2 font-medium" style={{ color: "var(--cs-text-muted)", opacity: 0.7 }}>
+        Source: {source}
+      </div>
+    );
+  };
 
   const amScore = predictorData?.amPathogenicity ?? null;
   const amClass = predictorData?.amClass ?? null;
@@ -113,6 +138,14 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
           </span>
         );
       default:
+        if (isLoading) {
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse">
+              <span className="w-1.5 h-1.5 mr-1.5 rounded-full bg-indigo-500 animate-ping" />
+              Loading...
+            </span>
+          );
+        }
         return (
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
             <HelpCircle className="w-3.5 h-3.5 mr-1 text-slate-400" />
@@ -246,9 +279,10 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {esm2Score !== null && esm2Score !== undefined ? esm2Score.toFixed(2) : "N/A"}
+                  {renderScoreValue(esm2Score ?? null, 2)}
                 </span>
                 {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
+                {renderSourceLabel("Local ESM-2/3 Sidecar")}
               </div>
             </div>
 
@@ -266,8 +300,9 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{amScore !== null ? amScore.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(amScore, 3)}</span>
                 {amScore !== null && renderScoreBar(amScore, 0.0, 1.0, 0.564, 0.983)}
+                {renderSourceLabel(predictorData?.source ? `${predictorData.source} (AlphaMissense)` : "Ensembl VEP API (AlphaMissense)")}
               </div>
             </div>
 
@@ -291,12 +326,13 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{popeve !== null ? popeve.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(popeve, 3)}</span>
                 {popeve !== null && (
                   popeve < 0
                     ? renderScoreBar(popeve, -7.2, 0.0, -1.0, -2.0)
                     : renderScoreBar(popeve, 0.0, 1.0, THRESHOLDS.popEve.benignNormalized, THRESHOLDS.popEve.pathogenicNormalized)
                 )}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
           </div>
@@ -320,11 +356,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{revel !== null ? revel.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(revel, 3)}</span>
                 {revel !== null && renderScoreBar(revel, 0.0, 1.0, THRESHOLDS.revel.benign, THRESHOLDS.revel.pathogenicStrong)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
-
+ 
             {/* BayesDel */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.bayesdel}>
               <div className="flex justify-between items-start">
@@ -341,11 +378,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{bayesdel !== null ? bayesdel.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(bayesdel, 3)}</span>
                 {bayesdel !== null && renderScoreBar(bayesdel, -1.0, 1.0, THRESHOLDS.bayesdel.benign, THRESHOLDS.bayesdel.pathogenic)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
-
+ 
             {/* ClinPred */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.clinPred}>
               <div className="flex justify-between items-start">
@@ -362,11 +400,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{clinpred !== null ? clinpred.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(clinpred, 3)}</span>
                 {clinpred !== null && renderScoreBar(clinpred, 0.0, 1.0, 0.5, 0.5)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
-
+ 
             {/* MetaRNN */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.metaRnn}>
               <div className="flex justify-between items-start">
@@ -383,8 +422,9 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{metarnn !== null ? metarnn.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(metarnn, 3)}</span>
                 {metarnn !== null && renderScoreBar(metarnn, 0.0, 1.0, 0.5, 0.5)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
           </div>
@@ -408,11 +448,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score (PHRED): </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{caddVal !== null ? caddVal.toFixed(1) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(caddVal, 1)}</span>
                 {caddVal !== null && renderScoreBar(caddVal, 0.0, 40.0, THRESHOLDS.cadd.benign, THRESHOLDS.cadd.pathogenicStrong)}
+                {renderSourceLabel(predictorData?.source || "Ensembl VEP API")}
               </div>
             </div>
-
+ 
             {/* DANN */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.dann}>
               <div className="flex justify-between items-start">
@@ -429,11 +470,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{dann !== null ? dann.toFixed(3) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(dann, 3)}</span>
                 {dann !== null && renderScoreBar(dann, 0.0, 1.0, 0.96, 0.96)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
-
+ 
             {/* Eigen */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.eigen}>
               <div className="flex justify-between items-start">
@@ -450,13 +492,14 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score (Phred): </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{eigen !== null ? eigen.toFixed(2) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(eigen, 2)}</span>
                 {eigen !== null && renderScoreBar(eigen, 0.0, 15.0, 4.0, 4.0)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
           </div>
         )}
-
+ 
         {activeTab === "evolution" && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* GERP++ */}
@@ -475,11 +518,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score (RS): </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{gerp !== null ? gerp.toFixed(2) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(gerp, 2)}</span>
                 {gerp !== null && renderScoreBar(gerp, -12.0, 6.17, 2.0, 4.0)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
-
+ 
             {/* PhyloP */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.phylop}>
               <div className="flex justify-between items-start">
@@ -496,11 +540,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{phylop !== null ? phylop.toFixed(2) : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(phylop, 2)}</span>
                 {phylop !== null && renderScoreBar(phylop, -20.0, 10.0, 1.5, 4.0)}
+                {renderSourceLabel(conservationData?.source || "myvariant.info")}
               </div>
             </div>
-
+ 
             {/* ConSurf */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
               <div className="flex justify-between items-start">
@@ -512,19 +557,20 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Evolutionary rate overlaid on 3D structure</p>
                 </div>
                 {renderBadge(
-                  consurf === null ? "unavailable" : consurf >= 7 ? "pathogenic" : consurf <= 3 ? "benign" : "vus"
+                  consurf === null ? (isLoading ? "unavailable" : "unavailable") : consurf >= 7 ? "pathogenic" : consurf <= 3 ? "benign" : "vus"
                 )}
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Grade (1-9): </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{consurf !== null ? consurf : "N/A"}</span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>{renderScoreValue(consurf, 0)}</span>
                 {consurf !== null ? (
                   renderScoreBar(consurf, 1, 9, 3, 7)
                 ) : (
                   <p className="text-[10px] mt-1.5 leading-relaxed text-amber-500/95 font-medium">
-                    ⚠ ConSurfDB scores require an experimental RCSB PDB structure. Predicted AlphaFold models are not indexed.
+                    ⚠ ConSurfDB service is offline or unreachable. Precalculated scores require an experimental RCSB PDB structure (AlphaFold models are not indexed).
                   </p>
                 )}
+                {renderSourceLabel("ConSurfDB API")}
               </div>
             </div>
           </div>

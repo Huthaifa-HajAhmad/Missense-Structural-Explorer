@@ -1,13 +1,22 @@
 import React from "react";
 import { MasterView } from "./MasterSidebar";
+import { Search } from "lucide-react";
 
 interface HeaderBarProps {
   masterView: MasterView;
   isBiophysicalLoading: boolean;
   isOffline: boolean;
+  isSearchOpen: boolean;
+  setIsSearchOpen: (open: boolean) => void;
 }
 
-export function HeaderBar({ masterView, isBiophysicalLoading, isOffline }: HeaderBarProps) {
+export function HeaderBar({
+  masterView,
+  isBiophysicalLoading,
+  isOffline,
+  isSearchOpen,
+  setIsSearchOpen
+}: HeaderBarProps) {
   const getBreadcrumbTitle = (view: MasterView): string => {
     switch (view) {
       case "evidence":
@@ -48,6 +57,24 @@ export function HeaderBar({ masterView, isBiophysicalLoading, isOffline }: Heade
       {/* Divider (only when breadcrumb visible) */}
       {masterView !== "search" && breadcrumbTitle && (
         <div style={{ width: 1, height: 16, background: "var(--cs-border)", flexShrink: 0 }} />
+      )}
+
+      {/* Quick Search Button in Header */}
+      {masterView !== "search" && (
+        <button
+          id="header-search-trigger"
+          type="button"
+          onClick={() => setIsSearchOpen(!isSearchOpen)}
+          className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
+            isSearchOpen
+              ? "bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)] border-[var(--cs-accent-clay)]"
+              : "border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)]"
+          }`}
+          title="Toggle quick search panel"
+          aria-label="Toggle quick search"
+        >
+          <Search className="w-3.5 h-3.5" />
+        </button>
       )}
 
       {/* Right-side system status */}

@@ -159,6 +159,21 @@ export default function DevConsolePanel() {
                 {state.liveState.entries.length}
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: "SET_ACTIVE_TAB", tab: "tracing" });
+              }}
+              className={`px-3.5 py-1.5 text-xs rounded-md transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === "tracing"
+                  ? "bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
+                  : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent font-medium"
+              }`}
+            >
+              <Activity className={`w-3.5 h-3.5 ${activeTab === "tracing" ? "text-indigo-500" : "text-[var(--cs-text-muted)]"}`} />
+              <span>Pipeline Tracing</span>
+            </button>
           </div>
 
           {/* KPI Strip */}
@@ -188,106 +203,200 @@ export default function DevConsolePanel() {
           </div>
         </div>
       </div>
-
       {/* ── Toolbar ── */}
-      <div className="dev-console-toolbar">
-        {/* Level filter pills */}
-        <div className="flex items-center gap-1 overflow-x-auto py-0.5">
-          {levelOptions.map((opt) => (
+      {activeTab !== "tracing" && (
+        <div className="dev-console-toolbar">
+          {/* Level filter pills */}
+          <div className="flex items-center gap-1 overflow-x-auto py-0.5">
+            {levelOptions.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                data-active={currentStreamState.levelFilter === opt.id}
+                onClick={() => dispatch({ type: "SET_LEVEL_FILTER", stream: activeStream, level: opt.id })}
+                className="dev-console-filter-pill"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-4 w-px bg-[var(--cs-border)] mx-1 hidden sm:block" />
+
+          {/* Source filter dropdown */}
+          <select
+            value={currentStreamState.sourceFilter}
+            onChange={(e) => dispatch({ type: "SET_SOURCE_FILTER", stream: activeStream, source: e.target.value as LogSource | "all" })}
+            className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] focus:outline-none"
+          >
+            {sourceOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
+          <div className="h-4 w-px bg-[var(--cs-border)] mx-1 hidden sm:block" />
+
+          {/* Search bar */}
+          <div className="relative flex-1 min-w-[120px] max-w-[280px]">
+            <Search className="w-3.5 h-3.5 text-[var(--cs-text-muted)] absolute left-2.5 top-2" />
+            <input
+              type="text"
+              placeholder={`Search ${activeTab} logs...`}
+              value={currentStreamState.searchQuery}
+              onChange={(e) => dispatch({ type: "SET_SEARCH", stream: activeStream, query: e.target.value })}
+              className="w-full text-xs pl-8 pr-3 py-1.5 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] placeholder:text-[var(--cs-text-muted)] focus:outline-none"
+            />
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Capture Controls */}
+          <div className="flex items-center gap-1">
+            {/* Pause */}
             <button
-              key={opt.id}
               type="button"
-              data-active={currentStreamState.levelFilter === opt.id}
-              onClick={() => dispatch({ type: "SET_LEVEL_FILTER", stream: activeStream, level: opt.id })}
-              className="dev-console-filter-pill"
+              onClick={() => dispatch({ type: "TOGGLE_CAPTURE", stream: activeStream })}
+              className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] transition cursor-pointer"
+              title={currentStreamState.isCapturing ? `Pause ${activeTab} capture` : `Resume ${activeTab} capture`}
             >
-              {opt.label}
+              {currentStreamState.isCapturing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 text-amber-500" />}
             </button>
-          ))}
+
+            {/* Export */}
+            <button
+              type="button"
+              disabled={currentStreamState.entries.length === 0}
+              onClick={activeTab === "error" ? exportErrorEntries : exportLiveEntries}
+              className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              title={`Download ${activeTab} logs (JSON)`}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+
+            {/* Clear */}
+            <button
+              type="button"
+              disabled={currentStreamState.entries.length === 0}
+              onClick={() => {
+                dispatch({ type: "CLEAR_STREAM", stream: activeStream });
+                setSelectedEntry(null);
+              }}
+              className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              title={`Clear ${activeTab} stream`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
+            {/* Entry count */}
+            <span className="text-xs text-[var(--cs-text-muted)] font-mono ml-2">
+              {currentStreamState.entries.length === filteredEntries.length
+                ? `${currentStreamState.entries.length} entries`
+                : `${filteredEntries.length} of ${currentStreamState.entries.length}`}
+            </span>
+          </div>
         </div>
-
-        <div className="h-4 w-px bg-[var(--cs-border)] mx-1 hidden sm:block" />
-
-        {/* Source filter dropdown */}
-        <select
-          value={currentStreamState.sourceFilter}
-          onChange={(e) => dispatch({ type: "SET_SOURCE_FILTER", stream: activeStream, source: e.target.value as LogSource | "all" })}
-          className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] focus:outline-none"
-        >
-          {sourceOptions.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-
-        {/* Search input */}
-        <div className="relative flex-1 min-w-[140px] max-w-[240px]">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--cs-text-muted)] pointer-events-none" />
-          <input
-            type="text"
-            placeholder={`Search ${activeTab === "error" ? "errors" : "live logs"}...`}
-            value={currentStreamState.searchQuery}
-            onChange={(e) => dispatch({ type: "SET_SEARCH", stream: activeStream, query: e.target.value })}
-            className="w-full text-xs pl-8 pr-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] placeholder-[var(--cs-text-muted)] focus:outline-none"
-          />
-        </div>
-
-        <div className="flex items-center gap-1.5 ml-auto">
-          {/* Pause / Resume */}
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "TOGGLE_CAPTURE", stream: activeStream })}
-            className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] transition cursor-pointer"
-            title={currentStreamState.isCapturing ? `Pause ${activeTab} capture` : `Resume ${activeTab} capture`}
-          >
-            {currentStreamState.isCapturing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 text-amber-500" />}
-          </button>
-
-          {/* Export */}
-          <button
-            type="button"
-            disabled={currentStreamState.entries.length === 0}
-            onClick={activeTab === "error" ? exportErrorEntries : exportLiveEntries}
-            className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-            title={`Download ${activeTab} logs (JSON)`}
-          >
-            <Download className="w-4 h-4" />
-          </button>
-
-          {/* Clear */}
-          <button
-            type="button"
-            disabled={currentStreamState.entries.length === 0}
-            onClick={() => {
-              dispatch({ type: "CLEAR_STREAM", stream: activeStream });
-              setSelectedEntry(null);
-            }}
-            className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-            title={`Clear ${activeTab} stream`}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-
-          {/* Entry count */}
-          <span className="text-xs text-[var(--cs-text-muted)] font-mono ml-2">
-            {currentStreamState.entries.length === filteredEntries.length
-              ? `${currentStreamState.entries.length} entries`
-              : `${filteredEntries.length} of ${currentStreamState.entries.length}`}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* ── Pause Banner ── */}
-      {!currentStreamState.isCapturing && (
+      {activeTab !== "tracing" && !currentStreamState.isCapturing && (
         <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-2 shrink-0">
           <Pause className="w-3.5 h-3.5" />
           <span>{activeTab === "error" ? "Error capture paused" : "Live stream paused"} — new entries in this tab are not being recorded.</span>
         </div>
       )}
 
-      {/* ── Main Log List / Empty State ── */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      {/* ── Main Log List / Empty State / Tracing Waterfall ── */}
+      {activeTab === "tracing" ? (
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-4" style={{ background: "var(--cs-bg)" }}>
+          <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <div>
+              <h3 className="text-xs font-bold font-mono uppercase tracking-wider" style={{ color: "var(--cs-text-primary)" }}>Pipeline Trace Waterfall</h3>
+              <p className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Real-time latency metrics for variant translation, structure fetches, biophysical jobs, and narrative generation.</p>
+            </div>
+            <button
+              onClick={() => dispatch({ type: "CLEAR_TELEMETRY" })}
+              className="text-[10px] font-bold px-2 py-1 border rounded transition-colors cursor-pointer"
+              style={{ borderColor: "var(--cs-border)", background: "var(--cs-surface-2)", color: "var(--cs-text-secondary)" }}
+            >
+              Clear Traces
+            </button>
+          </div>
+
+          {state.telemetrySpans.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed rounded-xl" style={{ borderColor: "var(--cs-border)" }}>
+              <Activity className="w-8 h-8 mb-2 opacity-40" style={{ color: "var(--cs-text-muted)" }} />
+              <h4 className="text-xs font-semibold" style={{ color: "var(--cs-text-primary)" }}>No Traces Recorded</h4>
+              <p className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Run a variant search or trigger structural calculations to capture latency spans.</p>
+            </div>
+          ) : (
+            <div className="space-y-3.5">
+              {/* KPI metrics */}
+              {(() => {
+                const totalDuration = state.telemetrySpans.reduce((sum, s) => sum + s.durationMs, 0);
+                const maxSpan = Math.max(...state.telemetrySpans.map(s => s.durationMs), 1);
+                
+                return (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="p-3 rounded-lg border bg-[var(--cs-surface-2)]" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                        <span className="text-[9px] font-mono uppercase tracking-wider block" style={{ color: "var(--cs-text-muted)" }}>Recorded Spans</span>
+                        <span className="text-sm font-bold font-mono" style={{ color: "var(--cs-text-primary)" }}>{state.telemetrySpans.length}</span>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-[var(--cs-surface-2)]" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                        <span className="text-[9px] font-mono uppercase tracking-wider block" style={{ color: "var(--cs-text-muted)" }}>Max Span Latency</span>
+                        <span className="text-sm font-bold font-mono text-indigo-500">{maxSpan}ms</span>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-[var(--cs-surface-2)]" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                        <span className="text-[9px] font-mono uppercase tracking-wider block" style={{ color: "var(--cs-text-muted)" }}>Cumulative Duration</span>
+                        <span className="text-sm font-bold font-mono" style={{ color: "var(--cs-text-primary)" }}>{totalDuration}ms</span>
+                      </div>
+                    </div>
+
+                    <div className="border rounded-xl bg-[var(--cs-surface-2)] overflow-hidden" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                      <div className="grid grid-cols-12 gap-4 bg-[var(--cs-surface-3)] px-4 py-2 border-b text-[10px] font-bold font-mono uppercase tracking-wider" style={{ borderColor: "var(--cs-border-subtle)", color: "var(--cs-text-muted)" }}>
+                        <div className="col-span-5">Span / Operation</div>
+                        <div className="col-span-2">Status</div>
+                        <div className="col-span-1.5 text-right">Duration</div>
+                        <div className="col-span-3.5 pl-4">Timeline (Gantt)</div>
+                      </div>
+
+                      <div className="divide-y" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                        {state.telemetrySpans.map((span, idx) => {
+                          const widthPct = Math.min(100, Math.max(2, (span.durationMs / maxSpan) * 100));
+                          const isSuccess = span.status === "success";
+                          
+                          return (
+                            <div key={idx} className="grid grid-cols-12 gap-4 px-4 py-3 items-center text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                              <div className="col-span-5 font-semibold" style={{ color: "var(--cs-text-primary)" }}>{span.name}</div>
+                              <div className="col-span-2">
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${isSuccess ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/10" : "bg-rose-500/10 text-rose-500 border border-rose-500/10"}`}>
+                                  {isSuccess ? "Success" : "Failed"}
+                                </span>
+                              </div>
+                              <div className="col-span-1.5 font-mono font-medium text-right pr-2" style={{ color: "var(--cs-text-secondary)" }}>{span.durationMs}ms</div>
+                              <div className="col-span-3.5 pl-4">
+                                <div className="w-full h-2 rounded bg-black/10 dark:bg-white/10 overflow-hidden">
+                                  <div 
+                                    className="h-full rounded bg-indigo-500/80 transition-all duration-300"
+                                    style={{ width: `${widthPct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto min-h-0">
         {currentStreamState.entries.length === 0 ? (
           <div className="dev-console-empty">
             {activeTab === "error" ? (
@@ -363,6 +472,7 @@ export default function DevConsolePanel() {
           })
         )}
       </div>
+      )}
 
       {/* ── Detail Drawer ── */}
       {selectedEntry && (

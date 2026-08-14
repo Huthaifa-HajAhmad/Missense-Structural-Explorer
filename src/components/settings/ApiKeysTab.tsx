@@ -30,6 +30,23 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
   testHfToken,
   handleLinkApiKey
 }) => {
+  const handleGeminiApiKeyChange = (value: string) => {
+    const nextKey = value.trim();
+    const previousKey = settings.geminiApiKey || "";
+
+    updateSetting("geminiApiKey", nextKey);
+
+    // A stateless session is bound to the key used to create it. Clear the
+    // old session immediately when the user edits the key so the UI cannot
+    // report a stale session as active or send the wrong token to the API.
+    if (nextKey !== previousKey) {
+      updateSetting("geminiSessionId", "");
+      updateSetting("geminiSessionExpiresAt", 0);
+    }
+
+    setLinkError(null);
+  };
+
   return (
     <div className="space-y-4">
       {/* Application API Token input */}
@@ -247,10 +264,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
               type={showApiKey ? "text" : "password"}
               placeholder={settings.geminiApiKey ? "••••••••••••••••••••••••••••••••" : "Enter GEMINI_API_KEY..."}
               value={settings.geminiApiKey || ""}
-              onChange={(e) => {
-                updateSetting("geminiApiKey", e.target.value.trim());
-                setLinkError(null);
-              }}
+              onChange={(e) => handleGeminiApiKeyChange(e.target.value)}
               className={`w-full rounded-lg pl-3 pr-10 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 border transition-all ${
                 isDark 
                   ? "bg-slate-900 border-slate-800 text-indigo-300 placeholder-slate-500 focus:border-slate-700" 
@@ -322,7 +336,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
             Click **"Create API Key"**, choose a project, and copy your generated key.
           </li>
           <li>
-            Paste the key in the input box above and click **"Link API Key"**. Your key is exchanged for a short-lived (1-hour) session token on the server. Your raw API key is never saved to disk.
+            Paste the key in the input box above and click **"Link API Key"**. Your key is exchanged for a short-lived (15-minute) session token on the server. Your raw API key is never saved to disk.
           </li>
         </ol>
       </div>

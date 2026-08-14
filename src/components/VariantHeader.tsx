@@ -72,6 +72,7 @@ function VariantHeader({
   const isManePlusClinical = analysisResult?.isManePlusClinical ?? predictorData?.isManePlusClinical ?? false;
   const isCanonical   = analysisResult?.isCanonical ?? predictorData?.isCanonical ?? false;
   const maneRefSeqId  = analysisResult?.maneRefSeqId ?? predictorData?.maneRefSeqId ?? null;
+  const displayTranscriptId = maneRefSeqId ?? transcriptId;
 
   return (
     <div className="variant-header" role="banner" aria-label="Active variant">
@@ -86,7 +87,7 @@ function VariantHeader({
       {/* Tier 3 — Verdict badges */}
       <div className="variant-header-badges">
         {/* Transcript Badge */}
-        {transcriptId && (
+        {displayTranscriptId && (
           <span
             className={
               isManeSelect
@@ -97,7 +98,7 @@ function VariantHeader({
                 ? "cs-badge cs-badge-vus"
                 : "cs-badge cs-badge-muted"
             }
-            title={`Transcript: ${transcriptId}${
+            title={`Transcript: ${displayTranscriptId}${
               isManeSelect
                 ? " (MANE Select / clinical gold standard)"
                 : isManePlusClinical
@@ -105,13 +106,25 @@ function VariantHeader({
                 : isCanonical
                 ? " (Ensembl Canonical)"
                 : " (Alternative / Fallback)"
-            }${maneRefSeqId ? ` | RefSeq: ${maneRefSeqId}` : ""}`}
+            }`}
           >
             <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
               Transcript
             </span>{" "}
-            {transcriptId}
-            {isManeSelect ? " (MANE)" : isManePlusClinical ? " (MANE+)" : ""}
+            {displayTranscriptId}
+          </span>
+        )}
+
+        {/* Splice Junction Badge */}
+        {conservation?.spliceProximity?.isNearSpliceSite && (
+          <span
+            className="cs-badge cs-badge-path font-bold animate-pulse"
+            title={`Splice Junction Proximity: Variant is located ${conservation.spliceProximity.distance} bp from the nearest exon-intron boundary.`}
+          >
+            <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              Splice Junction
+            </span>{" "}
+            {conservation.spliceProximity.distance} bp adjacent
           </span>
         )}
 

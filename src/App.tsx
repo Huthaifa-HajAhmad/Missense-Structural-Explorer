@@ -6,6 +6,7 @@ import MasterSidebar, { MasterView } from "./components/MasterSidebar";
 import HeaderBar from "./components/HeaderBar";
 import VariantHeader from "./components/VariantHeader";
 import AppViews from "./components/AppViews";
+import { QueryStrip } from "./components/QueryStrip";
 import SettingsModal from "./components/SettingsModal";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import StructuralLegendModal from "./components/modals/StructuralLegendModal";
@@ -57,6 +58,7 @@ export default function App() {
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Application side-effects hook
   useAppEffects({
@@ -78,6 +80,11 @@ export default function App() {
   const classBorderSec = "border-cs-border-subtle";
   const classTextBody = "text-cs-text-secondary";
   const classTextMute = "text-cs-text-muted";
+
+  const handleSearchSubmitAndOpen = (event: React.FormEvent) => {
+    setMasterView("insights");
+    actions.handleSearchSubmit(event);
+  };
 
   return (
     <VariantAnalysisProvider state={state} actions={actions}>
@@ -116,6 +123,30 @@ export default function App() {
             masterView={masterView}
             isBiophysicalLoading={isBiophysicalLoading}
             isOffline={isOffline}
+            isSearchOpen={isSearchOpen}
+            setIsSearchOpen={setIsSearchOpen}
+          />
+
+          {/* ── Quick Search Dropdown ── */}
+          <QueryStrip
+            isDark={isDark}
+            isOpen={isSearchOpen}
+            onClose={() => setIsSearchOpen(false)}
+            customGene={state.customGene}
+            setCustomGene={actions.setCustomGene}
+            customVariant={state.customVariant}
+            setCustomVariant={actions.setCustomVariant}
+            customUniprot={state.customUniprot}
+            setCustomUniprot={actions.setCustomUniprot}
+            customGenomic={state.customGenomic}
+            setCustomGenomic={actions.setCustomGenomic}
+            analysisState={state.analysisState}
+            handleSearchSubmit={handleSearchSubmitAndOpen}
+            gene={state.gene}
+            variant={state.variant}
+            history={state.history}
+            clearHistory={actions.clearHistory}
+            handleSelectHistoryItem={actions.handleSelectHistoryItem}
           />
 
           {/* ── Global Variant Header ── */}
