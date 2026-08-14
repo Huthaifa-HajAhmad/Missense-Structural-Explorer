@@ -35,6 +35,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     let localPlugin: any = null;
     let hoverSubscription: any = null;
     let clickSubscription: any = null;
+    let rootInstance: any = null;
 
     async function initPlugin() {
       if (!containerRef.current) return;
@@ -52,8 +53,21 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
       try {
         const spec: any = {
           ...DefaultPluginUISpec(),
+          layout: {
+            initialShowControls: false,
+            initialShowLog: false,
+            initialShowSequence: false,
+            initialShowHelper: false,
+          },
           components: {
             remoteState: 'none',
+            controls: {
+              left: 'none',
+              right: 'none',
+              top: 'none',
+              bottom: 'none',
+            },
+            hideTaskOverlay: true,
           },
           config: [
             [PluginConfig.State.DefaultServer, ''],
@@ -70,9 +84,9 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
           target: container,
           spec: spec,
           render: (component, target) => {
-            const root = createRoot(target);
-            root.render(component);
-            return root;
+            rootInstance = createRoot(target);
+            rootInstance.render(component);
+            return rootInstance;
           }
         });
 
@@ -89,6 +103,8 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
             }
             lastResetTimeRef.current = now;
             console.warn('[MolstarViewer] WebGL context lost. Recreating molecular viewer instance...');
+            setLoading(true);
+            setLoadError(null);
             setWebglResetCounter(prev => prev + 1);
           });
         }
@@ -138,6 +154,8 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
           }
         });
 
+        // P1-16: Clear the loading flag on success so the overlay does not persist.
+        setLoading(false);
         setPluginCreated(true);
       } catch (err: any) {
         console.error("Molstar initialization error:", err);
@@ -159,125 +177,17 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
           console.warn("Molstar dispose warning:", e);
         }
       }
+      if (rootInstance) {
+        setTimeout(() => {
+          try {
+            rootInstance.unmount();
+          } catch (e) {}
+        }, 0);
+      }
       pluginRef.current = null;
       setPluginCreated(false);
     };
   }, [webglResetCounter]);
-
-  // Trackpad gesture zoom / pan
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const plugin = pluginRef.current;
-        if (!plugin) return;
-        try {
-          const camera = plugin.canvas3d?.camera;
-          if (!camera) return;
-          const state = camera.state;
-          if (state) {
-            const target = Vec3.clone(state.target);
-            const position = Vec3.clone(state.position);
-            const forward = Vec3.zero();
-            Vec3.sub(forward, target, position);
-
-            let zoomSensitivity = 0.15;
-            const absDelta = Math.abs(e.deltaY);
-            if (absDelta > 0 && absDelta < 8) {
-              zoomSensitivity = 1.6;
-            } else if (absDelta < 40) {
-              zoomSensitivity = 0.75;
-            }
-            const step = e.deltaY * zoomSensitivity;
-
-            const normForward = Vec3.zero();
-            Vec3.normalize(normForward, forward);
-
-            const offset = Vec3.zero();
-            Vec3.scale(offset, normForward, step);
-
-            const newPosition = Vec3.zero();
-            Vec3.add(newPosition, position, offset);
-
-            const newForward = Vec3.zero();
-            Vec3.sub(newForward, target, newPosition);
-            if (Vec3.dot(forward, newForward) < 0 || Vec3.magnitude(newForward) < 2.0) {
-              return;
-            }
-
-            const newRadius = Vec3.distance(newPosition, target);
-            camera.setState({
-              position: newPosition,
-              radius: newRadius
-            }, 0);
-          }
-        } catch (err) {
-          console.warn("Trackpad zoom error:", err);
-        }
-      } else {
-        const isTrackpadSwipe = Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < 50;
-        if (isTrackpadSwipe && (Math.abs(e.deltaX) > 1 || Math.abs(e.deltaY) > 1)) {
-          e.preventDefault();
-          e.stopPropagation();
-
-          const plugin = pluginRef.current;
-          if (!plugin) return;
-          try {
-            const camera = plugin.canvas3d?.camera;
-            if (!camera) return;
-            const state = camera.state;
-            if (state) {
-              const target = Vec3.clone(state.target);
-              const position = Vec3.clone(state.position);
-              const up = Vec3.clone(state.up);
-
-              const forward = Vec3.zero();
-              Vec3.sub(forward, target, position);
-              Vec3.normalize(forward, forward);
-
-              const right = Vec3.zero();
-              Vec3.cross(right, forward, up);
-              Vec3.normalize(right, right);
-
-              const distance = Vec3.distance(position, target);
-              const speedFactor = distance * 0.0015;
-
-              const dx = e.deltaX * speedFactor;
-              const dy = e.deltaY * speedFactor;
-
-              const translation = Vec3.zero();
-              const transX = Vec3.zero();
-              Vec3.scale(transX, right, dx);
-
-              const transY = Vec3.zero();
-              Vec3.scale(transY, up, -dy);
-
-              Vec3.add(translation, transX, transY);
-
-              const newTarget = Vec3.zero();
-              Vec3.add(newTarget, target, translation);
-
-              const newPosition = Vec3.zero();
-              Vec3.add(newPosition, position, translation);
-
-              camera.setState({
-                target: newTarget,
-                position: newPosition
-              }, 0);
-            }
-          } catch (err) {
-            console.warn("Trackpad pan error:", err);
-          }
-        }
-      }
-    };
-    container.addEventListener('wheel', handleWheel, { passive: false, capture: true });
-    return () => container.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [pluginCreated]);
 
   const captureCanvasBlob = (): Promise<Blob | null> => {
     return new Promise((resolve) => {

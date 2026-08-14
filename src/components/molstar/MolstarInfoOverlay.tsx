@@ -72,8 +72,8 @@ export const MolstarInfoOverlay: React.FC<MolstarInfoOverlayProps> = ({
       )}
 
       {!comparePdbData && (customPdbData || active3dModelTab === "esm3") && bFactorMetadata && (viewerStyle !== "displacement") && (
-        <div className="flex items-start gap-2.5 p-3 rounded-xl border text-amber-900 dark:text-amber-200" style={{ background: "var(--cs-surface-2)", borderColor: "rgba(245, 158, 11, 0.2)" }}>
-          <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2.5 p-3 rounded-xl border text-xs font-medium" style={{ background: "var(--cs-bg-warning)", borderColor: "rgba(217, 119, 6, 0.2)", color: "var(--cs-text-warning)" }}>
+          <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--cs-text-warning)" }} />
           <div>
             <span className="font-bold">B-Factor Provenance Warning:</span>{" "}
             {bFactorMetadata.source === "alphafold" ? (

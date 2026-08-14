@@ -257,10 +257,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   };
 
   const getRevelScore = (pos: number) => {
-    if (pos === mutationIndex) {
-      return conservationData?.revel !== undefined && conservationData?.revel !== null
-        ? parseFloat(conservationData.revel)
-        : null;
+    if (pos === mutationIndex && conservationData?.revel !== undefined && conservationData?.revel !== null) {
+      const parsed = parseFloat(String(conservationData.revel));
+      if (!isNaN(parsed)) return parsed;
     }
     const match = landscapeMap.get(pos);
     if (!match) return null;
@@ -271,10 +270,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   };
 
   const getAmScore = (pos: number) => {
-    if (pos === mutationIndex) {
-      return predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null
-        ? parseFloat(predictorData.amPathogenicity)
-        : null;
+    if (pos === mutationIndex && predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null) {
+      const parsed = parseFloat(String(predictorData.amPathogenicity));
+      if (!isNaN(parsed)) return parsed;
     }
     const match = landscapeMap.get(pos);
     if (!match) return null;
@@ -285,20 +283,18 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   };
 
   const getGerpScore = (pos: number) => {
-    if (pos === mutationIndex) {
-      return conservationData?.gerp !== undefined && conservationData?.gerp !== null
-        ? parseFloat(conservationData.gerp)
-        : null;
+    if (pos === mutationIndex && conservationData?.gerp !== undefined && conservationData?.gerp !== null) {
+      const parsed = parseFloat(String(conservationData.gerp));
+      if (!isNaN(parsed)) return parsed;
     }
     const match = landscapeMap.get(pos);
     return match?.gerp !== undefined && match?.gerp !== null ? match.gerp : null;
   };
 
   const getPhyloPScore = (pos: number) => {
-    if (pos === mutationIndex) {
-      return conservationData?.phylop !== undefined && conservationData?.phylop !== null
-        ? parseFloat(conservationData.phylop)
-        : null;
+    if (pos === mutationIndex && conservationData?.phylop !== undefined && conservationData?.phylop !== null) {
+      const parsed = parseFloat(String(conservationData.phylop));
+      if (!isNaN(parsed)) return parsed;
     }
     const match = landscapeMap.get(pos);
     return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
@@ -538,6 +534,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             getResidueBaseColor={getResidueBaseColor}
             getGerpScore={getGerpScore}
             getPhyloPScore={getPhyloPScore}
+            getRevelScore={getRevelScore}
+            getAmScore={getAmScore}
             onResidueClick={onResidueClick}
             hoveredResidue={hoveredResidue}
             setHoveredResidue={setHoveredResidue}

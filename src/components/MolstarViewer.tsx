@@ -52,7 +52,7 @@ export default function MolstarViewer({
   const pdbSource = useVariantAnalysisStore(s => s.analysisState?.result?.metadata?.pdbSource);
   const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
   const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
-  const esmFoldPdb = useVariantAnalysisStore(s => s.esmFoldPdb);
+  const esmFoldPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
   const esm3Eval = useVariantAnalysisStore(s => s.analysisState?.result?.esm3Eval);
 
   const analysisActions = useVariantAnalysisActions();
@@ -210,7 +210,7 @@ export default function MolstarViewer({
   };
 
   return (
-    <div className="flex flex-col gap-3 w-full">
+    <div className={`flex flex-col gap-3 w-full ${heightClass === "h-full" ? "h-full min-h-0" : ""}`}>
       {/* INFO & WARNING OVERLAYS */}
       <MolstarInfoOverlay
         comparePdbData={comparePdbData || null}
@@ -256,7 +256,7 @@ export default function MolstarViewer({
       />
 
       {/* VIEWER CANVAS CARD */}
-      <div className={`molstar-viewer-card relative w-full ${heightClass || "h-[650px]"} flex flex-col overflow-hidden transition-all border rounded-xl`} style={{ background: "var(--cs-bg)", borderColor: "var(--cs-border)" }}>
+      <div className={`molstar-viewer-card relative w-full ${heightClass === "h-full" ? "flex-grow min-h-0" : (heightClass || "h-[650px]")} flex flex-col overflow-hidden transition-all border rounded-xl`} style={{ background: "var(--cs-bg)", borderColor: "var(--cs-border)" }}>
 
         {/* TOP CONTROL TOOLBAR */}
         <MolstarToolbar
@@ -341,7 +341,7 @@ export default function MolstarViewer({
               <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>Structure Unavailable</p>
               <p className="text-xs max-w-md mb-4" style={{ color: "var(--cs-text-secondary)" }}>
                 {active3dModelTab === "esm3"
-                  ? "The ESM3 mutated structure refinement service encountered an error."
+                  ? (esmFoldingError || "The ESM3 mutated structure refinement service encountered an error.")
                   : (plugin.loadError || "3D model coordinates generation failed or endpoint is unreachable.")}
               </p>
             </div>

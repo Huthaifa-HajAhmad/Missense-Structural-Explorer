@@ -131,6 +131,7 @@ export function useMolstarStructure({
 
       try {
         await localPlugin.clear();
+        if (!active) return;
         structureRef.current = null;
         structure2Ref.current = null;
         componentRefRef.current = null;
@@ -183,14 +184,14 @@ export function useMolstarStructure({
             setTemplateSource("alphafold");
           }
 
-          const resData = await res.json();
-          if (!resData.pdbText) {
+          const resData = await res.text();
+          if (!resData || resData.trim().length === 0) {
             throw new Error(`Invalid structure payload returned for ${uniprotId}.`);
           }
 
-          fetchedPdbText = resData.pdbText;
+          fetchedPdbText = resData;
           data = await localPlugin.builders.data.rawData({
-            data: resData.pdbText,
+            data: resData,
             label: `${gene || 'Protein'} (${uniprotId})`
           });
         }
@@ -207,8 +208,11 @@ export function useMolstarStructure({
         }
 
         const trajectory = await localPlugin.builders.structure.parseTrajectory(data, "pdb");
+        if (!active) return;
         const model = await localPlugin.builders.structure.createModel(trajectory);
+        if (!active) return;
         const structure = await localPlugin.builders.structure.createStructure(model);
+        if (!active) return;
         structureRef.current = structure;
 
         let targetStructure = structure;
@@ -226,6 +230,7 @@ export function useMolstarStructure({
             'filtered-structure',
             { label: `pLDDT >= ${threshold}` }
           );
+          if (!active) return;
           if (filteredComponent) {
             targetStructure = filteredComponent;
           }
@@ -233,20 +238,24 @@ export function useMolstarStructure({
 
         if (viewerStyle === "biomolecular") {
           const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+          if (!active) return;
           if (proteinComp) {
             await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
               type: 'cartoon',
               color: 'uniform',
               colorParams: { value: Color(0x00bcd4) }
             });
+            if (!active) return;
           }
           const nucleicComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'nucleic');
+          if (!active) return;
           if (nucleicComp) {
             await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
               type: 'cartoon',
               color: 'uniform',
               colorParams: { value: Color(0x888888) }
             });
+            if (!active) return;
           }
         } else if (viewerStyle === "esm3-allosteric") {
           await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
@@ -257,25 +266,30 @@ export function useMolstarStructure({
               }
             }
           });
+          if (!active) return;
         } else if (viewerStyle === "displacement") {
           if (comparePdbData) {
             const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+            if (!active) return;
             if (proteinComp) {
               await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
                 type: 'cartoon',
                 color: 'uniform',
                 colorParams: { value: Color(0xd3d3d3) }
               });
+              if (!active) return;
             }
           } else {
             await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
               theme: { globalName: 'backbone-displacement' }
             });
+            if (!active) return;
           }
         } else {
           await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
             theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
           });
+          if (!active) return;
         }
 
         // Compare structure if present
@@ -284,9 +298,13 @@ export function useMolstarStructure({
             data: comparePdbData,
             label: `${gene || 'Protein'} (Comparison Mutant)`
           });
+          if (!active) return;
           const trajectory2 = await localPlugin.builders.structure.parseTrajectory(data2, "pdb");
+          if (!active) return;
           const model2 = await localPlugin.builders.structure.createModel(trajectory2);
+          if (!active) return;
           const structure2 = await localPlugin.builders.structure.createStructure(model2);
+          if (!active) return;
           structure2Ref.current = structure2;
 
           let targetStructure2 = structure2;
@@ -294,10 +312,12 @@ export function useMolstarStructure({
             await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
               theme: { globalName: 'backbone-displacement' }
             });
+            if (!active) return;
           } else {
             await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
               theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
             });
+            if (!active) return;
           }
         }
 
@@ -313,6 +333,9 @@ export function useMolstarStructure({
     }
 
     loadStructure();
+    return () => {
+      active = false;
+    };
   }, [
     pluginCreated,
     uniprotId,
@@ -352,6 +375,11 @@ export function useMolstarStructure({
             await localPlugin.managers.structure.hierarchy.removeComponent(pocketComponentRefRef.current);
           } catch (e) {}
           pocketComponentRefRef.current = [];
+        }
+
+        // Verify structure ref is still present in Molstar state tree
+        if (!structure.ref || !localPlugin.state.data.tree.transforms.has(structure.ref)) {
+          return;
         }
 
         if (!residueIndex) {
@@ -428,7 +456,7 @@ export function useMolstarStructure({
           } catch (e) {}
         }
 
-        if (structure2 && compareResidueIndex !== null && compareResidueIndex !== undefined) {
+        if (structure2 && structure2.ref && localPlugin.state.data.tree.transforms.has(structure2.ref) && compareResidueIndex !== null && compareResidueIndex !== undefined) {
           const expression2 = MS.struct.generator.atomGroups({
             'residue-test': MS.core.rel.eq([
               MS.struct.atomProperty.macromolecular.auth_seq_id(),
@@ -499,8 +527,12 @@ export function useMolstarStructure({
             localPlugin.managers.camera.focusLoci(lociList, { durationMs: cameraDuration });
           }
         }
-      } catch (err) {
-        console.error("Residue focus error:", err);
+      } catch (err: any) {
+        if (err?.message?.includes("is not present in the tree")) {
+          console.warn("[Molstar Highlight Warning] Highlight cancelled due to structure state change:", err.message);
+        } else {
+          console.error("Residue focus error:", err);
+        }
       }
     }
 

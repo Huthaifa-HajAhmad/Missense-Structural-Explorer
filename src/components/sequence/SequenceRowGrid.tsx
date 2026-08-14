@@ -14,6 +14,8 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
   getResidueBaseColor,
   getGerpScore,
   getPhyloPScore,
+  getRevelScore,
+  getAmScore,
   onResidueClick,
   hoveredResidue,
   setHoveredResidue
@@ -138,9 +140,11 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
               const absolutePos = relativeStartIndex + i;
               const match = landscapeMap.get(absolutePos);
               
-              const score = match 
-                ? (metricMode === "mean" ? (match.revelMean ?? match.revelMax ?? null) : (match.revelMax ?? match.revelMean ?? null))
-                : null;
+              const score = getRevelScore 
+                ? getRevelScore(absolutePos)
+                : (match 
+                    ? (metricMode === "mean" ? (match.revelMean ?? match.revelMax ?? null) : (match.revelMax ?? match.revelMean ?? null))
+                    : null);
                 
               const isTarget = absolutePos === mutationIndex;
               const isSelected = absolutePos === residueIndex;
@@ -193,9 +197,11 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
               const absolutePos = relativeStartIndex + i;
               const match = landscapeMap.get(absolutePos);
               
-              const score = match 
-                ? (metricMode === "mean" ? (match.amMean ?? match.amMax ?? null) : (match.amMax ?? match.amMean ?? null))
-                : null;
+              const score = getAmScore 
+                ? getAmScore(absolutePos)
+                : (match 
+                    ? (metricMode === "mean" ? (match.amMean ?? match.amMax ?? null) : (match.amMax ?? match.amMean ?? null))
+                    : null);
                 
               const isTarget = absolutePos === mutationIndex;
               const isSelected = absolutePos === residueIndex;
