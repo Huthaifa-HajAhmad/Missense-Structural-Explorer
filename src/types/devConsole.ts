@@ -11,7 +11,14 @@ export type LogSource =
   | "notification"; // UI toast notifications
 
 /** Stream identifier */
-export type LogStream = "error" | "live";
+export type LogStream = "error" | "live" | "tracing";
+
+export interface TelemetrySpan {
+  name: string;
+  durationMs: number;
+  status: "success" | "failed";
+  timestamp: number;
+}
 
 /** A single log entry */
 export interface ConsoleEntry {
@@ -39,6 +46,7 @@ export interface StreamState {
 export interface DevConsoleState {
   errorState: StreamState;
   liveState: StreamState;
+  telemetrySpans: TelemetrySpan[];
   activeTab: LogStream;
 }
 
@@ -51,4 +59,6 @@ export type DevConsoleAction =
   | { type: "SET_LEVEL_FILTER"; stream: LogStream; level: LogLevel | "all" }
   | { type: "SET_SOURCE_FILTER"; stream: LogStream; source: LogSource | "all" }
   | { type: "SET_SEARCH"; stream: LogStream; query: string }
-  | { type: "SET_ACTIVE_TAB"; tab: LogStream };
+  | { type: "SET_ACTIVE_TAB"; tab: LogStream }
+  | { type: "ADD_TELEMETRY_SPAN"; span: Omit<TelemetrySpan, "timestamp"> }
+  | { type: "CLEAR_TELEMETRY" };

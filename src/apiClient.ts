@@ -1,5 +1,22 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useSettings } from "./context/SettingsContext";
+import { z } from "zod";
+import {
+  translateVariantResponseSchema,
+  nearestResiduesResponseSchema,
+  pocketFinderResponseSchema,
+  biophysicalAnalysisResponseSchema,
+  esmFoldResponseSchema,
+  structuralAlignResponseSchema,
+  structuralDiffResponseSchema,
+  TranslateVariantResponse,
+  NearestResiduesResponse,
+  PocketFinderResponse,
+  BiophysicalAnalysisResponse,
+  EsmFoldResponse,
+  StructuralAlignResponse,
+  StructuralDiffResponse
+} from "./shared/contracts";
 
 export function useApiClient() {
   const { settings, updateSetting } = useSettings();
@@ -54,7 +71,7 @@ export function useApiClient() {
             if (sessionData.sessionId) {
               currentSessionId = sessionData.sessionId;
               updateSetting("geminiSessionId", sessionData.sessionId);
-              updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 3600000));
+              updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 15 * 60 * 1000));
             }
           }
         } catch (err) {
@@ -120,7 +137,7 @@ export function useApiClient() {
             const sessionData = await sessionRes.json();
             if (sessionData.sessionId) {
               updateSetting("geminiSessionId", sessionData.sessionId);
-              updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 3600000));
+              updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 15 * 60 * 1000));
 
               const retryHeaders = {
                 ...headers
@@ -153,5 +170,294 @@ export function useApiClient() {
     updateSetting
   ]);
 
-  return { fetchWithAuth };
+  const apiClient = useMemo(() => {
+    return {
+      async translateVariant(variant: string, signal?: AbortSignal): Promise<TranslateVariantResponse> {
+        const res = await fetchWithAuth("/api/v1/translate-variant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ variant }),
+          timeout: 10000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errorMsg = errData.error?.message || errData.message || `Failed to translate variant: ${res.statusText}`;
+          throw new Error(errorMsg);
+        }
+        const data = await res.json();
+        return translateVariantResponseSchema.parse(data);
+      },
+
+      async getSequence(uniprotId: string, signal?: AbortSignal): Promise<string> {
+        const res = await fetchWithAuth(`/api/v1/sequence/${encodeURIComponent(uniprotId)}`, {
+          timeout: 10000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to fetch sequence: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return z.object({ sequence: z.string() }).parse(data).sequence;
+      },
+
+      async getPdb(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<string> {
+        const posQuery = pos ? `?pos=${pos}` : "";
+        const res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`, {
+          timeout: 15000,
+          signal
+        });
+        if (!res.ok) {
+          throw new Error(`Failed to fetch PDB structure: ${res.statusText}`);
+        }
+        return await res.text();
+      },
+
+      async getHomologs(uniprotId: string, signal?: AbortSignal): Promise<any[]> {
+        const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(uniprotId)}`, {
+          timeout: 10000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to fetch homologs: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return z.object({ homologs: z.array(z.any()) }).parse(data).homologs;
+      },
+
+      async getNearestResidues(params: { pdbText: string, targetIndex: number, distanceThreshold: number, targetChain?: string }, signal?: AbortSignal): Promise<NearestResiduesResponse> {
+        const res = await fetchWithAuth("/api/v1/nearest-residues", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 10000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to fetch nearest residues: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return nearestResiduesResponseSchema.parse(data);
+      },
+
+      async findPocket(params: { pdbText: string, mutIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+        const res = await fetchWithAuth("/api/v1/pocket-finder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 30000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to find binding pocket: ${res.statusText}`);
+        }
+        const initialData = await res.json();
+        if (initialData.status === "queued" && initialData.pocketJobId) {
+          let attempt = 0;
+          const maxAttempts = 60;
+          while (attempt < maxAttempts) {
+            if (signal?.aborted) {
+              throw new Error("Pocket search query aborted by client.");
+            }
+            const jobRes = await fetchWithAuth(`/api/v1/pocket-job/${initialData.pocketJobId}`, {
+              method: "GET",
+              signal
+            });
+            if (!jobRes.ok) {
+              throw new Error(`Failed to poll pocket job status: ${jobRes.statusText}`);
+            }
+            const jobData = await jobRes.json();
+            if (jobData.status === "completed") {
+              return pocketFinderResponseSchema.parse(jobData.result);
+            } else if (jobData.status === "failed") {
+              throw new Error(jobData.error || "Pocket search job failed.");
+            }
+            attempt++;
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          throw new Error("Pocket search job timed out on server.");
+        }
+        return pocketFinderResponseSchema.parse(initialData);
+      },
+
+      async detectPocket(params: { pdbText: string, targetIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+        const res = await fetchWithAuth("/api/v1/pocket-detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 30000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to detect binding pocket: ${res.statusText}`);
+        }
+        const initialData = await res.json();
+        if (initialData.status === "queued" && initialData.pocketJobId) {
+          let attempt = 0;
+          const maxAttempts = 60;
+          while (attempt < maxAttempts) {
+            if (signal?.aborted) {
+              throw new Error("Pocket detection query aborted by client.");
+            }
+            const jobRes = await fetchWithAuth(`/api/v1/pocket-job/${initialData.pocketJobId}`, {
+              method: "GET",
+              signal
+            });
+            if (!jobRes.ok) {
+              throw new Error(`Failed to poll pocket job status: ${jobRes.statusText}`);
+            }
+            const jobData = await jobRes.json();
+            if (jobData.status === "completed") {
+              return pocketFinderResponseSchema.parse(jobData.result);
+            } else if (jobData.status === "failed") {
+              throw new Error(jobData.error || "Pocket detection job failed.");
+            }
+            attempt++;
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          throw new Error("Pocket detection job timed out on server.");
+        }
+        return pocketFinderResponseSchema.parse(initialData);
+      },
+
+      async getBiophysicalAnalysis(params: { gene: string, uniprotId: string, variant: string, wtPdb?: string, options?: any }, signal?: AbortSignal): Promise<BiophysicalAnalysisResponse> {
+        const res = await fetchWithAuth("/api/v1/analyze-variant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 90000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to get biophysical analysis: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return biophysicalAnalysisResponseSchema.parse(data);
+      },
+
+      async getLandscapeData(params: { gene: string, uniprotId: string, variant: string }, signal?: AbortSignal): Promise<{ landscapeData: any[] }> {
+        const res = await fetchWithAuth("/api/v1/analyze-variant/landscape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 130000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to get landscape data: ${res.statusText}`);
+        }
+        return await res.json();
+      },
+
+      async getStructuralAssessments(params: { gene: string, uniprotId: string, variant: string, acmgWeighting?: string }, signal?: AbortSignal): Promise<{
+        esm3Eval: any;
+        esmcEval: any;
+        esm2Eval: any;
+        saprotEval: any;
+        ruleBasedInsights: any;
+      }> {
+        const res = await fetchWithAuth("/api/v1/analyze-variant/structural", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 45000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to get structural assessments: ${res.statusText}`);
+        }
+        return await res.json();
+      },
+
+      async getNarrative(params: any, signal?: AbortSignal): Promise<{ analysis: string; insights?: any }> {
+        const res = await fetchWithAuth("/api/v1/analyze-variant-narrative", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 120000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to fetch narrative: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return z.object({
+          analysis: z.string(),
+          insights: z.any().optional()
+        }).parse(data);
+      },
+
+      async foldSequence(params: { sequence?: string, uniprotId?: string, variant?: string }, signal?: AbortSignal): Promise<EsmFoldResponse> {
+        const res = await fetchWithAuth("/api/v1/esmfold", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 45000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to run ESMFold: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return esmFoldResponseSchema.parse(data);
+      },
+
+      async structuralAlign(params: { pdb1: string, pdb2: string, targetIndex?: number }, signal?: AbortSignal): Promise<StructuralAlignResponse> {
+        const res = await fetchWithAuth("/api/v1/structural-align", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 30000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to align structures: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return structuralAlignResponseSchema.parse(data);
+      },
+
+      async getStructuralDiff(params: { wtPdb: string, mutPdb: string, pos: number, chain: string }, signal?: AbortSignal): Promise<StructuralDiffResponse> {
+        const res = await fetchWithAuth("/api/v1/structural-diff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 30000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to compute structural difference: ${res.statusText}`);
+        }
+        const data = await res.json();
+        return structuralDiffResponseSchema.parse(data);
+      },
+
+      async getLiterature(gene: string, force = false, signal?: AbortSignal): Promise<{ gene: string, citations: any[] }> {
+        const query = force ? "?force=true" : "";
+        const res = await fetchWithAuth(`/api/v1/literature/${encodeURIComponent(gene)}${query}`, {
+          timeout: 15000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to fetch literature: ${res.statusText}`);
+        }
+        return await res.json();
+      }
+    };
+  }, [fetchWithAuth]);
+
+  return { fetchWithAuth, apiClient };
 }

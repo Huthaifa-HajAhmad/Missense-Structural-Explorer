@@ -88,6 +88,7 @@ export interface PredictorData {
   isManePlusClinical?: boolean;
   isCanonical?: boolean;
   maneRefSeqId?: string;
+  source?: string;
 }
 
 export interface ConservationData {
@@ -107,6 +108,36 @@ export interface ConservationData {
   esm1b?: number | null;
   esm1bPred?: string | null;
   popeve?: number | null;
+  spliceProximity?: {
+    distance: number;
+    isNearSpliceSite: boolean;
+    exonNumber?: number | null;
+    totalExons?: number | null;
+    exonId?: string | null;
+    exonStart?: number | null;
+    exonEnd?: number | null;
+    exonLength?: number | null;
+    intronNumber?: number | null;
+    junctionType?: "donor" | "acceptor" | "terminal" | null;
+    adjacentIntronNumber?: number | null;
+    regionType?: "exonic" | "intronic" | null;
+    strand?: "+" | "-" | null;
+    transcriptId?: string | null;
+    genomicPos?: number | null;
+    nearestJunctionCoord?: number | null;
+  } | null;
+  spliceai?: {
+    ds_ag: number | null;
+    ds_al: number | null;
+    ds_dg: number | null;
+    ds_dl: number | null;
+    max_ds: number | null;
+  } | null;
+  dbscsnv?: {
+    ada_score: number | null;
+    rf_score: number | null;
+  } | null;
+  source?: string;
 }
 
 export interface LandscapeResidueItem {
@@ -187,6 +218,8 @@ export interface UniprotFeaturesData {
     end: number;
   }[];
   geneName?: string;
+  subunitComment?: string | null;
+  isMultimer?: boolean;
 }
 
 export interface GnomadConstraintData {
@@ -356,6 +389,15 @@ export interface EnergeticsData {
   consensusVerdict?: string | null;
   evidenceComplete?: boolean;
   pendingTools?: string[];
+  rawDdGs?: number[];
+  stabilityoracle?: number | null;
+  consensusProbability?: number | null;
+  consensusConfMin?: number | null;
+  consensusConfMax?: number | null;
+  seed?: number | null;
+  bFactorMetadata?: { source: string; semantic: string; inherited: boolean } | null;
+  /** Provenance of the structure template used for this FoldX computation. */
+  structureProvenance?: StructureProvenance | null;
 }
 
 export interface StructuralMetrics {
@@ -412,6 +454,32 @@ export interface PdbHomolog {
   isHuman: boolean;
   unpStart?: number;
   structStart?: number;
+  /** Start position in the query (UniProt) sequence covered by the RCSB alignment (1-indexed) */
+  querySeqFrom?: number;
+  /** End position in the query (UniProt) sequence covered by the RCSB alignment (1-indexed) */
+  querySeqTo?: number;
+}
+
+/** Provenance metadata for the structure used in a biophysical computation. */
+export interface StructureProvenance {
+  /** How the structure was sourced: direct PDB mapping, AlphaFold prediction, or sequence homolog. */
+  source: "experimental" | "alphafold" | "homolog" | "client-provided";
+  /** PDB accession of the resolved structure (if experimental or homolog). */
+  pdbId?: string;
+  /** Chain identifier within the PDB entry. */
+  chainId?: string;
+  /** X-ray / cryo-EM resolution in Angstroms (null for NMR / AlphaFold). */
+  resolution?: number | null;
+  /** Experimental method string from RCSB (e.g. "X-RAY DIFFRACTION"). */
+  method?: string;
+  /** Sequence identity percentage against the query protein (homolog tier only). */
+  identity?: number;
+  foldxVersion?: string;
+  foldxRuns?: number;
+  seed?: number | null;
+  raspDatasetSnapshot?: string;
+  vesmModel?: string;
+  timestamp?: string;
 }
 
 export interface EsmcPreference {

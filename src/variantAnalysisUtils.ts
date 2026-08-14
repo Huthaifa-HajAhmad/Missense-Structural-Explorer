@@ -110,7 +110,18 @@ export const analyzeVariantResponseSchema = z.object({
     eigenPhred: nullableFiniteNumber.optional(),
     dann: nullableFiniteNumber.optional(),
     esm1b: nullableFiniteNumber.optional(),
-    popeve: nullableFiniteNumber.optional()
+    popeve: nullableFiniteNumber.optional(),
+    spliceProximity: z.object({
+      distance: z.number(),
+      isNearSpliceSite: z.boolean()
+    }).nullable().optional(),
+    spliceai: z.object({
+      ds_ag: nullableFiniteNumber,
+      ds_al: nullableFiniteNumber,
+      ds_dg: nullableFiniteNumber,
+      ds_dl: nullableFiniteNumber,
+      max_ds: nullableFiniteNumber
+    }).nullable().optional()
   }).nullable().optional(),
   landscapeData: z.array(z.object({
     residx: z.number(),
@@ -147,7 +158,9 @@ export const analyzeVariantResponseSchema = z.object({
       start: z.number(),
       end: z.number()
     })),
-    geneName: z.string().optional()
+    geneName: z.string().optional(),
+    subunitComment: z.string().nullable().optional(),
+    isMultimer: z.boolean().optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
     missense_z: z.number().nullable(),
@@ -278,6 +291,7 @@ export const generateMutantResponseSchema = z.object({
   status: z.string(),
   error: z.string().nullable().optional(),
   foldedResidueIndex: nullableFiniteNumber.optional(),
+  foldxJobId: z.string().nullable().optional(),
   energetics: z.object({
     foldx: nullableFiniteNumber,
     foldxMean: nullableFiniteNumber.optional(),
@@ -294,16 +308,41 @@ export const generateMutantResponseSchema = z.object({
     consensusVerdict: z.string().nullable().optional(),
     raspReason: z.string().optional(),
     evidenceComplete: z.boolean().optional(),
-    pendingTools: z.array(z.string()).optional()
-  }).optional(),
+    pendingTools: z.array(z.string()).optional(),
+    rawDdGs: z.array(z.number()).nullable().optional(),
+    stabilityoracle: nullableFiniteNumber.optional(),
+    consensusProbability: nullableFiniteNumber.optional(),
+    consensusConfMin: nullableFiniteNumber.optional(),
+    consensusConfMax: nullableFiniteNumber.optional(),
+    seed: nullableFiniteNumber.optional(),
+    bFactorMetadata: z.object({
+      source: z.string(),
+      semantic: z.string(),
+      inherited: z.boolean()
+    }).nullable().optional()
+  }).passthrough().optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),
   ddmutJobId: z.string().nullable().optional(),
   ddmutStatus: z.string().nullable().optional(),
   thermompnnJobId: z.string().nullable().optional(),
   thermompnnStatus: z.string().nullable().optional(),
-  thermompnnError: z.string().nullable().optional()
-});
+  thermompnnError: z.string().nullable().optional(),
+  provenance: z.object({
+    structureSource: z.enum(["experimental", "alphafold", "homolog", "client-provided"]).optional(),
+    structurePdbId: z.string().nullable().optional(),
+    structureChainId: z.string().nullable().optional(),
+    structureResolution: z.number().nullable().optional(),
+    structureMethod: z.string().nullable().optional(),
+    structureIdentity: z.number().nullable().optional(),
+    foldxVersion: z.string().optional(),
+    foldxRuns: z.number().optional(),
+    seed: z.number().nullable().optional(),
+    raspDatasetSnapshot: z.string().optional(),
+    vesmModel: z.string().optional(),
+    timestamp: z.string().optional()
+  }).passthrough().optional()
+}).passthrough();
 
 export const nearestResiduesResponseSchema = z.object({
   residues: z.array(z.object({
@@ -557,13 +596,27 @@ export function parseMutationResidues(variantStr: string) {
     Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
     Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V"
   };
-  const clean = variantStr.replace(/^p\./i, "").replace(/[()]/g, "");
-  
   const normalize3 = (str: string) => {
     if (str.length !== 3) return str;
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
   };
 
+  // ── Step 1: Strip common non-standard prefixes ──
+  let clean = variantStr.replace(/^p\./i, "").replace(/[()]/g, "").trim();
+
+  // Strip transcript/Uniprot/protein accession prefix (e.g., "ENST00000:Ser489Cys" or "ENSP00000:p.S489C")
+  clean = clean.replace(/^[A-Z0-9_]{4,20}:\s*/i, "");
+
+  // Strip leading gene-name prefix (e.g., "CNNM2 Ser489Cys" when gene was pasted into variant field)
+  clean = clean.replace(/^[A-Z]{2,10}\s+/i, "");
+
+  // Remove underscores within the variant (Ser_489_Cys → Ser489Cys)
+  clean = clean.replace(/_/g, "");
+
+  // Remove ">" arrow notation (R>H → RH) for HGVS-style input
+  clean = clean.replace(/>(?=[A-Z])/i, "");
+
+  // ── Step 2: Try 3-letter amino acid regex ──
   const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
   if (match3) {
     const wt3 = normalize3(match3[1]);
@@ -571,23 +624,36 @@ export function parseMutationResidues(variantStr: string) {
     const wt = aminoAcidMap[wt3];
     const mut = aminoAcidMap[mut3];
     if (!wt || !mut) {
-      throw new Error(`Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'`);
+      throw new Error(
+        `Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'. ` +
+        `Expected one of: Ala/Arg/Asn/Asp/Cys/Gln/Glu/Gly/His/Ile/Leu/Lys/Met/Phe/Pro/Ser/Thr/Trp/Tyr/Val.`
+      );
     }
     return { wt, mut };
   }
 
+  // ── Step 3: Try 1-letter amino acid regex ──
   const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
   if (match1) {
     const wt = match1[1].toUpperCase();
     const mut = match1[3].toUpperCase();
     const validCodes = Object.values(aminoAcidMap);
     if (!validCodes.includes(wt) || !validCodes.includes(mut)) {
-      throw new Error(`Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!validCodes.includes(wt) ? wt : mut}'`);
+      throw new Error(
+        `Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!validCodes.includes(wt) ? wt : mut}'. ` +
+        `Expected single-letter codes (A/C/D/E/F/G/H/I/K/L/M/N/P/Q/R/S/T/V/W/Y).`
+      );
     }
     return { wt, mut };
   }
 
-  throw new Error("Invalid HGVS missense format: Must represent a single amino acid substitution (e.g., p.Arg215Trp or R215W)");
+  // ── Step 4: Provide contextual error guidance ──
+  throw new Error(
+    `Invalid HGVS missense format: "${variantStr}" doesn't match expected format. ` +
+    `Expected: <WildType><Position><Mutant> with no extra prefixes. ` +
+    `Examples: p.Arg215Trp (3-letter), p.R215W (1-letter). ` +
+    `For genomic variants use the "c." notation (e.g., c.744C>T) or the "g." notation.`
+  );
 }
 
 export const getAlternativeVariants = (currentGene: string): string[] => {

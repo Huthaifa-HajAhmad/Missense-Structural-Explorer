@@ -44,4 +44,71 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     const status2 = getWorkflowStageStatus("energetics", mockResult, false, false, false);
     expect(status2.status).toBe("complete");
   });
+
+  it("P1-12: energetics gate must NOT block on FoldX when only the Gemini biophysical result is present", () => {
+    const geminiOnlyResult: AnalysisResult = {
+      analysis: "AI biophysical assessment available.",
+      biophysicalEnergetics: { predictedStabilityChange: "destabilizing" } as any
+    };
+
+    // FoldX job still running (isFolding=true) AND predictors pending — the tab must still
+    // be "complete" because the Gemini narrative resolved (async-chip decision).
+    const status = getWorkflowStageStatus(
+      "energetics",
+      geminiOnlyResult,
+      /* isFolding */ true,
+      /* isBiophysicalLoading */ false,
+      /* isClinicalLoading */ false,
+      undefined,
+      undefined,
+      undefined,
+      /* dynamut2Status */ "pending",
+      /* ddmutStatus */ "pending"
+    );
+
+    expect(status.status).toBe("complete");
+    expect(status.desc).toContain("Gemini");
+  });
+
+  it("P1-12: energetics gate shows progress only while the initial biophysical call is in flight and nothing has resolved", () => {
+    const status = getWorkflowStageStatus(
+      "energetics",
+      { analysis: null } as any,
+      /* isFolding */ false,
+      /* isBiophysicalLoading */ true,
+      /* isClinicalLoading */ false
+    );
+    expect(status.status).toBe("progress");
+  });
+
+  it("P1-12: insights tab is gated on the narrative loader only, not on FoldX liveness", () => {
+    const insightsResult: AnalysisResult = {
+      analysis: "Consensus narrative ready."
+    };
+
+    // FoldX dead (job failed) but narrative finished — tab must be complete.
+    const notLoading = getWorkflowStageStatus(
+      "insights",
+      insightsResult,
+      /* isFolding */ false,
+      /* isBiophysicalLoading */ false,
+      /* isClinicalLoading */ false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      /* isNarrativeLoading */ false
+    );
+    expect(notLoading.status).toBe("complete");
+
+    const loading = getWorkflowStageStatus(
+      "insights",
+      insightsResult,
+      false, false, false,
+      undefined, undefined, undefined, undefined, undefined,
+      /* isNarrativeLoading */ true
+    );
+    expect(loading.status).toBe("progress");
+  });
 });

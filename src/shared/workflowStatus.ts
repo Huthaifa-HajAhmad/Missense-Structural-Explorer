@@ -10,7 +10,8 @@ export function getWorkflowStageStatus(
   loadingStep?: string,
   isPocketLoading?: boolean,
   dynamut2Status?: string | null,
-  ddmutStatus?: string | null
+  ddmutStatus?: string | null,
+  isNarrativeLoading?: boolean
 ): { status: "complete" | "progress" | "pending"; desc: string } {
   // Define default descriptions for stages
   const defaultDescs: Record<string, string> = {
@@ -72,6 +73,12 @@ export function getWorkflowStageStatus(
   // 2. Landed state (active background computation tracking)
   if (result != null) {
     if (view === "evidence") {
+      if (isClinicalLoading || isBiophysicalLoading) {
+        return {
+          status: "progress",
+          desc: "Querying ClinVar, gnomAD, and predictors..."
+        };
+      }
       const clinvarText = result.clinvar?.classification || "Annotated";
       return {
         status: "complete",
@@ -80,61 +87,147 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "structure" || view === "structure_alphafold" || view === "structure_esmfold") {
-      const isProgress = isFolding || !!isPocketLoading;
+      if (isFolding || !!isPocketLoading) {
+        return {
+          status: "progress",
+          desc: isFolding ? "Repacking mutant side-chains..." : "Running binding pocket solver..."
+        };
+      }
+      // PDB text is held in the viewer/pipeline state rather than AnalysisResult.
+      // AnalysisResult only carries structure evidence (for example ESM3 output),
+      // so do not read a non-existent result.pdbText field here.
+      const hasStructureEvidence = Boolean(
+        result.metadata?.pdbId ||
+        (result.esm3Eval && "pdbText" in result.esm3Eval && result.esm3Eval.pdbText) ||
+        result.analysis ||
+        result.foldingEnergetics
+      );
+      if (hasStructureEvidence) {
+        return {
+          status: "complete",
+          desc: "AlphaFold, ESMFold & PDB 3D coordinates ready"
+        };
+      }
       return {
-        status: isProgress ? "progress" : "complete",
-        desc: isProgress
-          ? (isFolding ? "Repacking mutant side-chains..." : "Running binding pocket solver...")
-          : "AlphaFold, ESMFold & PDB 3D coordinates ready"
+        status: "pending",
+        desc: "PDB structure unavailable"
       };
     }
 
     if (view === "energetics") {
-      const isDynamicPredictorActive =
-        dynamut2Status === "pending" ||
-        dynamut2Status === "running" ||
-        ddmutStatus === "pending" ||
-        ddmutStatus === "running";
-      const hasBiophysics = result?.foldingEnergetics != null || result?.dynamut2 != null || result?.ddmut != null || result?.biophysicalEnergetics != null;
-
-      const isProgress = isFolding || !!isBiophysicalLoading || isDynamicPredictorActive || !hasBiophysics;
-      
-      let activeDesc = "Calculating FoldX, DynaMut2, DDMut & ThermoMPNN energetics...";
-      if (isFolding) {
-        activeDesc = "Repacking mutant side-chains via FoldX force field...";
-      } else if (dynamut2Status === "pending" || dynamut2Status === "running") {
-        activeDesc = "Polling DynaMut2 normal mode analysis...";
-      } else if (ddmutStatus === "pending" || ddmutStatus === "running") {
-        activeDesc = "Running DDMut neural stability predictor...";
-      } else if (isBiophysicalLoading) {
-        activeDesc = "Calculating FoldX, DynaMut2, DDMut & ThermoMPNN energetics...";
+      const hasStructure = isBiophysicalLoading ||
+                           result.foldingEnergetics != null ||
+                           result.dynamut2 != null ||
+                           result.ddmut != null ||
+                           result.biophysicalEnergetics != null ||
+                           result.analysis != null;
+      if (!hasStructure) {
+        return {
+          status: "pending",
+          desc: "Awaiting PDB structure coordinates..."
+        };
       }
 
-      const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.foldingEnergetics?.thermompnn ?? result.dynamut2;
-      const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "FoldX, DynaMut2, DDMut & ThermoMPNN stability ready";
+      const hasBiophysics = result.foldingEnergetics != null || result.dynamut2 != null || result.ddmut != null || result.biophysicalEnergetics != null;
+      const isProgress = !!isBiophysicalLoading && !hasBiophysics && !result.analysis;
+
+      if (isProgress) {
+        return {
+          status: "progress",
+          desc: "Computing AI biophysical assessment..."
+        };
+      }
+
+      if (hasBiophysics || result.analysis) {
+        const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.foldingEnergetics?.thermompnn ?? result.dynamut2;
+        const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "Gemini biophysical assessment ready · FoldX/DynaMut2/DDMut chips updating independently";
+        return {
+          status: "complete",
+          desc: ddgText
+        };
+      }
 
       return {
-        status: isProgress ? "progress" : "complete",
-        desc: isProgress ? activeDesc : ddgText
+        status: "pending",
+        desc: "Energetics calculation unavailable"
       };
     }
 
-
     if (view === "landscape") {
       const count = result.landscapeData?.length ?? 0;
+      if (count === 0) {
+        if (isBiophysicalLoading) {
+          return {
+            status: "progress",
+            desc: "Mapping spatial mutation density..."
+          };
+        }
+        return {
+          status: "pending",
+          desc: "Landscape data unavailable"
+        };
+      }
       return {
         status: "complete",
         desc: `${count} residue positions mapped & scored`
       };
     }
 
-    if (view === "insights" || view === "report") {
-      const isProgress = !!isClinicalLoading || !result.analysis;
+    if (view === "insights") {
+      const hasPrereq = result.clinvar != null || result.landscapeData != null || result.foldingEnergetics != null || result.biophysicalEnergetics != null;
+      const isPrereqLoading = isBiophysicalLoading || isClinicalLoading;
+      if (isPrereqLoading && !hasPrereq) {
+        return {
+          status: "pending",
+          desc: "Awaiting prerequisite biophysical & clinical data..."
+        };
+      }
+
+      if (isNarrativeLoading) {
+        return {
+          status: "progress",
+          desc: "Synthesizing pathogenicity & ACMG/AMP criteria..."
+        };
+      }
+
+      if (result.analysis) {
+        return {
+          status: "complete",
+          desc: "Variant interpretation consensus ready"
+        };
+      }
+
       return {
-        status: isProgress ? "progress" : "complete",
-        desc: isProgress
-          ? (view === "insights" ? "Synthesizing pathogenicity & ACMG/AMP criteria..." : "Compiling clinical summary & evidence export...")
-          : (view === "insights" ? "Variant interpretation consensus ready" : "Clinical summary & report compiled")
+        status: "pending",
+        desc: "Variant insights unavailable"
+      };
+    }
+
+    if (view === "report") {
+      if (!result.analysis && (isNarrativeLoading || isBiophysicalLoading || isClinicalLoading)) {
+        return {
+          status: "pending",
+          desc: "Awaiting variant insights..."
+        };
+      }
+
+      if (isNarrativeLoading) {
+        return {
+          status: "progress",
+          desc: "Compiling clinical summary & evidence export..."
+        };
+      }
+
+      if (result.analysis) {
+        return {
+          status: "complete",
+          desc: "Clinical summary & report compiled"
+        };
+      }
+
+      return {
+        status: "pending",
+        desc: "Report generation unavailable"
       };
     }
 
