@@ -17,7 +17,11 @@ export class Semaphore {
 
   constructor(private maxConcurrency: number, private maxQueueLength = 20) {}
 
-  async acquire(timeoutMs = 30000): Promise<void> {
+  async acquire(timeoutMs = 30000, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      throw signal.reason || new Error("Aborted");
+    }
+
     if (this.activeCount < this.maxConcurrency) {
       this.activeCount++;
       return;
@@ -30,6 +34,18 @@ export class Semaphore {
     return new Promise<void>((resolve, reject) => {
       let resolved = false;
 
+      const onAbort = () => {
+        if (!resolved) {
+          const idx = this.queue.findIndex(item => item.resolve === onAcquire);
+          if (idx !== -1) {
+            this.queue.splice(idx, 1);
+          }
+          resolved = true;
+          clearTimeout(timer);
+          reject(signal?.reason || new Error("Aborted"));
+        }
+      };
+
       const timer = setTimeout(() => {
         if (!resolved) {
           const idx = this.queue.findIndex(item => item.resolve === onAcquire);
@@ -37,6 +53,9 @@ export class Semaphore {
             this.queue.splice(idx, 1);
           }
           resolved = true;
+          if (signal) {
+            signal.removeEventListener("abort", onAbort);
+          }
           reject(new Error("Timeout acquiring biophysical semaphore. Concurrency limit reached."));
         }
       }, timeoutMs);
@@ -44,9 +63,16 @@ export class Semaphore {
       const onAcquire = () => {
         resolved = true;
         clearTimeout(timer);
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
         this.activeCount++;
         resolve();
       };
+
+      if (signal) {
+        signal.addEventListener("abort", onAbort);
+      }
 
       this.queue.push({ resolve: onAcquire, reject });
     });
@@ -81,6 +107,9 @@ export const MUTATION_FOLDX_PATTERN = /^[ARNDCQEGHILKMFPSTWYV][A-Z]\d+[ARNDCQEGH
 export const VCF_GENOMIC_PATTERN = /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i;
 export const CDNA_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
 export const DASHED_GENOMIC_PATTERN = /^(?:chr)?([0-9XYMT]+)-(\d+)-([ACGTN]+)-([ACGTN]+)$/i;
+export const NONSENSE_PATTERN = /^(?:p\.)?(?:[A-Za-z]{1,4}|\*)(\d{1,6})(?:Ter|\*|Stop|X)$/i;
+export const FRAMESHIFT_PATTERN = /^(?:p\.)?(?:[A-Za-z]{1,4})(\d{1,6})(?:[A-Za-z*]+)?(?:fs(?:\*|\w+)?\d*)$/i;
+export const INDEL_PATTERN = /^(?:p\.)?(?:[A-Za-z]{1,4}\d{1,6}(?:_[A-Za-z]{1,4}\d{1,6})?)(?:del|ins|dup|delins|inv).*$/i;
 
 
 const AA_3_TO_1: Record<string, string> = {
@@ -114,6 +143,15 @@ export function validateVariant(variant: any): string {
   const trimmed = variant.replace(/[()]/g, "").trim();
   const match = trimmed.match(HGVS_PATTERN);
   if (!match) {
+    if (NONSENSE_PATTERN.test(trimmed)) {
+      throw new Error(`Nonsense / stop-gain variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations). Truncation and termination variants cannot be modeled with missense biophysical stability predictors (FoldX/DynaMut2).`);
+    }
+    if (FRAMESHIFT_PATTERN.test(trimmed)) {
+      throw new Error(`Frameshift variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations).`);
+    }
+    if (INDEL_PATTERN.test(trimmed)) {
+      throw new Error(`Insertion/deletion variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations).`);
+    }
     throw new Error(`Invalid variant format: "${trimmed}". Must match HGVS protein nomenclature (e.g., p.Arg215Trp or R215W).`);
   }
   
@@ -189,6 +227,11 @@ export function sanitizeErrorMessage(err: any): string {
 }
 
 export function sendError(res: express.Response, status: number, code: string, message: string, details?: any) {
+  if (res.headersSent) {
+    console.warn(`[sendError Warning] Headers already sent. Skipping error response (${status} ${code}: ${message})`);
+    return;
+  }
+
   const reqId = res.getHeader ? (res.getHeader("X-Request-ID") as string) : undefined;
   
   // Sanitize the message to protect against information leakage in clinical/production environments (E-1)
@@ -467,4 +510,33 @@ export function formatZodError(error: any): string {
     return error.issues.map((e: any) => `${e.path.join(".")}: ${e.message}`).join(", ");
   }
   return "Invalid request body format.";
+}
+
+export function anySignal(signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
+  const activeSignals = signals.filter((s): s is AbortSignal => !!s);
+  if (activeSignals.length === 0) return undefined;
+  if (activeSignals.length === 1) return activeSignals[0];
+
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(activeSignals);
+  }
+
+  const controller = new AbortController();
+  const onAbort = () => {
+    controller.abort();
+    cleanup();
+  };
+  const cleanup = () => {
+    for (const signal of activeSignals) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      controller.abort();
+      return controller.signal;
+    }
+    signal.addEventListener("abort", onAbort);
+  }
+  return controller.signal;
 }

@@ -27,7 +27,9 @@ export interface FoldXResult {
     stericClashWarning: boolean;
     localSidechainRmsd: number | null;
     foldxRepairFailed?: boolean;
+    seed?: number | null;
     consensusVerdict: string | null;
+    raspReason?: string;
   } | null;
 }
 

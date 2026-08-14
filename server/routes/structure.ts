@@ -10,17 +10,20 @@ import { type Router } from "express";
 import { sendError, validateUniProt, AuditLogger, formatZodError } from "../utils.ts";
 import { z } from "zod";
 import {
-  fetchAlphafoldPdb,
-  fetchBestPdbStructure,
-  fetchPdbFromRcsb,
+  esmFoldRequestSchema,
+  structuralAlignRequestSchema
+} from "../../src/shared/contracts.ts";
+import {
   fetchPdbHomologs,
   fetchUniprotSequence,
-  pdbCache,
 } from "../services/external.ts";
+import { resolveStructure } from "../services/structure-resolver.ts";
 import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
 import { foldSequence } from "../services/esmfold.ts";
-import { computeStructuralDiff, alignMutantToWt } from "../services/biophysics.ts";
+import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
 import fs from "fs";
+import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { applyMutation } from "../utils/mutation.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -32,8 +35,14 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       sendError(res, 400, "BAD_REQUEST", err.message);
       return;
     }
+    // Forward optional ?pos= so the result is coverage-filtered for the mutation site
+    let pos: number | undefined;
+    if (req.query.pos) {
+      const parsedPos = parseInt(req.query.pos as string, 10);
+      if (!isNaN(parsedPos)) pos = parsedPos;
+    }
     try {
-      const homologs = await fetchPdbHomologs(validatedUniprot);
+      const homologs = await fetchPdbHomologs(validatedUniprot, pos);
       res.json({ homologs });
     } catch (err: any) {
       console.warn(`[Homologs] Error fetching homologs for ${validatedUniprot}:`, err.message || err);
@@ -64,7 +73,14 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     }
   });
 
-  apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
+  /**
+   * Shared PDB proxy handler used by both /alphafold-pdb/:uniprotId and /pdb/:uniprotId.
+   * Uses the 3-tier resolveStructure() chain:
+   *   Tier 1 → PDBe direct mapping (experimental)
+   *   Tier 2 → EBI AlphaFold
+   *   Tier 3 → RCSB sequence homolog (covers mutation pos, ≥30% identity)
+   */
+  const handlePdbProxy = async (req: any, res: any) => {
     let validatedUniprot: string;
     try {
       validatedUniprot = validateUniProt(req.params.uniprotId);
@@ -73,76 +89,40 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
 
-    // Parse optional query parameter `pos` for position coverage matching
     let pos: number | undefined;
     if (req.query.pos) {
       const parsedPos = parseInt(req.query.pos as string, 10);
-      if (!isNaN(parsedPos)) {
-        pos = parsedPos;
-      }
+      if (!isNaN(parsedPos)) pos = parsedPos;
     }
 
-    // 1. Try experimental structures mapping first (PDB Prioritization)
     try {
-      const pdbMapping = await fetchBestPdbStructure(validatedUniprot, pos);
-      if (pdbMapping) {
-        const { pdbId, chainId } = pdbMapping;
-        const cacheKey = `pdb_rcsb_${pdbId}_chain_${chainId}`;
-
-        if (pdbCache.has(cacheKey)) {
-          if (process.env.NODE_ENV !== "production") {
-            console.log(`[Cache Hit] Serving RCSB PDB for ${pdbId} chain ${chainId} from memory cache.`);
-          }
-          res.setHeader("Content-Type", "text/plain");
-          res.setHeader("X-Template-Source", "experimental");
-          res.send(pdbCache.get(cacheKey));
-          return;
-        }
-
-        const pdbData = await fetchPdbFromRcsb(pdbId, chainId, pdbMapping.unpStart, pdbMapping.structStart);
-        if (pdbData) {
-          res.setHeader("Content-Type", "text/plain");
-          res.setHeader("X-Template-Source", "experimental");
-          res.send(pdbData);
-          return;
-        }
+      const resolved = await resolveStructure(validatedUniprot, pos);
+      if (!resolved) {
+        sendError(res, 502, "BAD_GATEWAY",
+          `Could not load any structure for accession: ${validatedUniprot}. ` +
+          `PDBe, AlphaFold EBI, and sequence homolog search all failed.`);
+        return;
       }
-    } catch (pdbErr: any) {
-      console.warn(`[PDB Prioritization] Failed to resolve best PDB structure for ${validatedUniprot}:`, pdbErr.message || pdbErr);
-    }
 
-    // 2. Fallback to AlphaFold DB
-    if (pdbCache.has(validatedUniprot)) {
-      if (process.env.NODE_ENV !== "production") {
-        console.log(`[Cache Hit] Serving AlphaFold PDB for ${validatedUniprot} from memory cache.`);
-      }
+      const { pdbText, provenance } = resolved;
       res.setHeader("Content-Type", "text/plain");
-      res.setHeader("X-Template-Source", "alphafold");
-      res.send(pdbCache.get(validatedUniprot));
-      return;
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`PDB proxy requesting AlphaFold structure for UniProt ID: ${validatedUniprot}`);
-    } else {
-      console.log("PDB proxy requesting structure.");
-    }
-
-    try {
-      const pdbData = await fetchAlphafoldPdb(validatedUniprot);
-      if (pdbData) {
-        pdbCache.set(validatedUniprot, pdbData);
-        res.setHeader("Content-Type", "text/plain");
-        res.setHeader("X-Template-Source", "alphafold");
-        res.send(pdbData);
-      } else {
-        sendError(res, 502, "BAD_GATEWAY", `Could not load AlphaFold PDB for accession: ${validatedUniprot}. EBI server returned failure.`);
-      }
+      res.setHeader("X-Template-Source", provenance.source);
+      if (provenance.pdbId)       res.setHeader("X-Template-PdbId",      provenance.pdbId);
+      if (provenance.chainId)     res.setHeader("X-Template-ChainId",    provenance.chainId);
+      if (provenance.resolution != null)
+                                  res.setHeader("X-Template-Resolution",  String(provenance.resolution));
+      if (provenance.method)      res.setHeader("X-Template-Method",      provenance.method);
+      if (provenance.identity != null)
+                                  res.setHeader("X-Template-Identity",    String(provenance.identity));
+      res.send(pdbText);
     } catch (err: any) {
-      console.error(`PDB Proxy error:`, err);
+      console.error("PDB Proxy error:", err);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed proxying PDB structure.");
     }
-  });
+  };
+
+  apiRouter.get("/alphafold-pdb/:uniprotId", handlePdbProxy);
+  apiRouter.get("/pdb/:uniprotId", handlePdbProxy);
 
   const esmfoldSchema = z.object({
     sequence: z.string().min(5).max(768)
@@ -168,19 +148,97 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
   });
 
   apiRouter.post("/esmfold", jsonParserRegular, async (req, res) => {
-    const parseResult = esmfoldSchema.safeParse(req.body);
+    const parseResult = esmFoldRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
       sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
       return;
     }
     try {
-      const { sequence } = parseResult.data;
+      let { sequence, uniprotId, variant, wtSeq, mutSeq } = parseResult.data;
       const headerVal = req.headers["x-biohub-token"];
       const token = Array.isArray(headerVal) ? headerVal[0] : headerVal || process.env.ESM3_FORGE_API_KEY;
-      const pdb = await foldSequence(sequence, token);
-      res.json({ pdb });
+
+      if (!sequence && !wtSeq) {
+        if (!uniprotId) {
+          sendError(res, 400, "BAD_REQUEST", "Either sequence, wtSeq, or uniprotId must be provided.");
+          return;
+        }
+        sequence = await fetchUniprotSequence(validateUniProt(uniprotId));
+        if (!sequence) {
+          throw new Error(`Failed to resolve sequence for uniprotId ${uniprotId}`);
+        }
+      }
+
+      const wtSequence = wtSeq || sequence;
+
+      if (!wtSequence) {
+        sendError(res, 400, "BAD_REQUEST", "No sequence provided — supply 'sequence' or 'wtSeq' to fold.");
+        return;
+      }
+
+      let mutatedSequence = mutSeq;
+
+      if (!mutatedSequence && variant && wtSequence) {
+        const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
+        if (mutMatch) {
+          const wtStr = mutMatch[1];
+          const pos = parseInt(mutMatch[2], 10);
+          const mutStr = mutMatch[3];
+
+          const wtUpper = wtStr.toUpperCase();
+          const mutUpper = mutStr.toUpperCase();
+          const wt1 = AMINO_ACID_3_TO_1[wtStr] || AMINO_ACID_3_TO_1[wtUpper] || (wtStr.length === 1 ? wtUpper : null);
+          const mut1 = AMINO_ACID_3_TO_1[mutStr] || AMINO_ACID_3_TO_1[mutUpper] || (mutStr.length === 1 ? mutUpper : null);
+
+          if (wt1 && mut1) {
+            try {
+              mutatedSequence = applyMutation(wtSequence, {
+                chain: "A",
+                position: pos,
+                wt: wt1,
+                mt: mut1
+              });
+            } catch (err: any) {
+              console.warn("[ESMFold] Failed to apply mutation in route handler:", err.message);
+            }
+          }
+        }
+      }
+
+      if (mutatedSequence && mutatedSequence !== wtSequence) {
+        console.log(`[ESMFold] Folding both WT and Mutant sequences`);
+        const wtPdb = await foldSequence(wtSequence, token);
+        const mutPdb = await foldSequence(mutatedSequence, token);
+        res.json({ wtPdb, mutPdb, chain: "A", status: "success" });
+      } else if (wtSequence) {
+        console.log(`[ESMFold] Folding single WT sequence`);
+        const pdb = await foldSequence(wtSequence, token);
+        res.json({ pdb, status: "success" });
+      } else {
+        throw new Error("No sequence resolved for ESMFold query.");
+      }
     } catch (err: any) {
-      sendError(res, 502, "BAD_GATEWAY", err.message || "Failed to fold sequence using ESMFold.");
+      let customMessage = err.message || "Failed to fold sequence using ESMFold.";
+      let statusCode = 502;
+
+      // Inspect sidecar health status to provide extremely clear researcher feedback
+      try {
+        const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(1000) });
+        if (sidecarRes.ok) {
+          const healthData = await sidecarRes.json() as any;
+          if (healthData && healthData.model_loaded === false) {
+            statusCode = 503;
+            customMessage = "Model Server sidecar is online but still loading ML model weights in the background. Please wait ~30-60 seconds and try again.";
+          }
+        }
+      } catch (healthErr: any) {
+        if (healthErr.code === "ECONNREFUSED" || healthErr.message?.includes("fetch failed") || healthErr.message?.includes("connect")) {
+          statusCode = 503;
+          customMessage = "Model Server sidecar is currently offline or starting up. If you just started the app, please wait a minute for the background service to bind.";
+        }
+      }
+
+      sendError(res, statusCode, statusCode === 503 ? "SERVICE_UNAVAILABLE" : "BAD_GATEWAY", customMessage);
     }
   });
 
@@ -280,7 +338,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         sendError(res, 400, "BAD_REQUEST", "Position (pos) must be a positive number (> 0).");
         return;
       }
-      const diff = await computeStructuralDiff(wtPdb, mutPdb, posVal, chain);
+      const diff = await runStructuralDiffInWorker({ wtPdb, mutPdb, pos: posVal, chain });
       res.json(diff);
     } catch (error: any) {
       console.error("Structural diff endpoint failure:", error);
@@ -289,19 +347,20 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
   });
 
   apiRouter.post("/structural-align", jsonParserPdb, async (req, res) => {
-    const parseResult = structuralDiffSchema.safeParse(req.body);
+    const parseResult = structuralAlignRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
       sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
       return;
     }
     try {
-      const { wtPdb, mutPdb, pos, chain } = parseResult.data;
-      const posVal = typeof pos === "string" ? parseInt(pos, 10) : pos;
-      if (isNaN(posVal) || posVal <= 0) {
-        sendError(res, 400, "BAD_REQUEST", "Position (pos) must be a positive number (> 0).");
-        return;
-      }
-      const alignResult = await alignMutantToWt(wtPdb, mutPdb, posVal, chain);
+      const { pdb1, pdb2, targetIndex } = parseResult.data;
+      const posVal = targetIndex ?? 1;
+      const alignResult = await runAlignMutantToWtInWorker({
+        wtPdb: pdb1,
+        mutPdb: pdb2,
+        pos: posVal,
+        chain: "A"
+      });
       res.json({
         alignedPdb: alignResult.alignedMutPdb,
         metrics: {
@@ -309,7 +368,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
           // Compatibility renames for legacy or alternative readers
           localBackboneRmsd: alignResult.localWindowRmsd,
           maxCaDisplacement: alignResult.displacements && alignResult.displacements.length > 0
-            ? Math.max(...alignResult.displacements.map(d => d.displacement))
+            ? Math.max(...alignResult.displacements.map((d: any) => d.displacement))
             : 0,
           deltaSasa: alignResult.sasaChange,
           sasaDiff: { delta: alignResult.sasaChange },

@@ -75,6 +75,8 @@ export interface UniprotFeaturesResult {
   features: UniprotFeature[];
   /** Gene name as reported by UniProt */
   geneName: string;
+  subunitComment?: string | null;
+  isMultimer?: boolean;
 }
 
 /** Feature types we care about for clinical/functional annotation */
@@ -129,7 +131,14 @@ export async function fetchUniprotFeatures(
       }))
       .filter((f) => f.start > 0 && f.end > 0);
 
-    const result: UniprotFeaturesResult = { features, geneName };
+    // Extract subunit comment and check isMultimer
+    const subunitCommentBlock = json?.comments?.find((c: any) => c.commentType === "SUBUNIT");
+    const subunitComment = subunitCommentBlock?.note?.texts?.[0]?.value ?? null;
+    const isMultimer = subunitComment 
+      ? /homo|hetero|dimer|trimer|tetramer|pentamer|hexamer|heptamer|octamer|oligomer|complex/i.test(subunitComment)
+      : false;
+
+    const result: UniprotFeaturesResult = { features, geneName, subunitComment, isMultimer };
     uniprotFeaturesCache.set(key, result);
     return result;
   } catch (err: any) {

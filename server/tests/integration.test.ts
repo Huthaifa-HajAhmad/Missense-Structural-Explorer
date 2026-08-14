@@ -75,6 +75,45 @@ describe("Full Pipeline Integration Test (C-7)", () => {
     expect(translateDashedJson.genomicCoordinates).toBe("20-23365054-G-A");
     fetchSpyDashed.mockRestore();
 
+    // 1c. Test /translate-variant with nonsense genomic coordinate (Chr20:g.23365248G>T)
+    const fetchSpyNonsense = vi.spyOn(global, "fetch");
+    fetchSpyNonsense.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          seq_region_name: "20",
+          start: 23365248,
+          allele_string: "G/T",
+          transcript_consequences: [
+            {
+              transcript_id: "ENST00000338121",
+              canonical: 1,
+              mane_select: "NM_022482.5",
+              hgvsp: "ENSP00000338290.5:p.Glu289Ter",
+              gene_symbol: "GZF1",
+              consequence_terms: ["stop_gained"],
+              swissprot: ["Q9H116.200"]
+            }
+          ]
+        }
+      ]
+    } as any);
+
+    let translateNonsenseJson: any = null;
+    let translateNonsenseStatus: number = 200;
+    const translateNonsenseReq: any = { body: { variant: "Chr20:g.23365248G>T" }, headers: {} };
+    const translateNonsenseRes: any = {
+      status(code: number) { translateNonsenseStatus = code; return this; },
+      json(body: any) { translateNonsenseJson = body; return this; }
+    };
+    await translateHandler(translateNonsenseReq, translateNonsenseRes, () => {});
+
+    expect(translateNonsenseStatus).toBe(422);
+    expect(translateNonsenseJson.error.code).toBe("NON_MISSENSE_VARIANT");
+    expect(translateNonsenseJson.error.message).toContain("Nonsense / stop-gain variant detected");
+    expect(translateNonsenseJson.error.details.gene).toBe("GZF1");
+    fetchSpyNonsense.mockRestore();
+
     // 2. Test /resolve-gene
     const resolveRoute: any = apiRouter.stack.find(s => s.route && s.route.path === "/resolve-gene");
     expect(resolveRoute).toBeDefined();

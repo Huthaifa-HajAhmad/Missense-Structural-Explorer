@@ -10,7 +10,7 @@
  * This module has zero dependencies on other server/services modules,
  * making it safe to import anywhere without circular references.
  */
-import { CircuitBreaker, Semaphore } from "../utils.ts";
+import { CircuitBreaker, Semaphore, anySignal } from "../utils.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../src/aminoAcids.ts";
 
 export function normalizeGeneSymbol(gene: string): string {
@@ -47,7 +47,7 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
   } catch (_) {}
 
   const sem = getHostSemaphore(hostname);
-  await sem.acquire(120000); // Wait up to 120s to acquire hostname lock (A3)
+  await sem.acquire(120000, options.signal ?? undefined); // Wait up to 120s to acquire hostname lock, respecting signal
   try {
     const breaker = getHostBreaker(hostname);
     if (!breaker.canExecute()) {
@@ -57,18 +57,24 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
     const timeoutMs = options.timeout ?? 15000;
     let lastStatus = 200;
     for (let i = 0; i < retries; i++) {
+      if (options.signal?.aborted) {
+        throw options.signal.reason || new Error("Aborted");
+      }
       try {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeoutMs);
 
+        const signal = options.signal
+          ? anySignal([options.signal, controller.signal])
+          : controller.signal;
+
         const res = await fetch(url, {
           ...options,
-          signal: controller.signal
+          signal
         });
         clearTimeout(id);
 
         if (res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503) {
-          breaker.recordFailure();
           lastStatus = res.status;
           let backoff = delay * (2 ** i);
           let hasRetryAfter = false;
@@ -100,8 +106,12 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
         breaker.recordSuccess();
         return res;
       } catch (err: any) {
-        breaker.recordFailure();
+        if (options.signal?.aborted) {
+          breaker.recordFailure();
+          throw err;
+        }
         if (i === retries - 1) {
+          breaker.recordFailure();
           err.statusCode = lastStatus;
           throw err;
         }
@@ -111,6 +121,7 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
         await new Promise(resolve => setTimeout(resolve, backoff));
       }
     }
+    breaker.recordFailure();
     const errObj = new Error(`Failed to fetch ${url} after ${retries} attempts.`);
     (errObj as any).statusCode = lastStatus;
     throw errObj;

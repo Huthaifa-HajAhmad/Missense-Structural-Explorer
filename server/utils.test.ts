@@ -173,10 +173,28 @@ describe("Input Validation Patterns & Functions", () => {
     });
   });
 
-  describe("Strict IUPAC validations and synonymous checks", () => {
+  describe("Strict IUPAC validations and synonymous / non-missense checks", () => {
     it("should reject synonymous variants", () => {
       expect(() => validateVariant("p.Arg215Arg")).toThrow("Synonymous variant detected");
       expect(() => validateVariant("Arg215Arg")).toThrow("Synonymous variant detected");
+    });
+
+    it("should reject nonsense variants with informative domain error", () => {
+      expect(() => validateVariant("p.Glu289Ter")).toThrow("Nonsense / stop-gain variant detected");
+      expect(() => validateVariant("p.E289*")).toThrow("Nonsense / stop-gain variant detected");
+      expect(() => validateVariant("p.Trp123Stop")).toThrow("Nonsense / stop-gain variant detected");
+      expect(() => validateVariant("E289X")).toThrow("Nonsense / stop-gain variant detected");
+    });
+
+    it("should reject frameshift variants with informative domain error", () => {
+      expect(() => validateVariant("p.Lys123fs")).toThrow("Frameshift variant detected");
+      expect(() => validateVariant("p.Gly45Argfs*12")).toThrow("Frameshift variant detected");
+    });
+
+    it("should reject insertion/deletion variants with informative domain error", () => {
+      expect(() => validateVariant("p.Glu289del")).toThrow("Insertion/deletion variant detected");
+      expect(() => validateVariant("p.Ala12_Gly13insVal")).toThrow("Insertion/deletion variant detected");
+      expect(() => validateVariant("p.Pro4dup")).toThrow("Insertion/deletion variant detected");
     });
 
     it("should reject non-IUPAC amino acids", () => {

@@ -1,9 +1,12 @@
+import path from "path";
 import dotenv from "dotenv";
-dotenv.config();
+
+// Resolve deployment secrets from the project working directory, not dist/.
+// This is required when the bundled production entrypoint runs as node dist/server.cjs.
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import crypto from "crypto";
 import express from "express";
-import path from "path";
 import fs from "fs";
 import { spawn, execSync, exec, ChildProcess } from "child_process";
 import helmet from "helmet";
@@ -13,7 +16,25 @@ import { createServer as createViteServer } from "vite";
 import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
 import { runTempJobsJanitor, AuditLogger, sendError } from "./server/utils.ts";
-import { initializeRaspDatabase } from "./server/services/biophysics.ts";
+import { initializeRaspDatabase, generateMutantPdb, findBindingPocket } from "./server/services/biophysics.ts";
+import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
+import { shutdownPool } from "./server/services/biophysics-pool.ts";
+import { enrichBiophysicalResult } from "./server/routes/shared.ts";
+
+// P2-19: Eagerly create the audit log so future runs always have a durable evidence file
+// rather than discovering at runtime that no log exists.
+(async () => {
+  try {
+    const dir = path.join(process.cwd(), "logs");
+    await fs.promises.mkdir(dir, { recursive: true });
+    const logFile = path.join(dir, "audit.jsonl");
+    if (!fs.existsSync(logFile)) {
+      await fs.promises.writeFile(logFile, "", "utf8");
+    }
+  } catch (err: any) {
+    console.warn("[Startup] Failed to eager-create logs/audit.jsonl:", err.message);
+  }
+})();
 
 let modelServerProcess: ChildProcess | null = null;
 
@@ -40,6 +61,50 @@ async function startServer() {
 
   // Initialize the RaSP database (background download/load if missing) (E-4)
   initializeRaspDatabase();
+
+  const biophysicalConcurrency = process.env.BIOPHYSICAL_CONCURRENCY 
+    ? parseInt(process.env.BIOPHYSICAL_CONCURRENCY, 10) 
+    : 4;
+
+  // Initialize persistent/scalable biophysical job queue
+  BiophysicalJobQueue.initialize(biophysicalConcurrency, async (type, data, signal, jobId) => {
+    try {
+      if (type === "foldx") {
+        const foldxResult = await generateMutantPdb(data.wtPdb, data.mutation, data.uniprotId, data.jobDir, signal, data.options);
+        const queue = BiophysicalJobQueue.getInstance();
+        const latestJob = jobId ? await queue.getJobData(jobId) : null;
+        const remoteJobs = latestJob?.remoteJobs || data.remoteJobs || {
+          dynamut2JobId: null,
+          dynamut2Status: "unavailable",
+          ddmutJobId: null,
+          ddmutStatus: "unavailable",
+          thermompnnJobId: null,
+          thermompnnStatus: "unavailable",
+          thermompnnError: null,
+          thermompnnVal: null,
+          stabilityoracleVal: null
+        };
+        const structureProvenance = latestJob?.structureProvenance || data.structureProvenance || {};
+
+        const mutMatch = data.mutation.trim().match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+        const posNum = mutMatch ? parseInt(mutMatch[3], 10) : 0;
+
+        return enrichBiophysicalResult(foldxResult, remoteJobs, structureProvenance, posNum);
+      } else if (type === "p2rank") {
+        return await findBindingPocket(data.pdbText, data.mutIndex, data.jobDir, data.targetChain, signal);
+      }
+      throw new Error(`Unknown biophysical job type: ${type}`);
+    } finally {
+      try {
+        if (data.jobDir && fs.existsSync(data.jobDir)) {
+          await fs.promises.rm(data.jobDir, { recursive: true, force: true });
+          console.log(`[Queue Worker] Cleaned up temporary job directory: ${data.jobDir}`);
+        }
+      } catch (cleanupErr: any) {
+        console.error(`[Queue Worker Cleanup Error] Failed to delete ${data.jobDir}:`, cleanupErr.message);
+      }
+    }
+  });
 
   // Generate or load SIDECAR_SECRET token for sidecar authentication (P2-7)
   // Kept in-memory only (S1) to prevent filesystem-level credentials access
@@ -361,6 +426,19 @@ async function startServer() {
     } catch (taskErr: any) {
       console.error("[Shutdown Warning] Failed to abort background tasks:", taskErr.message);
     }
+
+    // Shutdown and abort active jobs in the queue
+    try {
+      const queue = BiophysicalJobQueue.getInstance();
+      await queue.shutdown();
+      console.log("[Shutdown] BiophysicalJobQueue shut down successfully.");
+    } catch (_) {}
+
+    // Shutdown biophysics worker pool
+    try {
+      await shutdownPool();
+      console.log("[Shutdown] Biophysics worker pool shut down successfully.");
+    } catch (_) {}
 
     serverInstance.close(async () => {
       console.log("[Shutdown] HTTP server closed.");

@@ -1,14 +1,26 @@
 import { describe, it, expect, vi } from "vitest";
+
+// Landscape aggregation orchestrates several external services; in this test we want to
+// isolate the post-fetch statistics, so stub out the dependent network-call modules.
+vi.mock("./dbnsfp_local.ts", () => ({
+  isLocalDbnsfpAvailable: vi.fn(() => false),
+  queryLocalDbnsfpVariant: vi.fn(async () => null),
+  queryLocalDbnsfpLandscape: vi.fn(async () => null)
+}));
+vi.mock("./genos_web.ts", () => ({ queryGenosLandscape: vi.fn(async () => []) }));
+vi.mock("./uniprot.ts", () => ({
+  resolveGeneToUniprot: vi.fn(async () => "P00439"),
+  fetchUniprotSequence: vi.fn(async () => "MKVLIVGLGNCGVFSLLDKN")
+}));
+
 import { fetchLandscapeData } from "./landscape.ts";
 
 describe("fetchLandscapeData Stats Calculations", () => {
   it("should calculate mean, median, min, max and count for REVEL and AlphaMissense", async () => {
     const fetchSpy = vi.spyOn(global, "fetch");
     
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        hits: [
+    const hitsPayload = {
+      hits: [
           {
             dbnsfp: {
               aa: { pos: 5 },
@@ -37,8 +49,10 @@ describe("fetchLandscapeData Stats Calculations", () => {
             }
           }
         ]
-      })
-    } as any);
+      };
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify(hitsPayload), { status: 200, headers: { "Content-Type": "application/json" } })
+      );
 
     const data = await fetchLandscapeData("PAH", 5, 5);
     expect(data).toHaveLength(1);
