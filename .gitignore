@@ -43,4 +43,9 @@ data/*.sqlite
 # Local secrets
 .sidecar_secret
 
-
+# Local editor and workspace caches
+.commandcode/
+.freebuff/
+rotabase.txt
+pnpm-lock.yaml
+pnpm-workspace.yaml

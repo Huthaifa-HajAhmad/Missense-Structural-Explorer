@@ -21,7 +21,14 @@
       ]
     },
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "noEmit": true,
     "strict": true
-  }
+  },
+  "exclude": [
+    "scratch",
+    "temp_jobs",
+    "dist",
+    "node_modules"
+  ]
 }
