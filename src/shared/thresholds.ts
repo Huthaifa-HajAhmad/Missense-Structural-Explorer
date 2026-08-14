@@ -1,3 +1,6 @@
+import stackingConfig from "./stacking_config.json" with { type: "json" };
+import { getResidueContext, getCalibration } from "./uncertainty.ts";
+
 /**
  * THRESHOLDS_METADATA — Audit and citation metadata for predictor cut-points (P3-2).
  */
@@ -8,11 +11,16 @@ export const THRESHOLDS_METADATA = {
     alphaMissense: "Cheng et al. Science (2023) & Pejaver et al. Am J Hum Genet (2022)",
     cadd: "Rentzsch et al. Nucleic Acids Res (2019) & ACMG/AMP SVI Guidance",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005)",
-    popEVE: "Frazer et al. Nature (2021)"
+    popEVE: "Frazer et al. Nature (2021)",
+    dbscsnv: "Jian et al. Hum Mutat (2014)"
   }
 };
 
 export const THRESHOLDS = {
+  dbscsnv: {
+    /** dbscSNV ADA/RF score ≥ 0.60 → high probability of altering splicing */
+    spliceAltering: 0.6,
+  },
   revel: {
     /** REVEL ≥ 0.75 → PP3 (Strong) per ClinGen SVI recommendation (Ioannidis et al. 2016) */
     pathogenicStrong: 0.75,
@@ -94,6 +102,10 @@ export const THRESHOLDS = {
     destabilizing: 1.0,
   },
   rasp: {
+    /** ΔΔG ≥ 1.0 kcal/mol: predicted destabilization */
+    destabilizing: 1.0,
+  },
+  stabilityoracle: {
     /** ΔΔG ≥ 1.0 kcal/mol: predicted destabilization */
     destabilizing: 1.0,
   },
@@ -312,6 +324,40 @@ export function evaluatePopEve(score: number | null | undefined): PredictorSigna
   return "vus";
 }
 
+export function evaluateSplicePredictor(
+  spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null,
+  spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null,
+  dbscsnv?: { ada_score: number | null; rf_score: number | null } | null
+): PredictorSignal {
+  const isNear = spliceProximity?.isNearSpliceSite ?? false;
+  const maxDs = spliceai?.max_ds ?? 0;
+  const isSpliceAIPathogenic = maxDs >= 0.10;
+  const isDbscsnvPathogenic = (dbscsnv?.ada_score != null && dbscsnv.ada_score >= THRESHOLDS.dbscsnv.spliceAltering) ||
+                             (dbscsnv?.rf_score != null && dbscsnv.rf_score >= THRESHOLDS.dbscsnv.spliceAltering);
+
+  if (isNear || isSpliceAIPathogenic || isDbscsnvPathogenic) {
+    return "pathogenic";
+  }
+
+  if ((spliceProximity === undefined || spliceProximity === null) &&
+      (spliceai === undefined || spliceai === null) &&
+      (dbscsnv === undefined || dbscsnv === null)) {
+    return "unavailable";
+  }
+
+  const dist = spliceProximity?.distance ?? Infinity;
+  const isSpliceAIBenign = spliceai?.max_ds != null ? spliceai.max_ds <= 0.02 : true;
+  const isDbscsnvBenign = (dbscsnv?.ada_score != null || dbscsnv?.rf_score != null)
+    ? ((dbscsnv.ada_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering && (dbscsnv.rf_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering)
+    : true;
+
+  if (dist > 10 && isSpliceAIBenign && isDbscsnvBenign) {
+    return "benign";
+  }
+
+  return "vus";
+}
+
 export interface PredictorToolDetails {
   key: string;
   name: string;
@@ -349,6 +395,9 @@ export function countPredictorConcordance(
     popeve?: number | null;
     esm2Llr?: number | null;
     saprotLlr?: number | null;
+    spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null;
+    spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null;
+    dbscsnv?: { ada_score: number | null; rf_score: number | null } | null;
   }
 ): PredictorConcordance {
   const toolDefs: PredictorToolDetails[] = [
@@ -405,6 +454,25 @@ export function countPredictorConcordance(
       name: "popEVE",
       signal: evaluatePopEve(extra?.popeve),
       scoreLabel: extra?.popeve !== null && extra?.popeve !== undefined ? `${extra.popeve.toFixed(3)}` : "—",
+    },
+    {
+      key: "splice",
+      name: "Splicing",
+      signal: evaluateSplicePredictor(extra?.spliceProximity, extra?.spliceai, extra?.dbscsnv),
+      scoreLabel: (() => {
+        const prox = extra?.spliceProximity;
+        const sai = extra?.spliceai;
+        const dbsc = extra?.dbscsnv;
+        if (!prox && !sai && !dbsc) return "—";
+        let parts: string[] = [];
+        if (prox) parts.push(`${prox.distance} bp`);
+        if (sai && sai.max_ds !== null) parts.push(`SpliceAI: ${sai.max_ds.toFixed(2)}`);
+        if (dbsc && (dbsc.ada_score != null || dbsc.rf_score != null)) {
+          const maxDbsc = Math.max(dbsc.ada_score ?? 0, dbsc.rf_score ?? 0);
+          parts.push(`dbscSNV: ${maxDbsc.toFixed(2)}`);
+        }
+        return parts.length > 0 ? parts.join(" ") : "—";
+      })()
     },
     {
       key: "esm",
@@ -477,7 +545,7 @@ export function countPredictorConcordance(
  * Canonical Rule: Positive magnitude (> 0) indicates destabilization.
  */
 export function normalizeDestabilizationMagnitude(
-  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn",
+  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn" | "stabilityoracle",
   score: number | null
 ): { magnitude: number | null; isDestabilizing: boolean } {
   if (score === null || score === undefined || isNaN(score)) {
@@ -505,6 +573,11 @@ export function normalizeDestabilizationMagnitude(
       const isDestab = score >= THRESHOLDS.rasp.destabilizing;
       return { magnitude: score, isDestabilizing: isDestab };
     }
+    case "stabilityoracle": {
+      // StabilityOracle: Positive score = destabilizing (threshold >= 1.0)
+      const isDestab = score >= THRESHOLDS.stabilityoracle.destabilizing;
+      return { magnitude: score, isDestabilizing: isDestab };
+    }
     case "thermompnn": {
       // ThermoMPNN: Positive score = destabilizing (threshold >= 1.0 kcal/mol, deltaG = mutant - WT)
       const isDestab = score >= THRESHOLDS.thermompnn.destabilizing;
@@ -515,8 +588,175 @@ export function normalizeDestabilizationMagnitude(
   }
 }
 
+export interface CalibratedScore {
+  p: number;
+  lower: number;
+  upper: number;
+}
+
+/**
+ * Maps a raw ddG score from a specific tool to its calibrated probability,
+ * lower conformal bound, and upper conformal bound by interpolating pre-fit curves.
+ */
+export function calibrateRawScore(
+  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn" | "stabilityoracle",
+  score: number | null
+): CalibratedScore | null {
+  if (score === null || score === undefined || isNaN(score)) {
+    return null;
+  }
+
+  const config = (stackingConfig as any)[tool];
+  if (!config || !config.bins || config.bins.length === 0) {
+    return null;
+  }
+
+  const bins = config.bins;
+  
+  // Edge cases (clipping)
+  if (score <= bins[0].raw) {
+    return { p: bins[0].p, lower: bins[0].lower, upper: bins[0].upper };
+  }
+  if (score >= bins[bins.length - 1].raw) {
+    return { p: bins[bins.length - 1].p, lower: bins[bins.length - 1].lower, upper: bins[bins.length - 1].upper };
+  }
+
+  // Linear interpolation between matching bin edges
+  for (let i = 0; i < bins.length - 1; i++) {
+    const binA = bins[i];
+    const binB = bins[i + 1];
+    if (score >= binA.raw && score <= binB.raw) {
+      const denom = binB.raw - binA.raw;
+      const ratio = denom === 0 ? 0 : (score - binA.raw) / denom;
+      return {
+        p: binA.p + ratio * (binB.p - binA.p),
+        lower: binA.lower + ratio * (binB.lower - binA.lower),
+        upper: binA.upper + ratio * (binB.upper - binA.upper),
+      };
+    }
+  }
+
+  return { p: bins[0].p, lower: bins[0].lower, upper: bins[0].upper };
+}
+
+export interface CalibratedConsensusResult {
+  consensusProbability: number;
+  consensusConfMin: number;
+  consensusConfMax: number;
+  consensusVerdict: string;
+}
+
+/**
+ * Calculates consensus probability and conformal intervals from available predictors
+ * by doing a weighted average of individual calibrated probabilities.
+ */
+export function computeCalibratedConsensus(
+  energetics: {
+    foldxMean?: number | null;
+    foldx?: number | null;
+    dynamut2?: number | null;
+    ddmut?: number | null;
+    rasp?: number | null;
+    thermompnn?: number | null;
+    stabilityoracle?: number | null;
+    foldxRepairFailed?: boolean;
+  } | null,
+  uniprotFeatures?: any[],
+  residueIndex?: number
+): CalibratedConsensusResult {
+  if (!energetics) {
+    return {
+      consensusProbability: 0,
+      consensusConfMin: 0,
+      consensusConfMax: 0,
+      consensusVerdict: "Low Misfolding Risk (Neutral Stability)"
+    };
+  }
+
+  const isFoldxExcluded = !!energetics.foldxRepairFailed;
+  const foldxVal = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx ?? null);
+  const dynamut2 = energetics.dynamut2 ?? null;
+  const ddmut = energetics.ddmut ?? null;
+  const rasp = energetics.rasp ?? null;
+  const thermompnn = energetics.thermompnn ?? null;
+
+  const stabilityoracle = energetics.stabilityoracle ?? null;
+
+  const tools: Array<{ name: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn" | "stabilityoracle"; val: number | null }> = [
+    { name: "foldx", val: foldxVal },
+    { name: "dynamut2", val: dynamut2 },
+    { name: "ddmut", val: ddmut },
+    { name: "rasp", val: rasp },
+    { name: "thermompnn", val: thermompnn },
+    { name: "stabilityoracle", val: stabilityoracle }
+  ];
+
+  const context = getResidueContext(uniprotFeatures, residueIndex ?? 0);
+
+  let totalWeight = 0;
+  let weightedProbSum = 0;
+  let weightedLowerSum = 0;
+  let weightedUpperSum = 0;
+  let availableCount = 0;
+
+  for (const tool of tools) {
+    if (tool.val !== null) {
+      const cal = calibrateRawScore(tool.name, tool.val);
+      if (cal !== null) {
+        const baseWeight = (stackingConfig as any)[tool.name]?.weight ?? 1.0;
+        const calInfo = getCalibration(tool.name, context);
+        const weight = baseWeight * calInfo.weightMultiplier;
+
+        totalWeight += weight;
+        weightedProbSum += weight * cal.p;
+        weightedLowerSum += weight * cal.lower;
+        weightedUpperSum += weight * cal.upper;
+        availableCount++;
+      }
+    }
+  }
+
+  if (availableCount === 0 || totalWeight === 0) {
+    return {
+      consensusProbability: 0,
+      consensusConfMin: 0,
+      consensusConfMax: 0,
+      consensusVerdict: "Low Misfolding Risk (Neutral Stability)"
+    };
+  }
+
+  const consensusProbability = weightedProbSum / totalWeight;
+  const consensusConfMin = weightedLowerSum / totalWeight;
+  const consensusConfMax = weightedUpperSum / totalWeight;
+
+  // Probability-based consensus threshold mapping
+  let consensusVerdict = "Low Misfolding Risk (Neutral Stability)";
+  if (consensusProbability >= 0.42) {
+    consensusVerdict = "High Misfolding Risk (Destabilizing Consensus)";
+  } else if (consensusProbability >= 0.20) {
+    consensusVerdict = "Moderate Misfolding Risk (Conflicting Stability)";
+  }
+
+  // Handle single-predictor fallback label schema
+  if (availableCount === 1) {
+    if (consensusProbability >= 0.42) {
+      consensusVerdict = "Elevated Misfolding Risk (Single-Tool Estimate)";
+    } else {
+      consensusVerdict = "Low Misfolding Risk (Single-Tool Estimate)";
+    }
+  }
+
+  return {
+    consensusProbability,
+    consensusConfMin,
+    consensusConfMax,
+    consensusVerdict
+  };
+}
+
 /**
  * Unified calculation of structural energetics consensus stability verdict.
+ * Kept for backward compatibility.
  */
 export function computeConsensusVerdict(
   energetics: {
@@ -526,79 +766,9 @@ export function computeConsensusVerdict(
     ddmut?: number | null;
     rasp?: number | null;
     thermompnn?: number | null;
+    stabilityoracle?: number | null;
     foldxRepairFailed?: boolean;
   } | null
 ): string {
-  if (!energetics) return "Low Misfolding Risk (Neutral Stability)";
-  const isFoldxExcluded = !!energetics.foldxRepairFailed;
-  const foldxVal = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx ?? null);
-  const dynamut2 = energetics.dynamut2 ?? null;
-  const ddmut = energetics.ddmut ?? null;
-  const rasp = energetics.rasp ?? null;
-  const thermompnn = energetics.thermompnn ?? null;
-
-  const foldxNorm = normalizeDestabilizationMagnitude("foldx", foldxVal);
-  const dynamutNorm = normalizeDestabilizationMagnitude("dynamut2", dynamut2);
-  const ddmutNorm = normalizeDestabilizationMagnitude("ddmut", ddmut);
-  const raspNorm = normalizeDestabilizationMagnitude("rasp", rasp);
-  const tmNorm = normalizeDestabilizationMagnitude("thermompnn", thermompnn);
-
-  const destabCount = [
-    foldxNorm.isDestabilizing,
-    dynamutNorm.isDestabilizing,
-    ddmutNorm.isDestabilizing,
-    raspNorm.isDestabilizing,
-    tmNorm.isDestabilizing
-  ].filter(Boolean).length;
-
-  const availableCount = [foldxVal, dynamut2, ddmut, rasp, thermompnn].filter(v => v !== null).length;
-
-  if (availableCount === 1) {
-    return destabCount === 1
-      ? "Elevated Misfolding Risk (Single-Tool Estimate)"
-      : "Low Misfolding Risk (Single-Tool Estimate)";
-  }
-
-  // Confidence weights based on predictor accuracy profiles (D2)
-  const weights = {
-    foldx: 1.2,
-    dynamut2: 1.0,
-    ddmut: 1.0,
-    rasp: 1.5,
-    thermompnn: 2.0
-  };
-
-  let totalAvailableWeight = 0;
-  let totalDestabWeight = 0;
-
-  if (foldxVal !== null) {
-    totalAvailableWeight += weights.foldx;
-    if (foldxNorm.isDestabilizing) totalDestabWeight += weights.foldx;
-  }
-  if (dynamut2 !== null) {
-    totalAvailableWeight += weights.dynamut2;
-    if (dynamutNorm.isDestabilizing) totalDestabWeight += weights.dynamut2;
-  }
-  if (ddmut !== null) {
-    totalAvailableWeight += weights.ddmut;
-    if (ddmutNorm.isDestabilizing) totalDestabWeight += weights.ddmut;
-  }
-  if (rasp !== null) {
-    totalAvailableWeight += weights.rasp;
-    if (raspNorm.isDestabilizing) totalDestabWeight += weights.rasp;
-  }
-  if (thermompnn !== null) {
-    totalAvailableWeight += weights.thermompnn;
-    if (tmNorm.isDestabilizing) totalDestabWeight += weights.thermompnn;
-  }
-
-  const weightedRatio = totalAvailableWeight > 0 ? totalDestabWeight / totalAvailableWeight : 0;
-
-  // Verdict logic based on confidence-weighted ratio (D2)
-  if (weightedRatio >= 0.44) {
-    return "High Misfolding Risk (Destabilizing Consensus)";
-  } else if (weightedRatio > 0.0) {
-    return "Moderate Misfolding Risk (Conflicting Stability)";
-  }
-  return "Low Misfolding Risk (Neutral Stability)";
+  return computeCalibratedConsensus(energetics).consensusVerdict;
 }

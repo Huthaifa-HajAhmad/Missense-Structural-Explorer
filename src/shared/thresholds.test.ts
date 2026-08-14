@@ -7,6 +7,7 @@ import {
   evaluateBayesdel,
   evaluateEsm,
   evaluateEsm1b,
+  evaluateSplicePredictor,
   countPredictorConcordance,
   computeConsensusVerdict,
   normalizeDestabilizationMagnitude,
@@ -63,7 +64,21 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateEsm1b(-8.0)).toBe("pathogenic");
       expect(evaluateEsm1b(-6.0)).toBe("vus");
       expect(evaluateEsm1b(-4.0)).toBe("benign");
-      expect(evaluateEsm1b(null)).toBe("unavailable");
+    });
+
+    it("should evaluate splice-site proximity and SpliceAI scores correctly", () => {
+      // Near splice site -> pathogenic
+      expect(evaluateSplicePredictor({ distance: 2, isNearSpliceSite: true }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("pathogenic");
+      
+      // High SpliceAI score -> pathogenic
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.35, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.35 })).toBe("pathogenic");
+
+      // Far and low SpliceAI -> benign
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
+
+      // Both null / undefined -> unavailable
+      expect(evaluateSplicePredictor(null, null)).toBe("unavailable");
+      expect(evaluateSplicePredictor(undefined, undefined)).toBe("unavailable");
     });
   });
 
@@ -177,7 +192,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(resStrong).toBe("High Misfolding Risk (Destabilizing Consensus)");
 
       // 3. ThermoMPNN (weight 2.0) + DDMut (weight 1.0) are destabilizing: total destab weight = 3.0. Total available = 6.7.
-      // ratio = 3.0 / 6.7 = 44.8% (>= 44%) -> High Misfolding Risk (Destabilizing Consensus)
+      // Under calibrated stacker, 3 stable vs 2 destabilizing is a conflict: Moderate Misfolding Risk (Conflicting Stability)
       const resThermoAndWeak = computeConsensusVerdict({
         foldxMean: 0.1,
         dynamut2: 0.1,
@@ -185,7 +200,13 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         rasp: 0.1,
         thermompnn: 1.5  // Destab
       });
-      expect(resThermoAndWeak).toBe("High Misfolding Risk (Destabilizing Consensus)");
+      expect(resThermoAndWeak).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+
+      // 4. StabilityOracle (weight 1.8) is destabilizing: total weight = 1.8. Single tool fallback limit logic:
+      const resStabilityOracle = computeConsensusVerdict({
+        stabilityoracle: 2.0
+      });
+      expect(resStabilityOracle).toBe("Elevated Misfolding Risk (Single-Tool Estimate)");
     });
   });
 
@@ -235,6 +256,13 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(normalizeDestabilizationMagnitude("thermompnn", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
       expect(normalizeDestabilizationMagnitude("thermompnn", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
       expect(normalizeDestabilizationMagnitude("thermompnn", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
+    });
+
+    it("should correctly normalize StabilityOracle where positive indicates destabilization", () => {
+      // StabilityOracle threshold is >= 1.0
+      expect(normalizeDestabilizationMagnitude("stabilityoracle", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("stabilityoracle", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
+      expect(normalizeDestabilizationMagnitude("stabilityoracle", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
     });
 
     it("should verify component and thresholds.ts share one RaSP convention", () => {
