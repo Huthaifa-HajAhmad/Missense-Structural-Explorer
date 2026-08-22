@@ -49,7 +49,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   computedResiduesCache,
   disruptionPredictor,
   uniprotFeatures,
-  metricMode = "max",
+  metricMode = "mean",
   windowSize = 31
 }: SequenceVisualizerProps) {
   const { settings } = useSettings();

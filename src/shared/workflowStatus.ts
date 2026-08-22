@@ -1,5 +1,7 @@
 import { AnalysisResult } from "../types";
 
+export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
+
 export function getWorkflowStageStatus(
   view: string,
   result: AnalysisResult | null | undefined,
@@ -12,7 +14,7 @@ export function getWorkflowStageStatus(
   dynamut2Status?: string | null,
   ddmutStatus?: string | null,
   isNarrativeLoading?: boolean
-): { status: "complete" | "progress" | "pending"; desc: string } {
+): { status: WorkflowStatusType; desc: string } {
   // Define default descriptions for stages
   const defaultDescs: Record<string, string> = {
     evidence: "ClinVar, gnomAD & ACMG rules engine",
@@ -20,6 +22,7 @@ export function getWorkflowStageStatus(
     energetics: "FoldX, DynaMut2 & DDMut stability engines",
     landscape: "3D spatial mutation mapping & pocket impact",
     insights: "AI-driven variant interpretation narrative",
+    literature: "PubMed Central & Europe PMC citation mining",
     report: "Downloadable clinical report & variant summary"
   };
 
@@ -140,7 +143,7 @@ export function getWorkflowStageStatus(
 
       if (hasBiophysics || result.analysis) {
         const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.foldingEnergetics?.thermompnn ?? result.dynamut2;
-        const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "Gemini biophysical assessment ready · FoldX/DynaMut2/DDMut chips updating independently";
+        const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "Biophysical stability models active · In-silico chips updating";
         return {
           status: "complete",
           desc: ddgText
@@ -200,6 +203,19 @@ export function getWorkflowStageStatus(
       return {
         status: "pending",
         desc: "Variant insights unavailable"
+      };
+    }
+
+    if (view === "literature") {
+      if (isNarrativeLoading) {
+        return {
+          status: "progress",
+          desc: "Querying Europe PMC & PubMed Central..."
+        };
+      }
+      return {
+        status: "complete",
+        desc: "PubMed & Europe PMC citations indexed"
       };
     }
 

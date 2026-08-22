@@ -1,11 +1,26 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef, ReactNode } from "react";
-import { ConsoleEntry, DevConsoleState, DevConsoleAction, LogSource, LogStream, StreamState } from "../types/devConsole";
+import {
+  ConsoleEntry,
+  DevConsoleState,
+  DevConsoleAction,
+  LogSource,
+  LogStream,
+  StreamState,
+  ErrorImpact,
+  TraceRun,
+  TraceSpan,
+  PipelineStage,
+  SessionContext
+} from "../types/devConsole";
 
 const ERROR_STORAGE_KEY = "devConsoleErrors";
 const LIVE_STORAGE_KEY = "devConsoleLive";
+const TRACE_STORAGE_KEY = "devConsoleTraces";
 const MAX_ENTRIES = 500;
+const MAX_TRACES = 25;
 
 function loadInitialStreamEntries(key: string): ConsoleEntry[] {
+  if (typeof sessionStorage === "undefined") return [];
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return [];
@@ -19,6 +34,21 @@ function loadInitialStreamEntries(key: string): ConsoleEntry[] {
   return [];
 }
 
+function loadInitialTraces(): TraceRun[] {
+  if (typeof sessionStorage === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(TRACE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (e) {
+    // Ignore trace load errors
+  }
+  return [];
+}
+
 function createInitialStreamState(storageKey: string): StreamState {
   return {
     entries: loadInitialStreamEntries(storageKey),
@@ -26,18 +56,39 @@ function createInitialStreamState(storageKey: string): StreamState {
     isCapturing: true,
     levelFilter: "all",
     sourceFilter: "all",
+    impactFilter: "all",
     searchQuery: "",
   };
 }
+
+function getMemoryUsageMB(): number | undefined {
+  if (typeof window !== "undefined" && (window.performance as any)?.memory?.usedJSHeapSize) {
+    return Math.round((window.performance as any).memory.usedJSHeapSize / (1024 * 1024));
+  }
+  return undefined;
+}
+
+const initialSessionContext: SessionContext = {
+  online: typeof navigator !== "undefined" ? navigator.onLine : true,
+  memoryMB: getMemoryUsageMB(),
+};
+
+const initialTraces = loadInitialTraces();
 
 const initialState: DevConsoleState = {
   errorState: createInitialStreamState(ERROR_STORAGE_KEY),
   liveState: createInitialStreamState(LIVE_STORAGE_KEY),
   telemetrySpans: [],
+  traceRuns: initialTraces,
+  activeTraceRun: initialTraces.length > 0 ? initialTraces[0] : null,
   activeTab: "error",
+  sessionContext: initialSessionContext,
 };
 
-function pushToStreamState(streamState: StreamState, incoming: Omit<ConsoleEntry, "id" | "timestamp" | "count">): StreamState {
+function pushToStreamState(
+  streamState: StreamState,
+  incoming: Omit<ConsoleEntry, "id" | "timestamp" | "count">
+): StreamState {
   if (!streamState.isCapturing) return streamState;
 
   // Check last 5 entries for deduplication
@@ -54,7 +105,10 @@ function pushToStreamState(streamState: StreamState, incoming: Omit<ConsoleEntry
       count: existing.count + 1,
       timestamp: Date.now(),
       detail: incoming.detail || existing.detail,
+      impact: incoming.impact || existing.impact,
       meta: incoming.meta ? { ...existing.meta, ...incoming.meta } : existing.meta,
+      httpMeta: incoming.httpMeta ? { ...existing.httpMeta, ...incoming.httpMeta } : existing.httpMeta,
+      sessionContext: incoming.sessionContext ? { ...existing.sessionContext, ...incoming.sessionContext } : existing.sessionContext,
     };
     return {
       ...streamState,
@@ -138,6 +192,16 @@ function devConsoleReducer(state: DevConsoleState, action: DevConsoleAction): De
         },
       };
     }
+    case "SET_IMPACT_FILTER": {
+      const key = action.stream === "error" ? "errorState" : "liveState";
+      return {
+        ...state,
+        [key]: {
+          ...state[key],
+          impactFilter: action.impact,
+        },
+      };
+    }
     case "SET_SEARCH": {
       const key = action.stream === "error" ? "errorState" : "liveState";
       return {
@@ -153,12 +217,139 @@ function devConsoleReducer(state: DevConsoleState, action: DevConsoleAction): De
         ...state,
         activeTab: action.tab,
       };
+    case "UPDATE_SESSION_CONTEXT":
+      return {
+        ...state,
+        sessionContext: {
+          ...state.sessionContext,
+          ...action.context,
+          memoryMB: getMemoryUsageMB(),
+        },
+      };
+    case "START_TRACE_RUN": {
+      const newTraceRun: TraceRun = {
+        traceId: action.traceId,
+        query: action.query,
+        timestamp: action.timestamp || Date.now(),
+        totalDurationMs: 0,
+        status: "running",
+        spans: [],
+      };
+      const updatedRuns = [newTraceRun, ...state.traceRuns.filter((r) => r.traceId !== action.traceId)].slice(
+        0,
+        MAX_TRACES
+      );
+      return {
+        ...state,
+        traceRuns: updatedRuns,
+        activeTraceRun: newTraceRun,
+      };
+    }
+    case "ADD_TRACE_SPAN": {
+      const newSpan: TraceSpan = {
+        ...action.span,
+        id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      };
+
+      const updatedRuns = state.traceRuns.map((run) => {
+        if (run.traceId === newSpan.traceId) {
+          const spans = [...run.spans.filter((s) => s.name !== newSpan.name), newSpan];
+          const maxEnd = Math.max(...spans.map((s) => s.offsetMs + s.durationMs), 0);
+          return {
+            ...run,
+            totalDurationMs: maxEnd,
+            spans,
+          };
+        }
+        return run;
+      });
+
+      const updatedActive =
+        state.activeTraceRun && state.activeTraceRun.traceId === newSpan.traceId
+          ? updatedRuns.find((r) => r.traceId === newSpan.traceId) || state.activeTraceRun
+          : state.activeTraceRun;
+
+      return {
+        ...state,
+        traceRuns: updatedRuns,
+        activeTraceRun: updatedActive,
+      };
+    }
+    case "UPDATE_TRACE_SPAN": {
+      const updatedRuns = state.traceRuns.map((run) => {
+        if (run.traceId === action.traceId) {
+          const spans = run.spans.map((span) => {
+            if (span.name === action.spanName) {
+              return { ...span, ...action.updates };
+            }
+            return span;
+          });
+          const maxEnd = Math.max(...spans.map((s) => s.offsetMs + s.durationMs), 0);
+          return {
+            ...run,
+            totalDurationMs: maxEnd,
+            spans,
+          };
+        }
+        return run;
+      });
+
+      const updatedActive =
+        state.activeTraceRun && state.activeTraceRun.traceId === action.traceId
+          ? updatedRuns.find((r) => r.traceId === action.traceId) || state.activeTraceRun
+          : state.activeTraceRun;
+
+      return {
+        ...state,
+        traceRuns: updatedRuns,
+        activeTraceRun: updatedActive,
+      };
+    }
+    case "FINISH_TRACE_RUN": {
+      const updatedRuns = state.traceRuns.map((run) => {
+        if (run.traceId === action.traceId) {
+          const maxEnd = Math.max(...run.spans.map((s) => s.offsetMs + s.durationMs), Date.now() - run.timestamp);
+          const hasFailedSpan = run.spans.some((s) => s.status === "failed");
+          return {
+            ...run,
+            totalDurationMs: Math.max(maxEnd, 1),
+            status: action.status || (hasFailedSpan ? "failed" : "completed"),
+          };
+        }
+        return run;
+      });
+
+      const updatedActive =
+        state.activeTraceRun && state.activeTraceRun.traceId === action.traceId
+          ? updatedRuns.find((r) => r.traceId === action.traceId) || state.activeTraceRun
+          : state.activeTraceRun;
+
+      return {
+        ...state,
+        traceRuns: updatedRuns,
+        activeTraceRun: updatedActive,
+      };
+    }
+    case "SET_ACTIVE_TRACE_RUN": {
+      const active = state.traceRuns.find((r) => r.traceId === action.traceId) || null;
+      return {
+        ...state,
+        activeTraceRun: active,
+      };
+    }
+    case "CLEAR_TRACES": {
+      return {
+        ...state,
+        traceRuns: [],
+        activeTraceRun: null,
+        telemetrySpans: [],
+      };
+    }
     case "ADD_TELEMETRY_SPAN": {
       const newSpan = {
         ...action.span,
         timestamp: Date.now(),
       };
-      // Keep up to 50 spans
       const updated = [newSpan, ...state.telemetrySpans].slice(0, 50);
       return {
         ...state,
@@ -181,8 +372,13 @@ export interface DevConsoleContextValue {
   dispatch: React.Dispatch<DevConsoleAction>;
   pushErrorEntry: (entry: Omit<ConsoleEntry, "id" | "timestamp" | "count">) => void;
   pushLiveEntry: (entry: Omit<ConsoleEntry, "id" | "timestamp" | "count">) => void;
+  startTraceRun: (query: string, customTraceId?: string) => string;
+  addTraceSpan: (span: Omit<TraceSpan, "id">) => void;
+  updateTraceSpan: (traceId: string, spanName: string, updates: Partial<TraceSpan>) => void;
+  finishTraceRun: (traceId: string, status?: "completed" | "failed") => void;
   exportErrorEntries: () => void;
   exportLiveEntries: () => void;
+  exportTraceRuns: () => void;
 }
 
 const DevConsoleContext = createContext<DevConsoleContextValue | null>(null);
@@ -190,24 +386,71 @@ const DevConsoleContext = createContext<DevConsoleContextValue | null>(null);
 function detectSourceFromArgs(args: any[]): LogSource {
   const firstArg = args[0];
   if (typeof firstArg === "string") {
+    const s = firstArg.toLowerCase();
     if (
-      firstArg.startsWith("[DynaMut2]") ||
-      firstArg.startsWith("[DDMut]") ||
-      firstArg.startsWith("[ThermoMPNN]") ||
-      firstArg.startsWith("[ESMFold]") ||
-      firstArg.startsWith("[Retry]") ||
-      firstArg.startsWith("[Comparison")
+      s.startsWith("[dynamut2]") ||
+      s.startsWith("[ddmut]") ||
+      s.startsWith("[thermompnn]") ||
+      s.startsWith("[foldx]") ||
+      s.startsWith("[stabilityoracle]") ||
+      s.startsWith("[esm-2]") ||
+      s.startsWith("[esm-3]") ||
+      s.startsWith("[esmc]") ||
+      s.startsWith("[saprot]") ||
+      s.startsWith("[biophysical") ||
+      s.startsWith("[comparison")
     ) {
-      return "workflow";
+      return "biophysics";
     }
-    if (firstArg.startsWith("[ErrorBoundary:")) {
+    if (s.startsWith("[vep]") || s.startsWith("[mane]") || s.startsWith("[splice]") || s.startsWith("[genomic]")) {
+      return "genomics";
+    }
+    if (
+      s.startsWith("[pdb]") ||
+      s.startsWith("[alphafold]") ||
+      s.startsWith("[pocket]") ||
+      s.startsWith("[mol*]") ||
+      s.startsWith("[structure")
+    ) {
+      return "structure-3d";
+    }
+    if (s.startsWith("[gemini]") || s.startsWith("[narrative]") || s.startsWith("[acmg]") || s.startsWith("[clinical]")) {
+      return "ai-narrative";
+    }
+    if (s.startsWith("[pubmed]") || s.startsWith("[litrag]") || s.startsWith("[literature]")) {
+      return "literature";
+    }
+    if (s.startsWith("[errorboundary:")) {
       return "component";
     }
-    if (firstArg.startsWith("[Notification Error]") || firstArg.startsWith("[Notification:") || firstArg.startsWith("[Notification")) {
+    if (s.startsWith("[notification")) {
       return "notification";
+    }
+    if (s.startsWith("[cache]") || s.startsWith("[worker]") || s.startsWith("[webgl]")) {
+      return "system";
+    }
+    if (s.startsWith("[retry]") || s.startsWith("[pipeline]")) {
+      return "workflow";
+    }
+    if (s.startsWith("[network]") || s.startsWith("[http]") || s.startsWith("[fetch]")) {
+      return "network";
     }
   }
   return "console";
+}
+
+function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "debug", message: string, status?: number): ErrorImpact {
+  if (level === "info" || level === "debug") return "info";
+  if (status === 429 || message.toLowerCase().includes("retry") || message.toLowerCase().includes("rate limit")) {
+    return "recoverable";
+  }
+  if (status === 500 || level === "error" && (source === "runtime" || source === "component" || message.includes("Variant analysis failed"))) {
+    return "fatal";
+  }
+  if (status === 404 || status === 503 || level === "warn" || source === "literature" || source === "notification") {
+    return "degraded";
+  }
+  return level === "error" ? "fatal" : "degraded";
 }
 
 function formatArgsMessage(args: any[]): { message: string; detail?: string } {
@@ -231,25 +474,53 @@ function formatArgsMessage(args: any[]): { message: string; detail?: string } {
 export function DevConsoleProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(devConsoleReducer, initialState);
   const isInternalCapturingRef = useRef(false);
+  const sessionContextRef = useRef<SessionContext>(state.sessionContext);
 
-  // Sync to sessionStorage
   useEffect(() => {
-    try {
-      sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify(state.errorState.entries));
-    } catch (e) {}
+    sessionContextRef.current = state.sessionContext;
+  }, [state.sessionContext]);
+
+  // Debounced sync to sessionStorage to prevent main-thread jank and quota exhaustion
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify(state.errorState.entries.slice(-100)));
+        }
+      } catch (e) {}
+    }, 500);
+    return () => clearTimeout(timer);
   }, [state.errorState.entries]);
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(state.liveState.entries));
-    } catch (e) {}
+    const timer = setTimeout(() => {
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(state.liveState.entries.slice(-100)));
+        }
+      } catch (e) {}
+    }, 500);
+    return () => clearTimeout(timer);
   }, [state.liveState.entries]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(TRACE_STORAGE_KEY, JSON.stringify(state.traceRuns.slice(-50)));
+        }
+      } catch (e) {}
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [state.traceRuns]);
 
   const pushErrorEntry = useCallback((entry: Omit<ConsoleEntry, "id" | "timestamp" | "count">) => {
     if (isInternalCapturingRef.current) return;
     isInternalCapturingRef.current = true;
     try {
-      dispatch({ type: "PUSH_ENTRY", stream: "error", entry });
+      const impact = entry.impact || classifyImpact(entry.source, entry.level, entry.message, entry.httpMeta?.status);
+      const sessionContext = entry.sessionContext || { ...sessionContextRef.current, memoryMB: getMemoryUsageMB() };
+      dispatch({ type: "PUSH_ENTRY", stream: "error", entry: { ...entry, impact, sessionContext } });
     } finally {
       isInternalCapturingRef.current = false;
     }
@@ -259,10 +530,41 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     if (isInternalCapturingRef.current) return;
     isInternalCapturingRef.current = true;
     try {
-      dispatch({ type: "PUSH_ENTRY", stream: "live", entry });
+      const impact = entry.impact || "info";
+      const sessionContext = entry.sessionContext || { ...sessionContextRef.current, memoryMB: getMemoryUsageMB() };
+      dispatch({ type: "PUSH_ENTRY", stream: "live", entry: { ...entry, impact, sessionContext } });
     } finally {
       isInternalCapturingRef.current = false;
     }
+  }, []);
+
+  const startTraceRun = useCallback((query: string, customTraceId?: string): string => {
+    const traceId = customTraceId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `trace-${Date.now()}`);
+    dispatch({ type: "START_TRACE_RUN", traceId, query, timestamp: Date.now() });
+    return traceId;
+  }, []);
+
+  const addTraceSpan = useCallback((span: Omit<TraceSpan, "id">) => {
+    dispatch({ type: "ADD_TRACE_SPAN", span });
+    // Also push to legacy telemetry spans for backwards compatibility
+    if (span.status !== "running") {
+      dispatch({
+        type: "ADD_TELEMETRY_SPAN",
+        span: {
+          name: span.name,
+          durationMs: span.durationMs,
+          status: span.status === "failed" ? "failed" : "success",
+        },
+      });
+    }
+  }, []);
+
+  const updateTraceSpan = useCallback((traceId: string, spanName: string, updates: Partial<TraceSpan>) => {
+    dispatch({ type: "UPDATE_TRACE_SPAN", traceId, spanName, updates });
+  }, []);
+
+  const finishTraceRun = useCallback((traceId: string, status?: "completed" | "failed") => {
+    dispatch({ type: "FINISH_TRACE_RUN", traceId, status });
   }, []);
 
   const exportErrorEntries = useCallback(() => {
@@ -285,7 +587,17 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     URL.revokeObjectURL(url);
   }, [state.liveState.entries]);
 
-  // Install Interceptors
+  const exportTraceRuns = useCallback(() => {
+    const blob = new Blob([JSON.stringify(state.traceRuns, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pipeline-traces-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [state.traceRuns]);
+
+  // Install Global Interceptors
   useEffect(() => {
     const origLog = console.log.bind(console);
     const origInfo = console.info.bind(console);
@@ -340,7 +652,8 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
         pushErrorEntry({
           level: "error",
           source: "runtime",
-          message: typeof message === "string" ? message : "Runtime Error",
+          impact: "fatal",
+          message: typeof message === "string" ? message : "Runtime Exception",
           detail: error?.stack,
           meta: { file: source, line: lineno, col: colno },
         });
@@ -356,6 +669,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
         pushErrorEntry({
           level: "error",
           source: "runtime",
+          impact: "fatal",
           message,
           detail,
         });
@@ -363,40 +677,95 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
 
+    // Intercept WebGL context loss for Mol* 3D rendering failures
+    const handleContextLost = (event: Event) => {
+      if (!isInternalCapturingRef.current) {
+        pushErrorEntry({
+          level: "error",
+          source: "structure-3d",
+          impact: "degraded",
+          message: "WebGL Context Lost — 3D Mol* canvas GPU context was interrupted.",
+          detail: "Canvas GPU context was reclaimed by browser. Reloading structure or viewer component is recommended.",
+        });
+      }
+    };
+    window.addEventListener("webglcontextlost", handleContextLost, true);
+
+    // Enhanced window.fetch interceptor with safe response error body extraction
     window.fetch = async (...args: Parameters<typeof fetch>) => {
       const input = args[0];
       const init = args[1];
       const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
-      const method = init?.method || (input instanceof Request ? input.method : "GET");
+      const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const startTime = performance.now();
 
       try {
         const response = await origFetch(...args);
+        const durationMs = Math.round(performance.now() - startTime);
+
         if (!isInternalCapturingRef.current) {
           if (!response.ok) {
+            // Clone response safely to read error body without consuming caller's stream
+            let responseBody: string | undefined;
+            try {
+              const clone = response.clone();
+              const text = await clone.text();
+              responseBody = text.slice(0, 4096); // limit to 4KB
+            } catch (e) {
+              responseBody = "[Failed to read response body]";
+            }
+
+            let parsedError: any = null;
+            if (responseBody) {
+              try {
+                parsedError = JSON.parse(responseBody);
+              } catch (e) {}
+            }
+
+            const errorSummary = parsedError?.error || parsedError?.message || response.statusText;
+            const message = `${method} ${url} → ${response.status} ${response.statusText}${errorSummary && errorSummary !== response.statusText ? ` (${errorSummary})` : ""}`;
+            const isCritical = url.includes("/api/v1/variant/analyze") || url.includes("/api/v1/structure/");
+            const impact: ErrorImpact = response.status >= 500 && isCritical ? "fatal" : response.status === 429 ? "recoverable" : "degraded";
+
             pushErrorEntry({
               level: response.status >= 500 ? "error" : "warn",
               source: "network",
-              message: `${method} ${url} → ${response.status} ${response.statusText}`,
-              meta: { url, status: response.status, statusText: response.statusText, method },
+              impact,
+              message,
+              detail: responseBody ? `HTTP Status: ${response.status}\n\nServer Response Payload:\n${responseBody}` : undefined,
+              httpMeta: {
+                url,
+                method,
+                status: response.status,
+                statusText: response.statusText,
+                durationMs,
+                responseBody: parsedError || responseBody,
+              },
+              meta: { url, status: response.status, statusText: response.statusText, method, durationMs },
             });
           } else if (url.includes("/api/v1/") || method === "POST") {
             pushLiveEntry({
               level: "info",
               source: "network",
-              message: `HTTP ${method} ${url} → ${response.status} OK`,
-              meta: { url, status: response.status, method },
+              impact: "info",
+              message: `HTTP ${method} ${url} → ${response.status} OK (${durationMs}ms)`,
+              httpMeta: { url, method, status: response.status, statusText: "OK", durationMs },
+              meta: { url, status: response.status, method, durationMs },
             });
           }
         }
         return response;
       } catch (err: any) {
+        const durationMs = Math.round(performance.now() - startTime);
         if (err?.name !== "AbortError" && !isInternalCapturingRef.current) {
           pushErrorEntry({
             level: "error",
             source: "network",
-            message: `Fetch failed: ${url}`,
+            impact: "fatal",
+            message: `Fetch failed: ${method} ${url}`,
             detail: err?.stack || String(err),
-            meta: { url, method },
+            httpMeta: { url, method, status: 0, durationMs },
+            meta: { url, method, durationMs },
           });
         }
         throw err;
@@ -411,6 +780,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       window.fetch = origFetch;
       window.onerror = null;
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      window.removeEventListener("webglcontextlost", handleContextLost, true);
     };
   }, [pushErrorEntry, pushLiveEntry]);
 
@@ -421,8 +791,13 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
         dispatch,
         pushErrorEntry,
         pushLiveEntry,
+        startTraceRun,
+        addTraceSpan,
+        updateTraceSpan,
+        finishTraceRun,
         exportErrorEntries,
         exportLiveEntries,
+        exportTraceRuns,
       }}
     >
       {children}

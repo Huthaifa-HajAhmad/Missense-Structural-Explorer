@@ -7,7 +7,7 @@ import {
   CheckCircle2, Circle, BookOpen,
 } from "lucide-react";
 import { AnalysisResult } from "../types";
-import { getWorkflowStageStatus } from "../shared/workflowStatus";
+import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 
 export type MasterView =
   | "search"
@@ -108,7 +108,7 @@ const STRUCTURE_SUB_ITEMS = [
 ];
 
 /** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */
-function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
+function StepIcon({ status }: { status: WorkflowStatusType }) {
   if (status === "complete") {
     return (
       <span className="relative flex h-2.5 w-2.5 items-center justify-center shrink-0" title="Complete" aria-label="Complete">
@@ -123,6 +123,24 @@ function StepIcon({ status }: { status: "complete" | "progress" | "pending" }) {
         className="w-2.5 h-2.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin shrink-0 inline-block"
         role="status"
         aria-label="In progress"
+      />
+    );
+  }
+  if (status === "degraded") {
+    return (
+      <span
+        className="w-2 h-2 rounded-full bg-amber-500 shrink-0 inline-block"
+        title="Service degraded"
+        aria-label="Service degraded"
+      />
+    );
+  }
+  if (status === "error") {
+    return (
+      <span
+        className="w-2 h-2 rounded-full bg-rose-500 shrink-0 inline-block"
+        title="Error"
+        aria-label="Error"
       />
     );
   }
@@ -450,6 +468,27 @@ function MasterSidebar({
                             >
                               {sub.label}
                             </span>
+                            {(() => {
+                              const isSubLoading =
+                                sub.id === "splicing"
+                                  ? (isBiophysicalLoading && !analysisResult?.conservationData?.spliceai)
+                                  : sub.id === "predictors"
+                                  ? (isBiophysicalLoading && !analysisResult?.conservationData?.revel)
+                                  : sub.id === "structure"
+                                  ? (isFolding || isPocketLoading || dynamut2Status === "pending" || ddmutStatus === "pending")
+                                  : false;
+
+                              if (isSubLoading) {
+                                return (
+                                  <span
+                                    className="ml-auto w-2 h-2 rounded-full border border-indigo-400 border-t-transparent animate-spin shrink-0"
+                                    title="Streaming in background"
+                                    aria-label="Streaming in background"
+                                  />
+                                );
+                              }
+                              return null;
+                            })()}
                           </button>
                         );
                       })}

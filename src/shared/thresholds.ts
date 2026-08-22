@@ -205,6 +205,10 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
   esm:
     "VESM Co-distilled LLR (ntranoslab, unpublished preprint). Informational only — no validated clinical threshold is applied, and it is excluded from concordance voting.",
+  gpnStar:
+    "GPN-Star (Song Lab, bioRxiv 2025). Phylogeny-aware zero-shot LLR across 100+ vertebrate alignments. Severe evolutionary constraint LLR < -2.5 (Pathogenic Prior); Tolerated LLR ≥ 0.0.",
+  evo2:
+    "Evo 2 Family (Arc Institute / EvolutionaryScale, Nature 2026). Multi-scale 40B genomic foundation model LLR across 1M+ bp context. Negative delta scores indicate functional disruption.",
   metaRnn:
     "MetaRNN (dbNSFP, score ≥ 0.5 deleterious).",
   clinPred:

@@ -14,48 +14,6 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
         <p className="screen-tab-description">In-silico pathogenicity predictors with ACMG/AMP-calibrated thresholds and concordance voting.</p>
       </div>
       
-      {/* Transcript Context & Warning (TRANSCRIPT-BANNER) */}
-      {result.transcriptId && (() => {
-        const isMane = result.isManeSelect;
-        const isManePlus = result.isManePlusClinical;
-        const isCanonical = result.isCanonical;
-
-        let tierLabel = "";
-        let tierDesc = "";
-        let bannerStyle = "";
-
-        if (isMane) {
-          tierLabel = "MANE Select";
-          tierDesc = "Gold-standard clinical transcript.";
-          bannerStyle = "bg-emerald-500/5 text-emerald-800 border-emerald-500/15 dark:text-emerald-400";
-        } else if (isManePlus) {
-          tierLabel = "MANE Plus Clinical";
-          tierDesc = "Alternative clinical transcript.";
-          bannerStyle = "bg-blue-500/5 text-blue-800 border-blue-500/15 dark:text-blue-400";
-        } else if (isCanonical) {
-          tierLabel = "Ensembl Canonical";
-          tierDesc = "Ensembl canonical isoform.";
-          bannerStyle = "bg-slate-500/5 text-slate-700 border-slate-500/15 dark:text-slate-400";
-        } else {
-          tierLabel = "Non-canonical Fallback";
-          tierDesc = "Non-canonical isoform. Predictor scores may vary.";
-          bannerStyle = "bg-amber-500/5 text-amber-800 border-amber-500/15 dark:text-amber-400";
-        }
-
-        const warningMsg = result.transcriptWarning ? ` | Warning: ${result.transcriptWarning}` : "";
-
-        return (
-          <div className={`px-3 py-2.5 rounded-lg border text-xs font-sans font-medium ${bannerStyle}`}>
-            Mapped using transcript: <span className="font-mono font-bold">{result.transcriptId}</span>
-            <span className="mx-2 opacity-50">•</span>
-            <span className="font-bold">{tierLabel}</span>
-            <span className="mx-2 opacity-50">•</span>
-            <span className="opacity-90">{tierDesc}{warningMsg}</span>
-          </div>
-        );
-      })()}
-
-
       {/* Unified In-Silico Consensus & Coverage Card */}
       {(() => {
         const cadd = result.predictorData?.caddPhred;
@@ -122,6 +80,13 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
                 {verdictBadgeLabel}
               </span>
             </div>
+
+            {(isBiophysicalLoading || analysisState.isLoading) && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/5 text-[11px] text-indigo-400 font-medium animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping shrink-0" />
+                <span>Enriching frontier genomic models &amp; SpliceAI scores in background...</span>
+              </div>
+            )}
 
             {/* 3-Container Grid Layout (Pathogenic, Benign, VUS/Intermediate) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 py-3.5 border-y border-[var(--cs-border-subtle)] text-[11px]">

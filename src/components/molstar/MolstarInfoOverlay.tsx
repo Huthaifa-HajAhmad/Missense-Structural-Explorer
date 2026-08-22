@@ -3,28 +3,6 @@ import { Sparkles, Target, Info, Activity, X, ChevronUp, ChevronDown } from "luc
 import { MolstarInfoOverlayProps } from "./types";
 
 export const MolstarInfoOverlay: React.FC<MolstarInfoOverlayProps> = ({
-  comparePdbData,
-  active3dModelTab = "alphafold2",
-  customPdbData,
-  bFactorMetadata,
-  viewerStyle,
-  isEsmFolding,
-  loading,
-  loadError,
-  esmFoldPdb,
-  esmFoldingError,
-  uniprotId,
-  pdbSource,
-  pdbId,
-  customPdbUrl,
-  mutantStatus,
-  mutantDdG,
-  energyUnit,
-  foldXPosition,
-  isFoldXDragging,
-  handleFoldXMouseDown,
-  foldxBannerCollapsed,
-  setFoldxBannerCollapsed,
   isPocketPanelOpen,
   setIsPocketPanelOpen,
   pocketPosition,
@@ -41,105 +19,9 @@ export const MolstarInfoOverlay: React.FC<MolstarInfoOverlayProps> = ({
   alertPosition,
   isDragging,
   handleMouseDown,
-  metrics,
-  formatDdG
 }) => {
   return (
     <>
-      {/* 1. TOP PROVENANCE BADGES & WARNING CARDS */}
-      {comparePdbData && (
-        active3dModelTab === "esm3" ? (
-          <div className="flex items-start gap-3 p-3 rounded-xl border text-purple-900 dark:text-purple-200" style={{ background: "var(--cs-surface-2)", borderColor: "rgba(168, 85, 247, 0.2)" }}>
-            <Sparkles className="w-5 h-5 mt-0.5 text-purple-500 shrink-0" />
-            <div>
-              <h4 className="text-xs font-bold font-mono tracking-wide uppercase">ESMFold exploratory comparison</h4>
-              <p className="text-[11px] leading-relaxed opacity-85 mt-0.5">
-                Single-sequence de novo models; displacement may include prediction variance and should be treated as hypothesis-generating only.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-start gap-3 p-3 rounded-xl border text-emerald-900 dark:text-emerald-200" style={{ background: "var(--cs-surface-2)", borderColor: "rgba(16, 185, 129, 0.2)" }}>
-            <Target className="w-5 h-5 mt-0.5 text-emerald-500 shrink-0" />
-            <div>
-              <h4 className="text-xs font-bold font-mono tracking-wide uppercase">FoldX local perturbation</h4>
-              <p className="text-[11px] leading-relaxed opacity-85 mt-0.5">
-                Rigid-backbone local comparison; displacement values are physically interpretable.
-              </p>
-            </div>
-          </div>
-        )
-      )}
-
-      {!comparePdbData && (customPdbData || active3dModelTab === "esm3") && bFactorMetadata && (viewerStyle !== "displacement") && (
-        <div className="flex items-start gap-2.5 p-3 rounded-xl border text-xs font-medium" style={{ background: "var(--cs-bg-warning)", borderColor: "rgba(217, 119, 6, 0.2)", color: "var(--cs-text-warning)" }}>
-          <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--cs-text-warning)" }} />
-          <div>
-            <span className="font-bold">B-Factor Provenance Warning:</span>{" "}
-            {bFactorMetadata.source === "alphafold" ? (
-              "B-factors in this mutant model represent wild-type confidence (pLDDT) inherited from the AlphaFold DB. They do NOT reflect physical temperature factors or local displacements caused by the mutation."
-            ) : bFactorMetadata.source === "experimental" ? (
-              "B-factors in this mutant model represent wild-type experimental temperature factors inherited from the PDB. They do NOT reflect simulated mutant coordinates deviations."
-            ) : (
-              "B-factors in this model are inherited directly from the wild-type template structure."
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* FoldX / SCWRL4 result — collapsible draggable badge */}
-      {customPdbData && mutantStatus && (
-        <div
-          className={`absolute z-20 max-w-[300px] pointer-events-auto select-none transition-shadow rounded-xl border border-l-4 border-l-indigo-500 overflow-hidden backdrop-blur-md ${
-            isFoldXDragging ? "shadow-2xl" : "shadow-md"
-          }`}
-          onMouseDown={handleFoldXMouseDown}
-          style={{
-            top: `calc(0.75rem + ${foldXPosition.y}px)`,
-            left: `calc(0.75rem + ${foldXPosition.x}px)`,
-            cursor: isFoldXDragging ? 'grabbing' : 'grab',
-            background: "var(--cs-surface)",
-            borderColor: "var(--cs-border)",
-            color: "var(--cs-text-primary)"
-          }}
-        >
-          {mutantStatus === "success" ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setFoldxBannerCollapsed(p => !p)}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]"
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3 h-3 text-indigo-500 shrink-0 animate-pulse" />
-                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider">
-                    FoldX Model
-                  </span>
-                  {mutantDdG !== null && mutantDdG !== undefined && (
-                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-accent)" }}>
-                      ΔΔG: {mutantDdG.toFixed(2)} kcal/mol
-                    </span>
-                  )}
-                </div>
-                {foldxBannerCollapsed
-                  ? <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                  : <ChevronUp className="w-3 h-3 text-slate-400 shrink-0" />}
-              </button>
-              {!foldxBannerCollapsed && (
-                <div className="px-3 pb-2.5 pt-0 text-[10px] font-mono border-t" style={{ borderColor: "var(--cs-border-subtle)", color: "var(--cs-text-secondary)" }}>
-                  <p className="leading-relaxed mt-1.5">
-                    <strong>Biophysically Repacked:</strong> Side-chain coordinates reflect local FoldX force-field energy minimisation.
-                    {mutantDdG !== null && mutantDdG !== undefined
-                      ? ` Predicted ΔΔG: ${formatDdG(mutantDdG, energyUnit)}.`
-                      : " ΔΔG unavailable."}
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-      )}
-
       {/* Slide-out Automated Pocket Control Panel */}
       {isPocketPanelOpen && (
         <div
@@ -318,67 +200,6 @@ export const MolstarInfoOverlay: React.FC<MolstarInfoOverlayProps> = ({
           
           <div className="text-[8px] font-mono text-right mt-0.5 select-none" style={{ color: "var(--cs-text-muted)" }}>
             ⌥ Click & drag to move
-          </div>
-        </div>
-      )}
-
-      {comparePdbData && metrics && (
-        <div
-          className="absolute z-20 w-[300px] pointer-events-auto shadow-md rounded-xl border border-l-4 border-l-pink-500 overflow-hidden backdrop-blur-md animate-slide-in"
-          style={{
-            bottom: "1rem",
-            right: "1rem",
-            background: "var(--cs-surface)",
-            borderColor: "var(--cs-border)",
-            color: "var(--cs-text-primary)"
-          }}
-        >
-          <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--cs-border-subtle)" }}>
-            <div className="flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-pink-500 shrink-0" />
-              <span className="text-[10px] font-bold font-mono uppercase tracking-wider">
-                WT vs MT Overlay Metrics
-              </span>
-            </div>
-          </div>
-          
-          <div className="p-3 text-[10px] font-mono flex flex-col gap-2.5 max-h-[250px] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <span className="text-slate-400">Local Window RMSD (Cα):</span>
-              <span className="font-bold text-[11px] text-pink-500">
-                {metrics.localWindowRmsd !== undefined && metrics.localWindowRmsd !== null ? `${metrics.localWindowRmsd.toFixed(3)} Å` : "N/A"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <span className="text-slate-400">Global Cα RMSD:</span>
-              <span className="font-bold">
-                {metrics.globalRmsd !== undefined && metrics.globalRmsd !== null ? `${metrics.globalRmsd.toFixed(3)} Å` : "N/A"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <span className="text-slate-400">Dihedral χ1 Deviation:</span>
-              <span className="font-bold">
-                {metrics.chi1Deviation !== undefined && metrics.chi1Deviation !== null ? `${metrics.chi1Deviation.toFixed(1)}°` : "0.0°"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <span className="text-slate-400">SASA Net Delta (WT → MT):</span>
-              <span className="font-bold">
-                {metrics.sasaDiff?.delta !== undefined && metrics.sasaDiff?.delta !== null ? `${metrics.sasaDiff.delta.toFixed(1)} Å²` : "N/A"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <span className="text-slate-400">Hydrogen-Bond Delta:</span>
-              <span className="font-bold text-red-500">
-                {metrics.hBondsDiff ? `-${metrics.hBondsDiff.lostCount} / +${metrics.hBondsDiff.gainedCount}` : "N/A"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Contact-Map Delta:</span>
-              <span className="font-bold text-red-500">
-                {metrics.contactsDiff ? `-${metrics.contactsDiff.lostCount} / +${metrics.contactsDiff.gainedCount}` : "N/A"}
-              </span>
-            </div>
           </div>
         </div>
       )}

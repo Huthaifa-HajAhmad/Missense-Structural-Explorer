@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { MasterView } from "../components/MasterSidebar";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
+import { getCachedVariant } from "../services/pipeline/variantCache";
 
 interface UseAppEffectsParams {
   state: any;
@@ -49,7 +50,43 @@ export function useAppEffects({
   }, [fetchWithAuth, fetchEsmFold, setCustomPdbUrl]);
 
   const lastFoldedKeyRef = useRef<string>("");
+  const hasInitializedFromUrlRef = useRef(false);
 
+  // Auto-restore or auto-trigger analysis when landing with URL parameters (F5)
+  useEffect(() => {
+    if (hasInitializedFromUrlRef.current) return;
+    hasInitializedFromUrlRef.current = true;
+
+    if (state.gene && state.variant && !state.analysisState.result && !state.analysisState.isLoading) {
+      const cached = getCachedVariant(state.gene, state.variant);
+      if (cached?.analysisResult) {
+        actions.setAnalysisState({
+          result: cached.analysisResult,
+          isLoading: false,
+          error: null
+        });
+        if (cached.pdbText && actions.setPdbText) {
+          actions.setPdbText(cached.pdbText);
+        }
+        if (cached.mutantPdb && actions.setMutantPdb) {
+          actions.setMutantPdb(cached.mutantPdb);
+        }
+        if (cached.foldingDdG != null && actions.setFoldingDdG) {
+          actions.setFoldingDdG(cached.foldingDdG);
+        }
+        if (cached.foldingEnergetics && actions.setFoldingEnergetics) {
+          actions.setFoldingEnergetics(cached.foldingEnergetics);
+        }
+        if (cached.computedPocket && actions.setComputedPocket) {
+          actions.setComputedPocket(cached.computedPocket);
+        }
+        return;
+      }
+
+      // Otherwise trigger analysis automatically without forcing tab switch
+      actions.executeAnalysis(state.gene, state.variant, state.uniprotId);
+    }
+  }, [state.gene, state.variant, state.uniprotId, state.analysisState.result, state.analysisState.isLoading, actions]);
 
   // Synchronize active 3D model tab
   useEffect(() => {

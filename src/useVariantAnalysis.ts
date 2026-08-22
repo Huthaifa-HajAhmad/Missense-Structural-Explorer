@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 export * from './variantAnalysisUtils';
-import { generateMutantResponseSchema } from "./variantAnalysisUtils";
-import { PdbHomolog, VariantPreset, StructureProvenance } from "./types";
+import { VariantPreset } from "./types";
 import { useSettings } from "./context/SettingsContext";
 import { useApiClient } from "./apiClient";
 import { useSearchHistory } from "./hooks/useSearchHistory";
@@ -124,44 +123,56 @@ export default function useVariantAnalysis() {
       apiClient,
       settings,
       userDirections: search.userDirections,
-      setAnalysisState: predictor.setAnalysisState,
-      setLoadingStep: predictor.setLoadingStep,
-      setIsBiophysicalLoading: predictor.setIsBiophysicalLoading,
-      setIsClinicalLoading: predictor.setIsClinicalLoading,
-      setIsNarrativeLoading: predictor.setIsNarrativeLoading,
-      setGene: search.setGene,
-      setVariant: search.setVariant,
-      setUniprotId: search.setUniprotId,
-      setSearchVal: search.setSearchVal,
-      setCustomGene: search.setCustomGene,
-      setCustomVariant: search.setCustomVariant,
-      setCustomUniprot: search.setCustomUniprot,
-      setSelectedResidueIndex: search.setSelectedResidueIndex,
-      setDisruptionPredictor: pipeline.setDisruptionPredictor,
-      setComputedPocket: biophysical.setComputedPocket,
-      setIsPocketLoading: biophysical.setIsPocketLoading,
-      setPocketError: biophysical.setPocketError,
-      setPdbText,
-      addToHistory,
-      resetViewerState,
-      clearDynaMutPoll: biophysical.clearDynaMutPoll,
-      clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll,
-      // Biophysical modeling setters for concurrent FoldX execution
-      setIsFolding: biophysical.setIsFolding,
-      setFoldingError: biophysical.setFoldingError,
-      setFoldingStatus: biophysical.setFoldingStatus,
-      setMutantPdb: biophysical.setMutantPdb,
-      setFoldedResidueIndex: biophysical.setFoldedResidueIndex,
-      setFoldingDdG: biophysical.setFoldingDdG,
-      setFoldingEnergetics: biophysical.setFoldingEnergetics,
-      setDynamut2JobId: biophysical.setDynamut2JobId,
-      setDynamut2Status: biophysical.setDynamut2Status,
-      setDdmutJobId: biophysical.setDdmutJobId,
-      setDdmutStatus: biophysical.setDdmutStatus,
-      setThermompnnJobId: biophysical.setThermompnnJobId,
-      setThermompnnStatus: biophysical.setThermompnnStatus,
-      setThermompnnError: biophysical.setThermompnnError,
-      lastFetchedFoldRef: biophysical.lastFetchedFoldRef
+      sinks: {
+        search: {
+          setGene: search.setGene,
+          setVariant: search.setVariant,
+          setUniprotId: search.setUniprotId,
+          setSearchVal: search.setSearchVal,
+          setCustomGene: search.setCustomGene,
+          setCustomVariant: search.setCustomVariant,
+          setCustomUniprot: search.setCustomUniprot,
+          setSelectedResidueIndex: search.setSelectedResidueIndex,
+          addToHistory
+        },
+        analysis: {
+          setAnalysisState: predictor.setAnalysisState,
+          setLoadingStep: predictor.setLoadingStep,
+          setIsBiophysicalLoading: predictor.setIsBiophysicalLoading,
+          setIsClinicalLoading: predictor.setIsClinicalLoading,
+          setIsNarrativeLoading: predictor.setIsNarrativeLoading
+        },
+        biophysical: {
+          setIsFolding: biophysical.setIsFolding,
+          setFoldingError: biophysical.setFoldingError,
+          setFoldingStatus: biophysical.setFoldingStatus,
+          setMutantPdb: biophysical.setMutantPdb,
+          setFoldedResidueIndex: biophysical.setFoldedResidueIndex,
+          setFoldingDdG: biophysical.setFoldingDdG,
+          setFoldingEnergetics: biophysical.setFoldingEnergetics,
+          setDynamut2JobId: biophysical.setDynamut2JobId,
+          setDynamut2Status: biophysical.setDynamut2Status,
+          setDdmutJobId: biophysical.setDdmutJobId,
+          setDdmutStatus: biophysical.setDdmutStatus,
+          setThermompnnJobId: biophysical.setThermompnnJobId,
+          setThermompnnStatus: biophysical.setThermompnnStatus,
+          setThermompnnError: biophysical.setThermompnnError,
+          lastFetchedFoldRef: biophysical.lastFetchedFoldRef
+        },
+        structure: {
+          setPdbText,
+          setComputedPocket: biophysical.setComputedPocket,
+          setIsPocketLoading: biophysical.setIsPocketLoading,
+          setPocketError: biophysical.setPocketError,
+          setHomologs: pipeline.setHomologs,
+          setIsHomologsLoading: pipeline.setIsHomologsLoading,
+          setComputedResiduesCache: pipeline.setComputedResiduesCache,
+          setDisruptionPredictor: pipeline.setDisruptionPredictor,
+          resetViewerState,
+          clearDynaMutPoll: biophysical.clearDynaMutPoll,
+          clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll
+        }
+      }
     });
   }, [pipeline, fetchWithAuth, apiClient, settings, search, predictor, biophysical, addToHistory, resetViewerState]);
 
@@ -178,9 +189,10 @@ export default function useVariantAnalysis() {
     search.handleSelectPreset(preset, {
       abortAllPendingRequests: () => pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
       resetViewerState,
+      executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
       setAnalysisState: predictor.setAnalysisState
     });
-  }, [search, pipeline, biophysical, resetViewerState, predictor.setAnalysisState]);
+  }, [search, pipeline, biophysical, resetViewerState, predictor.setAnalysisState, executeAnalysisWrapper]);
 
   const handleSearchSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();

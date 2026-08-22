@@ -48,7 +48,13 @@ export function MetricExplanationModal({
         </div>
 
         {/* Description */}
-        <div className="space-y-3 text-xs leading-relaxed text-left">
+        <div className="space-y-3 text-xs leading-relaxed text-left max-h-[60vh] overflow-y-auto pr-1">
+          {detail.architecture && (
+            <div className="text-[11px] font-mono opacity-80" style={{ color: "var(--cs-text-muted)" }}>
+              {detail.architecture}
+            </div>
+          )}
+
           <div>
             <span className="block text-[9px] uppercase font-bold font-mono tracking-wider opacity-60 mb-1">
               Scientific Description
@@ -66,6 +72,36 @@ export function MetricExplanationModal({
               {detail.interpretation}
             </p>
           </div>
+
+          {detail.strengths && detail.strengths.length > 0 && (
+            <div className="p-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
+              <span className="block text-[9px] uppercase font-bold font-mono tracking-wider text-emerald-400 mb-1">
+                Key Strengths
+              </span>
+              <ul className="space-y-1 pl-1">
+                {detail.strengths.map((s, idx) => (
+                  <li key={idx} className="text-[11px] text-emerald-200/90 leading-tight">
+                    • {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {detail.weaknesses && detail.weaknesses.length > 0 && (
+            <div className="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5">
+              <span className="block text-[9px] uppercase font-bold font-mono tracking-wider text-amber-400 mb-1">
+                Known Limitations
+              </span>
+              <ul className="space-y-1 pl-1">
+                {detail.weaknesses.map((w, idx) => (
+                  <li key={idx} className="text-[11px] text-amber-200/90 leading-tight">
+                    • {w}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="pt-2 border-t animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <span className="block text-[9px] uppercase font-bold font-mono tracking-wider opacity-60 mb-1">

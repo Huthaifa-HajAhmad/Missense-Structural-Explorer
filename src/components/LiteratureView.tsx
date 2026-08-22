@@ -16,6 +16,8 @@ interface LiteratureViewProps {
   gene: string;
   variant: string;
   uniprotId: string;
+  searchQuery?: string;
+  onSearchQueryChange?: (q: string) => void;
 }
 
 interface Citation {
@@ -27,15 +29,30 @@ interface Citation {
   year: number | null;
 }
 
-export default function LiteratureView({ gene, variant, uniprotId }: LiteratureViewProps) {
+export default function LiteratureView({ 
+  gene, 
+  variant, 
+  uniprotId,
+  searchQuery = "",
+  onSearchQueryChange 
+}: LiteratureViewProps) {
   const { apiClient } = useApiClient();
   const [citations, setCitations] = useState<Citation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [internalQuery, setInternalQuery] = useState(searchQuery);
   const [syncing, setSyncing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInternalQuery(searchQuery);
+  }, [searchQuery]);
+
+  const handleQueryChange = (val: string) => {
+    setInternalQuery(val);
+    onSearchQueryChange?.(val);
+  };
 
   const fetchCitations = useCallback(async (forceSync = false) => {
     if (!gene) return;
@@ -75,16 +92,24 @@ export default function LiteratureView({ gene, variant, uniprotId }: LiteratureV
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Filter citations locally
+  // Filter citations with smart tokenizer (supports MeSH and boolean query syntax)
   const filteredCitations = citations.filter(c => {
-    const q = searchQuery.toLowerCase();
-    return (
-      c.title.toLowerCase().includes(q) ||
-      c.abstract.toLowerCase().includes(q) ||
-      c.authors.toLowerCase().includes(q) ||
-      c.journal.toLowerCase().includes(q) ||
-      (c.year && String(c.year).includes(q))
-    );
+    const raw = (internalQuery || searchQuery).trim();
+    if (!raw) return true;
+
+    const fullContent = `${c.title} ${c.abstract} ${c.authors} ${c.journal} ${c.year || ""}`.toLowerCase();
+    if (fullContent.includes(raw.toLowerCase())) return true;
+
+    const terms = raw
+      .replace(/\[.*?\]/g, " ")
+      .replace(/\b(AND|OR|NOT)\b/gi, " ")
+      .replace(/[()",]/g, " ")
+      .split(/\s+/)
+      .map(t => t.toLowerCase())
+      .filter(t => t.length > 1);
+
+    if (terms.length === 0) return true;
+    return terms.some(term => fullContent.includes(term));
   });
 
   return (
@@ -120,8 +145,8 @@ export default function LiteratureView({ gene, variant, uniprotId }: LiteratureV
             <input
               type="text"
               placeholder="Search literature by author, title, abstract, or year..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              value={internalQuery}
+              onChange={e => handleQueryChange(e.target.value)}
               className="w-full text-xs pl-9 pr-4 py-2 border rounded-lg bg-cs-surface-2 border-cs-border text-cs-text-primary placeholder:text-cs-text-muted focus:outline-none focus:border-cs-accent-clay transition-colors"
             />
           </div>

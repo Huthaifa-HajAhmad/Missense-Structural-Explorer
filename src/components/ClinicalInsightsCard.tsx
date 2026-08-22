@@ -11,8 +11,11 @@ import {
   ExternalLink, 
   Database,
   Lightbulb,
-  Download
+  Download,
+  KeyRound,
+  Settings
 } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 import { 
   Radar, 
   RadarChart, 
@@ -110,6 +113,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   foldingEnergetics,
   disruptionPredictor
 }: ClinicalInsightsCardProps) {
+  const { openSettingsTab } = useSettings();
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
   );
@@ -229,6 +233,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         ddmut: foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null,
         rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
         thermompnn: foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null,
+        stabilityoracle: foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null,
         consensusStabilityVerdict: foldingEnergetics?.consensusVerdict ?? null,
         consensusProbability: (foldingEnergetics as any)?.consensusProbability ?? null,
         consensusConfMin: (foldingEnergetics as any)?.consensusConfMin ?? null,
@@ -348,11 +353,25 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             <p className="text-xs max-w-xs font-mono h-5 animate-pulse" style={{ color: "var(--cs-accent-clay)" }}>{loadingStep}</p>
           </div>
         ) : analysisState.error ? (
-          /* Error view inside insights card */
-          <div className="flex flex-col items-center justify-center p-4 rounded-lg my-6 max-w-md mx-auto text-center text-xs border bg-rose-50 border-rose-200 text-rose-700">
-            <ShieldAlert className="w-8 h-8 mb-2 shrink-0 text-rose-500" />
-            <p className="font-bold mb-1 text-slate-900">Calculation Aborted</p>
-            <p className="leading-relaxed max-h-[120px] overflow-auto">{analysisState.error}</p>
+          /* Clean, modern empty/notice state inside insights card */
+          <div className="flex flex-col items-center justify-center p-6 rounded-xl my-4 max-w-lg mx-auto text-center border border-cs-border bg-cs-surface-2 shadow-xs">
+            <div className="p-3 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 mb-3">
+              <KeyRound className="w-6 h-6" />
+            </div>
+            <h4 className="font-semibold text-sm text-cs-text-primary mb-1">
+              Variant Interpretation Awaiting Configuration
+            </h4>
+            <p className="text-xs text-cs-text-secondary leading-relaxed max-w-sm mb-4">
+              Real-time biophysical modeling and clinical narrative synthesis require a configured API key.
+            </p>
+            <button
+              type="button"
+              onClick={() => openSettingsTab("api")}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Configure API Key in Settings
+            </button>
           </div>
         ) : analysisState.result ? (
           /* Analysis result presenting structured key metrics and narrative report */
@@ -373,24 +392,48 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             )}
 
             {/* Splicing Warning Alert */}
-            {((analysisState.result.conservationData?.spliceProximity?.isNearSpliceSite) || 
-              (analysisState.result.conservationData?.spliceai && analysisState.result.conservationData.spliceai.max_ds !== null && analysisState.result.conservationData.spliceai.max_ds >= 0.10)) && (
-              <div className="rounded-xl border p-4 flex flex-col gap-2 border-rose-500/20 bg-rose-500/5 text-rose-200">
-                <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider text-rose-400">
-                  <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>Splicing Disruption Warning</span>
-                </div>
-                <p className="text-[12px] leading-relaxed pl-5 font-sans">
-                  {analysisState.result.conservationData?.spliceProximity?.isNearSpliceSite && (
-                    <>Variant is located <strong>{analysisState.result.conservationData.spliceProximity.distance} bp</strong> from a splice junction. </>
-                  )}
-                  {analysisState.result.conservationData?.spliceai && analysisState.result.conservationData.spliceai.max_ds !== null && analysisState.result.conservationData.spliceai.max_ds >= 0.10 && (
-                    <>SpliceAI predicts high probability of splicing disruption (Max Delta Score: <strong>{analysisState.result.conservationData.spliceai.max_ds.toFixed(2)}</strong>). </>
-                  )}
-                  ACMG PP3 in-silico predictor concordance voting includes this splice disruption signal.
-                </p>
-              </div>
-            )}
+            {(() => {
+              const spliceai = analysisState.result.conservationData?.spliceai;
+              const spliceProximity = analysisState.result.conservationData?.spliceProximity;
+              const isSpliceLoading = !spliceai && isBiophysicalLoading;
+              const isNearJunction = spliceProximity?.isNearSpliceSite;
+              const hasSpliceDisruption = spliceai && spliceai.max_ds !== null && spliceai.max_ds >= 0.10;
+
+              if (isSpliceLoading && isNearJunction) {
+                return (
+                  <div className="rounded-xl border p-4 flex flex-col gap-2 border-indigo-500/20 bg-indigo-500/5 text-indigo-200 animate-pulse">
+                    <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider text-indigo-400">
+                      <span className="w-2 h-2 rounded-full border border-indigo-400 border-t-transparent animate-spin" />
+                      <span>Splice Junction Proximity Assessment</span>
+                    </div>
+                    <p className="text-[12px] leading-relaxed pl-5 font-sans text-indigo-300">
+                      Variant is located <strong>{spliceProximity.distance} bp</strong> from a splice junction. Evaluating 32-layer SpliceAI deep learning models for cryptic donor/acceptor activation...
+                    </p>
+                  </div>
+                );
+              }
+
+              if (isNearJunction || hasSpliceDisruption) {
+                return (
+                  <div className="rounded-xl border p-4 flex flex-col gap-2 border-rose-500/20 bg-rose-500/5 text-rose-200 animate-fade-in">
+                    <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider text-rose-400">
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      <span>Splicing Disruption Warning</span>
+                    </div>
+                    <p className="text-[12px] leading-relaxed pl-5 font-sans">
+                      {isNearJunction && (
+                        <>Variant is located <strong>{spliceProximity.distance} bp</strong> from a splice junction. </>
+                      )}
+                      {hasSpliceDisruption && spliceai?.max_ds !== null && spliceai?.max_ds !== undefined && (
+                        <>SpliceAI predicts high probability of splicing disruption (Max Delta Score: <strong>{spliceai.max_ds.toFixed(2)}</strong>). </>
+                      )}
+                      ACMG PP3 in-silico predictor concordance voting includes this splice disruption signal.
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* Multimer Warning Alert */}
             {analysisState.result.uniprotFeatures?.isMultimer && (
@@ -478,7 +521,11 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                         { name: "cadd", label: "CADD PHRED", score: analysisState.result?.predictorData?.caddPhred },
                         { name: "popEVE", label: "PopEVE", score: analysisState.result?.conservationData?.popeve },
                         { name: "foldx", label: "FoldX ddG", score: foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx ?? null },
-                        { name: "thermompnn", label: "ThermoMPNN ddG", score: foldingEnergetics?.thermompnn ?? null }
+                        { name: "thermompnn", label: "ThermoMPNN ddG", score: foldingEnergetics?.thermompnn ?? null },
+                        { name: "stabilityoracle", label: "StabilityOracle ddG", score: foldingEnergetics?.stabilityoracle ?? analysisState.result?.foldingEnergetics?.stabilityoracle ?? null },
+                        { name: "dynamut2", label: "DynaMut2 ddG", score: foldingEnergetics?.dynamut2 ?? analysisState.result?.dynamut2 ?? null },
+                        { name: "ddmut", label: "DDMut ddG", score: foldingEnergetics?.ddmut ?? analysisState.result?.ddmut ?? null },
+                        { name: "rasp", label: "RaSP ddG", score: foldingEnergetics?.rasp ?? analysisState.result?.rasp ?? null }
                       ].filter(pred => pred.score !== undefined && pred.score !== null);
 
                       return (

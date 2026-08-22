@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   translateVariantResponseSchema,
+  nearestResiduesRequestSchema,
   nearestResiduesResponseSchema,
   pocketFinderResponseSchema,
   biophysicalAnalysisResponseSchema,
@@ -31,6 +32,22 @@ describe("Shared Zod API Contracts", () => {
       // Missing required fields
     };
     expect(() => translateVariantResponseSchema.parse(invalidPayload)).toThrow();
+  });
+
+  it("should validate nearestResiduesRequestSchema with pdbRef or pdbText", () => {
+    const validWithRef = nearestResiduesRequestSchema.parse({
+      pdbRef: "P00439",
+      targetIndex: 408
+    });
+    expect(validWithRef.pdbRef).toBe("P00439");
+
+    const validWithText = nearestResiduesRequestSchema.parse({
+      pdbText: "ATOM...",
+      targetIndex: 408
+    });
+    expect(validWithText.pdbText).toBe("ATOM...");
+
+    expect(() => nearestResiduesRequestSchema.parse({ targetIndex: 408 })).toThrow();
   });
 
   it("should validate nearestResiduesResponseSchema successfully", () => {
@@ -93,6 +110,18 @@ describe("Shared Zod API Contracts", () => {
     const parsed = biophysicalAnalysisResponseSchema.parse(validPayload);
     expect(parsed.analysis).toBe("Test analysis narrative");
     expect(parsed.insights?.biochemicalShift).toBe("Charge swap: Positive (Arg) to Neutral (Trp)");
+  });
+
+  it("should normalize flat biophysical response into insights object", () => {
+    const flatPayload = {
+      biochemicalShift: "Polar to Nonpolar",
+      structuralImpact: "Loss of hydrogen bonding"
+    };
+
+    const parsed = biophysicalAnalysisResponseSchema.parse(flatPayload);
+    expect(parsed.insights).toBeDefined();
+    expect(parsed.insights?.biochemicalShift).toBe("Polar to Nonpolar");
+    expect(parsed.insights?.structuralImpact).toBe("Loss of hydrogen bonding");
   });
 
   it("should validate esmFoldResponseSchema successfully", () => {

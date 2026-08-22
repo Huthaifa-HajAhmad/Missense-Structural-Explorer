@@ -30,7 +30,7 @@ export default function LandscapeMinimap({
   landscapeData,
   currentAM,
   currentREVEL,
-  metricMode = "max",
+  metricMode = "mean",
 }: LandscapeMinimapProps) {
   const points = useMemo(() => {
     if (!landscapeData?.length) return [];

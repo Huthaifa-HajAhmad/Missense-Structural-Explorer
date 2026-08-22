@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { VariantPreset } from "../types";
 import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../data";
+import { getCachedVariant } from "../services/pipeline/variantCache";
 
 export interface UseVariantSearchOptions {
   abortAllPendingRequests: () => void;
@@ -10,22 +11,60 @@ export interface UseVariantSearchOptions {
 }
 
 export function useVariantSearch() {
-  const [gene, setGene] = useState("");
-  const [variant, setVariant] = useState("");
-  const [uniprotId, setUniprotId] = useState("");
-  const [selectedResidueIndex, setSelectedResidueIndex] = useState<number | null>(null);
+  const getInitialUrlParams = () => {
+    if (typeof window === "undefined") return { gene: "", variant: "", uniprotId: "" };
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return {
+        gene: p.get("gene") || "",
+        variant: p.get("variant") || "",
+        uniprotId: p.get("uniprot") || p.get("uniprotId") || ""
+      };
+    } catch {
+      return { gene: "", variant: "", uniprotId: "" };
+    }
+  };
+
+  const initial = getInitialUrlParams();
+  const [gene, setGene] = useState(initial.gene);
+  const [variant, setVariant] = useState(initial.variant);
+  const [uniprotId, setUniprotId] = useState(initial.uniprotId);
+  const [selectedResidueIndex, setSelectedResidueIndex] = useState<number | null>(() => {
+    const m = initial.variant.match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  });
   const [hoveredResidueIndex, setHoveredResidueIndex] = useState<number | null>(null);
 
-  const [searchVal, setSearchVal] = useState("");
-  const [customGene, setCustomGene] = useState("");
-  const [customVariant, setCustomVariant] = useState("");
-  const [customUniprot, setCustomUniprot] = useState("");
+  const [searchVal, setSearchVal] = useState(initial.gene && initial.variant ? `${initial.gene} ${initial.variant}` : "");
+  const [customGene, setCustomGene] = useState(initial.gene);
+  const [customVariant, setCustomVariant] = useState(initial.variant);
+  const [customUniprot, setCustomUniprot] = useState(initial.uniprotId);
   const [customGenomic, setCustomGenomic] = useState("");
   const [showCustomInputs, setShowCustomInputs] = useState(false);
 
   const [copied, setCopied] = useState(false);
   const [customPdbUrl, setCustomPdbUrl] = useState<string | null>(null);
   const [userDirections, setUserDirections] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const url = new URL(window.location.href);
+      if (gene) url.searchParams.set("gene", gene);
+      else url.searchParams.delete("gene");
+
+      if (variant) url.searchParams.set("variant", variant);
+      else url.searchParams.delete("variant");
+
+      if (uniprotId) url.searchParams.set("uniprot", uniprotId);
+      else url.searchParams.delete("uniprot");
+
+      const newUrl = url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : "") + url.hash;
+      window.history.replaceState(null, "", newUrl);
+    } catch (e) {
+      // Ignore in non-browser environments
+    }
+  }, [gene, variant, uniprotId]);
 
   const handleSelectHistoryItem = (
     item: { gene: string; variant: string; uniprotId: string },
@@ -39,11 +78,10 @@ export function useVariantSearch() {
     setSearchVal(`${item.gene} ${item.variant}`);
     setCustomGene(item.gene);
     setCustomVariant(item.variant);
-    setCustomUniprot(item.uniprotId);
-    setCustomPdbUrl(null);
-
-    // Clear mutant states
-    options.resetViewerState();
+    const cached = getCachedVariant(item.gene, item.variant);
+    if (!cached) {
+      options.resetViewerState();
+    }
 
     const mutMatch = item.variant.match(/\d+/);
     if (mutMatch) {
@@ -57,7 +95,7 @@ export function useVariantSearch() {
 
   const handleSelectPreset = (
     preset: VariantPreset,
-    options: Pick<UseVariantSearchOptions, "abortAllPendingRequests" | "resetViewerState" | "setAnalysisState">
+    options: UseVariantSearchOptions
   ) => {
     options.abortAllPendingRequests();
 
@@ -65,51 +103,26 @@ export function useVariantSearch() {
     setVariant(preset.variant);
     setUniprotId(preset.uniprotId);
     setSearchVal(`${preset.gene} ${preset.variant}`);
+    setCustomGene(preset.gene);
+    setCustomVariant(preset.variant);
+    setCustomUniprot(preset.uniprotId);
     setCustomPdbUrl(null);
 
-    // Clear mutant states when switching presets
-    options.resetViewerState();
+    const cached = getCachedVariant(preset.gene, preset.variant);
+    if (!cached) {
+      options.resetViewerState();
+    }
 
     // Parse residue index if available
-    const mutMatch = preset.variant.match(/p\.(?:[a-zA-Z]{3}|\w)(\d+)(?:[a-zA-Z]{3}|\w)/);
+    const mutMatch = preset.variant.match(/\d+/);
     if (mutMatch) {
-      setSelectedResidueIndex(parseInt(mutMatch[1], 10));
+      setSelectedResidueIndex(parseInt(mutMatch[0], 10));
     } else {
       setSelectedResidueIndex(null);
     }
 
-    // Try to pre-populate analysis with prebaked fallback if available
-    const key = `${preset.uniprotId}_${preset.variant}`;
-    if (FALLBACK_ANALYSES[key]) {
-      options.setAnalysisState({
-        isLoading: false,
-        error: null,
-        result: {
-          analysis: FALLBACK_ANALYSES[key],
-          insights: FALLBACK_INSIGHTS[key] || null,
-          isDemoData: true,
-          metadata: {
-            gene: preset.gene,
-            variant: preset.variant,
-            uniprotId: preset.uniprotId,
-            residueIndex: mutMatch ? parseInt(mutMatch[1], 10) : null,
-            wildType: "",
-            mutant: "",
-            analysisVersion: {
-              thresholds: "ACMG v1.0.0-concordance",
-              geminiModel: "gemini-3.5-flash",
-              foldxVersion: "FoldX 5.0",
-              timestamp: new Date().toISOString()
-            }
-          }
-        }
-      });
-    } else {
-      options.setAnalysisState({
-        isLoading: false,
-        error: null,
-        result: null
-      });
+    if (options.executeAnalysis) {
+      options.executeAnalysis(preset.gene, preset.variant, preset.uniprotId);
     }
   };
 

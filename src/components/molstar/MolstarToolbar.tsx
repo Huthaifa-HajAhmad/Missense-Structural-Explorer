@@ -133,7 +133,7 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
         </div>
 
         {/* pLDDT Filter Selector */}
-        {templateSource === "alphafold" && (
+        {templateSource !== "experimental" && (
           <div className="flex items-center gap-1.5 pl-2 border-l" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <span className="text-[10px] font-bold uppercase tracking-wider hidden md:inline" style={{ color: "var(--cs-text-muted)" }}>
               pLDDT Filter:

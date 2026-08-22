@@ -20,11 +20,16 @@ import {
   BarChart2,
   Map,
   FlaskConical,
-  FileText
+  BookOpen,
+  FileText,
+  AlertTriangle,
+  KeyRound,
+  Settings
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
+import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
 
 interface VariantSearchPanelProps {
@@ -95,6 +100,7 @@ function VariantSearchPanel({
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
   const { setUserDirections } = useVariantAnalysisActions();
+  const { hasConfiguredGeminiKey, openSettingsTab } = useSettings();
   const result = analysisState.result;
 
   const isGenomicVariant = (customVariant && (
@@ -120,7 +126,7 @@ function VariantSearchPanel({
   );
 
   // Derive stage status & metrics for live workflow rail
-  const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "report") => {
+  const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "literature" | "report") => {
     const raw = getWorkflowStageStatus(
       stage,
       result,
@@ -137,7 +143,9 @@ function VariantSearchPanel({
     const statusMap: Record<string, string> = {
       complete: "Complete",
       progress: "In Progress",
-      pending: "Pending"
+      pending: "Pending",
+      degraded: "Degraded",
+      error: "Error"
     };
     return {
       status: statusMap[raw.status] || raw.status,
@@ -167,13 +175,25 @@ function VariantSearchPanel({
         </div>
 
         <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
-          <span className="badge-data-source">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-            Pipeline Online
-          </span>
-          <span className="badge-data-source">
-            <Zap className="w-3 h-3" />
-            v2.4 Engine
+          {!hasConfiguredGeminiKey ? (
+            <button
+              type="button"
+              onClick={() => openSettingsTab("api")}
+              title="API key is not configured — click to open Settings"
+              className="badge-data-source text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-all active:scale-95 shadow-xs"
+            >
+              <AlertTriangle className="w-3 h-3 text-amber-500" />
+              API Key Required
+            </button>
+          ) : (
+            <span className="badge-data-source text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Pipeline Ready
+            </span>
+          )}
+          <span className="badge-data-source font-mono text-[11px]">
+            <Zap className="w-3 h-3 text-[var(--cs-accent-clay)]" />
+            v1.0.0-dev
           </span>
         </div>
       </div>
@@ -329,43 +349,84 @@ function VariantSearchPanel({
                   </details>
                 </div>
 
-                {/* Submit Action Button */}
-                <button
-                  type="submit"
-                  disabled={analysisState.isLoading}
-                  aria-label="Analyze Variant"
-                  className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 active:scale-[0.99]"
-                  style={{ background: "var(--cs-accent-clay)" }}
-                >
-                  {analysisState.isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Executing Pipeline Analysis…
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Analyze Variant
+                {/* Submit Action Button — Greyed out with direct CTA if API keys are unconfigured */}
+                {!hasConfiguredGeminiKey ? (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openSettingsTab("api")}
+                      aria-label="API Key Required — Open Settings"
+                      className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[13.5px] font-semibold transition-all cursor-pointer shadow-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 active:scale-[0.99]"
+                    >
+                      <KeyRound className="w-4 h-4 text-amber-500" />
+                      <span>API Key Required · Configure to Analyze</span>
                       <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
-                    </>
-                  )}
-                </button>
+                    </button>
+                    <p className="text-[11px] text-center text-cs-text-muted">
+                      Pipeline execution requires a configured API key. Click above to configure.
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={analysisState.isLoading}
+                    aria-label="Analyze Variant"
+                    className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 active:scale-[0.99]"
+                    style={{ background: "var(--cs-accent-clay)" }}
+                  >
+                    {analysisState.isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Executing Pipeline Analysis…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Analyze Variant
+                        <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
+                      </>
+                    )}
+                  </button>
+                )}
               </form>
 
-              {/* Format Help Box (Plain Text Container Box replacing former example cards) */}
-              <div className="mt-4 p-3.5 rounded-lg border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] text-[12px] flex items-start gap-3">
+              {/* Format Help Box (Preserves layout card height balance with clean, modern badge chips) */}
+              <div className="mt-4 p-3.5 rounded-lg border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] text-[12px] flex items-start gap-3 shadow-xs">
                 <HelpCircle className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0 mt-0.5" />
-                <div className="flex-1 space-y-1">
-                  <span className="font-semibold block text-[12px]" style={{ color: "var(--cs-text-primary)" }}>
-                    Supported Input Formats & Conventions
-                  </span>
-                  <div className="text-[11px] leading-relaxed space-y-0.5" style={{ color: "var(--cs-text-secondary)" }}>
-                    <div>• <strong>Protein HGVS:</strong> <code className="font-mono">p.Gly380Arg</code>, <code className="font-mono">G380R</code>, <code className="font-mono">380R</code></div>
-                    <div>• <strong>cDNA HGVS:</strong> <code className="font-mono">c.123A&gt;G</code></div>
-                    <div>• <strong>Genomic Coordinates:</strong> <code className="font-mono">20-23365054-G-A</code>, <code className="font-mono">chr20:g.23365054G&gt;A</code></div>
-                    <div>• <strong>ClinVar ID:</strong> <code className="font-mono">VCV000013920</code></div>
-                    <div>• <strong>Gene Symbol:</strong> <code className="font-mono">CNNM2</code>, <code className="font-mono">MECP2</code>, <code className="font-mono">KIF1A</code> (HUGO symbol)</div>
-                    <div>• <strong>UniProt Accession:</strong> <code className="font-mono">Q9H8M5</code>, <code className="font-mono">P51587</code> (Swiss-Prot ID)</div>
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-[12px]" style={{ color: "var(--cs-text-primary)" }}>
+                      Supported Input Formats & Conventions
+                    </span>
+                    <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
+                      Auto-Resolved
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                    <div className="flex items-center justify-between py-0.5">
+                      <span>• <strong>Protein HGVS:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">p.Gly380Arg</code>
+                    </div>
+                    <div className="flex items-center justify-between py-0.5">
+                      <span>• <strong>cDNA HGVS:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">c.123A&gt;G</code>
+                    </div>
+                    <div className="flex items-center justify-between py-0.5">
+                      <span>• <strong>Genomic:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">20-23365054-G-A</code>
+                    </div>
+                    <div className="flex items-center justify-between py-0.5">
+                      <span>• <strong>ClinVar ID:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">VCV000013920</code>
+                    </div>
+                    <div className="flex items-center justify-between py-0.5">
+                      <span>• <strong>Gene Symbol:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">CNNM2, MECP2</code>
+                    </div>
+                    <div className="flex items-center justify-between py-0.5">
+                      <span>• <strong>UniProt:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">Q9H8M5, P51587</code>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -373,9 +434,9 @@ function VariantSearchPanel({
           </div>
 
           {/* ── RIGHT COLUMN: Live & Interactive Workflow Pipeline Rail (col-span-5) ── */}
-          <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] flex flex-col justify-between gap-6">
-            <div>
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--cs-border-subtle)]">
+          <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] border-t lg:border-t-0 lg:border-l border-[var(--cs-border)] flex flex-col justify-between gap-4">
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--cs-border-subtle)] shrink-0">
                 <h2 className="text-[14px] font-semibold flex items-center gap-2" style={{ color: "var(--cs-text-primary)" }}>
                   <Layers className="w-4 h-4 text-[var(--cs-accent-clay)]" />
                   Workflow Pipeline
@@ -386,47 +447,83 @@ function VariantSearchPanel({
                 </span>
               </div>
 
-              {/* Workflow Live Stages List */}
-              <div className="space-y-3">
+              {/* Workflow Live Stages List — Evenly Distributed without Dead Space */}
+              <div className="flex-1 flex flex-col justify-between gap-2 my-1">
                 {[
                   { key: "evidence", title: "Evidence Pipeline", Icon: BarChart2, targetView: "evidence" as MasterView },
                   { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
                   { key: "energetics", title: "Energetics Engine", Icon: Activity, targetView: "energetics" as MasterView },
                   { key: "landscape", title: "Landscape Minimap", Icon: Map, targetView: "landscape" as MasterView },
                   { key: "insights", title: "Variant Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
+                  { key: "literature", title: "Literature Mining", Icon: BookOpen, targetView: "literature" as MasterView },
                   { key: "report", title: "Clinical Report", Icon: FileText, targetView: "report" as MasterView },
                 ].map(({ key, title, Icon, targetView }) => {
                   const info = getStageInfo(key as any);
                   const isClickable = !!result && !!onViewChange;
+                  const isRunning = info.status === "In Progress" || info.status === "Computing";
+                  const isDone = info.status === "Complete";
+                  const isDegraded = info.status === "Degraded" || info.status === "degraded";
+                  const isErr = info.status === "Error" || info.status === "error";
+
                   return (
                     <div 
                       key={key}
                       onClick={() => isClickable && onViewChange?.(targetView)}
-                      className={`p-3 rounded-lg border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] flex items-start gap-3 transition-all ${
-                        isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:shadow-sm" : ""
+                      className={`p-2.5 px-3 rounded-lg border transition-all flex-1 min-h-[50px] flex items-center justify-between gap-3 select-none ${
+                        isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:shadow-xs" : ""
+                      } ${
+                        isDone 
+                          ? "border-[var(--cs-border)] bg-[var(--cs-surface)] shadow-xs" 
+                          : isRunning 
+                          ? "border-[var(--cs-accent-clay)]/50 bg-[var(--cs-surface)] shadow-xs" 
+                          : isDegraded || isErr
+                          ? "border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10 shadow-xs"
+                          : "border-[var(--cs-border-subtle)] bg-[var(--cs-surface)]/80"
                       }`}
                     >
-                      {info.status === "In Progress" || info.status === "Computing" ? (
-                        <span className="cs-spinner cs-spinner-sm shrink-0 mt-1" />
-                      ) : info.status === "Complete" ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-[var(--cs-text-muted)] shrink-0 mt-0.5" />
-                      )}
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "var(--cs-text-primary)" }}>
-                            <Icon className="w-3.5 h-3.5 text-[var(--cs-text-muted)]" />
-                            {title}
-                          </span>
-                          <span className={info.status === "Complete" ? "text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600" : "badge-data-source"}>
-                            {info.status}
-                          </span>
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        {isRunning ? (
+                          <span className="cs-spinner cs-spinner-sm shrink-0" />
+                        ) : isDone ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        ) : isDegraded || isErr ? (
+                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                        ) : (
+                          <Circle className="w-4 h-4 text-[var(--cs-text-muted)] shrink-0" />
+                        )}
+                        
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <Icon className="w-3.5 h-3.5 text-[var(--cs-text-muted)] shrink-0" />
+                            <span className="text-[12px] font-semibold text-cs-text-primary truncate">
+                              {title}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-cs-text-secondary truncate mt-0.5 font-sans leading-tight">
+                            {info.desc}
+                          </p>
                         </div>
-                        <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--cs-text-secondary)" }}>
-                          {info.desc}
-                        </p>
+                      </div>
+
+                      {/* Right Action / Status Badge */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={
+                          isDone 
+                            ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" 
+                            : isRunning 
+                            ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" 
+                            : isDegraded || isErr
+                            ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                            : "badge-data-source text-[9.5px]"
+                        }>
+                          {info.status}
+                        </span>
+
+                        {isClickable && (
+                          <span className="p-0.5 rounded text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-colors">
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -435,7 +532,7 @@ function VariantSearchPanel({
             </div>
 
             {/* Pipeline Live Status Footer */}
-            <div className="p-3.5 rounded-lg bg-[var(--cs-surface-2)] border border-[var(--cs-border-subtle)] text-[11px] leading-relaxed flex items-center gap-2.5" style={{ color: "var(--cs-text-secondary)" }}>
+            <div className="p-3.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11px] leading-relaxed flex items-center gap-2.5 shadow-xs" style={{ color: "var(--cs-text-secondary)" }}>
               <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
               <span>
                 {analysisState.isLoading 

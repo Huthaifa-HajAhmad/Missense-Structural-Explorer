@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { UserSettings } from "../types";
 
+export type SettingsTabId = "viewport" | "biophysics" | "sequence" | "workspace" | "api";
+
 interface SettingsContextType {
   theme: "dark" | "light";
   isDark: boolean;
@@ -14,11 +16,18 @@ interface SettingsContextType {
   setShowPolarContacts: React.Dispatch<React.SetStateAction<boolean>>;
   isSettingsOpen: boolean;
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  settingsTab: SettingsTabId;
+  setSettingsTab: React.Dispatch<React.SetStateAction<SettingsTabId>>;
+  openSettingsTab: (tab?: SettingsTabId) => void;
+  hasConfiguredGeminiKey: boolean;
+  serverGeminiReady: boolean;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("viewport");
+
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
       const saved = localStorage.getItem("theme");
@@ -237,6 +246,30 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {}
   };
 
+  const [serverGeminiReady, setServerGeminiReady] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/v1/diagnostics")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.geminiReady) {
+          setServerGeminiReady(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const openSettingsTab = (tab: SettingsTabId = "viewport") => {
+    setSettingsTab(tab);
+    setIsSettingsOpen(true);
+  };
+
+  const hasConfiguredGeminiKey = Boolean(
+    serverGeminiReady ||
+    settings.geminiApiKey?.trim() ||
+    (settings.geminiSessionId && typeof settings.geminiSessionExpiresAt === "number" && settings.geminiSessionExpiresAt > Date.now())
+  );
+
   return (
     <SettingsContext.Provider
       value={{
@@ -252,6 +285,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setShowPolarContacts,
         isSettingsOpen,
         setIsSettingsOpen,
+        settingsTab,
+        setSettingsTab,
+        openSettingsTab,
+        hasConfiguredGeminiKey,
+        serverGeminiReady,
       }}
     >
       {children}

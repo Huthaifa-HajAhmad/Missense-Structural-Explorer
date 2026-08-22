@@ -1,14 +1,13 @@
 import React, { useState } from "react";
-import { Brain, Cpu, Database, HeartHandshake, HelpCircle, Layers, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
+import { Brain, Cpu, Database, Dna, HeartHandshake, HelpCircle, Info, Layers, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
 import { THRESHOLDS, THRESHOLD_NOTES } from "../shared/thresholds";
+import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 
 interface PredictorSpecialistPanelsProps {
   predictorData?: {
     amPathogenicity: number | null;
     amClass: string | null;
     caddPhred: number | null;
-    eveScore?: number | null;
-    eveClass?: string | null;
     source?: string;
   } | null;
   conservationData?: {
@@ -27,6 +26,8 @@ interface PredictorSpecialistPanelsProps {
     esm1b?: number | null;
     esm1bPred?: string | null;
     popeve?: number | null;
+    gpnStar?: number | null;
+    evo2?: number | null;
     source?: string;
   } | null;
   esm2Score?: number | null;
@@ -56,6 +57,8 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
     return "N/A";
   };
   const [activeTab, setActiveTab] = useState<TabType>("lms");
+  const [knowledgeModalKey, setKnowledgeModalKey] = useState<string | null>(null);
+
   const renderSourceLabel = (source: string) => {
     return (
       <div className="text-[10px] mt-2 font-medium" style={{ color: "var(--cs-text-muted)", opacity: 0.7 }}>
@@ -67,8 +70,6 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const amScore = predictorData?.amPathogenicity ?? null;
   const amClass = predictorData?.amClass ?? null;
   const caddVal = predictorData?.caddPhred ?? null;
-  const eveScore = predictorData?.eveScore ?? null;
-  const eveClass = predictorData?.eveClass ?? null;
 
   const revel = conservationData?.revel ?? null;
   const gerp = conservationData?.gerp ?? null;
@@ -81,6 +82,8 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const dann = conservationData?.dann ?? null;
   const esm1b = conservationData?.esm1b ?? null;
   const popeve = conservationData?.popeve ?? null;
+  const gpnScore = conservationData?.gpnStar ?? null;
+  const evo2Score = conservationData?.evo2 ?? null;
 
   // Helper to render score bars
   const renderScoreBar = (val: number | null, min: number, max: number, threshLow: number, threshHigh: number, invert = false) => {
@@ -141,15 +144,15 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
         if (isLoading) {
           return (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse">
-              <span className="w-1.5 h-1.5 mr-1.5 rounded-full bg-indigo-500 animate-ping" />
-              Loading...
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping mr-1.5 shrink-0" />
+              Streaming...
             </span>
           );
         }
         return (
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
             <HelpCircle className="w-3.5 h-3.5 mr-1 text-slate-400" />
-            Unavailable
+            {text || "Unavailable"}
           </span>
         );
     }
@@ -157,6 +160,20 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
 
   const getEsmSignal = (llr: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
     if (llr === null) return "unavailable";
+    return "vus";
+  };
+
+  const getGpnSignal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
+    if (score === null) return "unavailable";
+    if (score <= -2.5) return "pathogenic";
+    if (score >= 0.0) return "benign";
+    return "vus";
+  };
+
+  const getEvo2Signal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
+    if (score === null) return "unavailable";
+    if (score <= -4.0) return "pathogenic";
+    if (score >= -1.0) return "benign";
     return "vus";
   };
 
@@ -176,6 +193,14 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
 
   return (
     <div className="rounded-xl border p-5 shadow-sm transition-colors" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+      {knowledgeModalKey && (
+        <ModelKnowledgeModal
+          isOpen={!!knowledgeModalKey}
+          modelKey={knowledgeModalKey}
+          onClose={() => setKnowledgeModalKey(null)}
+        />
+      )}
+      
       {/* Section Header */}
       <div className="flex items-center justify-between mb-5 border-b pb-4" style={{ borderColor: "var(--cs-border)" }}>
         <div className="flex items-center space-x-2.5">
@@ -205,7 +230,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
           }}
         >
           <Brain className="w-4 h-4" />
-          <span>Protein LMs</span>
+          <span>Genomic & Protein LMs</span>
         </button>
 
         <button
@@ -263,7 +288,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
       {/* Tab Panels */}
       <div className="min-h-[220px]">
         {activeTab === "lms" && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* VESM++ / VESM3 */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title="VESM++ Co-distilled Ensemble (ESM2-3B + ESM3) zero-shot Log-Likelihood Ratio (LLR)">
               <div className="flex justify-between items-start">
@@ -274,7 +299,17 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   </h4>
                   <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Co-distilled ESM-3/ESM2 LLR score</p>
                 </div>
-                {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null ? "Not validated / Informational Only" : undefined)}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("vesm")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null ? "Informational" : undefined)}
+                </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
@@ -283,6 +318,92 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 </span>
                 {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
                 {renderSourceLabel("Local ESM-2/3 Sidecar")}
+              </div>
+            </div>
+
+            {/* GPN-Star */}
+            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.gpnStar}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
+                    GPN-Star
+                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Phylogeny LM
+                    </span>
+                  </h4>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>100+ vertebrate alignment cross-attention</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("gpn_star")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(
+                    getGpnSignal(gpnScore),
+                    gpnScore !== null ? (gpnScore <= -2.5 ? "Conserved (Prior)" : "Tolerated") : undefined
+                  )}
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>LLR Score: </span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
+                  {renderScoreValue(gpnScore, 2)}
+                </span>
+                {gpnScore !== null ? (
+                  renderScoreBar(gpnScore, -10, 2, -2.5, 0.0, true)
+                ) : (
+                  <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
+                    Zero-shot prior from Song Lab vertebrate alignments
+                  </p>
+                )}
+                {renderSourceLabel("Song Lab @ UC Berkeley / Hugging Face")}
+              </div>
+            </div>
+
+            {/* Evo 2 Family */}
+            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.evo2}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
+                    Evo 2 Family
+                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      World Model (40B)
+                    </span>
+                  </h4>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Multi-scale DNA/RNA/Protein foundation LLR</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("evo2")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(
+                    getEvo2Signal(evo2Score),
+                    evo2Score !== null ? (evo2Score <= -4.0 ? "Disruptive" : "Tolerated") : undefined
+                  )}
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Delta Score: </span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
+                  {renderScoreValue(evo2Score, 2)}
+                </span>
+                {evo2Score !== null ? (
+                  renderScoreBar(evo2Score, -15, 2, -4.0, -1.0, true)
+                ) : (
+                  <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
+                    1M+ bp context foundation model prior
+                  </p>
+                )}
+                {renderSourceLabel("Arc Institute / EvolutionaryScale")}
               </div>
             </div>
 
@@ -296,7 +417,17 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   </h4>
                   <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>DeepMind structural variant pathogenicity</p>
                 </div>
-                {renderBadge(getAmSignal(amScore), amClass || undefined)}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("am")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(getAmSignal(amScore), amClass || undefined)}
+                </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
@@ -316,13 +447,23 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   </h4>
                   <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>UK Biobank population depletion constraint</p>
                 </div>
-                {renderBadge(
-                  popeve === null
-                    ? "unavailable"
-                    : popeve < 0
-                    ? (popeve <= THRESHOLDS.popEve.pathogenicSupporting ? "pathogenic" : popeve >= THRESHOLDS.popEve.benignLlr ? "benign" : "vus")
-                    : (popeve >= THRESHOLDS.popEve.pathogenicNormalized ? "pathogenic" : popeve <= THRESHOLDS.popEve.benignNormalized ? "benign" : "vus")
-                )}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("popeve")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(
+                    popeve === null
+                      ? "unavailable"
+                      : popeve < 0
+                      ? (popeve <= THRESHOLDS.popEve.pathogenicSupporting ? "pathogenic" : popeve >= THRESHOLDS.popEve.benignLlr ? "benign" : "vus")
+                      : (popeve >= THRESHOLDS.popEve.pathogenicNormalized ? "pathogenic" : popeve <= THRESHOLDS.popEve.benignNormalized ? "benign" : "vus")
+                  )}
+                </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>

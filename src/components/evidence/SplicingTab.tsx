@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { Scissors, AlertTriangle, Info, HelpCircle, GitFork, Sliders, Dna, Activity, CheckCircle2 } from "lucide-react";
+import { Scissors, AlertTriangle, Info, HelpCircle, GitFork, Sliders, Dna, Activity, CheckCircle2, Loader2 } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { evaluateSplicePredictor, THRESHOLDS } from "../../shared/thresholds";
 
-export function SplicingTab({ analysisState, isDark }: TabComponentProps) {
+export function SplicingTab({ analysisState, isBiophysicalLoading, isDark }: TabComponentProps) {
   // Default window set to 500 bp per user preference
   const [spliceAiWindow, setSpliceAiWindow] = useState<50 | 100 | 500 | 10000>(500);
 
@@ -11,6 +11,7 @@ export function SplicingTab({ analysisState, isDark }: TabComponentProps) {
   if (!result) return null;
 
   const spliceai = result.conservationData?.spliceai || null;
+  const isSpliceAiLoading = !spliceai && (isBiophysicalLoading || analysisState.isLoading);
   const dbscsnv = result.conservationData?.dbscsnv || null;
   const spliceProximity = result.conservationData?.spliceProximity || null;
 
@@ -42,7 +43,10 @@ export function SplicingTab({ analysisState, isDark }: TabComponentProps) {
   // SpliceAI Status
   let dsSeverityLabel = "Unannotated";
   let dsColorClass = "text-cs-text-muted bg-cs-surface-2 border-cs-border-subtle";
-  if (maxDs !== null) {
+  if (isSpliceAiLoading) {
+    dsSeverityLabel = "Evaluating SpliceAI...";
+    dsColorClass = "text-indigo-400 bg-indigo-500/10 border-indigo-500/30 animate-pulse";
+  } else if (maxDs !== null) {
     if (maxDs >= 0.5) {
       dsSeverityLabel = "High Disruption Risk";
       dsColorClass = "text-cs-text-danger bg-cs-bg-danger border-cs-danger/30";
@@ -87,7 +91,10 @@ export function SplicingTab({ analysisState, isDark }: TabComponentProps) {
   // ACMG Verdict styling
   let verdictLabel = "VUS / Indeterminate";
   let verdictColorClass = "text-cs-text-warning bg-cs-bg-warning border-cs-warn/30";
-  if (verdict === "pathogenic") {
+  if (isSpliceAiLoading) {
+    verdictLabel = "Evaluating SpliceAI...";
+    verdictColorClass = "text-indigo-400 bg-indigo-500/10 border-indigo-500/30 animate-pulse";
+  } else if (verdict === "pathogenic") {
     verdictLabel = "Pathogenic Supporting";
     verdictColorClass = "text-cs-text-danger bg-cs-bg-danger border-cs-danger/30";
   } else if (verdict === "benign") {
@@ -471,18 +478,64 @@ export function SplicingTab({ analysisState, isDark }: TabComponentProps) {
 
         <div className="flex items-center justify-between text-[11px] font-mono text-cs-text-muted">
           <span>Active Window Radius: &plusmn;{spliceAiWindow === 10000 ? "10,000 bp" : `${spliceAiWindow} bp`}</span>
-          <span className="font-semibold text-cs-text-primary">Max Delta Score: {maxDs !== null ? maxDs.toFixed(3) : "0.000 (Preserved)"}</span>
+          {isSpliceAiLoading ? (
+            <span className="font-semibold text-indigo-400 inline-flex items-center gap-1.5 animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Computing Deep Learning Delta Scores...
+            </span>
+          ) : (
+            <span className="font-semibold text-cs-text-primary">Max Delta Score: {maxDs !== null ? maxDs.toFixed(3) : "0.000 (Preserved)"}</span>
+          )}
         </div>
 
-        {spliceai && (spliceai.ds_ag !== null || spliceai.ds_al !== null || spliceai.ds_dg !== null || spliceai.ds_dl !== null) ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+        {isSpliceAiLoading ? (
+          <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {[
+                "Acceptor Gain (ds_ag)",
+                "Acceptor Loss (ds_al)",
+                "Donor Gain (ds_dg)",
+                "Donor Loss (ds_dl)"
+              ].map((label) => (
+                <div key={label} className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 animate-pulse">
+                  <div className="flex justify-between items-center text-[12px] font-sans font-medium">
+                    <span className="text-cs-text-secondary">{label}</span>
+                    <span className="font-mono text-[11px] text-indigo-400 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+                      Streaming...
+                    </span>
+                  </div>
+                  <div className="relative w-full h-2 rounded-full overflow-hidden border mt-2 bg-cs-surface border-cs-border">
+                    <div className="h-full rounded-full bg-indigo-500/40 animate-pulse w-2/3" />
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono mt-1 text-cs-text-muted opacity-60">
+                    <span>0.0</span>
+                    <span>Mod: 0.2</span>
+                    <span>High: 0.5</span>
+                    <span>1.0</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="p-3.5 rounded-lg border border-indigo-500/20 bg-indigo-500/5 flex items-start gap-2.5 text-[12px] text-indigo-300 font-sans leading-relaxed animate-pulse">
+              <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-indigo-200">Evaluating 32-layer deep residual sequence context (&plusmn;10,000 bp)</p>
+                <p className="text-[11px] text-indigo-300/80 mt-0.5">
+                  Genos Web / SpliceAI pre-mRNA sequence prediction is running. Splicing disruption scores will populate live without page refresh.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : spliceai && (spliceai.ds_ag !== null || spliceai.ds_al !== null || spliceai.ds_dg !== null || spliceai.ds_dl !== null) ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1 animate-fade-in">
             {renderSpliceAiBar("Acceptor Gain (ds_ag)", spliceai.ds_ag)}
             {renderSpliceAiBar("Acceptor Loss (ds_al)", spliceai.ds_al)}
             {renderSpliceAiBar("Donor Gain (ds_dg)", spliceai.ds_dg)}
             {renderSpliceAiBar("Donor Loss (ds_dl)", spliceai.ds_dl)}
           </div>
         ) : (
-          <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed">
+          <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed animate-fade-in">
             <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
             <div>
               <p className="font-medium text-cs-text-primary">No aberrant splicing predicted within &plusmn;{spliceAiWindow === 10000 ? "10 kb" : `${spliceAiWindow} bp`}</p>

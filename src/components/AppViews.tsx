@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { MasterView } from "./MasterSidebar";
 import VariantSearchPanel from "./VariantSearchPanel";
 import EvidenceDashboardCard from "./EvidenceDashboardCard";
@@ -7,7 +7,7 @@ import SequenceVisualizer from "./SequenceVisualizer";
 import ClinicalInsightsCard from "./ClinicalInsightsCard";
 import ClinicalReportBar from "./ClinicalReportBar";
 import DevConsolePanel from "./DevConsolePanel";
-import ContextRail from "./ContextRail";
+import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
 import LiteratureView from "./LiteratureView";
 
@@ -96,7 +96,8 @@ export function AppViews({
     pdbText,
     esmFoldMetrics,
     foldxMetrics,
-    active3dModelTab
+    active3dModelTab,
+    customPdbUrl
   } = state;
 
   const {
@@ -113,6 +114,53 @@ export function AppViews({
     handleSearchSubmit,
     handleCopyReport
   } = actions;
+
+  const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
+  const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
+  const [hasEverMountedStructure, setHasEverMountedStructure] = useState(isStructureActive);
+
+  useEffect(() => {
+    if (isStructureActive && !hasEverMountedStructure) {
+      setHasEverMountedStructure(true);
+    }
+  }, [isStructureActive, hasEverMountedStructure]);
+
+  const handleSearchSubmitAndOpen = useCallback((e: React.FormEvent) => {
+    handleSearchSubmit(e);
+  }, [handleSearchSubmit]);
+
+  const handleSelectHistoryItemMemo = useCallback((item: any) => {
+    handleSelectHistoryItem(item);
+  }, [handleSelectHistoryItem]);
+
+  const handleOpenSettingsMemo = useCallback(() => {
+    setIsSettingsOpen(true);
+  }, [setIsSettingsOpen]);
+
+  const createErrorHandler = useCallback((boundaryName: string) => {
+    return (error: Error, errorInfo: React.ErrorInfo) => {
+      pushErrorEntry({
+        level: "error",
+        source: "component",
+        message: `[ErrorBoundary: ${boundaryName}] ${error.message}`,
+        detail: error.stack,
+        meta: { componentStack: errorInfo.componentStack },
+      });
+    };
+  }, [pushErrorEntry]);
+
+  const handleEvidenceError = useMemo(() => createErrorHandler("Evidence Dashboard"), [createErrorHandler]);
+  const handleEnergeticsError = useMemo(() => createErrorHandler("Energetics View"), [createErrorHandler]);
+  const handleStructureError = useMemo(() => createErrorHandler("3D Structure"), [createErrorHandler]);
+  const handleInsightsError = useMemo(() => createErrorHandler("Variant Insights"), [createErrorHandler]);
+  const handleReportError = useMemo(() => createErrorHandler("Clinical Report"), [createErrorHandler]);
+  const handleLiteratureError = useMemo(() => createErrorHandler("Literature View"), [createErrorHandler]);
+  const handleConsoleError = useMemo(() => createErrorHandler("Developer Console"), [createErrorHandler]);
+
+  const handleResidueClickMemo = useCallback((idx: number) => {
+    if (viewMode === "mutant") setFoldedResidueIndex(idx);
+    else setSelectedResidueIndex(idx);
+  }, [viewMode, setFoldedResidueIndex, setSelectedResidueIndex]);
 
   return (
     <main className="app-view flex-1 relative overflow-hidden transition-all duration-300">
@@ -147,18 +195,13 @@ export function AppViews({
                     customGenomic={customGenomic}
                     setCustomGenomic={setCustomGenomic}
                     analysisState={analysisState}
-                    handleSearchSubmit={(e) => {
-                      setMasterView("insights");
-                      handleSearchSubmit(e);
-                    }}
+                    handleSearchSubmit={handleSearchSubmitAndOpen}
                     gene={gene}
                     variant={variant}
                     uniprotId={uniprotId}
                     history={history}
                     clearHistory={clearHistory}
-                    handleSelectHistoryItem={(item) => {
-                      handleSelectHistoryItem(item);
-                    }}
+                    handleSelectHistoryItem={handleSelectHistoryItemMemo}
                     onViewChange={setMasterView}
                   />
                 </div>
@@ -169,13 +212,7 @@ export function AppViews({
             {masterView === "evidence" && (
               <ErrorBoundary
                 name="Evidence Dashboard"
-                onError={(error, errorInfo) => pushErrorEntry({
-                  level: "error",
-                  source: "component",
-                  message: `[ErrorBoundary: Evidence Dashboard] ${error.message}`,
-                  detail: error.stack,
-                  meta: { componentStack: errorInfo.componentStack },
-                })}
+                onError={handleEvidenceError}
               >
                 <EvidenceDashboardCard
                   isDark={isDark}
@@ -203,7 +240,7 @@ export function AppViews({
                   onTabChange={setActiveEvidenceTab}
                   active3dModelTab={active3dModelTab}
                   metrics={active3dModelTab === "esm3" ? esmFoldMetrics : foldxMetrics}
-                  onOpenSettings={() => setIsSettingsOpen(true)}
+                  onOpenSettings={handleOpenSettingsMemo}
                 />
               </ErrorBoundary>
             )}
@@ -212,13 +249,7 @@ export function AppViews({
             {masterView === "energetics" && (
               <ErrorBoundary
                 name="Energetics View"
-                onError={(error, errorInfo) => pushErrorEntry({
-                  level: "error",
-                  source: "component",
-                  message: `[ErrorBoundary: Energetics View] ${error.message}`,
-                  detail: error.stack,
-                  meta: { componentStack: errorInfo.componentStack },
-                })}
+                onError={handleEnergeticsError}
               >
                 <EnergeticsView
                   isDark={isDark}
@@ -243,41 +274,37 @@ export function AppViews({
               </ErrorBoundary>
             )}
 
-            {/* STRUCTURE VIEW — always mounted to preserve Molstar WebGL context */}
+            {/* STRUCTURE VIEW — deferred mount on first open, then kept in DOM to preserve Molstar WebGL context */}
             <div
               className="h-full w-full flex flex-col min-h-0"
-              style={{ display: (masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold") ? "flex" : "none" }}
+              style={{ display: isStructureActive ? "flex" : "none" }}
             >
               <div className="flex-1 min-h-0 relative">
-                <ErrorBoundary
-                  name="3D Structure"
-                  onError={(error, errorInfo) => pushErrorEntry({
-                    level: "error",
-                    source: "component",
-                    message: `[ErrorBoundary: 3D Structure] ${error.message}`,
-                    detail: error.stack,
-                    meta: { componentStack: errorInfo.componentStack },
-                  })}
-                >
-                  <Suspense fallback={
-                    <div className="flex flex-col items-center justify-center h-full gap-3">
-                      <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
-                      <span className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>Loading 3D Viewer...</span>
-                    </div>
-                  }>
-                    <MolstarViewerLazy
-                      residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
-                      variant={variant}
-                      heightClass="h-full"
-                      active3dModelTab={masterView === "structure_esmfold" ? "esm3" : "alphafold2"}
-                      customPdbData={masterView === "structure_esmfold" ? (esmFoldWtPdb || undefined) : (pdbText || undefined)}
-                      comparePdbData={masterView === "structure_esmfold" ? (esmFoldAlignedPdb || undefined) : (viewMode === "mutant" ? (mutantPdb || undefined) : undefined)}
-                      mutantStatus={viewMode === "mutant" ? (foldingStatus as any) : undefined}
-                      mutantDdG={viewMode === "mutant" ? (foldingDdG as any) : undefined}
-                      metrics={masterView === "structure_esmfold" ? esmFoldMetrics : (viewMode === "mutant" ? foldxMetrics : undefined)}
-                    />
-                  </Suspense>
-                </ErrorBoundary>
+                {hasEverMountedStructure && (
+                  <ErrorBoundary
+                    name="3D Structure"
+                    onError={handleStructureError}
+                  >
+                    <Suspense fallback={
+                      <div className="flex flex-col items-center justify-center h-full gap-3">
+                        <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
+                        <span className="text-xs font-mono" style={{ color: "var(--cs-text-muted)" }}>Loading 3D Viewer...</span>
+                      </div>
+                    }>
+                      <MolstarViewerLazy
+                        residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
+                        variant={variant}
+                        heightClass="h-full"
+                        active3dModelTab={masterView === "structure_esmfold" ? "esm3" : "alphafold2"}
+                        customPdbData={masterView === "structure_esmfold" ? (esmFoldWtPdb || undefined) : (customPdbUrl ? undefined : (pdbText || undefined))}
+                        comparePdbData={masterView === "structure_esmfold" ? (esmFoldAlignedPdb || undefined) : (viewMode === "mutant" ? (mutantPdb || undefined) : undefined)}
+                        mutantStatus={viewMode === "mutant" ? (foldingStatus as any) : undefined}
+                        mutantDdG={viewMode === "mutant" ? (foldingDdG as any) : undefined}
+                        metrics={masterView === "structure_esmfold" ? esmFoldMetrics : (viewMode === "mutant" ? foldxMetrics : undefined)}
+                      />
+                    </Suspense>
+                  </ErrorBoundary>
+                )}
               </div>
             </div>
 
@@ -300,10 +327,7 @@ export function AppViews({
                 uniprotFeatures={analysisState.result?.uniprotFeatures?.features || undefined}
                 metricMode={metricMode}
                 windowSize={windowSize}
-                onResidueClick={(idx) => {
-                  if (viewMode === "mutant") setFoldedResidueIndex(idx);
-                  else setSelectedResidueIndex(idx);
-                }}
+                onResidueClick={handleResidueClickMemo}
               />
             </div>
 
@@ -311,13 +335,7 @@ export function AppViews({
             {masterView === "insights" && (
               <ErrorBoundary
                 name="Variant Insights"
-                onError={(error, errorInfo) => pushErrorEntry({
-                  level: "error",
-                  source: "component",
-                  message: `[ErrorBoundary: Variant Insights] ${error.message}`,
-                  detail: error.stack,
-                  meta: { componentStack: errorInfo.componentStack },
-                })}
+                onError={handleInsightsError}
               >
                 <ClinicalInsightsCard
                   isDark={isDark}
@@ -351,13 +369,7 @@ export function AppViews({
             {masterView === "report" && (
               <ErrorBoundary
                 name="Clinical Report"
-                onError={(error, errorInfo) => pushErrorEntry({
-                  level: "error",
-                  source: "component",
-                  message: `[ErrorBoundary: Clinical Report] ${error.message}`,
-                  detail: error.stack,
-                  meta: { componentStack: errorInfo.componentStack },
-                })}
+                onError={handleReportError}
               >
                 <ClinicalReportBar analysisState={analysisState} isDark={isDark} fullPage />
               </ErrorBoundary>
@@ -370,15 +382,15 @@ export function AppViews({
             >
               <ErrorBoundary
                 name="Literature View"
-                onError={(error, errorInfo) => pushErrorEntry({
-                  level: "error",
-                  source: "component",
-                  message: `[ErrorBoundary: Literature View] ${error.message}`,
-                  detail: error.stack,
-                  meta: { componentStack: errorInfo.componentStack },
-                })}
+                onError={handleLiteratureError}
               >
-                <LiteratureView gene={gene} variant={variant} uniprotId={uniprotId} />
+                <LiteratureView 
+                  gene={gene} 
+                  variant={variant} 
+                  uniprotId={uniprotId} 
+                  searchQuery={literatureSearchQuery}
+                  onSearchQueryChange={setLiteratureSearchQuery}
+                />
               </ErrorBoundary>
             </div>
 
@@ -386,48 +398,53 @@ export function AppViews({
             {masterView === "console" && (
               <ErrorBoundary
                 name="Developer Console"
-                onError={(error, errorInfo) => pushErrorEntry({
-                  level: "error",
-                  source: "component",
-                  message: `[ErrorBoundary: Developer Console] ${error.message}`,
-                  detail: error.stack,
-                  meta: { componentStack: errorInfo.componentStack },
-                })}
+                onError={handleConsoleError}
               >
                 <DevConsolePanel />
               </ErrorBoundary>
             )}
           </div>
 
-          {/* CONTEXT RAIL FOR MODELING & SYNTHESIS VIEWS (HIDDEN ON SEARCH & CONSOLE VIEWS) */}
+          {/* DYNAMIC CONTEXT & PROVENANCE INSPECTOR (HIDDEN ON SEARCH & CONSOLE VIEWS) */}
           {masterView !== "search" && masterView !== "console" && (
-            <ContextRail
+            <ViewInspector
               activeView={masterView}
               onViewChange={setMasterView}
               analysisResult={analysisState.result}
               isFolding={isFolding}
+              foldingStatus={foldingStatus as any}
+              foldingError={foldingError}
+              foldingDdG={foldingDdG}
+              foldingEnergetics={foldingEnergetics}
               isBiophysicalLoading={isBiophysicalLoading}
               isClinicalLoading={isClinicalLoading}
               isNarrativeLoading={isNarrativeLoading}
               gene={gene}
               variant={variant}
+              uniprotId={uniprotId}
               homologs={state.homologs}
               isHomologsLoading={state.isHomologsLoading}
               customPdbUrl={state.customPdbUrl}
               setCustomPdbUrl={actions.setCustomPdbUrl}
-              isLoadingSearch={analysisState.isLoading}
-              loadingStep={state.loadingStep}
-              isPocketLoading={isPocketLoading}
               dynamut2Status={dynamut2Status}
               ddmutStatus={ddmutStatus}
+              thermompnnStatus={thermompnnStatus}
+              thermompnnError={thermompnnError}
+              disruptionPredictor={disruptionPredictor}
+              literatureSearchQuery={literatureSearchQuery}
+              onLiteratureSearch={setLiteratureSearchQuery}
               metricMode={metricMode}
               setMetricMode={setMetricMode}
               windowSize={windowSize}
               setWindowSize={setWindowSize}
               viewMode={viewMode}
               setViewMode={setViewMode}
-              foldingStatus={foldingStatus as any}
-              foldingDdG={foldingDdG}
+              activeEvidenceTab={activeEvidenceTab}
+              onSelectEvidenceTab={setActiveEvidenceTab}
+              onSelectResidueIndex={setSelectedResidueIndex}
+              metrics={masterView === "structure_esmfold" ? esmFoldMetrics : (viewMode === "mutant" ? foldxMetrics : undefined)}
+              comparePdbData={masterView === "structure_esmfold" ? esmFoldAlignedPdb : (viewMode === "mutant" ? mutantPdb : undefined)}
+              active3dModelTab={masterView === "structure_esmfold" ? "esm3" : "alphafold2"}
             />
           )}
         </div>

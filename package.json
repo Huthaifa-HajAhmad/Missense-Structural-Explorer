@@ -11,6 +11,9 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "review": "tsx scripts/review.ts review",
+    "review:preview": "tsx scripts/review.ts review --preview",
+    "review:scan": "tsx scripts/review.ts scan",
     "migrate:rasp": "tsx scripts/build-rasp-sqlite.ts"
   },
   "dependencies": {

@@ -67,7 +67,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     );
 
     expect(status.status).toBe("complete");
-    expect(status.desc).toContain("Gemini");
+    expect(status.desc).toContain("Biophysical stability models active");
   });
 
   it("P1-12: energetics gate shows progress only while the initial biophysical call is in flight and nothing has resolved", () => {

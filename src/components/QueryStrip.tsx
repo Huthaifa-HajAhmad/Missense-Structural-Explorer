@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Search, Sparkles, History, Trash2, Loader2, Clipboard, ShieldAlert, X, ChevronDown } from "lucide-react";
+import { Search, Sparkles, History, Trash2, Loader2, Clipboard, ShieldAlert, X, ChevronDown, KeyRound } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
+import { useSettings } from "../context/SettingsContext";
 
 interface QueryStripProps {
   isDark: boolean;
@@ -53,6 +54,7 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
   clearHistory,
   handleSelectHistoryItem,
 }) => {
+  const { hasConfiguredGeminiKey, openSettingsTab } = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
   const geneInputRef = useRef<HTMLInputElement>(null);
   const userDirections = useVariantAnalysisStore(s => s.userDirections);
@@ -196,23 +198,37 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
 
           {/* Submit & Close Buttons */}
           <div className="flex gap-2 min-w-[200px]">
-            <button
-              type="submit"
-              disabled={analysisState.isLoading}
-              className="flex-1 flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-600/10 active:scale-95"
-            >
-              {analysisState.isLoading ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Analyzing…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Analyze
-                </>
-              )}
-            </button>
+            {!hasConfiguredGeminiKey ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  openSettingsTab("api");
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer active:scale-95"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+                Key Required
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={analysisState.isLoading}
+                className="flex-1 flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-600/10 active:scale-95"
+              >
+                {analysisState.isLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Analyzing…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Analyze
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               type="button"

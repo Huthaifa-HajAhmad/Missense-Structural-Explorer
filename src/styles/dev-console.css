@@ -1,11 +1,13 @@
 /* ============================================================
-   DEVELOPER CONSOLE UI STYLES
+   DEVELOPER CONSOLE & PIPELINE TELEMETRY WORKBENCH STYLES
+   Claude Science / Canonical System Monospace Aesthetic
    ============================================================ */
 
 .dev-console-badge {
   font-size: var(--cs-text-micro, 10px);
   font-weight: var(--cs-font-weight-semibold, 600);
-  font-family: var(--cs-font-sans, sans-serif);
+  font-family: var(--cs-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
@@ -22,7 +24,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--cs-border);
   background: var(--cs-surface);
   flex-wrap: wrap;
@@ -31,20 +33,24 @@
 .dev-console-filter-pill {
   font-size: 11px;
   font-weight: 500;
-  padding: 3px 10px;
+  font-family: var(--cs-font-mono, monospace);
+  padding: 3px 8px;
   border-radius: var(--cs-radius-badge, 6px);
   border: 1px solid transparent;
   background: transparent;
   color: var(--cs-text-muted);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .dev-console-filter-pill:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
 }
 .dev-console-filter-pill[data-active="true"] {
-  background: var(--cs-surface);
+  background: var(--cs-surface-2);
   border-color: var(--cs-border);
   color: var(--cs-text-primary);
   font-weight: 600;
@@ -55,14 +61,15 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--cs-border-subtle);
   cursor: pointer;
-  transition: background 0.12s ease;
-  border-left: 2px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  border-left: 3px solid transparent;
   width: 100%;
   text-align: left;
   background: transparent;
+  font-family: var(--cs-font-mono, monospace);
 }
 .dev-console-entry:hover {
   background: var(--cs-bg-subtle);
@@ -71,23 +78,63 @@
   background: var(--cs-surface-2);
   border-left-color: var(--cs-accent-clay);
 }
+.dev-console-entry[data-impact="fatal"] {
+  background: rgba(220, 38, 38, 0.04);
+}
+.dev-console-entry[data-impact="fatal"][data-selected="true"] {
+  border-left-color: var(--cs-text-danger, #ef4444);
+}
 
 .dev-console-source-tag {
   font-family: var(--cs-font-mono, monospace);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--cs-surface-2);
-  color: var(--cs-text-muted);
+  color: var(--cs-text-secondary);
+  border: 1px solid var(--cs-border-subtle);
   white-space: nowrap;
   flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.dev-console-impact-badge {
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dev-console-impact-fatal {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.dev-console-impact-degraded {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.dev-console-impact-recoverable {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+.dev-console-impact-info {
+  background: var(--cs-surface-2);
+  color: var(--cs-text-muted);
+  border: 1px solid var(--cs-border-subtle);
 }
 
 .dev-console-message {
   font-family: var(--cs-font-mono, monospace);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.45;
   color: var(--cs-text-primary);
   overflow: hidden;
   display: -webkit-box;
@@ -97,9 +144,10 @@
 }
 
 .dev-console-detail-drawer {
-  background: var(--cs-surface-2);
+  background: var(--cs-surface);
   border-top: 1px solid var(--cs-border);
-  padding: 16px;
+  padding: 0;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.03);
 }
 
 .dev-console-stack-trace {
@@ -107,13 +155,13 @@
   font-size: 11px;
   line-height: 1.6;
   color: var(--cs-text-secondary);
-  background: var(--cs-surface);
+  background: var(--cs-surface-2);
   border: 1px solid var(--cs-border-subtle);
   border-radius: 6px;
   padding: 12px;
   overflow-x: auto;
   white-space: pre-wrap;
-  max-height: 200px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
@@ -121,18 +169,18 @@
   font-size: 12px;
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--cs-font-mono, monospace);
 }
 .dev-console-meta-table td {
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--cs-border-subtle);
   vertical-align: top;
 }
 .dev-console-meta-table td:first-child {
-  font-family: var(--cs-font-mono, monospace);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--cs-text-muted);
   white-space: nowrap;
-  width: 120px;
+  width: 140px;
 }
 
 .dev-console-empty {
@@ -143,4 +191,111 @@
   padding: 48px 24px;
   gap: 12px;
   text-align: center;
+}
+
+/* ============================================================
+   GANTT WATERFALL TIMELINE STYLES
+   ============================================================ */
+
+.gantt-grid-header {
+  display: grid;
+  grid-template-columns: 280px 90px 80px 1fr;
+  align-items: center;
+  padding: 8px 16px;
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cs-text-muted);
+  background: var(--cs-surface-2);
+  border-bottom: 1px solid var(--cs-border);
+}
+
+.gantt-row {
+  display: grid;
+  grid-template-columns: 280px 90px 80px 1fr;
+  align-items: center;
+  padding: 9px 16px;
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 12px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+  transition: background 0.12s ease;
+  cursor: pointer;
+}
+.gantt-row:hover {
+  background: var(--cs-bg-subtle);
+}
+.gantt-row[data-selected="true"] {
+  background: var(--cs-surface-2);
+}
+
+.gantt-stage-header {
+  padding: 6px 16px;
+  background: var(--cs-bg-subtle);
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cs-text-secondary);
+  border-bottom: 1px solid var(--cs-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gantt-bar-track {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.dark .gantt-bar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.gantt-bar {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 3px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  color: white;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gantt-bar-genomics {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+.gantt-bar-structure {
+  background: linear-gradient(90deg, #059669, #34d399);
+}
+.gantt-bar-biophysics {
+  background: linear-gradient(90deg, #c46849, #e07a5f);
+}
+.gantt-bar-clinical {
+  background: linear-gradient(90deg, #d946aa, #f472b6);
+}
+.gantt-bar-failed {
+  background: linear-gradient(90deg, #ef4444, #f87171) !important;
+}
+
+.gantt-axis-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 16px;
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 9px;
+  color: var(--cs-text-muted);
+  border-bottom: 1px dashed var(--cs-border-subtle);
+  background: var(--cs-surface-2);
 }

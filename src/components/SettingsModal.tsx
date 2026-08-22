@@ -26,9 +26,12 @@ export default function SettingsModal() {
     settings,
     updateSetting,
     resetSettingsToDefault,
+    settingsTab,
+    setSettingsTab,
   } = useSettings();
 
-  const [activeTab, setActiveTab] = useState<TabId>("viewport");
+  const activeTab = settingsTab;
+  const setActiveTab = setSettingsTab;
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAppToken, setShowAppToken] = useState(false);
   const [showBiohubToken, setShowBiohubToken] = useState(false);

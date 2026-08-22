@@ -69,10 +69,6 @@ export default function MolstarViewer({
   const energyUnit = settings.energyUnit;
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [foldxBannerCollapsed, setFoldxBannerCollapsed] = useState<boolean>(false);
-  const [foldXPosition, setFoldXPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isFoldXDragging, setIsFoldXDragging] = useState<boolean>(false);
-  const [foldXDragStart, setFoldXDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isAlertClosed, setIsAlertClosed] = useState<boolean>(false);
   const [alertPosition, setAlertPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -136,33 +132,6 @@ export default function MolstarViewer({
     }
   };
 
-  const handleFoldXMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-    setIsFoldXDragging(true);
-    setFoldXDragStart({
-      x: e.clientX - foldXPosition.x,
-      y: e.clientY - foldXPosition.y,
-    });
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    if (!isFoldXDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      setFoldXPosition({
-        x: e.clientX - foldXDragStart.x,
-        y: e.clientY - foldXDragStart.y,
-      });
-    };
-    const handleMouseUp = () => setIsFoldXDragging(false);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isFoldXDragging, foldXDragStart]);
-
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
     setIsDragging(true);
@@ -213,28 +182,6 @@ export default function MolstarViewer({
     <div className={`flex flex-col gap-3 w-full ${heightClass === "h-full" ? "h-full min-h-0" : ""}`}>
       {/* INFO & WARNING OVERLAYS */}
       <MolstarInfoOverlay
-        comparePdbData={comparePdbData || null}
-        active3dModelTab={active3dModelTab}
-        customPdbData={customPdbData || null}
-        bFactorMetadata={structure.bFactorMetadata}
-        viewerStyle={structure.viewerStyle}
-        isEsmFolding={isEsmFolding}
-        loading={plugin.loading}
-        loadError={plugin.loadError}
-        esmFoldPdb={esmFoldPdb}
-        esmFoldingError={esmFoldingError}
-        uniprotId={uniprotId || null}
-        pdbSource={pdbSource}
-        pdbId={pdbId}
-        customPdbUrl={customPdbUrl || null}
-        mutantStatus={mutantStatus}
-        mutantDdG={mutantDdG}
-        energyUnit={energyUnit}
-        foldXPosition={foldXPosition}
-        isFoldXDragging={isFoldXDragging}
-        handleFoldXMouseDown={handleFoldXMouseDown}
-        foldxBannerCollapsed={foldxBannerCollapsed}
-        setFoldxBannerCollapsed={setFoldxBannerCollapsed}
         isPocketPanelOpen={pocket.isPocketPanelOpen}
         setIsPocketPanelOpen={pocket.setIsPocketPanelOpen}
         pocketPosition={pocket.pocketPosition}
@@ -251,8 +198,6 @@ export default function MolstarViewer({
         alertPosition={alertPosition}
         isDragging={isDragging}
         handleMouseDown={handleMouseDown}
-        metrics={metrics}
-        formatDdG={formatDdG}
       />
 
       {/* VIEWER CANVAS CARD */}

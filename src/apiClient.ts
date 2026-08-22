@@ -53,8 +53,33 @@ export function useApiClient() {
     }
 
     try {
-      // Proactively refresh session ID if expired or missing (within 30s of expiry)
-      if (geminiApiKey && (!currentSessionId || Date.now() >= (expiresAt - 30000))) {
+      // Proactively refresh session ID if near expiry (< 60s) or missing
+      if (currentSessionId && Date.now() < expiresAt && Date.now() >= (expiresAt - 60000)) {
+        try {
+          const refreshHeaders: Record<string, string> = {
+            "Content-Type": "application/json",
+            "X-Gemini-Session-ID": currentSessionId
+          };
+          if (appApiToken) {
+            refreshHeaders["Authorization"] = `Bearer ${appApiToken}`;
+          }
+          const refreshRes = await fetch("/api/v1/session/refresh", {
+            method: "POST",
+            headers: refreshHeaders,
+            signal
+          });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            if (refreshData.sessionId) {
+              currentSessionId = refreshData.sessionId;
+              updateSetting("geminiSessionId", refreshData.sessionId);
+              updateSetting("geminiSessionExpiresAt", refreshData.expiresAt || (Date.now() + 15 * 60 * 1000));
+            }
+          }
+        } catch (err) {
+          // Fall back to attempting request with current credentials
+        }
+      } else if (geminiApiKey && (!currentSessionId || Date.now() >= expiresAt)) {
         try {
           const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
           if (appApiToken) {
@@ -172,6 +197,22 @@ export function useApiClient() {
 
   const apiClient = useMemo(() => {
     return {
+      async resolveGene(gene: string, signal?: AbortSignal): Promise<{ gene: string; uniprotId: string; pdbUrl?: string | null }> {
+        const res = await fetchWithAuth("/api/v1/resolve-gene", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gene }),
+          timeout: 10000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errorMsg = errData.error?.message || errData.message || `Failed to resolve gene: ${res.statusText}`;
+          throw new Error(errorMsg);
+        }
+        return await res.json();
+      },
+
       async translateVariant(variant: string, signal?: AbortSignal): Promise<TranslateVariantResponse> {
         const res = await fetchWithAuth("/api/v1/translate-variant", {
           method: "POST",
@@ -227,7 +268,7 @@ export function useApiClient() {
         return z.object({ homologs: z.array(z.any()) }).parse(data).homologs;
       },
 
-      async getNearestResidues(params: { pdbText: string, targetIndex: number, distanceThreshold: number, targetChain?: string }, signal?: AbortSignal): Promise<NearestResiduesResponse> {
+      async getNearestResidues(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex: number, distanceThreshold: number, targetChain?: string }, signal?: AbortSignal): Promise<NearestResiduesResponse> {
         const res = await fetchWithAuth("/api/v1/nearest-residues", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -243,7 +284,7 @@ export function useApiClient() {
         return nearestResiduesResponseSchema.parse(data);
       },
 
-      async findPocket(params: { pdbText: string, mutIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+      async findPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, mutIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
         const res = await fetchWithAuth("/api/v1/pocket-finder", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -253,7 +294,8 @@ export function useApiClient() {
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to find binding pocket: ${res.statusText}`);
+          const errMsg = errData.error?.message || errData.message || (typeof errData.error === "string" ? errData.error : null) || res.statusText;
+          throw new Error(`Failed to find binding pocket: ${errMsg}`);
         }
         const initialData = await res.json();
         if (initialData.status === "queued" && initialData.pocketJobId) {
@@ -284,7 +326,7 @@ export function useApiClient() {
         return pocketFinderResponseSchema.parse(initialData);
       },
 
-      async detectPocket(params: { pdbText: string, targetIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+      async detectPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
         const res = await fetchWithAuth("/api/v1/pocket-detect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -339,6 +381,69 @@ export function useApiClient() {
         }
         const data = await res.json();
         return biophysicalAnalysisResponseSchema.parse(data);
+      },
+
+      async streamBiophysicalAnalysis(
+        params: { gene: string, uniprotId: string, variant: string, acmgWeighting?: string, options?: any },
+        onChunk: (chunk: any) => void,
+        signal?: AbortSignal
+      ): Promise<BiophysicalAnalysisResponse> {
+        const res = await fetchWithAuth("/api/v1/analyze-variant/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          timeout: 90000,
+          signal
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Failed to stream biophysical analysis: ${res.statusText}`);
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) {
+          throw new Error("Streaming not supported by browser environment.");
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalPayload: any = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.type === "error") {
+                throw new Error(parsed.error || "Stream error");
+              }
+              if (parsed.isFinal || parsed.type === "full") {
+                finalPayload = parsed.data || parsed.payload;
+              }
+              onChunk(parsed.data || parsed.payload || parsed);
+            } catch (err: any) {
+              console.warn("[Stream Parse Warning]:", err);
+            }
+          }
+        }
+
+        if (buffer.trim()) {
+          try {
+            const parsed = JSON.parse(buffer);
+            if (parsed.isFinal || parsed.type === "full") {
+              finalPayload = parsed.data || parsed.payload;
+            }
+            onChunk(parsed.data || parsed.payload || parsed);
+          } catch (_) {}
+        }
+
+        return biophysicalAnalysisResponseSchema.parse(finalPayload);
       },
 
       async getLandscapeData(params: { gene: string, uniprotId: string, variant: string }, signal?: AbortSignal): Promise<{ landscapeData: any[] }> {
@@ -447,7 +552,7 @@ export function useApiClient() {
       async getLiterature(gene: string, force = false, signal?: AbortSignal): Promise<{ gene: string, citations: any[] }> {
         const query = force ? "?force=true" : "";
         const res = await fetchWithAuth(`/api/v1/literature/${encodeURIComponent(gene)}${query}`, {
-          timeout: 15000,
+          timeout: 45000,
           signal
         });
         if (!res.ok) {

@@ -140,6 +140,7 @@ export function useMolstarStructure({
 
         let data: any = null;
         let fetchedPdbText: string | null = null;
+        let currentSource: "alphafold" | "experimental" = "alphafold";
 
         if (esmFoldPdb) {
           data = await localPlugin.builders.data.rawData({
@@ -147,22 +148,37 @@ export function useMolstarStructure({
             label: `${gene || 'ESMFold'} (${variant || 'Mutant'})`
           });
           fetchedPdbText = esmFoldPdb;
+          currentSource = "alphafold";
           setTemplateSource("alphafold");
+        } else if (customPdbUrl) {
+          if (!isValidPdbUrl(customPdbUrl)) {
+            throw new Error(`Invalid custom PDB URL (${customPdbUrl}). Only RCSB PDB, AlphaFold DB, or local API proxies are permitted.`);
+          }
+          const res = await fetchWithAuth(customPdbUrl);
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to fetch structure from ${customPdbUrl} (status ${res.status})`);
+          }
+          const resData = await res.text();
+          if (!resData || (!resData.includes("ATOM") && !resData.includes("HETATM") && !resData.includes("_atom_site"))) {
+            throw new Error(`Invalid structure payload returned for ${customPdbUrl}.`);
+          }
+          fetchedPdbText = resData;
+          currentSource = "experimental";
+          setTemplateSource("experimental");
+          const labelName = customPdbUrl.split("/").pop()?.replace(".pdb", "").replace(".ent", "").toUpperCase() || "PDB";
+          data = await localPlugin.builders.data.rawData({
+            data: resData,
+            label: `${gene || 'Homolog'} (${labelName})`
+          });
         } else if (customPdbData) {
           data = await localPlugin.builders.data.rawData({
             data: customPdbData,
             label: `${gene || 'Custom'} (${uniprotId || 'PDB'})`
           });
           fetchedPdbText = customPdbData;
-        } else if (customPdbUrl) {
-          if (!isValidPdbUrl(customPdbUrl)) {
-            throw new Error(`Invalid custom PDB URL (${customPdbUrl}). Only RCSB PDB, AlphaFold DB, or local API proxies are permitted.`);
-          }
-          data = await localPlugin.builders.data.download({
-            url: customPdbUrl,
-            isBinary: false,
-            label: `${gene || 'Custom'} (${uniprotId || 'PDB'})`
-          });
+          currentSource = "alphafold";
+          setTemplateSource("alphafold");
         } else if (uniprotId) {
           const match = variant ? variant.match(/\d+/) : null;
           const posQuery = match ? `?pos=${match[0]}` : "";
@@ -179,8 +195,10 @@ export function useMolstarStructure({
 
           const sourceHeader = res.headers.get("X-Template-Source");
           if (sourceHeader === "experimental") {
+            currentSource = "experimental";
             setTemplateSource("experimental");
           } else {
+            currentSource = "alphafold";
             setTemplateSource("alphafold");
           }
 
@@ -197,9 +215,8 @@ export function useMolstarStructure({
         }
 
         if (!active) return;
-        if (!data) {
-          setLoading(false);
-          return;
+        if (!data || (fetchedPdbText && !fetchedPdbText.includes("ATOM") && !fetchedPdbText.includes("HETATM") && !fetchedPdbText.includes("_atom_site"))) {
+          throw new Error(`Structure payload for ${gene || uniprotId || 'protein'} did not contain valid 3D coordinates.`);
         }
 
         if (fetchedPdbText) {
@@ -207,16 +224,17 @@ export function useMolstarStructure({
           if (onPdbTextLoaded) onPdbTextLoaded(fetchedPdbText);
         }
 
-        const trajectory = await localPlugin.builders.structure.parseTrajectory(data, "pdb");
-        if (!active) return;
+        const format = (fetchedPdbText && (fetchedPdbText.startsWith("data_") || fetchedPdbText.includes("_atom_site"))) ? "mmcif" : "pdb";
+        const trajectory = await localPlugin.builders.structure.parseTrajectory(data, format);
+        if (!active || !trajectory) return;
         const model = await localPlugin.builders.structure.createModel(trajectory);
-        if (!active) return;
+        if (!active || !model) return;
         const structure = await localPlugin.builders.structure.createStructure(model);
-        if (!active) return;
+        if (!active || !structure) return;
         structureRef.current = structure;
 
         let targetStructure = structure;
-        if (plddtFilter !== "none") {
+        if (currentSource === "alphafold" && plddtFilter !== "none") {
           const threshold = parseInt(plddtFilter, 10);
           const expression = MS.struct.generator.atomGroups({
             'atom-test': MS.core.rel.gre([
@@ -287,9 +305,85 @@ export function useMolstarStructure({
           }
         } else {
           await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
-            theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
+            theme: { globalName: currentSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
           });
           if (!active) return;
+        }
+
+        // Explicitly create Ion (Zinc, Magnesium, Calcium, Iron, etc.) and Ligand representations
+        try {
+          // 1. Metal ions (Zinc, Magnesium, Calcium, Iron, Manganese, Copper, etc.)
+          const metalIonExpr = MS.struct.generator.atomGroups({
+            'atom-test': MS.core.logic.or([
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'ZN']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'ZN']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'MG']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'MG']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'CA']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'CA']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'FE']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'FE']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'MN']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'MN']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'CU']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'CU']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'NA']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'NA']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'K']),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'K'])
+            ])
+          });
+          const metalIonComp = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+            targetStructure,
+            metalIonExpr,
+            'metal-ions',
+            { label: 'Metal Ions (Zinc / Ions)' }
+          );
+          if (!active) return;
+          if (metalIonComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(metalIonComp, {
+              type: 'spacefill',
+              color: 'element-symbol'
+            });
+            if (!active) return;
+          }
+
+          // 2. Non-water Ligands and Prosthetic Groups
+          const ligandExpr = MS.struct.generator.atomGroups({
+            'atom-test': MS.core.logic.and([
+              MS.struct.atomProperty.macromolecular.isHet(),
+              MS.core.logic.not([
+                MS.core.logic.or([
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'HOH']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'WAT']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'ZN']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'ZN']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'MG']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'MG']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'CA']),
+                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'CA'])
+                ])
+              ])
+            ])
+          });
+          const ligandComp = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+            targetStructure,
+            ligandExpr,
+            'ligands',
+            { label: 'Ligands & Prosthetic Groups' }
+          );
+          if (!active) return;
+          if (ligandComp) {
+            await localPlugin.builders.structure.representation.addRepresentation(ligandComp, {
+              type: 'ball-and-stick',
+              color: 'element-symbol'
+            });
+            if (!active) return;
+          }
+        } catch (ionErr) {
+          console.warn("[Mol* Ion/Ligand] Failed to add ion/ligand representation:", ionErr);
         }
 
         // Compare structure if present

@@ -17,40 +17,7 @@ export function GuidelinesTab({
         <p className="screen-tab-description">ACMG/AMP evidence code thresholds for each computational predictor, with live match highlighting for the current variant.</p>
       </div>
       
-      {/* Dynamic Alert Banner */}
-      {(() => {
-        const revel = result.conservationData?.revel ?? null;
-        const ddG = foldingDdG;
-        let statusStyle = {};
-        let statusText = "CONCORDANCE UNCERTAIN";
-        let statusDesc = "The scores and stability changes fall into intermediate ranges or present conflicting evidence, requiring further functional validation.";
-        
-        if (revel !== null && revel >= 0.75 && ddG !== null && ddG > 1.5) {
-          statusText = "Destabilization + Conservation Concordant (High Risk)";
-          statusStyle = { color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "var(--cs-text-danger)" };
-          statusDesc = "Both sequence-based conservation (REVEL >= 0.75) and structural energetics (FoldX ddG > 1.5 kcal/mol) suggest severe risk of loss-of-function due to misfolding. NOTE: Destabilization ≠ Pathogenicity; some pathogenic variants (e.g. gain-of-function or neomorphic) do not cause structural destabilization.";
-        } else if ((revel !== null && revel >= 0.5) || (ddG !== null && ddG > 1.5)) {
-          statusText = "MODERATE-RISK CONCORDANCE (Pathogenic / Destabilizing Support)";
-          statusStyle = { color: "var(--cs-text-warning)", backgroundColor: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)" };
-          statusDesc = "At least one biophysical indicator (REVEL >= 0.5 or FoldX ddG > 0.5 kcal/mol) shows significant aberration, suggesting functional or structural impact.";
-        } else if (revel !== null && revel < 0.15 && ddG !== null && ddG < 0.5 && ddG > -0.5) {
-          statusText = "LOW-RISK CONCORDANCE (Likely Benign / Tolerated)";
-          statusStyle = { color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "var(--cs-text-success)" };
-          statusDesc = "Consensus indicators fall within benign boundaries. The variant is structurally neutral and evolutionary conservation does not suggest strict constraint.";
-        } else {
-          statusStyle = { color: "var(--cs-text-secondary)", backgroundColor: "var(--cs-surface-2)", borderColor: "var(--cs-border)" };
-        }
-        
-        return (
-          <div className="p-3 rounded-lg border leading-relaxed text-xs" style={statusStyle}>
-            <div className="font-bold flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
-              <ShieldAlert className="w-4 h-4 shrink-0" />
-              <span>{statusText}</span>
-            </div>
-            <p className="mt-1 text-[10px] opacity-90">{statusDesc}</p>
-          </div>
-        );
-      })()}
+
 
       {/* Threshold Table */}
       <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
@@ -72,8 +39,6 @@ export function GuidelinesTab({
                 const revelVal = result.conservationData?.revel ?? null;
                 const amVal = result.predictorData?.amPathogenicity ?? null;
                 const amCls = result.predictorData?.amClass ?? null;
-                const eveVal = result.predictorData?.eveScore ?? result.conservationData?.popeve ?? null;
-                const eveCls = result.predictorData?.eveClass ?? null;
                 const bayesdelVal = result.conservationData?.bayesdel ?? null;
                 const metarnnVal = result.conservationData?.metarnn ?? null;
                 const clinpredVal = result.conservationData?.clinpred ?? null;

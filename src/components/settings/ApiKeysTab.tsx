@@ -80,10 +80,10 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
         </p>
       </div>
 
-      {/* Biohub API Token input */}
+      {/* EvolutionaryScale / Biohub (Forge) API Token input */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="font-semibold block text-xs">Biohub API Token</label>
+          <label className="font-semibold block text-xs">Biohub / EvolutionaryScale (Forge) Token</label>
           <button
             type="button"
             onClick={testBiohubToken}
@@ -102,7 +102,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
         <div className="relative">
           <input
             type={showBiohubToken ? "text" : "password"}
-            placeholder={settings.biohubApiToken ? "••••••••••••••••••••••••••••••••" : "Enter Biohub API key..."}
+            placeholder={settings.biohubApiToken ? "••••••••••••••••••••••••••••••••" : "Enter EvolutionaryScale Forge API key..."}
             value={settings.biohubApiToken || ""}
             onChange={(e) => {
               updateSetting("biohubApiToken", e.target.value.trim());
@@ -135,7 +135,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
           </div>
         )}
         <p className={`text-[10px] leading-normal ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-          Enables ESM3 3D structural refinement, ESM3 allosteric perturbations, and ESMC deep representation metrics directly from the Biohub Platform API.
+          Enables ESM3 3D structural refinement, ESM3 allosteric perturbations, and ESMC deep representation metrics directly from EvolutionaryScale Forge.
         </p>
       </div>
 
@@ -251,7 +251,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
           </div>
         )}
         <p className={`text-[10px] leading-normal ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-          Required to download and execute ESM-2 3B and structure-aware SaProt predictions remotely via Hugging Face Serverless Inference API.
+          Required to download and execute ESM-2 3B, structure-aware SaProt, and GPN-Star predictions remotely via Hugging Face Serverless Inference API.
         </p>
       </div>
 
@@ -297,14 +297,18 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
         {settings.geminiSessionId && settings.geminiSessionExpiresAt ? (
           Date.now() < settings.geminiSessionExpiresAt ? (
             <p className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1 font-medium mt-1">
-              ✓ Session active. Valid for {Math.max(1, Math.round((settings.geminiSessionExpiresAt - Date.now()) / 60000))} minutes.
+              ✓ Custom session active (Auto-renewing while active).
             </p>
           ) : (
-            <p className="text-[10px] text-rose-500 dark:text-rose-400 flex items-center gap-1 font-medium mt-1">
-              ⚠ Session expired. Please link again.
+            <p className="text-[10px] text-amber-500 dark:text-amber-400 flex items-center gap-1 font-medium mt-1">
+              ⚠ Custom session idle / expired. Auto-renews on next query.
             </p>
           )
-        ) : null}
+        ) : (
+          <p className="text-[10.5px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 font-medium mt-1">
+            <span>●</span> Server environment key active (.env) — pipeline online.
+          </p>
+        )}
         {linkError && (
           <p className="text-[10px] text-rose-500 dark:text-rose-400 font-medium mt-1">
             ⚠ {linkError}

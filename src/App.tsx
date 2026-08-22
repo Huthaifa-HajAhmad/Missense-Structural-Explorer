@@ -45,7 +45,7 @@ export default function App() {
   } = actions;
 
   const [masterView, setMasterView] = useState<MasterView>("search");
-  const [metricMode, setMetricMode] = useState<"mean" | "max">("max");
+  const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");
   const [windowSize, setWindowSize] = useState<number>(31);
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<string>("clinical");
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -81,11 +81,6 @@ export default function App() {
   const classTextBody = "text-cs-text-secondary";
   const classTextMute = "text-cs-text-muted";
 
-  const handleSearchSubmitAndOpen = (event: React.FormEvent) => {
-    setMasterView("insights");
-    actions.handleSearchSubmit(event);
-  };
-
   return (
     <VariantAnalysisProvider state={state} actions={actions}>
       <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
@@ -118,13 +113,15 @@ export default function App() {
         {/* ── App Main Viewport ── */}
         <div className="app-main flex flex-col flex-1 relative overflow-hidden">
 
-          {/* ── Slim Header Bar ── */}
+          {/* ── Slim Header Bar with integrated alerts ── */}
           <HeaderBar
             masterView={masterView}
             isBiophysicalLoading={isBiophysicalLoading}
             isOffline={isOffline}
             isSearchOpen={isSearchOpen}
             setIsSearchOpen={setIsSearchOpen}
+            error={analysisState.error}
+            onDismissError={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
           />
 
           {/* ── Quick Search Dropdown ── */}
@@ -141,7 +138,7 @@ export default function App() {
             customGenomic={state.customGenomic}
             setCustomGenomic={actions.setCustomGenomic}
             analysisState={state.analysisState}
-            handleSearchSubmit={handleSearchSubmitAndOpen}
+            handleSearchSubmit={actions.handleSearchSubmit}
             gene={state.gene}
             variant={state.variant}
             history={state.history}
@@ -157,22 +154,6 @@ export default function App() {
               uniprotId={uniprotId}
               analysisResult={analysisState.result}
             />
-          )}
-
-          {analysisState.error && (
-            <div className="mx-4 mt-2 p-3 rounded-xl border flex items-start gap-3 bg-rose-500/10 border-rose-500/20 text-rose-200 flex-shrink-0 z-10">
-              <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <span className="font-bold text-xs uppercase tracking-wider block mb-0.5">Analysis Warning</span>
-                <p className="text-xs leading-relaxed text-rose-300">{analysisState.error}</p>
-              </div>
-              <button
-                onClick={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
-                className="text-rose-400 hover:text-rose-200 text-xs font-bold px-1 transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
           )}
 
           {/* ── Primary Viewport Screen Router ── */}
@@ -200,7 +181,7 @@ export default function App() {
           {/* Footer info (28px height) */}
           <footer className="border-t px-5 py-1.5 flex items-center justify-between flex-shrink-0 text-[9px] transition-colors z-20 bg-cs-surface-2 border-cs-border-subtle text-cs-text-muted">
             <span>For research only. Not for diagnostic use. No PHI. &copy; 2026</span>
-            <span className="font-mono">Powered by Gemini Flash</span>
+            <span className="font-mono">Missense Structural Explorer · v1.0.0-dev</span>
           </footer>
 
           {/* Settings Panel Slide-out Modal */}

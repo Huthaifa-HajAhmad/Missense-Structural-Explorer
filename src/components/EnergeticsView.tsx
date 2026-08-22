@@ -84,6 +84,14 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Pei et al. bioRxiv / Tamarind Bio (2024)",
     paperUrl: "https://docs.tamarind.bio/tools/thermompnn"
   },
+  stabilityoracle: {
+    name: "StabilityOracle",
+    category: "Graph-Transformer / Structure-Aware ML",
+    description: "StabilityOracle evaluates stability changes (ΔΔG) by combining geometric graph-transformer representations of 3D protein coordinate structures with multi-task thermodynamic training.",
+    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; scores < +0.5 kcal/mol indicate neutral or stabilizing variants.",
+    paperTitle: "StabilityOracle Consortium (2024)",
+    paperUrl: "https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer"
+  },
   rmsd: {
     name: "Sidechain RMSD",
     category: "Structural Packing Deviation",
@@ -187,6 +195,7 @@ const EnergeticsView = memo(function EnergeticsView({
     ddmut: foldingEnergetics?.ddmut ?? result.ddmut ?? null,
     rasp: foldingEnergetics?.rasp ?? result.rasp ?? null,
     thermompnn: foldingEnergetics?.thermompnn ?? result.thermompnn ?? null,
+    stabilityoracle: foldingEnergetics?.stabilityoracle ?? (result as any).stabilityoracle ?? null,
     bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null,
     raspReason: (foldingEnergetics as any)?.raspReason,
@@ -276,42 +285,6 @@ const EnergeticsView = memo(function EnergeticsView({
         )}
         {/* ─────────────────────────────────────────────────────────────────── */}
 
-        {disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && (
-          <div className="p-3 rounded-lg border flex flex-col gap-1 animate-fade-in" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-            <div className="flex items-center gap-1.5 font-bold text-xs">
-              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>Low-Confidence Template Alert (pLDDT: {disruptionPredictor.plddt.toFixed(1)})</span>
-            </div>
-            <p className="text-[10px] leading-relaxed">
-              The local template structure at this residue has low confidence (pLDDT &lt; 70). Predictions generated from rigid-backbone models or biophysical force fields (e.g. FoldX, DynaMut2) are highly speculative in disordered or low-confidence regions.
-            </p>
-          </div>
-        )}
-
-        {!isFolding && !foldingError && energetics.foldxRepairFailed && (
-          <div className="p-3 rounded-lg border flex flex-col gap-1 animate-fade-in" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-            <div className="flex items-center gap-1.5 font-bold text-xs">
-              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>FoldX Repair Failure Warning</span>
-            </div>
-            <p className="text-[10px] leading-relaxed">
-              FoldX RepairPDB phase failed for this structure. Calculations proceeded using the unrepaired starting structure. Results are of lower confidence and have been excluded from the biophysical stability consensus calculation.
-            </p>
-          </div>
-        )}
-
-        {((energetics.dynamut2 === null && dynamut2Status === "unavailable") || (energetics.ddmut === null && ddmutStatus === "unavailable")) && (
-          <div className="p-3 rounded-lg border flex flex-col gap-1 animate-fade-in" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-            <div className="flex items-center gap-1.5 font-bold text-xs">
-              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>ΔΔG Evidence Partial (Asynchronous Services Offline)</span>
-            </div>
-            <p className="text-[10px] leading-relaxed">
-              One or more background biophysical services (DynaMut2 or DDMut) are currently offline or failed. Displaying all available predictions.
-            </p>
-          </div>
-        )}
-
         {isFolding && (
           <div className="p-3.5 rounded-lg border space-y-1 animate-fade-in" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
             <div className="font-bold text-xs uppercase flex items-center gap-2">
@@ -320,42 +293,6 @@ const EnergeticsView = memo(function EnergeticsView({
             </div>
             <p className="text-xs leading-relaxed opacity-90">
               FoldX mutant minimization, DynaMut2, and DDMut simulations are currently calculating in the background. Generating mutated structures and running atomic force fields. Please wait...
-            </p>
-          </div>
-        )}
-
-        {!isFolding && foldingError && (
-          <div className="p-3.5 rounded-lg border space-y-1 bg-rose-50 border-rose-100 text-rose-800 animate-fade-in">
-            <div className="font-bold text-xs uppercase flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 shrink-0 text-rose-500" />
-              <span>Biophysical Simulation Failed</span>
-            </div>
-            <p className="text-xs leading-relaxed opacity-90">
-              Simulation failed: <strong>{foldingError}</strong>. Displaying sequence-based and structure-based fallback predictions only.
-            </p>
-          </div>
-        )}
-
-        {!isFolding && !foldingError && foldingStatus === null && (
-          <div className="p-3.5 rounded-lg border space-y-1 bg-amber-50 border-amber-200 text-amber-700 animate-fade-in">
-            <div className="font-bold text-xs uppercase flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 shrink-0" style={{ strokeWidth: 2 }} />
-              <span>Biophysical Simulation Required</span>
-            </div>
-            <p className="text-xs leading-relaxed">
-              FoldX mutant energy minimization has not been triggered for this variant yet. Please switch the 3D Molecular Viewer mode to <strong>"Mutant"</strong> or <strong>"Side-by-Side"</strong> to run local side-chain repacking simulation and compute free-energy changes (ΔΔG).
-            </p>
-          </div>
-        )}
-
-        {!isFolding && !foldingError && foldingStatus !== null && (!foldingEnergetics || foldingEnergetics.foldx === null) && (
-          <div className="p-3.5 rounded-lg border space-y-1 bg-amber-50 border-amber-250 text-amber-800 animate-fade-in">
-            <div className="font-bold text-xs uppercase flex items-center gap-1.5">
-              <Info className="w-4 h-4 shrink-0 text-amber-500" />
-              <span>FoldX Modeling Unavailable</span>
-            </div>
-            <p className="text-xs leading-relaxed opacity-90">
-              The local FoldX structural calculation engine is currently unavailable or failed in this environment. Displaying sequence-based and structural-based (DynaMut2 / DDMut) fallback energetics only.
             </p>
           </div>
         )}
@@ -383,7 +320,8 @@ const EnergeticsView = memo(function EnergeticsView({
                     { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true, isPending: isDynamutPending },
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
                     { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: false, isPending: false },
-                    { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending }
+                    { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending },
+                    { key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: false }
                   ];
 
                   return items.map((item, idx) => {
@@ -471,37 +409,11 @@ const EnergeticsView = memo(function EnergeticsView({
             </tbody>
           </table>
         </div>
-        {thermompnnStatus === "error" && thermompnnError && (
-          <div className="p-3.5 rounded-lg border space-y-1 bg-rose-50 border-rose-100 text-rose-800 animate-fade-in flex gap-2.5 text-[11px] leading-relaxed">
-            <ShieldAlert className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold block mb-0.5 font-sans uppercase text-[10px] tracking-wider">ThermoMPNN Prediction Failed</span>
-              {thermompnnError}
-            </div>
-          </div>
-        )}
       </div>
 
         {/* Extended Biophysical Details & Consensus Verdict */}
-        {(energetics.foldxMean !== null || energetics.dynamut2 !== null || energetics.ddmut !== null || energetics.rasp !== null || energetics.thermompnn !== null) && (
+        {(energetics.foldxMean !== null || energetics.dynamut2 !== null || energetics.ddmut !== null || energetics.rasp !== null || energetics.thermompnn !== null || energetics.stabilityoracle !== null) && (
           <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-            <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-amber-500/5 text-amber-500/90" style={{ borderColor: "rgba(245, 158, 11, 0.15)" }}>
-              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold block mb-0.5 font-sans">Clinical Guidance: Destabilization ≠ Pathogenicity</span>
-                Thermodynamic destabilization (ΔΔG) measures misfolding risk but does not equal clinical pathogenicity. Gain-of-function (GOF) or neomorphic variants (e.g. <i>FGFR3</i> p.Gly380Arg) can cause severe disease while remaining structurally stable or neutral.
-              </div>
-            </div>
-
-            {(energetics as any)?.raspReason && energetics.rasp === null && (
-              <div className="flex gap-2.5 p-3 rounded-lg border text-[11px] leading-relaxed mb-3.5 bg-slate-500/5 text-slate-400 border-slate-500/20" style={{ borderColor: "rgba(100, 116, 139, 0.15)" }}>
-                <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold block mb-0.5 font-sans">RaSP Method Notice</span>
-                  {(energetics as any).raspReason}
-                </div>
-              </div>
-            )}
 
             {(() => {
               const uniprotFeatures = analysisState.result?.uniprotFeatures?.features;

@@ -26,4 +26,18 @@ describe("HeaderBar Component Tests (C-7)", () => {
     render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={true} isSearchOpen={false} setIsSearchOpen={() => {}} />);
     expect(screen.getByText("OFFLINE")).toBeInTheDocument();
   });
+
+  it("should display integrated error alert in header when error prop is provided", () => {
+    render(
+      <HeaderBar 
+        masterView="evidence" 
+        isBiophysicalLoading={false} 
+        isOffline={false} 
+        isSearchOpen={false} 
+        setIsSearchOpen={() => {}} 
+        error="Unauthorized: API Key Missing"
+      />
+    );
+    expect(screen.getByText(/Unauthorized: API Key Missing/i)).toBeInTheDocument();
+  });
 });

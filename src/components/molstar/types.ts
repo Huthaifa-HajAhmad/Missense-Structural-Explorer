@@ -28,28 +28,6 @@ export interface MolstarToolbarProps {
 }
 
 export interface MolstarInfoOverlayProps {
-  comparePdbData: string | null;
-  active3dModelTab?: "alphafold2" | "esm3";
-  customPdbData: string | null;
-  bFactorMetadata?: { source: string; details?: string } | null;
-  viewerStyle: string;
-  isEsmFolding?: boolean;
-  loading: boolean;
-  loadError: string | null;
-  esmFoldPdb?: string | null;
-  esmFoldingError?: string | null;
-  uniprotId: string | null;
-  pdbSource?: string | null;
-  pdbId?: string | null;
-  customPdbUrl?: string | null;
-  mutantStatus?: string | null;
-  mutantDdG?: number | null;
-  energyUnit?: string;
-  foldXPosition: { x: number; y: number };
-  isFoldXDragging: boolean;
-  handleFoldXMouseDown: (e: React.MouseEvent) => void;
-  foldxBannerCollapsed: boolean;
-  setFoldxBannerCollapsed: (val: boolean | ((prev: boolean) => boolean)) => void;
   isPocketPanelOpen: boolean;
   setIsPocketPanelOpen: (val: boolean) => void;
   pocketPosition: { x: number; y: number };
@@ -66,6 +44,4 @@ export interface MolstarInfoOverlayProps {
   alertPosition: { x: number; y: number };
   isDragging: boolean;
   handleMouseDown: (e: React.MouseEvent) => void;
-  metrics?: any;
-  formatDdG: (val: number | null | undefined, unit?: any) => string;
 }
