@@ -91,7 +91,15 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
 export function getClientIp(req: any): string {
   const sessionId = req.headers["x-gemini-session-id"] as string | undefined;
   if (sessionId) {
-    return `session_${sessionId}`;
+    try {
+      const apiKey = getApiKeyFromSession(sessionId);
+      if (apiKey) {
+        const sessionHash = crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 16);
+        return `session_${sessionHash}`;
+      }
+    } catch (_) {
+      // Invalid or expired session: fall through to IP-based rate limiting
+    }
   }
 
   // Use Express's built-in req.ip which respects the configured 'trust proxy' setting

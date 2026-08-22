@@ -16,9 +16,14 @@ import {
   encryptSession,
   decryptSession,
   getApiKeyFromSession,
-  sanitizeErrorMessage
+  sanitizeErrorMessage,
+  isGenomicCoordinate,
+  anonymizeGenomicCoordinate,
+  sanitizeAuditMetadata,
+  hashClientIp,
+  AuditLogger
 } from "./utils.ts";
-import { requestLogger } from "./middleware.ts";
+import { requestLogger, getClientIp } from "./middleware.ts";
 
 describe("Input Validation Patterns & Functions", () => {
   describe("validateGene", () => {
@@ -292,11 +297,33 @@ describe("Input Validation Patterns & Functions", () => {
       expect(filterPII(plainDigits)).toBe(plainDigits);
     });
 
-    it("should redact other PII types (email, SSN, DOB, Patient ID)", () => {
+    it("should redact other PII types (email, SSN, DOB, Patient ID, API Key)", () => {
       expect(filterPII("Email test@example.com here")).toContain("[REDACTED EMAIL]");
       expect(filterPII("SSN: 123-45-6789")).toContain("[REDACTED SSN]");
       expect(filterPII("DOB: 12/04/1985")).toContain("[REDACTED DOB]");
       expect(filterPII("MRN: abc-12345")).toContain("[REDACTED PATIENT ID]");
+      expect(filterPII("key AIzaSyB1234567890123456789012345678901234 here")).toContain("[REDACTED API KEY]");
+    });
+  });
+
+  describe("Genomic Coordinate Anonymization & Audit Sanitization", () => {
+    it("should detect genomic coordinates accurately", () => {
+      expect(isGenomicCoordinate("chr7:g.140453136A>G")).toBe(true);
+      expect(isGenomicCoordinate("c.1222C>T")).toBe(true);
+      expect(isGenomicCoordinate("p.Arg408Trp")).toBe(false);
+      expect(isGenomicCoordinate("RA408W")).toBe(false);
+    });
+
+    it("should anonymize genomic coordinates into pseudonymized hashes in audit logs", () => {
+      const sanitized = sanitizeAuditMetadata({
+        gene: "BRAF",
+        variant: "chr7:g.140453136A>G",
+        userDirections: "Patient DOB 12/04/1985"
+      });
+
+      expect(sanitized.gene).toBe("BRAF");
+      expect(sanitized.variant).toMatch(/^chr7:\[HASH_[a-f0-9]{8}\]$/);
+      expect(sanitized.userDirections).toContain("[REDACTED DOB]");
     });
   });
 
@@ -355,6 +382,65 @@ describe("Input Validation Patterns & Functions", () => {
       requestLogger(req, res, next);
       expect(req.headers["x-request-id"]).toBe("preset-req-id");
       expect(responseHeaders["X-Request-ID"]).toBe("preset-req-id");
+    });
+  });
+
+  describe("getClientIp & Rate Limiting Hardening", () => {
+    it("should accept valid encrypted session tokens and return session bucket", () => {
+      const secret = process.env.APP_SESSION_SECRET || "test-session-secret-key-123";
+      process.env.APP_SESSION_SECRET = secret;
+      const validSession = encryptSession(
+        { apiKey: "AIzaSyValidApiKey123456", expiresAt: Date.now() + 24 * 60 * 60 * 1000 },
+        secret
+      );
+      const req: any = {
+        headers: { "x-gemini-session-id": validSession },
+        ip: "192.168.1.100"
+      };
+      const key = getClientIp(req);
+      expect(key.startsWith("session_")).toBe(true);
+      expect(key).not.toBe("192.168.1.100");
+    });
+
+    it("should reject arbitrary unencrypted/fake session IDs and fall back to IP", () => {
+      const req: any = {
+        headers: { "x-gemini-session-id": "fake_unauthenticated_random_session_123" },
+        ip: "192.168.1.100"
+      };
+      const key = getClientIp(req);
+      expect(key).toBe("192.168.1.100");
+    });
+
+    it("should fallback to socket remoteAddress if req.ip is absent", () => {
+      const req: any = {
+        headers: {},
+        socket: { remoteAddress: "10.0.0.1" }
+      };
+      expect(getClientIp(req)).toBe("10.0.0.1");
+    });
+  });
+
+  describe("hashClientIp & AuditLogger Retention", () => {
+    it("should pseudonymize raw IP addresses with salted hash", () => {
+      const hashed1 = hashClientIp("192.168.1.50");
+      const hashed2 = hashClientIp("192.168.1.50");
+      const hashedOther = hashClientIp("10.0.0.5");
+
+      expect(hashed1.startsWith("ip_anon_")).toBe(true);
+      expect(hashed1).toBe(hashed2);
+      expect(hashed1).not.toBe(hashedOther);
+    });
+
+    it("should sanitize IP addresses in sanitizeAuditMetadata", () => {
+      const meta = {
+        gene: "PAH",
+        variant: "p.Arg408Trp",
+        ip: "192.168.1.50",
+        clientIp: "10.0.0.1"
+      };
+      const sanitized = sanitizeAuditMetadata(meta);
+      expect(sanitized.ip.startsWith("ip_anon_")).toBe(true);
+      expect(sanitized.clientIp.startsWith("ip_anon_")).toBe(true);
     });
   });
 });

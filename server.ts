@@ -11,18 +11,16 @@ import fs from "fs";
 import { spawn, execSync, exec, ChildProcess } from "child_process";
 import helmet from "helmet";
 import cors from "cors";
+import compression from "compression";
 import { createServer as createViteServer } from "vite";
 
 import { requestLogger, authCheck, validateContentType } from "./server/middleware.ts";
 import { apiRouter } from "./server/routes.ts";
 import { runTempJobsJanitor, AuditLogger, sendError } from "./server/utils.ts";
-import { initializeRaspDatabase, generateMutantPdb, findBindingPocket } from "./server/services/biophysics.ts";
+import { initializeRaspDatabase, generateMutantPdb, findBindingPocket, enrichBiophysicalResult } from "./server/services/biophysics.ts";
 import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
 import { shutdownPool } from "./server/services/biophysics-pool.ts";
-import { enrichBiophysicalResult } from "./server/routes/shared.ts";
 
-// P2-19: Eagerly create the audit log so future runs always have a durable evidence file
-// rather than discovering at runtime that no log exists.
 (async () => {
   try {
     const dir = path.join(process.cwd(), "logs");
@@ -31,8 +29,12 @@ import { enrichBiophysicalResult } from "./server/routes/shared.ts";
     if (!fs.existsSync(logFile)) {
       await fs.promises.writeFile(logFile, "", "utf8");
     }
+    const purged = await AuditLogger.purgeExpiredLogs(30);
+    if (purged > 0) {
+      console.log(`[Startup] Purged ${purged} expired audit log entries (> 30 days old).`);
+    }
   } catch (err: any) {
-    console.warn("[Startup] Failed to eager-create logs/audit.jsonl:", err.message);
+    console.warn("[Startup] Failed to initialize audit logs:", err.message);
   }
 })();
 
@@ -136,7 +138,7 @@ async function startServer() {
       SIDECAR_SECRET: process.env.SIDECAR_SECRET || ""
     };
     for (const key of Object.keys(process.env)) {
-      if (cleanSystemKeys.includes(key.toLowerCase())) {
+      if (cleanSystemKeys.includes(key.toLowerCase()) || key.startsWith("SIDECAR_") || key === "MAX_LOADED_MODELS") {
         sidecarEnv[key] = process.env[key] || "";
       }
     }
@@ -220,11 +222,12 @@ async function startServer() {
 
   spawnModelServer();
 
-  // Background health-check recovery loop (A2)
+  // Background health-check recovery loop with adaptive timeout and 2-strike retry (A2, B4)
+  let healthCheckConsecutiveFailures = 0;
   setInterval(async () => {
     let sidecarHealthy = false;
     try {
-      const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(1000) });
+      const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(5000) });
       if (sidecarRes.ok) {
         const data = await sidecarRes.json() as any;
         sidecarHealthy = data.status === "healthy";
@@ -234,23 +237,29 @@ async function startServer() {
     }
 
     if (sidecarHealthy) {
-      // If healthy, reset counter to 0 (A2)
+      healthCheckConsecutiveFailures = 0;
       restartAttempts = 0;
     } else {
-      console.warn("[Model Server] Background health check failed. Attempting sidecar recovery...");
-      if (modelServerProcess) {
-        console.warn("[Model Server] Terminating unresponsive sidecar process...");
-        try {
-          if (process.platform === "win32" && modelServerProcess.pid) {
-            execSync(`taskkill /F /T /PID ${modelServerProcess.pid}`, { stdio: "ignore" });
-          } else {
-            modelServerProcess.kill("SIGKILL");
-          }
-        } catch (_) {}
-      } else if (!restartTimer) {
-        console.warn("[Model Server] Sidecar not running and no restart scheduled. Spawning new process...");
-        restartAttempts = 0;
-        spawnModelServer();
+      healthCheckConsecutiveFailures++;
+      console.warn(`[Model Server] Background health check failed (strike ${healthCheckConsecutiveFailures}/2).`);
+
+      if (healthCheckConsecutiveFailures >= 2) {
+        healthCheckConsecutiveFailures = 0;
+        console.warn("[Model Server] 2 consecutive health checks failed. Initiating sidecar recovery...");
+        if (modelServerProcess) {
+          console.warn("[Model Server] Terminating unresponsive sidecar process tree...");
+          try {
+            if (process.platform === "win32" && modelServerProcess.pid) {
+              execSync(`taskkill /F /T /PID ${modelServerProcess.pid}`, { stdio: "ignore" });
+            } else {
+              modelServerProcess.kill("SIGKILL");
+            }
+          } catch (_) {}
+        } else if (!restartTimer) {
+          console.warn("[Model Server] Sidecar not running and no restart scheduled. Spawning new process...");
+          restartAttempts = 0;
+          spawnModelServer();
+        }
       }
     }
   }, 60000);
@@ -284,6 +293,7 @@ async function startServer() {
   }
 
   // [MOD-12] Global custom request logging middleware
+  app.use(compression());
   app.use(requestLogger);
   app.use(validateContentType);
 
@@ -403,7 +413,7 @@ async function startServer() {
       console.log("[Shutdown] Terminating model server sidecar process tree...");
       if (process.platform === "win32") {
         try {
-          exec(`taskkill /F /T /PID ${modelServerProcess.pid}`);
+          execSync(`taskkill /F /T /PID ${modelServerProcess.pid}`, { stdio: "ignore" });
         } catch (_) {}
       } else {
         try {

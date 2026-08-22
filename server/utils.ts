@@ -42,6 +42,9 @@ export class Semaphore {
           }
           resolved = true;
           clearTimeout(timer);
+          if (signal) {
+            signal.removeEventListener("abort", onAbort);
+          }
           reject(signal?.reason || new Error("Aborted"));
         }
       };
@@ -287,16 +290,72 @@ export class CircuitBreaker {
   }
 }
 
+export function isGenomicCoordinate(val: string): boolean {
+  if (typeof val !== "string") return false;
+  const trimmed = val.trim();
+  return (
+    /^(?:chr)?[0-9XYMT]+:g\./i.test(trimmed) ||
+    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+/i.test(trimmed) ||
+    /^(?:[A-Z0-9_.]+:)?c\.\d+/i.test(trimmed) ||
+    /^(?:[A-Z0-9_.]+:)?g\.\d+/i.test(trimmed) ||
+    /^(?:chr)?[0-9XYMT]+:\d+/i.test(trimmed)
+  );
+}
+
+export function anonymizeGenomicCoordinate(val: string): string {
+  if (!isGenomicCoordinate(val)) return val;
+  const hash = crypto.createHash("sha256").update(val).digest("hex").slice(0, 8);
+  const chrMatch = val.match(/^(?:chr)?([0-9XYMT]+)/i);
+  const prefix = chrMatch ? `chr${chrMatch[1].toUpperCase()}` : "genomic";
+  return `${prefix}:[HASH_${hash}]`;
+}
+
+const AUDIT_IP_SALT = process.env.AUDIT_IP_SALT || "missense-audit-salt-2026";
+
+export function hashClientIp(ip: string, salt: string = AUDIT_IP_SALT): string {
+  if (!ip || typeof ip !== "string") return ip;
+  const normalized = ip.trim().toLowerCase();
+  if (normalized.startsWith("session_") || normalized.startsWith("fallback_")) return normalized;
+  const hash = crypto.createHmac("sha256", salt).update(normalized).digest("hex").slice(0, 16);
+  return `ip_anon_${hash}`;
+}
+
+export function sanitizeAuditMetadata(metadata: any): any {
+  if (!metadata || typeof metadata !== "object") return metadata;
+  if (Array.isArray(metadata)) {
+    return metadata.map(item => sanitizeAuditMetadata(item));
+  }
+  const sanitized: Record<string, any> = {};
+  for (const [k, v] of Object.entries(metadata)) {
+    if (typeof v === "string") {
+      let clean = filterPII(v);
+      if (k === "variant" || k === "originalNotation" || k === "mutation") {
+        clean = anonymizeGenomicCoordinate(clean);
+      } else if (k === "ip" || k === "clientIp" || k === "remoteAddress") {
+        clean = hashClientIp(clean);
+      }
+      sanitized[k] = clean;
+    } else if (typeof v === "object" && v !== null) {
+      sanitized[k] = sanitizeAuditMetadata(v);
+    } else {
+      sanitized[k] = v;
+    }
+  }
+  return sanitized;
+}
+
 export class AuditLogger {
   private static logPath = path.join(process.cwd(), "logs", "audit.jsonl");
   public static failureCount = 0;
 
   static async log(action: string, metadata: any) {
     try {
+      const sanitizedMeta = sanitizeAuditMetadata(metadata);
       const entryObj = {
         timestamp: new Date().toISOString(),
         action,
-        ...metadata
+        dataClassification: metadata?.dataClassification || "SYSTEM_EVENT",
+        ...sanitizedMeta
       };
       const entryStr = JSON.stringify(entryObj);
       
@@ -330,11 +389,72 @@ export class AuditLogger {
       console.error("[AuditLogger] Failed to write audit log:", err.message);
     }
   }
+
+  static async logVariantQuery(action: string, metadata: {
+    gene: string;
+    variant: string;
+    uniprotId?: string;
+    acmgWeighting?: string;
+    requestId?: string;
+    hasDirections?: boolean;
+    stream?: boolean;
+    [key: string]: any;
+  }) {
+    return this.log(action, {
+      dataClassification: "CLINICAL_DECISION_SUPPORT",
+      retentionPolicy: "30_DAYS",
+      consentTier: "CLINICAL_RESEARCH",
+      ...metadata
+    });
+  }
+
+  /**
+   * Purges audit log entries older than maxAgeDays (default: 30 days).
+   */
+  static async purgeExpiredLogs(maxAgeDays = 30): Promise<number> {
+    const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+    let purgedCount = 0;
+
+    const logFiles = [this.logPath, path.join(path.dirname(this.logPath), "audit.1.jsonl")];
+    for (const file of logFiles) {
+      if (!fs.existsSync(file)) continue;
+      try {
+        const content = await fs.promises.readFile(file, "utf8");
+        const lines = content.split("\n").filter(l => l.trim().length > 0);
+        const validLines: string[] = [];
+
+        for (const line of lines) {
+          try {
+            const entry = JSON.parse(line);
+            const entryTime = new Date(entry.timestamp).getTime();
+            if (!isNaN(entryTime) && entryTime < cutoffTime) {
+              purgedCount++;
+            } else {
+              validLines.push(line);
+            }
+          } catch (_) {
+            validLines.push(line);
+          }
+        }
+
+        if (validLines.length !== lines.length) {
+          const newContent = validLines.length > 0 ? validLines.join("\n") + "\n" : "";
+          await fs.promises.writeFile(file, newContent, "utf8");
+        }
+      } catch (err: any) {
+        console.warn(`[AuditLogger] Failed to purge expired logs from ${file}:`, err.message);
+      }
+    }
+    return purgedCount;
+  }
 }
 
 export function filterPII(text: string): string {
   let filtered = text;
   
+  // API Key pattern (Google AIza...)
+  filtered = filtered.replace(/\bAIza[0-9A-Za-z-_]{30,45}\b/g, "[REDACTED API KEY]");
+
   // Email pattern
   filtered = filtered.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED EMAIL]");
   
