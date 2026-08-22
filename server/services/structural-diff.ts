@@ -304,6 +304,53 @@ export interface StructuralDiffResult {
   };
 }
 
+export function matchCaPairs(wtCas: PdbAtom[], mutCas: PdbAtom[]): { matchedWt: PdbAtom[]; matchedMut: PdbAtom[] } {
+  // Strategy 1: Exact match by resSeq AND chain
+  let matchedWt: PdbAtom[] = [];
+  let matchedMut: PdbAtom[] = [];
+
+  for (const wtCa of wtCas) {
+    const mutCa = mutCas.find(a => a.resSeq === wtCa.resSeq && a.chain === wtCa.chain);
+    if (mutCa) {
+      matchedWt.push(wtCa);
+      matchedMut.push(mutCa);
+    }
+  }
+
+  if (matchedWt.length >= 3) {
+    return { matchedWt, matchedMut };
+  }
+
+  // Strategy 2: Match by resSeq across primary protein chains (ignoring chain identifier differences e.g. A vs E or blank)
+  matchedWt = [];
+  matchedMut = [];
+  const usedMutIndices = new Set<number>();
+
+  for (const wtCa of wtCas) {
+    const mutIdx = mutCas.findIndex((a, idx) => !usedMutIndices.has(idx) && a.resSeq === wtCa.resSeq);
+    if (mutIdx !== -1) {
+      usedMutIndices.add(mutIdx);
+      matchedWt.push(wtCa);
+      matchedMut.push(mutCas[mutIdx]);
+    }
+  }
+
+  if (matchedWt.length >= 3) {
+    return { matchedWt, matchedMut };
+  }
+
+  // Strategy 3: Sequential index matching (for structures with shifted or renumbered residue sequences)
+  matchedWt = [];
+  matchedMut = [];
+  const minLen = Math.min(wtCas.length, mutCas.length);
+  for (let i = 0; i < minLen; i++) {
+    matchedWt.push(wtCas[i]);
+    matchedMut.push(mutCas[i]);
+  }
+
+  return { matchedWt, matchedMut };
+}
+
 export async function computeStructuralDiff(
   wtPdb: string,
   mutPdb: string,
@@ -316,16 +363,7 @@ export async function computeStructuralDiff(
   const wtCas = wtAtoms.filter(a => a.name === "CA");
   const mutCas = mutAtoms.filter(a => a.name === "CA");
 
-  const matchedWt: PdbAtom[] = [];
-  const matchedMut: PdbAtom[] = [];
-
-  for (const wtCa of wtCas) {
-    const mutCa = mutCas.find(a => a.resSeq === wtCa.resSeq && a.chain === wtCa.chain);
-    if (mutCa) {
-      matchedWt.push(wtCa);
-      matchedMut.push(mutCa);
-    }
-  }
+  const { matchedWt, matchedMut } = matchCaPairs(wtCas, mutCas);
 
   const n = matchedWt.length;
   if (n === 0) {
@@ -792,16 +830,7 @@ export async function alignMutantToWt(
   const wtCas = wtAtoms.filter(a => a.name === "CA");
   const mutCas = mutAtoms.filter(a => a.name === "CA");
 
-  const matchedWt: PdbAtom[] = [];
-  const matchedMut: PdbAtom[] = [];
-
-  for (const wtCa of wtCas) {
-    const mutCa = mutCas.find(a => a.resSeq === wtCa.resSeq && a.chain === wtCa.chain);
-    if (mutCa) {
-      matchedWt.push(wtCa);
-      matchedMut.push(mutCa);
-    }
-  }
+  const { matchedWt, matchedMut } = matchCaPairs(wtCas, mutCas);
 
   const n = matchedWt.length;
   if (n === 0) {

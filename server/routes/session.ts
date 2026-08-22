@@ -1,6 +1,6 @@
-/** session.ts — POST /session/keys route */
+/** session.ts — POST /session/keys and POST /session/refresh routes */
 import { type Router } from "express";
-import { sendError, encryptSession } from "../utils.ts";
+import { sendError, encryptSession, decryptSession } from "../utils.ts";
 import {
   GeminiError,
   isGeminiApiKeyPlaceholder,
@@ -39,6 +39,35 @@ export function registerSessionRoutes(apiRouter: Router, jsonParserRegular: any)
         return;
       }
       sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to create session.");
+    }
+  });
+
+  apiRouter.post("/session/refresh", jsonParserRegular, async (req, res) => {
+    try {
+      const sessionId = (req.headers["x-gemini-session-id"] as string) || req.body?.sessionId;
+      if (!sessionId || typeof sessionId !== "string") {
+        sendError(res, 400, "BAD_REQUEST", "Session ID is required for refresh.");
+        return;
+      }
+      const secret = process.env.APP_SESSION_SECRET;
+      if (!secret) {
+        throw new Error("APP_SESSION_SECRET is not configured in the environment.");
+      }
+      const payload = decryptSession(sessionId, secret);
+      if (!payload) {
+        sendError(res, 401, "SESSION_INVALID", "Invalid session token.");
+        return;
+      }
+      if (Date.now() > payload.expiresAt) {
+        sendError(res, 401, "SESSION_EXPIRED", "Session token has expired.");
+        return;
+      }
+
+      const expiresAt = Date.now() + 15 * 60 * 1000;
+      const newSessionId = encryptSession({ apiKey: payload.apiKey, expiresAt }, secret);
+      res.json({ sessionId: newSessionId, expiresAt });
+    } catch (err: any) {
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed to refresh session.");
     }
   });
 }

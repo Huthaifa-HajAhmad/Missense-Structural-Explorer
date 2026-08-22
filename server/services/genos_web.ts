@@ -10,6 +10,7 @@ try {
 }
 
 import { normalizeGeneSymbol, normalizeVariantTo3Letter } from './external.ts';
+import { getCachedOrFetch, clearAllCaches } from './cache.ts';
 
 let cachedCookie: string | null = null;
 let lastLoginTime = 0;
@@ -60,6 +61,11 @@ export function __resetGenosPipelineForTests(): void {
   genosLastCallAt = 0;
   genosQueue = Promise.resolve();
   GENOS_MIN_DELAY_MS_OVERRIDE = null;
+  cachedCookie = null;
+  lastLoginTime = 0;
+  genosCircuitBreakerUntil = 0;
+  genosResultCache.clear();
+  clearAllCaches(true);
 }
 export function __setGenosMinDelayMsForTests(value: number): void {
   GENOS_MIN_DELAY_MS_OVERRIDE = value;
@@ -139,145 +145,159 @@ export async function queryGenosWebservice(
   variant: string,
   gnomadVariantId?: string | null
 ): Promise<any | null> {
-  if (isGenosCircuitBroken()) {
-    console.log(`[Genos Web Query] Circuit breaker is active, skipping remote Genos call for ${gene}:${variant}`);
-    return null;
-  }
+  const normGene = normalizeGeneSymbol(gene);
+  const cleanVar = normalizeVariantTo3Letter(variant);
+  const cacheKey = `genos_${normGene}_${cleanVar}_${gnomadVariantId || ""}`;
 
-  const cacheKey = `${gene}_${variant}_${gnomadVariantId || ""}`;
-  const cachedResult = genosResultCache.get(cacheKey);
-  if (cachedResult && cachedResult.expiresAt > Date.now()) {
-    console.log(`[Genos Web Query Cache Hit] Returning cached results for ${gene} ${variant}`);
-    return cachedResult.data;
-  }
-
-  try {
-    const cookie = await login();
-    const headers = {
-      'Content-Type': 'application/json',
-      'Cookie': cookie
-    };
-
-    // Format variant query:
-    let variantQuery = '';
-    if (gnomadVariantId) {
-      const parts = gnomadVariantId.split('-');
-      if (parts.length >= 4) {
-        variantQuery = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}`;
+  return getCachedOrFetch({
+    key: cacheKey,
+    source: "Genos Web Service",
+    ttlSeconds: 14 * 24 * 60 * 60, // 14 days
+    fetcher: async () => {
+      if (isGenosCircuitBroken()) {
+        console.log(`[Genos Web Query] Circuit breaker is active, skipping remote Genos call for ${gene}:${variant}`);
+        return null;
       }
-    }
 
-    if (!variantQuery) {
-      const formattedVariant = variant.startsWith('p.') ? variant : `p.${variant}`;
-      variantQuery = `${normalizeGeneSymbol(gene)}:${formattedVariant}`;
-    }
+      try {
+        const cookie = await login();
+        const headers = {
+          'Content-Type': 'application/json',
+          'Cookie': cookie
+        };
 
-    console.log(`[Genos Web Query] Submitting query for variant: ${variantQuery}`);
-    const queryRes = await genosFetch('https://query.genos.us/api/query', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        variants: [variantQuery],
-        genome_build: 'hg38'
-      }),
-      signal: AbortSignal.timeout(6000)
-    });
+        // Format variant query:
+        let variantQuery = '';
+        if (gnomadVariantId) {
+          const parts = gnomadVariantId.split('-');
+          if (parts.length >= 4) {
+            variantQuery = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}`;
+          }
+        }
 
-    if (!queryRes.ok) {
-      const errText = await queryRes.text().catch(() => "");
-      console.warn(`[Genos Web Query] Submission failed: ${queryRes.status} ${errText}`);
-      if (queryRes.status === 429 || errText.includes("limit reached") || errText.includes("Daily academic limit")) {
-        tripGenosCircuitBreaker();
-      }
-      return null;
-    }
+        if (!variantQuery) {
+          const formattedVariant = variant.startsWith('p.') ? variant : `p.${variant}`;
+          variantQuery = `${normGene}:${formattedVariant}`;
+        }
 
-    const queryData = (await queryRes.json()) as GenosQueryResponse;
-    const qid = queryData.query_id;
-    if (!qid) {
-      console.warn('[Genos Web Query] Query submission returned no query_id');
-      return null;
-    }
+        console.log(`[Genos Web Query] Submitting query for variant: ${variantQuery}`);
+        const queryRes = await genosFetch('https://query.genos.us/api/query', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            variants: [variantQuery],
+            genome_build: 'hg38'
+          }),
+          signal: AbortSignal.timeout(6000)
+        });
 
-    const availableTabs = Object.keys(queryData.tabs || {});
-    const resultData: Record<string, any> = {};
+        if (!queryRes.ok) {
+          const errText = await queryRes.text().catch(() => "");
+          console.warn(`[Genos Web Query] Submission failed: ${queryRes.status} ${errText}`);
+          if (queryRes.status === 429 || errText.includes("limit reached") || errText.includes("Daily academic limit")) {
+            tripGenosCircuitBreaker();
+          }
+          return null;
+        }
 
-    // Retrieve tables of interest: conservative_scores, function_prediction, allele_frequency
-    const tablesToFetch = ['conservative_scores', 'function_prediction', 'allele_frequency'];
-    const fetchPromises = tablesToFetch.map(async (tbl) => {
-      if (availableTabs.includes(tbl)) {
-        try {
-          const resTable = await genosFetch(
-            `https://query.genos.us/api/query/${qid}/tables/${tbl}?offset=0&limit=1`,
-            { headers, signal: AbortSignal.timeout(15000) } as RequestInit
-          );
-          if (resTable.ok) {
-            const data = await resTable.json();
-            if (data.rows && data.rows.length > 0) {
-              resultData[tbl] = data.rows[0];
+        const queryData = (await queryRes.json()) as GenosQueryResponse;
+        const qid = queryData.query_id;
+        if (!qid) {
+          console.warn('[Genos Web Query] Query submission returned no query_id');
+          return null;
+        }
+
+        const availableTabs = Object.keys(queryData.tabs || {});
+        const resultData: Record<string, any> = {};
+
+        // Retrieve tables of interest: conservative_scores, function_prediction, allele_frequency
+        const tablesToFetch = ['conservative_scores', 'function_prediction', 'allele_frequency'];
+        const fetchPromises = tablesToFetch.map(async (tbl) => {
+          if (availableTabs.includes(tbl)) {
+            // Check if rows are already returned inline in queryData.tabs
+            const inlineRows = queryData.tabs[tbl]?.rows;
+            if (Array.isArray(inlineRows) && inlineRows.length > 0) {
+              resultData[tbl] = inlineRows[0];
+              return;
+            }
+            try {
+              const resTable = await genosFetch(
+                `https://query.genos.us/api/query/${qid}/tables/${tbl}?offset=0&limit=1`,
+                { headers, signal: AbortSignal.timeout(15000) } as RequestInit
+              );
+              if (resTable.ok) {
+                const data = await resTable.json();
+                if (data.rows && data.rows.length > 0) {
+                  resultData[tbl] = data.rows[0];
+                }
+              }
+            } catch (err: any) {
+              console.warn(`[Genos Web Query] Failed to fetch table ${tbl}:`, err.message);
             }
           }
-        } catch (err: any) {
-          console.warn(`[Genos Web Query] Failed to fetch table ${tbl}:`, err.message);
+        });
+
+        await Promise.all(fetchPromises);
+
+        if (Object.keys(resultData).length === 0) {
+          console.warn(`[Genos Web Query] No tables returned data for ${variantQuery}`);
+          return null;
         }
+
+        // Merge tables into a unified record format
+        const cScores = resultData['conservative_scores'] || {};
+        const fPred = resultData['function_prediction'] || {};
+        const aFreq = resultData['allele_frequency'] || {};
+
+        // Helper to parse float or return null
+        const val = (x: any) => {
+          if (x === undefined || x === null || x === '.' || x === '') return null;
+          const num = parseFloat(x);
+          return isNaN(num) ? null : num;
+        };
+
+        const ds_ag = val(fPred.SpliceAI_pred_DS_AG);
+        const ds_al = val(fPred.SpliceAI_pred_DS_AL);
+        const ds_dg = val(fPred.SpliceAI_pred_DS_DG);
+        const ds_dl = val(fPred.SpliceAI_pred_DS_DL);
+        const hasSpliceAI = ds_ag !== null || ds_al !== null || ds_dg !== null || ds_dl !== null;
+        const max_ds = hasSpliceAI ? Math.max(ds_ag || 0, ds_al || 0, ds_dg || 0, ds_dl || 0) : null;
+
+        const finalData = {
+          revel: val(fPred.REVEL_score),
+          gerp: val(cScores['GERP++_RS']),
+          phylop: val(cScores.phyloP100way_vertebrate),
+          bayesdel: val(fPred.BayesDel_noAF_score),
+          metarnn: val(fPred.MetaRNN_score),
+          clinpred: val(fPred.ClinPred_score),
+          eigenPhred: val(fPred['Eigen-phred_coding']),
+          dann: val(fPred.DANN_score),
+          esm1b: val(fPred.ESM1b_score),
+          popeve: val(fPred.popEVE_score),
+          aou_ac: val(aFreq.AllofUs_ALL_AC),
+          aou_an: val(aFreq.AllofUs_ALL_AN),
+          aou_het: val(aFreq.AllofUs_ALL_het),
+          aou_hom: val(aFreq.AllofUs_ALL_hom),
+          spliceai: hasSpliceAI ? {
+            ds_ag,
+            ds_al,
+            ds_dg,
+            ds_dl,
+            max_ds
+          } : null,
+          dbscsnv: (fPred.dbscSNV_ADA_SCORE !== undefined || fPred.dbscSNV_RF_SCORE !== undefined || fPred.dbscsnv_ada_score !== undefined || fPred.dbscsnv_rf_score !== undefined) ? {
+            ada_score: val(fPred.dbscSNV_ADA_SCORE ?? fPred.dbscsnv_ada_score),
+            rf_score: val(fPred.dbscSNV_RF_SCORE ?? fPred.dbscsnv_rf_score)
+          } : null
+        };
+        return finalData;
+
+      } catch (err: any) {
+        console.warn(`[Genos Web Query Error] Failed to execute query:`, err.message);
+        return null;
       }
-    });
-
-    await Promise.all(fetchPromises);
-
-    if (Object.keys(resultData).length === 0) {
-      console.warn(`[Genos Web Query] No tables returned data for ${variantQuery}`);
-      return null;
     }
-
-    // Merge tables into a unified record format
-    const cScores = resultData['conservative_scores'] || {};
-    const fPred = resultData['function_prediction'] || {};
-    const aFreq = resultData['allele_frequency'] || {};
-
-    // Helper to parse float or return null
-    const val = (x: any) => {
-      if (x === undefined || x === null || x === '.' || x === '') return null;
-      const num = parseFloat(x);
-      return isNaN(num) ? null : num;
-    };
-
-    const finalData = {
-      revel: val(fPred.REVEL_score),
-      gerp: val(cScores['GERP++_RS']),
-      phylop: val(cScores.phyloP100way_vertebrate),
-      bayesdel: val(fPred.BayesDel_noAF_score),
-      metarnn: val(fPred.MetaRNN_score),
-      clinpred: val(fPred.ClinPred_score),
-      eigenPhred: val(fPred['Eigen-phred_coding']),
-      dann: val(fPred.DANN_score),
-      esm1b: val(fPred.ESM1b_score),
-      popeve: val(fPred.popEVE_score),
-      aou_ac: val(aFreq.AllofUs_ALL_AC),
-      aou_an: val(aFreq.AllofUs_ALL_AN),
-      aou_het: val(aFreq.AllofUs_ALL_het),
-      aou_hom: val(aFreq.AllofUs_ALL_hom),
-      spliceai: (fPred.SpliceAI_pred_DS_AG !== undefined || fPred.SpliceAI_pred_DS_AL !== undefined) ? {
-        ds_ag: val(fPred.SpliceAI_pred_DS_AG),
-        ds_al: val(fPred.SpliceAI_pred_DS_AL),
-        ds_dg: val(fPred.SpliceAI_pred_DS_DG),
-        ds_dl: val(fPred.SpliceAI_pred_DS_DL)
-      } : null,
-      dbscsnv: (fPred.dbscSNV_ADA_SCORE !== undefined || fPred.dbscSNV_RF_SCORE !== undefined || fPred.dbscsnv_ada_score !== undefined || fPred.dbscsnv_rf_score !== undefined) ? {
-        ada_score: val(fPred.dbscSNV_ADA_SCORE ?? fPred.dbscsnv_ada_score),
-        rf_score: val(fPred.dbscSNV_RF_SCORE ?? fPred.dbscsnv_rf_score)
-      } : null
-    };
-    genosResultCache.set(cacheKey, {
-      expiresAt: Date.now() + CACHE_TTL,
-      data: finalData
-    });
-    return finalData;
-
-  } catch (err: any) {
-    console.warn(`[Genos Web Query Error] Failed to execute query:`, err.message);
-    return null;
-  }
+  });
 }
 
 // Canonical 1-letter amino-acid code table used to enumerate the 19 non-synonymous

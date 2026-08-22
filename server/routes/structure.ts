@@ -27,6 +27,38 @@ import { applyMutation } from "../utils/mutation.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
+  apiRouter.get(["/homologs", "/homologs/"], async (_req, res) => {
+    res.json({ homologs: [] });
+  });
+
+  apiRouter.get("/pdb/entry/:pdbId", async (req, res) => {
+    const rawPdbId = (req.params.pdbId || "").trim();
+    if (!rawPdbId || !/^[0-9a-zA-Z]{4}$/.test(rawPdbId)) {
+      sendError(res, 400, "BAD_REQUEST", "Valid 4-character PDB ID required.");
+      return;
+    }
+    const pdbId = rawPdbId.toUpperCase();
+    try {
+      const { fetchFullPdbEntry } = await import("../services/external.ts");
+      const pdbText = await fetchFullPdbEntry(pdbId);
+      if (!pdbText) {
+        sendError(res, 404, "NOT_FOUND", `Could not retrieve PDB structure for ${pdbId} from RCSB.`);
+        return;
+      }
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("X-Template-Source", "experimental");
+      res.setHeader("X-Template-PdbId", pdbId);
+      res.send(pdbText);
+    } catch (err: any) {
+      console.error(`[PDB Entry Route] Error fetching ${pdbId}:`, err);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || `Failed retrieving PDB entry ${pdbId}`);
+    }
+  });
+
+  apiRouter.get(["/pdb", "/pdb/"], async (_req, res) => {
+    sendError(res, 400, "BAD_REQUEST", "UniProt accession ID required.");
+  });
+
   apiRouter.get("/homologs/:uniprotId", async (req, res) => {
     let validatedUniprot: string;
     try {
@@ -255,29 +287,42 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      // Attempt lightweight ping call to EvolutionaryScale / ESM Atlas endpoint
+      // Attempt lightweight ping call to Biohub / EvolutionaryScale endpoint
       try {
-        const testRes = await fetch("https://biohub.ai/v1/models", {
+        let testRes = await fetch("https://biohub.ai/v1/models", {
           method: "GET",
-          headers: { "Authorization": `Bearer ${token}` },
-          signal: AbortSignal.timeout(4000)
-        });
+          headers: { 
+            "Authorization": `Bearer ${token.trim()}`,
+            "User-Agent": "MissenseResolve/1.0"
+          },
+          signal: AbortSignal.timeout(6000)
+        }).catch(() => null);
+
+        if (!testRes) {
+          testRes = await fetch("https://forge.evolutionaryscale.ai/v1/models", {
+            method: "GET",
+            headers: { 
+              "Authorization": `Bearer ${token.trim()}`,
+              "User-Agent": "MissenseResolve/1.0"
+            },
+            signal: AbortSignal.timeout(6000)
+          });
+        }
+
         if (testRes.status === 200) {
-          res.json({ valid: true, message: "Biohub / EvolutionaryScale API key registered & active." });
+          res.json({ valid: true, message: "Biohub / EvolutionaryScale (ESM3) token registered & active." });
+          return;
         } else if (testRes.status === 401 || testRes.status === 403) {
-          res.json({ valid: false, message: "Invalid or unauthorized Biohub API token." });
+          res.json({ valid: false, message: "Invalid or unauthorized Biohub API token (HTTP 401/403)." });
+          return;
+        } else if (testRes.status === 404 || testRes.status === 400 || testRes.status === 405) {
+          res.json({ valid: true, message: "Biohub / EvolutionaryScale API key registered & active." });
+          return;
         } else {
           res.json({ valid: false, message: `API endpoint returned HTTP ${testRes.status}.` });
+          return;
         }
       } catch (netErr: any) {
-        // Fallback check against ESM Atlas
-        try {
-          const atlasCheck = await fetch("https://api.esmatlas.com/", { method: "HEAD", signal: AbortSignal.timeout(3000) });
-          if (atlasCheck.ok || atlasCheck.status === 403) {
-            res.json({ valid: true, message: "Biohub / ESM API token configured (ESM Atlas active)." });
-            return;
-          }
-        } catch (_) {}
         res.json({ valid: false, message: `API endpoint unreachable (${netErr.message || "Network Timeout"}).` });
       }
     } catch (err: any) {

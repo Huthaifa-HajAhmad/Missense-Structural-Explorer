@@ -34,7 +34,7 @@ const ensemblResponseSchema = z.array(
 );
 
 const translateVariantSchema = z.object({
-  variant: z.string(),
+  variant: z.string().min(1).max(200),
 });
 
 export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: any): void {

@@ -1,6 +1,5 @@
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
-import { gnomadFreqCache, gnomadConstraintCache } from "./cache.ts";
-
+import { gnomadFreqCache, gnomadConstraintCache, getCachedOrFetch } from "./cache.ts";
 
 export interface GnomadVariantFrequency {
   /** Max allele frequency across gnomAD v4 sub-populations */
@@ -38,10 +37,13 @@ export async function fetchGnomadVariantFrequency(
 ): Promise<GnomadVariantFrequency | null> {
   if (!variantId) return null;
 
-  const cached = gnomadFreqCache.get(variantId);
-  if (cached !== undefined) return cached;
-
-  const query = `
+  return getCachedOrFetch({
+    key: `gnomad_freq_${variantId}`,
+    source: "gnomAD GraphQL API",
+    l1Cache: gnomadFreqCache,
+    ttlSeconds: 14 * 24 * 60 * 60,
+    fetcher: async () => {
+      const query = `
     query VariantFrequency($variantId: String!) {
       variant(variantId: $variantId, dataset: gnomad_r4) {
         variant_id
@@ -173,12 +175,13 @@ export async function fetchGnomadVariantFrequency(
       groupMaxAFIsFallback,
     };
 
-    gnomadFreqCache.set(variantId, result);
     return result;
   } catch (err: any) {
     console.error(`[gnomAD Freq] Error fetching ${variantId}:`, err.message);
     return null;
   }
+    }
+  });
 }
 
 export interface GnomadGeneConstraint {
@@ -201,82 +204,87 @@ export async function fetchGnomadGeneConstraint(
   geneSymbol: string,
   aaPos?: number | null
 ): Promise<GnomadGeneConstraint | null> {
-  const key = geneSymbol.toUpperCase();
-  let cached = gnomadConstraintCache.get(key);
+  const normGene = normalizeGeneSymbol(geneSymbol).toUpperCase();
 
-  if (cached === undefined) {
-    const query = `
-      query GeneConstraintAndRMC($gene: String!) {
-        gene(gene_symbol: $gene, reference_genome: GRCh37) {
-          gnomad_constraint {
-            mis_z
-            oe_mis
-            pLI
-            oe_lof_upper
-          }
-          gnomad_v2_regional_missense_constraint {
-            passed_qc
-            regions {
-              chrom
-              start
-              stop
-              aa_start
-              aa_stop
-              obs_mis
-              exp_mis
-              obs_exp
-              p_value
+  const cached = await getCachedOrFetch<GnomadGeneConstraint | null>({
+    key: `gnomad_constraint_${normGene}`,
+    source: "gnomAD Constraint API",
+    l1Cache: gnomadConstraintCache,
+    ttlSeconds: 30 * 24 * 60 * 60,
+    fetcher: async () => {
+      const query = `
+        query GeneConstraintAndRMC($gene: String!) {
+          gene(gene_symbol: $gene, reference_genome: GRCh37) {
+            gnomad_constraint {
+              mis_z
+              oe_mis
+              pLI
+              oe_lof_upper
+            }
+            gnomad_v2_regional_missense_constraint {
+              passed_qc
+              regions {
+                chrom
+                start
+                stop
+                aa_start
+                aa_stop
+                obs_mis
+                exp_mis
+                obs_exp
+                p_value
+              }
             }
           }
         }
-      }
-    `;
+      `;
 
-    try {
-      const resp = await fetchWithRetry(
-        "https://gnomad.broadinstitute.org/api",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ query, variables: { gene: key } }),
-          timeout: 15000,
-        },
-        2,
-        1500
-      );
+      try {
+        const resp = await fetchWithRetry(
+          "https://gnomad.broadinstitute.org/api",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ query, variables: { gene: normGene } }),
+            timeout: 15000,
+          },
+          2,
+          1500
+        );
 
-      if (resp.ok) {
-        const json = await resp.json();
-        const geneData = json?.data?.gene;
-        const constraint = geneData?.gnomad_constraint;
-        const rmc = geneData?.gnomad_v2_regional_missense_constraint;
+        if (resp.ok) {
+          const json = await resp.json();
+          const geneData = json?.data?.gene;
+          const constraint = geneData?.gnomad_constraint;
+          const rmc = geneData?.gnomad_v2_regional_missense_constraint;
 
-        if (constraint) {
-          const missense_z = constraint.mis_z != null ? parseFloat(constraint.mis_z.toFixed(2)) : null;
-          const oe_mis = constraint.oe_mis != null ? parseFloat(constraint.oe_mis.toFixed(2)) : null;
-          const pli = constraint.pLI != null ? parseFloat(constraint.pLI.toFixed(2)) : null;
-          const loeuf = constraint.oe_lof_upper != null ? parseFloat(constraint.oe_lof_upper.toFixed(2)) : null;
+          if (constraint) {
+            const missense_z = constraint.mis_z != null ? parseFloat(constraint.mis_z.toFixed(2)) : null;
+            const oe_mis = constraint.oe_mis != null ? parseFloat(constraint.oe_mis.toFixed(2)) : null;
+            const pli = constraint.pLI != null ? parseFloat(constraint.pLI.toFixed(2)) : null;
+            const loeuf = constraint.oe_lof_upper != null ? parseFloat(constraint.oe_lof_upper.toFixed(2)) : null;
 
-          const isPP2Constrained =
-            (missense_z !== null && missense_z >= 3.09) ||
-            (oe_mis !== null && oe_mis < 0.8);
+            const isPP2Constrained =
+              missense_z !== null && missense_z >= 3.09 &&
+              oe_mis !== null && oe_mis < 0.6;
 
-          cached = {
-            missense_z,
-            oe_mis,
-            pli,
-            loeuf,
-            isPP2Constrained,
-            regions: rmc?.regions || [],
-            hasRegionalData: !!(rmc && rmc.regions && rmc.regions.length > 0)
-          };
-          gnomadConstraintCache.set(key, cached);
+            return {
+              missense_z,
+              oe_mis,
+              pli,
+              loeuf,
+              isPP2Constrained,
+              regions: rmc?.regions || [],
+              hasRegionalData: !!(rmc && rmc.regions && rmc.regions.length > 0)
+            };
+          }
         }
+      } catch (err: any) {
+        console.error(`[gnomAD Constraint] Error fetching ${normGene}:`, err.message);
       }
-    } catch (err: any) {
-      console.error(`[gnomAD Constraint] Error fetching ${key}:`, err.message);
+      return null;
     }
-  }
+  });
 
   if (!cached) return null;
 

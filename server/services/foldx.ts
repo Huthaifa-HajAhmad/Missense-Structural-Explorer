@@ -36,7 +36,7 @@ function getCacheFilename(cacheKey: string): string {
 export function getMutantFromCache(cacheKey: string): any | null {
   const memCached = mutantCache.get(cacheKey);
   if (memCached) {
-    if (memCached?.energetics?.foldxRepairFailed || memCached?.ddG === null || memCached?.status !== "success") {
+    if (memCached?.status === "failed") {
       mutantCache.delete(cacheKey);
     } else {
       return memCached;
@@ -53,7 +53,7 @@ export function getMutantFromCache(cacheKey: string): any | null {
       const ttlMs = 24 * 60 * 60 * 1000;
       if (cacheAge < ttlMs) {
         const { cachedAt: _, ...originalResult } = parsed;
-        if (originalResult?.energetics?.foldxRepairFailed || originalResult?.ddG === null || originalResult?.status !== "success") {
+        if (originalResult?.status === "failed") {
           try { fs.unlinkSync(filename); } catch (_) {}
           return null;
         }

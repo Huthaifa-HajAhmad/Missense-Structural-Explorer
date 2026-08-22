@@ -190,4 +190,80 @@ describe("Session Authentication & Key Validation", () => {
       expect(updatedStore.geminiApiKey).toBeUndefined();
     });
   });
+
+  describe("POST /session/refresh", () => {
+    it("should refresh an active session token and return updated expiry", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/session/refresh");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /session/refresh not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const secret = "dev-session-secret-must-be-changed-in-prod";
+      const initialSessionId = encryptSession(
+        { apiKey: "valid-active-key", expiresAt: Date.now() + 5 * 60 * 1000 },
+        secret
+      );
+
+      const req: any = {
+        headers: { "x-gemini-session-id": initialSessionId },
+        body: {}
+      };
+
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal.sessionId).toBeDefined();
+      expect(jsonVal.sessionId).not.toBe(initialSessionId);
+      expect(jsonVal.expiresAt).toBeGreaterThan(Date.now() + 10 * 60 * 1000);
+    });
+
+    it("should reject expired session token on refresh", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/session/refresh");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /session/refresh not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const secret = "dev-session-secret-must-be-changed-in-prod";
+      const expiredSessionId = encryptSession(
+        { apiKey: "valid-active-key", expiresAt: Date.now() - 5000 },
+        secret
+      );
+
+      const req: any = {
+        headers: { "x-gemini-session-id": expiredSessionId },
+        body: {}
+      };
+
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(401);
+      expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
+    });
+  });
 });

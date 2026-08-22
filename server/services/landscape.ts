@@ -222,7 +222,8 @@ export async function fetchLandscapeData(
     const pageSize = 1000; // myvariant.info has a hard limit of 1000 per request
     let from = 0;
     while (hits.length < limit) {
-      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=dbnsfp&size=${pageSize}&from=${from}`;
+      const targetFields = "dbnsfp.revel,dbnsfp.alphamissense,dbnsfp.gerp,dbnsfp.phylop,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.pos,dbnsfp.hgvsp,dbnsfp.genename";
+      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(q)}&fields=${targetFields}&size=${pageSize}&from=${from}`;
       console.log(`[Landscape] Querying myvariant.info: ${url}`);
       const res = await fetchWithRetry(url, {
         headers: { "Accept": "application/json" },

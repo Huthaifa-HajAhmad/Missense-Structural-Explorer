@@ -13,22 +13,15 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
     
     try {
       const customApiKey = req.headers["x-gemini-session-id"] as string | undefined;
-      if (force) {
-        console.log(`[RAG Route] Forcing literature sync for gene: ${gene}`);
-        await syncLiteratureForGene(gene, customApiKey);
-      }
       let citations = await getGeneCitations(gene);
-      if (citations.length === 0) {
-        // First-time sync: await background RAG synchronization with a 10s timeout limit so that the first load receives data
+      if (force || citations.length === 0) {
+        console.log(`[RAG Route] Syncing literature for gene: ${gene} (force=${force})`);
         try {
-          await Promise.race([
-            syncLiteratureForGene(gene, customApiKey),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Literature sync timeout")), 10000))
-          ]);
-          citations = await getGeneCitations(gene);
+          await syncLiteratureForGene(gene, customApiKey);
         } catch (syncErr: any) {
-          console.warn(`[RAG Route Sync Warning] Sync failed or timed out for ${gene}:`, syncErr.message);
+          console.warn(`[RAG Route Warning] Sync error for ${gene}:`, syncErr.message);
         }
+        citations = await getGeneCitations(gene);
       }
       res.json({
         gene: gene.toUpperCase(),

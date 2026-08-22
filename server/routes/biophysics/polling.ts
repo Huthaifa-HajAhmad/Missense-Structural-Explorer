@@ -18,27 +18,148 @@ import {
   parseResiduesFromPdbMaybeAsync,
   submitThermoMpnnJob,
   pollThermoMpnnJob,
+  enrichBiophysicalResult,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
-import { recordJobInRegistry, REGISTRY_PATH, type RegistryJob, enrichBiophysicalResult } from "../shared.ts";
+import { recordJobInRegistry, REGISTRY_PATH, type RegistryJob } from "../shared.ts";
+import { AMINO_ACID_3_TO_1 } from "../../../src/aminoAcids.ts";
 
-const dynamut2SubmitSchema = z.object({
-  wtPdb: z.string(),
-  mutation: z.string()
+function parseMutationParam(mutation: string): { wtLetter: string; mutLetter: string; posNum: number; chainParam: string } | null {
+  if (!mutation || typeof mutation !== "string" || mutation.length > 50) return null;
+  const clean = mutation.replace(/^p\./i, "").trim();
+
+  // 1. FoldX 4-part format: e.g. RA408W (WT=R, Chain=A, Pos=408, Mut=W)
+  const foldxMatch = clean.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+  if (foldxMatch) {
+    return {
+      wtLetter: foldxMatch[1].toUpperCase(),
+      chainParam: foldxMatch[2].toUpperCase(),
+      posNum: parseInt(foldxMatch[3], 10),
+      mutLetter: foldxMatch[4].toUpperCase()
+    };
+  }
+
+  // 2. Standard 1-letter missense: e.g. R408W (WT=R, Pos=408, Mut=W)
+  const standard1Match = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+  if (standard1Match) {
+    return {
+      wtLetter: standard1Match[1].toUpperCase(),
+      chainParam: "",
+      posNum: parseInt(standard1Match[2], 10),
+      mutLetter: standard1Match[3].toUpperCase()
+    };
+  }
+
+  // 3. 3-letter HGVS format: e.g. Arg408Trp
+  const standard3Match = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
+  if (standard3Match) {
+    const wtUpper = standard3Match[1].toUpperCase();
+    const mutUpper = standard3Match[3].toUpperCase();
+    const wt1 = AMINO_ACID_3_TO_1[wtUpper];
+    const mut1 = AMINO_ACID_3_TO_1[mutUpper];
+    if (wt1 && mut1) {
+      return {
+        wtLetter: wt1,
+        chainParam: "",
+        posNum: parseInt(standard3Match[2], 10),
+        mutLetter: mut1
+      };
+    }
+  }
+
+  return null;
+}
+
+const biophysicsSubmitSchema = z.object({
+  wtPdb: z.string().optional(),
+  pdbRef: z.string().optional(),
+  uniprotId: z.string().max(50).optional(),
+  mutation: z.string().min(1).max(50)
+}).refine(data => !!(data.wtPdb || data.pdbRef || data.uniprotId), {
+  message: "Either wtPdb, pdbRef, or uniprotId must be provided."
 });
 
-const ddmutSubmitSchema = z.object({
-  wtPdb: z.string(),
-  mutation: z.string()
-});
+const dynamut2SubmitSchema = biophysicsSubmitSchema;
+const ddmutSubmitSchema = biophysicsSubmitSchema;
+const thermompnnSubmitSchema = biophysicsSubmitSchema;
 
-const thermompnnSubmitSchema = z.object({
-  wtPdb: z.string(),
-  mutation: z.string()
-});
+async function resolvePdbTextFromParam(body: { wtPdb?: string; pdbRef?: string; uniprotId?: string }): Promise<string | null> {
+  if (body.wtPdb && body.wtPdb.trim().length > 0) {
+    return body.wtPdb;
+  }
+  const ref = (body.pdbRef || body.uniprotId || "").trim();
+  if (!ref) return null;
+
+  const { pdbCache } = await import("../../services/cache.ts");
+  if (pdbCache.has(ref)) {
+    return pdbCache.get(ref) || null;
+  }
+  const { fetchAlphafoldPdb } = await import("../../services/external.ts");
+  const fetched = await fetchAlphafoldPdb(ref);
+  if (fetched) {
+    pdbCache.set(ref, fetched);
+    return fetched;
+  }
+  return null;
+}
+
+import { EventEmitter } from "events";
+
+export const jobEventEmitter = new EventEmitter();
+jobEventEmitter.setMaxListeners(250);
+
+export function broadcastJobUpdate(update: {
+  jobId: string;
+  tool: "foldx" | "dynamut2" | "ddmut" | "thermompnn" | "p2rank";
+  status: string;
+  prediction?: number | null;
+  result?: any;
+  error?: string;
+}) {
+  jobEventEmitter.emit("job_update", update);
+}
 
 export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): void {
+
+  // Server-Sent Events (SSE) stream for biophysics job progress/completion (A1)
+  apiRouter.get("/jobs/events", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const jobsParam = (req.query.jobs as string) || "";
+    const subscribedJobIds = new Set(jobsParam.split(",").map(s => s.trim()).filter(Boolean));
+
+    if (subscribedJobIds.size === 0) {
+      sendError(res, 400, "BAD_REQUEST", "Query parameter 'jobs' specifying one or more job IDs is required for SSE subscription.");
+      return;
+    }
+
+    // Send initial connected handshake
+    res.write(`data: ${JSON.stringify({ type: "connected", timestamp: new Date().toISOString() })}\n\n`);
+
+    const listener = (update: any) => {
+      if (subscribedJobIds.has(update.jobId)) {
+        res.write(`data: ${JSON.stringify({ type: "job_update", ...update })}\n\n`);
+      }
+    };
+
+    jobEventEmitter.on("job_update", listener);
+
+    const pingInterval = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(": ping\n\n");
+      }
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(pingInterval);
+      jobEventEmitter.off("job_update", listener);
+    });
+  });
 
   apiRouter.get("/foldx-job/:jobId", async (req, res) => {
     const { jobId } = req.params;
@@ -77,6 +198,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
         const enriched = enrichBiophysicalResult(jobInfo.result, remoteJobs, structureProvenance, posNum);
 
+        broadcastJobUpdate({ jobId, tool: "foldx", status: "completed", result: enriched });
+
         return res.json({
           jobId,
           status: "completed",
@@ -92,6 +215,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
 
       if (jobInfo.status === "failed") {
+        broadcastJobUpdate({ jobId, tool: "foldx", status: "failed", error: jobInfo.error || "FoldX job failed during execution" });
         return res.json({
           jobId,
           status: "failed",
@@ -125,6 +249,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     try {
       const apiKey = (req.headers["x-tamarind-api-key"] as string) || (req.query?.tamarindApiKey as string) || (req.query?.apiKey as string) || process.env.TAMARIND_API_KEY;
       const result = await pollThermoMpnnJob(jobId, apiKey);
+      if (result.status === "done" || result.status === "error") {
+        broadcastJobUpdate({ jobId, tool: "thermompnn", status: result.status, prediction: result.prediction });
+      }
       // Always return 200 so the client can deterministically terminate polling on
       // terminal statuses (error/done) instead of rescheduling on 502/504. (P0-3)
       return res.json({
@@ -157,11 +284,16 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollDynaMut2Job(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
+        broadcastJobUpdate({ jobId, tool: "dynamut2", status: "ERROR" });
         // Terminal error: return 200 so client treats it as final, not a reschedule signal (P0-3)
         return res.json({ jobId, status: "ERROR", prediction: null, error: "DynaMut2 job polling failed: upstream server returned an error." });
       }
 
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
+
+      if (result.status === "DONE") {
+        broadcastJobUpdate({ jobId, tool: "dynamut2", status: "DONE", prediction: result.prediction });
+      }
 
       const calResult = result.status === "DONE" && result.prediction !== null
         ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, foldxRepairFailed })
@@ -220,10 +352,15 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollDdmutJob(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
+        broadcastJobUpdate({ jobId, tool: "ddmut", status: "ERROR" });
         return res.json({ jobId, status: "ERROR", prediction: null, error: "DDMut job polling failed: upstream server returned an error." });
       }
 
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
+
+      if (result.status === "DONE") {
+        broadcastJobUpdate({ jobId, tool: "ddmut", status: "DONE", prediction: result.prediction });
+      }
 
       const calResult = result.status === "DONE" && result.prediction !== null
         ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, foldxRepairFailed })
@@ -252,18 +389,19 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return;
     }
     try {
-      const { wtPdb, mutation } = req.body;
-      const mutTrimmed = mutation.trim();
-      const wtLetter = mutTrimmed[0].toUpperCase();
-      const mutLetter = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+      const { mutation } = req.body;
+      const wtPdb = await resolvePdbTextFromParam(req.body);
+      if (!wtPdb) {
+        sendError(res, 404, "NOT_FOUND", "PDB structure could not be resolved from provided reference or payload.");
+        return;
+      }
 
-      const mutMatch = mutTrimmed.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
-      if (!mutMatch) {
+      const parsed = parseMutationParam(mutation);
+      if (!parsed) {
         sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
         return;
       }
-      const chainParam = mutMatch[2].toUpperCase();
-      const posNum = parseInt(mutMatch[3], 10);
+      const { wtLetter, mutLetter, posNum, chainParam } = parsed;
 
       let resolvedChain = chainParam;
       try {
@@ -284,7 +422,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
       const dynamut2JobId = await submitDynaMut2Job(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
       if (dynamut2JobId) {
-        await recordJobInRegistry(dynamut2JobId, "dynamut2", mutTrimmed);
+        await recordJobInRegistry(dynamut2JobId, "dynamut2", mutation.trim());
       }
       res.json({
         dynamut2JobId,
@@ -303,18 +441,19 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return;
     }
     try {
-      const { wtPdb, mutation } = req.body;
-      const mutTrimmed = mutation.trim();
-      const wtLetter = mutTrimmed[0].toUpperCase();
-      const mutLetter = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+      const { mutation } = req.body;
+      const wtPdb = await resolvePdbTextFromParam(req.body);
+      if (!wtPdb) {
+        sendError(res, 404, "NOT_FOUND", "PDB structure could not be resolved from provided reference or payload.");
+        return;
+      }
 
-      const mutMatch = mutTrimmed.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
-      if (!mutMatch) {
+      const parsed = parseMutationParam(mutation);
+      if (!parsed) {
         sendError(res, 400, "BAD_REQUEST", "Invalid mutation code format.");
         return;
       }
-      const chainParam = mutMatch[2].toUpperCase();
-      const posNum = parseInt(mutMatch[3], 10);
+      const { wtLetter, mutLetter, posNum, chainParam } = parsed;
 
       let resolvedChain = chainParam;
       try {
@@ -335,7 +474,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
       const ddmutJobId = await submitDdmutJob(wtPdb, resolvedChainUpper, posNum, wtLetter, mutLetter);
       if (ddmutJobId) {
-        await recordJobInRegistry(ddmutJobId, "ddmut", mutTrimmed);
+        await recordJobInRegistry(ddmutJobId, "ddmut", mutation.trim());
       }
       res.json({
         ddmutJobId,
@@ -354,7 +493,12 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return;
     }
     try {
-      const { wtPdb, mutation } = req.body;
+      const { mutation } = req.body;
+      const wtPdb = await resolvePdbTextFromParam(req.body);
+      if (!wtPdb) {
+        sendError(res, 404, "NOT_FOUND", "PDB structure could not be resolved from provided reference or payload.");
+        return;
+      }
 
       const apiKey = (req.headers["x-tamarind-api-key"] as string) || process.env.TAMARIND_API_KEY;
       const thermoRes = await submitThermoMpnnJob(wtPdb, mutation, apiKey);
@@ -364,10 +508,12 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
 
       res.json({
-        thermompnnJobId: thermoRes.jobId,
-        thermompnnStatus: thermoRes.status,
-        prediction: thermoRes.prediction,
-        error: thermoRes.error
+        thermompnnJobId: thermoRes.jobId || null,
+        thermompnnStatus: thermoRes.status || "pending",
+        prediction: thermoRes.prediction || null,
+        error: thermoRes.error || null,
+        thermoJobId: thermoRes.jobId || null,
+        thermoStatus: thermoRes.status || "pending"
       });
     } catch (err: any) {
       console.error("ThermoMPNN submit endpoint failure:", err);

@@ -1,5 +1,3 @@
-import crypto from "crypto";
-import https from "https";
 import { fetchWithRetry } from "./http-client.ts";
 
 export async function submitDynaMut2Job(
@@ -78,6 +76,8 @@ export async function pollDynaMut2Job(
       pollJson.status === "RUNNING" ||
       pollJson.message === "RUNNING" ||
       pollJson.status === "QUEUED" ||
+      pollJson.message === "QUEUED" ||
+      pollJson.status === "PENDING" ||
       (pollJson.prediction === undefined && !pollJson.error)
     ) {
       return { status: "RUNNING", prediction: null };
@@ -142,46 +142,23 @@ export async function pollDdmutJob(
 ): Promise<{ status: "RUNNING" | "DONE" | "ERROR"; prediction: number | null } | null> {
   const url = "https://biosig.lab.uq.edu.au/ddmut/api/prediction_single";
   try {
-    const boundary = `----DDMutFormBoundary${crypto.randomBytes(8).toString("hex")}`;
-    const body = `--${boundary}\r\nContent-Disposition: form-data; name="job_id"\r\n\r\n${jobId}\r\n--${boundary}--\r\n`;
-
-    const pollJson = await new Promise<any>((resolve, reject) => {
-      const req = https.request(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-          "Content-Length": Buffer.byteLength(body),
-          "User-Agent": "Missense-Structural-Explorer/1.0"
-        },
-        timeout: 15000
-      }, (res) => {
-        let data = "";
-        res.on("data", chunk => data += chunk);
-        res.on("end", () => {
-          if (res.statusCode && res.statusCode === 429) {
-            const err: any = new Error("DDMut upstream rate limit reached");
-            err.statusCode = 429;
-            return reject(err);
-          }
-          if (res.statusCode && res.statusCode >= 400) {
-            return reject(new Error(`DDMut polling HTTP ${res.statusCode}: ${data}`));
-          }
-          try {
-            resolve(JSON.parse(data));
-          } catch (e: any) {
-            reject(new Error(`Failed to parse DDMut JSON response: ${e.message}`));
-          }
-        });
-      });
-
-      req.on("error", reject);
-      req.on("timeout", () => {
-        req.destroy(new Error("DDMut polling request timed out"));
-      });
-      req.write(body);
-      req.end();
+    const pollUrl = `${url}?job_id=${jobId}`;
+    const pollRes = await fetchWithRetry(pollUrl, {
+      method: "GET",
+      timeout: 15000
     });
 
+    if (!pollRes.ok) {
+      console.warn(`[DDMut API] Polling request failed for job ${jobId} (status: ${pollRes.status})`);
+      if (pollRes.status === 429) {
+        const rateLimitErr = new Error("DDMut upstream rate limit reached");
+        (rateLimitErr as any).statusCode = 429;
+        throw rateLimitErr;
+      }
+      return { status: "ERROR", prediction: null };
+    }
+
+    const pollJson = await pollRes.json() as any;
     if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
       const ddG = parseFloat(pollJson.prediction);
       console.log(`[DDMut API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
@@ -193,6 +170,7 @@ export async function pollDdmutJob(
       pollJson.message === "RUNNING" ||
       pollJson.status === "QUEUED" ||
       pollJson.message === "QUEUED" ||
+      pollJson.status === "PENDING" ||
       (pollJson.prediction === undefined && !pollJson.error)
     ) {
       return { status: "RUNNING", prediction: null };
@@ -208,3 +186,4 @@ export async function pollDdmutJob(
     return { status: "ERROR", prediction: null };
   }
 }
+

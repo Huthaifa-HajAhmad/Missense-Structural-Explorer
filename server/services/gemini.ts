@@ -9,14 +9,18 @@ import { z } from "zod";
 import { PredictorData, ConservationData, StringInteraction, type ClinVarData } from "./external.ts";
 import { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../src/types.ts";
 import { anySignal } from "../utils.ts";
+import { LRUCache } from "lru-cache";
 
-const geminiClientCache = new Map<string, GoogleGenAI>();
+const geminiClientCache = new LRUCache<string, GoogleGenAI>({
+  max: 100,
+  ttl: 15 * 60 * 1000 // 15-minute TTL matching session token lifespan
+});
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 export const DEFAULT_GEMINI_FALLBACK_MODELS = [
   "gemini-2.5-flash",
   "gemini-3.6-flash",
-  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
 ] as const;
 const RETIRED_GEMINI_MODELS = new Set([
@@ -24,8 +28,9 @@ const RETIRED_GEMINI_MODELS = new Set([
   "gemini-1.5-pro",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-3.1-pro",   // 404 for new accounts — use gemini-3.1-flash-lite instead
-  "gemini-2.5-pro",   // 404: no longer available to new users
+  "gemini-2.5-flash-lite", // 404 for new users
+  "gemini-3.1-pro",        // 404 for new accounts — use gemini-3.1-flash-lite instead
+  "gemini-2.5-pro",        // 404: no longer available to new users
 ]);
 
 export function isGeminiApiKeyPlaceholder(value: string | undefined): boolean {
@@ -68,10 +73,7 @@ export function getGeminiClient(customApiKey?: string): GoogleGenAI {
   const client = new GoogleGenAI({
     apiKey: apiKey,
     httpOptions: {
-      timeout: 40000,
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
+      timeout: 40000
     }
   });
   geminiClientCache.set(apiKey, client);
@@ -137,8 +139,12 @@ export async function validateGeminiApiKey(apiKey: string): Promise<void> {
   console.error("[validateGeminiApiKey] API validation failed. lastError:", lastError);
   const message = String(lastError?.message || "").toLowerCase();
   const status = Number(lastError?.status || 0);
-  if (status === 401 || status === 403 || message.includes("api key") || message.includes("unauthorized") || message.includes("permission")) {
-    throw new GeminiError("API_KEY_INVALID", "Gemini API key is invalid or unauthorized.", 403);
+  if (status === 401 || status === 403 || message.includes("api key") || message.includes("unauthorized") || message.includes("unauthenticated") || message.includes("permission") || message.includes("access_token_type_unsupported")) {
+    throw new GeminiError(
+      "API_KEY_INVALID", 
+      "Gemini API key is invalid or unauthorized (HTTP 401: UNAUTHENTICATED). Please ensure the key was generated at aistudio.google.com/apikey and that the Generative Language API is enabled.", 
+      403
+    );
   }
   if (status === 429 || message.includes("quota") || message.includes("rate limit") || message.includes("exhausted")) {
     throw new GeminiError("RESOURCE_EXHAUSTED", "Gemini API quota is exhausted. Please try again later.", 429);
@@ -384,11 +390,8 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
   const modelsToTry = getConfiguredGeminiModels();
   console.log(`[Gemini Entry] models=${modelsToTry[0]}, hasKey=${!!customApiKey}, signalAborted=${timeoutSignal?.aborted}`);
 
-  // Do not replace a valid BYOK failure with a misleading missing-system-key error.
-  // Only try the system key when it is actually configured and usable.
-  const keysToTry = customApiKey && !isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
-    ? [customApiKey, undefined]
-    : [customApiKey];
+  // When customApiKey is provided, evaluate only the custom key to ensure authentic BYOK diagnostics
+  const keysToTry = customApiKey ? [customApiKey] : [undefined];
 
   let fullText = "";
   let lastError: any = null;
@@ -545,9 +548,11 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     const errMsg = (lastError.message || "").toLowerCase();
     const status = lastError.status || 500;
     
-    if (errMsg.includes("placeholder") || errMsg.includes("required") || errMsg.includes("must not be a placeholder")) {
+    if (customApiKey && (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid") || status === 401 || status === 403)) {
+      throw new GeminiError("API_KEY_INVALID", "Provided custom Gemini API key is invalid or unauthorized.", 403);
+    } else if (errMsg.includes("placeholder") || errMsg.includes("required") || errMsg.includes("must not be a placeholder")) {
       throw new GeminiError("API_KEY_MISSING", "Google Gemini API Key is not configured or is a placeholder value.", 401);
-    } else if (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid key") || status === 403) {
+    } else if (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid key") || status === 403 || status === 401) {
       throw new GeminiError("API_KEY_INVALID", "Gemini API key is invalid or unauthorized.", 403);
     } else if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("rate limit") || status === 429) {
       throw new GeminiError("RESOURCE_EXHAUSTED", "Gemini API quota has been exhausted. Please try again later.", 429);

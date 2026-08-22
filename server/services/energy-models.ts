@@ -25,7 +25,7 @@ import { finished } from "stream/promises";
 import crypto from "crypto";
 import { anySignal } from "../utils.ts";
 import { DatabaseSync } from "node:sqlite";
-import * as self from "./energy-models.ts";
+import { computeCalibratedConsensus } from "../../src/shared/thresholds.ts";
 
 // ---------------------------------------------------------------------------
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
@@ -636,4 +636,98 @@ export async function pollThermoMpnnJob(
   } catch (err: any) {
     return { status: "error", prediction: null, error: err.message };
   }
+}
+
+/**
+ * Enriches raw FoldX calculations with live remote job outputs, RaSP stability scores,
+ * and calibrated consensus statistics.
+ */
+export function enrichBiophysicalResult(
+  foldxRawResult: any,
+  remoteJobs?: Partial<{
+    dynamut2JobId: string | null;
+    dynamut2Status: string | null;
+    ddmutJobId: string | null;
+    ddmutStatus: string | null;
+    thermompnnJobId: string | null;
+    thermompnnStatus: string | null;
+    thermompnnError: string | null;
+    thermompnnVal: number | null;
+    stabilityoracleVal: number | null;
+  }> | null,
+  structureProvenance: any = null,
+  posNum: number = 0
+) {
+  const jobs = remoteJobs || {};
+  const finalPdb = foldxRawResult?.pdb ?? null;
+  const finalDdG = foldxRawResult?.ddG ?? null;
+  const finalStatus = foldxRawResult?.status ?? "unknown";
+
+  const foldxMean = foldxRawResult?.energetics?.foldxMean ?? finalDdG;
+  const foldxSd = foldxRawResult?.energetics?.foldxSd ?? null;
+  const vdw = foldxRawResult?.energetics?.vdw ?? null;
+  const electrostatics = foldxRawResult?.energetics?.electrostatics ?? null;
+  const stericClashWarning = foldxRawResult?.energetics?.stericClashWarning ?? false;
+  const localSidechainRmsd = foldxRawResult?.energetics?.localSidechainRmsd ?? null;
+  const foldxRawDdGs = foldxRawResult?.energetics?.rawDdGs ?? null;
+  const foldxSeed = foldxRawResult?.energetics?.seed ?? null;
+  const rasp = foldxRawResult?.energetics?.rasp ?? null;
+  const raspReason = foldxRawResult?.energetics?.raspReason ?? undefined;
+
+  const pendingTools: string[] = [];
+  if (jobs.dynamut2Status === "pending") pendingTools.push("DynaMut2");
+  if (jobs.ddmutStatus === "pending") pendingTools.push("DDMut");
+  if (jobs.thermompnnStatus === "pending") pendingTools.push("ThermoMPNN");
+
+  const evidenceComplete = pendingTools.length === 0;
+  const foldxRepairFailed = foldxRawResult?.energetics?.foldxRepairFailed ?? false;
+  const calResult = computeCalibratedConsensus({
+    foldxMean,
+    rasp,
+    thermompnn: jobs.thermompnnVal ?? null,
+    stabilityoracle: jobs.stabilityoracleVal ?? null,
+    foldxRepairFailed
+  });
+  const rawConsensusVerdict = calResult.consensusVerdict;
+  const consensusVerdict = (!evidenceComplete && rawConsensusVerdict)
+    ? `${rawConsensusVerdict} (Preliminary - pending: ${pendingTools.join(", ")})`
+    : rawConsensusVerdict;
+
+  return {
+    pdb: finalPdb,
+    ddG: finalDdG,
+    foldxDdG: foldxMean,
+    thermompnnDdG: jobs.thermompnnVal ?? null,
+    status: finalStatus,
+    foldedResidueIndex: posNum,
+    dynamut2JobId: jobs.dynamut2JobId ?? null,
+    dynamut2Status: jobs.dynamut2Status ?? null,
+    ddmutJobId: jobs.ddmutJobId ?? null,
+    ddmutStatus: jobs.ddmutStatus ?? null,
+    thermompnnJobId: jobs.thermompnnJobId ?? null,
+    thermompnnStatus: jobs.thermompnnStatus ?? null,
+    thermompnnError: jobs.thermompnnError ?? null,
+    energetics: {
+      foldx: foldxMean,
+      vdw,
+      electrostatics,
+      stericClashWarning,
+      localSidechainRmsd,
+      rawDdGs: foldxRawDdGs,
+      foldxRepairFailed,
+      dynamut2: null,
+      ddmut: null,
+      rasp,
+      raspReason,
+      thermompnn: jobs.thermompnnVal ?? null,
+      stabilityoracle: jobs.stabilityoracleVal ?? null,
+      consensusProbability: calResult.consensusProbability,
+      consensusConfMin: calResult.consensusConfMin,
+      consensusConfMax: calResult.consensusConfMax,
+      consensusVerdict,
+      evidenceComplete,
+      pendingTools
+    },
+    provenance: structureProvenance
+  };
 }

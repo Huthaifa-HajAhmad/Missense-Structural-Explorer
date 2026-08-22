@@ -16,17 +16,56 @@ import {
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 
+async function resolvePdbText(body: { pdbText?: string; pdbRef?: string; uniprotId?: string }): Promise<string | null> {
+  if (body.pdbText && body.pdbText.trim().length > 0) {
+    return body.pdbText;
+  }
+  const ref = (body.pdbRef || body.uniprotId || "").trim();
+  if (!ref) return null;
+
+  const { pdbCache } = await import("../../services/cache.ts");
+  if (pdbCache.has(ref)) {
+    const cached = pdbCache.get(ref);
+    if (cached) return cached;
+  }
+
+  try {
+    const { resolveStructure } = await import("../../services/structure-resolver.ts");
+    const resolved = await resolveStructure(ref);
+    if (resolved?.pdbText) {
+      pdbCache.set(ref, resolved.pdbText);
+      return resolved.pdbText;
+    }
+  } catch (_) {}
+
+  try {
+    const { fetchAlphafoldPdb } = await import("../../services/structure-fetcher.ts");
+    const fetched = await fetchAlphafoldPdb(ref);
+    if (fetched) {
+      pdbCache.set(ref, fetched);
+      return fetched;
+    }
+  } catch (_) {}
+  return null;
+}
+
 const pocketFinderSchema = z.object({
-  pdbText: z.string(),
+  pdbText: z.string().optional(),
+  pdbRef: z.string().optional(),
+  uniprotId: z.string().optional(),
   targetIndex: z.union([z.number(), z.string()]).optional(),
   mutIndex: z.union([z.number(), z.string()]).optional(),
   targetChain: z.string().optional()
+}).refine(data => data.pdbText !== undefined || data.pdbRef !== undefined || data.uniprotId !== undefined, {
+  message: "Either pdbText, pdbRef, or uniprotId must be specified."
 }).refine(data => data.targetIndex !== undefined || data.mutIndex !== undefined, {
   message: "Either targetIndex or mutIndex must be specified."
 });
 
 const nearestResiduesSchema = z.object({
-  pdbText: z.string(),
+  pdbText: z.string().optional(),
+  pdbRef: z.string().optional(),
+  uniprotId: z.string().optional(),
   targetIndex: z.union([z.number(), z.string()]),
   targetChain: z.string().optional(),
   distanceThreshold: z.union([z.number(), z.string()]).refine(
@@ -34,6 +73,8 @@ const nearestResiduesSchema = z.object({
     "distanceThreshold must be positive"
   ).optional(),
   n: z.union([z.number(), z.string()]).optional()
+}).refine(data => data.pdbText !== undefined || data.pdbRef !== undefined || data.uniprotId !== undefined, {
+  message: "Either pdbText, pdbRef, or uniprotId must be specified."
 });
 
 export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): void {
@@ -45,10 +86,11 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       return;
     }
     try {
-      const { pdbText, targetIndex, mutIndex, targetChain } = req.body;
+      const { targetIndex, mutIndex, targetChain } = req.body;
+      const pdbText = await resolvePdbText(req.body);
 
       if (!pdbText || typeof pdbText !== "string" || (!pdbText.includes("ATOM") && !pdbText.includes("HETATM"))) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records.");
+        sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records or unresolvable structure.");
         return;
       }
       if (pdbText.length > 5 * 1024 * 1024) {
@@ -63,16 +105,40 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         return;
       }
 
+      let effectivePdbText = pdbText;
+      let effectiveTargetChain = targetChain;
+
       try {
-        const parsedResidues = await parseResiduesFromPdbMaybeAsync(pdbText);
+        let parsedResidues = await parseResiduesFromPdbMaybeAsync(effectivePdbText);
         if (!parsedResidues || parsedResidues.length === 0) {
           throw new Error("PDB structure contains no parseable residues.");
         }
-        const targetRes = parsedResidues.find(r =>
-          r.resSeq === mutIndexVal && (!targetChain || r.chain === targetChain)
+        let targetRes = parsedResidues.find(r =>
+          r.resSeq === mutIndexVal && (!effectiveTargetChain || r.chain === effectiveTargetChain)
         );
+
         if (!targetRes) {
-          sendError(res, 400, "BAD_REQUEST", `Target residue index #${mutIndexVal} was not found in the PDB structure.`);
+          // If residue is missing from experimental structure, attempt fallback to AlphaFold full-length model
+          const ref = (req.body.pdbRef || req.body.uniprotId || "").trim();
+          if (ref) {
+            console.log(`[Pocket Finder] Target residue #${mutIndexVal} missing from provided PDB. Falling back to AlphaFold for ${ref}...`);
+            const { fetchAlphafoldPdb } = await import("../../services/structure-fetcher.ts");
+            const afPdb = await fetchAlphafoldPdb(ref);
+            if (afPdb && (afPdb.includes("ATOM") || afPdb.includes("HETATM"))) {
+              const afResidues = await parseResiduesFromPdbMaybeAsync(afPdb);
+              const afTarget = afResidues.find(r => r.resSeq === mutIndexVal);
+              if (afTarget) {
+                console.log(`[Pocket Finder] AlphaFold model resolved successfully for residue #${mutIndexVal}.`);
+                effectivePdbText = afPdb;
+                effectiveTargetChain = "A";
+                targetRes = afTarget;
+              }
+            }
+          }
+        }
+
+        if (!targetRes) {
+          sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue index #${mutIndexVal} was not found in the PDB structure or AlphaFold model.`);
           return;
         }
       } catch (parseErr: any) {
@@ -87,7 +153,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         const queue = BiophysicalJobQueue.getInstance();
         let queueJobId: string;
         try {
-          queueJobId = await queue.pushJob("p2rank", { pdbText, mutIndex: mutIndexVal, targetChain, jobDir });
+          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir });
         } catch (queueErr: any) {
           if (queueErr.message.includes("BUSY")) {
             sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Queue limit reached.");
@@ -175,14 +241,15 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       return;
     }
     try {
-      const { pdbText, targetIndex, targetChain } = req.body;
+      const { targetIndex, targetChain } = req.body;
+      const pdbText = await resolvePdbText(req.body);
       const distanceThreshold = req.body.distanceThreshold !== undefined
         ? Number(req.body.distanceThreshold)
         : null;
       let n = req.body.n !== undefined ? Number(req.body.n) : 5;
 
       if (!pdbText || typeof pdbText !== "string" || (!pdbText.includes("ATOM") && !pdbText.includes("HETATM"))) {
-        sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records.");
+        sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records or unresolvable structure.");
         return;
       }
       if (pdbText.length > 5 * 1024 * 1024) {

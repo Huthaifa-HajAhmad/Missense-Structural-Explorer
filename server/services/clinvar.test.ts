@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchClinVarData } from "./clinvar.ts";
-import { clinvarCache } from "./cache.ts";
+import { clearAllCaches } from "./cache.ts";
 
 describe("fetchClinVarData", () => {
   beforeEach(() => {
-    clinvarCache.clear();
+    clearAllCaches(true);
   });
 
   it("should return parsed results if variant title matches (exact or mapped AA codes)", async () => {

@@ -260,8 +260,8 @@ export async function syncLiteratureForGene(gene: string, customApiKey?: string,
       if (err.message && err.message.includes("Europe PMC API")) {
         recordPmcFailure();
       }
-      console.error(`[RAG Error] Gene literature sync failed for ${cleanGene}:`, err.message);
-      throw err;
+      console.warn(`[RAG Warning] Gene literature sync failed for ${cleanGene}:`, err.message || err);
+      return 0;
     } finally {
       clearTimeout(syncTimeoutId);
       if (signal) {

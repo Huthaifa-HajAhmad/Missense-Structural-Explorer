@@ -22,7 +22,7 @@ export async function runRaspLocal(
   mutAa: string,
   uniprotId?: string | null
 ) {
-  if (exports.lookupPrecomputedRaspScore && exports.lookupPrecomputedRaspScore !== energyModels.lookupPrecomputedRaspScore) {
+  if (typeof exports !== "undefined" && exports.lookupPrecomputedRaspScore && exports.lookupPrecomputedRaspScore !== energyModels.lookupPrecomputedRaspScore) {
     if (uniprotId) {
       return exports.lookupPrecomputedRaspScore(uniprotId, pos, wtAa, mutAa);
     }
@@ -34,3 +34,5 @@ export const thermompnnCache = energyModels.thermompnnCache;
 export const testTamarindConnection = energyModels.testTamarindConnection;
 export const submitThermoMpnnJob = energyModels.submitThermoMpnnJob;
 export const pollThermoMpnnJob = energyModels.pollThermoMpnnJob;
+export const enrichBiophysicalResult = energyModels.enrichBiophysicalResult;
+

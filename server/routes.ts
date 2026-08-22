@@ -23,7 +23,18 @@ export { activeBackgroundTasks, inFlightPrewarms } from "./routes/state.ts";
 (function enforceSessionSecret() {
   if (process.env.NODE_ENV !== "production") return;
   const secret = process.env.APP_SESSION_SECRET;
-  const defaultValues = ["dev-secret-change-me", "change_me", "secret", ""];
+  const defaultValues = [
+    "dev-secret-change-me",
+    "dev_session_secret",
+    "dev-session-secret",
+    "must-be-changed",
+    "must_be_changed",
+    "change_me",
+    "change-me",
+    "placeholder",
+    "secret",
+    ""
+  ];
   if (!secret || defaultValues.some(d => secret.toLowerCase().includes(d)) || secret.length < 32) {
     console.error(
       "[SECURITY] FATAL: APP_SESSION_SECRET is not set or retains a default/weak value in production. " +

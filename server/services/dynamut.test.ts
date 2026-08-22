@@ -41,4 +41,74 @@ describe("DynaMut & DDMut Service Unit Tests", () => {
 
     fetchSpy.mockRestore();
   });
+
+  it("should handle pollDdmutJob DONE status with numeric prediction", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ prediction: "-1.67", chain: "A", res_number: 461 })
+    } as any);
+
+    const res = await pollDdmutJob("67890");
+    expect(res?.status).toBe("DONE");
+    expect(res?.prediction).toBe(-1.67);
+
+    fetchSpy.mockRestore();
+  });
+
+  it("should handle pollDdmutJob RUNNING status", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ message: "RUNNING" })
+    } as any);
+
+    const res = await pollDdmutJob("67890");
+    expect(res?.status).toBe("RUNNING");
+    expect(res?.prediction).toBeNull();
+
+    fetchSpy.mockRestore();
+  });
+
+  it("should handle pollDdmutJob QUEUED / PENDING status", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: "QUEUED" })
+    } as any);
+
+    const res = await pollDdmutJob("67890");
+    expect(res?.status).toBe("RUNNING");
+    expect(res?.prediction).toBeNull();
+
+    fetchSpy.mockRestore();
+  });
+
+  it("should handle pollDdmutJob 429 upstream rate limiting", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: new Headers()
+    } as any);
+
+    await expect(pollDdmutJob("67890")).rejects.toThrow();
+
+    fetchSpy.mockRestore();
+  }, 15000);
+
+  it("should handle pollDdmutJob upstream error status", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 500,
+      headers: new Headers()
+    } as any);
+
+    const res = await pollDdmutJob("67890");
+    expect(res?.status).toBe("ERROR");
+    expect(res?.prediction).toBeNull();
+
+    fetchSpy.mockRestore();
+  }, 15000);
 });

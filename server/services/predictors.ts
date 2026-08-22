@@ -3,7 +3,7 @@ import { TabixIndexedFile } from "@gmod/tabix";
 import path from "path";
 import fs from "fs";
 import { LRUCache } from "lru-cache";
-import { predictorCache, conservationCache, popEVECache, popEveOnlineCache, refseqCache } from "./cache.ts";
+import { predictorCache, conservationCache, popEVECache, popEveOnlineCache, refseqCache, getCachedOrFetch } from "./cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "./http-client.ts";
 import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
@@ -21,75 +21,73 @@ function safeParseInt(val: any): number | null {
   return isNaN(num) ? null : num;
 }
 
-export interface PredictorData {
-  available: boolean;
-  amPathogenicity: number | null;
-  amClass: string | null;
-  caddPhred: number | null;
-  gnomadVariantId?: string | null;
-  eveScore?: number | null;
-  eveClass?: string | null;
-  transcriptId?: string;
-  isManeSelect?: boolean;
-  isManePlusClinical?: boolean;
-  isCanonical?: boolean;
-  maneRefSeqId?: string;
-  source?: string;
-}
+import type { PredictorData, ConservationData } from "../../src/shared/contracts.ts";
+export type { PredictorData, ConservationData };
 
-export interface ConservationData {
-  available: boolean;
-  revel: number | null;
-  gerp: number | null;
-  phylop: number | null;
-  consurf: number | null;
-  bayesdel?: number | null;
-  metarnn?: number | null;
-  metarnnPred?: string | null;
-  clinpred?: number | null;
-  clinpredPred?: string | null;
-  eigenPhred?: number | null;
-  eigenRaw?: number | null;
-  dann?: number | null;
-  esm1b?: number | null;
-  esm1bPred?: string | null;
-  popeve?: number | null;
-  aouFrequency?: {
-    aouAC: number | null;
-    aouAN: number | null;
-    aouHet: number | null;
-    aouHom: number | null;
-  } | null;
-  spliceProximity?: {
-    distance: number;
-    isNearSpliceSite: boolean;
-    exonNumber?: number | null;
-    totalExons?: number | null;
-    exonId?: string | null;
-    exonStart?: number | null;
-    exonEnd?: number | null;
-    exonLength?: number | null;
-    intronNumber?: number | null;
-    junctionType?: "donor" | "acceptor" | "terminal" | null;
-    adjacentIntronNumber?: number | null;
-    regionType?: "exonic" | "intronic" | null;
-    strand?: "+" | "-" | null;
-    transcriptId?: string | null;
-    genomicPos?: number | null;
-    nearestJunctionCoord?: number | null;
-  } | null;
-  spliceai?: {
-    ds_ag: number | null;
-    ds_al: number | null;
-    ds_dg: number | null;
-    ds_dl: number | null;
-    max_ds: number | null;
-  } | null;
-  dbscsnv?: {
-    ada_score: number | null;
-    rf_score: number | null;
-  } | null;
-  source?: string;
+/**
+ * Fast Tier 1 baseline querying the public, unauthenticated query.dbnsfp.org API (~900ms).
+ */
+export async function queryDbnsfpOrg(
+  gene: string,
+  variant: string,
+  gnomadVariantId?: string | null
+): Promise<Partial<ConservationData> | null> {
+  const normGene = normalizeGeneSymbol(gene);
+  const cleanVar = normalizeVariantTo3Letter(variant);
+  let variantQuery = '';
+  if (gnomadVariantId) {
+    const parts = gnomadVariantId.split('-');
+    if (parts.length >= 4) {
+      variantQuery = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}`;
+    }
+  }
+  if (!variantQuery) {
+    const formattedVariant = variant.startsWith('p.') ? variant : `p.${variant}`;
+    variantQuery = `${normGene}:${formattedVariant}`;
+  }
+
+  try {
+    const res = await fetchWithRetry('https://query.dbnsfp.org/api/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        variants: [variantQuery],
+        genome_build: 'hg38'
+      }),
+      timeout: 7000
+    }, 1);
+
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    if (!data || !data.tabs) return null;
+
+    const cScores = data.tabs.conservative_scores?.rows?.[0] || {};
+    const allTrans = data.tabs.all_transcripts?.rows?.[0] || {};
+    const fPred = data.tabs.function_prediction?.rows?.[0] || {};
+
+    const revel = safeParseFloat(allTrans.REVEL ?? allTrans.REVEL_score ?? fPred.REVEL_score);
+    const gerp = safeParseFloat(cScores['GERP++_RS'] ?? allTrans['GERP++_RS'] ?? fPred['GERP++_RS']);
+    const phylop = safeParseFloat(cScores.phyloP100way_vertebrate ?? allTrans.phyloP100way_vertebrate ?? fPred.phyloP100way_vertebrate);
+    const metarnn = safeParseFloat(allTrans.MetaRNN ?? allTrans.MetaRNN_score ?? fPred.MetaRNN_score);
+    const esm1b = safeParseFloat(allTrans.ESM1b ?? allTrans.ESM1b_score ?? fPred.ESM1b_score);
+    const popeve = safeParseFloat(allTrans.popEVE ?? allTrans.popEVE_score ?? fPred.popEVE_score);
+
+    if (revel === null && gerp === null && phylop === null && metarnn === null) {
+      return null;
+    }
+
+    return {
+      revel,
+      gerp,
+      phylop,
+      metarnn,
+      esm1b,
+      popeve
+    };
+  } catch (err: any) {
+    console.warn(`[dbNSFP.org Query Warning] Failed to query query.dbnsfp.org for ${variantQuery}:`, err.message);
+    return null;
+  }
 }
 
 const vepResponseSchema = z.array(z.object({
@@ -209,138 +207,133 @@ async function getTranscriptsForProtein(proteinOrGene: string): Promise<Transcri
 }
 
 export async function fetchPredictorData(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
-  const cacheKey = `${gene}_${variant}_${uniprotId || ""}`;
-  const cached = predictorCache.get(cacheKey);
-  if (cached) return cached;
-
   const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
+  const cacheKey = `predictors_${normGene}_${cleanVar}_${uniprotId || ""}`;
 
-  let queryTargets: string[] = [];
-  if (uniprotId) {
-    const transcripts = await getTranscriptsForProtein(uniprotId);
-    if (transcripts.refseqId && transcripts.refseqId.startsWith("NM_")) {
-      const cleanRefseq = transcripts.refseqId.split(".")[0];
-      queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
-    }
-    if (transcripts.ensemblId) {
-      const cleanEnsembl = transcripts.ensemblId.split(".")[0];
-      queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
-    }
-  }
-  queryTargets.push(`${normGene}:p.${cleanVar}`);
-
-  let parsedData: any = null;
-  let errorMsg = "";
-
-  for (const target of queryTargets) {
-    const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(target)}?content-type=application/json&AlphaMissense=1&CADD=1&EVE=1&mane=1`;
-    try {
-      console.log(`[VEP Fetch] Querying target: ${target}`);
-      const res = await fetchWithRetry(url, {
-        headers: { "Accept": "application/json" },
-        timeout: 8000
-      }, 2);
-      if (res.ok) {
-        const data = await res.json() as any;
-        parsedData = vepResponseSchema.parse(data);
-        if (parsedData.length > 0 && parsedData[0].transcript_consequences) {
-          console.log(`[VEP Fetch] Successfully resolved predictors via target: ${target}`);
-          break;
+  return getCachedOrFetch({
+    key: cacheKey,
+    source: "Ensembl VEP API",
+    l1Cache: predictorCache,
+    ttlSeconds: 14 * 24 * 60 * 60,
+    fetcher: async () => {
+      let queryTargets: string[] = [];
+      if (uniprotId) {
+        const transcripts = await getTranscriptsForProtein(uniprotId);
+        if (transcripts.refseqId && transcripts.refseqId.startsWith("NM_")) {
+          const cleanRefseq = transcripts.refseqId.split(".")[0];
+          queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
         }
-      } else {
-        const errText = await res.text().catch(() => "");
-        errorMsg = `Status ${res.status}: ${errText}`;
+        if (transcripts.ensemblId) {
+          const cleanEnsembl = transcripts.ensemblId.split(".")[0];
+          queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
+        }
       }
-    } catch (err: any) {
-      errorMsg = err.message || String(err);
-    }
-  }
+      queryTargets.push(`${normGene}:p.${cleanVar}`);
 
-  try {
-    if (parsedData && parsedData.length > 0 && parsedData[0].transcript_consequences) {
-       const consequences = parsedData[0].transcript_consequences;
-      const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined || c.eve_score !== undefined;
-      let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
-      if (!tc) {
-        tc = consequences.find((c: any) => c.mane_plus_clinical && hasPredictor(c));
-      }
-      if (!tc) {
-        tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
-      }
-      if (!tc) {
-        tc = consequences.find((c: any) => typeof c.transcript_id === "string" && c.transcript_id.startsWith("NM_") && hasPredictor(c));
-      }
-      if (!tc) {
-        tc = consequences.find(hasPredictor);
-      }
-      if (!tc) {
-        tc = consequences[0];
-      }
-      if (tc) {
-        const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
-        const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
-        const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
-        
-        const eveScore = tc.eve_score !== undefined ? safeParseFloat(tc.eve_score) : null;
-        const eveClass = tc.eve_class !== undefined ? String(tc.eve_class) : null;
+      let parsedData: any = null;
+      let errorMsg = "";
 
-        const chr = parsedData[0].seq_region_name;
-        const startPos = parsedData[0].start;
-        const alleleStr = parsedData[0].allele_string;
-        let gnomadVariantId: string | null = null;
-        if (chr && startPos && typeof alleleStr === "string") {
-          const parts = alleleStr.split("/");
-          if (parts.length >= 2) {
-            gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
+      for (const target of queryTargets) {
+        const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(target)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
+        try {
+          console.log(`[VEP Fetch] Querying target: ${target}`);
+          const res = await fetchWithRetry(url, {
+            headers: { "Accept": "application/json" },
+            timeout: 8000
+          }, 2);
+          if (res.ok) {
+            const data = await res.json() as any;
+            parsedData = vepResponseSchema.parse(data);
+            if (parsedData.length > 0 && parsedData[0].transcript_consequences) {
+              console.log(`[VEP Fetch] Successfully resolved predictors via target: ${target}`);
+              break;
+            }
+          } else {
+            const errText = await res.text().catch(() => "");
+            errorMsg = `Status ${res.status}: ${errText}`;
+          }
+        } catch (err: any) {
+          errorMsg = err.message || String(err);
+        }
+      }
+
+      try {
+        if (parsedData && parsedData.length > 0 && parsedData[0].transcript_consequences) {
+          const consequences = parsedData[0].transcript_consequences;
+          const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined;
+          let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
+          if (!tc) {
+            tc = consequences.find((c: any) => c.mane_plus_clinical && hasPredictor(c));
+          }
+          if (!tc) {
+            tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
+          }
+          if (!tc) {
+            tc = consequences.find((c: any) => typeof c.transcript_id === "string" && c.transcript_id.startsWith("NM_") && hasPredictor(c));
+          }
+          if (!tc) {
+            tc = consequences.find(hasPredictor);
+          }
+          if (!tc) {
+            tc = consequences[0];
+          }
+          if (tc) {
+            const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
+            const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
+            const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
+
+            const chr = parsedData[0].seq_region_name;
+            const startPos = parsedData[0].start;
+            const alleleStr = parsedData[0].allele_string;
+            let gnomadVariantId: string | null = null;
+            if (chr && startPos && typeof alleleStr === "string") {
+              const parts = alleleStr.split("/");
+              if (parts.length >= 2) {
+                gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
+              }
+            }
+
+            let maneRefSeqId: string | undefined = undefined;
+            if (tc.mane_select && typeof tc.mane_select === "string") {
+              maneRefSeqId = tc.mane_select;
+            } else if (tc.mane_select && typeof tc.mane_select === "object") {
+              maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
+            } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
+              maneRefSeqId = tc.mane_plus_clinical;
+            } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
+              maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
+            }
+
+            const resVal = { 
+              available: true, 
+              amPathogenicity, 
+              amClass, 
+              caddPhred, 
+              gnomadVariantId, 
+              transcriptId: tc.transcript_id,
+              isManeSelect: !!tc.mane_select,
+              isManePlusClinical: !!tc.mane_plus_clinical,
+              isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
+              maneRefSeqId,
+              source: "Ensembl VEP API"
+            };
+            return resVal;
           }
         }
-
-        let maneRefSeqId: string | undefined = undefined;
-        if (tc.mane_select && typeof tc.mane_select === "string") {
-          maneRefSeqId = tc.mane_select;
-        } else if (tc.mane_select && typeof tc.mane_select === "object") {
-          maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
-        } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
-          maneRefSeqId = tc.mane_plus_clinical;
-        } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
-          maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
-        }
-
-        const resVal = { 
-          available: true, 
-          amPathogenicity, 
-          amClass, 
-          caddPhred, 
-          gnomadVariantId, 
-          eveScore, 
-          eveClass,
-          transcriptId: tc.transcript_id,
-          isManeSelect: !!tc.mane_select,
-          isManePlusClinical: !!tc.mane_plus_clinical,
-          isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
-          maneRefSeqId,
-          source: "Ensembl VEP API"
-        };
-        predictorCache.set(cacheKey, resVal);
-        return resVal;
+      } catch (err: any) {
+        console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);
       }
-    }
-  } catch (err: any) {
-    console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);
-  }
 
-  const defaultRes = {
-    available: false,
-    amPathogenicity: null,
-    amClass: null,
-    caddPhred: null,
-    gnomadVariantId: null,
-    eveScore: null,
-    eveClass: null
-  };
-  predictorCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
-  return defaultRes;
+      return {
+        available: false,
+        amPathogenicity: null,
+        amClass: null,
+        caddPhred: null,
+        gnomadVariantId: null
+      };
+    }
+  });
 }
 
 export async function fetchRealConsurfData(pdbId: string, chainId: string, pos: number): Promise<number | null> {
@@ -565,209 +558,247 @@ export async function fetchConservationData(
   transcriptId?: string | null,
   genomicPos?: number | null
 ): Promise<ConservationData> {
-  const cacheKey = `${gene}_${variant}_${pdbId || ""}_${chainId || ""}_${pos || ""}_${gnomadVariantId || ""}`;
-  const cached = conservationCache.get(cacheKey);
-  if (cached) {
-    if (cached.popeve !== null) {
-      return cached;
-    }
-    const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
-    const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
-    const onlineScore = await Promise.race([onlinePromise, fastTimeout]);
-    if (onlineScore !== null) {
-      cached.popeve = onlineScore;
-      conservationCache.set(cacheKey, cached);
-    }
-    return cached;
-  }
-
-  const resolvedPos = (pos !== undefined && pos !== null) 
-    ? pos 
-    : (() => {
-        const match = variant.match(/\d+/);
-        return match ? parseInt(match[0], 10) : null;
-      })();
-
-  const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null)
-    ? await resolveSpliceProximity(transcriptId, genomicPos)
-    : null;
-
-  const defaultRes: ConservationData = {
-    available: false,
-    revel: null,
-    gerp: null,
-    phylop: null,
-    consurf: null,
-    bayesdel: null,
-    metarnn: null,
-    metarnnPred: null,
-    clinpred: null,
-    clinpredPred: null,
-    eigenPhred: null,
-    eigenRaw: null,
-    dann: null,
-    esm1b: null,
-    esm1bPred: null,
-    popeve: null,
-    aouFrequency: null,
-    spliceProximity,
-    spliceai: null
-  };
-
-  if (isLocalDbnsfpAvailable() && resolvedPos !== null) {
-    try {
-      const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant);
-      if (rec) {
-        const popEVEPromise = gnomadVariantId
-          ? (async () => {
-              const parts = gnomadVariantId.split("-");
-              if (parts.length >= 4) {
-                const chrom = parts[0];
-                const posVal = parseInt(parts[1], 10);
-                const ref = parts[2];
-                const alt = parts[3];
-                if (!isNaN(posVal)) {
-                  return fetchPopEVEScore(chrom, posVal, ref, alt);
-                }
-              }
-              return null;
-            })()
-          : Promise.resolve(null);
-
-        const consurfPromise = (pdbId && chainId)
-          ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
-          : Promise.resolve(null);
-
-        const [popEVEScore, consurfVal] = await Promise.all([popEVEPromise, consurfPromise]);
-
-        let popEVEVal = rec.popeve ?? popEVEScore;
-        if (popEVEVal === null) {
-          const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
-          const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
-          popEVEVal = await Promise.race([onlinePromise, fastTimeout]);
-        }
-
-        const resVal: ConservationData = {
-          available: true,
-          revel: rec.revel,
-          gerp: rec.gerp,
-          phylop: rec.phylop,
-          consurf: consurfVal,
-          bayesdel: rec.bayesdel,
-          metarnn: rec.metarnn,
-          metarnnPred: null,
-          clinpred: rec.clinpred,
-          clinpredPred: null,
-          eigenPhred: rec.eigen,
-          eigenRaw: null,
-          dann: rec.dann,
-          esm1b: rec.esm1b,
-          esm1bPred: null,
-          popeve: popEVEVal,
-          aouFrequency: {
-            aouAC: rec.aou_ac,
-            aouAN: rec.aou_an,
-            aouHet: rec.aou_het,
-            aouHom: rec.aou_hom
-          },
-          spliceProximity,
-          spliceai: (rec as any).SpliceAI_pred_DS_AG !== undefined || (rec as any).spliceai_ds_ag !== undefined ? (() => {
-            const ag = safeParseFloat((rec as any).SpliceAI_pred_DS_AG ?? (rec as any).spliceai_ds_ag);
-            const al = safeParseFloat((rec as any).SpliceAI_pred_DS_AL ?? (rec as any).spliceai_ds_al);
-            const dg = safeParseFloat((rec as any).SpliceAI_pred_DS_DG ?? (rec as any).spliceai_ds_dg);
-            const dl = safeParseFloat((rec as any).SpliceAI_pred_DS_DL ?? (rec as any).spliceai_ds_dl);
-            const hasAny = ag !== null || al !== null || dg !== null || dl !== null;
-            return {
-              ds_ag: ag,
-              ds_al: al,
-              ds_dg: dg,
-              ds_dl: dl,
-              max_ds: hasAny ? Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0) : null
-            };
-          })() : null,
-          dbscsnv: ((rec as any).dbscSNV_ADA_SCORE !== undefined || (rec as any).dbscsnv_ada_score !== undefined || (rec as any).dbscSNV_RF_SCORE !== undefined || (rec as any).dbscsnv_rf_score !== undefined) ? {
-            ada_score: safeParseFloat((rec as any).dbscSNV_ADA_SCORE ?? (rec as any).dbscsnv_ada_score),
-            rf_score: safeParseFloat((rec as any).dbscSNV_RF_SCORE ?? (rec as any).dbscsnv_rf_score)
-          } : null,
-          source: "local dbNSFP"
-        };
-        conservationCache.set(cacheKey, resVal);
-        return resVal;
-      }
-    } catch (err: any) {
-      console.warn(`[Local dbNSFP Query Error] Fallback to remote: ${err.message}`);
-    }
-  }
-
-  // Try Genos Web Query service before falling back to MyVariant.info
-  try {
-    const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, gnomadVariantId);
-    if (activeGenosRec) {
-      const consurfPromise = (pdbId && chainId && resolvedPos !== null)
-        ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
-        : Promise.resolve(null);
-      const consurfVal = await consurfPromise;
-
-      let popEVEVal = activeGenosRec.popeve;
-      if (popEVEVal === null) {
-        popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
-      }
-
-      const resVal: ConservationData = {
-        available: true,
-        revel: activeGenosRec.revel,
-        gerp: activeGenosRec.gerp,
-        phylop: activeGenosRec.phylop,
-        consurf: consurfVal,
-        bayesdel: activeGenosRec.bayesdel,
-        metarnn: activeGenosRec.metarnn,
-        metarnnPred: null,
-        clinpred: activeGenosRec.clinpred,
-        clinpredPred: null,
-        eigenPhred: activeGenosRec.eigenPhred,
-        eigenRaw: null,
-        dann: activeGenosRec.dann,
-        esm1b: activeGenosRec.esm1b,
-        esm1bPred: null,
-        popeve: popEVEVal,
-        aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
-          aouAC: activeGenosRec.aou_ac,
-          aouAN: activeGenosRec.aou_an ?? null,
-          aouHet: activeGenosRec.aou_het ?? null,
-          aouHom: activeGenosRec.aou_hom ?? null
-        } : null,
-        spliceProximity,
-        spliceai: activeGenosRec.spliceai ? {
-          ds_ag: activeGenosRec.spliceai.ds_ag,
-          ds_al: activeGenosRec.spliceai.ds_al,
-          ds_dg: activeGenosRec.spliceai.ds_dg,
-          ds_dl: activeGenosRec.spliceai.ds_dl,
-          max_ds: (activeGenosRec.spliceai.ds_ag !== null || activeGenosRec.spliceai.ds_al !== null || activeGenosRec.spliceai.ds_dg !== null || activeGenosRec.spliceai.ds_dl !== null) ? Math.max(
-            activeGenosRec.spliceai.ds_ag || 0,
-            activeGenosRec.spliceai.ds_al || 0,
-            activeGenosRec.spliceai.ds_dg || 0,
-            activeGenosRec.spliceai.ds_dl || 0
-          ) : null
-        } : null,
-        dbscsnv: activeGenosRec.dbscsnv ? {
-          ada_score: activeGenosRec.dbscsnv.ada_score,
-          rf_score: activeGenosRec.dbscsnv.rf_score
-        } : null,
-        source: "Genos Web Query"
-      };
-      conservationCache.set(cacheKey, resVal);
-      return resVal;
-    }
-  } catch (err: any) {
-    console.warn(`[Genos Web Query Fallback Error] ${err.message}`);
-  }
-
-  const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  const queryStr = (resolvedPos !== null)
-    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
-    : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-  const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp&limit=100`;
+  const cleanVar = normalizeVariantTo3Letter(variant);
+  const cacheKey = `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos || ""}_${gnomadVariantId || ""}`;
+
+  return getCachedOrFetch({
+    key: cacheKey,
+    source: "Predictor Ensemble",
+    l1Cache: conservationCache,
+    ttlSeconds: 14 * 24 * 60 * 60,
+    shouldCache: (res) => res.available === true,
+    fetcher: async () => {
+      const resolvedPos = (pos !== undefined && pos !== null) 
+        ? pos 
+        : (() => {
+            const match = variant.match(/\d+/);
+            return match ? parseInt(match[0], 10) : null;
+          })();
+
+      const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null)
+        ? await resolveSpliceProximity(transcriptId, genomicPos)
+        : null;
+
+      const defaultRes: ConservationData = {
+        available: false,
+        revel: null,
+        gerp: null,
+        phylop: null,
+        consurf: null,
+        bayesdel: null,
+        metarnn: null,
+        metarnnPred: null,
+        clinpred: null,
+        clinpredPred: null,
+        eigenPhred: null,
+        eigenRaw: null,
+        dann: null,
+        esm1b: null,
+        esm1bPred: null,
+        popeve: null,
+        aouFrequency: null,
+        spliceProximity,
+        spliceai: null,
+        dbscsnv: null
+      };
+
+      // 1. Try local SQLite dbNSFP if present
+      if (isLocalDbnsfpAvailable() && resolvedPos !== null) {
+        try {
+          const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant);
+          if (rec) {
+            const popEVEPromise = gnomadVariantId
+              ? (async () => {
+                  const parts = gnomadVariantId.split("-");
+                  if (parts.length >= 4) {
+                    const chrom = parts[0];
+                    const posVal = parseInt(parts[1], 10);
+                    const ref = parts[2];
+                    const alt = parts[3];
+                    if (!isNaN(posVal)) {
+                      return fetchPopEVEScore(chrom, posVal, ref, alt);
+                    }
+                  }
+                  return null;
+                })()
+              : Promise.resolve(null);
+
+            const consurfPromise = (pdbId && chainId && resolvedPos !== null)
+              ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
+              : Promise.resolve(null);
+
+            const [popEVEScore, consurfVal] = await Promise.all([popEVEPromise, consurfPromise]);
+
+            let popEVEVal = rec.popeve ?? popEVEScore;
+            if (popEVEVal === null) {
+              const onlinePromise = fetchPopEVEScoreOnline(uniprotId || gene, variant);
+              const fastTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 2000));
+              popEVEVal = await Promise.race([onlinePromise, fastTimeout]);
+            }
+
+            const resVal: ConservationData = {
+              available: true,
+              revel: rec.revel,
+              gerp: rec.gerp,
+              phylop: rec.phylop,
+              consurf: consurfVal,
+              bayesdel: rec.bayesdel,
+              metarnn: rec.metarnn,
+              metarnnPred: null,
+              clinpred: rec.clinpred,
+              clinpredPred: null,
+              eigenPhred: rec.eigen,
+              eigenRaw: null,
+              dann: rec.dann,
+              esm1b: rec.esm1b,
+              esm1bPred: null,
+              popeve: popEVEVal,
+              aouFrequency: {
+                aouAC: rec.aou_ac,
+                aouAN: rec.aou_an ?? null,
+                aouHet: rec.aou_het ?? null,
+                aouHom: rec.aou_hom ?? null
+              },
+              spliceProximity,
+              spliceai: (rec as any).SpliceAI_pred_DS_AG !== undefined || (rec as any).spliceai_ds_ag !== undefined ? (() => {
+                const ag = safeParseFloat((rec as any).SpliceAI_pred_DS_AG ?? (rec as any).spliceai_ds_ag);
+                const al = safeParseFloat((rec as any).SpliceAI_pred_DS_AL ?? (rec as any).spliceai_ds_al);
+                const dg = safeParseFloat((rec as any).SpliceAI_pred_DS_DG ?? (rec as any).spliceai_ds_dg);
+                const dl = safeParseFloat((rec as any).SpliceAI_pred_DS_DL ?? (rec as any).spliceai_ds_dl);
+                const hasAny = ag !== null || al !== null || dg !== null || dl !== null;
+                return {
+                  ds_ag: ag,
+                  ds_al: al,
+                  ds_dg: dg,
+                  ds_dl: dl,
+                  max_ds: hasAny ? Math.max(ag ?? 0, al ?? 0, dg ?? 0, dl ?? 0) : null
+                };
+              })() : null,
+              dbscsnv: ((rec as any).dbscSNV_ADA_SCORE !== undefined || (rec as any).dbscsnv_ada_score !== undefined || (rec as any).dbscSNV_RF_SCORE !== undefined || (rec as any).dbscsnv_rf_score !== undefined) ? {
+                ada_score: safeParseFloat((rec as any).dbscSNV_ADA_SCORE ?? (rec as any).dbscsnv_ada_score),
+                rf_score: safeParseFloat((rec as any).dbscSNV_RF_SCORE ?? (rec as any).dbscsnv_rf_score)
+              } : null,
+              source: "local dbNSFP"
+            };
+            return resVal;
+          }
+        } catch (err: any) {
+          console.warn(`[Local dbNSFP Query Error] Fallback to remote: ${err.message}`);
+        }
+      }
+
+      // 2. Try Genos Web Query service (Academic Tier 2 for SpliceAI, popEVE, BayesDel, ClinPred)
+      try {
+        const activeGenosRec = genosRec !== undefined && genosRec !== null ? genosRec : await queryGenosWebservice(gene, variant, gnomadVariantId);
+        if (activeGenosRec) {
+          const consurfPromise = (pdbId && chainId && resolvedPos !== null)
+            ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
+            : Promise.resolve(null);
+          const consurfVal = await consurfPromise;
+
+          let popEVEVal = activeGenosRec.popeve;
+          if (popEVEVal === null) {
+            popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+          }
+
+          const resVal: ConservationData = {
+            available: true,
+            revel: activeGenosRec.revel,
+            gerp: activeGenosRec.gerp,
+            phylop: activeGenosRec.phylop,
+            consurf: consurfVal,
+            bayesdel: activeGenosRec.bayesdel,
+            metarnn: activeGenosRec.metarnn,
+            metarnnPred: null,
+            clinpred: activeGenosRec.clinpred,
+            clinpredPred: null,
+            eigenPhred: activeGenosRec.eigenPhred,
+            eigenRaw: null,
+            dann: activeGenosRec.dann,
+            esm1b: activeGenosRec.esm1b,
+            esm1bPred: null,
+            popeve: popEVEVal,
+            aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
+              aouAC: activeGenosRec.aou_ac,
+              aouAN: activeGenosRec.aou_an ?? null,
+              aouHet: activeGenosRec.aou_het ?? null,
+              aouHom: activeGenosRec.aou_hom ?? null
+            } : null,
+            spliceProximity,
+            spliceai: activeGenosRec.spliceai ? {
+              ds_ag: activeGenosRec.spliceai.ds_ag,
+              ds_al: activeGenosRec.spliceai.ds_al,
+              ds_dg: activeGenosRec.spliceai.ds_dg,
+              ds_dl: activeGenosRec.spliceai.ds_dl,
+              max_ds: (activeGenosRec.spliceai.ds_ag !== null || activeGenosRec.spliceai.ds_al !== null || activeGenosRec.spliceai.ds_dg !== null || activeGenosRec.spliceai.ds_dl !== null) ? Math.max(
+                activeGenosRec.spliceai.ds_ag || 0,
+                activeGenosRec.spliceai.ds_al || 0,
+                activeGenosRec.spliceai.ds_dg || 0,
+                activeGenosRec.spliceai.ds_dl || 0
+              ) : null
+            } : null,
+            dbscsnv: activeGenosRec.dbscsnv ? {
+              ada_score: activeGenosRec.dbscsnv.ada_score,
+              rf_score: activeGenosRec.dbscsnv.rf_score
+            } : null,
+            source: "Genos Web Query"
+          };
+          return resVal;
+        }
+      } catch (err: any) {
+        console.warn(`[Genos Web Query Fallback Error] ${err.message}`);
+      }
+
+      // 3. Fast Tier 1 Baseline via Public query.dbnsfp.org (~900ms)
+      try {
+        const pubDbnsfp = await queryDbnsfpOrg(gene, variant, gnomadVariantId);
+        if (pubDbnsfp && (pubDbnsfp.revel !== null || pubDbnsfp.gerp !== null || pubDbnsfp.phylop !== null)) {
+          const consurfPromise = (pdbId && chainId && resolvedPos !== null)
+            ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
+            : Promise.resolve(null);
+          const consurfVal = await consurfPromise;
+
+          let popEVEVal = pubDbnsfp.popeve ?? null;
+          if (popEVEVal === null) {
+            popEVEVal = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
+          }
+
+          const resVal: ConservationData = {
+            available: true,
+            revel: pubDbnsfp.revel ?? null,
+            gerp: pubDbnsfp.gerp ?? null,
+            phylop: pubDbnsfp.phylop ?? null,
+            consurf: consurfVal,
+            bayesdel: null,
+            metarnn: pubDbnsfp.metarnn ?? null,
+            metarnnPred: null,
+            clinpred: null,
+            clinpredPred: null,
+            eigenPhred: null,
+            eigenRaw: null,
+            dann: null,
+            esm1b: pubDbnsfp.esm1b ?? null,
+            esm1bPred: null,
+            popeve: popEVEVal,
+            aouFrequency: null,
+            spliceProximity,
+            spliceai: null,
+            dbscsnv: null,
+            source: "Public dbNSFP (dbnsfp.org)"
+          };
+          return resVal;
+        }
+      } catch (pubErr: any) {
+        console.warn(`[Public dbNSFP Query Error] ${pubErr.message}`);
+      }
+
+      // 4. Fallback to MyVariant.info with optimized field projection
+      const queryStr = (resolvedPos !== null)
+        ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
+        : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
+      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen_phred,dbnsfp.dann,dbnsfp.esm1b";
+      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
   
   try {
     const myVariantPromise = fetchWithRetry(url, {
@@ -1005,7 +1036,6 @@ export async function fetchConservationData(
             } : null,
             source: "myvariant.info"
           };
-          conservationCache.set(cacheKey, resVal);
           return resVal;
         }
       }
@@ -1014,6 +1044,7 @@ export async function fetchConservationData(
     console.warn(`[Conservation Fetch Error] Failed to fetch MyVariant conservation: ${err.message}`);
   }
 
-  conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
-  return defaultRes;
+      return defaultRes;
+    }
+  });
 }

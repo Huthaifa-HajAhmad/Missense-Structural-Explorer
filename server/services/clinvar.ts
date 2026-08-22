@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CLINVAR_AA_MAP } from "../../src/aminoAcids.ts";
-import { clinvarCache } from "./cache.ts";
+import { clinvarCache, getCachedOrFetch } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 
 export interface ClinVarData {
@@ -47,22 +47,25 @@ function getCodingNotation(title: string): string | null {
 }
 
 export async function fetchClinVarData(gene: string, variant: string, originalNotation?: string): Promise<ClinVarData> {
-  const cacheKey = `${gene}_${variant}_${originalNotation || ""}`;
-  const cached = clinvarCache.get(cacheKey);
-  if (cached) return cached;
-
-  const defaultRes: ClinVarData = {
-    classification: "Not found in ClinVar",
-    lastEvaluated: "",
-    reviewStatus: "",
-    alleleFrequencies: [],
-    trait: "",
-    uid: null,
-    hasOtherPathogenicVariantSameAA: false
-  };
-  
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = variant.replace(/^p\./i, "").trim();
+  const cacheKey = `clinvar_${normGene}_${cleanVar}_${originalNotation || ""}`;
+
+  return getCachedOrFetch({
+    key: cacheKey,
+    source: "NCBI ClinVar API",
+    l1Cache: clinvarCache,
+    ttlSeconds: 7 * 24 * 60 * 60,
+    fetcher: async () => {
+      const defaultRes: ClinVarData = {
+        classification: "Not found in ClinVar",
+        lastEvaluated: "",
+        reviewStatus: "",
+        alleleFrequencies: [],
+        trait: "",
+        uid: null,
+        hasOtherPathogenicVariantSameAA: false
+      };
   
   let term = "";
   if (/^(?:VCV)?\d+$/i.test(cleanVar)) {
@@ -215,15 +218,16 @@ export async function fetchClinVarData(gene: string, variant: string, originalNo
     value: freq.value !== undefined ? freq.value : null
   }));
   
-  const resVal: ClinVarData = {
-    classification,
-    lastEvaluated,
-    reviewStatus,
-    alleleFrequencies,
-    trait: traits,
-    uid: matchedId,
-    hasOtherPathogenicVariantSameAA
-  };
-  clinvarCache.set(cacheKey, resVal);
-  return resVal;
+      const resVal: ClinVarData = {
+        classification,
+        lastEvaluated,
+        reviewStatus,
+        alleleFrequencies,
+        trait: traits,
+        uid: matchedId,
+        hasOtherPathogenicVariantSameAA
+      };
+      return resVal;
+    }
+  });
 }
