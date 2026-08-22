@@ -1,6 +1,7 @@
 
 import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3 } from "./aminoAcids";
 import { z } from "zod";
+import { parseVariantCoordinate, type VariantCoordinate } from "./shared/variantCoordinate.ts";
 
 const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
 const nullableFiniteNumber = z.number().nullable().refine(val => val === null || Number.isFinite(val), { message: "Number must be finite" });
@@ -89,8 +90,6 @@ export const analyzeVariantResponseSchema = z.object({
     amPathogenicity: nullableFiniteNumber,
     amClass: z.string().nullable(),
     caddPhred: nullableFiniteNumber,
-    eveScore: nullableFiniteNumber.optional(),
-    eveClass: z.string().nullable().optional(),
     proteinName: z.string().nullable().optional(),
     transcriptId: z.string().optional(),
     isManeSelect: z.boolean().optional(),
@@ -591,69 +590,9 @@ export const AMINO_ACID_PROPERTIES: Record<string, { hydrophobicity: number; cha
   V: { hydrophobicity: 90, charge: 50, size: 60, polarity: 10 }
 };
 
-export function parseMutationResidues(variantStr: string) {
-  const aminoAcidMap: Record<string, string> = {
-    Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
-    Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V"
-  };
-  const normalize3 = (str: string) => {
-    if (str.length !== 3) return str;
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-  };
-
-  // ── Step 1: Strip common non-standard prefixes ──
-  let clean = variantStr.replace(/^p\./i, "").replace(/[()]/g, "").trim();
-
-  // Strip transcript/Uniprot/protein accession prefix (e.g., "ENST00000:Ser489Cys" or "ENSP00000:p.S489C")
-  clean = clean.replace(/^[A-Z0-9_]{4,20}:\s*/i, "");
-
-  // Strip leading gene-name prefix (e.g., "CNNM2 Ser489Cys" when gene was pasted into variant field)
-  clean = clean.replace(/^[A-Z]{2,10}\s+/i, "");
-
-  // Remove underscores within the variant (Ser_489_Cys → Ser489Cys)
-  clean = clean.replace(/_/g, "");
-
-  // Remove ">" arrow notation (R>H → RH) for HGVS-style input
-  clean = clean.replace(/>(?=[A-Z])/i, "");
-
-  // ── Step 2: Try 3-letter amino acid regex ──
-  const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
-  if (match3) {
-    const wt3 = normalize3(match3[1]);
-    const mut3 = normalize3(match3[3]);
-    const wt = aminoAcidMap[wt3];
-    const mut = aminoAcidMap[mut3];
-    if (!wt || !mut) {
-      throw new Error(
-        `Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'. ` +
-        `Expected one of: Ala/Arg/Asn/Asp/Cys/Gln/Glu/Gly/His/Ile/Leu/Lys/Met/Phe/Pro/Ser/Thr/Trp/Tyr/Val.`
-      );
-    }
-    return { wt, mut };
-  }
-
-  // ── Step 3: Try 1-letter amino acid regex ──
-  const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
-  if (match1) {
-    const wt = match1[1].toUpperCase();
-    const mut = match1[3].toUpperCase();
-    const validCodes = Object.values(aminoAcidMap);
-    if (!validCodes.includes(wt) || !validCodes.includes(mut)) {
-      throw new Error(
-        `Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!validCodes.includes(wt) ? wt : mut}'. ` +
-        `Expected single-letter codes (A/C/D/E/F/G/H/I/K/L/M/N/P/Q/R/S/T/V/W/Y).`
-      );
-    }
-    return { wt, mut };
-  }
-
-  // ── Step 4: Provide contextual error guidance ──
-  throw new Error(
-    `Invalid HGVS missense format: "${variantStr}" doesn't match expected format. ` +
-    `Expected: <WildType><Position><Mutant> with no extra prefixes. ` +
-    `Examples: p.Arg215Trp (3-letter), p.R215W (1-letter). ` +
-    `For genomic variants use the "c." notation (e.g., c.744C>T) or the "g." notation.`
-  );
+export function parseMutationResidues(variantStr: string): { wt: string; mut: string } {
+  const coord = parseVariantCoordinate(variantStr);
+  return { wt: coord.wt1, mut: coord.mut1 };
 }
 
 export const getAlternativeVariants = (currentGene: string): string[] => {
@@ -674,38 +613,8 @@ export const getAlternativeVariants = (currentGene: string): string[] => {
 };
 
 export function mapMutationToFoldXFormat(variantStr: string): string {
-  const clean = variantStr.replace(/^p\./i, "");
-  
-  const normalize3 = (str: string) => {
-    if (str.length !== 3) return str;
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-  };
-
-  const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
-  if (match3) {
-    const wt3 = normalize3(match3[1]);
-    const pos = parseInt(match3[2], 10);
-    const mut3 = normalize3(match3[3]);
-    const wt = AMINO_ACID_3_TO_1[wt3];
-    const mut = AMINO_ACID_3_TO_1[mut3];
-    if (!wt || !mut) {
-      throw new Error(`Invalid HGVS missense format: Unrecognized 3-letter amino acid code '${!wt ? wt3 : mut3}'`);
-    }
-    return `${wt}A${pos}${mut}`;
-  }
-
-  const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
-  if (match1) {
-    const wt = match1[1].toUpperCase();
-    const pos = match1[2];
-    const mut = match1[3].toUpperCase();
-    if (!AMINO_ACID_1_TO_3[wt] || !AMINO_ACID_1_TO_3[mut]) {
-      throw new Error(`Invalid HGVS missense format: Unrecognized 1-letter amino acid code '${!AMINO_ACID_1_TO_3[wt] ? wt : mut}'`);
-    }
-    return `${wt}A${pos}${mut}`;
-  }
-
-  throw new Error("Invalid HGVS missense format: Must represent a single amino acid substitution (e.g., p.Arg215Trp or R215W)");
+  const coord = parseVariantCoordinate(variantStr);
+  return coord.foldxCode;
 }
 
 
