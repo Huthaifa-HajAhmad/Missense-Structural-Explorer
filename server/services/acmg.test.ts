@@ -258,4 +258,187 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(maxActiveCount).toBe(2);
     expect(activeCount).toBe(0);
   });
+
+  it("should assign BS2 when variant is observed in homozygous state in population reference", () => {
+    const res = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: null,
+      gnomadFrequency: {
+        maxAF: 0.001,
+        groupMaxAF: 0.001,
+        genomeAF: 0.001,
+        exomeAF: 0.001,
+        nHomozygous: 4,
+        dataset: "gnomad"
+      },
+      acmgWeighting: "standard"
+    });
+
+    const bs2 = res.acmgCriteria.find(c => c.code === "BS2");
+    expect(bs2).toBeDefined();
+    expect(bs2?.reason).toContain("Observed in homozygous state in 4 individuals");
+  });
+
+  it("should assign BP1 for missense variants in LOF-intolerant genes lacking missense constraint", () => {
+    const res = computeRuleBasedACMG({
+      gene: "SHANK3",
+      variant: "p.Ala120Val",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: {
+        pli: 0.99,
+        isPP2Constrained: false,
+        missense_z: 0.45,
+        oe_mis: 0.92
+      },
+      gnomadFrequency: null,
+      acmgWeighting: "standard"
+    });
+
+    const bp1 = res.acmgCriteria.find(c => c.code === "BP1");
+    expect(bp1).toBeDefined();
+    expect(bp1?.reason).toContain("high loss-of-function intolerance (pLI: 0.99)");
+    expect(bp1?.reason).toContain("lacking significant missense constraint");
+  });
+
+  it("should NOT assign BS2 when homozygote count is less than 2 or null", () => {
+    const res1 = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: null,
+      gnomadFrequency: {
+        maxAF: 0.001,
+        groupMaxAF: 0.001,
+        genomeAF: 0.001,
+        exomeAF: 0.001,
+        nHomozygous: 1,
+        dataset: "gnomad"
+      },
+      acmgWeighting: "standard"
+    });
+    expect(res1.acmgCriteria.some(c => c.code === "BS2")).toBe(false);
+
+    const resNull = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: null,
+      gnomadFrequency: {
+        maxAF: 0.001,
+        groupMaxAF: 0.001,
+        genomeAF: 0.001,
+        exomeAF: 0.001,
+        nHomozygous: null,
+        dataset: "gnomad"
+      },
+      acmgWeighting: "standard"
+    });
+    expect(resNull.acmgCriteria.some(c => c.code === "BS2")).toBe(false);
+  });
+
+  it("should NOT assign BP1 if gene has missense constraint or if variant is a null/truncating variant", () => {
+    // 1. Constrained gene (isPP2Constrained: true) -> Should not get BP1
+    const resConstrained = computeRuleBasedACMG({
+      gene: "SCN1A",
+      variant: "p.Met120Val",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: {
+        pli: 0.99,
+        isPP2Constrained: true,
+        missense_z: 3.5,
+        oe_mis: 0.4
+      },
+      gnomadFrequency: null,
+      acmgWeighting: "standard"
+    });
+    expect(resConstrained.acmgCriteria.some(c => c.code === "BP1")).toBe(false);
+
+    // 2. Truncating / null variant in LOF gene -> Should trigger PVS1, NOT BP1
+    const resNullVar = computeRuleBasedACMG({
+      gene: "SHANK3",
+      variant: "p.Arg120Ter",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: {
+        pli: 0.99,
+        isPP2Constrained: false,
+        missense_z: 0.45,
+        oe_mis: 0.92
+      },
+      gnomadFrequency: null,
+      acmgWeighting: "standard"
+    });
+    expect(resNullVar.acmgCriteria.some(c => c.code === "BP1")).toBe(false);
+    expect(resNullVar.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
+  });
+
+  it("should accept single ACMGEvidenceInput object and produce identical outputs to positional args", () => {
+    const input = {
+      gene: "BRAF",
+      variant: "p.Val600Glu",
+      clinvar: { classification: "Pathogenic", uid: "13961" },
+      predictorData: { available: true, amPathogenicity: 0.99, amClass: "pathogenic", caddPhred: 34 },
+      conservationData: { available: true, revel: 0.95, gerp: 5.2 },
+      gnomadConstraint: { pli: 0.85, isPP2Constrained: true, missense_z: 3.1, oe_mis: 0.4 },
+      gnomadFrequency: { maxAF: 0.000001, groupMaxAF: 0.000001, genomeAF: 0.000001, exomeAF: 0.000001, nHomozygous: 0, dataset: "gnomad" },
+      acmgWeighting: "standard" as const
+    };
+
+    const resObj = computeRuleBasedACMG(input);
+    const resPos = computeRuleBasedACMG(
+      input.gene,
+      input.variant,
+      input.clinvar,
+      input.predictorData,
+      input.conservationData,
+      input.gnomadConstraint,
+      input.gnomadFrequency,
+      input.acmgWeighting
+    );
+
+    expect(resObj.acmgVerdict).toBe(resPos.acmgVerdict);
+    expect(resObj.acmgCriteria.map(c => c.code)).toEqual(resPos.acmgCriteria.map(c => c.code));
+  });
+
+  it("should withhold PM2 when gnomadFrequency serviceStatus is timeout or error", () => {
+    const inputWithTimeout = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.9, amClass: "pathogenic", caddPhred: 28 },
+      conservationData: { available: true, revel: 0.8 },
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "timeout" as const }
+    };
+
+    const resTimeout = computeRuleBasedACMG(inputWithTimeout);
+    expect(resTimeout.acmgCriteria.some(c => c.code === "PM2")).toBe(false);
+    expect(resTimeout.partialEvidence?.unavailable.some(u => u.includes("PM2 withheld"))).toBe(true);
+
+    const inputWithSuccess = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.9, amClass: "pathogenic", caddPhred: 28 },
+      conservationData: { available: true, revel: 0.8 },
+      gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
+      serviceStatus: { gnomadFrequency: "ok" as const }
+    };
+
+    const resSuccess = computeRuleBasedACMG(inputWithSuccess);
+    expect(resSuccess.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
+  });
 });

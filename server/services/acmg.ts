@@ -18,6 +18,10 @@ import {
   countPredictorConcordance,
   PredictorConcordance,
 } from "../../src/shared/thresholds.ts";
+import type { ClinVarData } from "./clinvar.ts";
+import type { PredictorData, ConservationData } from "../../src/shared/contracts.ts";
+import type { GnomadVariantFrequency, GnomadGeneConstraint } from "./gnomad.ts";
+import type { UniprotFeaturesResult } from "./uniprot.ts";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -70,6 +74,7 @@ export function normalizeProteinChangeTo1Letter(variantStr: string): string | nu
 }
 
 export function isNullVariant(variantStr: string): boolean {
+  if (!variantStr || typeof variantStr !== "string") return false;
   const clean = variantStr.replace(/^p\./i, "").trim().toLowerCase();
   return clean.includes("ter") || 
          clean.includes("stop") || 
@@ -82,6 +87,7 @@ export function isNullVariant(variantStr: string): boolean {
 }
 
 export function isInFrameIndel(variantStr: string): boolean {
+  if (!variantStr || typeof variantStr !== "string") return false;
   const clean = variantStr.replace(/^p\./i, "").trim().toLowerCase();
   return (clean.includes("del") || clean.includes("ins") || clean.includes("dup")) && !clean.includes("fs");
 }
@@ -188,21 +194,51 @@ function classifyVariant(criteria: ACMGItem[]): string {
 // Main engine
 // ---------------------------------------------------------------------------
 
+export interface ACMGEvidenceInput {
+  gene: string;
+  variant: string;
+  clinvar?: Partial<ClinVarData> | ClinVarData | null;
+  predictorData?: Partial<PredictorData> | PredictorData | null;
+  conservationData?: Partial<ConservationData> | ConservationData | null;
+  gnomadConstraint?: GnomadGeneConstraint | {
+    missense_z: number | null;
+    oe_mis: number | null;
+    pli: number | null;
+    isPP2Constrained: boolean;
+  } | null;
+  gnomadFrequency?: GnomadVariantFrequency | {
+    maxAF: number | null;
+    groupMaxAF: number | null;
+    genomeAF: number | null;
+    exomeAF: number | null;
+    nHomozygous: number | null;
+    dataset: string;
+    groupMaxAFIsFallback?: boolean;
+  } | null;
+  acmgWeighting?: "standard" | "conservative" | "strict-structural";
+  esm2?: { llr: number | null; verdict: string } | null;
+  uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null;
+  sequence?: string | null;
+  esmcEval?: any | null;
+  esm2Eval?: any | null;
+  saprotEval?: any | null;
+  serviceStatus?: Record<string, string> | any | null;
+}
+
+export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsights;
 export function computeRuleBasedACMG(
   gene: string,
   variant: string,
-  clinvar: any,
-  predictorData: any,
-  conservationData: any,
-  /** Optional: live gnomAD constraint data from fetchGnomadGeneConstraint() */
-  gnomadConstraint?: {
+  clinvar?: Partial<ClinVarData> | ClinVarData | null,
+  predictorData?: Partial<PredictorData> | PredictorData | null,
+  conservationData?: Partial<ConservationData> | ConservationData | null,
+  gnomadConstraint?: GnomadGeneConstraint | {
     missense_z: number | null;
     oe_mis: number | null;
     pli: number | null;
     isPP2Constrained: boolean;
   } | null,
-  /** Optional: live gnomAD variant frequency from fetchGnomadVariantFrequency() */
-  gnomadFrequency?: {
+  gnomadFrequency?: GnomadVariantFrequency | {
     maxAF: number | null;
     groupMaxAF: number | null;
     genomeAF: number | null;
@@ -211,14 +247,61 @@ export function computeRuleBasedACMG(
     dataset: string;
     groupMaxAFIsFallback?: boolean;
   } | null,
-  acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard",
+  acmgWeighting?: "standard" | "conservative" | "strict-structural",
   esm2?: { llr: number | null; verdict: string } | null,
-  uniprotFeatures?: any | null,
+  uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null,
   sequence?: string | null,
   esmcEval?: any | null,
   esm2Eval?: any | null,
-  saprotEval?: any | null
+  saprotEval?: any | null,
+  serviceStatus?: Record<string, string> | any | null
+): RuleBasedInsights;
+export function computeRuleBasedACMG(
+  geneOrInput: string | ACMGEvidenceInput,
+  variantArg?: string,
+  clinvarArg?: Partial<ClinVarData> | ClinVarData | null,
+  predictorDataArg?: Partial<PredictorData> | PredictorData | null,
+  conservationDataArg?: Partial<ConservationData> | ConservationData | null,
+  gnomadConstraintArg?: GnomadGeneConstraint | {
+    missense_z: number | null;
+    oe_mis: number | null;
+    pli: number | null;
+    isPP2Constrained: boolean;
+  } | null,
+  gnomadFrequencyArg?: GnomadVariantFrequency | {
+    maxAF: number | null;
+    groupMaxAF: number | null;
+    genomeAF: number | null;
+    exomeAF: number | null;
+    nHomozygous: number | null;
+    dataset: string;
+    groupMaxAFIsFallback?: boolean;
+  } | null,
+  acmgWeightingArg: "standard" | "conservative" | "strict-structural" = "standard",
+  esm2Arg?: { llr: number | null; verdict: string } | null,
+  uniprotFeaturesArg?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null,
+  sequenceArg?: string | null,
+  esmcEvalArg?: any | null,
+  esm2EvalArg?: any | null,
+  saprotEvalArg?: any | null,
+  serviceStatusArg?: Record<string, string> | any | null
 ): RuleBasedInsights {
+  const isInputObj = typeof geneOrInput === "object" && geneOrInput !== null;
+  const gene = isInputObj ? geneOrInput.gene : (geneOrInput as string);
+  const variant = isInputObj ? geneOrInput.variant : (variantArg as string);
+  const clinvar = isInputObj ? (geneOrInput.clinvar ?? null) : (clinvarArg ?? null);
+  const predictorData = isInputObj ? (geneOrInput.predictorData ?? null) : (predictorDataArg ?? null);
+  const conservationData = isInputObj ? (geneOrInput.conservationData ?? null) : (conservationDataArg ?? null);
+  const gnomadConstraint = isInputObj ? geneOrInput.gnomadConstraint : gnomadConstraintArg;
+  const gnomadFrequency = isInputObj ? geneOrInput.gnomadFrequency : gnomadFrequencyArg;
+  const acmgWeighting = (isInputObj ? geneOrInput.acmgWeighting : acmgWeightingArg) ?? "standard";
+  const esm2 = isInputObj ? geneOrInput.esm2 : esm2Arg;
+  const uniprotFeatures = isInputObj ? geneOrInput.uniprotFeatures : uniprotFeaturesArg;
+  const sequence = isInputObj ? geneOrInput.sequence : sequenceArg;
+  const esmcEval = isInputObj ? geneOrInput.esmcEval : esmcEvalArg;
+  const esm2Eval = isInputObj ? geneOrInput.esm2Eval : esm2EvalArg;
+  const saprotEval = isInputObj ? geneOrInput.saprotEval : saprotEvalArg;
+  const serviceStatus = isInputObj ? geneOrInput.serviceStatus : serviceStatusArg;
   const criteria: ACMGItem[] = [];
 
   const clinvarClass = (clinvar?.classification || "").toLowerCase();
@@ -367,7 +450,13 @@ export function computeRuleBasedACMG(
   let maxFreq = 0;
   let hasFreq = false;
 
-  if (gnomadFrequency && gnomadFrequency.groupMaxAF !== null) {
+  const isGnomadTimeoutOrError = serviceStatus?.gnomadFrequency === "timeout" || serviceStatus?.gnomadFrequency === "error";
+
+  if (isGnomadTimeoutOrError) {
+    if (!unavailable.includes("GNOMAD_FREQUENCY")) {
+      unavailable.push("GNOMAD_FREQUENCY (timeout/error — PM2 withheld)");
+    }
+  } else if (gnomadFrequency && gnomadFrequency.groupMaxAF !== null) {
     maxFreq = gnomadFrequency.groupMaxAF;
     hasFreq = true;
   } else if (gnomadFrequency && gnomadFrequency.maxAF !== null) {
@@ -385,7 +474,7 @@ export function computeRuleBasedACMG(
     }
   }
 
-  if (hasFreq) {
+  if (hasFreq && !isGnomadTimeoutOrError) {
     const fallbackSuffix = gnomadFrequency?.groupMaxAFIsFallback
       ? " (note: groupMaxAF fell back to global maxAF due to low population counts)"
       : "";
@@ -425,10 +514,27 @@ export function computeRuleBasedACMG(
   }
 
   // -------------------------------------------------------------------------
+  // BS2 — Observed in homozygous state in healthy population reference
+  // -------------------------------------------------------------------------
+  if (
+    gnomadFrequency &&
+    gnomadFrequency.nHomozygous !== null &&
+    gnomadFrequency.nHomozygous !== undefined &&
+    gnomadFrequency.nHomozygous >= 2 &&
+    !skipBenignComp
+  ) {
+    criteria.push({
+      code: "BS2",
+      reason: `Observed in homozygous state in ${gnomadFrequency.nHomozygous} individuals in gnomAD general population reference cohort, arguing against fully penetrant severe pathogenic disease causality.`
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // PM1 — Mutational hotspot and/or critical and well-established functional domain
   // -------------------------------------------------------------------------
   if (uniprotFeatures?.features && !skipPathogenicComp) {
-    const pos = parseInt(variant.replace(/\D/g, ""), 10);
+    const posMatch = variant.match(/\d+/);
+    const pos = posMatch ? parseInt(posMatch[0], 10) : NaN;
     if (!isNaN(pos)) {
       const criticalFeature = uniprotFeatures.features.find((f: any) => {
         const matchesType = ["Active site", "Binding site", "Metal binding", "Disulfide bond"].includes(f.type);
@@ -459,6 +565,18 @@ export function computeRuleBasedACMG(
         `Missense variant in gnomAD-constrained gene ${gene} ` +
         `(missense Z-score: ${misZ}, observed/expected: ${oeMis}). ` +
         `Low rate of benign missense variants supports pathogenic missense mechanism.`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // BP1 — Missense variant in gene where primarily truncating variants cause disease
+  // -------------------------------------------------------------------------
+  if (isLofIntolerant && gnomadConstraint?.isPP2Constrained === false && !isNullVariant(variant) && !skipBenignComp) {
+    const misZ  = gnomadConstraint.missense_z !== null && gnomadConstraint.missense_z !== undefined ? gnomadConstraint.missense_z.toFixed(2) : "N/A";
+    const oeMis = gnomadConstraint.oe_mis     !== null && gnomadConstraint.oe_mis     !== undefined ? gnomadConstraint.oe_mis.toFixed(3)     : "N/A";
+    criteria.push({
+      code: "BP1",
+      reason: `Missense variant in gene ${gene} with high loss-of-function intolerance (pLI: ${gnomadConstraint.pli}) but lacking significant missense constraint (missense Z: ${misZ}, oe_mis: ${oeMis}). Truncating/loss-of-function variants are the primary established disease mechanism.`
     });
   }
 
