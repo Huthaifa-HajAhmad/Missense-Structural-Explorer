@@ -1,8 +1,16 @@
 import { validateUniProt } from "../utils.ts";
 import { fetchWithRetry } from "./http-client.ts";
-import { pdbCache, afUrlCache } from "./cache.ts";
+import { pdbCache, afUrlCache, bestPdbCache } from "./cache.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
 import type { PdbHomolog } from "../../src/types.ts";
+
+export interface PdbBestStructureMapping {
+  pdbId: string;
+  chainId: string;
+  shift: number;
+  unpStart: number;
+  structStart: number;
+}
 
 export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | null> {
   const validatedUniprot = validateUniProt(uniprotId);
@@ -97,11 +105,32 @@ export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | nul
   return success ? pdbData : null;
 }
 
+export function extractAfdbVersion(urlOrId: string): string | undefined {
+  if (!urlOrId || typeof urlOrId !== "string") return undefined;
+  const match = urlOrId.match(/model_(v\d+)\./i);
+  return match ? match[1].toLowerCase() : undefined;
+}
+
+export function getResolvedAlphafoldVersion(uniprotId: string): string | undefined {
+  try {
+    const validatedUniprot = validateUniProt(uniprotId);
+    const cachedUrl = afUrlCache.get(validatedUniprot);
+    if (cachedUrl) {
+      return extractAfdbVersion(cachedUrl);
+    }
+  } catch (_) {}
+  return undefined;
+}
+
 export async function fetchBestPdbStructure(
   uniprotId: string,
   pos?: number
-): Promise<{ pdbId: string; chainId: string; shift: number; unpStart: number; structStart: number } | null> {
+): Promise<PdbBestStructureMapping | null> {
   const validatedUniprot = validateUniProt(uniprotId);
+  const cacheKey = `${validatedUniprot}:${pos ?? "any"}`;
+  const cached = bestPdbCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   const url = `https://www.ebi.ac.uk/pdbe/graph-api/mappings/best_structures/${validatedUniprot}`;
   try {
     console.log(`[PDB Prioritizer] Querying best structures for UniProt accession ${validatedUniprot}...`);
@@ -111,11 +140,13 @@ export async function fetchBestPdbStructure(
     });
     if (!response.ok) {
       console.warn(`[PDB Prioritizer] Failed to query PDBe best structures (status: ${response.status})`);
+      bestPdbCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
       return null;
     }
     const data = await response.json() as any;
     const structures = data[validatedUniprot] || data[uniprotId];
     if (!Array.isArray(structures)) {
+      bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
       return null;
     }
     for (const item of structures) {
@@ -127,14 +158,17 @@ export async function fetchBestPdbStructure(
       
       const shift = item.unp_start - item.start;
       console.log(`[PDB Prioritizer] Found suitable experimental structure: ${item.pdb_id} chain ${item.chain_id} (Resolution: ${item.resolution}Å, Coverage: ${item.coverage}, Shift: ${shift})`);
-      return { 
+      const mapping: PdbBestStructureMapping = { 
         pdbId: item.pdb_id.toLowerCase(), 
         chainId: item.chain_id, 
         shift,
         unpStart: item.unp_start,
         structStart: item.start
       };
+      bestPdbCache.set(cacheKey, mapping);
+      return mapping;
     }
+    bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
   } catch (err: any) {
     console.error("[PDB Prioritizer] Error finding best PDB structure:", err.message || err);
   }
@@ -206,14 +240,46 @@ function parseFirstResidueSeq(pdbText: string, chainId: string): number | null {
   return null;
 }
 
+export async function fetchFullPdbEntry(pdbId: string): Promise<string | null> {
+  const upper = pdbId.trim().toUpperCase();
+  const cacheKey = `pdb_full_${upper.toLowerCase()}`;
+  if (pdbCache.has(cacheKey)) {
+    return pdbCache.get(cacheKey) || null;
+  }
+  const url = `https://files.rcsb.org/download/${upper}.pdb`;
+  try {
+    console.log(`[RCSB PDB Full Entry] Fetching complete structure ${upper} from RCSB...`);
+    const res = await fetchWithRetry(url, { timeout: 20000 });
+    if (!res.ok) {
+      console.warn(`[RCSB PDB Full Entry] Failed to download ${upper} from RCSB (status: ${res.status})`);
+      return null;
+    }
+    const fullText = await res.text();
+    if (!fullText || !fullText.includes("ATOM")) {
+      return null;
+    }
+    pdbCache.set(cacheKey, fullText);
+    return fullText;
+  } catch (err: any) {
+    console.warn(`[RCSB PDB Full Entry] Error fetching ${upper}:`, err.message);
+    return null;
+  }
+}
+
 export async function fetchPdbFromRcsb(
   pdbId: string,
   chainId?: string,
   unpStart?: number,
-  structStart?: number
+  structStart?: number,
+  validationContext?: {
+    uniprotId?: string;
+    sequence?: string;
+    pos?: number;
+    expectedWt1?: string;
+  }
 ): Promise<string | null> {
   const chainUpper = (chainId || "A").toUpperCase();
-  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_unp_${unpStart || 0}_struct_${structStart || 0}`;
+  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_unp_${unpStart || 0}_struct_${structStart || 0}_pos_${validationContext?.pos || 0}`;
   if (pdbCache.has(cacheKey)) {
     return pdbCache.get(cacheKey) || null;
   }
@@ -231,19 +297,37 @@ export async function fetchPdbFromRcsb(
       return null;
     }
 
-    const firstResSeq = parseFirstResidueSeq(fullText, chainUpper);
-    let finalShift = 0;
-    if (unpStart !== undefined && structStart !== undefined && firstResSeq !== null) {
-      if (Math.abs(firstResSeq - unpStart) < Math.abs(firstResSeq - structStart)) {
-        finalShift = 0;
-        console.log(`[RCSB PDB] PDB file ${pdbId} chain ${chainUpper} appears already aligned with UniProt (first residue in PDB: ${firstResSeq}, unpStart: ${unpStart}). Using shift: 0`);
+    // 3-Tier Deterministic Alignment & Validation (No Heuristics)
+    if (
+      validationContext?.uniprotId &&
+      validationContext?.sequence &&
+      validationContext?.pos !== undefined &&
+      validationContext?.expectedWt1
+    ) {
+      const { resolvePdbCoordinatesDeterministically } = await import("./sequence-aligner.ts");
+      const resolution = await resolvePdbCoordinatesDeterministically({
+        pdbId,
+        chainId: chainUpper,
+        rawPdbText: fullText,
+        uniprotAccession: validationContext.uniprotId,
+        uniprotSequence: validationContext.sequence,
+        targetPos: validationContext.pos,
+        expectedWt1: validationContext.expectedWt1
+      });
+
+      if (resolution.valid && resolution.pdbText) {
+        console.log(`[RCSB PDB Alignment] Successfully verified deterministic alignment via ${resolution.source} for ${pdbId} chain ${chainUpper} at pos ${validationContext.pos}`);
+        pdbCache.set(cacheKey, resolution.pdbText);
+        return resolution.pdbText;
       } else {
-        finalShift = unpStart - structStart;
-        console.log(`[RCSB PDB] PDB file ${pdbId} chain ${chainUpper} appears to use structural coordinates (first residue in PDB: ${firstResSeq}, structStart: ${structStart}, unpStart: ${unpStart}). Using shift: ${finalShift}`);
+        console.warn(`[RCSB PDB Alignment Warning] Deterministic validation rejected PDB ${pdbId}: ${resolution.reason || 'Residue mismatch'}. Falling back to 1:1 AlphaFold canonical structure.`);
+        return null;
       }
     }
 
-    const chainPdb = extractChainFromPdb(fullText, chainUpper, finalShift);
+    // Fallback if no sequence validation context provided
+    const shift = (unpStart !== undefined && structStart !== undefined) ? (unpStart - structStart) : 0;
+    const chainPdb = extractChainFromPdb(fullText, chainUpper, shift);
     pdbCache.set(cacheKey, chainPdb);
     return chainPdb;
   } catch (err: any) {
@@ -282,33 +366,24 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query: {
-          type: "group",
-          logical_operator: "and",
-          nodes: [
-            {
-              type: "terminal",
-              service: "sequence",
-              parameters: {
-                evalue_cutoff: 0.1,
-                identity_cutoff: 0.3,
-                sequence_type: "protein",
-                value: sequence
-              }
-            },
-            {
-              type: "terminal",
-              service: "text",
-              parameters: {
-                attribute: "rcsb_entry_info.structure_determination_methodology",
-                operator: "exact_match",
-                value: "experimental"
-              }
-            }
-          ]
+          type: "terminal",
+          service: "sequence",
+          parameters: {
+            evalue_cutoff: 1.0,
+            identity_cutoff: 0.22,
+            sequence_type: "protein",
+            value: sequence
+          }
         },
-        return_type: "entry"
+        request_options: {
+          results_content_type: ["experimental"],
+          paginate: {
+            start: 0,
+            rows: 50
+          }
+        },
+        return_type: "polymer_entity"
       }),
-
       timeout: 15000
     });
 
@@ -318,12 +393,24 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       return [];
     }
 
-
     const searchData = await searchRes.json() as any;
-    const hits = searchData.result_set?.slice(0, 30) || [];
-    if (hits.length === 0) return [];
+    const rawHits = searchData.result_set || [];
+    if (rawHits.length === 0) return [];
 
-    const pdbIds = hits.map((hit: any) => hit.identifier);
+    const entityToPdbMap = new Map<string, { score: number; entityId: string; rawHit: any }>();
+    const pdbIdSet = new Set<string>();
+
+    for (const h of rawHits) {
+      const parts = String(h.identifier).split("_");
+      const pdbId = parts[0].toUpperCase();
+      const entityId = parts[1] || "1";
+      pdbIdSet.add(pdbId);
+      if (!entityToPdbMap.has(pdbId)) {
+        entityToPdbMap.set(pdbId, { score: typeof h.score === "number" ? h.score : 0.5, entityId, rawHit: h });
+      }
+    }
+
+    const pdbIds = Array.from(pdbIdSet).slice(0, 50);
     
     const graphqlQuery = `
       query getHomologMetadata($ids: [String!]!) {
@@ -369,88 +456,102 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
     }
 
     const seqLen = sequence.length;
-    const filteredMapped: PdbHomolog[] = hits
-      .filter((hit: any) => {
-        const pdbId = hit.identifier.toUpperCase();
-        const entryMeta = metadataMap[pdbId] || {};
-        // Exclude computationally-determined structures (AF, RoseTTAFold, etc.)
-        const isComp = entryMeta.rcsb_entry_info?.structure_determination_methodology === "computational";
-        if (isComp) return false;
+    const candidates: PdbHomolog[] = [];
 
-        // If a mutation position is provided, verify the aligned region covers it.
-        // Human paralogs and human structures are now included — experimental > AF regardless of species.
-        if (pos !== undefined && hit.services?.[0]?.nodes?.[0]?.match_context?.[0]) {
-          const mc = hit.services[0].nodes[0].match_context[0];
-          const qFrom: number = mc.query_sequence_from ?? 1;
-          const qTo: number = mc.query_sequence_to ?? seqLen;
-          if (pos < qFrom || pos > qTo) return false;
-        }
+    for (const [pdbId, info] of entityToPdbMap.entries()) {
+      const entryMeta = metadataMap[pdbId] || {};
+      const isComp = entryMeta.rcsb_entry_info?.structure_determination_methodology === "computational";
+      if (isComp) continue;
 
-        return true;
-      })
-      .map((hit: any) => {
-        const pdbId = hit.identifier.toUpperCase();
-        const entryMeta = metadataMap[pdbId] || {};
-        const title = entryMeta.struct?.title || "Experimental structure homolog";
-        const method = entryMeta.rcsb_entry_info?.experimental_method || "Experimental";
-        const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
-        const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
+      const title = entryMeta.struct?.title || "Experimental structure homolog";
+      const method = entryMeta.rcsb_entry_info?.experimental_method || "Experimental";
+      const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
+      const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
 
-        let rawIdentity: number | null = null;
-        let alignedLen = Math.round(seqLen * 0.8);
-        if (hit.services?.[0]?.nodes?.[0]?.match_context?.[0]) {
-          const mc = hit.services[0].nodes[0].match_context[0];
-          if (typeof mc.sequence_identity === "number") rawIdentity = mc.sequence_identity;
-          if (typeof mc.alignment_length === "number") alignedLen = mc.alignment_length;
-        } else if (typeof hit.score === "number" && hit.score <= 1.0 && hit.score > 0) {
-          rawIdentity = hit.score;
-        }
+      let rawIdentity: number = info.score;
+      let alignedLen = Math.round(seqLen * 0.8);
+      const mc = info.rawHit.services?.[0]?.nodes?.[0]?.match_context?.[0];
+      if (mc) {
+        if (typeof mc.sequence_identity === "number") rawIdentity = mc.sequence_identity;
+        if (typeof mc.alignment_length === "number") alignedLen = mc.alignment_length;
+      }
 
-        if (rawIdentity === null) {
-          return null;
-        }
+      const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
+      const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
 
-        const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
-        const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
+      const qFrom = typeof mc?.query_sequence_from === "number" ? mc.query_sequence_from : undefined;
+      const qTo = typeof mc?.query_sequence_to === "number" ? mc.query_sequence_to : undefined;
+      const coversPos = (pos !== undefined && qFrom !== undefined && qTo !== undefined) ? (pos >= qFrom && pos <= qTo) : true;
 
-        const mc2 = hit.services?.[0]?.nodes?.[0]?.match_context?.[0];
-        return {
-          pdbId,
-          score: hit.score || 0,
-          identity: identityPercent,
-          coverage: coveragePercent,
-          title,
-          organism,
-          isHuman: organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human"),
-          method,
-          resolution,
-          querySeqFrom: typeof mc2?.query_sequence_from === "number" ? mc2.query_sequence_from : undefined,
-          querySeqTo: typeof mc2?.query_sequence_to === "number" ? mc2.query_sequence_to : undefined,
-        };
-      })
-      .filter((h: PdbHomolog | null): h is PdbHomolog => h !== null);
+      candidates.push({
+        pdbId,
+        score: info.score,
+        identity: identityPercent,
+        coverage: coveragePercent,
+        title,
+        organism,
+        isHuman: organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human"),
+        method,
+        resolution,
+        querySeqFrom: qFrom,
+        querySeqTo: qTo,
+        coversPosition: coversPos
+      } as any);
+    }
 
-    // Sort by identity descending first, to prioritize closer homologs in deduplication
-    filteredMapped.sort((a, b) => b.identity - a.identity);
+    // Sort priority: 1. Covers variant position, 2. Identity descending, 3. Better resolution
+    candidates.sort((a: any, b: any) => {
+      if (a.coversPosition && !b.coversPosition) return -1;
+      if (!a.coversPosition && b.coversPosition) return 1;
+      if (b.identity !== a.identity) return b.identity - a.identity;
+      const resA = a.resolution ?? 999;
+      const resB = b.resolution ?? 999;
+      return resA - resB;
+    });
 
-    // Apply identity ceiling (< 95%) to exclude self-hits and deduplicate by organism + title
-    const seenKeys = new Set<string>();
-    const getTitleKey = (t: string) => {
+    // Smart Diversity & Non-Redundancy Clustering:
+    // 1. Exclude exact self-structures (>98% identity)
+    // 2. Prevent micro-redundancy (<4% identity difference from the same organism)
+    // 3. Cluster similar construct titles per organism
+    const getTitleRoot = (t: string) => {
       return t.toLowerCase()
-        .replace(/crystal|structure|of|the|in|complex|with|refinement|at|resolution|domain/g, "")
+        .replace(/crystal|structure|of|the|in|complex|with|refinement|at|resolution|domain|allele-[a-z0-9]+/g, "")
         .replace(/[^a-z0-9]/g, "")
-        .slice(0, 20);
+        .slice(0, 16);
     };
 
+    const seenOrganisms = new Map<string, number[]>();
+    const seenTitleRoots = new Set<string>();
     const homologs: PdbHomolog[] = [];
-    for (const h of filteredMapped) {
-      if (h.identity >= 95) continue;
-      
-      const key = `${getTitleKey(h.title)}_${h.organism.toLowerCase()}`;
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
+
+    for (const h of candidates) {
+      if (h.identity > 98) continue; // Exclude self-matches
+
+      const orgNorm = h.organism.toLowerCase().trim();
+      const titleRoot = getTitleRoot(h.title);
+
+      if (!seenOrganisms.has(orgNorm)) {
+        seenOrganisms.set(orgNorm, []);
+      }
+      const existingIdentities = seenOrganisms.get(orgNorm)!;
+
+      // Avoid redundancy from same species if any existing representative is within 4% identity
+      const isRedundantIdentity = existingIdentities.some(id => Math.abs(id - h.identity) < 5);
+      if (isRedundantIdentity) {
+        continue;
+      }
+
+      // Avoid duplicate construct titles from same species
+      const titleClusterKey = `${titleRoot}_${orgNorm}`;
+      if (seenTitleRoots.has(titleClusterKey) && existingIdentities.length >= 2) {
+        continue;
+      }
+
+      existingIdentities.push(h.identity);
+      seenTitleRoots.add(titleClusterKey);
       homologs.push(h);
-      if (homologs.length >= 5) break;
+
+      if (homologs.length >= 8) break;
     }
 
     pdbCache.set(cacheKey, JSON.stringify(homologs));

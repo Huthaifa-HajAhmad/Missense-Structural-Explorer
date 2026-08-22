@@ -74,71 +74,8 @@ export interface RuleBasedInsights {
   partialEvidence?: { available: string[]; unavailable: string[] };
 }
 
-export interface PredictorData {
-  amPathogenicity: number | null;
-  amClass: string | null;
-  caddPhred: number | null;
-  available?: boolean;
-  eveScore?: number | null;
-  eveClass?: string | null;
-  proteinName?: string | null;
-  gnomadVariantId?: string | null;
-  transcriptId?: string;
-  isManeSelect?: boolean;
-  isManePlusClinical?: boolean;
-  isCanonical?: boolean;
-  maneRefSeqId?: string;
-  source?: string;
-}
-
-export interface ConservationData {
-  revel: number | null;
-  gerp: number | null;
-  phylop: number | null;
-  consurf: number | null;
-  bayesdel?: number | null;
-  available?: boolean;
-  metarnn?: number | null;
-  metarnnPred?: string | null;
-  clinpred?: number | null;
-  clinpredPred?: string | null;
-  eigenPhred?: number | null;
-  eigenRaw?: number | null;
-  dann?: number | null;
-  esm1b?: number | null;
-  esm1bPred?: string | null;
-  popeve?: number | null;
-  spliceProximity?: {
-    distance: number;
-    isNearSpliceSite: boolean;
-    exonNumber?: number | null;
-    totalExons?: number | null;
-    exonId?: string | null;
-    exonStart?: number | null;
-    exonEnd?: number | null;
-    exonLength?: number | null;
-    intronNumber?: number | null;
-    junctionType?: "donor" | "acceptor" | "terminal" | null;
-    adjacentIntronNumber?: number | null;
-    regionType?: "exonic" | "intronic" | null;
-    strand?: "+" | "-" | null;
-    transcriptId?: string | null;
-    genomicPos?: number | null;
-    nearestJunctionCoord?: number | null;
-  } | null;
-  spliceai?: {
-    ds_ag: number | null;
-    ds_al: number | null;
-    ds_dg: number | null;
-    ds_dl: number | null;
-    max_ds: number | null;
-  } | null;
-  dbscsnv?: {
-    ada_score: number | null;
-    rf_score: number | null;
-  } | null;
-  source?: string;
-}
+import type { PredictorData, ConservationData } from "./shared/contracts.ts";
+export type { PredictorData, ConservationData };
 
 export interface LandscapeResidueItem {
   residx: number;
@@ -188,6 +125,7 @@ export interface VariantMetadata {
   residueIndex: number | null;
   wildType: string;
   mutant: string;
+  acmgWeighting?: string;
   pdbId?: string | null;
   pdbSource?: string | null;
   alternativeVariants?: any;
@@ -210,13 +148,15 @@ export interface DisruptionPredictorResult {
   sasa?: number | null;
 }
 
+export interface UniprotFeatureItem {
+  type: UniprotFeatureType;
+  description: string;
+  start: number;
+  end: number;
+}
+
 export interface UniprotFeaturesData {
-  features: {
-    type: UniprotFeatureType;
-    description: string;
-    start: number;
-    end: number;
-  }[];
+  features: UniprotFeatureItem[];
   geneName?: string;
   subunitComment?: string | null;
   isMultimer?: boolean;
@@ -458,6 +398,8 @@ export interface PdbHomolog {
   querySeqFrom?: number;
   /** End position in the query (UniProt) sequence covered by the RCSB alignment (1-indexed) */
   querySeqTo?: number;
+  /** True if the aligned region covers the requested mutation position */
+  coversPosition?: boolean;
 }
 
 /** Provenance metadata for the structure used in a biophysical computation. */
@@ -479,6 +421,8 @@ export interface StructureProvenance {
   seed?: number | null;
   raspDatasetSnapshot?: string;
   vesmModel?: string;
+  afdbVersion?: string;
+  modelSha?: string;
   timestamp?: string;
 }
 

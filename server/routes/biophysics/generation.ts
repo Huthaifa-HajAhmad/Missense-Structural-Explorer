@@ -41,11 +41,12 @@ import { resolveStructure, type ResolvedStructure } from "../../services/structu
 import { type FoldXResult } from "../state.ts";
 import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
+import { AMINO_ACID_1_TO_3 } from "../../../src/aminoAcids.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
-  mutation: z.string(),
-  uniprotId: z.string().optional(),
+  mutation: z.string().min(1).max(50),
+  uniprotId: z.string().max(50).optional(),
   pH: z.union([z.number(), z.string()]).optional(),
   temperature: z.union([z.number(), z.string()]).optional(),
   ionicStrength: z.union([z.number(), z.string()]).optional()
@@ -281,6 +282,28 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       if (effectiveWtPdb.length > 5 * 1024 * 1024) {
         sendError(res, 400, "BAD_REQUEST", "Resolved or provided PDB file exceeds maximum size of 5MB.");
         return;
+      }
+
+      // 3-Way Fail-Fast Invariant Check (Finding 3.3)
+      const expectedWt3 = AMINO_ACID_1_TO_3[wt1];
+      try {
+        const parsedResidues = await parseResiduesFromPdbMaybeAsync(effectiveWtPdb);
+        const targetPdbRes = parsedResidues.find(r => r.resSeq === posNum && r.chain.toUpperCase() === resolvedChainUpper);
+        if (!targetPdbRes) {
+          sendError(res, 422, "UNPROCESSABLE_ENTITY", `Target residue position ${posNum} on chain ${resolvedChainUpper} is not found in the PDB structure.`);
+          return;
+        }
+        if (expectedWt3 && targetPdbRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
+          sendError(
+            res,
+            422,
+            "UNPROCESSABLE_ENTITY",
+            `Wild-type residue mismatch: mutation expects wild-type ${wt1} (${expectedWt3}) at position ${posNum}, but PDB structure contains ${targetPdbRes.resName3} on chain ${resolvedChainUpper}.`
+          );
+          return;
+        }
+      } catch (checkErr: any) {
+        console.warn("[generate-mutant] Invariant check warning:", checkErr.message);
       }
 
         const foldxOptions = {

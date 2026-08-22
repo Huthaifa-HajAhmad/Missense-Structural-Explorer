@@ -14,6 +14,7 @@ import {
   fetchAlphafoldPdb,
   fetchPdbFromRcsb,
   fetchPdbHomologs,
+  getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
 import type { StructureProvenance } from "../../src/types.ts";
 
@@ -64,10 +65,14 @@ export async function resolveStructure(
   try {
     const afData = await fetchAlphafoldPdb(uniprotId);
     if (afData) {
-      console.log(`[resolveStructure] Tier 2 hit: AlphaFold for ${uniprotId}`);
+      const afdbVersion = getResolvedAlphafoldVersion(uniprotId) || "v4";
+      console.log(`[resolveStructure] Tier 2 hit: AlphaFold (${afdbVersion}) for ${uniprotId}`);
       return {
         pdbText: afData,
-        provenance: { source: "alphafold" },
+        provenance: {
+          source: "alphafold",
+          afdbVersion
+        },
       };
     }
   } catch (err: any) {
