@@ -35,10 +35,15 @@ tools/vesm/
 
 
 data/*.csv
-data/*.sqlite
+data/*.sqlite*
+data/*.json
 
 # Repowise cache and databases
 .repowise/
+
+# Graphify knowledge graph outputs & caches
+graphify-out/
+.graphify/
 
 # Local secrets
 .sidecar_secret

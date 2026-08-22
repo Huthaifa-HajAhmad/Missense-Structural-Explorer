@@ -9,6 +9,20 @@
         "stdio"
       ],
       "description": "repowise: codebase intelligence \u2014 docs, graph, git signals, dead code, decisions"
+    },
+    "graphify": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "graphifyy",
+        "--with",
+        "mcp",
+        "-m",
+        "graphify.serve",
+        "C:/Users/HSA19/antigravity/Missense-Structural-Explorer/graphify-out/graph.json"
+      ],
+      "description": "graphify: AST code knowledge graph \u2014 symbol traversal, architecture communities, caller graphs"
     }
   }
 }
