@@ -7,7 +7,7 @@
 #   "transformers",
 #   "huggingface_hub",
 #   "numpy",
-#   "esm @ git+https://github.com/Biohub/esm.git@main",
+#   "esm @ git+https://github.com/Biohub/esm.git@c6b8c342aa99c823cd63ff11e0047ccd2f962117",
 #   "mini3di"
 # ]
 # ///
@@ -21,7 +21,7 @@ sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 import unittest
 import torch
 import numpy as np
-from model_server import crop_sequence_around_mutation, compute_scientific_metrics
+from model_server import crop_sequence_around_mutation, compute_scientific_metrics, clear_model_cache
 
 class TestModelServerHelpers(unittest.TestCase):
     def test_crop_sequence_short(self):
@@ -109,5 +109,10 @@ class TestModelServerHelpers(unittest.TestCase):
             validate_missense_residues("del", "ins")
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_clear_model_cache_endpoint(self):
+        res = clear_model_cache()
+        self.assertEqual(res.get("status"), "success")
+
 if __name__ == "__main__":
     unittest.main()
+

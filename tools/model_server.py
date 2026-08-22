@@ -7,7 +7,7 @@
 #   "transformers",
 #   "huggingface_hub",
 #   "numpy",
-#   "esm @ git+https://github.com/Biohub/esm.git@main",
+#   "esm @ git+https://github.com/Biohub/esm.git@c6b8c342aa99c823cd63ff11e0047ccd2f962117",
 #   "mini3di"
 # ]
 # ///
@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
         print(f"[Model Server Error] Failed to load local VESM model: {e}")
     yield
     models.clear_vesm()
+    models.clear_gpu_cache()
 
 app = FastAPI(title="Missense Structural Explorer Model Server", lifespan=lifespan)
 
@@ -56,7 +57,19 @@ async def verify_secret_header(request: Request, call_next):
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "model_loaded": models.vesm_model is not None}
+    return {
+        "status": "healthy",
+        "model_loaded": models.vesm_model is not None,
+        "active_models": len(models.esm2_models) + len(models.saprot_models)
+    }
+
+@app.post("/models/clear-cache")
+def clear_model_cache():
+    """Explicitly releases cached PyTorch model weights and flushes GPU RAM."""
+    models.esm2_models.clear()
+    models.saprot_models.clear()
+    models.clear_gpu_cache()
+    return {"status": "success", "message": "GPU memory cache cleared"}
 
 # Register model sub-routers
 app.include_router(vesm.router)
@@ -67,4 +80,11 @@ app.include_router(esmfold.router)
 app.include_router(stabilityoracle.router)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    host = os.environ.get("SIDECAR_HOST", "127.0.0.1")
+    port = int(os.environ.get("SIDECAR_PORT", "8000"))
+    workers = int(os.environ.get("SIDECAR_WORKERS", "1"))
+    if workers > 1:
+        uvicorn.run("tools.model_server:app", host=host, port=port, workers=workers)
+    else:
+        uvicorn.run(app, host=host, port=port)
+

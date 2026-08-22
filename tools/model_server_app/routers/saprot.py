@@ -210,7 +210,7 @@ def predict_saprot_sync(req: SaprotRequest):
         inputs = tokenizer(seq_sa, return_tensors="pt")
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
-        with torch.no_grad():
+        with torch.inference_mode():
             outputs = model(**inputs, output_hidden_states=True)
             
         logits = outputs.logits[0]
@@ -237,7 +237,7 @@ def predict_saprot_sync(req: SaprotRequest):
         
         mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
         mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
-        with torch.no_grad():
+        with torch.inference_mode():
             mut_outputs = model(**mut_inputs, output_hidden_states=True)
             
         mut_hidden_states = mut_outputs.hidden_states[-1][0]
