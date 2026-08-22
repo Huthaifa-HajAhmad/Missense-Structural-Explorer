@@ -83,8 +83,12 @@ class SQLiteQueue {
   addCompletedJob(id: string, type: "foldx" | "p2rank", data: any, result: any): void {
     const now = Date.now();
     this.db.prepare(`
-      INSERT OR REPLACE INTO biophysical_jobs (id, type, data, status, result, created_at, completed_at)
+      INSERT INTO biophysical_jobs (id, type, data, status, result, created_at, completed_at)
       VALUES (?, ?, ?, 'completed', ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = 'completed',
+        result = excluded.result,
+        completed_at = excluded.completed_at
     `).run(id, type, JSON.stringify(data), JSON.stringify(result), now, now);
   }
 
