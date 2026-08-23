@@ -1,7 +1,7 @@
 import React from "react";
 import { MasterView } from "./MasterSidebar";
 import { Search, AlertTriangle, KeyRound, X, ChevronRight, Settings } from "lucide-react";
-import { useSettings, SettingsTabId } from "../context/SettingsContext";
+import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 
 interface HeaderBarProps {
   masterView: MasterView;
@@ -23,7 +23,7 @@ export function HeaderBar({
   onDismissError
 }: HeaderBarProps) {
   let hasConfiguredGeminiKey = true;
-  let openSettingsTab = (_tab?: SettingsTabId) => {};
+  let openSettingsTab = (_tab?: SettingsTabId | LegacySettingsTabId) => {};
 
   try {
     const settings = useSettings();

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { DevConsoleProvider, useDevConsole } from "../../context/DevConsoleContext";
 import DevConsolePanel from "../DevConsolePanel";
 
@@ -22,6 +22,13 @@ function TestConsoleHarness({ onMount }: { onMount?: (actions: ReturnType<typeof
 }
 
 describe("DevConsolePanel & DevConsoleContext Tests", () => {
+  // The provider persists entries/traces to sessionStorage and restores them
+  // on mount — without this reset, state leaks between tests in this file
+  // and count-based assertions become order- and timing-dependent.
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
   it("renders with zero error empty state by default", () => {
     render(
       <DevConsoleProvider>
@@ -128,8 +135,8 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
               traceId,
               name: "Multi-Model Biophysics Suite (ESM-2, SaProt, ClinVar, gnomAD)",
               stage: "biophysics",
-              startTime: Date.now() - 20,
               offsetMs: 150,
+              startTime: Date.now() - 20,
               durationMs: 850,
               status: "success",
             });
@@ -145,5 +152,165 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     expect(screen.getByText("Stage 3: Multi-Model Biophysics Suite")).toBeInTheDocument();
     expect(screen.getByText("Genomic & cDNA Notation Translation (VEP)")).toBeInTheDocument();
     expect(screen.getByText("PDB / AlphaFold 3D Coordinates Fetch")).toBeInTheDocument();
+  });
+
+  it("exposes stream switcher as a tablist and switches streams with arrow keys", () => {
+    render(
+      <DevConsoleProvider>
+        <DevConsolePanel />
+      </DevConsoleProvider>
+    );
+
+    const tablist = screen.getByRole("tablist", { name: /console streams/i });
+    expect(tablist).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /error diagnostics/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+
+    fireEvent.keyDown(tablist, { key: "ArrowRight" });
+
+    expect(screen.getByRole("tab", { name: /live events/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
+
+    fireEvent.keyDown(tablist, { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: /error diagnostics/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("marks level filter pills as pressed and shows entry counts", () => {
+    render(
+      <DevConsoleProvider>
+        <TestConsoleHarness
+          onMount={({ pushErrorEntry }) => {
+            pushErrorEntry({ level: "error", source: "runtime", message: "One" });
+            pushErrorEntry({ level: "error", source: "runtime", message: "Two" });
+            pushErrorEntry({ level: "warn", source: "system", message: "Three" });
+          }}
+        />
+      </DevConsoleProvider>
+    );
+
+    const errorPill = screen.getByRole("button", { name: /error 2/i });
+    expect(errorPill).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(errorPill);
+    expect(errorPill).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("supports arrow-key navigation through log entries", () => {
+    render(
+      <DevConsoleProvider>
+        <TestConsoleHarness
+          onMount={({ pushLiveEntry }) => {
+            pushLiveEntry({ level: "info", source: "network", message: "First entry" });
+            pushLiveEntry({ level: "info", source: "network", message: "Second entry" });
+          }}
+        />
+      </DevConsoleProvider>
+    );
+
+    fireEvent.click(screen.getByText("Live Events"));
+    const log = screen.getByRole("log");
+    const entries = screen.getAllByRole("button").filter((b) => b.className.includes("dev-console-entry"));
+    expect(entries.length).toBe(2);
+
+    // Entries render newest-first: row 0 is "Second entry", row 1 is "First entry".
+    entries[0].focus();
+    fireEvent.keyDown(log, { key: "ArrowDown" });
+    expect(entries[1]).toHaveFocus();
+
+    fireEvent.keyDown(log, { key: "ArrowUp" });
+    expect(entries[0]).toHaveFocus();
+  });
+
+  it("exposes Gantt span rows as keyboard-activatable buttons and stages collapse", () => {
+    render(
+      <DevConsoleProvider>
+        <TestConsoleHarness
+          onMount={({ startTraceRun, addTraceSpan, finishTraceRun, dispatch }) => {
+            const traceId = startTraceRun("TP53 R175H");
+            addTraceSpan({
+              traceId,
+              name: "Genomic & cDNA Notation Translation (VEP)",
+              stage: "genomics",
+              startTime: Date.now() - 100,
+              offsetMs: 0,
+              durationMs: 120,
+              status: "success",
+            });
+            finishTraceRun(traceId, "completed");
+            dispatch({ type: "SET_ACTIVE_TAB", tab: "tracing" });
+          }}
+        />
+      </DevConsoleProvider>
+    );
+
+    const spanRow = screen.getByRole("button", {
+      name: /Genomic & cDNA Notation Translation \(VEP\), genomics stage, 120 milliseconds/i
+    });
+    expect(spanRow).toBeInTheDocument();
+
+    fireEvent.click(spanRow);
+    expect(screen.getByText(/from pipeline initiation/i)).toBeInTheDocument();
+
+    const stageHeader = screen.getByRole("button", {
+      name: /Stage 1: Genomic & cDNA Notation Translation/i
+    });
+    expect(stageHeader).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(stageHeader);
+    expect(
+      screen.queryByRole("button", {
+        name: /Genomic & cDNA Notation Translation \(VEP\), genomics stage/i
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it("clear all purges both log streams and traces behind a two-step confirm", () => {
+    render(
+      <DevConsoleProvider>
+        <TestConsoleHarness
+          onMount={({ pushErrorEntry, pushLiveEntry, startTraceRun, addTraceSpan, finishTraceRun }) => {
+            pushErrorEntry({ level: "error", source: "runtime", impact: "fatal", message: "Boom" });
+            pushLiveEntry({ level: "info", source: "network", message: "Call finished" });
+            const traceId = startTraceRun("TP53 R175H");
+            addTraceSpan({
+              traceId,
+              name: "Genomic & cDNA Notation Translation (VEP)",
+              stage: "genomics",
+              startTime: Date.now() - 100,
+              offsetMs: 0,
+              durationMs: 120,
+              status: "success",
+            });
+            finishTraceRun(traceId, "completed");
+          }}
+        />
+      </DevConsoleProvider>
+    );
+
+    expect(screen.getByText(/Boom/i)).toBeInTheDocument();
+
+    const clearAll = screen.getByRole("button", { name: /clear all console data/i });
+
+    // First click only arms the confirmation.
+    fireEvent.click(clearAll);
+    expect(screen.getByRole("button", { name: /confirm clear all/i })).toBeInTheDocument();
+    expect(screen.getByText(/Boom/i)).toBeInTheDocument();
+
+    // Second click purges everything.
+    fireEvent.click(screen.getByRole("button", { name: /confirm clear all/i }));
+    expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Live Events"));
+    expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Pipeline Waterfall"));
+    expect(screen.getByText("No Active Trace Recorded")).toBeInTheDocument();
   });
 });

@@ -1,74 +1,38 @@
-import React, { createContext, useContext, useRef, useEffect } from "react";
-import { createStore, StoreApi } from "zustand";
-import { useStore } from "zustand";
+import React from "react";
+import {
+  useVariantAnalysisStore,
+  useVariantAnalysisActions,
+  type VariantAnalysisStore
+} from "../stores/useVariantAnalysisStore";
 
-interface StoreState {
-  state: any;
-  actions: any;
-}
+export { useVariantAnalysisStore, useVariantAnalysisActions };
+export type { VariantAnalysisStore };
 
-export const VariantAnalysisStoreContext = createContext<StoreApi<StoreState> | null>(null);
-
-export function VariantAnalysisProvider({ 
-  state,
-  actions, 
-  children 
-}: { 
-  state: any;
-  actions: any;
-  children: React.ReactNode; 
+/**
+ * Backward-compatible Provider component.
+ * Slices are now canonically managed by Zustand without needing an asynchronous useEffect sync bridge.
+ */
+export function VariantAnalysisProvider({
+  children
+}: {
+  state?: any;
+  actions?: any;
+  children: React.ReactNode;
 }) {
-  const storeRef = useRef<StoreApi<StoreState> | null>(null);
-  if (!storeRef.current) {
-    storeRef.current = createStore<StoreState>(() => ({
-      state,
-      actions,
-    }));
-  }
-
-  // Sync state and actions to the store asynchronously after render commits
-  useEffect(() => {
-    if (storeRef.current) {
-      const currentStore = storeRef.current.getState();
-      if (currentStore.state !== state || currentStore.actions !== actions) {
-        storeRef.current.setState({ state, actions });
-      }
-    }
-  }, [state, actions]);
-
-  return (
-    <VariantAnalysisStoreContext.Provider value={storeRef.current}>
-      {children}
-    </VariantAnalysisStoreContext.Provider>
-  );
+  return <>{children}</>;
 }
 
-// 1. Selector-based hook for fine-grained state subscriptions
-export function useVariantAnalysisStore<T>(selector: (state: any) => T): T {
-  const store = useContext(VariantAnalysisStoreContext);
-  if (!store) {
-    throw new Error("useVariantAnalysisStore must be used within a VariantAnalysisProvider");
-  }
-  return useStore(store, (s) => selector(s.state));
+/**
+ * Legacy compatibility hook to read entire store state.
+ */
+export function useVariantAnalysisState(): VariantAnalysisStore {
+  return useVariantAnalysisStore();
 }
 
-// 2. Hook to fetch actions (static, doesn't cause re-renders)
-export function useVariantAnalysisActions(): any {
-  const store = useContext(VariantAnalysisStoreContext);
-  if (!store) return {};
-  return store.getState().actions;
-}
-
-// 3. Legacy compatibility hooks:
-export function useVariantAnalysisState(): any {
-  const store = useContext(VariantAnalysisStoreContext);
-  if (!store) return {};
-  return useStore(store, (s) => s.state);
-}
-
-export function useVariantAnalysisContext(): { state: any; actions: any } {
-  const store = useContext(VariantAnalysisStoreContext);
-  if (!store) return { state: {}, actions: {} };
-  const storeState = useStore(store);
-  return { state: storeState.state, actions: storeState.actions };
+/**
+ * Legacy compatibility hook returning { state, actions }.
+ */
+export function useVariantAnalysisContext(): { state: VariantAnalysisStore; actions: VariantAnalysisStore } {
+  const store = useVariantAnalysisStore();
+  return { state: store, actions: store };
 }

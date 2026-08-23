@@ -65,7 +65,7 @@
   padding: 6px 10px;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
 }
 .cs-input::placeholder { color: var(--cs-text-muted); }
 .cs-input:focus {
@@ -87,7 +87,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
 }
 .cs-btn-primary:hover { background: #b55a3e; }
 .cs-btn-primary:active { transform: scale(0.98); }
@@ -107,7 +107,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
 }
 .cs-btn-ghost:hover {
   background: var(--cs-bg-subtle);
@@ -133,7 +133,7 @@
   background: transparent;
   color: var(--cs-text-secondary);
   transition: background 0.12s, color 0.12s;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
 }
 .cs-seg-btn:hover { color: var(--cs-text-primary); }
 .cs-seg-btn.active {
@@ -257,3 +257,64 @@
 .cs-step-complete  { color: var(--cs-good);        }
 .cs-step-progress  { color: var(--cs-accent-clay);  }
 .cs-step-pending   { color: var(--cs-text-muted);   }
+
+/* Toggle switch */
+.cs-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--cs-radius-pill);
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface-2);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+}
+.cs-switch:hover:not(:disabled) { border-color: var(--cs-text-muted); }
+.cs-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.cs-switch[data-checked="true"] {
+  background: var(--cs-accent-clay);
+  border-color: var(--cs-accent-clay);
+}
+.cs-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(196, 104, 73, 0.25);
+}
+.cs-switch:active:not(:disabled) .cs-switch-thumb { transform: scale(0.9); }
+.cs-switch[data-checked="true"]:active:not(:disabled) .cs-switch-thumb { transform: translateX(14px) scale(0.9); }
+.cs-switch-thumb {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cs-surface);
+  box-shadow: 0 1px 2px rgba(25, 24, 22, 0.25);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cs-switch[data-checked="true"] .cs-switch-thumb { transform: translateX(14px); }
+
+/* Reduced-motion mode (set on <html> by SettingsContext) */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.reduce-motion-optout) *,
+  html:not(.reduce-motion-optout) *::before,
+  html:not(.reduce-motion-optout) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

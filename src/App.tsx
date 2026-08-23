@@ -1,13 +1,15 @@
 import React, { useState, useMemo } from "react";
+import { MotionConfig } from "motion/react";
 import { ShieldAlert } from "lucide-react";
 import useVariantAnalysis from "./useVariantAnalysis";
 import { useApiClient } from "./apiClient";
+import { useSettings } from "./context/SettingsContext";
 import MasterSidebar, { MasterView } from "./components/MasterSidebar";
 import HeaderBar from "./components/HeaderBar";
 import VariantHeader from "./components/VariantHeader";
 import AppViews from "./components/AppViews";
 import { QueryStrip } from "./components/QueryStrip";
-import SettingsModal from "./components/SettingsModal";
+import SettingsDrawer from "./components/settings/SettingsDrawer";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import StructuralLegendModal from "./components/modals/StructuralLegendModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
@@ -19,6 +21,7 @@ export default function App() {
   const { state, actions } = useVariantAnalysis();
   const { fetchWithAuth } = useApiClient();
   const { state: consoleState, dispatch: consoleDispatch, pushErrorEntry } = useDevConsole();
+  const { settings } = useSettings();
 
   const {
     isDark,
@@ -46,7 +49,7 @@ export default function App() {
 
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");
-  const [windowSize, setWindowSize] = useState<number>(31);
+  const [windowSize, setWindowSize] = useState<number>(() => settings.seqScrollStep || 31);
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<string>("clinical");
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const val = localStorage.getItem("cs-sidebar-width");
@@ -82,8 +85,9 @@ export default function App() {
   const classTextMute = "text-cs-text-muted";
 
   return (
-    <VariantAnalysisProvider state={state} actions={actions}>
-      <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
+    <MotionConfig reducedMotion={settings.reducedMotion ? "always" : "user"}>
+      <VariantAnalysisProvider state={state} actions={actions}>
+        <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
 
         {/* ── Resizable and Collapsible Master Sidebar ── */}
         <MasterSidebar
@@ -184,8 +188,8 @@ export default function App() {
             <span className="font-mono">Missense Structural Explorer · v1.0.0-dev</span>
           </footer>
 
-          {/* Settings Panel Slide-out Modal */}
-          <SettingsModal />
+          {/* Settings Drawer Slide-over */}
+          <SettingsDrawer />
 
           {/* How to Inspect Modal Popup */}
           <HowToInspectModal
@@ -217,6 +221,7 @@ export default function App() {
 
         </div>{/* end app-main */}
       </div>{/* end app-shell */}
-    </VariantAnalysisProvider>
+      </VariantAnalysisProvider>
+    </MotionConfig>
   );
 }

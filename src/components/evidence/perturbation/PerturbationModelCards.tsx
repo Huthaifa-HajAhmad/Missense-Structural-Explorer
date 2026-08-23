@@ -73,11 +73,17 @@ export function PerturbationModelCards({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 {(() => {
-                  const prov = (m.data as any).provenance || "";
-                  const isFallback = prov.toLowerCase().includes("fallback") || prov.toLowerCase().includes("vesm");
-                  return isFallback
-                    ? <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">Fallback</span>
-                    : <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Active</span>;
+                  const prov = ((m.data as any).provenance || "").toLowerCase();
+                  if (prov.includes("fallback") || prov.includes("vesm")) {
+                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">Fallback (CPU)</span>;
+                  }
+                  if (prov.includes("remote") || prov.includes("biohub") || prov.includes("hf")) {
+                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">Cloud Remote</span>;
+                  }
+                  if (prov.includes("gpu") || prov.includes("local")) {
+                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Local GPU</span>;
+                  }
+                  return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Active</span>;
                 })()}
                 <div className="p-1 rounded" style={{ background: isSelected ? "rgba(196, 104, 73, 0.1)" : "var(--cs-bg-subtle)", color: isSelected ? "var(--cs-accent-clay)" : "var(--cs-text-secondary)" }}>
                   <IconComponent className="w-3.5 h-3.5" />

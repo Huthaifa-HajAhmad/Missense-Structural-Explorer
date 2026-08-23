@@ -82,23 +82,18 @@ The interface features a cohesive theme alignment across all scientific canvases
 
 ---
 
-## 7. High-Fidelity Configuration Settings Console (Dynamic Drawer)
-Accessible via the **Settings** icon on the main header, a custom sidebar slide-out drawer powered by `motion` and `AnimatePresence` transitions provides granular researcher override controls over WebGL, Biophysical, and layout characteristics:
+## 7. Settings Drawer (Slide-over Console)
+Accessible from the sidebar **Settings** action (and deep-linked from every "Configure API key" prompt), a right-side slide-over drawer (`motion` spring choreography, portal-mounted, focus-trapped with scroll lock) organizes seven sections with instant-apply controls:
 
-* **🔬 3D Viewport Controls & Graphics**:
-  * **Focus Highlight Color Swatch**: Allows changing active residue highlights instantly between clinical presets (Sunset Orange, Emerald Green, Hot Pink, Vibrant Gold, Deep Blue, Bright Indigo).
-  * **Camera Transition Speed**: Configures the spatial viewport animation velocity, ranging from instant snap-to transitions (0ms) up to cinematic focus sweeping (2000ms).
-  * **Auto-Zoom Camera on Select**: Toggle to immediately sweeps and center-focuses the molecular viewport upon residue selection.
-  * **Polar Hydrogen Bonds Toggle**: Enforces real-time hydrogen-bond calculation and display on initial render of residue foci.
-* **🧬 Biophysics & ACMG Weightings**:
-  * **ACMG Pathfinder Weighting Model**: Select between Standard (Standard clinician rules), Conservative (Downgrade speculative evidence), and Strict-Structural (Prioritizes direct physical hotspot contacts PM1/PS3).
-  * **Stability Delta Energy Unit ($\Delta\Delta G$)**: Instantly scales, converts, and renders stability delta metrics across the app in classical **kcal/mol (Standard)** or SI metric **kJ/mol (Metric)**.
-* **📊 Sequence Alignment Strip Preferences**:
-  * **Residue Color Scheme**: Customize sequence ribbon themes (Chemical properties coloring, Hydrophobicity intensity gradient, or Minimalist Monochrome).
-  * **Default Ribbon Slice Size**: Set sequence grid viewing columns range from compact view (15 residues) up to wide screen detailed columns mapping (41 residues).
-* **🖥️ Workspace Panels & Cache Layout**:
-  * **Layout Direction Swap**: Shifts the primary controls bento block from the left to high-resolution right side, tailoring layouts for left/right dominant mouse users.
-  * **Variant History Cache Limit**: Calibrate local storage cache depth limits from 3-15 distinct analyzed variant presets.
+* **🎨 Appearance**: Light / Dark / **System** color scheme (system follows the OS preference live), workspace accent color, **Reduce motion** (first-run default honors the OS accessibility setting and gates both CSS and spring animations), and **High-contrast viewport** (enlarges the mutated-residue highlight and adds a translucent halo in the 3D viewer).
+* **🔬 Viewport**: Target residue highlight swatches (vibrant + muted families), camera transition speed, auto-zoom on selection, 3D residue labels, and polar-contact rendering (synced with the structure legend modal).
+* **🧬 Sequence**: Residue color scheme and ribbon slice size — the slice size now genuinely seeds the landscape/ribbon window on startup.
+* **⚗️ Analysis**: ACMG weighting model, ΔΔG energy unit, **default structure source (AlphaFold2 / ESMFold)** and **default perturbation model (SaProt / ESM-2 / ESMc)** for new sessions, plus **simulation conditions (pH, temperature, ionic strength)** forwarded to biophysical stability requests.
+* **🖥️ Workspace**: Automatic alert banners toggle (suppresses warn/error toasts while still logging to the console) and opt-in search history with its retention limit.
+* **🔑 Connections**: All five credentials (App/Lab token, Biohub/Forge, Tamarind Bio, Hugging Face, Gemini) with per-credential connection tests, a live Gemini session pill with expiry countdown, and a server service-readiness strip (FoldX engine, model server, Gemini).
+* **ℹ️ About & data**: Live server version, pinned foundation-model revisions and data-source releases, settings export/import (JSON, credentials never included), search-history and client variant-cache purge, and the server cache purge control.
+
+Security model: credentials live only in `sessionStorage` for the tab lifetime; nothing secret is ever written to `localStorage` (including in exported settings files), and resets wipe transient credentials.
 
 ---
 

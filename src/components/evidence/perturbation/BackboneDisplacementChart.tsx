@@ -1,4 +1,5 @@
 import React from "react";
+import { FONT_MONO, FONT_SANS } from "./chartFonts";
 
 interface DisplacementItem {
   resSeq: number;
@@ -57,7 +58,7 @@ export function BackboneDisplacementChart({
                 y={getY(v) + 3}
                 textAnchor="end"
                 fontSize="8"
-                fontFamily="monospace"
+                fontFamily={FONT_MONO}
                 fill="var(--cs-text-muted)"
               >
                 {v.toFixed(1)} Å
@@ -81,7 +82,7 @@ export function BackboneDisplacementChart({
                 y={getY(0.5) - 3}
                 textAnchor="end"
                 fontSize="8"
-                fontFamily="sans-serif"
+                fontFamily={FONT_SANS}
                 fill="rgba(239, 68, 68, 0.85)"
                 fontWeight="bold"
               >
@@ -114,7 +115,7 @@ export function BackboneDisplacementChart({
                   y={chartHeight - 8}
                   textAnchor="middle"
                   fontSize="8"
-                  fontFamily="monospace"
+                  fontFamily={FONT_MONO}
                   fill={isMut ? "var(--cs-text-primary)" : "var(--cs-text-muted)"}
                   fontWeight={isMut ? "bold" : "normal"}
                 >

@@ -241,7 +241,7 @@ function ClinicalReportBar({ analysisState, isDark, fullPage = false }: Clinical
         <div className="report-bar-content">
           <p
             className="text-[11.5px] leading-relaxed"
-            style={{ color: "var(--cs-text-secondary)", fontFamily: "'Inter', sans-serif" }}
+            style={{ color: "var(--cs-text-secondary)", fontFamily: "var(--cs-font-sans)" }}
           >
             {narrative}
           </p>

@@ -18,13 +18,13 @@ export interface UseMolstarStructureOptions {
   showPolarContacts: boolean;
   show3DLabels: boolean;
   residueColorHex: number;
+  neonHighContrast: boolean;
   autoZoomOnSelect: boolean;
   cameraDuration: number;
   showPocket: boolean;
   computedPocket: any;
   pocketComponentRefRef: React.MutableRefObject<any[]>;
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
-  fetchNearestResidues: (uniprotId: string, variant: string, residueIndex: number, pdbText: string) => void;
   onPdbTextLoaded?: (pdbText: string) => void;
   variant?: string | null;
   esmFoldPdb?: string | null;
@@ -46,13 +46,13 @@ export function useMolstarStructure({
   showPolarContacts,
   show3DLabels,
   residueColorHex,
+  neonHighContrast,
   autoZoomOnSelect,
   cameraDuration,
   showPocket,
   computedPocket,
   pocketComponentRefRef,
   fetchWithAuth,
-  fetchNearestResidues,
   onPdbTextLoaded,
   variant,
   esmFoldPdb,
@@ -507,8 +507,22 @@ export function useMolstarStructure({
           await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
             type: 'ball-and-stick',
             color: 'uniform',
-            colorParams: { value: residueColorHex }
+            colorParams: { value: residueColorHex },
+            ...(neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : {})
           });
+
+          if (neonHighContrast) {
+            // Translucent spacefill halo makes the mutated residue pop on
+            // low-contrast displays without hiding neighbors.
+            try {
+              await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
+                type: 'spacefill',
+                typeParams: { alpha: 0.35 },
+                color: 'uniform',
+                colorParams: { value: residueColorHex }
+              });
+            } catch (haloErr) {}
+          }
 
           if (showPolarContacts) {
             try {
@@ -527,7 +541,7 @@ export function useMolstarStructure({
                 typeParams: {
                   level: 'residue',
                   background: true,
-                  backgroundOpacity: 0.85,
+                  backgroundOpacity: neonHighContrast ? 1.0 : 0.85,
                   backgroundColor: 0x090d16,
                   borderWidth: 0.2,
                   residueScale: 1.3,
@@ -638,6 +652,7 @@ export function useMolstarStructure({
     showPolarContacts,
     show3DLabels,
     residueColorHex,
+    neonHighContrast,
     autoZoomOnSelect,
     cameraDuration,
     showPocket,

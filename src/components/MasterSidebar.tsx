@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
+import { useSettings } from "../context/SettingsContext";
 
 export type MasterView =
   | "search"
@@ -176,6 +177,9 @@ function MasterSidebar({
   unreadConsoleCount = 0,
 }: MasterSidebarProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
+  const defaultStructureView: MasterView =
+    settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -305,7 +309,7 @@ function MasterSidebar({
                     type="button"
                     onClick={() => {
                       if (id === "structure") {
-                        onViewChange("structure_alphafold");
+                        onViewChange(defaultStructureView);
                       } else {
                         onViewChange(id);
                       }
@@ -475,7 +479,7 @@ function MasterSidebar({
                                   : sub.id === "predictors"
                                   ? (isBiophysicalLoading && !analysisResult?.conservationData?.revel)
                                   : sub.id === "structure"
-                                  ? (isFolding || isPocketLoading || dynamut2Status === "pending" || ddmutStatus === "pending")
+                                  ? (isBiophysicalLoading && !analysisResult?.insights?.biochemicalShift)
                                   : false;
 
                               if (isSubLoading) {

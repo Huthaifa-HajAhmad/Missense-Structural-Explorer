@@ -143,6 +143,7 @@
   display: block;
   margin-top: 4px;
   font-family: var(--cs-font-sans);
+  font-variant-numeric: tabular-nums;
   font-size: var(--cs-font-size-stat-value);
   font-weight: var(--cs-font-weight-stat-value);
   color: var(--cs-text-primary);

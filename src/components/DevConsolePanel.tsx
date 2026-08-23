@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   Terminal, Search, Pause, Play, Download, Trash2, X, Copy, Check, Activity,
-  ShieldAlert, Zap, AlertTriangle, Filter, ChevronRight, Layers, Clock,
-  Cpu, FileText, Globe, Server, Database, Sparkles, BookOpen, Bug, Flame, RefreshCw
+  ShieldAlert, Zap, Filter, Layers, Clock, FileText, Globe, Flame,
+  ChevronDown, Rows3
 } from "lucide-react";
 import { useDevConsole } from "../context/DevConsoleContext";
 import { ConsoleEntry, LogLevel, LogSource, LogStream, ErrorImpact, TraceRun, TraceSpan, PipelineStage } from "../types/devConsole";
+
+const STREAM_ORDER: LogStream[] = ["error", "live", "tracing"];
 
 function formatRelativeTime(timestamp: number): string {
   const diffSec = Math.floor((Date.now() - timestamp) / 1000);
@@ -16,6 +19,25 @@ function formatRelativeTime(timestamp: number): string {
   const diffHr = Math.floor(diffMin / 60);
   if (diffHr < 24) return `${diffHr}h ago`;
   return `${Math.floor(diffHr / 24)}d ago`;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Highlights case-insensitive search matches with a clay-tinted <mark>. */
+function highlightText(text: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "ig"));
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    part.toLowerCase() === q.toLowerCase() ? (
+      <mark key={i} className="dev-console-mark">{part}</mark>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    )
+  );
 }
 
 export default function DevConsolePanel() {
@@ -35,12 +57,20 @@ export default function DevConsolePanel() {
   const [inspectorTab, setInspectorTab] = useState<"overview" | "http" | "stack" | "session">("overview");
   const [copiedAction, setCopiedAction] = useState<string | null>(null);
   const [, setTick] = useState(0);
+  const [compact, setCompact] = useState(false);
+  const [collapsedStages, setCollapsedStages] = useState<Set<PipelineStage>>(new Set());
+  const [confirmingClearAll, setConfirmingClearAll] = useState(false);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const clearAllTimer = useRef<number | undefined>(undefined);
 
   // Update relative timestamps every 10s
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 10000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => () => window.clearTimeout(clearAllTimer.current), []);
 
   const copyToClipboard = (text: string, actionName: string) => {
     navigator.clipboard.writeText(text);
@@ -87,8 +117,108 @@ export default function DevConsolePanel() {
   }, [state.liveState.entries]);
 
   const cacheHitCount = useMemo(() => {
-    return state.liveState.entries.filter((e) => e.message.toLowerCase().includes("[cache hit]") || e.message.includes("304")).length;
+    return state.liveState.entries.filter(
+      (e) => e.httpMeta?.cached || e.message.toLowerCase().includes("[cache hit]") || e.httpMeta?.status === 304
+    ).length;
   }, [state.liveState.entries]);
+
+  const totalConsoleItems =
+    state.errorState.entries.length + state.liveState.entries.length + state.traceRuns.length;
+
+  const handleClearAll = () => {
+    if (!confirmingClearAll) {
+      setConfirmingClearAll(true);
+      clearAllTimer.current = window.setTimeout(() => setConfirmingClearAll(false), 3000);
+      return;
+    }
+    window.clearTimeout(clearAllTimer.current);
+    setConfirmingClearAll(false);
+    dispatch({ type: "CLEAR_STREAM", stream: "error" });
+    dispatch({ type: "CLEAR_STREAM", stream: "live" });
+    dispatch({ type: "CLEAR_TRACES" });
+    setSelectedEntry(null);
+    setSelectedSpan(null);
+  };
+
+  const selectStream = (stream: LogStream) => {
+    dispatch({ type: "SET_ACTIVE_TAB", tab: stream });
+    if (stream !== "tracing") {
+      dispatch({ type: "MARK_READ", stream });
+    }
+  };
+
+  const handleStreamNav = (e: React.KeyboardEvent) => {
+    const keys = ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    const current = STREAM_ORDER.indexOf(activeTab);
+    let next = current;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = STREAM_ORDER.length - 1;
+    else {
+      const direction = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1;
+      next = (current + direction + STREAM_ORDER.length) % STREAM_ORDER.length;
+    }
+    const target = STREAM_ORDER[next];
+    selectStream(target);
+    requestAnimationFrame(() => {
+      document.getElementById(`console-tab-${target}`)?.focus();
+    });
+  };
+
+  // Panel-level shortcuts: "/" focuses search, Escape clears search / closes inspectors.
+  const handleRootKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    const isEditable =
+      ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) || target.isContentEditable;
+
+    if (e.key === "/" && !isEditable && activeTab !== "tracing") {
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      return;
+    }
+
+    if (e.key === "Escape") {
+      if (isEditable && currentStreamState.searchQuery) {
+        dispatch({ type: "SET_SEARCH", stream: activeTab, query: "" });
+        return;
+      }
+      if (selectedEntry) {
+        setSelectedEntry(null);
+        return;
+      }
+      if (selectedSpan) {
+        setSelectedSpan(null);
+      }
+    }
+  };
+
+  // Arrow-key navigation across log entries.
+  const handleListKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const buttons = Array.from(
+      (e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>("button.dev-console-entry")
+    );
+    if (buttons.length === 0) return;
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === "ArrowDown" ? Math.min(buttons.length - 1, index + 1) : Math.max(0, index - 1);
+    if (next !== index && buttons[next]) {
+      buttons[next].focus();
+      e.preventDefault();
+    }
+  };
+
+  const toggleStage = (stage: PipelineStage) => {
+    setCollapsedStages((prev) => {
+      const next = new Set(prev);
+      if (next.has(stage)) {
+        next.delete(stage);
+      } else {
+        next.add(stage);
+      }
+      return next;
+    });
+  };
 
   const activeTrace = useMemo<TraceRun | null>(() => {
     if (state.activeTraceRun) return state.activeTraceRun;
@@ -121,6 +251,15 @@ export default function DevConsolePanel() {
       return true;
     });
   }, [currentStreamState.entries, currentStreamState.levelFilter, currentStreamState.sourceFilter, currentStreamState.impactFilter, currentStreamState.searchQuery]);
+
+  // Per-level counts for the filter pills (independent of the level filter itself).
+  const levelCounts = useMemo(() => {
+    const counts: Partial<Record<LogLevel | "all", number>> = { all: currentStreamState.entries.length };
+    for (const entry of currentStreamState.entries) {
+      counts[entry.level] = (counts[entry.level] || 0) + 1;
+    }
+    return counts;
+  }, [currentStreamState.entries]);
 
   const levelOptions: Array<{ id: LogLevel | "all"; label: string }> = [
     { id: "all", label: "All Levels" },
@@ -197,75 +336,93 @@ export default function DevConsolePanel() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[var(--cs-bg)] overflow-hidden font-sans text-xs">
+    <div
+      className="flex flex-col h-full w-full bg-[var(--cs-bg)] overflow-hidden font-sans text-xs outline-none"
+      tabIndex={-1}
+      onKeyDown={handleRootKeyDown}
+    >
       {/* ── Top Workbench Header ── */}
-      <div className="p-3 border-b border-[var(--cs-border)] bg-[var(--cs-surface)] flex flex-col gap-2.5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          {/* Segmented Stream Switcher */}
-          <div className="flex items-center gap-1 p-1 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface-2)]">
-            <button
-              type="button"
-              onClick={() => {
-                dispatch({ type: "SET_ACTIVE_TAB", tab: "error" });
-                dispatch({ type: "MARK_READ", stream: "error" });
-              }}
-              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-2 cursor-pointer font-medium ${
-                activeTab === "error"
-                  ? "bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
-                  : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
-              }`}
-            >
-              <ShieldAlert className={`w-4 h-4 ${fatalErrorCount > 0 ? "text-rose-500" : activeTab === "error" ? "text-amber-500" : "text-[var(--cs-text-muted)]"}`} />
-              <span>Error Diagnostics</span>
-              {state.errorState.entries.length > 0 && (
-                <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
-                  fatalErrorCount > 0
-                    ? "bg-rose-500 text-white"
-                    : "bg-amber-500/20 text-amber-700 dark:text-amber-300"
-                }`}>
-                  {state.errorState.entries.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                dispatch({ type: "SET_ACTIVE_TAB", tab: "live" });
-                dispatch({ type: "MARK_READ", stream: "live" });
-              }}
-              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-2 cursor-pointer font-medium ${
-                activeTab === "live"
-                  ? "bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
-                  : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
-              }`}
-            >
-              <Activity className={`w-4 h-4 ${activeTab === "live" ? "text-[#c46849]" : "text-[var(--cs-text-muted)]"}`} />
-              <span>Live Events</span>
-              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-[var(--cs-surface)] text-[var(--cs-text-secondary)] border border-[var(--cs-border-subtle)]">
-                {state.liveState.entries.length}
+      <div className="p-3 border-b border-[var(--cs-border)] bg-[var(--cs-surface)] flex items-center justify-between gap-3 flex-wrap">
+        {/* Segmented Stream Switcher */}
+        <div
+          role="tablist"
+          aria-label="Console streams"
+          onKeyDown={handleStreamNav}
+          className="flex items-center gap-1 p-1 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface-2)]"
+        >
+          <button
+            type="button"
+            id="console-tab-error"
+            role="tab"
+            aria-selected={activeTab === "error"}
+            aria-controls="console-stream-panel"
+            tabIndex={activeTab === "error" ? 0 : -1}
+            onClick={() => selectStream("error")}
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-2 cursor-pointer font-medium ${
+              activeTab === "error"
+                ? "dev-console-stream-tab bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
+                : "dev-console-stream-tab text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
+            }`}
+          >
+            <ShieldAlert className={`w-4 h-4 ${fatalErrorCount > 0 ? "text-rose-500" : activeTab === "error" ? "text-amber-500" : "text-[var(--cs-text-muted)]"}`} />
+            <span>Error Diagnostics</span>
+            {state.errorState.entries.length > 0 && (
+              <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                fatalErrorCount > 0
+                  ? "bg-rose-500 text-white"
+                  : "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+              }`}>
+                {state.errorState.entries.length}
               </span>
-            </button>
+            )}
+          </button>
 
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "SET_ACTIVE_TAB", tab: "tracing" })}
-              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-2 cursor-pointer font-medium ${
-                activeTab === "tracing"
-                  ? "bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
-                  : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
-              }`}
-            >
-              <Layers className={`w-4 h-4 ${activeTab === "tracing" ? "text-indigo-500" : "text-[var(--cs-text-muted)]"}`} />
-              <span>Pipeline Waterfall</span>
-              {activeTrace && (
-                <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                  {activeTrace.totalDurationMs}ms
-                </span>
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            id="console-tab-live"
+            role="tab"
+            aria-selected={activeTab === "live"}
+            aria-controls="console-stream-panel"
+            tabIndex={activeTab === "live" ? 0 : -1}
+            onClick={() => selectStream("live")}
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-2 cursor-pointer font-medium ${
+              activeTab === "live"
+                ? "dev-console-stream-tab bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
+                : "dev-console-stream-tab text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
+            }`}
+          >
+            <Activity className={`w-4 h-4 ${activeTab === "live" ? "text-[#c46849]" : "text-[var(--cs-text-muted)]"}`} />
+            <span>Live Events</span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-[var(--cs-surface)] text-[var(--cs-text-secondary)] border border-[var(--cs-border-subtle)]">
+              {state.liveState.entries.length}
+            </span>
+          </button>
 
+          <button
+            type="button"
+            id="console-tab-tracing"
+            role="tab"
+            aria-selected={activeTab === "tracing"}
+            aria-controls="console-stream-panel"
+            tabIndex={activeTab === "tracing" ? 0 : -1}
+            onClick={() => selectStream("tracing")}
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-2 cursor-pointer font-medium ${
+              activeTab === "tracing"
+                ? "dev-console-stream-tab bg-[var(--cs-surface)] text-[var(--cs-text-primary)] font-semibold shadow-xs border border-[var(--cs-border)]"
+                : "dev-console-stream-tab text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-black/5 dark:hover:bg-white/5 border border-transparent"
+            }`}
+          >
+            <Layers className={`w-4 h-4 ${activeTab === "tracing" ? "text-indigo-500" : "text-[var(--cs-text-muted)]"}`} />
+            <span>Pipeline Waterfall</span>
+            {activeTrace && (
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                {activeTrace.totalDurationMs}ms
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Dynamic KPI Strip */}
           <div className="flex items-center gap-2 text-[11px] font-mono">
             {activeTab === "error" && (
@@ -306,6 +463,22 @@ export default function DevConsolePanel() {
               </div>
             )}
           </div>
+
+          {/* Clear All (both log streams + traces) with two-step confirm */}
+          <button
+            type="button"
+            onClick={handleClearAll}
+            disabled={totalConsoleItems === 0}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md border font-mono text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+              confirmingClearAll
+                ? "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                : "border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-secondary)] hover:bg-[var(--cs-bg-subtle)] hover:text-rose-600 dark:hover:text-rose-400"
+            }`}
+            aria-label={confirmingClearAll ? "Confirm clear all" : "Clear all console data — error stream, live stream, and pipeline traces"}
+          >
+            {confirmingClearAll ? <Check className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+            <span>{confirmingClearAll ? "Confirm clear all" : "Clear all"}</span>
+          </button>
         </div>
       </div>
 
@@ -319,10 +492,15 @@ export default function DevConsolePanel() {
                 key={opt.id}
                 type="button"
                 data-active={currentStreamState.levelFilter === opt.id}
+                aria-pressed={currentStreamState.levelFilter === opt.id}
+                aria-label={`${opt.label}${(levelCounts[opt.id] || 0) > 0 ? ` ${levelCounts[opt.id]}` : ""}`}
                 onClick={() => dispatch({ type: "SET_LEVEL_FILTER", stream: activeTab, level: opt.id })}
                 className="dev-console-filter-pill"
               >
                 {opt.label}
+                {(levelCounts[opt.id] || 0) > 0 && (
+                  <span className="dev-console-pill-count">{levelCounts[opt.id]}</span>
+                )}
               </button>
             ))}
           </div>
@@ -333,6 +511,7 @@ export default function DevConsolePanel() {
           {activeTab === "error" && (
             <>
               <select
+                aria-label="Filter by error impact"
                 value={currentStreamState.impactFilter}
                 onChange={(e) => dispatch({ type: "SET_IMPACT_FILTER", stream: activeTab, impact: e.target.value as ErrorImpact | "all" })}
                 className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono focus:outline-none"
@@ -349,6 +528,7 @@ export default function DevConsolePanel() {
 
           {/* Source filter dropdown */}
           <select
+            aria-label="Filter by subsystem"
             value={currentStreamState.sourceFilter}
             onChange={(e) => dispatch({ type: "SET_SOURCE_FILTER", stream: activeTab, source: e.target.value as LogSource | "all" })}
             className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono focus:outline-none"
@@ -366,11 +546,13 @@ export default function DevConsolePanel() {
           <div className="relative flex-1 min-w-[140px] max-w-[280px]">
             <Search className="w-3.5 h-3.5 text-[var(--cs-text-muted)] absolute left-2.5 top-2" />
             <input
+              ref={searchInputRef}
               type="text"
-              placeholder={`Search ${activeTab} diagnostics...`}
+              aria-label={`Search ${activeTab} entries`}
+              placeholder={`Search ${activeTab} diagnostics… (press /)`}
               value={currentStreamState.searchQuery}
               onChange={(e) => dispatch({ type: "SET_SEARCH", stream: activeTab, query: e.target.value })}
-              className="w-full text-xs pl-8 pr-3 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono placeholder:text-[var(--cs-text-muted)] focus:outline-none"
+              className="w-full text-xs pl-8 pr-3 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono placeholder:text-[var(--cs-text-muted)] focus:outline-none focus:border-[var(--cs-accent-clay)]"
             />
           </div>
 
@@ -382,6 +564,7 @@ export default function DevConsolePanel() {
               type="button"
               onClick={() => dispatch({ type: "TOGGLE_CAPTURE", stream: activeTab })}
               className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] transition cursor-pointer"
+              aria-label={currentStreamState.isCapturing ? `Pause ${activeTab} capture` : `Resume ${activeTab} capture`}
               title={currentStreamState.isCapturing ? `Pause ${activeTab} capture` : `Resume ${activeTab} capture`}
             >
               {currentStreamState.isCapturing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-amber-500" />}
@@ -392,6 +575,7 @@ export default function DevConsolePanel() {
               disabled={currentStreamState.entries.length === 0}
               onClick={activeTab === "error" ? exportErrorEntries : exportLiveEntries}
               className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              aria-label={`Download ${activeTab} logs as JSON`}
               title={`Download ${activeTab} logs as JSON`}
             >
               <Download className="w-3.5 h-3.5" />
@@ -405,9 +589,20 @@ export default function DevConsolePanel() {
                 setSelectedEntry(null);
               }}
               className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              aria-label={`Clear ${activeTab} stream`}
               title={`Clear ${activeTab} stream`}
             >
               <Trash2 className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCompact((c) => !c)}
+              className="p-1.5 rounded hover:bg-[var(--cs-bg-subtle)] text-[var(--cs-text-secondary)] transition cursor-pointer"
+              aria-label={compact ? "Switch to comfortable density" : "Switch to compact density"}
+              title={compact ? "Switch to comfortable density" : "Switch to compact density"}
+            >
+              <Rows3 className={`w-3.5 h-3.5 ${compact ? "text-[var(--cs-accent-clay)]" : ""}`} />
             </button>
 
             <span className="text-[11px] text-[var(--cs-text-muted)] font-mono ml-2">
@@ -420,6 +615,17 @@ export default function DevConsolePanel() {
       )}
 
       {/* ── Main View Area ── */}
+      <motion.div
+        id="console-stream-panel"
+        role="tabpanel"
+        aria-labelledby={`console-tab-${activeTab}`}
+        tabIndex={-1}
+        key={activeTab}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+        className="flex-1 min-h-0 flex flex-col outline-none"
+      >
       {activeTab === "tracing" ? (
         /* ══════════════════════════════════════════════════════════
            GANTT WATERFALL TIMELINE VIEW
@@ -430,6 +636,7 @@ export default function DevConsolePanel() {
             <div className="flex items-center gap-2">
               <span className="font-mono text-xs font-semibold text-[var(--cs-text-secondary)]">Trace Session:</span>
               <select
+                aria-label="Trace session"
                 value={activeTrace?.traceId || ""}
                 onChange={(e) => dispatch({ type: "SET_ACTIVE_TRACE_RUN", traceId: e.target.value })}
                 className="text-xs px-2.5 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono font-medium focus:outline-none"
@@ -451,7 +658,8 @@ export default function DevConsolePanel() {
                 type="button"
                 disabled={state.traceRuns.length === 0}
                 onClick={exportTraceRuns}
-                className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-secondary)] hover:bg-[var(--cs-bg-subtle)] disabled:opacity-40 transition cursor-pointer font-mono text-[11px]"
+                className="cs-btn-ghost font-mono !text-[11px]"
+                aria-label="Export trace runs as JSON"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Export Traces</span>
@@ -464,7 +672,8 @@ export default function DevConsolePanel() {
                   dispatch({ type: "CLEAR_TRACES" });
                   setSelectedSpan(null);
                 }}
-                className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-secondary)] hover:bg-[var(--cs-bg-subtle)] disabled:opacity-40 transition cursor-pointer font-mono text-[11px]"
+                className="cs-btn-ghost font-mono !text-[11px]"
+                aria-label="Clear all trace runs"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Clear Traces</span>
@@ -482,7 +691,6 @@ export default function DevConsolePanel() {
             </div>
           ) : (
             <div className="flex-1 flex flex-col overflow-y-auto">
-              {/* Timeline Header Axis */}
               {(() => {
                 const totalDuration = Math.max(activeTrace.totalDurationMs, 100);
                 const slowestSpan = [...activeTrace.spans].sort((a, b) => b.durationMs - a.durationMs)[0];
@@ -496,41 +704,64 @@ export default function DevConsolePanel() {
                       <div className="pl-4">Waterfall Timeline (0ms → {totalDuration}ms)</div>
                     </div>
 
-                    <div className="gantt-axis-ticks">
-                      <span>0ms</span>
-                      <span>{Math.round(totalDuration * 0.25)}ms</span>
-                      <span>{Math.round(totalDuration * 0.5)}ms</span>
-                      <span>{Math.round(totalDuration * 0.75)}ms</span>
-                      <span>{totalDuration}ms</span>
+                    {/* Axis ticks aligned to the timeline column only */}
+                    <div className="gantt-axis-row" aria-hidden>
+                      <div />
+                      <div />
+                      <div />
+                      <div className="pl-4">
+                        <div className="gantt-axis-ticks">
+                          <span>0ms</span>
+                          <span>{Math.round(totalDuration * 0.25)}ms</span>
+                          <span>{Math.round(totalDuration * 0.5)}ms</span>
+                          <span>{Math.round(totalDuration * 0.75)}ms</span>
+                          <span>{totalDuration}ms</span>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Grouped by Stage */}
                     {(["genomics", "structure", "biophysics", "clinical"] as PipelineStage[]).map((stageKey) => {
                       const stageSpans = activeTrace.spans.filter((s) => s.stage === stageKey);
                       if (stageSpans.length === 0) return null;
+                      const isCollapsed = collapsedStages.has(stageKey);
+                      const stageTotalMs = stageSpans.reduce((sum, s) => sum + s.durationMs, 0);
 
                       return (
                         <div key={stageKey} className="border-b border-[var(--cs-border-subtle)]">
-                          <div className="gantt-stage-header">
+                          <button
+                            type="button"
+                            onClick={() => toggleStage(stageKey)}
+                            aria-expanded={!isCollapsed}
+                            className="gantt-stage-header w-full cursor-pointer"
+                          >
                             <div className="flex items-center gap-2">
+                              <ChevronDown
+                                className={`w-3 h-3 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                              />
                               <span className={`w-2 h-2 rounded-full ${getStageColor(stageKey)}`} />
                               <span className="font-bold">{stageLabels[stageKey].title}</span>
                             </div>
-                            <span className="text-[10px] text-[var(--cs-text-muted)]">{stageLabels[stageKey].desc}</span>
-                          </div>
+                            <span className="text-[10px] text-[var(--cs-text-muted)]">
+                              {stageLabels[stageKey].desc} · {stageSpans.length} op{stageSpans.length === 1 ? "" : "s"} · {stageTotalMs}ms
+                            </span>
+                          </button>
 
-                          {stageSpans.map((span) => {
+                          {!isCollapsed && stageSpans.map((span) => {
                             const leftPct = Math.min(95, Math.max(0, (span.offsetMs / totalDuration) * 100));
                             const widthPct = Math.min(100 - leftPct, Math.max(3, (span.durationMs / totalDuration) * 100));
                             const isSelected = selectedSpan?.name === span.name;
                             const isBottleneck = slowestSpan?.name === span.name && span.durationMs > 200;
+                            const tooltip = `+${span.offsetMs}ms · ${span.durationMs}ms${span.cached ? " · cached" : ""}${span.error ? " · failed" : ""}`;
 
                             return (
-                              <div
+                              <button
                                 key={span.name}
+                                type="button"
                                 data-selected={isSelected}
                                 onClick={() => setSelectedSpan(isSelected ? null : span)}
-                                className="gantt-row"
+                                aria-label={`${span.name}, ${span.stage} stage, ${span.durationMs} milliseconds${span.cached ? ", cached" : ""}${span.error ? ", failed" : ""}`}
+                                className="gantt-row w-full text-left"
                               >
                                 <div className="flex items-center gap-2 truncate pr-2">
                                   <span className="font-semibold text-[var(--cs-text-primary)] truncate">{span.name}</span>
@@ -567,21 +798,31 @@ export default function DevConsolePanel() {
                                 <div className="pl-4">
                                   <div className="gantt-bar-track">
                                     <div
-                                      className={`gantt-bar ${
-                                        span.status === "failed"
-                                          ? "gantt-bar-failed"
-                                          : `gantt-bar-${span.stage}`
-                                      }`}
-                                      style={{
-                                        left: `${leftPct}%`,
-                                        width: `${widthPct}%`,
-                                      }}
+                                      className={`gantt-bar-cell ${isSelected ? "gantt-bar-cell-selected" : ""}`}
+                                      data-tip={tooltip}
                                     >
-                                      <span className="truncate">{span.durationMs}ms</span>
+                                      <motion.div
+                                        initial={{ scaleX: 0 }}
+                                        animate={{ scaleX: 1 }}
+                                        transition={{ duration: 0.3, ease: "easeOut" }}
+                                        className={`gantt-bar origin-left ${
+                                          span.status === "running" ? "gantt-bar-running" : ""
+                                        } ${
+                                          span.status === "failed"
+                                            ? "gantt-bar-failed"
+                                            : `gantt-bar-${span.stage}`
+                                        }`}
+                                        style={{
+                                          left: `${leftPct}%`,
+                                          width: `${widthPct}%`,
+                                        }}
+                                      >
+                                        <span className="truncate">{span.durationMs}ms</span>
+                                      </motion.div>
                                     </div>
                                   </div>
                                 </div>
-                              </div>
+                              </button>
                             );
                           })}
                         </div>
@@ -597,7 +838,12 @@ export default function DevConsolePanel() {
         /* ══════════════════════════════════════════════════════════
            LOG STREAM VIEW (ERROR & LIVE)
            ══════════════════════════════════════════════════════════ */
-        <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-[var(--cs-border-subtle)]">
+        <div
+          role="log"
+          aria-label={`${activeTab} entries`}
+          onKeyDown={handleListKeyDown}
+          className={`flex-1 overflow-y-auto min-h-0 divide-y divide-[var(--cs-border-subtle)] ${compact ? "dev-console-list-compact" : ""}`}
+        >
           {currentStreamState.entries.length === 0 ? (
             <div className="dev-console-empty">
               {activeTab === "error" ? (
@@ -662,40 +908,41 @@ export default function DevConsolePanel() {
                     }`}
                   />
 
-                  {/* Impact Tag (if error) */}
-                  {entry.impact && entry.impact !== "info" && (
-                    <span className={`dev-console-impact-badge dev-console-impact-${entry.impact}`}>
-                      {entry.impact}
+                  {/* Message + quiet meta line */}
+                  <span className="flex-1 min-w-0 flex flex-col gap-1">
+                    <span className="dev-console-message">
+                      {highlightText(entry.message, currentStreamState.searchQuery)}
                     </span>
-                  )}
+                    <span className="dev-console-entry-meta">
+                      <span className={`dev-console-source-tag ${getSourceBadgeClass(entry.source)}`}>
+                        [{entry.source}]
+                      </span>
 
-                  {/* Source Tag */}
-                  <span className={`dev-console-source-tag ${getSourceBadgeClass(entry.source)}`}>
-                    [{entry.source}]
+                      {entry.impact && entry.impact !== "info" && (
+                        <span className={`dev-console-impact-badge dev-console-impact-${entry.impact}`}>
+                          {entry.impact}
+                        </span>
+                      )}
+
+                      {entry.httpMeta?.status ? (
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold shrink-0 ${
+                          entry.httpMeta.status >= 500
+                            ? "bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30"
+                            : entry.httpMeta.status >= 400
+                            ? "bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                            : "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                        }`}>
+                          {entry.httpMeta.method} {entry.httpMeta.status}
+                        </span>
+                      ) : null}
+
+                      {entry.count > 1 && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
+                          ×{entry.count}
+                        </span>
+                      )}
+                    </span>
                   </span>
-
-                  {/* HTTP Status badge if network */}
-                  {entry.httpMeta?.status ? (
-                    <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold shrink-0 ${
-                      entry.httpMeta.status >= 500
-                        ? "bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30"
-                        : entry.httpMeta.status >= 400
-                        ? "bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                        : "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                    }`}>
-                      {entry.httpMeta.method} {entry.httpMeta.status}
-                    </span>
-                  ) : null}
-
-                  {/* Message */}
-                  <span className="dev-console-message flex-1">{entry.message}</span>
-
-                  {/* Count badge */}
-                  {entry.count > 1 && (
-                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 shrink-0">
-                      ×{entry.count}
-                    </span>
-                  )}
 
                   {/* Relative timestamp */}
                   <span className="text-[10px] font-mono text-[var(--cs-text-muted)] shrink-0 ml-1">
@@ -707,10 +954,19 @@ export default function DevConsolePanel() {
           )}
         </div>
       )}
+      </motion.div>
 
       {/* ── Diagnostic Detail Inspector Drawer ── */}
+      <AnimatePresence>
       {selectedEntry && (
-        <div className="dev-console-detail-drawer shrink-0 max-h-[45vh] overflow-y-auto flex flex-col border-t border-[var(--cs-border)] bg-[var(--cs-surface)]">
+        <motion.section
+          initial={{ y: 24, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 24, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 340, damping: 30 }}
+          aria-label="Entry detail inspector"
+          className="dev-console-detail-drawer shrink-0 max-h-[45vh] overflow-y-auto flex flex-col border-t border-[var(--cs-border)] bg-[var(--cs-surface)]"
+        >
           {/* Inspector Header */}
           <div className="p-3 border-b border-[var(--cs-border)] bg-[var(--cs-surface-2)] flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
@@ -735,37 +991,39 @@ export default function DevConsolePanel() {
               <button
                 type="button"
                 onClick={() => handleCopyMarkdownReport(selectedEntry)}
-                className="flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition cursor-pointer"
+                className="cs-btn-ghost font-mono !text-[11px]"
                 title="Copy as GitHub/Markdown Bug Report"
               >
                 {copiedAction === "markdown" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <FileText className="w-3.5 h-3.5 text-indigo-500" />}
-                <span>{copiedAction === "markdown" ? "Copied Report!" : "Copy Report"}</span>
+                <span>{copiedAction === "markdown" ? "Copied Report" : "Copy Report"}</span>
               </button>
 
               {selectedEntry.httpMeta?.url && (
                 <button
                   type="button"
                   onClick={() => handleCopyCurl(selectedEntry)}
-                  className="flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition cursor-pointer"
+                  className="cs-btn-ghost font-mono !text-[11px]"
                   title="Copy as cURL command"
                 >
                   {copiedAction === "curl" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Terminal className="w-3.5 h-3.5 text-blue-500" />}
-                  <span>{copiedAction === "curl" ? "Copied cURL!" : "Copy cURL"}</span>
+                  <span>{copiedAction === "curl" ? "Copied cURL" : "Copy cURL"}</span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={() => copyToClipboard(JSON.stringify(selectedEntry, null, 2), "json")}
-                className="flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition cursor-pointer"
+                className="cs-btn-ghost font-mono !text-[11px]"
+                title="Copy raw JSON entry"
               >
                 {copiedAction === "json" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedAction === "json" ? "Copied JSON!" : "Copy JSON"}</span>
+                <span>{copiedAction === "json" ? "Copied JSON" : "Copy JSON"}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setSelectedEntry(null)}
+                aria-label="Close entry inspector"
                 className="p-1 rounded text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -778,19 +1036,21 @@ export default function DevConsolePanel() {
             <button
               type="button"
               onClick={() => setInspectorTab("overview")}
+              aria-selected={inspectorTab === "overview"}
               className={`py-2 px-1 border-b-2 font-medium transition cursor-pointer ${
                 inspectorTab === "overview"
                   ? "border-[var(--cs-accent-clay)] text-[var(--cs-text-primary)] font-bold"
                   : "border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
               }`}
             >
-              Overview & Payload
+              Overview &amp; Payload
             </button>
 
             {selectedEntry.detail && (
               <button
                 type="button"
                 onClick={() => setInspectorTab("stack")}
+                aria-selected={inspectorTab === "stack"}
                 className={`py-2 px-1 border-b-2 font-medium transition cursor-pointer ${
                   inspectorTab === "stack"
                     ? "border-[var(--cs-accent-clay)] text-[var(--cs-text-primary)] font-bold"
@@ -805,6 +1065,7 @@ export default function DevConsolePanel() {
               <button
                 type="button"
                 onClick={() => setInspectorTab("http")}
+                aria-selected={inspectorTab === "http"}
                 className={`py-2 px-1 border-b-2 font-medium transition cursor-pointer ${
                   inspectorTab === "http"
                     ? "border-[var(--cs-accent-clay)] text-[var(--cs-text-primary)] font-bold"
@@ -819,6 +1080,7 @@ export default function DevConsolePanel() {
               <button
                 type="button"
                 onClick={() => setInspectorTab("session")}
+                aria-selected={inspectorTab === "session"}
                 className={`py-2 px-1 border-b-2 font-medium transition cursor-pointer ${
                   inspectorTab === "session"
                     ? "border-[var(--cs-accent-clay)] text-[var(--cs-text-primary)] font-bold"
@@ -936,25 +1198,46 @@ export default function DevConsolePanel() {
               </table>
             )}
           </div>
-        </div>
+        </motion.section>
       )}
+      </AnimatePresence>
 
       {/* ── Span Detail Inspector (When in Tracing tab) ── */}
+      <AnimatePresence>
       {selectedSpan && activeTab === "tracing" && (
-        <div className="p-4 border-t border-[var(--cs-border)] bg-[var(--cs-surface)] font-mono text-xs flex flex-col gap-3">
+        <motion.section
+          initial={{ y: 24, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 24, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 340, damping: 30 }}
+          aria-label="Span detail inspector"
+          className="p-4 border-t border-[var(--cs-border)] bg-[var(--cs-surface)] font-mono text-xs flex flex-col gap-3"
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${getStageColor(selectedSpan.stage)}`} />
               <span className="font-bold text-sm text-[var(--cs-text-primary)]">{selectedSpan.name}</span>
               <span className="text-[var(--cs-text-muted)]">({selectedSpan.durationMs}ms duration)</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedSpan(null)}
-              className="p-1 rounded text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => copyToClipboard(JSON.stringify(selectedSpan, null, 2), "span")}
+                className="cs-btn-ghost font-mono !text-[11px]"
+                title="Copy span as JSON"
+              >
+                {copiedAction === "span" ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedAction === "span" ? "Copied span" : "Copy span"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedSpan(null)}
+                aria-label="Close span inspector"
+                className="p-1 rounded text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           <table className="dev-console-meta-table border border-[var(--cs-border-subtle)] rounded overflow-hidden">
@@ -995,8 +1278,9 @@ export default function DevConsolePanel() {
               )}
             </tbody>
           </table>
-        </div>
+        </motion.section>
       )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,16 +1,44 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { UserSettings } from "../types";
+import {
+  DEFAULT_USER_SETTINGS,
+  TRANSIENT_SETTING_KEYS,
+  TransientSettingKey,
+  prefersReducedMotion
+} from "../components/settings/defaults";
 
-export type SettingsTabId = "viewport" | "biophysics" | "sequence" | "workspace" | "api";
+export const SETTINGS_SECTIONS = [
+  "appearance",
+  "viewport",
+  "sequence",
+  "analysis",
+  "workspace",
+  "connections",
+  "about"
+] as const;
+
+export type SettingsTabId = (typeof SETTINGS_SECTIONS)[number];
+
+/** Tab ids used by call sites before the settings drawer redesign. */
+export type LegacySettingsTabId = "api" | "biophysics";
+
+const LEGACY_TAB_MAP: Partial<Record<LegacySettingsTabId, SettingsTabId>> = {
+  api: "connections",
+  biophysics: "analysis"
+};
+
+export type ThemeMode = "light" | "dark" | "system";
 
 interface SettingsContextType {
-  theme: "dark" | "light";
+  theme: ThemeMode;
   isDark: boolean;
-  setTheme: React.Dispatch<React.SetStateAction<"dark" | "light">>;
+  setTheme: React.Dispatch<React.SetStateAction<ThemeMode>>;
   toggleTheme: () => void;
   settings: UserSettings;
   setSettings: React.Dispatch<React.SetStateAction<UserSettings>>;
   updateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
+  /** Bulk-merge a partial settings object (used by settings import); persists like updateSetting. */
+  applySettings: (partial: Partial<UserSettings>) => void;
   resetSettingsToDefault: () => void;
   showPolarContacts: boolean;
   setShowPolarContacts: React.Dispatch<React.SetStateAction<boolean>>;
@@ -18,38 +46,75 @@ interface SettingsContextType {
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   settingsTab: SettingsTabId;
   setSettingsTab: React.Dispatch<React.SetStateAction<SettingsTabId>>;
-  openSettingsTab: (tab?: SettingsTabId) => void;
+  openSettingsTab: (tab?: SettingsTabId | LegacySettingsTabId) => void;
   hasConfiguredGeminiKey: boolean;
   serverGeminiReady: boolean;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("viewport");
+const SETTINGS_STORAGE_KEY = "missenseUserSettings";
+const TRANSIENT_STORAGE_KEY = "missenseTransientCredentials";
+const THEME_STORAGE_KEY = "theme";
 
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
+type TransientCredentials = Pick<UserSettings, TransientSettingKey>;
+
+function readTransientCredentials(): Partial<TransientCredentials> {
+  try {
+    const raw = sessionStorage.getItem(TRANSIENT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
+
+  const [theme, setTheme] = useState<ThemeMode>(() => {
     try {
-      const saved = localStorage.getItem("theme");
-      return saved === "light" || saved === "dark" ? saved : "dark";
+      const saved = localStorage.getItem(THEME_STORAGE_KEY);
+      return saved === "light" || saved === "dark" || saved === "system" ? saved : "dark";
     } catch {
       return "dark";
     }
   });
 
-  const toggleTheme = () => {
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
+    try {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const media = window.matchMedia("(prefers-color-scheme: dark)");
+      const onChange = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    } catch {
+      return;
+    }
+  }, []);
+
+  const isDark = theme === "system" ? systemPrefersDark : theme === "dark";
+
+  useEffect(() => {
     setTheme((prev) => {
-      const next = prev === "dark" ? "light" : "dark";
       try {
-        localStorage.setItem("theme", next);
+        localStorage.setItem(THEME_STORAGE_KEY, prev);
       } catch (e) {
         console.error(e);
       }
-      return next;
+      return prev;
     });
-  };
+  }, [theme]);
 
-  const isDark = theme === "dark";
+  const toggleTheme = () => {
+    setTheme(isDark ? "light" : "dark");
+  };
 
   useEffect(() => {
     const root = document.documentElement;
@@ -64,7 +129,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const [showPolarContacts, setShowPolarContacts] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem("missenseUserSettings");
+      const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if ("showAtomInteractions" in parsed) {
@@ -76,91 +141,51 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [settings, setSettings] = useState<UserSettings>(() => {
-    const defaultSettings: UserSettings = {
-      residueColor: "#F97316",
-      primaryAccent: "indigo",
-      geminiApiKey: "",
-      geminiSessionId: "",
-      geminiSessionExpiresAt: 0,
-      appApiToken: "",
-      biohubApiToken: "",
-      tamarindApiKey: "",
-      cameraDuration: 1200,
-      autoZoomOnSelect: true,
-      showAtomInteractions: true,
-      acmgWeighting: "standard",
-      energyUnit: "kcal/mol",
-      seqColorScheme: "chemical",
-      seqScrollStep: 31,
-      autoShowAlerts: true,
-      bentoLeftControls: true,
-      maxHistoryItems: 5,
-      neonHighContrast: false,
-      show3DLabels: true,
-      saveHistory: false,
-    };
     try {
-      const saved = localStorage.getItem("missenseUserSettings");
-      let parsed = saved ? JSON.parse(saved) : {};
-      
-      // One-time migration to upgrade old default window size to 31 residues standard
-      const migrated = localStorage.getItem("missenseWindowSizeMigrated31");
-      if (!migrated) {
-        parsed.seqScrollStep = 31;
-        try {
-          localStorage.setItem("missenseWindowSizeMigrated31", "true");
-          localStorage.setItem("missenseUserSettings", JSON.stringify(parsed));
-        } catch (e) {}
-      }
-      
+      const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : {};
+
+      // Scrub any credential that an older release may have persisted in
+      // plaintext (tamarindApiKey and hfToken were leaked here historically).
       let modified = false;
-      if (parsed.geminiApiKey !== undefined) {
-        delete parsed.geminiApiKey;
-        modified = true;
-      }
-      if (parsed.geminiSessionId !== undefined) {
-        delete parsed.geminiSessionId;
-        modified = true;
-      }
-      if (parsed.geminiSessionExpiresAt !== undefined) {
-        delete parsed.geminiSessionExpiresAt;
-        modified = true;
-      }
-      if (parsed.appApiToken !== undefined) {
-        delete parsed.appApiToken;
-        modified = true;
-      }
-      if (parsed.biohubApiToken !== undefined) {
-        delete parsed.biohubApiToken;
-        modified = true;
+      for (const key of TRANSIENT_SETTING_KEYS) {
+        if (parsed[key] !== undefined) {
+          delete parsed[key];
+          modified = true;
+        }
       }
       if (modified && saved) {
         try {
-          localStorage.setItem("missenseUserSettings", JSON.stringify(parsed));
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed));
         } catch (e) {}
       }
 
-      // Load transient credentials from sessionStorage
-      let transient: { geminiApiKey?: string; geminiSessionId?: string; geminiSessionExpiresAt?: number; appApiToken?: string; biohubApiToken?: string } = {};
-      try {
-        const transSaved = sessionStorage.getItem("missenseTransientCredentials");
-        if (transSaved) {
-          transient = JSON.parse(transSaved);
-        }
-      } catch (e) {}
+      const transient = readTransientCredentials();
+      const firstRunReducedMotion =
+        parsed.reducedMotion === undefined ? prefersReducedMotion() : undefined;
 
-      return {
-        ...defaultSettings,
+      const merged: UserSettings = {
+        ...DEFAULT_USER_SETTINGS,
         ...parsed,
         geminiApiKey: transient.geminiApiKey || "",
         geminiSessionId: transient.geminiSessionId || "",
         geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
         appApiToken: transient.appApiToken || "",
         biohubApiToken: transient.biohubApiToken || "",
-        show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true
+        tamarindApiKey: transient.tamarindApiKey || "",
+        hfToken: transient.hfToken || "",
+        show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
+        biophysicsConditions: {
+          ...DEFAULT_USER_SETTINGS.biophysicsConditions,
+          ...(parsed.biophysicsConditions || {})
+        }
       };
+      if (firstRunReducedMotion !== undefined) {
+        merged.reducedMotion = firstRunReducedMotion;
+      }
+      return merged;
     } catch {
-      return defaultSettings;
+      return DEFAULT_USER_SETTINGS;
     }
   });
 
@@ -168,34 +193,49 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.setAttribute("data-accent", settings.primaryAccent || "indigo");
   }, [settings.primaryAccent]);
 
+  const [osReducedMotion, setOsReducedMotion] = useState<boolean>(prefersReducedMotion);
+
+  useEffect(() => {
+    try {
+      const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const onChange = (e: MediaQueryListEvent) => setOsReducedMotion(e.matches);
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    } catch {
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("reduce-motion", settings.reducedMotion);
+    // An explicit "off" overrides the OS-level preference; without the optout
+    // class the CSS media query would keep animations suppressed.
+    root.classList.toggle("reduce-motion-optout", !settings.reducedMotion && osReducedMotion);
+  }, [settings.reducedMotion, osReducedMotion]);
+
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
     setSettings((prev) => {
       const updated = { ...prev, [key]: value };
       try {
-        const toSave = { ...updated };
-        delete toSave.geminiApiKey; // Never save raw API key in localStorage
-        delete toSave.geminiSessionId; // Never save session ID in localStorage (XSS-safe stateless token)
-        delete toSave.geminiSessionExpiresAt;
-        delete toSave.appApiToken; // Never save raw App API Token in localStorage
-        delete toSave.biohubApiToken; // Never save raw Biohub API Token in localStorage
-        localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
+        const toSave = { ...updated } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
+        // Credentials live only in sessionStorage for the tab lifetime — never
+        // in localStorage, which persists across sessions on disk.
+        for (const transientKey of TRANSIENT_SETTING_KEYS) {
+          delete toSave[transientKey];
+        }
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
       } catch (e) {
         console.error(e);
       }
 
-      // Sync transient credentials to sessionStorage for refresh safety
-      if (key === "geminiApiKey" || key === "geminiSessionId" || key === "geminiSessionExpiresAt" || key === "appApiToken" || key === "biohubApiToken") {
+      if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key as string)) {
         try {
-          const credentials = {
-            geminiApiKey: updated.geminiApiKey || "",
-            geminiSessionId: updated.geminiSessionId || "",
-            geminiSessionExpiresAt: updated.geminiSessionExpiresAt || 0,
-            appApiToken: updated.appApiToken || "",
-            biohubApiToken: updated.biohubApiToken || ""
-          };
-          sessionStorage.setItem("missenseTransientCredentials", JSON.stringify(credentials));
+          const transient = readTransientCredentials();
+          (transient as Record<string, unknown>)[key as string] = value;
+          sessionStorage.setItem(TRANSIENT_STORAGE_KEY, JSON.stringify(transient));
         } catch (e) {
           console.error("[Settings] sessionStorage write error:", e);
         }
@@ -209,41 +249,52 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resetSettingsToDefault = () => {
-    const defaultSettings: UserSettings = {
-      residueColor: "#F97316",
-      primaryAccent: "indigo",
-      geminiApiKey: "",
-      geminiSessionId: "",
-      geminiSessionExpiresAt: 0,
-      appApiToken: "",
-      biohubApiToken: "",
-      cameraDuration: 1200,
-      autoZoomOnSelect: true,
-      showAtomInteractions: true,
-      acmgWeighting: "standard",
-      energyUnit: "kcal/mol",
-      seqColorScheme: "chemical",
-      seqScrollStep: 31,
-      autoShowAlerts: true,
-      bentoLeftControls: true,
-      maxHistoryItems: 5,
-      neonHighContrast: false,
-      show3DLabels: true,
-      saveHistory: false,
-    };
-    setSettings(defaultSettings);
+    setSettings(DEFAULT_USER_SETTINGS);
     setShowPolarContacts(true);
     try {
-      const toSave = { ...defaultSettings };
-      delete toSave.geminiApiKey;
-      delete toSave.appApiToken;
-      localStorage.setItem("missenseUserSettings", JSON.stringify(toSave));
+      const toSave = { ...DEFAULT_USER_SETTINGS } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
+      for (const transientKey of TRANSIENT_SETTING_KEYS) {
+        delete toSave[transientKey];
+      }
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
     } catch (e) {
       console.error(e);
     }
     try {
-      sessionStorage.removeItem("missenseTransientCredentials");
+      sessionStorage.removeItem(TRANSIENT_STORAGE_KEY);
     } catch (e) {}
+  };
+
+  const applySettings = (partial: Partial<UserSettings>) => {
+    const safe: Partial<UserSettings> = { ...partial };
+    // Imported files must never inject credentials into persisted storage.
+    for (const transientKey of TRANSIENT_SETTING_KEYS) {
+      delete safe[transientKey];
+    }
+    setSettings((prev) => {
+      const updated: UserSettings = {
+        ...prev,
+        ...safe,
+        biophysicsConditions: {
+          ...DEFAULT_USER_SETTINGS.biophysicsConditions,
+          ...(prev.biophysicsConditions || {}),
+          ...(safe.biophysicsConditions || {})
+        }
+      };
+      try {
+        const toSave = { ...updated } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
+        for (const transientKey of TRANSIENT_SETTING_KEYS) {
+          delete toSave[transientKey];
+        }
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
+      } catch (e) {
+        console.error(e);
+      }
+      if (safe.showAtomInteractions !== undefined) {
+        setShowPolarContacts(safe.showAtomInteractions);
+      }
+      return updated;
+    });
   };
 
   const [serverGeminiReady, setServerGeminiReady] = useState(false);
@@ -259,8 +310,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
-  const openSettingsTab = (tab: SettingsTabId = "viewport") => {
-    setSettingsTab(tab);
+  const openSettingsTab = (tab: SettingsTabId | LegacySettingsTabId = "appearance") => {
+    setSettingsTab(LEGACY_TAB_MAP[tab as LegacySettingsTabId] ?? (tab as SettingsTabId));
     setIsSettingsOpen(true);
   };
 
@@ -280,6 +331,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         settings,
         setSettings,
         updateSetting,
+        applySettings,
         resetSettingsToDefault,
         showPolarContacts,
         setShowPolarContacts,

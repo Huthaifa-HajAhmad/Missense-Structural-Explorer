@@ -20,6 +20,19 @@
   line-height: 1;
 }
 
+/* Shared clay focus ring for every console control */
+.dev-console-filter-pill:focus-visible,
+.dev-console-entry:focus-visible,
+.dev-console-stream-tab:focus-visible,
+.gantt-row:focus-visible,
+.gantt-stage-header:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--cs-surface),
+    0 0 0 4px color-mix(in srgb, var(--cs-accent-clay) 55%, transparent);
+  z-index: 1;
+}
+
 .dev-console-toolbar {
   display: flex;
   align-items: center;
@@ -51,10 +64,19 @@
 }
 .dev-console-filter-pill[data-active="true"] {
   background: var(--cs-surface-2);
-  border-color: var(--cs-border);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, transparent);
   color: var(--cs-text-primary);
   font-weight: 600;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dev-console-pill-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
+}
+.dev-console-filter-pill[data-active="true"] .dev-console-pill-count {
+  color: var(--cs-accent-clay);
+  font-weight: 700;
 }
 
 .dev-console-entry {
@@ -79,10 +101,38 @@
   border-left-color: var(--cs-accent-clay);
 }
 .dev-console-entry[data-impact="fatal"] {
-  background: rgba(220, 38, 38, 0.04);
+  background: color-mix(in srgb, var(--cs-danger) 4%, transparent);
 }
 .dev-console-entry[data-impact="fatal"][data-selected="true"] {
   border-left-color: var(--cs-text-danger, #ef4444);
+}
+
+/* Quiet second line: source tag, impact, HTTP status, dedup count */
+.dev-console-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Compact density: tighter rows, meta line hidden, single-line clamp */
+.dev-console-list-compact .dev-console-entry {
+  padding: 4px 16px;
+}
+.dev-console-list-compact .dev-console-entry-meta {
+  display: none;
+}
+.dev-console-list-compact .dev-console-entry .dev-console-message {
+  -webkit-line-clamp: 1;
+}
+
+/* Search match highlight (clay tint) */
+.dev-console-mark {
+  background: color-mix(in srgb, var(--cs-accent-clay) 20%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .dev-console-source-tag {
@@ -111,19 +161,22 @@
   flex-shrink: 0;
 }
 .dev-console-impact-fatal {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: color-mix(in srgb, var(--cs-danger) 14%, transparent);
+  color: var(--cs-danger);
+  border: 1px solid color-mix(in srgb, var(--cs-danger) 30%, transparent);
 }
 .dev-console-impact-degraded {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: color-mix(in srgb, var(--cs-warn) 14%, transparent);
+  color: var(--cs-warn);
+  border: 1px solid color-mix(in srgb, var(--cs-warn) 30%, transparent);
 }
 .dev-console-impact-recoverable {
   background: rgba(59, 130, 246, 0.12);
   color: #2563eb;
   border: 1px solid rgba(59, 130, 246, 0.25);
+}
+.dark .dev-console-impact-recoverable {
+  color: #60a5fa;
 }
 .dev-console-impact-info {
   background: var(--cs-surface-2);
@@ -210,6 +263,9 @@
   color: var(--cs-text-muted);
   background: var(--cs-surface-2);
   border-bottom: 1px solid var(--cs-border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .gantt-row {
@@ -222,6 +278,7 @@
   border-bottom: 1px solid var(--cs-border-subtle);
   transition: background 0.12s ease;
   cursor: pointer;
+  text-align: left;
 }
 .gantt-row:hover {
   background: var(--cs-bg-subtle);
@@ -243,6 +300,31 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.gantt-stage-header:hover {
+  background: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-bg-subtle));
+}
+
+/* Axis row shares the row grid so ticks align with the bar column only */
+.gantt-axis-row {
+  display: grid;
+  grid-template-columns: 280px 90px 80px 1fr;
+  align-items: center;
+  background: var(--cs-surface-2);
+  border-bottom: 1px dashed var(--cs-border-subtle);
+}
+
+.gantt-axis-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
 }
 
 .gantt-bar-track {
@@ -251,10 +333,46 @@
   height: 20px;
   background: rgba(0, 0, 0, 0.03);
   border-radius: 4px;
-  overflow: hidden;
+  overflow: visible;
 }
 .dark .gantt-bar-track {
   background: rgba(255, 255, 255, 0.04);
+}
+
+/* Wrapper cell: carries the hover tooltip and selection outline */
+.gantt-bar-cell {
+  position: absolute;
+  inset: 0;
+}
+.gantt-bar-cell-selected::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 60%, transparent);
+  pointer-events: none;
+}
+.gantt-bar-cell::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--cs-text-primary);
+  color: var(--cs-bg);
+  font-family: var(--cs-font-mono, monospace);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 5;
+}
+.gantt-bar-cell:hover::after {
+  opacity: 1;
 }
 
 .gantt-bar {
@@ -268,9 +386,26 @@
   padding: 0 4px;
   font-size: 9px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: white;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* Running spans shimmer without erasing the stage gradient */
+.gantt-bar-running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  background-size: 200% 100%;
+  animation: gantt-shimmer 1.6s linear infinite;
+  pointer-events: none;
+}
+@keyframes gantt-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .gantt-bar-genomics {
@@ -289,13 +424,16 @@
   background: linear-gradient(90deg, #ef4444, #f87171) !important;
 }
 
-.gantt-axis-ticks {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 16px;
-  font-family: var(--cs-font-mono, monospace);
-  font-size: 9px;
-  color: var(--cs-text-muted);
-  border-bottom: 1px dashed var(--cs-border-subtle);
-  background: var(--cs-surface-2);
+/* Narrow viewports: drop the Duration column (still on each bar) */
+@media (max-width: 900px) {
+  .gantt-grid-header,
+  .gantt-row,
+  .gantt-axis-row {
+    grid-template-columns: 160px 70px 1fr;
+  }
+  .gantt-grid-header > :nth-child(3),
+  .gantt-row > :nth-child(3),
+  .gantt-axis-row > :nth-child(3) {
+    display: none;
+  }
 }

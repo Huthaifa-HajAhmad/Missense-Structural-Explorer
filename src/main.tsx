@@ -1,6 +1,10 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import '@fontsource-variable/source-sans-3';
+import '@fontsource-variable/source-code-pro';
+import '@fontsource-variable/lora';
+import '@fontsource-variable/lora/wght-italic.css';
 import './index.css';
 import { SettingsProvider } from './context/SettingsContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';

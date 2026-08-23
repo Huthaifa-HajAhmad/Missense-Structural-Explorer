@@ -310,10 +310,11 @@ const EnergeticsView = memo(function EnergeticsView({
               </thead>
               <tbody>
                 {(() => {
-                  const isFoldxPending = (foldingStatus === null || isFolding) && energetics.foldxMean === null;
+                  const isFoldxPending = isFolding && energetics.foldxMean === null;
                   const isDynamutPending = (dynamut2Status === "pending" || (isFolding && energetics.dynamut2 === null));
                   const isDdmutPending = (ddmutStatus === "pending" || (isFolding && energetics.ddmut === null));
                   const isThermompnnPending = (thermompnnStatus === "pending" || (isFolding && energetics.thermompnn === null));
+                  const isStabilityOraclePending = isFolding && energetics.stabilityoracle === null;
 
                   const items = [
                     { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (5 runs)", val: energetics.foldxMean, invertSign: false, isPending: isFoldxPending },
@@ -321,7 +322,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
                     { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: false, isPending: false },
                     { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending },
-                    { key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: false }
+                    { key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: isStabilityOraclePending }
                   ];
 
                   return items.map((item, idx) => {
@@ -366,6 +367,13 @@ const EnergeticsView = memo(function EnergeticsView({
                           label: "Not in Zenodo DB", 
                           category: "Not in Zenodo DB", 
                           style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" 
+                        };
+                      } else if ((item.key === "dynamut2" || item.key === "ddmut") && (dynamut2Status === "unavailable" || ddmutStatus === "unavailable")) {
+                        scoreText = "Queued Upstream";
+                        badge = { 
+                          label: "BioSig Congested", 
+                          category: "BioSig Congested", 
+                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold" 
                         };
                       } else if (item.key === "thermompnn" && thermompnnStatus === "error") {
                         scoreText = "Error";

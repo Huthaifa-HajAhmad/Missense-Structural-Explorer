@@ -1,4 +1,5 @@
 import React from "react";
+import { FONT_MONO } from "./chartFonts";
 
 interface LocalShiftPoint {
   x: number;
@@ -75,8 +76,8 @@ export function EmbeddingShiftChart({
                       x={p.x} 
                       y="155" 
                       textAnchor="middle" 
-                      fontSize="9" 
-                      fontFamily="monospace"
+                      fontSize="9"
+                      fontFamily={FONT_MONO}
                       fill={isMutSite ? "var(--cs-text-primary)" : "var(--cs-text-muted)"}
                       fontWeight={isMutSite ? "bold" : "normal"}
                     >

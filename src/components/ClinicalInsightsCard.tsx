@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useRef, useState, useLayoutEffect } from "react";
 import { getResidueContext, getCalibration } from "../shared/uncertainty";
+import { generateProvenanceManifest } from "../shared/provenance";
 import { 
   FileText, 
   CheckCircle2, 
@@ -119,10 +120,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   );
   const isBiophysicalLoading = propIsBiophysicalLoading !== undefined
     ? propIsBiophysicalLoading
-    : !!(analysisState.result && (!analysisState.result.insights || (!analysisState.result.insights.biochemicalShift && !analysisState.result.insights.structuralImpact)));
+    : Boolean(analysisState.isLoading && analysisState.result && (!analysisState.result.insights || (!analysisState.result.insights.biochemicalShift && !analysisState.result.insights.structuralImpact)));
   const isClinicalLoading = propIsClinicalLoading !== undefined
     ? propIsClinicalLoading
-    : !!(analysisState.result && !analysisState.result.analysis);
+    : Boolean(analysisState.isLoading && analysisState.result && !analysisState.result.analysis);
   const isNarrativeLoading = propIsNarrativeLoading !== undefined
     ? propIsNarrativeLoading
     : isClinicalLoading;
@@ -254,6 +255,25 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     URL.revokeObjectURL(url);
   };
 
+  const handleExportProvenanceJSON = () => {
+    if (!analysisState.result) return;
+    const manifest = generateProvenanceManifest(
+      gene,
+      variant,
+      uniprotId || analysisState.result.metadata?.uniprotId || "",
+      analysisState.result,
+      settings,
+      foldingEnergetics
+    );
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${gene}_${variant}_provenance_manifest.json`.replace(/\s+/g, "_");
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className={`${classCard} overflow-visible flex flex-col transition-all`} id="clinical-insights-report-card">
       {/* Card Header */}
@@ -277,6 +297,21 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         
         {analysisState.result && (
           <div className="flex items-center gap-2">
+            {/* Export Provenance Manifest Button */}
+            <button
+              onClick={handleExportProvenanceJSON}
+              className="transition flex items-center gap-1 text-[10px] border rounded px-2.5 py-1 select-none cursor-pointer shadow-sm"
+              style={{
+                borderColor: "var(--cs-accent-clay)",
+                background: "rgba(196, 104, 73, 0.08)",
+                color: "var(--cs-accent-clay)"
+              }}
+              title="Export verifiable scientific provenance manifest (model hashes, data versions, and structure metadata)"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Provenance Manifest</span>
+            </button>
+
             {/* Export JSON Button */}
             <button
               onClick={handleExportJSON}
@@ -480,7 +515,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                         <span>Biochemical Shift</span>
                       </div>
                       <p className={`text-[12px] leading-relaxed font-sans pl-5 transition-colors ${classTextBody}`}>
-                        {analysisState.result.insights?.biochemicalShift}
+                        {analysisState.result.insights?.biochemicalShift || "Rule-based amino acid property shifts computed. Detailed AI synthesis unavailable."}
                       </p>
                     </div>
 
@@ -491,7 +526,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                         <span>Structural Impact (ΔΔG Implications)</span>
                       </div>
                       <p className={`text-[12px] leading-relaxed font-sans pl-5 transition-colors ${classTextBody}`}>
-                        {formatEnergyString(analysisState.result.insights?.structuralImpact)}
+                        {formatEnergyString(analysisState.result.insights?.structuralImpact) || "Structural energetics and delta-delta-G implications evaluated."}
                       </p>
                     </div>
                   </>

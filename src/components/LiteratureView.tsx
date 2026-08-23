@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { 
   BookOpen, 
   Search, 
@@ -54,7 +54,7 @@ export default function LiteratureView({
     onSearchQueryChange?.(val);
   };
 
-  const fetchCitations = useCallback(async (forceSync = false) => {
+  const fetchCitations = useCallback(async (forceSync = false, customQuery?: string) => {
     if (!gene) return;
     setIsLoading(true);
     setError(null);
@@ -63,7 +63,7 @@ export default function LiteratureView({
         setSyncing(true);
       }
       
-      const data = await apiClient.getLiterature(gene, forceSync);
+      const data = await apiClient.getLiterature(gene, forceSync, undefined, customQuery);
       setCitations(data.citations || []);
     } catch (err: any) {
       console.error("[Literature Fetch Error]:", err);
@@ -75,8 +75,8 @@ export default function LiteratureView({
   }, [gene, apiClient]);
 
   useEffect(() => {
-    fetchCitations();
-  }, [gene]);
+    fetchCitations(false, searchQuery || undefined);
+  }, [gene, searchQuery]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => ({
@@ -92,25 +92,27 @@ export default function LiteratureView({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Filter citations with smart tokenizer (supports MeSH and boolean query syntax)
-  const filteredCitations = citations.filter(c => {
-    const raw = (internalQuery || searchQuery).trim();
-    if (!raw) return true;
+  // Filter citations with smart tokenizer
+  const filteredCitations = useMemo(() => {
+    const raw = internalQuery.trim();
+    if (!raw || raw === searchQuery.trim()) return citations;
 
-    const fullContent = `${c.title} ${c.abstract} ${c.authors} ${c.journal} ${c.year || ""}`.toLowerCase();
-    if (fullContent.includes(raw.toLowerCase())) return true;
+    return citations.filter(c => {
+      const fullContent = `${c.title} ${c.abstract} ${c.authors} ${c.journal} ${c.year || ""}`.toLowerCase();
+      if (fullContent.includes(raw.toLowerCase())) return true;
 
-    const terms = raw
-      .replace(/\[.*?\]/g, " ")
-      .replace(/\b(AND|OR|NOT)\b/gi, " ")
-      .replace(/[()",]/g, " ")
-      .split(/\s+/)
-      .map(t => t.toLowerCase())
-      .filter(t => t.length > 1);
+      const terms = raw
+        .replace(/\[.*?\]/g, " ")
+        .replace(/\b(AND|OR|NOT)\b/gi, " ")
+        .replace(/[()",]/g, " ")
+        .split(/\s+/)
+        .map(t => t.toLowerCase())
+        .filter(t => t.length > 1);
 
-    if (terms.length === 0) return true;
-    return terms.some(term => fullContent.includes(term));
-  });
+      if (terms.length === 0) return true;
+      return terms.some(term => fullContent.includes(term));
+    });
+  }, [citations, internalQuery, searchQuery]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--cs-bg)" }}>
@@ -128,30 +130,44 @@ export default function LiteratureView({
           </div>
         </div>
         <button
-          onClick={() => fetchCitations(true)}
+          onClick={() => fetchCitations(true, internalQuery || undefined)}
           disabled={isLoading || syncing}
-          className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg border border-cs-border hover:bg-cs-surface-3 transition-colors disabled:opacity-50 text-cs-text-secondary"
+          className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg border border-cs-border hover:bg-cs-surface-3 transition-colors disabled:opacity-50 text-cs-text-secondary cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
-          {syncing ? "Syncing..." : "Sync PubMed"}
+          {syncing ? "Searching Europe PMC..." : "Sync Europe PMC"}
         </button>
       </div>
 
       {/* Local Filter Bar */}
-      {citations.length > 0 && (
-        <div className="p-3 border-b border-cs-border-subtle bg-cs-surface-1">
-          <div className="relative">
+      <div className="p-3 border-b border-cs-border-subtle bg-cs-surface-1">
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            fetchCitations(true, internalQuery || undefined);
+          }}
+          className="relative flex items-center gap-2"
+        >
+          <div className="relative flex-1">
             <Search className="w-4 h-4 text-cs-text-muted absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder="Search literature by author, title, abstract, or year..."
+              placeholder="Search literature by keyword, author, or MeSH syntax (Press Enter to query Europe PMC)..."
               value={internalQuery}
               onChange={e => handleQueryChange(e.target.value)}
               className="w-full text-xs pl-9 pr-4 py-2 border rounded-lg bg-cs-surface-2 border-cs-border text-cs-text-primary placeholder:text-cs-text-muted focus:outline-none focus:border-cs-accent-clay transition-colors"
             />
           </div>
-        </div>
-      )}
+          <button
+            type="submit"
+            disabled={isLoading || syncing}
+            className="px-3 py-2 rounded-lg text-xs font-medium bg-cs-accent-clay text-white hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Search Live</span>
+          </button>
+        </form>
+      </div>
 
       {/* Main Literature List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">

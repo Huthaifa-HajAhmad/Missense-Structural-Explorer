@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Brain, Cpu, Database, Dna, HeartHandshake, HelpCircle, Info, Layers, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
-import { THRESHOLDS, THRESHOLD_NOTES } from "../shared/thresholds";
+import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar, evaluateEvo2 } from "../shared/thresholds";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 
 interface PredictorSpecialistPanelsProps {
@@ -164,17 +164,11 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   };
 
   const getGpnSignal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
-    if (score === null) return "unavailable";
-    if (score <= -2.5) return "pathogenic";
-    if (score >= 0.0) return "benign";
-    return "vus";
+    return evaluateGpnStar(score);
   };
 
   const getEvo2Signal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
-    if (score === null) return "unavailable";
-    if (score <= -4.0) return "pathogenic";
-    if (score >= -1.0) return "benign";
-    return "vus";
+    return evaluateEvo2(score);
   };
 
   const getAmSignal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {

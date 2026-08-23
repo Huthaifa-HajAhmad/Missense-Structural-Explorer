@@ -3,3 +3,11 @@
 @import "./styles/base.css";
 @import "./styles/components.css";
 @import "./styles/molstar.css";
+
+/* Map Tailwind font utilities to the design-system tokens so font-sans,
+   font-mono, and font-serif classes resolve to the loaded webfonts. */
+@theme {
+  --font-sans: var(--cs-font-sans);
+  --font-mono: var(--cs-font-mono);
+  --font-serif: var(--cs-font-serif);
+}

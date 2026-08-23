@@ -43,7 +43,7 @@
   color: var(--cs-text-muted);
   font-size: 12px;
   font-weight: 500;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
 }
 .ev-nav-item:hover {
   background: var(--cs-bg-subtle);
@@ -157,7 +157,8 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--cs-text-secondary);
-  font-family: 'Inter', monospace;
+  font-family: var(--cs-font-mono);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .header-stat-pill .pill-label {
@@ -185,27 +186,28 @@
 
 /* EVIDENCE CONTENT PANELS */
 .ev-section-heading {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
   font-size: 13px;
   font-weight: 600;
   color: var(--cs-text-primary);
   margin-bottom: 12px;
 }
 .ev-score-display {
-  font-family: 'Inter', monospace;
+  font-family: var(--cs-font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 26px;
   font-weight: 700;
   color: var(--cs-accent-clay);
   line-height: 1;
 }
 .ev-interpretation {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--cs-font-sans);
   font-size: 11px;
   line-height: 1.6;
   color: var(--cs-text-secondary);
 }
 .ev-code-label {
-  font-family: monospace;
+  font-family: var(--cs-font-mono);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;

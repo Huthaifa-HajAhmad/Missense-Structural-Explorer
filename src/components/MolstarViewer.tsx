@@ -57,7 +57,6 @@ export default function MolstarViewer({
 
   const analysisActions = useVariantAnalysisActions();
   const onResidueHover = analysisActions.setHoveredResidueIndex;
-  const fetchNearestResidues = analysisActions.fetchNearestResidues;
   const onPdbTextLoaded = analysisActions.setPdbText;
 
   const isDark = contextTheme !== "light";
@@ -66,6 +65,7 @@ export default function MolstarViewer({
   const cameraDuration = settings.cameraDuration;
   const autoZoomOnSelect = settings.autoZoomOnSelect;
   const show3DLabels = settings.show3DLabels !== undefined ? settings.show3DLabels : true;
+  const neonHighContrast = settings.neonHighContrast === true;
   const energyUnit = settings.energyUnit;
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -109,11 +109,11 @@ export default function MolstarViewer({
     residueColorHex,
     autoZoomOnSelect,
     cameraDuration,
+    neonHighContrast,
     showPocket: pocket.showPocket,
     computedPocket,
     pocketComponentRefRef: pocket.pocketComponentRefRef,
     fetchWithAuth,
-    fetchNearestResidues,
     onPdbTextLoaded,
     variant: variant || undefined,
     esmFoldPdb,
@@ -210,8 +210,8 @@ export default function MolstarViewer({
           mutantStatus={mutantStatus}
           active3dModelTab={active3dModelTab}
           customPdbUrl={customPdbUrl || null}
-          pdbSource={pdbSource}
-          pdbId={pdbId}
+          pdbSource={pdbSource || null}
+          pdbId={pdbId || null}
           uniprotId={uniprotId || null}
           gene={gene || null}
           residueIndex={residueIndex ?? null}

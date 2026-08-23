@@ -18,7 +18,9 @@ export function PerturbationTab({
 }: TabComponentProps) {
   const result = analysisState.result;
   const { settings } = useSettings();
-  const [activePerturbModel, setActivePerturbModel] = useState<"saprot" | "esm2" | "esmc">("esmc");
+  const [activePerturbModel, setActivePerturbModel] = useState<"saprot" | "esm2" | "esmc">(
+    settings.defaultPerturbationModel
+  );
 
   if (!result) return null;
 
