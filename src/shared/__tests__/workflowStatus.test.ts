@@ -111,4 +111,24 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     );
     expect(loading.status).toBe("progress");
   });
+
+  it("should mark insights, literature, and report stages as complete for cached/completed variants", () => {
+    const cachedResult: AnalysisResult = {
+      analysis: "Full clinical narrative cached.",
+      insights: { pathogenicityScore: 0.95 } as any,
+      clinvar: { classification: "Pathogenic" } as any,
+      foldingEnergetics: { foldx: 2.5 } as any,
+      landscapeData: [{ position: 1, score: 0.8 }] as any
+    };
+
+    const insightsStatus = getWorkflowStageStatus("insights", cachedResult, false, false, false, false, undefined, false, null, null, false);
+    expect(insightsStatus.status).toBe("complete");
+
+    const litStatus = getWorkflowStageStatus("literature", cachedResult, false, false, false, false, undefined, false, null, null, false);
+    expect(litStatus.status).toBe("complete");
+    expect(litStatus.desc).toContain("citations indexed");
+
+    const reportStatus = getWorkflowStageStatus("report", cachedResult, false, false, false, false, undefined, false, null, null, false);
+    expect(reportStatus.status).toBe("complete");
+  });
 });

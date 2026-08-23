@@ -1,3 +1,35 @@
+import type {
+  AcmgEvidenceCode,
+  ClinicalSignificance,
+  ACMGCriteriaItem,
+  ClinVarData,
+  StructureProvenance,
+  EnergeticsData,
+  EsmcPreference,
+  EsmcLocalShift,
+  EsmcEvalResult,
+  PredictorData,
+  ConservationData,
+  GenerateMutantResponse,
+  AnalyzeVariantResponse
+} from "./shared/contracts.ts";
+
+export type {
+  AcmgEvidenceCode,
+  ClinicalSignificance,
+  ACMGCriteriaItem,
+  ClinVarData,
+  StructureProvenance,
+  EnergeticsData,
+  EsmcPreference,
+  EsmcLocalShift,
+  EsmcEvalResult,
+  PredictorData,
+  ConservationData,
+  GenerateMutantResponse,
+  AnalyzeVariantResponse
+};
+
 export interface VariantPreset {
   gene: string;
   variant: string;
@@ -11,25 +43,6 @@ export interface SearchHistoryItem {
   uniprotId: string;
 }
 
-export type AcmgEvidenceCode = 
-  | "PVS1" | "PS1" | "PS2" | "PS3" | "PS4" 
-  | "PM1" | "PM2" | "PM3" | "PM4" | "PM5" | "PM6" 
-  | "PP1" | "PP2" | "PP3" | "PP4" 
-  | "BA1" | "BS1" | "BS2" | "BS3" | "BS4" 
-  | "BP1" | "BP2" | "BP3" | "BP4" | "BP5" | "BP7";
-
-export type ClinicalSignificance = 
-  | "Pathogenic" 
-  | "Likely Pathogenic" 
-  | "Uncertain Significance" 
-  | "Likely Benign" 
-  | "Benign" 
-  | "Pathogenic/Likely pathogenic" 
-  | "Benign/Likely benign" 
-  | "Conflicting interpretations of pathogenicity" 
-  | "not found" 
-  | (string & {});
-
 export type AcmgVerdict = "Pathogenic" | "Likely Pathogenic" | "VUS" | "Likely Benign" | "Benign";
 
 export interface BiophysicalApiResponse {
@@ -41,13 +54,6 @@ export type UniprotFeatureType =
   | "DOMAIN" | "REGION" | "ACTIVE_SITE" | "BINDING" | "MUTAGEN" | "DISULFID" | "METAL" | "SITE" 
   | (string & {});
 
-export interface ACMGCriteriaItem {
-  code: AcmgEvidenceCode;
-  reason: string;
-  /** "database_verified" = rule engine; "ai_suggested" = Gemini inference */
-  source?: "database_verified" | "ai_suggested";
-}
-
 export interface ClinicalInsight {
   biochemicalShift: string;
   structuralImpact: string;
@@ -58,24 +64,12 @@ export interface ClinicalInsight {
   partialEvidence?: { available: string[]; unavailable: string[] };
 }
 
-export interface ClinVarData {
-  classification: ClinicalSignificance;
-  lastEvaluated: string;
-  reviewStatus: string;
-  alleleFrequencies: { source: string; value: number | null }[];
-  trait: string;
-  uid: string | null;
-}
-
 export interface RuleBasedInsights {
   plausibility: string;
   acmgVerdict: AcmgVerdict;
   acmgCriteria: ACMGCriteriaItem[];
   partialEvidence?: { available: string[]; unavailable: string[] };
 }
-
-import type { PredictorData, ConservationData } from "./shared/contracts.ts";
-export type { PredictorData, ConservationData };
 
 export interface LandscapeResidueItem {
   residx: number;
@@ -269,6 +263,12 @@ export interface NearestResidue {
   source?: "curated" | "computed";
 }
 
+export interface BiophysicsConditions {
+  ph: number;
+  temperature: number; // °C
+  ionicStrength: number; // mM
+}
+
 export interface UserSettings {
   residueColor: string; // e.g., "#F97316"
   primaryAccent: "indigo" | "purple" | "rose" | "emerald" | "amber" | "blue";
@@ -287,11 +287,14 @@ export interface UserSettings {
   seqColorScheme: "chemical" | "hydrophobic" | "minimal";
   seqScrollStep: number; // e.g., 21, 31, 41
   autoShowAlerts: boolean;
-  bentoLeftControls: boolean;
   maxHistoryItems: number;
   neonHighContrast: boolean;
   show3DLabels: boolean;
   saveHistory: boolean;
+  reducedMotion: boolean;
+  defaultPerturbationModel: "saprot" | "esm2" | "esmc";
+  defaultStructureModel: "alphafold" | "esmfold";
+  biophysicsConditions: BiophysicsConditions;
 }
 
 export interface PocketResidue {
@@ -310,34 +313,6 @@ export interface PocketResult {
   likelyCofactor: string;
   pocketDistance: number | null;
   status?: string;
-}
-
-export interface EnergeticsData {
-  foldx: number | null;
-  foldxMean?: number | null;
-  foldxSd?: number | null;
-  vdw?: number | null;
-  electrostatics?: number | null;
-  stericClashWarning?: boolean;
-  localSidechainRmsd?: number | null;
-  foldxRepairFailed?: boolean;
-  dynamut2?: number | null;
-  ddmut?: number | null;
-  rasp?: number | null;
-  thermompnn?: number | null;
-  raspReason?: string;
-  consensusVerdict?: string | null;
-  evidenceComplete?: boolean;
-  pendingTools?: string[];
-  rawDdGs?: number[];
-  stabilityoracle?: number | null;
-  consensusProbability?: number | null;
-  consensusConfMin?: number | null;
-  consensusConfMax?: number | null;
-  seed?: number | null;
-  bFactorMetadata?: { source: string; semantic: string; inherited: boolean } | null;
-  /** Provenance of the structure template used for this FoldX computation. */
-  structureProvenance?: StructureProvenance | null;
 }
 
 export interface StructuralMetrics {
@@ -400,51 +375,4 @@ export interface PdbHomolog {
   querySeqTo?: number;
   /** True if the aligned region covers the requested mutation position */
   coversPosition?: boolean;
-}
-
-/** Provenance metadata for the structure used in a biophysical computation. */
-export interface StructureProvenance {
-  /** How the structure was sourced: direct PDB mapping, AlphaFold prediction, or sequence homolog. */
-  source: "experimental" | "alphafold" | "homolog" | "client-provided";
-  /** PDB accession of the resolved structure (if experimental or homolog). */
-  pdbId?: string;
-  /** Chain identifier within the PDB entry. */
-  chainId?: string;
-  /** X-ray / cryo-EM resolution in Angstroms (null for NMR / AlphaFold). */
-  resolution?: number | null;
-  /** Experimental method string from RCSB (e.g. "X-RAY DIFFRACTION"). */
-  method?: string;
-  /** Sequence identity percentage against the query protein (homolog tier only). */
-  identity?: number;
-  foldxVersion?: string;
-  foldxRuns?: number;
-  seed?: number | null;
-  raspDatasetSnapshot?: string;
-  vesmModel?: string;
-  afdbVersion?: string;
-  modelSha?: string;
-  timestamp?: string;
-}
-
-export interface EsmcPreference {
-  aa: string;
-  prob: number;
-}
-
-export interface EsmcLocalShift {
-  position: number;
-  residue: string;
-  shift: number;
-}
-
-export interface EsmcEvalResult {
-  wtProbability: number;
-  mutProbability: number;
-  llr: number;
-  preferences: EsmcPreference[];
-  mutRank: number;
-  positionalEntropy: number;
-  embeddingShift: number;
-  localEmbeddingShift: number;
-  localShiftMap: EsmcLocalShift[];
 }

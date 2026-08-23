@@ -1,5 +1,5 @@
-import { StructureProvenance } from "../../types";
-import { generateMutantResponseSchema } from "../../variantAnalysisUtils";
+import { BiophysicsConditions, StructureProvenance } from "../../types";
+import { generateMutantResponseSchema } from "../../shared/contracts";
 import { toFoldxMutation } from "./notationService";
 import { PipelineBiophysicalSink } from "./types";
 import { setCachedVariant } from "./variantCache";
@@ -8,6 +8,8 @@ export interface FoldxExecutionOptions {
   uniprotId: string;
   variant: string;
   residueIndex: number | null;
+  /** Environmental simulation conditions from user settings (pH, temp, ionic strength). */
+  conditions?: BiophysicsConditions;
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
   sink: PipelineBiophysicalSink;
   signal: AbortSignal;
@@ -16,7 +18,7 @@ export interface FoldxExecutionOptions {
 }
 
 export async function executeFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
-  const { uniprotId, variant, residueIndex, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
+  const { uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
 
   if (!uniprotId || !uniprotId.trim()) {
     sink.setIsFolding(false);
@@ -42,7 +44,14 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         uniprotId,
-        mutation: foldxMutation
+        mutation: foldxMutation,
+        ...(conditions
+          ? {
+              pH: conditions.ph,
+              temperature: conditions.temperature,
+              ionicStrength: conditions.ionicStrength
+            }
+          : {})
       }),
       signal
     });
@@ -85,15 +94,18 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           }
         : undefined;
 
-      sink.setFoldingEnergetics((prev: any) => ({
-        ...(prev || {}),
-        ...energeticsData,
-        dynamut2: prev?.dynamut2 ?? energeticsData?.dynamut2 ?? null,
-        ddmut: prev?.ddmut ?? energeticsData?.ddmut ?? null,
-        thermompnn: prev?.thermompnn ?? energeticsData?.thermompnn ?? null,
-        stabilityoracle: prev?.stabilityoracle ?? energeticsData?.stabilityoracle ?? null,
-        structureProvenance
-      }));
+      sink.setFoldingEnergetics((prev: any) => {
+        const base = (prev && typeof prev === "object") ? prev : {};
+        return {
+          ...base,
+          ...energeticsData,
+          dynamut2: energeticsData?.dynamut2 ?? base?.dynamut2 ?? null,
+          ddmut: energeticsData?.ddmut ?? base?.ddmut ?? null,
+          thermompnn: energeticsData?.thermompnn ?? base?.thermompnn ?? null,
+          stabilityoracle: energeticsData?.stabilityoracle ?? base?.stabilityoracle ?? null,
+          structureProvenance: structureProvenance ?? base?.structureProvenance
+        };
+      });
     };
 
     if (data.status === "success" || data.status === "completed") {
@@ -105,6 +117,13 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       if (data.energetics) {
         applyEnergetics(data.energetics, data.provenance);
       }
+      setCachedVariant(uniprotId, variant, uniprotId, {
+        mutantPdb: data.pdb ?? null,
+        foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
+        foldingDdG: data.ddG ?? null,
+        foldingEnergetics: data.energetics ?? null,
+        foldingStatus: "success"
+      });
     } else if (data.status === "queued" || data.status === "running") {
       const jobId = data.foldxJobId;
       if (!jobId) {

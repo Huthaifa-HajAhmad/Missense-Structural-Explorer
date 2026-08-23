@@ -46,6 +46,41 @@ export async function fetchBiophysicalAnalysis(
             status: "success",
             meta: { gene, variant }
           });
+
+          // Feed granular server task sub-spans into the Waterfall
+          const timings = res?.serviceTimings || res?.metadata?.serviceTimings;
+          const statuses = res?.serviceStatus || res?.metadata?.serviceStatus;
+          if (timings && typeof timings === "object") {
+            const serviceLabels: Record<string, { name: string; stage: "structure" | "biophysics" | "clinical" }> = {
+              pdbMapping: { name: "3D Structure Homology Search (RCSB PDB / AlphaFold)", stage: "structure" },
+              uniprotFeatures: { name: "Functional Domain Annotations (UniProtKB)", stage: "structure" },
+              disruptionPredictor: { name: "3D Residue Microenvironment & Disruption Triage", stage: "structure" },
+              predictorData: { name: "In-Silico Pathogenicity (dbNSFP / AlphaMissense / CADD)", stage: "biophysics" },
+              conservationData: { name: "Evolutionary Conservation (ConSurf / REVEL / GERP++)", stage: "biophysics" },
+              esm2: { name: "Zero-Shot ESM-2 Masked Marginal Likelihood", stage: "biophysics" },
+              clinvar: { name: "ClinVar Clinical Interpretation (NCBI E-Utilities)", stage: "clinical" },
+              gnomadFrequency: { name: "Population Allele Frequency (gnomAD v4.0 GraphQL)", stage: "clinical" },
+              gnomadConstraint: { name: "Gene Constraint & Regional Missense (gnomAD)", stage: "clinical" },
+              stringInteractions: { name: "Protein-Protein Interaction Network (STRING DB)", stage: "clinical" }
+            };
+
+            Object.entries(timings).forEach(([key, taskDurationMs]) => {
+              const labelInfo = serviceLabels[key];
+              if (labelInfo && typeof taskDurationMs === "number" && taskDurationMs >= 0) {
+                const isFail = statuses?.[key] === "error" || statuses?.[key] === "timeout";
+                traceContext.addTraceSpan({
+                  traceId: traceContext.activeTraceId,
+                  name: `↳ ${labelInfo.name}`,
+                  stage: labelInfo.stage,
+                  startTime: Date.now() - durationMs,
+                  offsetMs,
+                  durationMs: taskDurationMs,
+                  status: isFail ? "failed" : "success",
+                  meta: { serviceKey: key, status: statuses?.[key] || "ok" }
+                });
+              }
+            });
+          }
         }
         return res;
       })

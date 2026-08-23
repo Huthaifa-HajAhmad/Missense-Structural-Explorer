@@ -17,6 +17,10 @@ import {
   StructuralAlignResponse,
   StructuralDiffResponse
 } from "./shared/contracts";
+import { fetchWithRetry } from "./shared/fetch-retry";
+
+// Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
+const invalidApiKeys = new Set<string>();
 
 export function useApiClient() {
   const { settings, updateSetting } = useSettings();
@@ -79,7 +83,7 @@ export function useApiClient() {
         } catch (err) {
           // Fall back to attempting request with current credentials
         }
-      } else if (geminiApiKey && (!currentSessionId || Date.now() >= expiresAt)) {
+      } else if (geminiApiKey && !invalidApiKeys.has(geminiApiKey) && (!currentSessionId || Date.now() >= expiresAt)) {
         try {
           const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
           if (appApiToken) {
@@ -92,12 +96,16 @@ export function useApiClient() {
             signal: signal
           });
           if (sessionRes.ok) {
+            invalidApiKeys.delete(geminiApiKey);
             const sessionData = await sessionRes.json();
             if (sessionData.sessionId) {
               currentSessionId = sessionData.sessionId;
               updateSetting("geminiSessionId", sessionData.sessionId);
               updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 15 * 60 * 1000));
             }
+          } else if (sessionRes.status === 400 || sessionRes.status === 403) {
+            invalidApiKeys.add(geminiApiKey);
+            console.warn("[apiClient] Gemini API key is invalid or unauthorized. Pausing auto-authentication attempts for this key until updated in Settings.");
           }
         } catch (err) {
           // Fall back to attempting request with current credentials
@@ -124,29 +132,10 @@ export function useApiClient() {
         }
       }
 
-      // Helper for retry logic
-      const fetchWithRetry = async (u: string, o: RequestInit, retries = 2): Promise<Response> => {
-        try {
-          const res = await fetch(u, o);
-          if (res.status >= 500 && retries > 0) {
-            // Wait 250ms with jitter before retrying (L-6: add small retry backoff)
-            await new Promise(r => setTimeout(r, 200 + Math.random() * 100));
-            return await fetchWithRetry(u, o, retries - 1);
-          }
-          return res;
-        } catch (err) {
-          if (retries > 0) {
-            await new Promise(r => setTimeout(r, 200 + Math.random() * 100));
-            return await fetchWithRetry(u, o, retries - 1);
-          }
-          throw err;
-        }
-      };
-
       let response = await fetchWithRetry(url, { ...options, headers, signal });
 
       // Attempt re-auth if 401 is returned (e.g. server restart)
-      if (response.status === 401 && geminiApiKey) {
+      if (response.status === 401 && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
         try {
           const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
           if (appApiToken) {
@@ -159,6 +148,7 @@ export function useApiClient() {
             signal: signal
           });
           if (sessionRes.ok) {
+            invalidApiKeys.delete(geminiApiKey);
             const sessionData = await sessionRes.json();
             if (sessionData.sessionId) {
               updateSetting("geminiSessionId", sessionData.sessionId);
@@ -172,6 +162,8 @@ export function useApiClient() {
               }
               response = await fetchWithRetry(url, { ...options, headers: retryHeaders, signal });
             }
+          } else if (sessionRes.status === 400 || sessionRes.status === 403) {
+            invalidApiKeys.add(geminiApiKey);
           }
         } catch (reauthErr) {
           console.error("Transparent re-authentication failed:", reauthErr);
@@ -549,9 +541,17 @@ export function useApiClient() {
         return structuralDiffResponseSchema.parse(data);
       },
 
-      async getLiterature(gene: string, force = false, signal?: AbortSignal): Promise<{ gene: string, citations: any[] }> {
-        const query = force ? "?force=true" : "";
-        const res = await fetchWithAuth(`/api/v1/literature/${encodeURIComponent(gene)}${query}`, {
+      async getLiterature(
+        gene: string, 
+        force = false, 
+        signal?: AbortSignal,
+        customQuery?: string
+      ): Promise<{ gene: string, citations: any[] }> {
+        const params = new URLSearchParams();
+        if (force) params.set("force", "true");
+        if (customQuery && customQuery.trim()) params.set("query", customQuery.trim());
+        const qStr = params.toString() ? `?${params.toString()}` : "";
+        const res = await fetchWithAuth(`/api/v1/literature/${encodeURIComponent(gene)}${qStr}`, {
           timeout: 45000,
           signal
         });

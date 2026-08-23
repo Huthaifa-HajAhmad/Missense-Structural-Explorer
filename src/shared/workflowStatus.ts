@@ -193,7 +193,7 @@ export function getWorkflowStageStatus(
         };
       }
 
-      if (result.analysis) {
+      if (result.analysis || result.insights) {
         return {
           status: "complete",
           desc: "Variant interpretation consensus ready"
@@ -207,12 +207,8 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "literature") {
-      if (isNarrativeLoading) {
-        return {
-          status: "progress",
-          desc: "Querying Europe PMC & PubMed Central..."
-        };
-      }
+      // Literature mining does not depend on LLM clinical narrative synthesis.
+      // If the variant search has completed and result exists, citations are indexed/ready.
       return {
         status: "complete",
         desc: "PubMed & Europe PMC citations indexed"

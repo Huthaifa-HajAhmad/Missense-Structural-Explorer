@@ -192,11 +192,13 @@ export function useBiophysicalModeling(
       const foldx = energetics?.foldxMean ?? energetics?.foldx ?? "";
       const rasp = energetics?.rasp ?? "";
       const ddmut = energetics?.ddmut ?? "";
+      const stabilityoracle = energetics?.stabilityoracle ?? "";
       const foldxRepairFailed = energetics?.foldxRepairFailed ? "true" : "false";
       const q = new URLSearchParams();
       if (foldx !== "") q.set("foldx", foldx.toString());
       if (rasp !== "") q.set("rasp", rasp.toString());
       if (ddmut !== "") q.set("ddmut", ddmut.toString());
+      if (stabilityoracle !== "") q.set("stabilityoracle", stabilityoracle.toString());
       q.set("foldxRepairFailed", foldxRepairFailed);
       return q;
     },
@@ -236,11 +238,13 @@ export function useBiophysicalModeling(
       const foldx = compEnergetics?.foldxMean ?? compEnergetics?.foldx ?? "";
       const rasp = compEnergetics?.rasp ?? "";
       const ddmut = compEnergetics?.ddmut ?? "";
+      const stabilityoracle = compEnergetics?.stabilityoracle ?? "";
       const foldxRepairFailed = compEnergetics?.foldxRepairFailed ? "true" : "false";
       const q = new URLSearchParams();
       if (foldx !== "") q.set("foldx", foldx.toString());
       if (rasp !== "") q.set("rasp", rasp.toString());
       if (ddmut !== "") q.set("ddmut", ddmut.toString());
+      if (stabilityoracle !== "") q.set("stabilityoracle", stabilityoracle.toString());
       q.set("foldxRepairFailed", foldxRepairFailed);
       return q;
     },
@@ -280,11 +284,13 @@ export function useBiophysicalModeling(
       const foldx = energetics?.foldxMean ?? energetics?.foldx ?? "";
       const rasp = energetics?.rasp ?? "";
       const dynamut2 = energetics?.dynamut2 ?? "";
+      const stabilityoracle = energetics?.stabilityoracle ?? "";
       const foldxRepairFailed = energetics?.foldxRepairFailed ? "true" : "false";
       const q = new URLSearchParams();
       if (foldx !== "") q.set("foldx", foldx.toString());
       if (rasp !== "") q.set("rasp", rasp.toString());
       if (dynamut2 !== "") q.set("dynamut2", dynamut2.toString());
+      if (stabilityoracle !== "") q.set("stabilityoracle", stabilityoracle.toString());
       q.set("foldxRepairFailed", foldxRepairFailed);
       return q;
     },
@@ -324,11 +330,13 @@ export function useBiophysicalModeling(
       const foldx = compEnergetics?.foldxMean ?? compEnergetics?.foldx ?? "";
       const rasp = compEnergetics?.rasp ?? "";
       const dynamut2 = compEnergetics?.dynamut2 ?? "";
+      const stabilityoracle = compEnergetics?.stabilityoracle ?? "";
       const foldxRepairFailed = compEnergetics?.foldxRepairFailed ? "true" : "false";
       const q = new URLSearchParams();
       if (foldx !== "") q.set("foldx", foldx.toString());
       if (rasp !== "") q.set("rasp", rasp.toString());
       if (dynamut2 !== "") q.set("dynamut2", dynamut2.toString());
+      if (stabilityoracle !== "") q.set("stabilityoracle", stabilityoracle.toString());
       q.set("foldxRepairFailed", foldxRepairFailed);
       return q;
     },

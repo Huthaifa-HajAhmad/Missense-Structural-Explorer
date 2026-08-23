@@ -1,5 +1,5 @@
 import React from "react";
-import { PdbHomolog, NearestResidue } from "../../types";
+import { PdbHomolog, NearestResidue, DisruptionPredictorResult } from "../../types";
 
 export interface TraceContext {
   activeTraceId: string | null;
@@ -64,7 +64,7 @@ export interface PipelineStructureSink {
   setHomologs: React.Dispatch<React.SetStateAction<PdbHomolog[]>>;
   setIsHomologsLoading: (loading: boolean) => void;
   setComputedResiduesCache: React.Dispatch<React.SetStateAction<Record<string, NearestResidue[]>>>;
-  setDisruptionPredictor: React.Dispatch<React.SetStateAction<{ level: "high" | "low" | "unknown"; reason: string; plddt: number | null } | null>>;
+  setDisruptionPredictor: React.Dispatch<React.SetStateAction<DisruptionPredictorResult | null>> | ((val: DisruptionPredictorResult | null) => void);
   resetViewerState: () => void;
   clearDynaMutPoll: () => void;
   clearDynaMutComparePoll: () => void;

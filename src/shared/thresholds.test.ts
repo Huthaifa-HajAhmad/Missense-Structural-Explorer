@@ -7,6 +7,8 @@ import {
   evaluateBayesdel,
   evaluateEsm,
   evaluateEsm1b,
+  evaluateGpnStar,
+  evaluateEvo2,
   evaluateSplicePredictor,
   countPredictorConcordance,
   computeConsensusVerdict,
@@ -64,6 +66,20 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateEsm1b(-8.0)).toBe("pathogenic");
       expect(evaluateEsm1b(-6.0)).toBe("vus");
       expect(evaluateEsm1b(-4.0)).toBe("benign");
+    });
+
+    it("should evaluate GPN-Star scores correctly using phylogeny LLR thresholds", () => {
+      expect(evaluateGpnStar(-3.5)).toBe("pathogenic");
+      expect(evaluateGpnStar(-1.2)).toBe("vus");
+      expect(evaluateGpnStar(0.5)).toBe("benign");
+      expect(evaluateGpnStar(null)).toBe("unavailable");
+    });
+
+    it("should evaluate Evo 2 scores correctly using zero-shot foundation delta thresholds", () => {
+      expect(evaluateEvo2(-5.0)).toBe("pathogenic");
+      expect(evaluateEvo2(-2.5)).toBe("vus");
+      expect(evaluateEvo2(-0.5)).toBe("benign");
+      expect(evaluateEvo2(undefined)).toBe("unavailable");
     });
 
     it("should evaluate splice-site proximity and SpliceAI scores correctly", () => {

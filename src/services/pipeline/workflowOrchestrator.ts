@@ -146,6 +146,75 @@ export async function executeFullAnalysisWorkflow({
       if (cached.disruptionPredictor) {
         structureSink.setDisruptionPredictor(cached.disruptionPredictor);
       }
+
+      // If cached bundle contains a complete analysis and no custom user instructions were requested,
+      // short-circuit downstream re-fetches to prevent overwriting completed results or triggering progress restarts.
+      const hasCompleteAnalysis = Boolean(
+        cached.analysisResult?.analysis &&
+        !cached.analysisResult.analysis.includes("in progress") &&
+        (cached.analysisResult.predictorData || cached.analysisResult.insights)
+      );
+
+      if (hasCompleteAnalysis && (!userDirections || !userDirections.trim())) {
+        searchSink.addToHistory(targetGene, targetVariant, targetUniprot);
+        if (residueIndex != null) {
+          searchSink.setSelectedResidueIndex(residueIndex);
+        }
+        analysisSink.setLoadingStep("Analysis complete!");
+        analysisSink.setIsBiophysicalLoading(false);
+        analysisSink.setIsClinicalLoading(false);
+        analysisSink.setIsNarrativeLoading(false);
+
+        if (!cached.homologs && targetUniprot) {
+          fetchHomologs(targetUniprot, apiClient, activeSignal);
+        }
+        if (!cached.pdbText) {
+          fetchPdbCoordinates(
+            targetGene,
+            targetVariant,
+            targetUniprot,
+            residueIndex,
+            apiClient,
+            activeSignal,
+            getTraceContext()
+          ).then((pdb: any) => {
+            if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
+              structureSink.setPdbText(pdb);
+              if (residueIndex && !cached.computedPocket) {
+                fetchPocketData(
+                  targetUniprot,
+                  residueIndex,
+                  pdb,
+                  apiClient,
+                  structureSink.setIsPocketLoading,
+                  structureSink.setPocketError,
+                  structureSink.setComputedPocket,
+                  activeSignal
+                );
+              }
+            }
+          });
+        }
+
+        // P0-CRITICAL: If the cached variant snapshot lacks mutantPdb or StabilityOracle energetics,
+        // dispatch executeFoldxPipeline in the background to compute / backfill biophysics without blocking the UI.
+        const needsBiophysicsBackfill = !cached.mutantPdb || !cached.foldingEnergetics || cached.foldingEnergetics?.stabilityoracle == null;
+        if (needsBiophysicsBackfill && posMatch && targetUniprot) {
+          executeFoldxPipeline({
+            uniprotId: targetUniprot,
+            variant: targetVariant,
+            residueIndex: residueIndex ?? null,
+            conditions: settings.biophysicsConditions,
+            fetchWithAuth,
+            sink: biophysicalSink,
+            signal: activeSignal,
+            requestId,
+            getActiveRequestId
+          });
+        }
+
+        return;
+      }
     } else {
       structureSink.resetViewerState();
     }
@@ -193,6 +262,7 @@ export async function executeFullAnalysisWorkflow({
         uniprotId: targetUniprot,
         variant: targetVariant,
         residueIndex: residueIndex ?? null,
+        conditions: settings.biophysicsConditions,
         fetchWithAuth,
         sink: biophysicalSink,
         signal: foldController.signal,

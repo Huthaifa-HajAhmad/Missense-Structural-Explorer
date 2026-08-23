@@ -1,14 +1,165 @@
 import { z } from "zod";
 
 // ============================================================================
-// 1. Translate Variant Contract
+// Numeric Validation Primitives
+// ============================================================================
+export const finiteNumber = z.number().refine(Number.isFinite, { message: "Number must be finite" });
+export const nullableFiniteNumber = z.number().nullable().refine(val => val === null || Number.isFinite(val), { message: "Number must be finite" });
+
+// ============================================================================
+// 1. ACMG & Clinical Types
+// ============================================================================
+export const acmgEvidenceCodeSchema = z.enum([
+  "PVS1", "PS1", "PS2", "PS3", "PS4",
+  "PM1", "PM2", "PM3", "PM4", "PM5", "PM6",
+  "PP1", "PP2", "PP3", "PP4",
+  "BA1", "BS1", "BS2", "BS3", "BS4",
+  "BP1", "BP2", "BP3", "BP4", "BP5", "BP7"
+]);
+
+export type AcmgEvidenceCode = z.infer<typeof acmgEvidenceCodeSchema>;
+
+export const acmgCriteriaItemSchema = z.object({
+  code: z.string(),
+  reason: z.string(),
+  source: z.enum(["database_verified", "ai_suggested"]).optional()
+});
+
+export type ACMGCriteriaItem = z.infer<typeof acmgCriteriaItemSchema>;
+
+export const clinicalSignificanceSchema = z.union([
+  z.enum([
+    "Pathogenic",
+    "Likely Pathogenic",
+    "Uncertain Significance",
+    "Likely Benign",
+    "Benign",
+    "Pathogenic/Likely pathogenic",
+    "Benign/Likely benign",
+    "Conflicting interpretations of pathogenicity",
+    "not found"
+  ]),
+  z.string()
+]);
+
+export type ClinicalSignificance = z.infer<typeof clinicalSignificanceSchema>;
+
+export const clinVarDataSchema = z.object({
+  classification: clinicalSignificanceSchema,
+  lastEvaluated: z.string(),
+  reviewStatus: z.string(),
+  alleleFrequencies: z.array(z.object({
+    source: z.string(),
+    value: z.preprocess(
+      (val) => {
+        if (val === null || val === undefined) return null;
+        const parsed = typeof val === "number" ? val : parseFloat(String(val));
+        return isNaN(parsed) ? null : parsed;
+      },
+      nullableFiniteNumber
+    )
+  })),
+  trait: z.string(),
+  uid: z.string().nullable(),
+  hasOtherPathogenicVariantSameAA: z.boolean().optional()
+});
+
+export type ClinVarData = z.infer<typeof clinVarDataSchema>;
+
+// ============================================================================
+// 2. Structure Provenance & Energetics Contracts
+// ============================================================================
+export const structureProvenanceSchema = z.object({
+  source: z.enum(["experimental", "alphafold", "homolog", "client-provided"]),
+  pdbId: z.string().optional(),
+  chainId: z.string().optional(),
+  resolution: z.number().nullable().optional(),
+  method: z.string().optional(),
+  identity: z.number().optional(),
+  foldxVersion: z.string().optional(),
+  foldxRuns: z.number().optional(),
+  seed: z.number().nullable().optional(),
+  raspDatasetSnapshot: z.string().optional(),
+  vesmModel: z.string().optional(),
+  afdbVersion: z.string().optional(),
+  modelSha: z.string().optional(),
+  timestamp: z.string().optional()
+});
+
+export type StructureProvenance = z.infer<typeof structureProvenanceSchema>;
+
+export const energeticsDataSchema = z.object({
+  foldx: nullableFiniteNumber,
+  foldxMean: nullableFiniteNumber.optional(),
+  foldxSd: nullableFiniteNumber.optional(),
+  vdw: nullableFiniteNumber.optional(),
+  electrostatics: nullableFiniteNumber.optional(),
+  stericClashWarning: z.boolean().optional(),
+  localSidechainRmsd: nullableFiniteNumber.optional(),
+  foldxRepairFailed: z.boolean().optional(),
+  dynamut2: nullableFiniteNumber.optional(),
+  ddmut: nullableFiniteNumber.optional(),
+  rasp: nullableFiniteNumber.optional(),
+  thermompnn: nullableFiniteNumber.optional(),
+  consensusVerdict: z.string().nullable().optional(),
+  raspReason: z.string().optional(),
+  evidenceComplete: z.boolean().optional(),
+  pendingTools: z.array(z.string()).optional(),
+  rawDdGs: z.array(z.number()).nullable().optional(),
+  stabilityoracle: nullableFiniteNumber.optional(),
+  consensusProbability: nullableFiniteNumber.optional(),
+  consensusConfMin: nullableFiniteNumber.optional(),
+  consensusConfMax: nullableFiniteNumber.optional(),
+  seed: nullableFiniteNumber.optional(),
+  bFactorMetadata: z.object({
+    source: z.string(),
+    semantic: z.string(),
+    inherited: z.boolean()
+  }).nullable().optional(),
+  structureProvenance: structureProvenanceSchema.nullable().optional()
+}).passthrough();
+
+export type EnergeticsData = z.infer<typeof energeticsDataSchema>;
+
+// ============================================================================
+// 3. Language Model Evaluations (ESM-C, ESM-2, SaProt)
+// ============================================================================
+export const esmcPreferenceSchema = z.object({
+  aa: z.string(),
+  prob: z.number()
+});
+
+export const esmcLocalShiftSchema = z.object({
+  position: z.number(),
+  residue: z.string(),
+  shift: z.number()
+});
+
+export const esmcEvalResultSchema = z.object({
+  wtProbability: z.number(),
+  mutProbability: z.number(),
+  llr: z.number(),
+  preferences: z.array(esmcPreferenceSchema),
+  mutRank: z.number(),
+  positionalEntropy: z.number(),
+  embeddingShift: z.number(),
+  localEmbeddingShift: z.number(),
+  localShiftMap: z.array(esmcLocalShiftSchema),
+  klDivergence: z.number().nullable().optional(),
+  conformationState: z.string().nullable().optional()
+});
+
+export type EsmcPreference = z.infer<typeof esmcPreferenceSchema>;
+export type EsmcLocalShift = z.infer<typeof esmcLocalShiftSchema>;
+export type EsmcEvalResult = z.infer<typeof esmcEvalResultSchema>;
+
+// ============================================================================
+// 4. Translate Variant & Resolve Gene Contracts
 // ============================================================================
 export const translateVariantRequestSchema = z.object({
   variant: z.string()
 });
 
-// Mirrors POST /api/v1/translate-variant. The route returns the selected
-// transcript metadata rather than a sequence/position projection.
 export const translateVariantResponseSchema = z.object({
   gene: z.string(),
   variant: z.string(),
@@ -22,11 +173,23 @@ export const translateVariantResponseSchema = z.object({
   genomicCoordinates: z.string().nullable().optional()
 });
 
+export const resolveGeneRequestSchema = z.object({
+  gene: z.string()
+});
+
+export const resolveGeneResponseSchema = z.object({
+  gene: z.string(),
+  uniprotId: z.string(),
+  pdbUrl: z.string().nullable().optional()
+});
+
 export type TranslateVariantRequest = z.infer<typeof translateVariantRequestSchema>;
 export type TranslateVariantResponse = z.infer<typeof translateVariantResponseSchema>;
+export type ResolveGeneRequest = z.infer<typeof resolveGeneRequestSchema>;
+export type ResolveGeneResponse = z.infer<typeof resolveGeneResponseSchema>;
 
 // ============================================================================
-// 2. Nearest Residues Contract
+// 5. Nearest Residues Contract
 // ============================================================================
 export const nearestResiduesRequestSchema = z.object({
   pdbText: z.string().optional(),
@@ -48,7 +211,6 @@ export const nearestResidueItemSchema = z.object({
   classBadge: z.string()
 });
 
-// The backend wraps computed neighbors with provenance metadata.
 export const nearestResiduesResponseSchema = z.object({
   residues: z.array(nearestResidueItemSchema),
   source: z.string()
@@ -58,7 +220,7 @@ export type NearestResiduesRequest = z.infer<typeof nearestResiduesRequestSchema
 export type NearestResiduesResponse = z.infer<typeof nearestResiduesResponseSchema>;
 
 // ============================================================================
-// 3. Pocket Finder / Pocket Detect Contract
+// 6. Pocket Finder / Pocket Detect Contract
 // ============================================================================
 export const pocketFinderRequestSchema = z.object({
   pdbText: z.string(),
@@ -89,7 +251,7 @@ export type PocketFinderRequest = z.infer<typeof pocketFinderRequestSchema>;
 export type PocketFinderResponse = z.infer<typeof pocketFinderResponseSchema>;
 
 // ============================================================================
-// 4. Biophysical Analysis Contract
+// 7. Biophysical Analysis Contract
 // ============================================================================
 export const biophysicalAnalysisRequestSchema = z.object({
   gene: z.string(),
@@ -146,7 +308,7 @@ export type BiophysicalAnalysisRequest = z.infer<typeof biophysicalAnalysisReque
 export type BiophysicalAnalysisResponse = z.infer<typeof biophysicalAnalysisResponseSchema>;
 
 // ============================================================================
-// 5. ESMFold Contract
+// 8. ESMFold Contract
 // ============================================================================
 export const esmFoldRequestSchema = z.object({
   sequence: z.string().optional(),
@@ -169,7 +331,7 @@ export type EsmFoldRequest = z.infer<typeof esmFoldRequestSchema>;
 export type EsmFoldResponse = z.infer<typeof esmFoldResponseSchema>;
 
 // ============================================================================
-// 6. Structural Align Contract
+// 9. Structural Align Contract
 // ============================================================================
 export const structuralAlignRequestSchema = z.object({
   pdb1: z.string(),
@@ -202,7 +364,7 @@ export type StructuralAlignResponse = z.infer<typeof structuralAlignResponseSche
 export type StructuralDiffResponse = z.infer<typeof structuralDiffResponseSchema>;
 
 // ============================================================================
-// 7. Predictor & Conservation Canonical Domain Contracts (D4)
+// 10. Predictor & Conservation Canonical Domain Contracts
 // ============================================================================
 export const predictorDataSchema = z.object({
   available: z.boolean().optional(),
@@ -236,6 +398,8 @@ export const conservationDataSchema = z.object({
   esm1b: z.number().nullable().optional(),
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
+  gpnStar: z.number().nullable().optional(),
+  evo2: z.number().nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),
@@ -280,3 +444,180 @@ export const conservationDataSchema = z.object({
 
 export type PredictorData = z.infer<typeof predictorDataSchema>;
 export type ConservationData = z.infer<typeof conservationDataSchema>;
+
+// ============================================================================
+// 11. Generate Mutant & Full Pipeline Analysis Response Schemas
+// ============================================================================
+export const generateMutantResponseSchema = z.object({
+  pdb: z.string().nullable().optional(),
+  ddG: nullableFiniteNumber,
+  status: z.string(),
+  error: z.string().nullable().optional(),
+  foldedResidueIndex: nullableFiniteNumber.optional(),
+  foldxJobId: z.string().nullable().optional(),
+  energetics: energeticsDataSchema.optional(),
+  dynamut2JobId: z.string().nullable().optional(),
+  dynamut2Status: z.string().nullable().optional(),
+  ddmutJobId: z.string().nullable().optional(),
+  ddmutStatus: z.string().nullable().optional(),
+  thermompnnJobId: z.string().nullable().optional(),
+  thermompnnStatus: z.string().nullable().optional(),
+  thermompnnError: z.string().nullable().optional(),
+  provenance: structureProvenanceSchema.passthrough().optional()
+}).passthrough();
+
+export type GenerateMutantResponse = z.infer<typeof generateMutantResponseSchema>;
+
+export const analyzeVariantResponseSchema = z.object({
+  analysis: z.string().nullable().optional(),
+  insights: z.object({
+    biochemicalShift: z.string(),
+    structuralImpact: z.string(),
+    pathogenicity: z.string().optional(),
+    plausibility: z.string().optional(),
+    acmgCriteria: z.preprocess(
+      (val) => val ?? [],
+      z.array(acmgCriteriaItemSchema)
+    ),
+    acmgVerdict: z.string().optional(),
+    partialEvidence: z.object({
+      available: z.array(z.string()),
+      unavailable: z.array(z.string())
+    }).optional()
+  }).nullable().optional(),
+  ruleBasedInsights: z.object({
+    plausibility: z.string(),
+    acmgVerdict: z.string(),
+    acmgCriteria: z.array(acmgCriteriaItemSchema),
+    partialEvidence: z.object({
+      available: z.array(z.string()),
+      unavailable: z.array(z.string())
+    }).optional()
+  }).nullable().optional(),
+  clinvar: clinVarDataSchema.nullable().optional(),
+  metadata: z.object({
+    gene: z.string(),
+    variant: z.string(),
+    uniprotId: z.string(),
+    residueIndex: nullableFiniteNumber,
+    wildType: z.string(),
+    mutant: z.string(),
+    pdbId: z.string().nullable().optional(),
+    pdbSource: z.string().nullable().optional(),
+    sequence: z.string().nullable().optional(),
+    serviceTimings: z.record(z.string(), z.number()).optional(),
+    serviceStatus: z.record(z.string(), z.string()).optional()
+  }).passthrough(),
+  predictorData: predictorDataSchema.nullable().optional(),
+  conservationData: conservationDataSchema.nullable().optional(),
+  landscapeData: z.array(z.object({
+    residx: z.number(),
+    revelMean: z.number().nullable().optional(),
+    revelMedian: z.number().nullable().optional(),
+    revelMin: z.number().nullable().optional(),
+    revelMax: z.number().nullable().optional(),
+    revelCount: z.number().optional(),
+    amMean: z.number().nullable().optional(),
+    amMedian: z.number().nullable().optional(),
+    amMin: z.number().nullable().optional(),
+    amMax: z.number().nullable().optional(),
+    amCount: z.number().optional(),
+    gerp: z.number().nullable(),
+    phylop: z.number().nullable()
+  })).nullable().optional(),
+  stringInteractions: z.array(z.object({
+    partner: z.string(),
+    score: finiteNumber
+  })).nullable().optional(),
+  disruptionPredictor: z.object({
+    level: z.enum(["high", "low", "unknown"]),
+    reason: z.string(),
+    plddt: z.number().nullable(),
+    burialStatus: z.enum(["core", "surface", "boundary"]).optional(),
+    neighborCount: z.number().optional(),
+    rsa: z.number().nullable().optional(),
+    sasa: z.number().nullable().optional()
+  }).optional(),
+  uniprotFeatures: z.object({
+    features: z.array(z.object({
+      type: z.string(),
+      description: z.string(),
+      start: z.number(),
+      end: z.number()
+    })),
+    geneName: z.string().optional(),
+    subunitComment: z.string().nullable().optional(),
+    isMultimer: z.boolean().optional()
+  }).nullable().optional(),
+  gnomadConstraint: z.object({
+    missense_z: z.number().nullable(),
+    oe_mis: z.number().nullable(),
+    pli: z.number().nullable(),
+    loeuf: z.number().nullable().optional(),
+    isPP2Constrained: z.boolean(),
+    hasRegionalData: z.boolean().optional(),
+    regionalConstraint: z.object({
+      isConstrained: z.boolean(),
+      oeRatio: z.number().nullable(),
+      pValue: z.number().nullable(),
+      regionText: z.string().nullable()
+    }).nullable().optional()
+  }).nullable().optional(),
+  transcriptId: z.string().optional(),
+  isManeSelect: z.boolean().optional(),
+  isManePlusClinical: z.boolean().optional(),
+  isCanonical: z.boolean().optional(),
+  maneRefSeqId: z.string().optional(),
+  transcriptWarning: z.string().optional(),
+  gnomadFrequency: z.object({
+    maxAF: z.number().nullable(),
+    groupMaxAF: z.number().nullable().optional(),
+    genomeAF: z.number().nullable(),
+    exomeAF: z.number().nullable(),
+    genomeAC: z.number().nullable().optional(),
+    exomeAC: z.number().nullable().optional(),
+    genomeAN: z.number().nullable().optional(),
+    exomeAN: z.number().nullable().optional(),
+    nHomozygous: z.number().nullable(),
+    dataset: z.string()
+  }).nullable().optional(),
+  aouFrequency: z.object({
+    aouAC: z.number().nullable().optional(),
+    aouAN: z.number().nullable().optional(),
+    aouHet: z.number().nullable().optional(),
+    aouHom: z.number().nullable().optional()
+  }).nullable().optional(),
+  esm2: z.object({
+    llr: z.number().nullable(),
+    verdict: z.string().nullable().optional()
+  }).nullable().optional(),
+  esm3Eval: z.union([
+    z.object({
+      uniprotId: z.string(),
+      position: z.number(),
+      wtResidue: z.string(),
+      mutResidue: z.string(),
+      pdbText: z.string().nullable(),
+      perturbationScores: z.array(z.number()),
+      maxDriftResidue: z.number(),
+      structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]),
+      microenvironments: z.array(z.string()),
+      putativeStructuralChanges: z.array(z.string()),
+      confidence: z.object({
+        level: z.enum(["high", "moderate", "low"]),
+        plddt: z.number().nullable().optional(),
+        sequenceCoverage: z.number().nullable().optional()
+      })
+    }),
+    z.object({
+      error: z.string()
+    })
+  ]).nullable().optional(),
+  esmcEval: esmcEvalResultSchema.nullable().optional(),
+  esm2Eval: esmcEvalResultSchema.nullable().optional(),
+  saprotEval: esmcEvalResultSchema.nullable().optional(),
+  serviceTimings: z.record(z.string(), z.number()).optional(),
+  serviceStatus: z.record(z.string(), z.string()).optional()
+}).passthrough();
+
+export type AnalyzeVariantResponse = z.infer<typeof analyzeVariantResponseSchema>;

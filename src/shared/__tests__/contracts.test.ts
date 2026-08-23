@@ -6,7 +6,11 @@ import {
   pocketFinderResponseSchema,
   biophysicalAnalysisResponseSchema,
   esmFoldResponseSchema,
-  structuralAlignResponseSchema
+  structuralAlignResponseSchema,
+  clinVarDataSchema,
+  energeticsDataSchema,
+  generateMutantResponseSchema,
+  analyzeVariantResponseSchema
 } from "../contracts";
 
 describe("Shared Zod API Contracts", () => {
@@ -157,5 +161,93 @@ describe("Shared Zod API Contracts", () => {
 
     const parsed = structuralAlignResponseSchema.parse(validPayload);
     expect(parsed.alignedPdb).toBe("ATOM 1...");
+  });
+
+  it("should validate clinVarDataSchema successfully", () => {
+    const validPayload = {
+      classification: "Pathogenic",
+      lastEvaluated: "2024-01-01",
+      reviewStatus: "criteria provided, single submitter",
+      alleleFrequencies: [{ source: "gnomAD", value: 0.0001 }],
+      trait: "Phenylketonuria",
+      uid: "123456"
+    };
+
+    const parsed = clinVarDataSchema.parse(validPayload);
+    expect(parsed.classification).toBe("Pathogenic");
+    expect(parsed.uid).toBe("123456");
+  });
+
+  it("should validate energeticsDataSchema successfully", () => {
+    const validPayload = {
+      foldx: 2.34,
+      foldxMean: 2.30,
+      foldxSd: 0.12,
+      dynamut2: -0.45,
+      ddmut: 1.2,
+      consensusVerdict: "High Misfolding Risk"
+    };
+
+    const parsed = energeticsDataSchema.parse(validPayload);
+    expect(parsed.foldx).toBe(2.34);
+    expect(parsed.dynamut2).toBe(-0.45);
+    expect(parsed.consensusVerdict).toBe("High Misfolding Risk");
+  });
+
+  it("should validate generateMutantResponseSchema successfully", () => {
+    const validPayload = {
+      pdb: "ATOM...",
+      ddG: 1.5,
+      status: "success",
+      foldxJobId: "job-123",
+      dynamut2JobId: "55555",
+      dynamut2Status: "pending",
+      ddmutJobId: "66666",
+      ddmutStatus: "pending"
+    };
+
+    const parsed = generateMutantResponseSchema.parse(validPayload);
+    expect(parsed.status).toBe("success");
+    expect(parsed.dynamut2JobId).toBe("55555");
+    expect(parsed.ddmutJobId).toBe("66666");
+  });
+
+  it("should validate analyzeVariantResponseSchema with serviceTimings successfully", () => {
+    const validPayload = {
+      analysis: "Test narrative",
+      metadata: {
+        gene: "TP53",
+        variant: "p.Arg175His",
+        uniprotId: "P04637",
+        residueIndex: 175,
+        wildType: "R",
+        mutant: "H",
+        serviceTimings: {
+          clinvar: 210,
+          predictorData: 480,
+          pdbMapping: 190
+        },
+        serviceStatus: {
+          clinvar: "ok",
+          predictorData: "ok",
+          pdbMapping: "ok"
+        }
+      },
+      serviceTimings: {
+        clinvar: 210,
+        predictorData: 480,
+        pdbMapping: 190
+      },
+      serviceStatus: {
+        clinvar: "ok",
+        predictorData: "ok",
+        pdbMapping: "ok"
+      }
+    };
+
+    const parsed = analyzeVariantResponseSchema.parse(validPayload);
+    expect(parsed.serviceTimings?.clinvar).toBe(210);
+    expect(parsed.metadata.serviceTimings?.predictorData).toBe(480);
+    expect(parsed.serviceStatus?.pdbMapping).toBe("ok");
   });
 });

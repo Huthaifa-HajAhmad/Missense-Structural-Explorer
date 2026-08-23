@@ -24,6 +24,73 @@ describe("biophysicalService", () => {
       expect(result.analysis).toBe("Pathogenic impact detected");
       expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({ stage: "biophysics", status: "success" }));
     });
+
+    it("emits granular server sub-spans into the waterfall when serviceTimings is present", async () => {
+      const mockApiClient = {
+        getBiophysicalAnalysis: vi.fn().mockResolvedValue({
+          analysis: "Pathogenic impact detected",
+          serviceTimings: {
+            clinvar: 210,
+            predictorData: 480,
+            pdbMapping: 190,
+            esm2: 820,
+            gnomadFrequency: 520
+          },
+          serviceStatus: {
+            clinvar: "ok",
+            predictorData: "ok",
+            pdbMapping: "ok",
+            esm2: "ok",
+            gnomadFrequency: "error"
+          }
+        })
+      };
+
+      const addTraceSpan = vi.fn();
+      await fetchBiophysicalAnalysis(
+        { gene: "TP53", variant: "p.Arg175His", uniprotId: "P04637" },
+        mockApiClient,
+        new AbortController().signal,
+        undefined,
+        { activeTraceId: "trace-123", traceStart: performance.now(), addTraceSpan }
+      );
+
+      // Parent span
+      expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
+        name: "Multi-Model Biophysics Suite (ESM-2, SaProt, ClinVar, gnomAD)",
+        stage: "biophysics",
+        status: "success"
+      }));
+
+      // Sub-spans
+      expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
+        name: "↳ ClinVar Clinical Interpretation (NCBI E-Utilities)",
+        stage: "clinical",
+        durationMs: 210,
+        status: "success"
+      }));
+
+      expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
+        name: "↳ In-Silico Pathogenicity (dbNSFP / AlphaMissense / CADD)",
+        stage: "biophysics",
+        durationMs: 480,
+        status: "success"
+      }));
+
+      expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
+        name: "↳ 3D Structure Homology Search (RCSB PDB / AlphaFold)",
+        stage: "structure",
+        durationMs: 190,
+        status: "success"
+      }));
+
+      expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
+        name: "↳ Population Allele Frequency (gnomAD v4.0 GraphQL)",
+        stage: "clinical",
+        durationMs: 520,
+        status: "failed"
+      }));
+    });
   });
 
   describe("fetchProgressiveLandscape", () => {

@@ -162,6 +162,11 @@ export function useJobPoller<TData = any>({
               notifyOnceRef.current(`${toolName}_${jobId}_done`, "success", `${toolName} prediction completed.`);
             }
             return;
+          } else if (normStatus === "UNAVAILABLE") {
+            onStatusChangeRef.current("unavailable");
+            if (onErrorRef.current && data.error) onErrorRef.current(data.error);
+            if (onToolFailedRef.current) onToolFailedRef.current(toolName);
+            return;
           } else if (normStatus === "ERROR" || normStatus === "FAILED") {
             onStatusChangeRef.current(toolName === "ThermoMPNN" ? "error" : "unavailable");
             if (onErrorRef.current && data.error) onErrorRef.current(data.error);

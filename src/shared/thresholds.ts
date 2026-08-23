@@ -137,6 +137,14 @@ export const THRESHOLDS = {
     pathogenic: -7.5,
     benign: -5.0,
   },
+  gpnStar: {
+    pathogenic: -2.5,
+    benign: 0.0,
+  },
+  evo2: {
+    pathogenic: -4.0,
+    benign: -1.0,
+  },
   popEve: {
     /** Severe Pathogenicity Threshold (99.99% likelihood, 15-fold case enrichment): LLR ≤ -5.056 */
     severePathogenic: -5.056,
@@ -285,6 +293,20 @@ export function evaluateEsm1b(llr: number | null | undefined): PredictorSignal {
   if (llr === null || llr === undefined) return "unavailable";
   if (llr <= THRESHOLDS.esm1b.pathogenic) return "pathogenic";
   if (llr >= THRESHOLDS.esm1b.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateGpnStar(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score <= THRESHOLDS.gpnStar.pathogenic) return "pathogenic";
+  if (score >= THRESHOLDS.gpnStar.benign) return "benign";
+  return "vus";
+}
+
+export function evaluateEvo2(score: number | null | undefined): PredictorSignal {
+  if (score === null || score === undefined) return "unavailable";
+  if (score <= THRESHOLDS.evo2.pathogenic) return "pathogenic";
+  if (score >= THRESHOLDS.evo2.benign) return "benign";
   return "vus";
 }
 
