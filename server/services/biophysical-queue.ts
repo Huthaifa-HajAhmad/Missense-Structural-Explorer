@@ -4,6 +4,7 @@ import crypto from "crypto";
 import os from "os";
 import { DatabaseSync } from "node:sqlite";
 import { Queue, Worker } from "bullmq";
+import { CONFIG } from "../config.ts";
 
 export interface QueueJob {
   id: string;
@@ -143,7 +144,7 @@ class SQLiteQueue {
 
       // Check system memory (backpressure protection)
       const freeMem = os.freemem();
-      const memoryLimit = process.env.NODE_ENV === "test" ? 0 : 500 * 1024 * 1024;
+      const memoryLimit = CONFIG.memory.minFreeBytes;
       if (freeMem < memoryLimit) {
         console.warn(`[Queue] High memory pressure (${(freeMem / 1024 / 1024).toFixed(0)} MB free). Stalling job scheduling.`);
         this.scheduleNext();
@@ -188,7 +189,7 @@ class SQLiteQueue {
         let isAccounted = true;
         let timeoutId: NodeJS.Timeout | null = null;
         try {
-          const timeoutMs = type === "foldx" ? 300000 : 120000;
+          const timeoutMs = type === "foldx" ? CONFIG.timeouts.foldxSec * 1000 : CONFIG.timeouts.p2rankSec * 1000;
           
           const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {

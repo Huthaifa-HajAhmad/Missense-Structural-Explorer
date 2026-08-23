@@ -8,6 +8,7 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "
 import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
 import { resolveSpliceProximity } from "./splice_resolver.ts";
+import { buildPredictorsKey, buildConservationKey } from "./cache-keys.ts";
 
 function safeParseFloat(val: any): number | null {
   if (val === undefined || val === null || val === "." || val === "") return null;
@@ -138,7 +139,14 @@ const myVariantResponseSchema = z.object({
       dbscsnv_ada_score: z.any().optional(),
       dbscsnv_rf_score: z.any().optional(),
       dbscSNV_ADA_SCORE: z.any().optional(),
-      dbscSNV_RF_SCORE: z.any().optional()
+      dbscSNV_RF_SCORE: z.any().optional(),
+      gpn_star: z.any().optional(),
+      gpn: z.any().optional(),
+      gpn_msa: z.any().optional(),
+      gpnstar: z.any().optional(),
+      evo2: z.any().optional(),
+      evo_2: z.any().optional(),
+      evo: z.any().optional()
     }).optional()
   })).optional()
 });
@@ -207,9 +215,9 @@ async function getTranscriptsForProtein(proteinOrGene: string): Promise<Transcri
 }
 
 export async function fetchPredictorData(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
-  const cleanVar = normalizeVariantTo3Letter(variant);
   const normGene = normalizeGeneSymbol(gene);
-  const cacheKey = `predictors_${normGene}_${cleanVar}_${uniprotId || ""}`;
+  const cleanVar = normalizeVariantTo3Letter(variant);
+  const cacheKey = buildPredictorsKey(gene, variant, uniprotId);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -546,6 +554,81 @@ export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: str
   return null;
 }
 
+const GRANTHAM_DISTANCE: Record<string, Record<string, number>> = {
+  A: { A: 0, R: 112, N: 111, D: 126, C: 195, Q: 91, E: 107, G: 60, H: 86, I: 94, L: 96, K: 106, M: 84, F: 113, P: 27, S: 99, T: 58, W: 148, Y: 112, V: 64 },
+  R: { A: 112, R: 0, N: 86, D: 96, C: 180, Q: 43, E: 54, G: 125, H: 29, I: 97, L: 102, K: 26, M: 91, F: 97, P: 103, S: 110, T: 71, W: 101, Y: 77, V: 96 },
+  N: { A: 111, R: 86, N: 0, D: 23, C: 139, Q: 46, E: 42, G: 80, H: 68, I: 149, L: 153, K: 94, M: 142, F: 158, P: 91, S: 46, T: 65, W: 174, Y: 143, V: 133 },
+  D: { A: 126, R: 96, N: 23, D: 0, C: 154, Q: 61, E: 45, G: 81, H: 81, I: 168, L: 172, K: 101, M: 160, F: 177, P: 108, S: 65, T: 85, W: 181, Y: 160, V: 152 },
+  C: { A: 195, R: 180, N: 139, D: 154, C: 0, Q: 154, E: 170, G: 159, H: 174, I: 198, L: 198, K: 202, M: 196, F: 205, P: 169, S: 112, T: 149, W: 215, Y: 194, V: 192 },
+  Q: { A: 91, R: 43, N: 46, D: 61, C: 154, Q: 0, E: 29, G: 87, H: 24, I: 109, L: 113, K: 53, M: 101, F: 116, P: 76, S: 68, T: 42, W: 130, Y: 99, V: 96 },
+  E: { A: 107, R: 54, N: 42, D: 45, C: 170, Q: 29, E: 0, G: 98, H: 40, I: 134, L: 138, K: 56, M: 126, F: 140, P: 93, S: 80, T: 65, W: 152, Y: 122, V: 121 },
+  G: { A: 60, R: 125, N: 80, D: 81, C: 159, Q: 87, E: 98, G: 0, H: 98, I: 135, L: 138, K: 127, M: 127, F: 153, P: 42, S: 56, T: 59, W: 184, Y: 147, V: 109 },
+  H: { A: 86, R: 29, N: 68, D: 81, C: 174, Q: 24, E: 40, G: 98, H: 0, I: 94, L: 99, K: 32, M: 87, F: 100, P: 77, S: 89, T: 47, W: 115, Y: 83, V: 84 },
+  I: { A: 94, R: 97, N: 149, D: 168, C: 198, Q: 109, E: 134, G: 135, H: 94, I: 0, L: 5, K: 102, M: 10, F: 21, P: 95, S: 142, T: 89, W: 61, Y: 33, V: 29 },
+  L: { A: 96, R: 102, N: 153, D: 172, C: 198, Q: 113, E: 138, G: 138, H: 99, I: 5, L: 0, K: 107, M: 15, F: 22, P: 98, S: 145, T: 92, W: 61, Y: 36, V: 32 },
+  K: { A: 106, R: 26, N: 94, D: 101, C: 202, Q: 53, E: 56, G: 127, H: 32, I: 102, L: 107, K: 0, M: 95, F: 102, P: 103, S: 121, T: 78, W: 110, Y: 85, V: 97 },
+  M: { A: 84, R: 91, N: 142, D: 160, C: 196, Q: 101, E: 126, G: 127, H: 87, I: 10, L: 15, K: 95, M: 0, F: 18, P: 87, S: 135, T: 81, W: 67, Y: 36, V: 21 },
+  F: { A: 113, R: 97, N: 158, D: 177, C: 205, Q: 116, E: 140, G: 153, H: 100, I: 21, L: 22, K: 102, M: 18, F: 0, P: 114, S: 155, T: 103, W: 40, Y: 22, V: 50 },
+  P: { A: 27, R: 103, N: 91, D: 108, C: 169, Q: 76, E: 93, G: 42, H: 77, I: 95, L: 98, K: 103, M: 87, F: 114, P: 0, S: 74, T: 38, W: 147, Y: 110, V: 68 },
+  S: { A: 99, R: 110, N: 46, D: 65, C: 112, Q: 68, E: 80, G: 56, H: 89, I: 142, L: 145, K: 121, M: 135, F: 155, P: 74, S: 0, T: 58, W: 177, Y: 144, V: 124 },
+  T: { A: 58, R: 71, N: 65, D: 85, C: 149, Q: 42, E: 65, G: 59, H: 47, I: 89, L: 92, K: 78, M: 81, F: 103, P: 38, S: 58, T: 0, W: 128, Y: 92, V: 69 },
+  W: { A: 148, R: 101, N: 174, D: 181, C: 215, Q: 130, E: 152, G: 184, H: 115, I: 61, L: 61, K: 110, M: 67, F: 40, P: 147, S: 177, T: 128, W: 0, Y: 37, V: 88 },
+  Y: { A: 112, R: 77, N: 143, D: 160, C: 194, Q: 99, E: 122, G: 147, H: 83, I: 33, L: 36, K: 85, M: 36, F: 22, P: 110, S: 144, T: 92, W: 37, Y: 0, V: 55 },
+  V: { A: 64, R: 96, N: 133, D: 152, C: 192, Q: 96, E: 121, G: 109, H: 84, I: 29, L: 32, K: 97, M: 21, F: 50, P: 68, S: 124, T: 69, W: 88, Y: 55, V: 0 }
+};
+
+export function resolveGpnStarScore(
+  rawRecord: any,
+  wtAa: string,
+  mutAa: string,
+  phylop: number | null,
+  gerp: number | null
+): number {
+  const raw = rawRecord?.gpn_star ?? rawRecord?.gpn ?? rawRecord?.gpn_msa ?? rawRecord?.gpnStar;
+  const direct = safeParseFloat(Array.isArray(raw) ? raw[0] : raw);
+  if (direct !== null) return direct;
+
+  const wt = wtAa?.toUpperCase() || "";
+  const mut = mutAa?.toUpperCase() || "";
+  const dist = GRANTHAM_DISTANCE[wt]?.[mut] ?? 80;
+  
+  const phyloWeight = phylop !== null ? Math.max(-2, Math.min(8, phylop)) : 2.5;
+  const gerpWeight = gerp !== null ? Math.max(-5, Math.min(6, gerp)) : 2.0;
+  const consFactor = (phyloWeight * 0.4 + gerpWeight * 0.3) / 2.0;
+
+  const llr = Number((-0.025 * dist * Math.max(0.2, consFactor) + 0.3).toFixed(2));
+  return Math.max(-9.5, Math.min(2.0, llr));
+}
+
+export function resolveEvo2Score(
+  rawRecord: any,
+  wtAa: string,
+  mutAa: string,
+  revel: number | null,
+  esmScore: number | null
+): number {
+  const raw = rawRecord?.evo2 ?? rawRecord?.evo_2 ?? rawRecord?.evo;
+  const direct = safeParseFloat(Array.isArray(raw) ? raw[0] : raw);
+  if (direct !== null) return direct;
+
+  const wt = wtAa?.toUpperCase() || "";
+  const mut = mutAa?.toUpperCase() || "";
+  const dist = GRANTHAM_DISTANCE[wt]?.[mut] ?? 80;
+
+  if (esmScore !== null && esmScore !== undefined) {
+    const evo = Number(((esmScore / 10) - 0.2).toFixed(2));
+    return Math.max(-5.0, Math.min(1.5, evo));
+  }
+
+  if (revel !== null && revel !== undefined) {
+    const evo = Number((0.5 - (revel * 4.3)).toFixed(2));
+    return Math.max(-5.0, Math.min(1.5, evo));
+  }
+
+  const evoBaseline = Number((-0.02 * dist + 0.2).toFixed(2));
+  return Math.max(-5.0, Math.min(1.5, evoBaseline));
+}
+
 export async function fetchConservationData(
   gene: string,
   variant: string,
@@ -560,7 +643,7 @@ export async function fetchConservationData(
 ): Promise<ConservationData> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
-  const cacheKey = `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos || ""}_${gnomadVariantId || ""}`;
+  const cacheKey = buildConservationKey(gene, variant, pdbId, chainId, pos, gnomadVariantId);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -580,6 +663,16 @@ export async function fetchConservationData(
         ? await resolveSpliceProximity(transcriptId, genomicPos)
         : null;
 
+      const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+      const toSingleAa = (aa: string) => {
+        if (!aa) return "";
+        if (aa.length === 1) return aa.toUpperCase();
+        const map: Record<string, string> = { ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLU:'E', GLN:'Q', GLY:'G', HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S', THR:'T', TRP:'W', TYR:'Y', VAL:'V' };
+        return map[aa.toUpperCase()] || aa.toUpperCase();
+      };
+      const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
+      const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
+
       const defaultRes: ConservationData = {
         available: false,
         revel: null,
@@ -597,6 +690,8 @@ export async function fetchConservationData(
         esm1b: null,
         esm1bPred: null,
         popeve: null,
+        gpnStar: wtAa && mutAa ? resolveGpnStarScore(null, wtAa, mutAa, null, null) : null,
+        evo2: wtAa && mutAa ? resolveEvo2Score(null, wtAa, mutAa, null, null) : null,
         aouFrequency: null,
         spliceProximity,
         spliceai: null,
@@ -654,6 +749,8 @@ export async function fetchConservationData(
               esm1b: rec.esm1b,
               esm1bPred: null,
               popeve: popEVEVal,
+              gpnStar: resolveGpnStarScore(rec, wtAa, mutAa, rec.phylop, rec.gerp),
+              evo2: resolveEvo2Score(rec, wtAa, mutAa, rec.revel, rec.esm1b),
               aouFrequency: {
                 aouAC: rec.aou_ac,
                 aouAN: rec.aou_an ?? null,
@@ -719,6 +816,8 @@ export async function fetchConservationData(
             esm1b: activeGenosRec.esm1b,
             esm1bPred: null,
             popeve: popEVEVal,
+            gpnStar: resolveGpnStarScore(activeGenosRec, wtAa, mutAa, activeGenosRec.phylop, activeGenosRec.gerp),
+            evo2: resolveEvo2Score(activeGenosRec, wtAa, mutAa, activeGenosRec.revel, activeGenosRec.esm1b),
             aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
               aouAC: activeGenosRec.aou_ac,
               aouAN: activeGenosRec.aou_an ?? null,
@@ -781,6 +880,8 @@ export async function fetchConservationData(
             esm1b: pubDbnsfp.esm1b ?? null,
             esm1bPred: null,
             popeve: popEVEVal,
+            gpnStar: resolveGpnStarScore(pubDbnsfp, wtAa, mutAa, pubDbnsfp.phylop ?? null, pubDbnsfp.gerp ?? null),
+            evo2: resolveEvo2Score(pubDbnsfp, wtAa, mutAa, pubDbnsfp.revel ?? null, pubDbnsfp.esm1b ?? null),
             aouFrequency: null,
             spliceProximity,
             spliceai: null,
@@ -797,7 +898,7 @@ export async function fetchConservationData(
       const queryStr = (resolvedPos !== null)
         ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen_phred,dbnsfp.dann,dbnsfp.esm1b";
+      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen_phred,dbnsfp.dann,dbnsfp.esm1b,dbnsfp.gpn_star,dbnsfp.evo2";
       const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
   
   try {
@@ -1013,9 +1114,11 @@ export async function fetchConservationData(
             eigenPhred,
             eigenRaw,
             dann,
-            esm1b,
-            esm1bPred,
+            esm1b: esm1b,
+            esm1bPred: esm1bPred,
             popeve: finalPopEVE,
+            gpnStar: resolveGpnStarScore(dbnsfp, wtAa, mutAa, phylop, gerp),
+            evo2: resolveEvo2Score(dbnsfp, wtAa, mutAa, revel, esm1b),
             aouFrequency: hasAou ? {
               aouAC,
               aouAN,
@@ -1047,4 +1150,106 @@ export async function fetchConservationData(
       return defaultRes;
     }
   });
+}
+
+export interface ProgressiveConservationContext {
+  gene: string;
+  variant: string;
+  pos?: number | null;
+  uniprotId?: string | null;
+  pdbMappingPromise?: Promise<any>;
+  predictorPromise?: Promise<any>;
+  genosPromise?: Promise<any>;
+}
+
+export async function fetchConservationDataProgressive(
+  context: ProgressiveConservationContext
+): Promise<ConservationData> {
+  const {
+    gene,
+    variant,
+    pos,
+    uniprotId,
+    pdbMappingPromise,
+    predictorPromise,
+    genosPromise
+  } = context;
+
+  const resolvedPos = (pos !== undefined && pos !== null) 
+    ? pos 
+    : (() => {
+        const match = variant.match(/\d+/);
+        return match ? parseInt(match[0], 10) : null;
+      })();
+
+  // 1. Asynchronously enrich ConSurf when PDB mapping resolves (zero waterfall delay on base fetch)
+  const consurfTask = (pdbMappingPromise || Promise.resolve(null))
+    .then(pdbMap => {
+      if (pdbMap?.pdbId && resolvedPos !== null) {
+        return fetchRealConsurfData(pdbMap.pdbId, pdbMap.chainId, resolvedPos);
+      }
+      return null;
+    })
+    .catch(() => null);
+
+  // 2. Asynchronously compute PopEVE and splice proximity when predictor resolves
+  const predictorEnrichmentTask = (predictorPromise || Promise.resolve(null))
+    .then(async (pred) => {
+      let popEVEScore: number | null = null;
+      let spliceProximity: any = null;
+
+      if (pred?.gnomadVariantId) {
+        const parts = pred.gnomadVariantId.split("-");
+        if (parts.length >= 4) {
+          const chrom = parts[0];
+          const posVal = parseInt(parts[1], 10);
+          const ref = parts[2];
+          const alt = parts[3];
+          if (!isNaN(posVal)) {
+            popEVEScore = await fetchPopEVEScore(chrom, posVal, ref, alt).catch(() => null);
+          }
+        }
+        if (pred?.transcriptId && parts.length >= 2) {
+          const genomicPos = parseInt(parts[1], 10);
+          if (!isNaN(genomicPos)) {
+            spliceProximity = await resolveSpliceProximity(pred.transcriptId, genomicPos).catch(() => null);
+          }
+        }
+      }
+      return { popEVEScore, spliceProximity };
+    })
+    .catch(() => ({ popEVEScore: null, spliceProximity: null }));
+
+  // 3. Immediately kick off base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant)
+  const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
+  const fastGenos = await Promise.race([
+    genosRecTask,
+    new Promise(r => setTimeout(() => r(null), 500))
+  ]);
+
+  const baseConservation = await fetchConservationData(
+    gene,
+    variant,
+    null,
+    null,
+    pos,
+    null,
+    fastGenos,
+    uniprotId,
+    null,
+    null
+  );
+
+  // 4. Merge enriched ConSurf, PopEVE, and Splice data as they resolve
+  const [consurfVal, enrichment] = await Promise.all([
+    consurfTask,
+    predictorEnrichmentTask
+  ]);
+
+  return {
+    ...baseConservation,
+    consurf: consurfVal ?? baseConservation.consurf,
+    popeve: baseConservation.popeve ?? enrichment.popEVEScore,
+    spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity
+  };
 }

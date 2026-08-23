@@ -1,0 +1,33 @@
+services:
+  missense-resolve:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: missense-resolve:latest
+    container_name: missense-resolve-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - APP_API_TOKEN=${APP_API_TOKEN:-a_secure_production_api_token_32_bytes}
+      - APP_SESSION_SECRET=${APP_SESSION_SECRET:-a_secure_session_secret_32_bytes_long}
+      - SIDECAR_SECRET=${SIDECAR_SECRET:-a_secure_sidecar_internal_secret_token}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - BIOHUB_TOKEN=${BIOHUB_TOKEN}
+      - HF_TOKEN=${HF_TOKEN}
+      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    volumes:
+      # Persistent SQLite databases (analyses.sqlite, landscape_cache.sqlite, rasp_precomputed.sqlite)
+      - ./data:/app/data
+      # Academic FoldX binary mount (license-restricted academic executable)
+      - ./tools/foldx:/app/tools/foldx:ro
+      # Operational audit and analysis logs
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

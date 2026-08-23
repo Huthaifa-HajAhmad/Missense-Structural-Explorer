@@ -23,79 +23,20 @@ import { AMINO_ACID_1_TO_3_TITLE } from "../../src/aminoAcids.ts";
 import { AuditLogger } from "../utils.ts";
 import { GeminiError, getConfiguredGeminiModels } from "../services/gemini.ts";
 import { computeCalibratedConsensus } from "../../src/shared/thresholds.ts";
+import { narrativeCache } from "../services/cache.ts";
 
 // ---------------------------------------------------------------------------
-// Gemini response cache (in-memory + disk)
+// Gemini response cache (LRU in-memory + L2 AnalysisDatabase SQLite)
 // ---------------------------------------------------------------------------
-export const geminiCache = new Map<string, any>();
-export const CACHE_DIR = path.join(process.cwd(), "logs", "gemini_cache");
+export const geminiCache = narrativeCache;
 export const GEMINI_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-}
-
-export function getCacheFilename(cacheKey: string): string {
-  const hash = crypto.createHash("sha256").update(cacheKey).digest("hex");
-  return path.join(CACHE_DIR, `${hash}.json`);
-}
-
 export function getFromCache(cacheKey: string): any | null {
-  const now = Date.now();
-  if (geminiCache.has(cacheKey)) {
-    const entry = geminiCache.get(cacheKey);
-    if (entry && typeof entry === "object" && "timestamp" in entry) {
-      if (now - entry.timestamp < GEMINI_CACHE_TTL_MS) {
-        return entry.data;
-      }
-      geminiCache.delete(cacheKey);
-    }
-  }
-  try {
-    const filename = getCacheFilename(cacheKey);
-    if (fs.existsSync(filename)) {
-      const raw = fs.readFileSync(filename, "utf-8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && "timestamp" in parsed) {
-        if (now - parsed.timestamp < GEMINI_CACHE_TTL_MS) {
-          geminiCache.set(cacheKey, parsed);
-          return parsed.data;
-        }
-      }
-      // Stale or legacy cache format: unlink it
-      try {
-        fs.unlinkSync(filename);
-      } catch (err) {
-        // ignore unlink error
-      }
-    }
-  } catch (err) {
-    console.error("Error reading disk cache:", err);
-  }
-  return null;
+  return narrativeCache.get(cacheKey) || null;
 }
 
-export function writeToCache(cacheKey: string, data: any) {
-  try {
-    const entry = { data, timestamp: Date.now() };
-    geminiCache.set(cacheKey, entry);
-    if (geminiCache.size > 200) {
-      const firstKey = geminiCache.keys().next().value;
-      if (firstKey) {
-        geminiCache.delete(firstKey);
-      }
-    }
-    const filename = getCacheFilename(cacheKey);
-    const cacheDir = path.dirname(filename);
-
-    fs.promises.mkdir(cacheDir, { recursive: true })
-      .then(() => fs.promises.writeFile(filename, JSON.stringify(entry), "utf-8"))
-      .catch(err => {
-        console.error("[Cache Write Error]", err.message);
-      });
-  } catch (err) {
-    console.error("Error writing disk cache:", err);
-  }
+export function writeToCache(cacheKey: string, data: any): void {
+  narrativeCache.set(cacheKey, data);
 }
 
 // ---------------------------------------------------------------------------
@@ -203,9 +144,19 @@ export function handleNarrativeResponse(
   // ACMG-1: Reconciliation layer — merge AI-suggested ACMG criteria with rule-based criteria.
   // Rule-based items (database-evidenced) take precedence for overlapping codes.
   const aiCriteria: ACMGItem[] = (analysisResult.insights?.acmgCriteria ?? []) as ACMGItem[];
-  const ruleInsights = computeRuleBasedACMG(
-    gene, variant, clinvar, predictorData, conservationData, gnomadConstraint, gnomadFrequency, acmgWeighting, esm2, uniprotFeatures, sequence
-  );
+  const ruleInsights = computeRuleBasedACMG({
+    gene,
+    variant,
+    clinvar,
+    predictorData,
+    conservationData,
+    gnomadConstraint,
+    gnomadFrequency,
+    acmgWeighting,
+    esm2,
+    uniprotFeatures,
+    sequence
+  });
   const ruleCodesSet = new Set(ruleInsights.acmgCriteria.map((c: ACMGItem) => c.code));
 
   // Only include AI suggestions that don't duplicate a rule-based code

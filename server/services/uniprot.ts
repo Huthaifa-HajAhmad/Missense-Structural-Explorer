@@ -1,6 +1,7 @@
 import { LRUCache } from "lru-cache";
 import { uniprotCache, uniprotFeaturesCache, getCachedOrFetch } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
+import { buildUniprotFeaturesKey, buildUniprotSequenceKey, buildUniprotIdKey } from "./cache-keys.ts";
 
 export async function resolveGeneToUniprot(gene: string): Promise<string | null> {
   const normGene = normalizeGeneSymbol(gene).toUpperCase();
@@ -18,7 +19,7 @@ export async function resolveGeneToUniprot(gene: string): Promise<string | null>
   }
 
   return getCachedOrFetch({
-    key: `uniprot_id_${normGene}`,
+    key: buildUniprotIdKey(normGene),
     source: "UniProt Search API",
     l1Cache: uniprotCache,
     ttlSeconds: 30 * 24 * 60 * 60,
@@ -53,7 +54,7 @@ export async function fetchUniprotSequence(uniprotId: string): Promise<string> {
   const key = uniprotId.toUpperCase();
 
   return getCachedOrFetch({
-    key: `uniprot_seq_${key}`,
+    key: buildUniprotSequenceKey(key),
     source: "UniProt FASTA",
     l1Cache: uniprotSeqCache,
     ttlSeconds: 30 * 24 * 60 * 60,
@@ -106,7 +107,7 @@ export async function fetchUniprotFeatures(
   const key = uniprotId.toUpperCase();
 
   return getCachedOrFetch({
-    key: `uniprot_features_${key}`,
+    key: buildUniprotFeaturesKey(key),
     source: "UniProt Features API",
     l1Cache: uniprotFeaturesCache,
     ttlSeconds: 14 * 24 * 60 * 60,

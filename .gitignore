@@ -51,6 +51,7 @@ graphify-out/
 # Local editor and workspace caches
 .commandcode/
 .freebuff/
+.zcode/
 rotabase.txt
 pnpm-lock.yaml
 pnpm-workspace.yaml

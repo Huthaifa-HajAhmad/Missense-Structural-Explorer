@@ -1,10 +1,120 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchPdbHomologs } from "./structure-fetcher.ts";
-import { pdbCache } from "./cache.ts";
+import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry } from "./structure-fetcher.ts";
+import { pdbCache, afUrlCache } from "./cache.ts";
+
+describe("structure-fetcher SingleFlight & PDB Cache", () => {
+  beforeEach(() => {
+    pdbCache.clear();
+    afUrlCache.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("should deduplicate concurrent AlphaFold PDB fetches and cache the PDB text", async () => {
+    let apiCallCount = 0;
+    let pdbDownloadCount = 0;
+
+    const mockPdbText = "ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00 90.00           N\nATOM      2  CA  MET A   1      26.266  25.413   2.842  1.00 90.00           C\nEND";
+
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("alphafold.ebi.ac.uk/api/prediction")) {
+        apiCallCount++;
+        return new Response(JSON.stringify([{ pdbUrl: "https://alphafold.ebi.ac.uk/files/AF-P04637-F1-model_v4.pdb" }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (u.includes(".pdb")) {
+        pdbDownloadCount++;
+        return new Response(mockPdbText, {
+          status: 200,
+          headers: { "Content-Type": "text/plain" }
+        });
+      }
+      return new Response("{}", { status: 200 });
+    }));
+
+    // 3 concurrent calls at the exact same moment
+    const [res1, res2, res3] = await Promise.all([
+      fetchAlphafoldPdb("P04637"),
+      fetchAlphafoldPdb("P04637"),
+      fetchAlphafoldPdb("P04637")
+    ]);
+
+    expect(res1).toBe(mockPdbText);
+    expect(res2).toBe(mockPdbText);
+    expect(res3).toBe(mockPdbText);
+
+    // SingleFlight ensures only 1 API lookup and 1 PDB text download occurred
+    expect(apiCallCount).toBe(1);
+    expect(pdbDownloadCount).toBe(1);
+
+    // Subsequent sequential call hits pdbCache directly without any new fetch
+    const res4 = await fetchAlphafoldPdb("P04637");
+    expect(res4).toBe(mockPdbText);
+    expect(pdbDownloadCount).toBe(1);
+  });
+
+  it("should deduplicate concurrent RCSB PDB fetches and cache the extracted chain", async () => {
+    let rcsbDownloadCount = 0;
+    const mockRcsbText = "ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00 50.00           N\nATOM      2  CA  MET A   1      26.266  25.413   2.842  1.00 50.00           C\nEND";
+
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("files.rcsb.org")) {
+        rcsbDownloadCount++;
+        return new Response(mockRcsbText, { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }));
+
+    const [pdb1, pdb2, pdb3] = await Promise.all([
+      fetchPdbFromRcsb("1TUP", "A"),
+      fetchPdbFromRcsb("1TUP", "A"),
+      fetchPdbFromRcsb("1TUP", "A")
+    ]);
+
+    expect(pdb1).toBeDefined();
+    expect(pdb1?.includes("ATOM")).toBe(true);
+    expect(pdb2).toBe(pdb1);
+    expect(pdb3).toBe(pdb1);
+
+    expect(rcsbDownloadCount).toBe(1);
+
+    // Subsequent call hits pdbCache
+    const pdb4 = await fetchPdbFromRcsb("1TUP", "A");
+    expect(pdb4).toBe(pdb1);
+    expect(rcsbDownloadCount).toBe(1);
+  });
+
+  it("should deduplicate concurrent full PDB downloads in fetchFullPdbEntry", async () => {
+    let rcsbDownloadCount = 0;
+    const mockFullText = "HEADER    TRANSCRIPTION FACTOR\nATOM      1  N   MET A   1      27.340  24.430   2.614  1.00 50.00           N\nEND";
+
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("files.rcsb.org")) {
+        rcsbDownloadCount++;
+        return new Response(mockFullText, { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }));
+
+    const [full1, full2] = await Promise.all([
+      fetchFullPdbEntry("1TUP"),
+      fetchFullPdbEntry("1TUP")
+    ]);
+
+    expect(full1).toBe(mockFullText);
+    expect(full2).toBe(mockFullText);
+    expect(rcsbDownloadCount).toBe(1);
+  });
+});
 
 describe("fetchPdbHomologs & Diversity Clustering", () => {
   beforeEach(() => {
     pdbCache.clear();
+    afUrlCache.clear();
     vi.restoreAllMocks();
   });
 

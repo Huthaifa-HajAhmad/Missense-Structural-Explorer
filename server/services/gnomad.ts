@@ -1,5 +1,6 @@
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 import { gnomadFreqCache, gnomadConstraintCache, getCachedOrFetch } from "./cache.ts";
+import { buildGnomadFreqKey, buildGnomadConstraintKey } from "./cache-keys.ts";
 
 export interface GnomadVariantFrequency {
   /** Max allele frequency across gnomAD v4 sub-populations */
@@ -38,7 +39,7 @@ export async function fetchGnomadVariantFrequency(
   if (!variantId) return null;
 
   return getCachedOrFetch({
-    key: `gnomad_freq_${variantId}`,
+    key: buildGnomadFreqKey(variantId),
     source: "gnomAD GraphQL API",
     l1Cache: gnomadFreqCache,
     ttlSeconds: 14 * 24 * 60 * 60,
@@ -207,7 +208,7 @@ export async function fetchGnomadGeneConstraint(
   const normGene = normalizeGeneSymbol(geneSymbol).toUpperCase();
 
   const cached = await getCachedOrFetch<GnomadGeneConstraint | null>({
-    key: `gnomad_constraint_${normGene}`,
+    key: buildGnomadConstraintKey(geneSymbol),
     source: "gnomAD Constraint API",
     l1Cache: gnomadConstraintCache,
     ttlSeconds: 30 * 24 * 60 * 60,

@@ -11,6 +11,7 @@ try {
 
 import { normalizeGeneSymbol, normalizeVariantTo3Letter } from './external.ts';
 import { getCachedOrFetch, clearAllCaches } from './cache.ts';
+import { buildGenosKey } from './cache-keys.ts';
 
 let cachedCookie: string | null = null;
 let lastLoginTime = 0;
@@ -146,8 +147,7 @@ export async function queryGenosWebservice(
   gnomadVariantId?: string | null
 ): Promise<any | null> {
   const normGene = normalizeGeneSymbol(gene);
-  const cleanVar = normalizeVariantTo3Letter(variant);
-  const cacheKey = `genos_${normGene}_${cleanVar}_${gnomadVariantId || ""}`;
+  const cacheKey = buildGenosKey(gene, variant, gnomadVariantId || undefined);
 
   return getCachedOrFetch({
     key: cacheKey,

@@ -33,74 +33,53 @@ import { computeCalibratedConsensus } from "../../src/shared/thresholds.ts";
 
 const raspCache = new LRUCache<string, { score: number | null; reason?: string }>({ max: 200 });
 
-async function createRaspIndex(csvPath: string): Promise<void> {
-  const indexPath = csvPath.replace(".csv", ".index.json");
-  const index: Record<string, number> = {};
+const RASP_SQLITE_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
+const RASP_CSV_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
+let raspSqliteDb: DatabaseSync | null = null;
+let raspSqliteChecked = false;
 
-  // #7 fix: open the raw file to count bytes correctly on both LF and CRLF systems.
-  // We read raw bytes so byteOffset always tracks the true file position regardless of platform.
-  return new Promise((resolve, reject) => {
-    const rawStream = fs.createReadStream(csvPath);
-    const rl = readline.createInterface({ input: rawStream, crlfDelay: Infinity });
-    let byteOffset = 0;
-    let currentUniprot = "";
-
-    rl.on("line", (line) => {
-      const commaIdx = line.indexOf(",");
-      if (commaIdx !== -1) {
-        const uniprot = line.slice(0, commaIdx).trim();
-        if (uniprot && uniprot !== currentUniprot && uniprot !== "uniprot_id") {
-          index[uniprot] = byteOffset;
-          currentUniprot = uniprot;
-        }
-      }
-      // Count actual bytes in the line (sans the stripped line ending) plus the real
-      // line-ending size.  crlfDelay strips \r\n to just the content; we measure both.
-      const lineBytes = Buffer.byteLength(line, "utf8");
-      // Peek at the raw byte that follows the line content to detect CRLF vs LF.
-      // Simple heuristic: track via the running offset — the readline module strips the
-      // ending so we cannot inspect it directly.  Instead we read a small probe at the
-      // expected LF position.  For simplicity, and because the existing CSV is LF-only
-      // (confirmed), we detect once per file and cache the value.
-      byteOffset += lineBytes + raspCsvLineEndingSize;
-    });
-
-    rl.on("close", () => {
-      try {
-        fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
-        console.log(`[RaSP] Created lookup index with ${Object.keys(index).length} proteins.`);
-        resolve();
-      } catch (err) {
-        reject(err);
-      }
-    });
-
-    rl.on("error", (err) => reject(err));
-  });
+function getRaspSqliteDb(): DatabaseSync | null {
+  if (raspSqliteChecked) return raspSqliteDb;
+  raspSqliteChecked = true;
+  try {
+    const stat = fs.statSync(RASP_SQLITE_PATH);
+    if (stat.size < 1024) return null; // placeholder / empty
+    const db = new DatabaseSync(RASP_SQLITE_PATH, { open: true });
+    // Quick sanity check
+    const row = (db.prepare("SELECT count(*) as c FROM rasp_variants LIMIT 1").get as any)() as { c: number } | undefined;
+    if (!row || row.c === 0) {
+      db.close();
+      console.warn("[RaSP SQLite] Database exists but is empty.");
+      return null;
+    }
+    raspSqliteDb = db;
+    console.log(`[RaSP SQLite] Indexed database active (${(stat.size / 1024 / 1024).toFixed(1)} MB).`);
+    return raspSqliteDb;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Detect the actual line-ending size in the CSV once and cache it.
- * Returns 1 for LF-only files, 2 for CRLF.  Defaults to 1.
- */
-let raspCsvLineEndingSize = 1;
-function detectRaspLineEnding(csvPath: string): void {
+function lookupRaspSqlite(
+  db: DatabaseSync,
+  uniprotId: string,
+  pos: number,
+  wt: string,
+  mut: string
+): { score: number | null; reason?: string } {
   try {
-    const sample = Buffer.alloc(512);
-    const fd = fs.openSync(csvPath, "r");
-    const bytesRead = fs.readSync(fd, sample, 0, 512, 0);
-    fs.closeSync(fd);
-    for (let i = 0; i < bytesRead - 1; i++) {
-      if (sample[i] === 0x0d && sample[i + 1] === 0x0a) { // CR LF
-        raspCsvLineEndingSize = 2;
-        return;
-      }
-      if (sample[i] === 0x0a) { // bare LF
-        raspCsvLineEndingSize = 1;
-        return;
-      }
-    }
-  } catch { /* keep default */ }
+    const wt1 = wt.length === 3 ? AMINO_ACID_3_TO_1[wt.toUpperCase()] || wt : wt;
+    const mut1 = mut.length === 3 ? AMINO_ACID_3_TO_1[mut.toUpperCase()] || mut : mut;
+    const stmt = db.prepare(
+      "SELECT rasp_score FROM rasp_variants WHERE uniprot_id = ? AND pos = ? AND wt = ? AND mut = ? LIMIT 1"
+    );
+    const row = (stmt.get as any)(uniprotId, pos, wt1.toUpperCase(), mut1.toUpperCase()) as { rasp_score: number | null } | undefined;
+    if (row === undefined) return { score: null, reason: "Residue position is not present in the pre-computed database" };
+    return { score: row.rasp_score };
+  } catch (err: any) {
+    console.warn("[RaSP SQLite] Lookup error:", err.message);
+    return { score: null, reason: "Error querying pre-computed RaSP database" };
+  }
 }
 
 function getFileMd5(filePath: string): Promise<string> {
@@ -150,174 +129,38 @@ async function downloadRaspDatabase(csvPath: string): Promise<void> {
     } catch (e) {}
     throw new Error(`Checksum mismatch for downloaded database: expected ${expectedHash}, got ${actualHash}`);
   }
-  console.log("[RaSP] Checksum verified successfully. Creating byte-offset index...");
-  await createRaspIndex(csvPath);
-}
-
-let raspIndex: Record<string, number> | null = null;
-let raspFd: number | null = null;
-// #5 fix: sorted offset pairs cached once at loadRaspIndex time (never re-sorted per lookup)
-let raspSortedOffsets: { uniprot: string; offset: number }[] | null = null;
-
-function getRaspFd(csvPath: string): number {
-  if (raspFd !== null) return raspFd;
-  try {
-    raspFd = fs.openSync(csvPath, "r");
-  } catch (err: any) {
-    console.error("[RaSP] Failed to open CSV file:", err.message);
-  }
-  return raspFd!;
-}
-
-function loadRaspIndex(csvPath: string): Record<string, number> {
-  if (raspIndex) return raspIndex;
-  const indexPath = csvPath.replace(".csv", ".index.json");
-  if (fs.existsSync(indexPath)) {
-    try {
-      const raw = JSON.parse(fs.readFileSync(indexPath, "utf8")) as Record<string, unknown>;
-      // #6 fix: strip the non-numeric _meta entry before building the offset map
-      const filtered: Record<string, number> = {};
-      for (const [k, v] of Object.entries(raw)) {
-        if (k !== "_meta" && typeof v === "number") {
-          filtered[k] = v;
-        }
-      }
-      raspIndex = filtered;
-      // #5 fix: compute and cache the sorted array once so lookups are O(log n) not O(n log n)
-      raspSortedOffsets = Object.entries(filtered)
-        .map(([uniprot, offset]) => ({ uniprot, offset }))
-        .sort((a, b) => a.offset - b.offset);
-      return raspIndex;
-    } catch (err) {
-      console.warn("[RaSP] Failed to parse index file, recreating...", err);
-    }
-  }
-  return {};
-}
-
-// ---------------------------------------------------------------------------
-// SQLite-backed RaSP lookup (Part4 #1 architectural fix)
-// Activated once scripts/build-rasp-sqlite.ts has been run.
-// ---------------------------------------------------------------------------
-const RASP_SQLITE_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
-let raspSqliteDb: DatabaseSync | null = null;
-let raspSqliteChecked = false;
-
-function getRaspSqliteDb(): DatabaseSync | null {
-  if (raspSqliteChecked) return raspSqliteDb;
-  raspSqliteChecked = true;
-  try {
-    const stat = fs.statSync(RASP_SQLITE_PATH);
-    if (stat.size < 1024) return null; // placeholder / empty
-    const db = new DatabaseSync(RASP_SQLITE_PATH, { open: true });
-    // Quick sanity check
-    const row = (db.prepare("SELECT count(*) as c FROM rasp_variants LIMIT 1").get as any)() as { c: number } | undefined;
-    if (!row || row.c === 0) {
-      db.close();
-      console.warn("[RaSP SQLite] Database exists but is empty — using CSV fallback.");
-      return null;
-    }
-    raspSqliteDb = db;
-    console.log(`[RaSP SQLite] Indexed database active (${(stat.size / 1024 / 1024).toFixed(1)} MB).`);
-    return raspSqliteDb;
-  } catch {
-    return null; // SQLite not yet built — CSV fallback is used
-  }
-}
-
-function lookupRaspSqlite(
-  db: DatabaseSync,
-  uniprotId: string,
-  pos: number,
-  wt: string,
-  mut: string
-): { score: number | null; reason?: string } | null {
-  try {
-    const stmt = db.prepare(
-      "SELECT rasp_score FROM rasp_variants WHERE uniprot_id = ? AND pos = ? AND wt = ? AND mut = ? LIMIT 1"
-    );
-    const row = (stmt.get as any)(uniprotId, pos, wt.toUpperCase(), mut.toUpperCase()) as { rasp_score: number | null } | undefined;
-    if (row === undefined) return { score: null, reason: "Residue position is not present in the pre-computed database" };
-    return { score: row.rasp_score };
-  } catch (err: any) {
-    console.warn("[RaSP SQLite] Lookup error:", err.message);
-    return null; // signal: fall back to CSV
-  }
-}
-
-async function verifyRaspCsvIntegrity(csvPath: string): Promise<boolean> {
-  try {
-    const metadataRes = await fetch("https://zenodo.org/api/records/6835877", { signal: AbortSignal.timeout(10000) });
-    if (!metadataRes.ok) {
-      console.warn(`[RaSP] Failed to query Zenodo metadata for checksum: ${metadataRes.statusText}`);
-      return false;
-    }
-    const metadata = await metadataRes.json() as any;
-    const fileInfo = metadata.files.find((f: any) => (f.key || f.filename) === "df_rasp_gnomad_clinvar.csv");
-    if (!fileInfo) {
-      console.warn("[RaSP] Could not find df_rasp_gnomad_clinvar.csv in Zenodo record.");
-      return false;
-    }
-    const expectedHash = fileInfo.checksum.replace(/^md5:/, "");
-    const actualHash = await getFileMd5(csvPath);
-    return actualHash === expectedHash;
-  } catch (err: any) {
-    console.warn(`[RaSP] Error during MD5 integrity check:`, err.message);
-    return false;
-  }
 }
 
 export async function initializeRaspDatabase(): Promise<void> {
-  // Try SQLite first (#1 architectural fix) — no further init needed if available
   if (getRaspSqliteDb()) return;
 
-  const csvPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
-  if (!fs.existsSync(csvPath)) {
-    console.log("[RaSP] Human proteome database not found locally. Triggering background download...");
-    downloadRaspDatabase(csvPath).catch(err => {
-      console.error("[RaSP Initialization Error] Failed to download precomputed RaSP database:", err.message);
-    });
-  } else {
-    try {
-      detectRaspLineEnding(csvPath);
-      const index = loadRaspIndex(csvPath);
-      if (Object.keys(index).length === 0) {
-        console.log("[RaSP] Index is missing or empty. Verifying database CSV MD5 checksum before index generation...");
-        verifyRaspCsvIntegrity(csvPath).then(async (isValid) => {
-          if (isValid) {
-            console.log("[RaSP] Checksum verified. Re-generating index...");
-            await createRaspIndex(csvPath);
-            loadRaspIndex(csvPath);
-            getRaspFd(csvPath);
-          } else {
-            console.warn("[RaSP] Local database CSV file is corrupted (checksum mismatch) or unreachable. Re-downloading...");
-            try { fs.unlinkSync(csvPath); } catch (_) {}
-            await downloadRaspDatabase(csvPath);
-          }
-        }).catch(err => {
-          console.error("[RaSP] Failed to verify and initialize database:", err.message);
-        });
-      } else {
-        getRaspFd(csvPath);
-      }
-    } catch (_) {}
-  }
-}
+  const { buildRaspSqliteDatabase } = await import("../../scripts/build-rasp-sqlite.ts");
 
-function binarySearchOffset(arr: { offset: number }[], targetOffset: number): number {
-  let low = 0;
-  let high = arr.length - 1;
-  while (low <= high) {
-    const mid = (low + high) >> 1;
-    if (arr[mid].offset === targetOffset) {
-      return mid;
-    } else if (arr[mid].offset < targetOffset) {
-      low = mid + 1;
-    } else {
-      high = mid - 1;
+  if (fs.existsSync(RASP_CSV_PATH)) {
+    console.log("[RaSP] CSV found without SQLite index. Triggering automatic SQLite build...");
+    try {
+      await buildRaspSqliteDatabase(RASP_CSV_PATH, RASP_SQLITE_PATH);
+      raspSqliteChecked = false;
+      getRaspSqliteDb();
+      return;
+    } catch (err: any) {
+      console.error("[RaSP SQLite Migration Error]", err.message);
     }
   }
-  return -1;
+
+  if (!fs.existsSync(RASP_SQLITE_PATH)) {
+    console.log("[RaSP] Human proteome database not found locally. Triggering background download...");
+    downloadRaspDatabase(RASP_CSV_PATH)
+      .then(async () => {
+        console.log("[RaSP] Building SQLite index from downloaded database...");
+        await buildRaspSqliteDatabase(RASP_CSV_PATH, RASP_SQLITE_PATH);
+        raspSqliteChecked = false;
+        getRaspSqliteDb();
+      })
+      .catch(err => {
+        console.error("[RaSP Initialization Error] Failed to download precomputed RaSP database:", err.message);
+      });
+  }
 }
 
 export async function lookupPrecomputedRaspScore(
@@ -326,100 +169,26 @@ export async function lookupPrecomputedRaspScore(
   wt: string,
   mut: string
 ): Promise<{ score: number | null; reason?: string }> {
-  // --- SQLite path (Part4 #1 fix) — O(log n) indexed lookup ---
   const sqliteDb = getRaspSqliteDb();
   if (sqliteDb) {
-    const result = lookupRaspSqlite(sqliteDb, uniprotId, pos, wt, mut);
-    if (result !== null) return result;
-    // null means the SQLite lookup itself errored — fall through to CSV
-  }
-  // --- CSV fallback (legacy path — active until SQLite is built) ---
-  const csvPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
-  if (!fs.existsSync(csvPath)) {
-    console.warn("[RaSP] Human proteome database is not ready yet. Skipping lookup.");
-    return { score: null, reason: "Pre-computed RaSP database unavailable" };
+    return lookupRaspSqlite(sqliteDb, uniprotId, pos, wt, mut);
   }
 
-  if (uniprotId.startsWith("_")) {
-    return { score: null, reason: "Protein is not present in the pre-computed database" };
-  }
-  const index = loadRaspIndex(csvPath);
-  const offset = index[uniprotId];
-  if (offset === undefined) {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[RaSP] Protein ${uniprotId} not found in human database.`);
-    }
-    return { score: null, reason: "Protein is not present in the pre-computed database" };
-  }
+  return { score: null, reason: "Pre-computed RaSP database unavailable" };
+}
 
-  const wt1 = wt.length === 3 ? AMINO_ACID_3_TO_1[wt.toUpperCase()] || wt : wt;
-  const mut1 = mut.length === 3 ? AMINO_ACID_3_TO_1[mut.toUpperCase()] || mut : mut;
-  const targetVariant = `${wt1}${pos}${mut1}`;
-
-  // Use the pre-sorted cached array (#5 fix — no per-lookup O(n log n) sort)
-  const sortedOffsets = raspSortedOffsets ?? (
-    Object.entries(index)
-      .map(([uniprot, o]) => ({ uniprot, offset: o as number }))
-      .sort((a, b) => a.offset - b.offset)
-  );
-  const currentIdx = binarySearchOffset(sortedOffsets, offset);
-  const nextOffset = currentIdx !== -1 && currentIdx < sortedOffsets.length - 1
-    ? sortedOffsets[currentIdx + 1].offset
-    : null;
-
-  let endOffset: number;
-  if (nextOffset !== null) {
-    endOffset = nextOffset;
-  } else {
+/**
+ * Release any open RaSP database file descriptors and reset in-memory caches.
+ */
+export function closeRaspResources(): void {
+  if (raspSqliteDb) {
     try {
-      const stat = fs.statSync(csvPath);
-      endOffset = stat.size;
-    } catch (_) {
-      endOffset = offset + 1024 * 1024; // fallback 1MB
-    }
+      raspSqliteDb.close();
+    } catch {}
+    raspSqliteDb = null;
   }
-  const chunkSize = Math.max(0, endOffset - offset);
-  if (chunkSize === 0) {
-    return { score: null, reason: "Residue position is not present in the pre-computed database" };
-  }
-
-  return new Promise((resolve) => {
-    const fd = getRaspFd(csvPath);
-    if (fd === null || fd === undefined) {
-      resolve({ score: null, reason: "Failed to open pre-computed database" });
-      return;
-    }
-
-    const buffer = Buffer.alloc(chunkSize);
-    fs.read(fd, buffer, 0, chunkSize, offset, (err, bytesRead) => {
-      if (err) {
-        console.error("[RaSP] Read error:", err);
-        resolve({ score: null, reason: "Error reading database" });
-        return;
-      }
-
-      const content = buffer.toString("utf8", 0, bytesRead);
-      const lines = content.split(/\r?\n/);
-      let foundScore: number | null = null;
-
-      for (const line of lines) {
-        const parts = line.split(",");
-        if (parts[0] === uniprotId && parts[4] === targetVariant) {
-          const score = parseFloat(parts[5]);
-          if (!isNaN(score)) {
-            foundScore = score;
-            break;
-          }
-        }
-      }
-
-      if (foundScore !== null) {
-        resolve({ score: foundScore });
-      } else {
-        resolve({ score: null, reason: "Residue position is not present in the pre-computed database" });
-      }
-    });
-  });
+  raspSqliteChecked = false;
+  raspCache.clear();
 }
 
 /**
@@ -673,6 +442,7 @@ export function enrichBiophysicalResult(
   const foldxSeed = foldxRawResult?.energetics?.seed ?? null;
   const rasp = foldxRawResult?.energetics?.rasp ?? null;
   const raspReason = foldxRawResult?.energetics?.raspReason ?? undefined;
+  const stabilityoracleVal = jobs.stabilityoracleVal ?? foldxRawResult?.energetics?.stabilityoracle ?? null;
 
   const pendingTools: string[] = [];
   if (jobs.dynamut2Status === "pending") pendingTools.push("DynaMut2");
@@ -685,7 +455,7 @@ export function enrichBiophysicalResult(
     foldxMean,
     rasp,
     thermompnn: jobs.thermompnnVal ?? null,
-    stabilityoracle: jobs.stabilityoracleVal ?? null,
+    stabilityoracle: stabilityoracleVal,
     foldxRepairFailed
   });
   const rawConsensusVerdict = calResult.consensusVerdict;
@@ -720,7 +490,7 @@ export function enrichBiophysicalResult(
       rasp,
       raspReason,
       thermompnn: jobs.thermompnnVal ?? null,
-      stabilityoracle: jobs.stabilityoracleVal ?? null,
+      stabilityoracle: stabilityoracleVal,
       consensusProbability: calResult.consensusProbability,
       consensusConfMin: calResult.consensusConfMin,
       consensusConfMax: calResult.consensusConfMax,

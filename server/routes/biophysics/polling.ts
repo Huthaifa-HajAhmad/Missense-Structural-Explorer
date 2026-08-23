@@ -266,6 +266,28 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     }
   });
 
+  const BIOSIG_MAX_AGE_MS = 60 * 1000; // 60s max wait for remote academic server
+
+  async function checkBioSigJobStaleness(jobId: string, tool: "dynamut2" | "ddmut"): Promise<boolean> {
+    try {
+      if (fs.existsSync(REGISTRY_PATH)) {
+        const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+        const registry: RegistryJob[] = JSON.parse(content);
+        const entry = registry.find(j => j.jobId === jobId && j.type === tool);
+        if (entry) {
+          const ageMs = Date.now() - new Date(entry.timestamp).getTime();
+          if (ageMs > BIOSIG_MAX_AGE_MS) {
+            console.warn(`[BioSig Staleness] ${tool} job ${jobId} is ${Math.round(ageMs / 1000)}s old (>60s timeout).`);
+            return true;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[BioSig Staleness] Failed to read registry for ${tool}:`, err.message);
+    }
+    return false;
+  }
+
   apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
     const { jobId } = req.params;
     const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
@@ -275,18 +297,25 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return;
     }
 
+    const isStale = await checkBioSigJobStaleness(jobId, "dynamut2");
+    if (isStale) {
+      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
+      broadcastJobUpdate({ jobId, tool: "dynamut2", status: "UNAVAILABLE" });
+      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>60s wait)." });
+    }
+
     const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
     const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
     const ddmut = req.query?.ddmut ? parseFloat(req.query.ddmut as string) : null;
+    const stabilityoracle = req.query?.stabilityoracle ? parseFloat(req.query.stabilityoracle as string) : null;
     const foldxRepairFailed = req.query?.foldxRepairFailed === "true";
 
     try {
       const result = await pollDynaMut2Job(jobId);
       if (!result || result.status === "ERROR") {
-        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
-        broadcastJobUpdate({ jobId, tool: "dynamut2", status: "ERROR" });
-        // Terminal error: return 200 so client treats it as final, not a reschedule signal (P0-3)
-        return res.json({ jobId, status: "ERROR", prediction: null, error: "DynaMut2 job polling failed: upstream server returned an error." });
+        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
+        broadcastJobUpdate({ jobId, tool: "dynamut2", status: "UNAVAILABLE" });
+        return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "DynaMut2 upstream server currently unavailable." });
       }
 
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
@@ -296,7 +325,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
 
       const calResult = result.status === "DONE" && result.prediction !== null
-        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, foldxRepairFailed })
+        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, stabilityoracle, foldxRepairFailed })
         : null;
 
       res.json({
@@ -309,9 +338,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         consensusConfMax: calResult ? calResult.consensusConfMax : null
       });
     } catch (err: any) {
-      console.error(`[Route Error] DynaMut2 job polling failed for ${jobId}:`, err.message);
-      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "ERROR" });
-      return res.json({ jobId, status: "ERROR", prediction: null, error: `DynaMut2 job polling failed: ${err.message}` });
+      console.warn(`[Route Warning] DynaMut2 job polling failed for ${jobId}:`, err.message);
+      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
+      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: `DynaMut2 upstream unavailable: ${err.message}` });
     }
   });
 
@@ -324,36 +353,25 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return;
     }
 
-    const DDM_MAX_AGE_MS = 8 * 60 * 1000;
-    try {
-      if (fs.existsSync(REGISTRY_PATH)) {
-        const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
-        const registry: RegistryJob[] = JSON.parse(content);
-        const entry = registry.find(j => j.jobId === jobId && j.type === "ddmut");
-        if (entry) {
-          const ageMs = Date.now() - new Date(entry.timestamp).getTime();
-          if (ageMs > DDM_MAX_AGE_MS) {
-            console.warn(`[DDMut Staleness] Job ${jobId} is ${Math.round(ageMs / 60000)}m old and still RUNNING — treating as ERROR (zombie job).`);
-            await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "STALE_ERROR", ageMs });
-            return res.json({ jobId, status: "ERROR", prediction: null, error: "Job execution timed out or hung on the upstream server." });
-          }
-        }
-      }
-    } catch (registryErr: any) {
-      console.warn("[DDMut Staleness] Could not read job registry:", registryErr.message);
+    const isStale = await checkBioSigJobStaleness(jobId, "ddmut");
+    if (isStale) {
+      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
+      broadcastJobUpdate({ jobId, tool: "ddmut", status: "UNAVAILABLE" });
+      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>60s wait)." });
     }
 
     const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
     const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
     const dynamut2 = req.query?.dynamut2 ? parseFloat(req.query.dynamut2 as string) : null;
+    const stabilityoracle = req.query?.stabilityoracle ? parseFloat(req.query.stabilityoracle as string) : null;
     const foldxRepairFailed = req.query?.foldxRepairFailed === "true";
 
     try {
       const result = await pollDdmutJob(jobId);
       if (!result || result.status === "ERROR") {
-        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
-        broadcastJobUpdate({ jobId, tool: "ddmut", status: "ERROR" });
-        return res.json({ jobId, status: "ERROR", prediction: null, error: "DDMut job polling failed: upstream server returned an error." });
+        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
+        broadcastJobUpdate({ jobId, tool: "ddmut", status: "UNAVAILABLE" });
+        return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "DDMut upstream server currently unavailable." });
       }
 
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
@@ -363,7 +381,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
 
       const calResult = result.status === "DONE" && result.prediction !== null
-        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, foldxRepairFailed })
+        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, stabilityoracle, foldxRepairFailed })
         : null;
 
       res.json({
@@ -376,9 +394,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         consensusConfMax: calResult ? calResult.consensusConfMax : null
       });
     } catch (err: any) {
-      console.error(`[Route Error] DDMut job polling failed for ${jobId}:`, err.message);
-      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "ERROR" });
-      return res.json({ jobId, status: "ERROR", prediction: null, error: `DDMut job polling failed: ${err.message}` });
+      console.warn(`[Route Warning] DDMut job polling failed for ${jobId}:`, err.message);
+      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
+      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: `DDMut upstream unavailable: ${err.message}` });
     }
   });
 

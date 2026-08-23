@@ -161,7 +161,7 @@ function classifyVariant(criteria: ACMGItem[]): string {
   // ---- Likely Pathogenic ----
   const isLikelyPathogenic =
     !isPathogenic && (
-      (nPVS >= 1 && nPM >= 1) ||
+      (nPVS >= 1 && (nPM >= 1 || nPP >= 2)) ||
       (nPS >= 1 && nPM >= 1 && nPM <= 2) ||
       (nPS >= 1 && nPP >= 2) ||
       nPM >= 3 ||
@@ -225,83 +225,24 @@ export interface ACMGEvidenceInput {
   serviceStatus?: Record<string, string> | any | null;
 }
 
-export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsights;
-export function computeRuleBasedACMG(
-  gene: string,
-  variant: string,
-  clinvar?: Partial<ClinVarData> | ClinVarData | null,
-  predictorData?: Partial<PredictorData> | PredictorData | null,
-  conservationData?: Partial<ConservationData> | ConservationData | null,
-  gnomadConstraint?: GnomadGeneConstraint | {
-    missense_z: number | null;
-    oe_mis: number | null;
-    pli: number | null;
-    isPP2Constrained: boolean;
-  } | null,
-  gnomadFrequency?: GnomadVariantFrequency | {
-    maxAF: number | null;
-    groupMaxAF: number | null;
-    genomeAF: number | null;
-    exomeAF: number | null;
-    nHomozygous: number | null;
-    dataset: string;
-    groupMaxAFIsFallback?: boolean;
-  } | null,
-  acmgWeighting?: "standard" | "conservative" | "strict-structural",
-  esm2?: { llr: number | null; verdict: string } | null,
-  uniprotFeatures?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null,
-  sequence?: string | null,
-  esmcEval?: any | null,
-  esm2Eval?: any | null,
-  saprotEval?: any | null,
-  serviceStatus?: Record<string, string> | any | null
-): RuleBasedInsights;
-export function computeRuleBasedACMG(
-  geneOrInput: string | ACMGEvidenceInput,
-  variantArg?: string,
-  clinvarArg?: Partial<ClinVarData> | ClinVarData | null,
-  predictorDataArg?: Partial<PredictorData> | PredictorData | null,
-  conservationDataArg?: Partial<ConservationData> | ConservationData | null,
-  gnomadConstraintArg?: GnomadGeneConstraint | {
-    missense_z: number | null;
-    oe_mis: number | null;
-    pli: number | null;
-    isPP2Constrained: boolean;
-  } | null,
-  gnomadFrequencyArg?: GnomadVariantFrequency | {
-    maxAF: number | null;
-    groupMaxAF: number | null;
-    genomeAF: number | null;
-    exomeAF: number | null;
-    nHomozygous: number | null;
-    dataset: string;
-    groupMaxAFIsFallback?: boolean;
-  } | null,
-  acmgWeightingArg: "standard" | "conservative" | "strict-structural" = "standard",
-  esm2Arg?: { llr: number | null; verdict: string } | null,
-  uniprotFeaturesArg?: { features?: Array<{ type: string; start: number; end: number; description?: string }>; [key: string]: any } | UniprotFeaturesResult | null,
-  sequenceArg?: string | null,
-  esmcEvalArg?: any | null,
-  esm2EvalArg?: any | null,
-  saprotEvalArg?: any | null,
-  serviceStatusArg?: Record<string, string> | any | null
-): RuleBasedInsights {
-  const isInputObj = typeof geneOrInput === "object" && geneOrInput !== null;
-  const gene = isInputObj ? geneOrInput.gene : (geneOrInput as string);
-  const variant = isInputObj ? geneOrInput.variant : (variantArg as string);
-  const clinvar = isInputObj ? (geneOrInput.clinvar ?? null) : (clinvarArg ?? null);
-  const predictorData = isInputObj ? (geneOrInput.predictorData ?? null) : (predictorDataArg ?? null);
-  const conservationData = isInputObj ? (geneOrInput.conservationData ?? null) : (conservationDataArg ?? null);
-  const gnomadConstraint = isInputObj ? geneOrInput.gnomadConstraint : gnomadConstraintArg;
-  const gnomadFrequency = isInputObj ? geneOrInput.gnomadFrequency : gnomadFrequencyArg;
-  const acmgWeighting = (isInputObj ? geneOrInput.acmgWeighting : acmgWeightingArg) ?? "standard";
-  const esm2 = isInputObj ? geneOrInput.esm2 : esm2Arg;
-  const uniprotFeatures = isInputObj ? geneOrInput.uniprotFeatures : uniprotFeaturesArg;
-  const sequence = isInputObj ? geneOrInput.sequence : sequenceArg;
-  const esmcEval = isInputObj ? geneOrInput.esmcEval : esmcEvalArg;
-  const esm2Eval = isInputObj ? geneOrInput.esm2Eval : esm2EvalArg;
-  const saprotEval = isInputObj ? geneOrInput.saprotEval : saprotEvalArg;
-  const serviceStatus = isInputObj ? geneOrInput.serviceStatus : serviceStatusArg;
+export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsights {
+  const {
+    gene,
+    variant,
+    clinvar = null,
+    predictorData = null,
+    conservationData = null,
+    gnomadConstraint = null,
+    gnomadFrequency = null,
+    acmgWeighting = "standard",
+    esm2 = null,
+    uniprotFeatures = null,
+    sequence = null,
+    esmcEval = null,
+    esm2Eval = null,
+    saprotEval = null,
+    serviceStatus = null
+  } = input;
   const criteria: ACMGItem[] = [];
 
   const clinvarClass = (clinvar?.classification || "").toLowerCase();
@@ -462,6 +403,10 @@ export function computeRuleBasedACMG(
   } else if (gnomadFrequency && gnomadFrequency.maxAF !== null) {
     maxFreq = gnomadFrequency.maxAF;
     hasFreq = true;
+  } else if (serviceStatus?.gnomadFrequency === "not_found") {
+    // Confirmed queried in gnomAD and explicitly absent from population reference
+    maxFreq = 0;
+    hasFreq = true;
   } else if (clinvar?.alleleFrequencies && Array.isArray(clinvar.alleleFrequencies)) {
     for (const freq of clinvar.alleleFrequencies) {
       if (freq.value !== null && freq.value !== undefined) {
@@ -584,7 +529,8 @@ export function computeRuleBasedACMG(
   // PM4 / BP3 — In-frame Indels in repeat vs non-repeat regions
   // -------------------------------------------------------------------------
   if (isInFrameIndel(variant)) {
-    const pos = parseInt(variant.replace(/\D/g, ""), 10);
+    const match = variant.match(/\d+/);
+    const pos = match ? parseInt(match[0], 10) : NaN;
     const isRepeat = sequence ? isIndelInRepeatRegion(sequence, pos) : false;
     
     if (isRepeat) {

@@ -1,11 +1,15 @@
 import { type Router } from "express";
 import { sendError } from "../../utils.ts";
-import { getGeneCitations, syncLiteratureForGene } from "../../services/literature-rag.ts";
+import { getGeneCitations, syncLiteratureForGene, searchGeneLiterature } from "../../services/literature-rag.ts";
 
 export function registerLiteratureRoutes(apiRouter: Router): void {
   apiRouter.get("/literature/:gene", async (req, res) => {
     const { gene } = req.params;
     const force = req.query.force === "true";
+    const customQuery = typeof req.query.query === "string" && req.query.query.trim().length > 0 
+      ? req.query.query.trim() 
+      : undefined;
+
     if (!gene || gene.trim() === "") {
       sendError(res, 400, "BAD_REQUEST", "Gene parameter is required.");
       return;
@@ -13,16 +17,23 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
     
     try {
       const customApiKey = req.headers["x-gemini-session-id"] as string | undefined;
-      let citations = await getGeneCitations(gene);
-      if (force || citations.length === 0) {
-        console.log(`[RAG Route] Syncing literature for gene: ${gene} (force=${force})`);
-        try {
-          await syncLiteratureForGene(gene, customApiKey);
-        } catch (syncErr: any) {
-          console.warn(`[RAG Route Warning] Sync error for ${gene}:`, syncErr.message);
-        }
+      let citations;
+
+      if (customQuery) {
+        citations = await searchGeneLiterature(gene, customApiKey, undefined, customQuery);
+      } else {
         citations = await getGeneCitations(gene);
+        if (force || citations.length === 0) {
+          console.log(`[RAG Route] Syncing default literature for gene: ${gene} (force=${force})`);
+          try {
+            await syncLiteratureForGene(gene, customApiKey);
+          } catch (syncErr: any) {
+            console.warn(`[RAG Route Warning] Sync error for ${gene}:`, syncErr.message);
+          }
+          citations = await getGeneCitations(gene);
+        }
       }
+
       res.json({
         gene: gene.toUpperCase(),
         citations

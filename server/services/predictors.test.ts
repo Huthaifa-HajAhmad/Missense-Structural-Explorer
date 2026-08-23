@@ -12,53 +12,53 @@ import {
 describe("MissenseResolve® Correctness & Predictors Tests", () => {
   describe("MissenseResolve® Correctness Rules", () => {
     it("should assign PVS1 for nonsense/stop/frameshift variants in known constrained genes when NMD is predicted", () => {
-      const res = computeRuleBasedACMG(
-        "PAH",
-        "p.Arg100*",
-        null,
-        { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
-        { available: false, revel: null },
-        { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
-        null,
-        "standard",
-        null,
-        null,
-        "A".repeat(452)
-      );
+      const res = computeRuleBasedACMG({
+        gene: "PAH",
+        variant: "p.Arg100*",
+        clinvar: null,
+        predictorData: { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
+        conservationData: { available: false, revel: null },
+        gnomadConstraint: { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        gnomadFrequency: null,
+        acmgWeighting: "standard",
+        esm2: null,
+        uniprotFeatures: null,
+        sequence: "A".repeat(452)
+      });
       expect(res.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
     });
 
     it("should assign PVS1_Moderate for C-terminal nonsense variants without critical domain overlap", () => {
-      const res = computeRuleBasedACMG(
-        "PAH",
-        "p.Arg408*",
-        null,
-        { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
-        { available: false, revel: null },
-        { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
-        null,
-        "standard",
-        null,
-        null,
-        "A".repeat(452)
-      );
+      const res = computeRuleBasedACMG({
+        gene: "PAH",
+        variant: "p.Arg408*",
+        clinvar: null,
+        predictorData: { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
+        conservationData: { available: false, revel: null },
+        gnomadConstraint: { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        gnomadFrequency: null,
+        acmgWeighting: "standard",
+        esm2: null,
+        uniprotFeatures: null,
+        sequence: "A".repeat(452)
+      });
       expect(res.acmgCriteria.some(c => c.code === "PVS1_Moderate")).toBe(true);
     });
 
     it("should assign PVS1_Strong for C-terminal nonsense variants with critical domain overlap", () => {
-      const res = computeRuleBasedACMG(
-        "PAH",
-        "p.Arg408*",
-        null,
-        { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
-        { available: false, revel: null },
-        { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
-        null,
-        "standard",
-        null,
-        { features: [{ type: "domain", start: 400, end: 420 }] },
-        "A".repeat(452)
-      );
+      const res = computeRuleBasedACMG({
+        gene: "PAH",
+        variant: "p.Arg408*",
+        clinvar: null,
+        predictorData: { available: true, amPathogenicity: null, amClass: null, caddPhred: null },
+        conservationData: { available: false, revel: null },
+        gnomadConstraint: { pli: 0.95, missense_z: 1.0, oe_mis: 1.0, isPP2Constrained: false },
+        gnomadFrequency: null,
+        acmgWeighting: "standard",
+        esm2: null,
+        uniprotFeatures: { features: [{ type: "domain", start: 400, end: 420 }] },
+        sequence: "A".repeat(452)
+      });
       expect(res.acmgCriteria.some(c => c.code === "PVS1_Strong")).toBe(true);
     });
 
@@ -196,5 +196,44 @@ END
       const resNormal = await predictStructuralDisruption(pdbNeutral, "A", 30, "V", "A");
       expect(resNormal.level).toBe("low");
     }, 30000);
+  });
+
+  describe("Progressive Conservation Merge", () => {
+    it("should progressively merge async PDB mapping and predictor enrichment into base conservation data", async () => {
+      const { fetchConservationDataProgressive } = await import("./predictors.ts");
+
+      const mockPdbMappingPromise = Promise.resolve({
+        pdbId: "1TUP",
+        chainId: "A",
+        shift: 0,
+        unpStart: 1,
+        structStart: 1
+      });
+
+      const mockPredictorPromise = Promise.resolve({
+        gnomadVariantId: "17-7577121-G-A",
+        transcriptId: "ENST00000269305"
+      });
+
+      const mockGenosPromise = Promise.resolve({
+        revel: 0.85,
+        gerp: 4.5,
+        phylop: 7.2,
+        popeve: 1.2
+      });
+
+      const result = await fetchConservationDataProgressive({
+        gene: "TP53",
+        variant: "p.R273H",
+        pos: 273,
+        uniprotId: "P04637",
+        pdbMappingPromise: mockPdbMappingPromise,
+        predictorPromise: mockPredictorPromise,
+        genosPromise: mockGenosPromise
+      });
+
+      expect(result).toBeDefined();
+      expect(result.available).toBe(true);
+    }, 25000);
   });
 });

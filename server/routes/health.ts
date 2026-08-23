@@ -23,6 +23,8 @@ import {
 import { mutantCache } from "../services/foldx.ts";
 import { geminiCache } from "./shared.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
+import { adapterRegistry } from "../services/adapters/service-adapters.ts";
+import { CONFIG } from "../config.ts";
 
 export function registerHealthRoutes(apiRouter: Router): void {
   apiRouter.get("/health", (req, res) => {
@@ -52,7 +54,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
     // modelServerReady: query local FastAPI sidecar health endpoint (A-6)
     let modelServerReady = false;
     try {
-      const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(500) });
+      const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(500) });
       if (sidecarRes.ok) {
         const data = await sidecarRes.json() as any;
         modelServerReady = data.status === "healthy";
@@ -80,6 +82,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
       geminiCache: { size: geminiCache.size, max: 200, ttl: "24h" }
     };
 
+    const serviceHealth = await adapterRegistry.checkAllHealth();
+
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -88,7 +92,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
       geminiModel,
       modelServerReady,
       auditLogFailures: AuditLogger.failureCount,
-      cacheDiagnostics
+      cacheDiagnostics,
+      serviceHealth
     });
   });
 

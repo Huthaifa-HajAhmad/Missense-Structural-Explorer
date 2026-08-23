@@ -6,15 +6,15 @@ import { countPredictorConcordance } from "../../src/shared/thresholds.ts";
 describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   it("should correctly classify standard evidence combinations (1 Very Strong + 1 Moderate -> Likely Pathogenic)", () => {
     const clinvar = { classification: "Likely pathogenic", uid: "123" };
-    const res = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
+    const res = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
       clinvar,
-      { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, consurf: 2 },
-      null,
-      { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
-    );
+      predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
+      conservationData: { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5, consurf: 2 },
+      gnomadConstraint: null,
+      gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" }
+    });
     
     expect(res.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
@@ -22,76 +22,76 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   });
 
   it("should count BS1 as strong benign and class as Likely Benign with BP4", () => {
-    const res = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
-      null,
-      { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      { available: true, revel: 0.1 },
-      null,
-      { maxAF: 0.015, groupMaxAF: 0.015, genomeAF: 0.015, exomeAF: 0.015, nHomozygous: 0, dataset: "gnomad" },
-      "standard"
-    );
+    const res = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
+      conservationData: { available: true, revel: 0.1 },
+      gnomadConstraint: null,
+      gnomadFrequency: { maxAF: 0.015, groupMaxAF: 0.015, genomeAF: 0.015, exomeAF: 0.015, nHomozygous: 0, dataset: "gnomad" },
+      acmgWeighting: "standard"
+    });
     expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
     expect(res.acmgCriteria.some(c => c.code === "BS1")).toBe(true);
     expect(res.acmgVerdict).toBe("Likely Benign");
   });
 
   it("should include bayesdel in PP3/BP4 predictor concordance", () => {
-    const res = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
-      null,
-      { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
-      { available: true, revel: 0.1, bayesdel: 0.2 }
-    );
+    const res = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
+      conservationData: { available: true, revel: 0.1, bayesdel: 0.2 }
+    });
     expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("BayesDel: 0.2");
     expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("3/4 predictors agree");
   });
 
   it("should respect PP3/BP4 concordance voting rules under conflicting predictor scenarios", () => {
-    const res1 = computeRuleBasedACMG(
-      "GBA1",
-      "p.Asn370Ser",
-      null,
-      { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
-      { available: true, revel: 0.1, gerp: 1.0, phylop: 0.5 }
-    );
+    const res1 = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.8, amClass: "pathogenic", caddPhred: 26 },
+      conservationData: { available: true, revel: 0.1, gerp: 1.0, phylop: 0.5 }
+    });
     expect(res1.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(res1.acmgCriteria.some(c => c.code === "BP4")).toBe(false);
 
-    const res2 = computeRuleBasedACMG(
-      "GBA1",
-      "p.Asn370Ser",
-      null,
-      { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
-      { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5 }
-    );
+    const res2 = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.1, amClass: "benign", caddPhred: 5 },
+      conservationData: { available: true, revel: 0.6, gerp: 1.0, phylop: 0.5 }
+    });
     expect(res2.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
     expect(res2.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
   });
 
   it("should assign PP3 when amClass is likely_pathogenic (ACMG-AM regression)", () => {
-    const res = computeRuleBasedACMG(
-      "LDLR",
-      "p.Glu101Lys",
-      null,
-      { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 26 },
-      { available: true, revel: 0.8 }
-    );
+    const res = computeRuleBasedACMG({
+      gene: "LDLR",
+      variant: "p.Glu101Lys",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 26 },
+      conservationData: { available: true, revel: 0.8 }
+    });
     expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("3/3");
   });
 
   it("should output accurate count, never false agreement wording, when only one predictor is available", () => {
-    const res = computeRuleBasedACMG(
-      "PTEN",
-      "p.Arg130Gln",
-      null,
-      { available: true, amPathogenicity: 0.85, amClass: "pathogenic", caddPhred: null },
-      { available: false, revel: null }
-    );
+    const res = computeRuleBasedACMG({
+      gene: "PTEN",
+      variant: "p.Arg130Gln",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.85, amClass: "pathogenic", caddPhred: null },
+      conservationData: { available: false, revel: null }
+    });
     const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
     expect(pp3).toBeDefined();
     expect(pp3?.reason).toContain("1/1 predictor supports");
@@ -99,22 +99,22 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   });
 
   it("should respect popEVE scores in ACMG PP3/BP4 concordance calculations", () => {
-    const res = computeRuleBasedACMG(
-      "GBA1",
-      "p.Asn370Ser",
-      null,
-      {
+    const res = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      clinvar: null,
+      predictorData: {
         available: true,
         amPathogenicity: 0.8,
         amClass: "pathogenic",
         caddPhred: 26,
       },
-      {
+      conservationData: {
         available: true,
         revel: 0.1,
         popeve: -3.775,
       }
-    );
+    });
     const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
     expect(pp3).toBeDefined();
     expect(pp3?.reason).toContain("3/4 predictors agree");
@@ -126,58 +126,58 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     const conservationData = { available: true, revel: 0.6 };
     const gnomadConstraintMock = { isPP2Constrained: true, missense_z: 3.0, oe_mis: 0.5, pli: null };
 
-    const resStandard = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
-      null,
+    const resStandard = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
       predictorData,
       conservationData,
-      gnomadConstraintMock,
-      { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
-      "standard"
-    );
+      gnomadConstraint: gnomadConstraintMock,
+      gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
+      acmgWeighting: "standard"
+    });
     expect(resStandard.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(resStandard.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resStandard.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
 
-    const resConservativeNoClinVar = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
-      null,
+    const resConservativeNoClinVar = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
       predictorData,
       conservationData,
-      gnomadConstraintMock,
-      { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
-      "conservative"
-    );
+      gnomadConstraint: gnomadConstraintMock,
+      gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
+      acmgWeighting: "conservative"
+    });
     expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
     expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PM2")).toBe(false);
     expect(resConservativeNoClinVar.acmgCriteria.some(c => c.code === "PP2")).toBe(false);
 
-    const resConservativeWithClinVar = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
-      { classification: "Pathogenic", uid: "123" },
+    const resConservativeWithClinVar = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: { classification: "Pathogenic", uid: "123" },
       predictorData,
       conservationData,
-      gnomadConstraintMock,
-      { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
-      "conservative"
-    );
+      gnomadConstraint: gnomadConstraintMock,
+      gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001, genomeAF: 0.00001, exomeAF: 0.00001, nHomozygous: 0, dataset: "gnomad" },
+      acmgWeighting: "conservative"
+    });
     expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
     expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
     expect(resConservativeWithClinVar.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
 
-    const resStrictStructural = computeRuleBasedACMG(
-      "PAH",
-      "p.Arg408Trp",
-      { classification: "Pathogenic", uid: "123" },
+    const resStrictStructural = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: { classification: "Pathogenic", uid: "123" },
       predictorData,
       conservationData,
-      gnomadConstraintMock,
-      null,
-      "strict-structural"
-    );
+      gnomadConstraint: gnomadConstraintMock,
+      gnomadFrequency: null,
+      acmgWeighting: "strict-structural"
+    });
     expect(resStrictStructural.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
     expect(resStrictStructural.acmgCriteria.some(c => c.code === "PM2")).toBe(false);
     expect(resStrictStructural.acmgCriteria.some(c => c.code === "PP2")).toBe(false);
@@ -196,23 +196,23 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 
   it("should respect splice-site adjacent and SpliceAI signals in PP3/BP4 concordance calculations", () => {
     // 1. Splice-site adjacent should vote pathogenic and trigger PP3
-    const resSpliceAdjacent = computeRuleBasedACMG(
-      "GBA1",
-      "p.Asn370Ser",
-      null,
-      {
+    const resSpliceAdjacent = computeRuleBasedACMG({
+      gene: "GBA1",
+      variant: "p.Asn370Ser",
+      clinvar: null,
+      predictorData: {
         available: true,
         amPathogenicity: 0.1,
         amClass: "benign",
         caddPhred: 10,
       },
-      {
+      conservationData: {
         available: true,
         revel: 0.05,
         spliceProximity: { distance: 2, isNearSpliceSite: true },
         spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
       }
-    );
+    });
     // Revel/AM/Cadd say benign, but splicing proximity says pathogenic. This results in conflicting signals.
     const concAdj = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
       spliceProximity: { distance: 2, isNearSpliceSite: true },
@@ -385,7 +385,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(resNullVar.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
   });
 
-  it("should accept single ACMGEvidenceInput object and produce identical outputs to positional args", () => {
+  it("should accept structured ACMGEvidenceInput object and correctly classify pathogenic variant", () => {
     const input = {
       gene: "BRAF",
       variant: "p.Val600Glu",
@@ -398,19 +398,10 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     };
 
     const resObj = computeRuleBasedACMG(input);
-    const resPos = computeRuleBasedACMG(
-      input.gene,
-      input.variant,
-      input.clinvar,
-      input.predictorData,
-      input.conservationData,
-      input.gnomadConstraint,
-      input.gnomadFrequency,
-      input.acmgWeighting
-    );
-
-    expect(resObj.acmgVerdict).toBe(resPos.acmgVerdict);
-    expect(resObj.acmgCriteria.map(c => c.code)).toEqual(resPos.acmgCriteria.map(c => c.code));
+    expect(resObj.acmgVerdict).toBeDefined();
+    expect(resObj.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+    expect(resObj.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
+    expect(resObj.acmgCriteria.some(c => c.code === "PP2")).toBe(true);
   });
 
   it("should withhold PM2 when gnomadFrequency serviceStatus is timeout or error", () => {
@@ -440,5 +431,41 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
 
     const resSuccess = computeRuleBasedACMG(inputWithSuccess);
     expect(resSuccess.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
+  });
+
+  it("should classify 1 Very Strong (PVS1) + 2 Supporting (PP) as Likely Pathogenic", () => {
+    const input = {
+      gene: "BRCA1",
+      variant: "p.Tyr100Ter",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.95, amClass: "pathogenic", caddPhred: 30 },
+      conservationData: { available: true, revel: 0.9 },
+      gnomadConstraint: { pli: 0.99, isPP2Constrained: true, missense_z: 2.5, oe_mis: 0.4 },
+      gnomadFrequency: null,
+      acmgWeighting: "standard" as const
+    };
+
+    const res = computeRuleBasedACMG(input);
+    expect(res.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
+    expect(res.acmgCriteria.filter(c => c.code.startsWith("PP")).length).toBeGreaterThanOrEqual(2);
+    expect(res.acmgVerdict).toBe("Likely Pathogenic");
+  });
+
+  it("should correctly parse leading coordinate for multi-residue in-frame indel", () => {
+    const input = {
+      gene: "CFTR",
+      variant: "p.Glu120_Lys122del",
+      clinvar: null,
+      predictorData: null,
+      conservationData: null,
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      sequence: "MAGLAAAVVVEEKKK",
+      acmgWeighting: "standard" as const
+    };
+
+    const res = computeRuleBasedACMG(input);
+    // Sequence is only 15 AA, so pos 120 is out of bounds, meaning isIndelInRepeatRegion returns false -> PM4
+    expect(res.acmgCriteria.some(c => c.code === "PM4")).toBe(true);
   });
 });

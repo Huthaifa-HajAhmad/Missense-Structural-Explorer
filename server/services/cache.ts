@@ -63,6 +63,11 @@ export const landscapeCache = new LRUCache<string, LandscapePositionData[]>({
   ttl: 1000 * 60 * 60 * 24, // 1-day TTL
 });
 
+export const narrativeCache = new LRUCache<string, any>({
+  max: 200,
+  ttl: 1000 * 60 * 60 * 24, // 24-hour TTL
+});
+
 import { AnalysisDatabase } from "./analysis-db.ts";
 
 export const bestPdbCache = new LRUCache<string, any>({
@@ -163,6 +168,7 @@ export function clearAllCaches(includeSqlite = false) {
   gnomadConstraintCache.clear();
   uniprotFeaturesCache.clear();
   landscapeCache.clear();
+  narrativeCache.clear();
   inFlightPromises.clear();
 
   if (includeSqlite) {

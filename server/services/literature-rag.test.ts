@@ -7,6 +7,7 @@ import {
   syncLiteratureForGene, 
   retrieveRelevantLiterature, 
   getGeneCitations,
+  formatQueryForEuropePmc,
   resetDbForTesting
 } from "./literature-rag.ts";
 
@@ -159,6 +160,19 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
 
       // Restore fetch
       global.fetch = originalFetch;
+    });
+
+    it("should format PubMed/MeSH syntax into clean Europe PMC queries", () => {
+      const defaultQ = formatQueryForEuropePmc(undefined, "CNNM2");
+      expect(defaultQ).toContain("CNNM2");
+      expect(defaultQ).toContain("mutation");
+
+      const pubmedQ = '(CNNM2[Gene]) AND ("missense"[All Fields] OR "mutation"[All Fields] OR p.ser489cys)';
+      const formatted = formatQueryForEuropePmc(pubmedQ, "CNNM2");
+      expect(formatted).not.toContain("[Gene]");
+      expect(formatted).not.toContain("[All Fields]");
+      expect(formatted).toContain("CNNM2");
+      expect(formatted).toContain("p.ser489cys");
     });
   });
 });

@@ -179,9 +179,19 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
 
         const isKeyMissing = err instanceof GeminiError ? err.code === "API_KEY_MISSING" : (err.message && (err.message.includes("placeholder") || err.message.includes("required")));
 
-        const ruleInsights = computeRuleBasedACMG(
-          gene, variant, clinvar, predictorData, conservationData, gnomadConstraint, gnomadFrequency, acmgWeighting, null, uniprotFeatures, sequence
-        );
+        const ruleInsights = computeRuleBasedACMG({
+          gene,
+          variant,
+          clinvar,
+          predictorData,
+          conservationData,
+          gnomadConstraint,
+          gnomadFrequency,
+          acmgWeighting,
+          esm2: null,
+          uniprotFeatures,
+          sequence
+        });
 
         const clinvarText = clinvar
           ? `Listed as **${clinvar.classification || "Unclassified"}** (Review status: *${clinvar.reviewStatus || "unknown"}*).`

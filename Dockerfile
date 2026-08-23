@@ -24,6 +24,9 @@ COPY . .
 RUN npm run lint
 RUN npm test
 
+# Build RaSP SQLite database if raw CSV is present
+RUN if [ -f data/df_rasp_gnomad_clinvar.csv ]; then npm run migrate:rasp; fi
+
 RUN npm run build
 
 # Stage 2: Production release
@@ -49,8 +52,12 @@ COPY --from=node-builder /app/dist ./dist
 COPY tools/ ./tools/
 # Copy python virtual environment from builder stage
 COPY --from=node-builder /app/tools/.venv ./tools/.venv
-COPY data ./data/
+# Copy data directory (including any pre-migrated sqlite databases from builder)
+COPY --from=node-builder /app/data ./data/
 COPY README.md ./
+
+# Mount points for persistent database storage and academic FoldX binary
+VOLUME ["/app/data", "/app/tools/foldx"]
 
 EXPOSE 3000
 

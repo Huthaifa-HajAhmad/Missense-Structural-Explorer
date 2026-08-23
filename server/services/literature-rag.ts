@@ -134,20 +134,40 @@ export async function getEmbedding(
   }
 }
 
-// Fetch papers from Europe PMC Search JSON API
-export async function syncLiteratureForGene(gene: string, customApiKey?: string, signal?: AbortSignal): Promise<number> {
-  const cleanGene = gene.trim().toUpperCase();
+// Helper to format PubMed/MeSH queries for Europe PMC Lucene/REST syntax
+export function formatQueryForEuropePmc(query: string | undefined, gene: string): string {
+  if (!query || !query.trim()) {
+    return `${gene} AND (mutation OR variant OR functional OR "pathogenic")`;
+  }
+  return query
+    .replace(/\[Gene\]/gi, "")
+    .replace(/\[All\s+Fields\]/gi, "")
+    .replace(/\[Title\/Abstract\]/gi, "")
+    .replace(/\[TIAB\]/gi, "")
+    .replace(/\[Mesh\]/gi, "")
+    .trim();
+}
 
-  if (inFlightSyncs.has(cleanGene)) {
-    console.log(`[RAG] Reusing in-flight literature sync for gene: ${cleanGene}`);
-    return inFlightSyncs.get(cleanGene)!;
+// Fetch papers from Europe PMC Search JSON API
+export async function syncLiteratureForGene(
+  gene: string, 
+  customApiKey?: string, 
+  signal?: AbortSignal,
+  customQuery?: string
+): Promise<number> {
+  const cleanGene = gene.trim().toUpperCase();
+  const syncKey = customQuery ? `${cleanGene}::${customQuery.trim()}` : cleanGene;
+
+  if (inFlightSyncs.has(syncKey)) {
+    console.log(`[RAG] Reusing in-flight literature sync for key: ${syncKey}`);
+    return inFlightSyncs.get(syncKey)!;
   }
 
   const syncPromise = (async () => {
-    console.log(`[RAG] Querying Europe PMC literature for gene: ${cleanGene}...`);
+    const formattedQuery = formatQueryForEuropePmc(customQuery, cleanGene);
+    console.log(`[RAG] Querying Europe PMC literature for: ${formattedQuery}...`);
     
-    const query = `${cleanGene} AND (mutation OR variant OR functional OR "pathogenic")`;
-    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&format=json&resultType=core&pageSize=25`;
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=25`;
     
     // Set a timeout of 30 seconds for the entire sync process
     const timeoutController = new AbortController();
@@ -270,11 +290,11 @@ export async function syncLiteratureForGene(gene: string, customApiKey?: string,
     }
   })();
 
-  inFlightSyncs.set(cleanGene, syncPromise);
+  inFlightSyncs.set(syncKey, syncPromise);
   
   // Cleanup map when completed
   syncPromise.finally(() => {
-    inFlightSyncs.delete(cleanGene);
+    inFlightSyncs.delete(syncKey);
   });
 
   return syncPromise;
@@ -377,4 +397,101 @@ export async function getGeneCitations(gene: string, signal?: AbortSignal): Prom
     journal: row.journal || "Unknown Journal",
     year: row.year
   }));
+}
+
+// Live remote search function for custom queries from the Literature Inspector / Search edit
+export async function searchGeneLiterature(
+  gene: string,
+  customApiKey?: string,
+  signal?: AbortSignal,
+  customQuery?: string
+): Promise<Omit<LiteratureCitation, "similarity">[]> {
+  const cleanGene = gene.trim().toUpperCase();
+  const formattedQuery = formatQueryForEuropePmc(customQuery, cleanGene);
+  
+  try {
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=25`;
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      signal
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const results = data.resultList?.result || [];
+      if (results.length > 0) {
+        const db = getDb();
+        const insertStmt = db.prepare(`
+          INSERT OR REPLACE INTO literature_abstracts (id, gene, title, abstract, authors, journal, year, embedding, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const matchedCitations: Omit<LiteratureCitation, "similarity">[] = [];
+        const dummyVector = new Float32Array(768);
+        const buffer = Buffer.from(dummyVector.buffer);
+
+        for (const paper of results) {
+          const pmid = paper.pmid || paper.id;
+          const title = paper.title || "Untitled Publication";
+          const abstract = paper.abstractText || paper.synopsis || "";
+          if (!pmid || !abstract.trim()) continue;
+
+          const authors = paper.authorString || "Unknown Authors";
+          const journal = paper.journalInfo?.journal?.title || paper.journalTitle || "Unknown Journal";
+          const year = paper.pubYear ? parseInt(paper.pubYear, 10) : null;
+
+          try {
+            insertStmt.run(pmid, cleanGene, title, abstract, authors, journal, year, buffer, Date.now());
+          } catch (_) {}
+
+          matchedCitations.push({
+            id: pmid,
+            title,
+            abstract,
+            authors,
+            journal,
+            year
+          });
+        }
+
+        if (matchedCitations.length > 0) {
+          return matchedCitations;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[RAG Warning] Live Europe PMC search failed for "${formattedQuery}":`, err.message);
+  }
+
+  // Fallback: search SQLite database for matching terms
+  const db = getDb();
+  if (customQuery && customQuery.trim()) {
+    const rawTerms = customQuery
+      .replace(/\[.*?\]/g, " ")
+      .replace(/\b(AND|OR|NOT)\b/gi, " ")
+      .replace(/[()",]/g, " ")
+      .split(/\s+/)
+      .map(t => t.trim().toLowerCase())
+      .filter(t => t.length > 2 && t !== cleanGene.toLowerCase());
+
+    if (rawTerms.length > 0) {
+      const rows = db.prepare("SELECT id, title, abstract, authors, journal, year FROM literature_abstracts WHERE gene = ? ORDER BY year DESC").all(cleanGene) as any[];
+      const matched = rows.filter(r => {
+        const text = `${r.title} ${r.abstract}`.toLowerCase();
+        return rawTerms.some(t => text.includes(t));
+      });
+      if (matched.length > 0) {
+        return matched.map(r => ({
+          id: r.id,
+          title: r.title,
+          abstract: r.abstract,
+          authors: r.authors || "Unknown Authors",
+          journal: r.journal || "Unknown Journal",
+          year: r.year
+        }));
+      }
+    }
+  }
+
+  return getGeneCitations(cleanGene, signal);
 }

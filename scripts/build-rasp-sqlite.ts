@@ -23,31 +23,43 @@ import path from "path";
 import readline from "readline";
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const CSV_PATH = path.join(DATA_DIR, "df_rasp_gnomad_clinvar.csv");
-const DB_PATH  = path.join(DATA_DIR, "df_rasp_gnomad_clinvar.sqlite");
+const DEFAULT_CSV_PATH = path.join(DATA_DIR, "df_rasp_gnomad_clinvar.csv");
+const DEFAULT_DB_PATH  = path.join(DATA_DIR, "df_rasp_gnomad_clinvar.sqlite");
 
-function parseVariant(v: string): { wt: string; pos: number; mut: string } | null {
+export function parseVariant(v: string): { wt: string; pos: number; mut: string } | null {
   const m = v.match(/^([A-Za-z])(\d+)([A-Za-z])$/);
   if (!m) return null;
   return { wt: m[1].toUpperCase(), pos: parseInt(m[2], 10), mut: m[3].toUpperCase() };
 }
 
-async function main() {
-  if (!fs.existsSync(CSV_PATH)) {
-    console.error(`[migrate] CSV not found: ${CSV_PATH}`);
-    process.exit(1);
+export async function buildRaspSqliteDatabase(
+  csvPath: string = DEFAULT_CSV_PATH,
+  dbPath: string = DEFAULT_DB_PATH
+): Promise<void> {
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`[RaSP SQLite] CSV not found: ${csvPath}`);
   }
 
-  if (fs.existsSync(DB_PATH)) {
-    fs.unlinkSync(DB_PATH);
-    console.log("[migrate] Removed existing SQLite database.");
+  const targetDir = path.dirname(dbPath);
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  const db = new DatabaseSync(DB_PATH, { open: true });
+  if (fs.existsSync(dbPath)) {
+    try {
+      fs.unlinkSync(dbPath);
+      console.log("[RaSP SQLite] Removed existing SQLite database.");
+    } catch (err: any) {
+      console.warn(`[RaSP SQLite] Could not unlink existing database (${err.message}), clearing table instead.`);
+    }
+  }
+
+  const db = new DatabaseSync(dbPath, { open: true });
 
   // #1 architectural fix: proper indexed table replacing the flat-CSV + byte-offset sidecar
   db.exec(`
-    CREATE TABLE rasp_variants (
+    DROP TABLE IF EXISTS rasp_variants;
+    CREATE TABLE IF NOT EXISTS rasp_variants (
       uniprot_id           TEXT    NOT NULL,
       pos                  INTEGER NOT NULL,
       wt                   TEXT    NOT NULL,
@@ -86,8 +98,7 @@ async function main() {
     pending = [];
   };
 
-  const stream = fs.createReadStream(CSV_PATH);
-  // crlfDelay: Infinity correctly handles both LF and CRLF line endings (#7 fix)
+  const stream = fs.createReadStream(csvPath);
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
 
   for await (const line of rl) {
@@ -119,17 +130,23 @@ async function main() {
     if (pending.length >= BATCH) {
       flush();
       if (rowCount % 100000 === 0) {
-        process.stdout.write(`\r[migrate] Imported ${rowCount.toLocaleString()} rows...`);
+        process.stdout.write(`\r[RaSP SQLite] Imported ${rowCount.toLocaleString()} rows...`);
       }
     }
   }
 
   if (pending.length > 0) flush();
 
-  console.log(`\n[migrate] Done. ${rowCount.toLocaleString()} rows imported, ${skipCount} skipped.`);
-  const stat = fs.statSync(DB_PATH);
-  console.log(`[migrate] SQLite size: ${(stat.size / 1024 / 1024).toFixed(1)} MB -> ${DB_PATH}`);
+  console.log(`\n[RaSP SQLite] Done. ${rowCount.toLocaleString()} rows imported, ${skipCount} skipped.`);
+  const stat = fs.statSync(dbPath);
+  console.log(`[RaSP SQLite] SQLite size: ${(stat.size / 1024 / 1024).toFixed(1)} MB -> ${dbPath}`);
   db.close();
 }
 
-main().catch(err => { console.error("[migrate] Fatal:", err); process.exit(1); });
+// Auto-run if invoked directly via CLI
+if (process.argv[1] && (process.argv[1].endsWith("build-rasp-sqlite.ts") || process.argv[1].endsWith("build-rasp-sqlite.js"))) {
+  buildRaspSqliteDatabase().catch(err => {
+    console.error("[RaSP SQLite] Fatal:", err);
+    process.exit(1);
+  });
+}

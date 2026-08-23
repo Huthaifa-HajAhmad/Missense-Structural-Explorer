@@ -19,6 +19,7 @@ import { analyzeVariantLimiter } from "../../middleware.ts";
 import {
   generateMutantPdb,
   getMutantFromCache,
+  writeMutantToCache,
   parseResiduesFromPdbMaybeAsync,
   runRaspLocal,
   submitThermoMpnnJob,
@@ -442,7 +443,11 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               await updateQueueJobRemoteData({ dynamut2Status });
             });
 
-          ddmutPromise = submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
+          // Stagger DDMut submission slightly (350ms) to avoid instantaneous host lock / rate limit collision on biosig.lab.uq.edu.au
+          ddmutPromise = (async () => {
+            await new Promise(r => setTimeout(r, 350));
+            return submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal);
+          })()
             .then(async (id) => {
               if (id) {
                 ddmutJobId = id;
@@ -523,6 +528,28 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           console.log(`[Cache Hit] Serving cached mutant simulation for ${foldxCacheKey}`);
           isCacheHit = true;
 
+          let finalStabilityoracleVal = stabilityoracleVal ?? cachedFoldx?.energetics?.stabilityoracle ?? null;
+          if (finalStabilityoracleVal === null && effectiveWtPdb) {
+            try {
+              const soRes = await runStabilityOracleAnalysis(
+                uniprotId || "UNKNOWN",
+                `${wtLetter}${posNum}${mutLetter}`,
+                uniprotId || "",
+                "",
+                effectiveWtPdb
+              );
+              if (soRes) {
+                finalStabilityoracleVal = soRes.ddG;
+                if (cachedFoldx.energetics) {
+                  cachedFoldx.energetics.stabilityoracle = finalStabilityoracleVal;
+                }
+                writeMutantToCache(foldxCacheKey, cachedFoldx);
+              }
+            } catch (soErr: any) {
+              console.warn("[StabilityOracle Cache Backfill Warning]:", soErr.message);
+            }
+          }
+
           const enriched = enrichBiophysicalResult(cachedFoldx, {
             dynamut2JobId,
             dynamut2Status,
@@ -532,7 +559,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             thermompnnStatus,
             thermompnnError,
             thermompnnVal,
-            stabilityoracleVal
+            stabilityoracleVal: finalStabilityoracleVal
           }, {
             source: resolvedStructure?.provenance.source ?? "client-provided",
             pdbId: resolvedStructure?.provenance.pdbId ?? null,

@@ -21,7 +21,8 @@ import {
   anonymizeGenomicCoordinate,
   sanitizeAuditMetadata,
   hashClientIp,
-  AuditLogger
+  AuditLogger,
+  CircuitBreaker
 } from "./utils.ts";
 import { requestLogger, getClientIp } from "./middleware.ts";
 
@@ -175,6 +176,40 @@ describe("Input Validation Patterns & Functions", () => {
 
     it("should return false for different strings of different length", () => {
       expect(safeCompare("secureToken123", "short")).toBe(false);
+    });
+
+    it("should return false if either argument is not a string", () => {
+      expect(safeCompare(null as any, "token")).toBe(false);
+      expect(safeCompare("token", undefined as any)).toBe(false);
+    });
+  });
+
+  describe("CircuitBreaker Resilience & Cooldown Jitter", () => {
+    it("should allow executions in CLOSED state", () => {
+      const breaker = new CircuitBreaker(3, 100);
+      expect(breaker.canExecute()).toBe(true);
+    });
+
+    it("should trip to OPEN after threshold failures and deny execution", () => {
+      const breaker = new CircuitBreaker(2, 50);
+      breaker.recordFailure();
+      expect(breaker.canExecute()).toBe(true);
+      breaker.recordFailure(); // trips to OPEN
+      expect(breaker.canExecute()).toBe(false);
+    });
+
+    it("should transition to HALF-OPEN after cooldown expires and reset on success", async () => {
+      const breaker = new CircuitBreaker(2, 20); // 20ms cooldown
+      breaker.recordFailure();
+      breaker.recordFailure();
+      expect(breaker.canExecute()).toBe(false);
+
+      // Wait for cooldown + jitter (at most 20ms * 1.2 = 24ms)
+      await new Promise(r => setTimeout(r, 40));
+      expect(breaker.canExecute()).toBe(true); // transitions to HALF-OPEN
+
+      breaker.recordSuccess(); // resets to CLOSED
+      expect(breaker.canExecute()).toBe(true);
     });
   });
 

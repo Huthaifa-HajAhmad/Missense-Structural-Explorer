@@ -1,6 +1,6 @@
 import { validateUniProt } from "../utils.ts";
 import { fetchWithRetry } from "./http-client.ts";
-import { pdbCache, afUrlCache, bestPdbCache } from "./cache.ts";
+import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "./cache.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
 import type { PdbHomolog } from "../../src/types.ts";
 
@@ -12,97 +12,115 @@ export interface PdbBestStructureMapping {
   structStart: number;
 }
 
+function singleFlightPdb(key: string, fetcher: () => Promise<string | null>): Promise<string | null> {
+  const cached = pdbCache.get(key);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
+  return singleFlight(key, async () => {
+    const pdbText = await fetcher();
+    if (pdbText && pdbText.includes("ATOM")) {
+      pdbCache.set(key, pdbText);
+    }
+    return pdbText;
+  });
+}
+
 export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | null> {
   const validatedUniprot = validateUniProt(uniprotId);
-  
-  const cachedUrl = afUrlCache.get(validatedUniprot);
-  if (cachedUrl) {
-    try {
-      const pRes = await fetchWithRetry(cachedUrl, {
-        headers: { "User-Agent": "Missense-Structural-Explorer/1.0", "Accept": "*/*" },
-        timeout: 15000
-      });
-      if (pRes.ok) {
-        const pdbText = await pRes.text();
-        if (pdbText && pdbText.includes("ATOM")) {
-          return pdbText;
+  const cacheKey = `af_pdb_${validatedUniprot}`;
+
+  return singleFlightPdb(cacheKey, async () => {
+    const cachedUrl = afUrlCache.get(validatedUniprot);
+    if (cachedUrl) {
+      try {
+        const pRes = await fetchWithRetry(cachedUrl, {
+          headers: { "User-Agent": "Missense-Structural-Explorer/1.0", "Accept": "*/*" },
+          timeout: 15000
+        });
+        if (pRes.ok) {
+          const pdbText = await pRes.text();
+          if (pdbText && pdbText.includes("ATOM")) {
+            return pdbText;
+          }
         }
-      }
-    } catch (_) {}
-  }
-
-  // 1. Try querying EBI AlphaFold API first to find correct URL
-  const afApiUrl = `https://alphafold.ebi.ac.uk/api/prediction/${validatedUniprot}`;
-  let pdbUrlFromApi = "";
-  try {
-    const apiResponse = await fetchWithRetry(afApiUrl, {
-      headers: {
-        "User-Agent": "Missense-Structural-Explorer/1.0 (bioinformatics-app)",
-        "Accept": "application/json"
-      },
-      timeout: 15000
-    });
-    if (apiResponse.status === 404) {
-      console.log(`[AlphaFold] UniProt ID ${validatedUniprot} returned 404 from EBI. Skipping candidate brute-force.`);
-      return null;
+      } catch (_) {}
     }
-    if (apiResponse.ok) {
-      const data = await apiResponse.json() as any;
-      if (Array.isArray(data) && data.length > 0) {
-        // Query the first entry that contains a valid pdbUrl
-        const matched = data.find((item: any) => item.pdbUrl);
-        if (matched) {
-          pdbUrlFromApi = matched.pdbUrl;
-          console.log(`Found official PDB URL from EBI API: ${pdbUrlFromApi}`);
-        }
-      }
-    }
-  } catch (apiErr) {
-    console.warn("AlphaFold API prediction lookup failed:", apiErr);
-  }
-  
-  // 2. Build candidate URLs to try in order (M-4)
-  const candidates: string[] = [];
-  if (pdbUrlFromApi) {
-    candidates.push(pdbUrlFromApi);
-  }
-  // Try latest v6 first, then fall back to older versions sequentially
-  for (const v of ["v6", "v4", "v3", "v2", "v1"]) {
-    const candidateUrl = `https://alphafold.ebi.ac.uk/files/AF-${validatedUniprot}-F1-model_${v}.pdb`;
-    if (!candidates.includes(candidateUrl)) {
-      candidates.push(candidateUrl);
-    }
-  }
 
-  // Try candidates until one succeeds
-  let pdbData = "";
-  let success = false;
-
-  for (const url of candidates) {
+    // 1. Try querying EBI AlphaFold API first to find correct URL
+    const afApiUrl = `https://alphafold.ebi.ac.uk/api/prediction/${validatedUniprot}`;
+    let pdbUrlFromApi = "";
     try {
-      console.log(`Proxy attempting to fetch PDB from: ${url}`);
-      const pRes = await fetchWithRetry(url, {
+      const apiResponse = await fetchWithRetry(afApiUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "*/*"
+          "User-Agent": "Missense-Structural-Explorer/1.0 (bioinformatics-app)",
+          "Accept": "application/json"
         },
         timeout: 15000
       });
-      if (pRes.ok) {
-        pdbData = await pRes.text();
-        if (pdbData && pdbData.indexOf("ATOM") !== -1) {
-          success = true;
-          afUrlCache.set(validatedUniprot, url);
-          console.log(`Successfully fetched PDB from ${url} (${pdbData.length} bytes)`);
-          break;
+      if (apiResponse.status === 404) {
+        console.log(`[AlphaFold] UniProt ID ${validatedUniprot} returned 404 from EBI. Skipping candidate brute-force.`);
+        return null;
+      }
+      if (apiResponse.ok) {
+        const data = await apiResponse.json() as any;
+        if (Array.isArray(data) && data.length > 0) {
+          // Query the first entry that contains a valid pdbUrl
+          const matched = data.find((item: any) => item.pdbUrl);
+          if (matched) {
+            pdbUrlFromApi = matched.pdbUrl;
+            console.log(`Found official PDB URL from EBI API: ${pdbUrlFromApi}`);
+          }
         }
       }
-    } catch (fetchErr) {
-      console.warn(`Fetch error for url ${url}:`, fetchErr);
+    } catch (apiErr) {
+      console.warn("AlphaFold API prediction lookup failed:", apiErr);
     }
-  }
+    
+    // 2. Build candidate URLs to try in order (M-4)
+    const candidates: string[] = [];
+    if (pdbUrlFromApi) {
+      candidates.push(pdbUrlFromApi);
+    }
+    // Try latest v6 first, then fall back to older versions sequentially
+    for (const v of ["v6", "v4", "v3", "v2", "v1"]) {
+      const candidateUrl = `https://alphafold.ebi.ac.uk/files/AF-${validatedUniprot}-F1-model_${v}.pdb`;
+      if (!candidates.includes(candidateUrl)) {
+        candidates.push(candidateUrl);
+      }
+    }
 
-  return success ? pdbData : null;
+    // Try candidates until one succeeds
+    let pdbData = "";
+    let success = false;
+
+    for (const url of candidates) {
+      try {
+        console.log(`Proxy attempting to fetch PDB from: ${url}`);
+        const pRes = await fetchWithRetry(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "*/*"
+          },
+          timeout: 15000
+        });
+        if (pRes.ok) {
+          pdbData = await pRes.text();
+          if (pdbData && pdbData.indexOf("ATOM") !== -1) {
+            success = true;
+            afUrlCache.set(validatedUniprot, url);
+            console.log(`Successfully fetched PDB from ${url} (${pdbData.length} bytes)`);
+            break;
+          }
+        }
+      } catch (fetchErr) {
+        console.warn(`Fetch error for url ${url}:`, fetchErr);
+      }
+    }
+
+    return success ? pdbData : null;
+  });
 }
 
 export function extractAfdbVersion(urlOrId: string): string | undefined {
@@ -243,27 +261,26 @@ function parseFirstResidueSeq(pdbText: string, chainId: string): number | null {
 export async function fetchFullPdbEntry(pdbId: string): Promise<string | null> {
   const upper = pdbId.trim().toUpperCase();
   const cacheKey = `pdb_full_${upper.toLowerCase()}`;
-  if (pdbCache.has(cacheKey)) {
-    return pdbCache.get(cacheKey) || null;
-  }
-  const url = `https://files.rcsb.org/download/${upper}.pdb`;
-  try {
-    console.log(`[RCSB PDB Full Entry] Fetching complete structure ${upper} from RCSB...`);
-    const res = await fetchWithRetry(url, { timeout: 20000 });
-    if (!res.ok) {
-      console.warn(`[RCSB PDB Full Entry] Failed to download ${upper} from RCSB (status: ${res.status})`);
+
+  return singleFlightPdb(cacheKey, async () => {
+    const url = `https://files.rcsb.org/download/${upper}.pdb`;
+    try {
+      console.log(`[RCSB PDB Full Entry] Fetching complete structure ${upper} from RCSB...`);
+      const res = await fetchWithRetry(url, { timeout: 20000 });
+      if (!res.ok) {
+        console.warn(`[RCSB PDB Full Entry] Failed to download ${upper} from RCSB (status: ${res.status})`);
+        return null;
+      }
+      const fullText = await res.text();
+      if (!fullText || !fullText.includes("ATOM")) {
+        return null;
+      }
+      return fullText;
+    } catch (err: any) {
+      console.warn(`[RCSB PDB Full Entry] Error fetching ${upper}:`, err.message);
       return null;
     }
-    const fullText = await res.text();
-    if (!fullText || !fullText.includes("ATOM")) {
-      return null;
-    }
-    pdbCache.set(cacheKey, fullText);
-    return fullText;
-  } catch (err: any) {
-    console.warn(`[RCSB PDB Full Entry] Error fetching ${upper}:`, err.message);
-    return null;
-  }
+  });
 }
 
 export async function fetchPdbFromRcsb(
@@ -280,60 +297,57 @@ export async function fetchPdbFromRcsb(
 ): Promise<string | null> {
   const chainUpper = (chainId || "A").toUpperCase();
   const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_unp_${unpStart || 0}_struct_${structStart || 0}_pos_${validationContext?.pos || 0}`;
-  if (pdbCache.has(cacheKey)) {
-    return pdbCache.get(cacheKey) || null;
-  }
 
-  const url = `https://files.rcsb.org/download/${pdbId.toUpperCase()}.pdb`;
-  try {
-    console.log(`[RCSB PDB] Fetching structure ${pdbId.toUpperCase()} from RCSB...`);
-    const res = await fetchWithRetry(url, { timeout: 20000 });
-    if (!res.ok) {
-      console.warn(`[RCSB PDB] Failed to download PDB from RCSB (status: ${res.status})`);
-      return null;
-    }
-    const fullText = await res.text();
-    if (!fullText || !fullText.includes("ATOM")) {
-      return null;
-    }
-
-    // 3-Tier Deterministic Alignment & Validation (No Heuristics)
-    if (
-      validationContext?.uniprotId &&
-      validationContext?.sequence &&
-      validationContext?.pos !== undefined &&
-      validationContext?.expectedWt1
-    ) {
-      const { resolvePdbCoordinatesDeterministically } = await import("./sequence-aligner.ts");
-      const resolution = await resolvePdbCoordinatesDeterministically({
-        pdbId,
-        chainId: chainUpper,
-        rawPdbText: fullText,
-        uniprotAccession: validationContext.uniprotId,
-        uniprotSequence: validationContext.sequence,
-        targetPos: validationContext.pos,
-        expectedWt1: validationContext.expectedWt1
-      });
-
-      if (resolution.valid && resolution.pdbText) {
-        console.log(`[RCSB PDB Alignment] Successfully verified deterministic alignment via ${resolution.source} for ${pdbId} chain ${chainUpper} at pos ${validationContext.pos}`);
-        pdbCache.set(cacheKey, resolution.pdbText);
-        return resolution.pdbText;
-      } else {
-        console.warn(`[RCSB PDB Alignment Warning] Deterministic validation rejected PDB ${pdbId}: ${resolution.reason || 'Residue mismatch'}. Falling back to 1:1 AlphaFold canonical structure.`);
+  return singleFlightPdb(cacheKey, async () => {
+    const url = `https://files.rcsb.org/download/${pdbId.toUpperCase()}.pdb`;
+    try {
+      console.log(`[RCSB PDB] Fetching structure ${pdbId.toUpperCase()} from RCSB...`);
+      const res = await fetchWithRetry(url, { timeout: 20000 });
+      if (!res.ok) {
+        console.warn(`[RCSB PDB] Failed to download PDB from RCSB (status: ${res.status})`);
         return null;
       }
-    }
+      const fullText = await res.text();
+      if (!fullText || !fullText.includes("ATOM")) {
+        return null;
+      }
 
-    // Fallback if no sequence validation context provided
-    const shift = (unpStart !== undefined && structStart !== undefined) ? (unpStart - structStart) : 0;
-    const chainPdb = extractChainFromPdb(fullText, chainUpper, shift);
-    pdbCache.set(cacheKey, chainPdb);
-    return chainPdb;
-  } catch (err: any) {
-    console.error(`[RCSB PDB] Error downloading structure ${pdbId}:`, err.message || err);
-  }
-  return null;
+      // 3-Tier Deterministic Alignment & Validation (No Heuristics)
+      if (
+        validationContext?.uniprotId &&
+        validationContext?.sequence &&
+        validationContext?.pos !== undefined &&
+        validationContext?.expectedWt1
+      ) {
+        const { resolvePdbCoordinatesDeterministically } = await import("./sequence-aligner.ts");
+        const resolution = await resolvePdbCoordinatesDeterministically({
+          pdbId,
+          chainId: chainUpper,
+          rawPdbText: fullText,
+          uniprotAccession: validationContext.uniprotId,
+          uniprotSequence: validationContext.sequence,
+          targetPos: validationContext.pos,
+          expectedWt1: validationContext.expectedWt1
+        });
+
+        if (resolution.valid && resolution.pdbText) {
+          console.log(`[RCSB PDB Alignment] Successfully verified deterministic alignment via ${resolution.source} for ${pdbId} chain ${chainUpper} at pos ${validationContext.pos}`);
+          return resolution.pdbText;
+        } else {
+          console.warn(`[RCSB PDB Alignment Warning] Deterministic validation rejected PDB ${pdbId}: ${resolution.reason || 'Residue mismatch'}. Falling back to 1:1 AlphaFold canonical structure.`);
+          return null;
+        }
+      }
+
+      // Fallback if no sequence validation context provided
+      const shift = (unpStart !== undefined && structStart !== undefined) ? (unpStart - structStart) : 0;
+      const chainPdb = extractChainFromPdb(fullText, chainUpper, shift);
+      return chainPdb;
+    } catch (err: any) {
+      console.error(`[RCSB PDB] Error downloading structure ${pdbId}:`, err.message || err);
+      return null;
+    }
+  });
 }
 
 export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
@@ -440,7 +454,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
           query: graphqlQuery,
           variables: { ids: pdbIds }
         }),
-        timeout: 15000
+        timeout: 30000
       });
       if (gqlRes.ok) {
         const gqlData = await gqlRes.json() as any;

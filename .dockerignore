@@ -6,3 +6,10 @@ dist
 temp_jobs
 tools/.venv
 tools/__pycache__
+data/*.sqlite*
+data/*.db
+data/*.csv
+*.sqlite*
+*.db
+
+

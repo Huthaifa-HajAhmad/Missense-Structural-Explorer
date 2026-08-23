@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CLINVAR_AA_MAP } from "../../src/aminoAcids.ts";
 import { clinvarCache, getCachedOrFetch } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
+import { buildClinvarKey } from "./cache-keys.ts";
 
 export interface ClinVarData {
   classification: string;
@@ -49,7 +50,7 @@ function getCodingNotation(title: string): string | null {
 export async function fetchClinVarData(gene: string, variant: string, originalNotation?: string): Promise<ClinVarData> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = variant.replace(/^p\./i, "").trim();
-  const cacheKey = `clinvar_${normGene}_${cleanVar}_${originalNotation || ""}`;
+  const cacheKey = buildClinvarKey(gene, variant, originalNotation);
 
   return getCachedOrFetch({
     key: cacheKey,

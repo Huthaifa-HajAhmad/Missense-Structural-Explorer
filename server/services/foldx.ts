@@ -14,6 +14,7 @@ import {
 } from "./pdb-parser.ts";
 import { calculateLocalSidechainRmsd } from "./structural-diff.ts";
 import { runRaspLocal } from "./energy-models.ts";
+import { runStabilityOracleAnalysis } from "./stabilityoracle.ts";
 
 
 export const mutantCache = new LRUCache<string, any>({
@@ -771,6 +772,24 @@ async function generateMutantPdbInternal(
       console.warn(`[RaSP] Failed to compute local prediction:`, raspErr.message);
     }
 
+    // Run local StabilityOracle score calculation
+    let stabilityoracle: number | null = null;
+    try {
+      const soRes = await runStabilityOracleAnalysis(
+        uniprotId || "UNKNOWN",
+        `${wt1}${pos}${mut1}`,
+        uniprotId || "",
+        "",
+        wtPdb
+      );
+      if (soRes !== null) {
+        stabilityoracle = soRes.ddG;
+        console.log(`[StabilityOracle] Local prediction computed: ${stabilityoracle} kcal/mol (${soRes.provenance})`);
+      }
+    } catch (soErr: any) {
+      console.warn(`[StabilityOracle] Failed to compute prediction:`, soErr.message);
+    }
+
     const bFactorMetadata = detectBFactorProvenance(wtPdb);
 
     const energetics = {
@@ -788,7 +807,8 @@ async function generateMutantPdbInternal(
       foldxRepairSkipped,
       bFactorMetadata,
       rasp,
-      raspReason
+      raspReason,
+      stabilityoracle
     };
 
     return { 
