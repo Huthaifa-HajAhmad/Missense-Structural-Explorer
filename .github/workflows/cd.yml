@@ -19,7 +19,7 @@ jobs:
 
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.0
-        if: env.OCI_HOST != '' && env.OCI_KEY != ''
+        if: ${{ secrets.OCI_SSH_HOST != '' && secrets.OCI_SSH_KEY != '' }}
         env:
           OCI_HOST: ${{ secrets.OCI_SSH_HOST }}
           OCI_USER: ${{ secrets.OCI_SSH_USER }}
