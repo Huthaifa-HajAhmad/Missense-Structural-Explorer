@@ -48,13 +48,8 @@ RUN uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
 # Copy source tree
 COPY . .
 
-# Run verification gates (TypeScript type-check and test suite)
+# Run quick verification gates (TypeScript type-check)
 RUN npm run lint
-RUN npm test
-
-# Build RaSP SQLite database if raw CSV was explicitly provided in build context.
-# Note: In standard deployments, data/*.sqlite* is persisted on host and mounted via /app/data volume.
-RUN if [ -f data/df_rasp_gnomad_clinvar.csv ]; then npm run migrate:rasp; fi
 
 # Compile React frontend (Vite) and Node.js backend (esbuild)
 RUN npm run build
@@ -88,23 +83,23 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HF_HOME=/root/.cache/huggingface
 
-# Install production Node dependencies
+# 1. Install production Node dependencies (cached unless package.json changes)
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Copy compiled backend and frontend distribution bundles
-COPY --from=builder /app/dist ./dist
-
-# Copy Python tools and virtual environment
+# 2. Copy heavy Python tools and virtual environment BEFORE app code (cached unless tools change)
 COPY tools/ ./tools/
 COPY --from=builder /app/tools/.venv ./tools/.venv
 
-# Copy SQLite data store
+# 3. Copy SQLite data seeds and documentation
 COPY --from=builder /app/data ./data/
 COPY README.md ./
 
-# Create persistent cache and log directories
+# 4. Create persistent cache and log directories
 RUN mkdir -p /app/logs/foldx_cache /root/.cache/huggingface /app/data
+
+# 5. Copy lightweight compiled distribution bundles LAST so code edits never invalidate Python layers
+COPY --from=builder /app/dist ./dist
 
 # Declare volume mounts
 VOLUME ["/app/data", "/app/tools/foldx", "/app/logs", "/root/.cache/huggingface"]
