@@ -174,7 +174,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     "targetIndex": 408
   }
   ```
-* **Description**: Runs P2Rank prediction on coordinates to detect ligand-binding pocket proximity. Falls back to a spatial density proximity heuristic if P2Rank is not installed.
+* **Description**: Runs P2Rank machine learning predictions on coordinates to detect ligand-binding pocket proximity. Follows a strict No-Heuristics Policy: returns ML-detected pockets or explicit `none_detected`/`unavailable` status. No heuristic approximations are permitted.
 
 ### 9. Nearest Residues
 * **Route**: `POST /api/v1/nearest-residues`

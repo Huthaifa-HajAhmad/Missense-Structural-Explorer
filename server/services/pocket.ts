@@ -152,23 +152,13 @@ export function getAaPropensities(): Record<string, { weight: number; role: stri
 }
 
 /**
- * Heuristically estimates the chemical nature of the likely binding partner/cofactor
- * based on the composition of pocket residues. This is a simplified composition-based
- * heuristic and does not represent an explicit molecular docking or ligand-affinity calculation.
+ * In accordance with the project's strict No Heuristics Policy, we do not synthesize
+ * ligand/cofactor identities based on amino acid composition counts.
+ * Ligand and cofactor annotations are derived strictly from experimental PDB HETATMs
+ * or curated UniProt sequence feature records.
  */
-export function determineLikelyCofactor(typesCount: Record<string, number>): string {
-  if (typesCount["Charged (Basic)"] && typesCount["Charged (Basic)"] >= 2 && typesCount["Aromatic"]) {
-    return "Composition heuristic: Possible nucleotide/ATP-binding cavity (enriched in Basic & Aromatic residues)";
-  } else if (typesCount["Charged (Acidic)"] && typesCount["Charged (Basic)"] && typesCount["Charged (Acidic)"] >= 1) {
-    return "Composition heuristic: Possible metal-binding or charged polar cavity (enriched in Acidic & Basic residues)";
-  } else if (typesCount["Sulfur-reactive"] && typesCount["Sulfur-reactive"] >= 1) {
-    return "Composition heuristic: Possible metal-coordinating / Zinc-finger-like cavity (enriched in Cys residues)";
-  } else if (typesCount["Aromatic"] && typesCount["Aromatic"] >= 2) {
-    return "Composition heuristic: Possible aromatic/folate/heme binding cavity (enriched in Aromatic residues)";
-  } else if (typesCount["Aliphatic"] && typesCount["Aliphatic"] >= 3) {
-    return "Composition heuristic: Hydrophobic/aliphatic lipid-like cavity (enriched in Aliphatic residues)";
-  }
-  return "Composition heuristic: General organic substrate / ligand-binding cavity";
+export function determineLikelyCofactor(_typesCount?: Record<string, number>): string {
+  return "None recorded in curated annotations";
 }
 
 export async function findBindingPocket(
@@ -177,7 +167,7 @@ export async function findBindingPocket(
   jobDir: string,
   targetChain?: string,
   signal?: AbortSignal
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback"; pocketDistance?: number | null }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
   const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
   const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}`;
   const cached = pocketCache.get(cacheKey);
@@ -198,7 +188,7 @@ async function findBindingPocketInternal(
   jobDir: string,
   targetChain?: string,
   signal?: AbortSignal
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback"; pocketDistance?: number | null }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
   const fullPdbPath = path.join(jobDir, "wt.pdb");
   const fullOutDir = path.join(jobDir, "out");
 
@@ -210,7 +200,7 @@ async function findBindingPocketInternal(
   const atoms = await parseAtomsFromPdbMaybeAsync(pdbText);
 
   if (atoms.length === 0) {
-    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback", pocketDistance: null };
+    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None recorded in curated annotations", status: "unavailable", pocketDistance: null };
   }
 
   let pocketDistance: number | null = null;
@@ -220,8 +210,8 @@ async function findBindingPocketInternal(
   const pdbResidues = await parseResiduesFromPdbMaybeAsync(pdbText);
   const hasResidue = pdbResidues.some(r => r.resSeq === mutIndex);
   if (!hasResidue) {
-    console.warn(`[Pocket Finder] Target residue position ${mutIndex} is not found in the PDB structure. Returning fallback.`);
-    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback", pocketDistance: null };
+    console.warn(`[Pocket Finder] Target residue position ${mutIndex} is not found in the PDB structure. Returning none_detected.`);
+    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None recorded in curated annotations", status: "none_detected", pocketDistance: null };
   }
 
   let chainToUse = targetChain;
@@ -245,8 +235,8 @@ async function findBindingPocketInternal(
     mutY /= mutAtoms.length;
     mutZ /= mutAtoms.length;
   } else {
-    console.warn(`[Pocket Finder] Coordinates for target residue position ${mutIndex} could not be extracted. Returning fallback.`);
-    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None", status: "fallback", pocketDistance: null };
+    console.warn(`[Pocket Finder] Coordinates for target residue position ${mutIndex} could not be extracted. Returning none_detected.`);
+    return { pocketResidues: [], pocketScore: 0, pocketVolume: 0, likelyCofactor: "None recorded in curated annotations", status: "none_detected", pocketDistance: null };
   }
 
   let p2rankSuccess = false;
@@ -443,30 +433,11 @@ async function findBindingPocketInternal(
           if (selectedPocket.volume && !isNaN(selectedPocket.volume)) {
             pocketVolume = Math.round(selectedPocket.volume);
           } else {
-            // Geometrical estimate based on pocket residues' coordinates
-            const pAtoms = atoms.filter(a => selectedPocket.residueKeys.includes(`${a.chain}_${a.resSeq}`));
-            if (pAtoms.length > 0) {
-              let sumPX = 0, sumPY = 0, sumPZ = 0;
-              pAtoms.forEach(a => { sumPX += a.x; sumPY += a.y; sumPZ += a.z; });
-              const pcX = sumPX / pAtoms.length;
-              const pcY = sumPY / pAtoms.length;
-              const pcZ = sumPZ / pAtoms.length;
-              
-              const distances = pAtoms.map(a => Math.sqrt(Math.pow(a.x - pcX, 2) + Math.pow(a.y - pcY, 2) + Math.pow(a.z - pcZ, 2)));
-              const maxDist = Math.max(...distances, 4.0);
-              const sphereVolume = (4/3) * Math.PI * Math.pow(maxDist, 3);
-              const pocketResiduesCount = selectedPocket.residueKeys.length;
-              pocketVolume = Math.round(sphereVolume * (0.8 + (pocketResiduesCount / 100)));
-            } else {
-              pocketVolume = Math.round(selectedPocket.sasPoints * 1.5) || 150;
-            }
+            // In accordance with No Heuristics Policy, do not invent spherical volume approximations
+            pocketVolume = 0;
           }
 
-          const typesCount = pocketResidues.reduce((acc, curr) => {
-            acc[curr.type] = (acc[curr.type] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-          likelyCofactor = determineLikelyCofactor(typesCount);
+          likelyCofactor = determineLikelyCofactor();
 
           // Calculate distance to selected pocket centroid
           const pAtoms = atoms.filter(a => selectedPocket.residueKeys.includes(`${a.chain}_${a.resSeq}`));
@@ -636,11 +607,7 @@ async function findBindingPocketInternal(
           pocketScore = Math.min(98, Math.round(selectedPocket.score * 100));
           pocketVolume = Math.round(selectedPocket.volume);
 
-          const typesCount = pocketResidues.reduce((acc, curr) => {
-            acc[curr.type] = (acc[curr.type] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-          likelyCofactor = determineLikelyCofactor(typesCount);
+          likelyCofactor = determineLikelyCofactor();
 
           const pAtoms = atoms.filter(a => selectedPocket.residueKeys.includes(`${a.chain}_${a.resSeq}`));
           if (pAtoms.length > 0) {
@@ -665,8 +632,8 @@ async function findBindingPocketInternal(
       pocketResidues: [],
       pocketScore: 0,
       pocketVolume: 0,
-      likelyCofactor: "None",
-      status: "fallback",
+      likelyCofactor: "None recorded in curated annotations",
+      status: "unavailable",
       pocketDistance: null
     };
   }

@@ -15,12 +15,12 @@ export function FunctionTab({
     <div className="space-y-4">
       <div>
         <h1 className="screen-title">Function</h1>
-        <p className="screen-tab-description">Ligand-binding pocket proximity (P2Rank / heuristic fallback) and UniProt-curated functional site annotations at this residue.</p>
+        <p className="screen-tab-description">Ligand-binding pocket proximity (P2Rank Machine Learning) and UniProt-curated functional site annotations at this residue.</p>
       </div>
       {isPocketLoading ? (
         <div className="flex flex-col items-center justify-center p-6 text-center">
           <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mb-2" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
-          <span className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Calculating ligand-binding pockets via P2Rank/Heuristic...</span>
+          <span className="text-[10px]" style={{ color: "var(--cs-text-muted)" }}>Calculating ligand-binding pockets via P2Rank ML...</span>
         </div>
       ) : pocketError ? (
         <div className="p-3 text-center text-rose-455 border border-dashed border-rose-500/20 bg-rose-500/5 rounded-lg">
@@ -34,7 +34,11 @@ export function FunctionTab({
               <div className="flex justify-between items-center">
                 <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>P2Rank Ligand-Binding Pocket Distance</h4>
                 <span className="badge-data-source">
-                  {computedPocket.status === "success" ? "P2Rank Live" : "Heuristic Fallback"}
+                  {computedPocket.status === "success"
+                    ? "P2Rank ML"
+                    : computedPocket.status === "none_detected"
+                      ? "No Pocket Detected"
+                      : "Model Offline"}
                 </span>
               </div>
               
@@ -72,8 +76,12 @@ export function FunctionTab({
 
               {computedPocket.status !== "success" && (
                 <div className="p-3 rounded-lg border text-[11px] leading-relaxed" style={{ background: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)", color: "var(--cs-text-warning)" }}>
-                  <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider">ML Model Offline:</span>
-                  P2Rank machine learning service is currently offline. Pocket affinity scores and cavity volumes are unavailable. Utilizing sequence-based functional proximity heuristics.
+                  <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider">
+                    {computedPocket.status === "none_detected" ? "No Pocket Detected:" : "ML Model Offline:"}
+                  </span>
+                  {computedPocket.status === "none_detected"
+                    ? "No ligand-binding pocket cavity was detected within proximity of this residue by P2Rank."
+                    : "P2Rank machine learning service is currently unavailable. In accordance with project scientific standards, no heuristic fallbacks are used. Cavity affinity scores and pocket volumes remain unassigned."}
                 </div>
               )}
 
