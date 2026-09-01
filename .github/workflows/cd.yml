@@ -13,17 +13,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     if: github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer'
+    env:
+      OCI_SSH_HOST: ${{ secrets.OCI_SSH_HOST }}
+      OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.0
-        if: ${{ secrets.OCI_SSH_HOST != '' && secrets.OCI_SSH_KEY != '' }}
-        env:
-          OCI_HOST: ${{ secrets.OCI_SSH_HOST }}
-          OCI_USER: ${{ secrets.OCI_SSH_USER }}
-          OCI_KEY: ${{ secrets.OCI_SSH_KEY }}
+        if: env.OCI_SSH_HOST != '' && env.OCI_SSH_KEY != ''
         with:
           host: ${{ secrets.OCI_SSH_HOST }}
           username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
