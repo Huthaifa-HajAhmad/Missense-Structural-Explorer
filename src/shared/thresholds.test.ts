@@ -118,6 +118,34 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.available).toContain("ESM-1B");
       expect(res.available).toContain("POPEVE");
     });
+
+    it("should include ESM-2 3B and SaProt 650M as informational models when LLR is provided", () => {
+      const res = countPredictorConcordance(
+        null,
+        null,
+        null,
+        null,
+        0.25, // bayesdel is 5th parameter
+        null,
+        {
+          esm2Llr: -4.5,
+          saprotLlr: -3.2,
+          dann: 0.98,
+          clinpred: 0.95,
+          eigenPhred: 7.1
+        }
+      );
+
+      expect(res.available).toContain("ESM-2 3B");
+      expect(res.available).toContain("SAPROT 650M");
+      expect(res.available).toContain("DANN");
+      expect(res.available).toContain("CLINPRED");
+      expect(res.available).toContain("EIGEN");
+      expect(res.available).toContain("BAYESDEL");
+      expect(res.signals.esm2_3b).toBe("vus");
+      expect(res.signals.saprot).toBe("vus");
+      expect(res.signals.dann).toBe("pathogenic");
+    });
   });
 
   describe("Consensus Biophysical Stability Verdicts", () => {

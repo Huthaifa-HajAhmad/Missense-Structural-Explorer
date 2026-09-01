@@ -236,4 +236,94 @@ END
       expect(result.available).toBe(true);
     }, 25000);
   });
+
+  describe("Tier 3 Public dbNSFP Predictors Extraction", () => {
+    it("should extract DANN, BayesDel, ClinPred, and Eigen from dbnsfp function_prediction response", async () => {
+      const { queryDbnsfpOrg } = await import("./predictors.ts");
+      const origFetch = global.fetch;
+
+      const mockResponse = {
+        tabs: {
+          conservative_scores: {
+            rows: [{ "GERP++_RS": "4.2", "phyloP100way_vertebrate": "7.8" }]
+          },
+          all_transcripts: {
+            rows: [{ REVEL: "0.45", MetaRNN: "0.82", ESM1b: "-6.5", popEVE: "-4.1" }]
+          },
+          function_prediction: {
+            rows: [{
+              DANN_score: "0.992",
+              BayesDel_noAF_score: "0.15",
+              ClinPred_score: "0.98",
+              "Eigen-phred_coding": "6.8",
+              "Eigen-raw_coding": "0.72"
+            }]
+          }
+        }
+      };
+
+      global.fetch = async () => new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+
+      try {
+        const res = await queryDbnsfpOrg("GZF1", "p.Arg591Trp", "20-23369727-C-T");
+        expect(res).toBeDefined();
+        expect(res?.revel).toBeCloseTo(0.45);
+        expect(res?.dann).toBeCloseTo(0.992);
+        expect(res?.bayesdel).toBeCloseTo(0.15);
+        expect(res?.clinpred).toBeCloseTo(0.98);
+        expect(res?.eigenPhred).toBeCloseTo(6.8);
+        expect(res?.eigenRaw).toBeCloseTo(0.72);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it("should preserve DANN, BayesDel, ClinPred, and Eigen in Tier 3 fetchConservationData", async () => {
+      const { fetchConservationData } = await import("./predictors.ts");
+      const { clearAllCaches } = await import("./cache.ts");
+      clearAllCaches(true);
+      const origFetch = global.fetch;
+
+      const mockResponse = {
+        tabs: {
+          conservative_scores: {
+            rows: [{ "GERP++_RS": "3.5", "phyloP100way_vertebrate": "6.1" }]
+          },
+          all_transcripts: {
+            rows: [{ REVEL: "0.33", MetaRNN: "0.65", ESM1b: "-5.0" }]
+          },
+          function_prediction: {
+            rows: [{
+              DANN_score: "0.995",
+              BayesDel_noAF_score: "0.22",
+              ClinPred_score: "0.91",
+              "Eigen-phred_coding": "5.5",
+              "Eigen-raw_coding": "0.60"
+            }]
+          }
+        }
+      };
+
+      global.fetch = async () => new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+
+      try {
+        const res = await fetchConservationData("GZF1", "p.Arg591Trp", null, null, 591, "20-23369727-C-T");
+        expect(res.available).toBe(true);
+        expect(res.source).toBe("Public dbNSFP (dbnsfp.org)");
+        expect(res.dann).toBeCloseTo(0.995);
+        expect(res.bayesdel).toBeCloseTo(0.22);
+        expect(res.clinpred).toBeCloseTo(0.91);
+        expect(res.eigenPhred).toBeCloseTo(5.5);
+        expect(res.eigenRaw).toBeCloseTo(0.60);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+  });
 });

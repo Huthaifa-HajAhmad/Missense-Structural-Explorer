@@ -69,11 +69,16 @@ export async function queryDbnsfpOrg(
     const revel = safeParseFloat(allTrans.REVEL ?? allTrans.REVEL_score ?? fPred.REVEL_score);
     const gerp = safeParseFloat(cScores['GERP++_RS'] ?? allTrans['GERP++_RS'] ?? fPred['GERP++_RS']);
     const phylop = safeParseFloat(cScores.phyloP100way_vertebrate ?? allTrans.phyloP100way_vertebrate ?? fPred.phyloP100way_vertebrate);
+    const bayesdel = safeParseFloat(allTrans.BayesDel_noAF_score ?? allTrans.BayesDel_noAF ?? fPred.BayesDel_noAF_score ?? fPred.BayesDel_addAF_score);
     const metarnn = safeParseFloat(allTrans.MetaRNN ?? allTrans.MetaRNN_score ?? fPred.MetaRNN_score);
+    const clinpred = safeParseFloat(allTrans.ClinPred_score ?? allTrans.ClinPred ?? fPred.ClinPred_score);
+    const eigenPhred = safeParseFloat(fPred['Eigen-phred_coding'] ?? allTrans['Eigen-phred_coding']);
+    const eigenRaw = safeParseFloat(fPred['Eigen-raw_coding'] ?? allTrans['Eigen-raw_coding']);
+    const dann = safeParseFloat(fPred.DANN_score ?? allTrans.DANN_score);
     const esm1b = safeParseFloat(allTrans.ESM1b ?? allTrans.ESM1b_score ?? fPred.ESM1b_score);
     const popeve = safeParseFloat(allTrans.popEVE ?? allTrans.popEVE_score ?? fPred.popEVE_score);
 
-    if (revel === null && gerp === null && phylop === null && metarnn === null) {
+    if (revel === null && gerp === null && phylop === null && metarnn === null && dann === null) {
       return null;
     }
 
@@ -81,7 +86,12 @@ export async function queryDbnsfpOrg(
       revel,
       gerp,
       phylop,
+      bayesdel,
       metarnn,
+      clinpred,
+      eigenPhred,
+      eigenRaw,
+      dann,
       esm1b,
       popeve
     };
@@ -869,14 +879,14 @@ export async function fetchConservationData(
             gerp: pubDbnsfp.gerp ?? null,
             phylop: pubDbnsfp.phylop ?? null,
             consurf: consurfVal,
-            bayesdel: null,
+            bayesdel: pubDbnsfp.bayesdel ?? null,
             metarnn: pubDbnsfp.metarnn ?? null,
             metarnnPred: null,
-            clinpred: null,
+            clinpred: pubDbnsfp.clinpred ?? null,
             clinpredPred: null,
-            eigenPhred: null,
-            eigenRaw: null,
-            dann: null,
+            eigenPhred: pubDbnsfp.eigenPhred ?? null,
+            eigenRaw: pubDbnsfp.eigenRaw ?? null,
+            dann: pubDbnsfp.dann ?? null,
             esm1b: pubDbnsfp.esm1b ?? null,
             esm1bPred: null,
             popeve: popEVEVal,

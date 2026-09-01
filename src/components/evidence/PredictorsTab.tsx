@@ -29,6 +29,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
           eigenPhred: result.conservationData?.eigenPhred,
           dann: result.conservationData?.dann,
           popeve: result.conservationData?.popeve,
+          esm2Llr: result.esm2Eval?.llr ?? result.esm2?.llr ?? null,
+          saprotLlr: result.saprotEval?.llr ?? null,
           spliceProximity: result.conservationData?.spliceProximity,
           spliceai: result.conservationData?.spliceai,
           dbscsnv: result.conservationData?.dbscsnv
