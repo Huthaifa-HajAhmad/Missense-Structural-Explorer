@@ -1,8 +1,8 @@
 # Missense & Fold Reverse Proxy and TLS Configuration
 # Run via: caddy run --config Caddyfile
 
-localhost {
-    reverse_proxy 127.0.0.1:3000 {
+missense-resolve.duckdns.org {
+    reverse_proxy missense-resolve-app:3000 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}

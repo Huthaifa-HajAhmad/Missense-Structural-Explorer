@@ -1,0 +1,39 @@
+name: Continuous Deployment (OCI)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to OCI VM via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        if: env.OCI_HOST != '' && env.OCI_KEY != ''
+        env:
+          OCI_HOST: ${{ secrets.OCI_SSH_HOST }}
+          OCI_USER: ${{ secrets.OCI_SSH_USER }}
+          OCI_KEY: ${{ secrets.OCI_SSH_KEY }}
+        with:
+          host: ${{ secrets.OCI_SSH_HOST }}
+          username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          script_stop: true
+          script: |
+            cd Missense-Structural-Explorer || exit 1
+            echo "[CD] Pulling latest changes from main branch..."
+            git pull origin main
+            echo "[CD] Rebuilding and launching Docker containers..."
+            docker compose -f deploy/docker-compose.oci.yml up -d --build
+            echo "[CD] Verifying container health..."
+            docker compose -f deploy/docker-compose.oci.yml ps

@@ -1,0 +1,117 @@
+# ==============================================================================
+# Stage 1: Build Box64 (x86_64 emulator for ARM64 Linux) from source
+# ==============================================================================
+FROM debian:bookworm-slim AS box64-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    cmake \
+    python3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --depth 1 --branch v0.4.4 https://github.com/ptitSeb/box64.git box64 && \
+    mkdir -p box64/build && \
+    cd box64/build && \
+    cmake .. -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=Release && \
+    make -j$(nproc)
+
+# ==============================================================================
+# Stage 2: Build Node.js Application & Python Virtual Environment
+# ==============================================================================
+FROM node:22-bookworm-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    curl \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Copy Node dependency definitions & install
+COPY package*.json ./
+RUN npm ci
+
+# Copy Python dependency lockfiles & build venv
+COPY tools/pyproject.toml tools/uv.lock ./tools/
+RUN uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
+
+# Copy source tree
+COPY . .
+
+# Run verification gates (TypeScript type-check and test suite)
+RUN npm run lint
+RUN npm test
+
+# Build RaSP SQLite database if raw CSV was explicitly provided in build context.
+# Note: In standard deployments, data/*.sqlite* is persisted on host and mounted via /app/data volume.
+RUN if [ -f data/df_rasp_gnomad_clinvar.csv ]; then npm run migrate:rasp; fi
+
+# Compile React frontend (Vite) and Node.js backend (esbuild)
+RUN npm run build
+
+# ==============================================================================
+# Stage 3: Production Runner (ARM64 Optimized)
+# ==============================================================================
+FROM node:22-bookworm-slim AS runner
+
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    git \
+    curl \
+    ca-certificates \
+    default-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Copy standalone Python interpreters and runtimes managed by uv
+COPY --from=builder /root/.local/share/uv /root/.local/share/uv
+
+# Copy Box64 binary from builder stage into system bin
+COPY --from=box64-builder /src/box64/build/box64 /usr/local/bin/box64
+RUN chmod +x /usr/local/bin/box64
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HF_HOME=/root/.cache/huggingface
+
+# Install production Node dependencies
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy compiled backend and frontend distribution bundles
+COPY --from=builder /app/dist ./dist
+
+# Copy Python tools and virtual environment
+COPY tools/ ./tools/
+COPY --from=builder /app/tools/.venv ./tools/.venv
+
+# Copy SQLite data store
+COPY --from=builder /app/data ./data/
+COPY README.md ./
+
+# Create persistent cache and log directories
+RUN mkdir -p /app/logs/foldx_cache /root/.cache/huggingface /app/data
+
+# Declare volume mounts
+VOLUME ["/app/data", "/app/tools/foldx", "/app/logs", "/root/.cache/huggingface"]
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:3000/api/v1/health || exit 1
+
+CMD ["npm", "run", "start"]

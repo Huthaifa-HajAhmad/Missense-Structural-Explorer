@@ -31,7 +31,10 @@ __pycache__/
 *.pyc
 *.pth
 *.pt
+.venv/
+tools/.venv/
 tools/vesm/
+tools/thermompnn/
 
 
 data/*.csv

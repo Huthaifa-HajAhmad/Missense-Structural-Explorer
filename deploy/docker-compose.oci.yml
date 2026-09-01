@@ -1,0 +1,81 @@
+services:
+  missense-resolve-app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.oci
+    image: missense-resolve:oci-latest
+    container_name: missense-resolve-app
+    restart: unless-stopped
+    env_file:
+      - .env.oci
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - THERMOMPNN_PROVIDER=${THERMOMPNN_PROVIDER:-local}
+    volumes:
+      # Persistent SQLite databases (analyses.sqlite, landscape_cache.sqlite, df_rasp_gnomad_clinvar.sqlite)
+      - ../data:/app/data
+      # Academic FoldX binary mount (licensed executable, rotabase.txt, molecules/)
+      - ../tools/foldx:/app/tools/foldx:ro
+      # FoldX calculation and biophysical cache
+      - ../logs:/app/logs
+      # Hugging Face downloaded model weights cache
+      - hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 10g
+        reservations:
+          memory: 2g
+    networks:
+      - mse-network
+
+  caddy:
+    image: caddy:alpine
+    container_name: missense-resolve-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      missense-resolve-app:
+        condition: service_healthy
+    networks:
+      - mse-network
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: missense-resolve-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    env_file:
+      - .env.oci
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      missense-resolve-app:
+        condition: service_healthy
+    networks:
+      - mse-network
+
+volumes:
+  hf_cache:
+    name: missense_resolve_hf_cache
+  caddy_data:
+    name: missense_resolve_caddy_data
+  caddy_config:
+    name: missense_resolve_caddy_config
+
+networks:
+  mse-network:
+    name: missense_resolve_network

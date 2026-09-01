@@ -100,10 +100,12 @@ The repository contains a robust Vitest test suite checking server-side input va
 ---
 
 ## 🏗️ Production Deployment Architecture
-For production environments, the platform is designed to run in a stateless containerized environment (e.g., **Google Cloud Run**):
-*   **HTTPS/TLS Termination (SEC-5)**: Express binds to HTTP inside the container; HTTPS termination is offloaded to the GCP Ingress or HTTPS Load Balancer.
-*   **Access Control**: Integrate with **Google Cloud Identity-Aware Proxy (IAP)** to enforce personal Single Sign-On (SSO) before users access the clinical portal.
-*   **Caching & State**: Static structures and UniProt queries should be backed by a **Google Cloud Storage (GCS)** bucket or **Google Memorystore (Redis)** cache rather than in-memory arrays.
+For production environments, the platform runs on an **Oracle Cloud Infrastructure (OCI) Always Free Ampere A1 (ARM64)** instance, secured via **Cloudflare Zero Trust Tunnels**:
+*   **Compute**: 2 OCPUs (ARM64 Neoverse-N1) / 12 GB RAM on `VM.Standard.A1.Flex` — free tier.
+*   **Ingress & TLS**: Cloudflare Tunnel creates an outbound-only encrypted connection — no open inbound ports. HTTPS termination is handled by Cloudflare Edge.
+*   **Access Control**: **Cloudflare Zero Trust Access** enforces team-only Single Sign-On (SSO) via email PIN or Google/Microsoft identity before users access the clinical portal.
+*   **Data Persistence**: SQLite databases are stored on persistent NVMe block storage with daily automated backups and optional offsite sync to Cloudflare R2.
+*   **Full deployment guide**: See [`doc/DEPLOYMENT_OCI.md`](./doc/DEPLOYMENT_OCI.md).
 
 ---
 

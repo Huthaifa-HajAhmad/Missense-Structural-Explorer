@@ -57,6 +57,7 @@ export async function createExpressApp(): Promise<express.Express> {
               "'unsafe-inline'",
               "'unsafe-eval'"
             ],
+        // Note on styleSrc: 'unsafe-inline' is required for Mol* 3D WebGL viewer canvas CSS and dynamic chart tooltips
         styleSrc: ["'self'", "'unsafe-inline'"],
         fontSrc: ["'self'", "data:"],
         imgSrc: ["'self'", "data:", "blob:"],
@@ -67,7 +68,11 @@ export async function createExpressApp(): Promise<express.Express> {
               "https://alphafold.ebi.ac.uk",
               "https://*.uniprot.org",
               "https://myvariant.info",
-              "https://*.rcsb.org"
+              "https://*.rcsb.org",
+              "https://*.trycloudflare.com",
+              "wss://*.trycloudflare.com",
+              "https://*.duckdns.org",
+              "wss://*.duckdns.org"
             ]
           : [
               "'self'",
@@ -85,29 +90,25 @@ export async function createExpressApp(): Promise<express.Express> {
     }
   }));
 
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [`http://localhost:${CONFIG.server.port}`];
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS?.split(",") || [`http://localhost:${CONFIG.server.port}`]).map(o => o.trim());
   app.use(cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
+      if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+        return callback(null, true);
       }
+      try {
+        const url = new URL(origin);
+        if (url.hostname.endsWith(".trycloudflare.com") || url.hostname.endsWith(".duckdns.org")) {
+          return callback(null, true);
+        }
+      } catch (_) {}
+      callback(new Error(`Origin '${origin}' not allowed by CORS`));
     },
     credentials: true
   }));
 
   // Mount versioned API router
   app.use("/api/v1", apiRouter);
-
-  // Global Express JSON error handler
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error("[Global Error Handler]:", err);
-    const status = err.status || err.statusCode || 500;
-    const code = err.code || "INTERNAL_SERVER_ERROR";
-    const message = err.message || "An internal server error occurred.";
-    sendError(res, status, code, message);
-  });
 
   // Vite middleware for development / Static assets serving for production
   if (!isProd) {
@@ -134,6 +135,15 @@ export async function createExpressApp(): Promise<express.Express> {
       }
     });
   }
+
+  // Global Express JSON error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("[Global Error Handler]:", err);
+    const status = err.status || err.statusCode || 500;
+    const code = err.code || "INTERNAL_SERVER_ERROR";
+    const message = err.message || "An internal server error occurred.";
+    sendError(res, status, code, message);
+  });
 
   return app;
 }
