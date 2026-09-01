@@ -186,6 +186,14 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           });
           break;
         } else if (pollData.status === "failed") {
+          if (pollData.result) {
+            const rawResult = pollData.result;
+            const parsedRes = generateMutantResponseSchema.safeParse(rawResult);
+            const resResult: GenerateMutantData = parsedRes.success ? parsedRes.data : (rawResult as GenerateMutantData);
+            if (resResult.energetics) {
+              applyEnergetics(resResult.energetics, resResult.provenance);
+            }
+          }
           throw new Error(pollData.error || "Background FoldX execution failed.");
         }
       }

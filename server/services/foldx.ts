@@ -486,7 +486,15 @@ async function generateMutantPdbInternal(
         if (process.platform === "win32") {
           return lower.startsWith("foldx") && lower.endsWith(".exe");
         } else {
-          return lower.startsWith("foldx") && !lower.endsWith(".exe") && !lower.endsWith(".txt");
+          return (
+            lower.startsWith("foldx") &&
+            !lower.endsWith(".exe") &&
+            !lower.endsWith(".txt") &&
+            !lower.endsWith(".cmd") &&
+            !lower.endsWith(".bat") &&
+            !lower.endsWith(".ps1") &&
+            !lower.endsWith(".sh")
+          );
         }
       });
       if (exeFile) {
@@ -497,6 +505,11 @@ async function generateMutantPdbInternal(
     }
   } else {
     foldxDir = path.dirname(foldxBin);
+  }
+
+  // Prevent executing Windows scripts on POSIX/Linux platforms
+  if (process.platform !== "win32" && (foldxBin.toLowerCase().endsWith(".cmd") || foldxBin.toLowerCase().endsWith(".bat"))) {
+    throw new Error(`Invalid FoldX binary on ${process.platform}: Windows batch script '${path.basename(foldxBin)}' cannot be executed on Linux. Please install a Linux FoldX executable or mount it into /app/tools/foldx/`);
   }
 
   // Fail fast if the binary does not exist (P0-1.5)
@@ -753,21 +766,12 @@ async function generateMutantPdbInternal(
     let rasp: number | null = null;
     let raspReason: string | undefined = undefined;
     try {
-      const wtPdbPath = path.join(jobDir, "wt_for_rasp.pdb");
-      const mutPdbPath = path.join(jobDir, "mut_for_rasp.pdb");
-      await fs.promises.mkdir(jobDir, { recursive: true });
-      await fs.promises.writeFile(wtPdbPath, wtPdb, "utf8");
-      await fs.promises.writeFile(mutPdbPath, mutantPdbContent, "utf8");
-      const raspRes = await runRaspLocal(wtPdbPath, mutPdbPath, resolvedChain, pos, wt1, mut1, uniprotId);
+      const raspRes = await runRaspLocal("", "", resolvedChain, pos, wt1, mut1, uniprotId);
       if (raspRes !== null) {
         rasp = raspRes.score;
         raspReason = raspRes.reason;
         console.log(`[RaSP] Local prediction computed: ${rasp} kcal/mol (reason: ${raspReason || "none"})`);
       }
-      await Promise.allSettled([
-        fs.promises.unlink(wtPdbPath),
-        fs.promises.unlink(mutPdbPath)
-      ]);
     } catch (raspErr: any) {
       console.warn(`[RaSP] Failed to compute local prediction:`, raspErr.message);
     }

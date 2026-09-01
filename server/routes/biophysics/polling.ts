@@ -215,11 +215,28 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
 
       if (jobInfo.status === "failed") {
-        broadcastJobUpdate({ jobId, tool: "foldx", status: "failed", error: jobInfo.error || "FoldX job failed during execution" });
+        const mutation = jobInfo.result?.mutation || jobData?.mutation || "";
+        const numMatch = mutation.match(/\d+/);
+        const posNum = numMatch ? parseInt(numMatch[0], 10) : 0;
+        const structureProvenance = jobInfo.result?.provenance || jobData?.structureProvenance || {};
+
+        const enriched = jobInfo.result
+          ? enrichBiophysicalResult(jobInfo.result, remoteJobs, structureProvenance, posNum)
+          : enrichBiophysicalResult({ pdb: null, ddG: null, status: "failed", error: jobInfo.error }, remoteJobs, structureProvenance, posNum);
+
+        broadcastJobUpdate({ jobId, tool: "foldx", status: "failed", error: jobInfo.error || "FoldX job failed during execution", result: enriched });
         return res.json({
           jobId,
           status: "failed",
-          error: jobInfo.error || "FoldX job failed during execution"
+          error: jobInfo.error || "FoldX job failed during execution",
+          result: enriched,
+          dynamut2JobId: remoteJobs.dynamut2JobId,
+          dynamut2Status: remoteJobs.dynamut2Status,
+          ddmutJobId: remoteJobs.ddmutJobId,
+          ddmutStatus: remoteJobs.ddmutStatus,
+          thermompnnJobId: remoteJobs.thermompnnJobId,
+          thermompnnStatus: remoteJobs.thermompnnStatus,
+          thermompnnError: remoteJobs.thermompnnError
         });
       }
 

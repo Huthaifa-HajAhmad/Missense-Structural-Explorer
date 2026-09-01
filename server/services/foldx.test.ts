@@ -236,5 +236,102 @@ END
       expect(afRegex.test("HEADER EXPERIMENTAL STRUCTURE")).toBe(false);
     });
   });
+
+  describe("Platform Binary Resolution & Independent Execution", () => {
+    it("should filter out Windows batch files (.cmd, .bat) when scanning for Linux binaries", () => {
+      const files = ["foldx.cmd", "foldx_1_20270131.exe", "foldx.bat", "rotabase.txt"];
+      const isLinuxCandidate = (f: string) => {
+        const lower = f.toLowerCase();
+        return (
+          lower.startsWith("foldx") &&
+          !lower.endsWith(".exe") &&
+          !lower.endsWith(".txt") &&
+          !lower.endsWith(".cmd") &&
+          !lower.endsWith(".bat") &&
+          !lower.endsWith(".ps1") &&
+          !lower.endsWith(".sh")
+        );
+      };
+
+      const found = files.find(isLinuxCandidate);
+      expect(found).toBeUndefined();
+    });
+
+    it("should reject executing Windows batch scripts on non-Windows platforms via FOLDX_BINARY", async () => {
+      const originalPlatform = process.platform;
+      const originalFoldxBinary = process.env.FOLDX_BINARY;
+      const dummyPdb = `
+ATOM      1  N   MET A   1       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  MET A   1       1.458   0.000   0.000  1.00  0.00           C
+ATOM      3  C   MET A   1       2.009   1.428   0.000  1.00  0.00           C
+ATOM      4  O   MET A   1       1.246   2.392   0.000  1.00  0.00           O
+TER       5      MET A   1
+END
+      `.trim();
+
+      const tempDir = path.join(process.cwd(), "temp_jobs", "test_platform_rejection");
+      fs.mkdirSync(tempDir, { recursive: true });
+
+      try {
+        process.env.FOLDX_BINARY = "/app/tools/foldx/foldx.cmd";
+        // Mock non-win32 platform
+        Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+
+        await expect(
+          generateMutantPdb(dummyPdb, "MA1V", "P00439", tempDir)
+        ).rejects.toThrow(/Windows batch script/);
+      } finally {
+        Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+        if (originalFoldxBinary !== undefined) {
+          process.env.FOLDX_BINARY = originalFoldxBinary;
+        } else {
+          delete process.env.FOLDX_BINARY;
+        }
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (_) {}
+      }
+    });
+
+    it("should allow enrichBiophysicalResult to produce consensus metrics even if FoldX failed", async () => {
+      const { enrichBiophysicalResult } = await import("./energy-models.ts");
+
+      const failedFoldxResult = {
+        pdb: null,
+        ddG: null,
+        status: "failed",
+        error: "FoldX binary not found or failed",
+        energetics: {
+          foldxMean: null,
+          foldxRepairFailed: true,
+          rasp: -1.25,
+          raspReason: "precomputed_zenodo"
+        }
+      };
+
+      const remoteJobs = {
+        dynamut2JobId: "job-123",
+        dynamut2Status: "done",
+        ddmutJobId: null,
+        ddmutStatus: "unavailable",
+        thermompnnJobId: null,
+        thermompnnStatus: "done",
+        thermompnnError: null,
+        thermompnnVal: 0.85,
+        stabilityoracleVal: -0.42
+      };
+
+      const provenance = { source: "alphafold" };
+      const enriched = enrichBiophysicalResult(failedFoldxResult, remoteJobs, provenance, 1);
+
+      expect(enriched.status).toBe("failed");
+      expect(enriched.energetics.foldx).toBeNull();
+      expect(enriched.energetics.rasp).toBe(-1.25);
+      expect(enriched.energetics.thermompnn).toBe(0.85);
+      expect(enriched.energetics.stabilityoracle).toBe(-0.42);
+      expect(enriched.energetics.consensusVerdict).toBeDefined();
+      expect(enriched.energetics.consensusVerdict).not.toBeNull();
+    });
+  });
 });
 

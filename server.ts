@@ -11,7 +11,9 @@ import {
   initializeRaspDatabase,
   generateMutantPdb,
   findBindingPocket,
-  enrichBiophysicalResult
+  enrichBiophysicalResult,
+  runRaspLocal,
+  runStabilityOracleAnalysis
 } from "./server/services/biophysics.ts";
 import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
 import { shutdownPool } from "./server/services/biophysics-pool.ts";
@@ -69,7 +71,24 @@ function initBiophysicalJobQueue(): void {
   BiophysicalJobQueue.initialize(CONFIG.server.biophysicalConcurrency, async (type, data, signal, jobId) => {
     try {
       if (type === "foldx") {
-        const foldxResult = await generateMutantPdb(data.wtPdb, data.mutation, data.uniprotId, data.jobDir, signal, data.options);
+        let foldxResult: any = null;
+        try {
+          foldxResult = await generateMutantPdb(data.wtPdb, data.mutation, data.uniprotId, data.jobDir, signal, data.options);
+        } catch (err: any) {
+          console.warn(`[Queue Worker] FoldX execution failed (${err.message}). Proceeding with independent biophysical predictors.`);
+          foldxResult = {
+            pdb: null,
+            ddG: null,
+            status: "failed",
+            error: err.message,
+            energetics: {
+              foldxMean: null,
+              foldxRepairFailed: true,
+              foldxError: err.message
+            }
+          };
+        }
+
         const queue = BiophysicalJobQueue.getInstance();
         const latestJob = jobId ? await queue.getJobData(jobId) : null;
         const remoteJobs = latestJob?.remoteJobs || data.remoteJobs || {
@@ -85,8 +104,43 @@ function initBiophysicalJobQueue(): void {
         };
         const structureProvenance = latestJob?.structureProvenance || data.structureProvenance || {};
 
-        const mutMatch = data.mutation.trim().match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+        const mutMatch = data.mutation ? data.mutation.trim().match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/) : null;
+        const wt1 = mutMatch ? mutMatch[1].toUpperCase() : "";
+        const resolvedChain = mutMatch ? mutMatch[2].toUpperCase() : "A";
         const posNum = mutMatch ? parseInt(mutMatch[3], 10) : 0;
+        const mut1 = mutMatch ? mutMatch[4].toUpperCase() : "";
+
+        // Guarantee RaSP evaluation even if FoldX failed or was skipped
+        if ((!foldxResult?.energetics || foldxResult.energetics.rasp === null || foldxResult.energetics.rasp === undefined) && data.uniprotId && posNum && wt1 && mut1) {
+          try {
+            const raspRes = await runRaspLocal("", "", resolvedChain, posNum, wt1, mut1, data.uniprotId);
+            if (raspRes) {
+              if (!foldxResult.energetics) foldxResult.energetics = {};
+              foldxResult.energetics.rasp = raspRes.score;
+              foldxResult.energetics.raspReason = raspRes.reason;
+            }
+          } catch (raspErr: any) {
+            console.warn("[Queue Worker] Independent RaSP evaluation error:", raspErr.message);
+          }
+        }
+
+        // Guarantee StabilityOracle evaluation even if FoldX failed
+        if ((remoteJobs.stabilityoracleVal === null || remoteJobs.stabilityoracleVal === undefined) && (data.wtPdb || data.uniprotId)) {
+          try {
+            const soRes = await runStabilityOracleAnalysis(
+              data.uniprotId || "UNKNOWN",
+              `${wt1}${posNum}${mut1}`,
+              data.uniprotId || "",
+              "",
+              data.wtPdb
+            );
+            if (soRes) {
+              remoteJobs.stabilityoracleVal = soRes.ddG;
+            }
+          } catch (soErr: any) {
+            console.warn("[Queue Worker] Independent StabilityOracle evaluation error:", soErr.message);
+          }
+        }
 
         return enrichBiophysicalResult(foldxResult, remoteJobs, structureProvenance, posNum);
       } else if (type === "p2rank") {
