@@ -90,6 +90,7 @@ RUN npm ci --omit=dev
 # 2. Copy heavy Python tools and virtual environment BEFORE app code (cached unless tools change)
 COPY tools/ ./tools/
 COPY --from=builder /app/tools/.venv ./tools/.venv
+RUN find /app/tools -type f \( -name "prank" -o -name "*.sh" \) -exec chmod +x {} + 2>/dev/null || true
 
 # 3. Copy SQLite data seeds and documentation
 COPY --from=builder /app/data ./data/

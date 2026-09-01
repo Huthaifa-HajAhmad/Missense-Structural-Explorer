@@ -279,6 +279,13 @@ async function findBindingPocketInternal(
       }
       if (foundCmd) {
         p2rankCmd = foundCmd;
+        if (process.platform !== "win32") {
+          try {
+            fs.chmodSync(p2rankCmd, 0o755);
+          } catch (chmodErr: any) {
+            console.warn(`[Pocket Finder ML] Failed to set executable permissions on ${p2rankCmd}:`, chmodErr.message);
+          }
+        }
         console.log(`[Pocket Finder ML] Auto-detected local P2Rank binary: ${p2rankCmd}`);
       }
     }
