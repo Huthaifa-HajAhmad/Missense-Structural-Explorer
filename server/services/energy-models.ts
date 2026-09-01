@@ -262,12 +262,6 @@ export async function submitThermoMpnnJob(
   apiKey?: string,
   signal?: AbortSignal
 ): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error"; error?: string }> {
-  const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
-  if (!keyToUse) {
-    return { jobId: null, prediction: null, status: "error", error: "Tamarind Bio API key not configured. Please enter your Tamarind API key in Settings." };
-  }
-
-  const generatedJobName = `thermompnn_${mutation.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
   const cacheKey = `${mutation}_${pdbContent.slice(0, 100)}`;
   const cached = thermompnnCache.get(cacheKey);
   if (cached && cached.prediction !== null) {
@@ -278,6 +272,60 @@ export async function submitThermoMpnnJob(
   if (mutation && mutation.length >= 4) {
     chain = mutation[1];
   }
+
+  const provider = (process.env.THERMOMPNN_PROVIDER || "local").toLowerCase();
+  const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
+
+  // 1. Local Python Sidecar Evaluation (Sovereign 100% Pre-Trained Kuhlman-Lab Engine)
+  if (provider === "local" || !keyToUse) {
+    try {
+      const sidecarSecret = process.env.SIDECAR_SECRET || "";
+      const fetchSignal = signal
+        ? anySignal([signal, AbortSignal.timeout(15000)])
+        : AbortSignal.timeout(15000);
+
+      const localRes = await fetch("http://127.0.0.1:8000/predict/thermompnn", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Sidecar-Secret": sidecarSecret
+        },
+        body: JSON.stringify({
+          pdb_content: pdbContent,
+          mutation,
+          chain
+        }),
+        signal: fetchSignal
+      });
+
+      if (localRes.ok) {
+        const localData = await localRes.json() as { status?: string; ddG?: number; error?: string };
+        if (localData && typeof localData.ddG === "number") {
+          thermompnnCache.set(cacheKey, { prediction: localData.ddG, jobId: "local_thermompnn", status: "done" });
+          return { jobId: "local_thermompnn", prediction: localData.ddG, status: "done" };
+        }
+      } else {
+        const errJson = await localRes.json().catch(() => ({}));
+        const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
+        console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
+        if (!keyToUse) {
+          return { jobId: null, prediction: null, status: "error", error: `Local ThermoMPNN unavailable: ${detail}` };
+        }
+      }
+    } catch (localErr: any) {
+      console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
+      if (!keyToUse) {
+        return { jobId: null, prediction: null, status: "error", error: `Local ThermoMPNN sidecar error: ${localErr.message}` };
+      }
+    }
+  }
+
+  // 2. Remote Tamarind Bio API (Fallback when key is configured)
+  if (!keyToUse) {
+    return { jobId: null, prediction: null, status: "error", error: "Tamarind Bio API key not configured. Set THERMOMPNN_PROVIDER=local or enter API key in Settings." };
+  }
+
+  const generatedJobName = `thermompnn_${mutation.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
 
   try {
     const fetchSignal = signal

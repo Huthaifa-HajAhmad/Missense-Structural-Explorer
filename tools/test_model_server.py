@@ -113,6 +113,39 @@ class TestModelServerHelpers(unittest.TestCase):
         res = clear_model_cache()
         self.assertEqual(res.get("status"), "success")
 
+    def test_thermompnn_prediction(self):
+        from tools.model_server_app.routers.thermompnn import predict_thermompnn_sync, ThermoMpnnRequest, HTTPException
+        
+        # 1. Invalid mutation format must raise 400
+        req_bad = ThermoMpnnRequest(pdb_content="ATOM  1  CA  ARG A 1  0 0 0", mutation="invalid_mut")
+        with self.assertRaises(HTTPException) as ctx:
+            predict_thermompnn_sync(req_bad)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+        # 2. Missing PDB must raise 400
+        req_empty = ThermoMpnnRequest(pdb_content="", mutation="RA408W")
+        with self.assertRaises(HTTPException) as ctx:
+            predict_thermompnn_sync(req_empty)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+        # 3. Valid PDB structure - either returns official model prediction or explicit 503 (never fake numbers)
+        sample_pdb = (
+            "ATOM      1  N   ARG A 408      11.104  13.205  -9.943  1.00 80.00           N\n"
+            "ATOM      2  CA  ARG A 408      11.500  14.500 -10.500  1.00 80.00           C\n"
+            "ATOM      3  C   ARG A 408      12.000  14.000 -11.000  1.00 80.00           C\n"
+            "ATOM      4  O   ARG A 408      12.500  13.000 -11.500  1.00 80.00           O\n"
+        )
+        req = ThermoMpnnRequest(pdb_content=sample_pdb, mutation="RA408W")
+        try:
+            result = predict_thermompnn_sync(req)
+            self.assertEqual(result.get("status"), "success")
+            self.assertIn("ddG", result)
+            self.assertIsInstance(result["ddG"], float)
+            self.assertIn("ThermoMPNN", result.get("provenance", ""))
+        except HTTPException as e:
+            # Explicit 503 is expected if offline without pre-trained weights
+            self.assertEqual(e.status_code, 503)
+
 if __name__ == "__main__":
     unittest.main()
 

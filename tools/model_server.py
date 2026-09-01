@@ -23,7 +23,7 @@ import uvicorn
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from tools.model_server_app import models, utils
-from tools.model_server_app.routers import vesm, esm3, esm2, saprot, esmfold, stabilityoracle
+from tools.model_server_app.routers import vesm, esm3, esm2, saprot, esmfold, stabilityoracle, thermompnn
 
 # Re-export helper functions for backward compatibility (e.g. unit tests)
 crop_sequence_around_mutation = utils.crop_sequence_around_mutation
@@ -78,6 +78,7 @@ app.include_router(esm2.router)
 app.include_router(saprot.router)
 app.include_router(esmfold.router)
 app.include_router(stabilityoracle.router)
+app.include_router(thermompnn.router)
 
 if __name__ == "__main__":
     host = os.environ.get("SIDECAR_HOST", "127.0.0.1")
