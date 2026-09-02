@@ -99,8 +99,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
 
   apiRouter.post("/debug/clear-caches", (req, res) => {
     try {
-      // 1. Clear in-memory caches
-      clearAllCaches();
+      // 1. Clear in-memory and persistent SQLite caches
+      clearAllCaches(true);
       mutantCache.clear();
       geminiCache.clear();
 
@@ -149,7 +149,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
           inMemory: true,
           deletedFoldxFiles: deletedFoldx,
           deletedGeminiFiles: deletedGemini,
-          deletedJobRegistry: true
+          deletedJobRegistry: true,
+          sqlite: true
         }
       });
     } catch (err: any) {
