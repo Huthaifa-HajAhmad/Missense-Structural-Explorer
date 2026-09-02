@@ -27,6 +27,7 @@ jobs:
           host: ${{ secrets.OCI_SSH_HOST }}
           username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
           key: ${{ secrets.OCI_SSH_KEY }}
+          command_timeout: 30m
           script_stop: true
           script: |
             cd Missense-Structural-Explorer || exit 1
