@@ -136,6 +136,7 @@ export function AboutSection() {
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (settings.appApiToken) headers["Authorization"] = `Bearer ${settings.appApiToken}`;
+      if (settings.geminiSessionId) headers["X-Gemini-Session-ID"] = settings.geminiSessionId;
       const res = await fetch("/api/v1/debug/clear-caches", { method: "POST", headers });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error?.message || data.error || `HTTP ${res.status}`);

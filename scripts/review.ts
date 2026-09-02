@@ -63,7 +63,7 @@ if (!hasConcurrency) {
 }
 
 const args = rawArgs.length > 0 ? rawArgs : ["review"];
-const finalArgs = ["@alibaba-group/open-code-review", ...args, ...extraFlags];
+const finalArgs = ["ocr", ...args, ...extraFlags];
 
 console.log(`🔍 [Open Code Review] Running AI Code Review (${activeProvider} / ${chosenModel}) on current git changes...\n`);
 

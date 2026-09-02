@@ -171,5 +171,36 @@ describe("Full Pipeline Integration Test (C-7)", () => {
       await handler(req, res, () => {});
       expect(jsonVal.version).toBe("1.0.0");
     });
+
+    it("should allow /debug/clear-caches through authCheck without API token and execute purge", async () => {
+      const { authCheck } = await import("../middleware.ts");
+      let nextCalled = false;
+      const req: any = { path: "/debug/clear-caches", headers: {} };
+      const res: any = {
+        status(code: number) { this.statusCode = code; return this; },
+        json(body: any) { this.body = body; return this; }
+      };
+
+      authCheck(req, res, () => {
+        nextCalled = true;
+      });
+
+      expect(nextCalled).toBe(true);
+
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/debug/clear-caches");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /debug/clear-caches not found");
+      const handler = route.route.stack[0].handle;
+
+      let purgeJson: any = null;
+      const purgeRes: any = {
+        json(body: any) { purgeJson = body; return this; },
+        status(code: number) { this.statusCode = code; return this; }
+      };
+
+      await handler(req, purgeRes, () => {});
+      expect(purgeJson.status).toBe("success");
+      expect(purgeJson.cleared).toBeDefined();
+    });
   });
 });
