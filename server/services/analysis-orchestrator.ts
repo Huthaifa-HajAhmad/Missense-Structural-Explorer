@@ -28,6 +28,17 @@ export {
   persistAnalysis
 };
 
+function isStaleCachedPayload(payload: any): boolean {
+  if (!payload) return true;
+  const cons = payload.conservationData;
+  if (cons && cons.available === true) {
+    if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Orchestrates synchronous end-to-end execution of core variant analysis (/analyze-variant).
  */
@@ -37,7 +48,7 @@ export async function runCoreAnalysis(context: ParsedVariantContext): Promise<an
   // Check persistent SQLite database
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = db.getVariantAnalysis(gene, variant, acmgWeighting);
-  if (cachedRecord && cachedRecord.payload) {
+  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload)) {
     return healCachedAnalysisIfPossible(cachedRecord.payload, context);
   }
 
@@ -73,7 +84,7 @@ export async function streamCoreAnalysis(
 
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = db.getVariantAnalysis(gene, variant, context.acmgWeighting);
-  if (cachedRecord && cachedRecord.payload) {
+  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload)) {
     const healed = healCachedAnalysisIfPossible(cachedRecord.payload, context);
     onChunk({
       chunkIndex: 1,

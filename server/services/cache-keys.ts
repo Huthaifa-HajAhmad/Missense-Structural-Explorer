@@ -7,7 +7,7 @@
 
 import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts";
 
-export const CACHE_SCHEMA_VERSION = "v3";
+export const CACHE_SCHEMA_VERSION = "v4";
 export const DATA_SOURCES_VERSION = {
   dbnsfp: "4.4a",
   gnomad: "v4.1.0",

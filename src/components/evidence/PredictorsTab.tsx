@@ -177,7 +177,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
       <PredictorSpecialistPanels 
         predictorData={result.predictorData}
         conservationData={result.conservationData}
-        esm2Score={result.esm2?.llr}
+        esm2Score={result.esm2Eval?.llr ?? result.esm2?.llr ?? null}
         isLoading={analysisState.isLoading || isBiophysicalLoading}
       />
     </div>

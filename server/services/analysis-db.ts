@@ -128,6 +128,7 @@ export class AnalysisDatabase {
     try {
       this.purgeExpiredExternalCache();
       this.purgeOutdatedSchemaExternalCache(CACHE_SCHEMA_VERSION);
+      this.purgeStaleVariantAnalyses();
     } catch (_) {}
   }
 
@@ -384,6 +385,28 @@ export class AnalysisDatabase {
   public purgeOutdatedSchemaExternalCache(currentVersion = CACHE_SCHEMA_VERSION): number {
     const info = this.db.prepare("DELETE FROM external_cache WHERE schema_version IS NULL OR schema_version != ?;").run(currentVersion);
     return Number(info?.changes ?? 0);
+  }
+
+  public purgeStaleVariantAnalyses(): number {
+    try {
+      const rows = this.db.prepare("SELECT id, payload_json FROM variant_analyses").all() as any[];
+      let deleted = 0;
+      for (const row of rows) {
+        try {
+          const payload = JSON.parse(row.payload_json);
+          const cons = payload?.conservationData;
+          if (cons && cons.available === true) {
+            if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
+              this.db.prepare("DELETE FROM variant_analyses WHERE id = ?").run(row.id);
+              deleted++;
+            }
+          }
+        } catch (_) {}
+      }
+      return deleted;
+    } catch {
+      return 0;
+    }
   }
 
   public clearAll(): void {

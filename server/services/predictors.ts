@@ -908,7 +908,7 @@ export async function fetchConservationData(
       const queryStr = (resolvedPos !== null)
         ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen_phred,dbnsfp.dann,dbnsfp.esm1b,dbnsfp.gpn_star,dbnsfp.evo2";
+      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen,dbnsfp.bayesdel,dbnsfp.dann,dbnsfp.esm1b,dbnsfp.gpn_star,dbnsfp.evo2";
       const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
   
   try {
