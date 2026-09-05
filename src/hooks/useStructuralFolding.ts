@@ -68,8 +68,6 @@ export function useStructuralFolding() {
     setEsmFoldingError(null);
 
     try {
-      addNotification("info", `Initiating ESMFold full-sequence 3D structure generation for ${uniprotIdArg} ${variantArg}...`);
-
       const foldData = await apiClient.foldSequence({
         uniprotId: uniprotIdArg,
         variant: variantArg,
@@ -83,7 +81,6 @@ export function useStructuralFolding() {
           setEsmFoldMutPdb(foldData.pdb);
           setEsmFoldAlignedPdb(foldData.pdb);
           setEsmFoldMetrics(null);
-          addNotification("success", "Single ESMFold structure generated successfully.");
           return;
         }
         throw new Error("ESMFold endpoint did not return valid WT and mutant PDB structures.");
@@ -91,7 +88,6 @@ export function useStructuralFolding() {
 
       setEsmFoldWtPdb(foldData.wtPdb);
       setEsmFoldMutPdb(foldData.mutPdb);
-      addNotification("info", "ESMFold structures generated. Computing Cα Kabsch superposition & distance delta metrics...");
 
       const posMatch = variantArg.match(/\d+/);
       const position = posMatch ? parseInt(posMatch[0], 10) : 1;
@@ -115,11 +111,11 @@ export function useStructuralFolding() {
         throw new Error("Alignment service did not return aligned structure.");
       }
     } catch (err: any) {
-      console.error("[ESMFold] Failed to fetch and align folded structures:", err);
       const rawMessage = err?.message || "Failed to fold/align protein sequence.";
       const cleanMessage = rawMessage.replace(/^Failed to run ESMFold:\s*/i, "").trim() || rawMessage;
+      console.warn("[ESMFold] De novo folding unavailable:", cleanMessage);
       setEsmFoldingError(cleanMessage);
-      addNotification("error", `ESMFold: ${cleanMessage}`);
+      // Suppress popup toast notification: status is displayed directly as an in-viewer message
     } finally {
       setIsEsmFolding(false);
     }

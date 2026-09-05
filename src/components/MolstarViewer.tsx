@@ -8,7 +8,7 @@ import { useMolstarPlugin } from "./molstar/useMolstarPlugin";
 import { useMolstarStructure } from "./molstar/useMolstarStructure";
 import { useMolstarPocket } from "./molstar/useMolstarPocket";
 import { MolstarViewerProps } from "./molstar/molstarThemes";
-import { Activity } from "lucide-react";
+import { Activity, Layers, Settings, CheckCircle2, Info } from "lucide-react";
 import { Script } from "molstar/lib/mol-script/script";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
@@ -293,36 +293,140 @@ export default function MolstarViewer({
           )}
 
           {/* Structure Load Error Overlay */}
-          {(plugin.loadError || (active3dModelTab === "esm3" && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
-              <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-danger)" }} />
-              <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>
-                {active3dModelTab === "esm3" ? "ESMFold Structure Unavailable" : "Structure Unavailable"}
-              </p>
-              <p className="text-xs max-w-md mb-3 leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                {active3dModelTab === "esm3"
-                  ? (esmFoldingError || "The ESMFold de novo structure generation service encountered an error.")
-                  : (plugin.loadError || "3D model coordinates generation failed or endpoint is unreachable.")}
-              </p>
-              {active3dModelTab === "esm3" && (
-                <div className="flex flex-col items-center gap-2 mt-2 animate-fade-in">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onModelTabChange?.("alphafold2");
-                      analysisActions.setActive3dModelTab("alphafold2");
-                    }}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm flex items-center gap-1.5"
-                  >
-                    <span>Switch to AlphaFold Structure</span>
-                  </button>
-                  <span className="text-[11px] text-[var(--cs-text-muted)] max-w-xs">
-                    AlphaFold DB coordinates and experimental structures remain available for this variant.
-                  </span>
+          {(plugin.loadError || (active3dModelTab === "esm3" && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (() => {
+            const isEsmMode = active3dModelTab === "esm3";
+            const isLengthLimit = Boolean(
+              esmFoldingError && /400\s*aa|exceeds.*limit|sequence length/i.test(esmFoldingError)
+            );
+            const lengthMatch = esmFoldingError?.match(/Sequence length \((\d+)\s*aa\)/i) || esmFoldingError?.match(/(\d+)\s*aa/i);
+            const detectedAaLength = lengthMatch ? lengthMatch[1] : null;
+
+            return (
+              <div
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md overflow-y-auto"
+                style={{
+                  background: isDark ? "rgba(26, 24, 22, 0.88)" : "rgba(255, 255, 255, 0.88)",
+                  color: "var(--cs-text-primary)"
+                }}
+              >
+                <div
+                  className="max-w-md w-full p-6 rounded-2xl border flex flex-col items-center text-center shadow-lg transition-all animate-fade-in"
+                  style={{
+                    background: "var(--cs-surface)",
+                    borderColor: "var(--cs-border)"
+                  }}
+                >
+                  {isEsmMode ? (
+                    <>
+                      {/* Diagnostic Badges */}
+                      <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                        <span
+                          className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
+                          style={{
+                            background: "var(--cs-surface-2)",
+                            borderColor: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-border)",
+                            color: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-text-secondary)"
+                          }}
+                        >
+                          {isLengthLimit ? "ESM Atlas Limit: 400 aa" : "ESMFold Service Notice"}
+                        </span>
+                        {detectedAaLength && (
+                          <span
+                            className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
+                            style={{
+                              background: "var(--cs-surface-2)",
+                              borderColor: "var(--cs-border)",
+                              color: "var(--cs-text-muted)"
+                            }}
+                          >
+                            Protein Length: {detectedAaLength} aa
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Icon */}
+                      <div
+                        className="w-12 h-12 rounded-full flex items-center justify-center mb-3 shadow-xs"
+                        style={{
+                          background: isLengthLimit ? "rgba(196, 104, 73, 0.12)" : "rgba(220, 38, 38, 0.1)",
+                          color: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-text-danger)"
+                        }}
+                      >
+                        {isLengthLimit ? <Layers className="w-6 h-6" /> : <Activity className="w-6 h-6" />}
+                      </div>
+
+                      {/* Title */}
+                      <h4 className="font-semibold text-base mb-2" style={{ color: "var(--cs-text-primary)" }}>
+                        {isLengthLimit ? "Sequence Exceeds Public ESMFold Limit" : "ESMFold Structure Unavailable"}
+                      </h4>
+
+                      {/* Message Body */}
+                      <p className="text-xs leading-relaxed mb-5" style={{ color: "var(--cs-text-secondary)" }}>
+                        {esmFoldingError || "The ESMFold de novo structure generation service encountered an error or is offline."}
+                      </p>
+
+                      {/* Action Buttons */}
+                      <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full justify-center mb-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onModelTabChange?.("alphafold2");
+                            analysisActions.setActive3dModelTab("alphafold2");
+                          }}
+                          className="w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer shadow-sm flex items-center justify-center gap-2 hover:opacity-90"
+                          style={{ background: "var(--cs-accent-clay)" }}
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Switch to AlphaFold Structure</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsSettingsOpen(true)}
+                          className="w-full sm:w-auto px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-1.5 hover:bg-[var(--cs-surface-2)]"
+                          style={{
+                            background: "var(--cs-surface-2)",
+                            borderColor: "var(--cs-border)",
+                            color: "var(--cs-text-primary)"
+                          }}
+                        >
+                          <Settings className="w-3.5 h-3.5" style={{ color: "var(--cs-text-muted)" }} />
+                          <span>Configure API Key</span>
+                        </button>
+                      </div>
+
+                      {/* Informational Callout */}
+                      <div
+                        className="w-full p-2.5 rounded-lg border text-[11px] leading-relaxed text-left"
+                        style={{
+                          background: "var(--cs-surface-2)",
+                          borderColor: "var(--cs-border-subtle)",
+                          color: "var(--cs-text-muted)"
+                        }}
+                      >
+                        <p className="flex items-start gap-1.5">
+                          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--cs-accent-clay)" }} />
+                          <span>
+                            <strong>Note:</strong> AlphaFold DB provides precomputed full-length coordinates with per-residue confidence (pLDDT) and pocket annotations for this protein without sequence length restrictions.
+                          </span>
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-danger)" }} />
+                      <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>
+                        Structure Unavailable
+                      </p>
+                      <p className="text-xs max-w-sm mb-3 leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                        {plugin.loadError || "3D model coordinates generation failed or endpoint is unreachable."}
+                      </p>
+                    </>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
 
           {/* Onboarding Welcome Overlay */}
           {!uniprotId && !customPdbData && (
