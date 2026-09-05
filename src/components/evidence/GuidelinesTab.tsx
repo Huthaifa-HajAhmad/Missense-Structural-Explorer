@@ -142,10 +142,10 @@ export function GuidelinesTab({
                 const popeveStatus = popeveVal !== null ? (popeveVal < 0 ? (popeveVal <= -4.617 ? "path_strong" : popeveVal <= -2.0 ? "path" : popeveVal >= -1.0 ? "benign" : "vus") : (popeveVal >= 0.75 ? "path_strong" : popeveVal <= 0.25 ? "benign" : "vus")) : "none";
                 rows.push(renderRow("popeve", "popEVE", popeveVal, popeveVal?.toFixed(3) ?? "—", "<= 0.25 (LLR >= -1.0)", ">= 0.75 (LLR <= -4.617 severe)", "PP3 / BP4", popeveStatus, popeveStatus === "path_strong" ? "Severe Path." : popeveStatus === "path" ? "Pathogenic" : popeveStatus === "benign" ? "Benign" : "VUS"));
 
-                const esmStatus = esmVal !== null ? (esmVal <= -5.0 ? "path" : esmVal >= -2.0 ? "benign" : "vus") : "none";
-                rows.push(renderRow("esm", "ESM-1b", esmVal, esmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
+                const esmStatus = esmVal !== null ? (esmVal <= THRESHOLDS.esm1b.pathogenic ? "path" : esmVal >= THRESHOLDS.esm1b.benign ? "benign" : "vus") : "none";
+                rows.push(renderRow("esm", "ESM-1b", esmVal, esmVal?.toFixed(2) ?? "—", ">= -5.0", "<= -7.5", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
 
-                const vesmStatus = vesmVal !== null ? (vesmVal <= -5.0 ? "path" : vesmVal >= -2.0 ? "benign" : "vus") : "none";
+                const vesmStatus = vesmVal !== null ? (vesmVal <= THRESHOLDS.esm.pathogenic ? "path" : vesmVal >= THRESHOLDS.esm.benign ? "benign" : "vus") : "none";
                 rows.push(renderRow("vesm", "VESM-150M", vesmVal, vesmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", vesmStatus, vesmStatus === "path" ? "Deleterious" : vesmStatus === "benign" ? "Tolerated" : "Neutral"));
 
                 // --- CATEGORY 2: Biophysical & Structural Energetics ---

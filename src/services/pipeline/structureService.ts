@@ -61,10 +61,14 @@ export async function fetchHomologStructures(
   targetUniprot: string,
   apiClient: any,
   sink: Pick<PipelineStructureSink, "setHomologs" | "setIsHomologsLoading">,
-  pos?: number,
-  signal?: AbortSignal,
-  traceContext?: TraceContext
+  posOrSignal?: number | AbortSignal,
+  signalOrTrace?: AbortSignal | TraceContext,
+  traceContextArg?: TraceContext
 ): Promise<void> {
+  const pos = typeof posOrSignal === "number" ? posOrSignal : undefined;
+  const signal = posOrSignal instanceof AbortSignal ? posOrSignal : (signalOrTrace instanceof AbortSignal ? signalOrTrace : undefined);
+  const traceContext = traceContextArg || (signalOrTrace && !(signalOrTrace instanceof AbortSignal) ? (signalOrTrace as TraceContext) : undefined);
+
   if (!targetUniprot || !targetUniprot.trim()) {
     sink.setIsHomologsLoading(false);
     sink.setHomologs([]);

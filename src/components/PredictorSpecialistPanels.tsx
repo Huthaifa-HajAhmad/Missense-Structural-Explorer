@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Brain, Cpu, Database, Dna, HeartHandshake, HelpCircle, Info, Layers, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
+import { Brain, Cpu, Database, HeartHandshake, HelpCircle, Info, Layers, ShieldAlert, Sparkles } from "lucide-react";
 import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar, evaluateEvo2 } from "../shared/thresholds";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 
@@ -123,21 +123,21 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
     switch (type) {
       case "pathogenic":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-500/10 text-rose-455 border border-rose-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
             <ShieldAlert className="w-3.5 h-3.5 mr-1 text-rose-500" />
             {text || "Deleterious"}
           </span>
         );
       case "benign":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-450 border border-emerald-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             <HeartHandshake className="w-3.5 h-3.5 mr-1 text-emerald-500" />
             {text || "Tolerated"}
           </span>
         );
       case "vus":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/10 text-amber-450 border border-amber-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
             <Layers className="w-3.5 h-3.5 mr-1 text-amber-500" />
             {text || "VUS / Indeterminate"}
           </span>
@@ -312,7 +312,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
                   {renderScoreValue(vesmScore ?? null, 2)}
                 </span>
-                {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -7.5, -5.0, true)}
+                {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -5.0, -2.0, true)}
                 {renderSourceLabel("Local VESM-150M (ntranoslab)")}
               </div>
             </div>

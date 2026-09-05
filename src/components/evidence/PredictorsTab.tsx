@@ -58,12 +58,16 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
         const votingVusCount = concordance.vusTools.filter(t => !t.isInformationalOnly).length;
         const infoVusCount = concordance.vusTools.filter(t => t.isInformationalOnly).length;
 
-        if (concordance.nPathogenic > activeVotingTotal / 2) {
-          verdictTitle = `Concordant Pathogenic (${concordance.nPathogenic}/${activeVotingTotal} consensus tools)`;
+        if (activeVotingTotal === 0) {
+          verdictTitle = "Informational Only (No consensus voting tools available)";
+          verdictBadgeLabel = "Info";
+          verdictBadgeStyle = { color: "var(--cs-text-secondary)", backgroundColor: "var(--cs-surface-2)", borderColor: "var(--cs-border)" };
+        } else if (concordance.nPathogenic > activeVotingTotal / 2) {
+          verdictTitle = `Concordant Pathogenic (${concordance.nPathogenic}/${activeVotingTotal} consensus ${activeVotingTotal === 1 ? "tool" : "tools"})`;
           verdictBadgeLabel = "Pathogenic";
           verdictBadgeStyle = { color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "rgba(220,38,38,0.3)" };
         } else if (concordance.nBenign > activeVotingTotal / 2) {
-          verdictTitle = `Concordant Benign (${concordance.nBenign}/${activeVotingTotal} consensus tools)`;
+          verdictTitle = `Concordant Benign (${concordance.nBenign}/${activeVotingTotal} consensus ${activeVotingTotal === 1 ? "tool" : "tools"})`;
           verdictBadgeLabel = "Benign";
           verdictBadgeStyle = { color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "rgba(22,163,74,0.3)" };
         } else {

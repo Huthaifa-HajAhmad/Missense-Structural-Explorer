@@ -236,7 +236,7 @@ export class SidecarSupervisor {
               if (process.platform === "win32" && this.modelServerProcess.pid) {
                 execSync(`taskkill /F /T /PID ${this.modelServerProcess.pid}`, { stdio: "ignore" });
               } else if (this.modelServerProcess.pid) {
-                execSync(`pkill -P ${this.modelServerProcess.pid} || true`, { stdio: "ignore" });
+                execSync(`pkill -9 -P ${this.modelServerProcess.pid} || true`, { stdio: "ignore" });
                 this.modelServerProcess.kill("SIGKILL");
               }
             } catch (_) {}
