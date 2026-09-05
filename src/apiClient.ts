@@ -22,6 +22,35 @@ import { fetchWithRetry } from "./shared/fetch-retry";
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
 const invalidApiKeys = new Set<string>();
 
+/**
+ * Unified helper to extract researcher-friendly error messages from API responses.
+ * Gracefully parses standardized { error: { message } }, { message }, { detail },
+ * plain text error bodies, and provides clear HTTP status codes without trailing colons.
+ */
+export async function extractErrorMessage(res: Response, fallbackPrefix: string): Promise<string> {
+  try {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      if (data) {
+        if (typeof data.error === "string" && data.error.trim()) return data.error.trim();
+        if (data.error?.message && typeof data.error.message === "string" && data.error.message.trim()) return data.error.message.trim();
+        if (data.message && typeof data.message === "string" && data.message.trim()) return data.message.trim();
+        if (data.detail && typeof data.detail === "string" && data.detail.trim()) return data.detail.trim();
+      }
+    } else {
+      const text = await res.text();
+      if (text && text.trim().length > 0) {
+        return text.length > 250 ? `${text.slice(0, 250)}...` : text.trim();
+      }
+    }
+  } catch (_) {
+    // Ignore JSON/text body consumption errors
+  }
+  const statusInfo = res.status ? `(HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""})` : "";
+  return `${fallbackPrefix} ${statusInfo}`.trim();
+}
+
 export function useApiClient() {
   const { settings, updateSetting } = useSettings();
 
@@ -198,8 +227,7 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errorMsg = errData.error?.message || errData.message || `Failed to resolve gene: ${res.statusText}`;
+          const errorMsg = await extractErrorMessage(res, "Failed to resolve gene");
           throw new Error(errorMsg);
         }
         return await res.json();
@@ -214,8 +242,7 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errorMsg = errData.error?.message || errData.message || `Failed to translate variant: ${res.statusText}`;
+          const errorMsg = await extractErrorMessage(res, "Failed to translate variant");
           throw new Error(errorMsg);
         }
         const data = await res.json();
@@ -228,8 +255,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to fetch sequence: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch sequence");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return z.object({ sequence: z.string() }).parse(data).sequence;
@@ -242,7 +269,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          throw new Error(`Failed to fetch PDB structure: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch PDB structure");
+          throw new Error(errorMsg);
         }
         return await res.text();
       },
@@ -253,7 +281,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          throw new Error(`Failed to fetch AlphaFold model: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch AlphaFold model");
+          throw new Error(errorMsg);
         }
         return await res.text();
       },
@@ -265,8 +294,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to fetch homologs: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch homologs");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return z.object({ homologs: z.array(z.any()) }).parse(data).homologs;
@@ -281,8 +310,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to fetch nearest residues: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch nearest residues");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return nearestResiduesResponseSchema.parse(data);
@@ -297,9 +326,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errMsg = errData.error?.message || errData.message || (typeof errData.error === "string" ? errData.error : null) || res.statusText;
-          throw new Error(`Failed to find binding pocket: ${errMsg}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to find binding pocket");
+          throw new Error(errorMsg);
         }
         const initialData = await res.json();
         if (initialData.status === "queued" && initialData.pocketJobId) {
@@ -314,7 +342,8 @@ export function useApiClient() {
               signal
             });
             if (!jobRes.ok) {
-              throw new Error(`Failed to poll pocket job status: ${jobRes.statusText}`);
+              const errorMsg = await extractErrorMessage(jobRes, "Failed to poll pocket job status");
+              throw new Error(errorMsg);
             }
             const jobData = await jobRes.json();
             if (jobData.status === "completed") {
@@ -339,8 +368,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to detect binding pocket: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to detect binding pocket");
+          throw new Error(errorMsg);
         }
         const initialData = await res.json();
         if (initialData.status === "queued" && initialData.pocketJobId) {
@@ -355,7 +384,8 @@ export function useApiClient() {
               signal
             });
             if (!jobRes.ok) {
-              throw new Error(`Failed to poll pocket job status: ${jobRes.statusText}`);
+              const errorMsg = await extractErrorMessage(jobRes, "Failed to poll pocket job status");
+              throw new Error(errorMsg);
             }
             const jobData = await jobRes.json();
             if (jobData.status === "completed") {
@@ -380,8 +410,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to get biophysical analysis: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to get biophysical analysis");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return biophysicalAnalysisResponseSchema.parse(data);
@@ -495,8 +525,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to fetch narrative: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch narrative");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return z.object({
@@ -514,8 +544,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to run ESMFold: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to run ESMFold");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return esmFoldResponseSchema.parse(data);
@@ -530,8 +560,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to align structures: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to align structures");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return structuralAlignResponseSchema.parse(data);
@@ -546,8 +576,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to compute structural difference: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to compute structural difference");
+          throw new Error(errorMsg);
         }
         const data = await res.json();
         return structuralDiffResponseSchema.parse(data);
@@ -568,8 +598,8 @@ export function useApiClient() {
           signal
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || `Failed to fetch literature: ${res.statusText}`);
+          const errorMsg = await extractErrorMessage(res, "Failed to fetch literature");
+          throw new Error(errorMsg);
         }
         return await res.json();
       }

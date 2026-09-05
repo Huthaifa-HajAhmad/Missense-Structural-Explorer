@@ -280,20 +280,27 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       let customMessage = err.message || "Failed to fold sequence using ESMFold.";
       let statusCode = 502;
 
-      // Inspect sidecar health status to provide extremely clear researcher feedback
-      try {
-        const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(1000) });
-        if (sidecarRes.ok) {
-          const healthData = await sidecarRes.json() as any;
-          if (healthData && healthData.model_loaded === false) {
-            statusCode = 503;
-            customMessage = "Model Server sidecar is online but still loading ML model weights in the background. Please wait ~30-60 seconds and try again.";
+      // Only check sidecar health if the error was not an explicit domain error (such as sequence length limits)
+      const isExplicitDomainError = err.message?.includes("Sequence length") || err.message?.includes("No sequence resolved");
+
+      if (!isExplicitDomainError) {
+        // Inspect sidecar health status to provide extremely clear researcher feedback
+        try {
+          const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(1000) });
+          if (sidecarRes.ok) {
+            const healthData = await sidecarRes.json() as any;
+            if (healthData && healthData.model_loaded === false) {
+              statusCode = 503;
+              customMessage = "Model Server sidecar is online but still loading ML model weights in the background. Please wait ~30-60 seconds and try again.";
+            }
           }
-        }
-      } catch (healthErr: any) {
-        if (healthErr.code === "ECONNREFUSED" || healthErr.message?.includes("fetch failed") || healthErr.message?.includes("connect")) {
-          statusCode = 503;
-          customMessage = "Model Server sidecar is currently offline or starting up. If you just started the app, please wait a minute for the background service to bind.";
+        } catch (healthErr: any) {
+          if (healthErr.code === "ECONNREFUSED" || healthErr.message?.includes("fetch failed") || healthErr.message?.includes("connect")) {
+            if (req.headers["x-biohub-token"] || process.env.ESM3_FORGE_API_KEY) {
+              statusCode = 503;
+              customMessage = "Model Server sidecar is currently offline or starting up. If you just started the app, please wait a minute for the background service to bind.";
+            }
+          }
         }
       }
 

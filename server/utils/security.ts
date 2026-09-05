@@ -71,8 +71,7 @@ export function sanitizeErrorMessage(err: any): string {
   // Denylist of internal developer errors, stack traces, paths, and credentials to prevent information leakage
   const denylistKeywords = [
     "TypeError", "ReferenceError", "SyntaxError", "RangeError", "EvalError", "URIError",
-    "dbNSFP", "FoldX", "DynaMut2", "DDMut", "ThermoMPNN", "ESMFold", "ESM2", "ESM3", "ESMC", "SaProt",
-    "password", "secret", "token", "apiKey", "credential", "authCheck", "sessionSecret", "sessionKey",
+    "password", "sessionSecret", "sessionKey", "authCheck",
     "C:\\", "/Users/", "/home/", "node_modules", " at ", ".ts:", ".js:", "mongodb", "postgres", "mysql",
     "select", "insert", "update", "delete", "sql"
   ];

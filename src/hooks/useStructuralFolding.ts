@@ -116,8 +116,10 @@ export function useStructuralFolding() {
       }
     } catch (err: any) {
       console.error("[ESMFold] Failed to fetch and align folded structures:", err);
-      setEsmFoldingError(err.message || "Failed to fold/align protein sequence.");
-      addNotification("error", `ESMFold overlay pipeline failed: ${err.message}`);
+      const rawMessage = err?.message || "Failed to fold/align protein sequence.";
+      const cleanMessage = rawMessage.replace(/^Failed to run ESMFold:\s*/i, "").trim() || rawMessage;
+      setEsmFoldingError(cleanMessage);
+      addNotification("error", `ESMFold: ${cleanMessage}`);
     } finally {
       setIsEsmFolding(false);
     }

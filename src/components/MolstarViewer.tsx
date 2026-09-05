@@ -38,6 +38,7 @@ export default function MolstarViewer({
   heightClass,
   variant,
   active3dModelTab = "alphafold2",
+  onModelTabChange,
   metrics,
   viewMode
 }: MolstarViewerProps) {
@@ -295,12 +296,31 @@ export default function MolstarViewer({
           {(plugin.loadError || (active3dModelTab === "esm3" && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
               <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-danger)" }} />
-              <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>Structure Unavailable</p>
-              <p className="text-xs max-w-md mb-4" style={{ color: "var(--cs-text-secondary)" }}>
+              <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>
+                {active3dModelTab === "esm3" ? "ESMFold Structure Unavailable" : "Structure Unavailable"}
+              </p>
+              <p className="text-xs max-w-md mb-3 leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
                 {active3dModelTab === "esm3"
-                  ? (esmFoldingError || "The ESM3 mutated structure refinement service encountered an error.")
+                  ? (esmFoldingError || "The ESMFold de novo structure generation service encountered an error.")
                   : (plugin.loadError || "3D model coordinates generation failed or endpoint is unreachable.")}
               </p>
+              {active3dModelTab === "esm3" && (
+                <div className="flex flex-col items-center gap-2 mt-2 animate-fade-in">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onModelTabChange?.("alphafold2");
+                      analysisActions.setActive3dModelTab("alphafold2");
+                    }}
+                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm flex items-center gap-1.5"
+                  >
+                    <span>Switch to AlphaFold Structure</span>
+                  </button>
+                  <span className="text-[11px] text-[var(--cs-text-muted)] max-w-xs">
+                    AlphaFold DB coordinates and experimental structures remain available for this variant.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

@@ -296,6 +296,7 @@ export function AppViews({
                         variant={variant}
                         heightClass="h-full"
                         active3dModelTab={masterView === "structure_esmfold" ? "esm3" : "alphafold2"}
+                        onModelTabChange={(tab) => setMasterView(tab === "esm3" ? "structure_esmfold" : "structure_alphafold")}
                         viewMode={viewMode}
                         customPdbData={masterView === "structure_esmfold" ? (esmFoldWtPdb || undefined) : (viewMode === "mutant" && !customPdbUrl ? (mutantPdb || undefined) : undefined)}
                         comparePdbData={masterView === "structure_esmfold" ? (esmFoldAlignedPdb || undefined) : undefined}

@@ -74,11 +74,11 @@ async function foldSequenceInternal(
         return pdbText;
       }
     }
-    if (atlasRes.status === 422 || sequence.length > 400) {
-      throw new Error(`Sequence length (${sequence.length} aa) exceeds public ESM Atlas 400aa limit. An active Biohub / EvolutionaryScale API key is required for proteins > 400 aa.`);
+    if (atlasRes.status === 413 || atlasRes.status === 422 || sequence.length > 400) {
+      throw new Error(`Sequence length (${sequence.length} aa) exceeds the public ESM Atlas limit of 400 aa. De novo folding for proteins > 400 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`);
     }
-    throw new Error(`ESM Atlas returned status ${atlasRes.status}`);
+    throw new Error(`ESM Atlas returned HTTP ${atlasRes.status}${atlasRes.statusText ? ` (${atlasRes.statusText})` : ""}.`);
   } catch (atlasErr: any) {
-    throw new Error(`Protein folding failed: ${atlasErr.message}`);
+    throw new Error(atlasErr.message?.startsWith("Sequence length") ? atlasErr.message : `Protein folding failed: ${atlasErr.message}`);
   }
 }
