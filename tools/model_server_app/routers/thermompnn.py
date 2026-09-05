@@ -34,15 +34,46 @@ except ImportError as e:
     HAS_TORCH = False
     _import_err = str(e)
 
-def parse_pdb_coordinates_for_thermompnn(pdb_file_path: str, atoms: list[str] = ['N', 'CA', 'C', 'O'], chain: Optional[str] = None):
+def parse_pdb_coordinates_for_thermompnn(
+    pdb_file_path: str,
+    atoms: list[str] = ['N', 'CA', 'C', 'O'],
+    chain: Optional[str] = None,
+    target_pos: Optional[int] = None
+):
     alpha_1 = list("ARNDCQEGHILKMFPSTWYV-")
     alpha_3 = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
                'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'GAP']
     aa_3_N = {b: a for a, b in enumerate(alpha_3)}
     aa_N_1 = {a: b for a, b in enumerate(alpha_1)}
 
+    # Multi-chain resolution: if chain is None, identify candidate chains and pick one
+    selected_chain = chain
+    if selected_chain is None:
+        chain_candidates = []
+        chain_with_target = None
+        target_str = str(target_pos) if target_pos is not None else None
+
+        with open(pdb_file_path, "rb") as f:
+            for line in f:
+                line = line.decode("utf-8", "ignore").rstrip()
+                if line.startswith("ATOM"):
+                    ch = line[21:22].strip() or "A"
+                    if ch not in chain_candidates:
+                        chain_candidates.append(ch)
+                    if target_str is not None:
+                        resn_val = line[22:27].strip()
+                        if resn_val == target_str or resn_val.startswith(target_str):
+                            chain_with_target = ch
+                            break
+
+        if chain_with_target:
+            selected_chain = chain_with_target
+        elif chain_candidates:
+            selected_chain = chain_candidates[0]
+        else:
+            selected_chain = "A"
+
     xyz, seq, min_resn, max_resn = {}, {}, 1000000, -1000000
-    resn_list = []
     with open(pdb_file_path, "rb") as f:
         for line in f:
             line = line.decode("utf-8", "ignore").rstrip()
@@ -50,13 +81,13 @@ def parse_pdb_coordinates_for_thermompnn(pdb_file_path: str, atoms: list[str] = 
                 line = "ATOM  " + line[6:17] + "MET" + line[20:]
 
             if line[:4] == "ATOM":
-                ch = line[21:22]
-                if chain is None or ch == chain:
+                ch = line[21:22].strip() or "A"
+                if selected_chain is None or ch == selected_chain:
                     atom = line[12:16].strip()
                     resi = line[17:20].strip()
                     raw_resn = line[22:27].strip()
-                    if raw_resn not in resn_list:
-                        resn_list.append(raw_resn)
+                    if not raw_resn:
+                        continue
 
                     try:
                         x_coord = float(line[30:38])
@@ -65,10 +96,13 @@ def parse_pdb_coordinates_for_thermompnn(pdb_file_path: str, atoms: list[str] = 
                     except (ValueError, IndexError):
                         continue
 
-                    if raw_resn[-1].isalpha():
-                        resa, res_num = raw_resn[-1], int(raw_resn[:-1]) - 1
-                    else:
-                        resa, res_num = "", int(raw_resn) - 1
+                    try:
+                        if raw_resn[-1].isalpha():
+                            resa, res_num = raw_resn[-1], int(raw_resn[:-1]) - 1
+                        else:
+                            resa, res_num = "", int(raw_resn) - 1
+                    except (ValueError, IndexError):
+                        continue
 
                     if res_num < min_resn:
                         min_resn = res_num
@@ -88,12 +122,24 @@ def parse_pdb_coordinates_for_thermompnn(pdb_file_path: str, atoms: list[str] = 
                         xyz[res_num][resa][atom] = np.array([x_coord, y_coord, z_coord])
 
     if min_resn > max_resn or not xyz:
-        return 'no_chain', 'no_chain', 'no_chain'
+        return 'no_chain', 'no_chain', {}, selected_chain
+
+    # Guard against denial-of-service via massive non-contiguous residue numbering spans
+    if (max_resn - min_resn) > 5000:
+        return 'span_too_large', 'span_too_large', {}, selected_chain
 
     seq_, xyz_ = [], []
+    resn_to_seq_idx = {}
     for resn in range(min_resn, max_resn + 1):
         if resn in seq:
             for k in sorted(seq[resn]):
+                res_1based = resn + 1
+                curr_idx = len(seq_)
+                resn_to_seq_idx[str(res_1based) + k] = curr_idx
+                if not k:
+                    resn_to_seq_idx[str(res_1based)] = curr_idx
+                    resn_to_seq_idx[res_1based] = curr_idx
+
                 seq_.append(aa_3_N.get(seq[resn][k], 20))
         else:
             seq_.append(20)
@@ -111,7 +157,7 @@ def parse_pdb_coordinates_for_thermompnn(pdb_file_path: str, atoms: list[str] = 
 
     arr_xyz = np.array(xyz_).reshape(-1, len(atoms), 3)
     parsed_seq = ["".join([aa_N_1.get(a, "-") for a in seq_])]
-    return arr_xyz, parsed_seq, list(dict.fromkeys(resn_list))
+    return arr_xyz, parsed_seq, resn_to_seq_idx, selected_chain
 
 router = APIRouter()
 
@@ -278,50 +324,60 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
 
     try:
         sidechain_atoms = ['N', 'CA', 'C', 'O']
-        xyz, seq, resn_list = parse_pdb_coordinates_for_thermompnn(tmp_pdb_path, atoms=sidechain_atoms, chain=chain)
+        xyz, seq, resn_to_seq_idx, resolved_chain = parse_pdb_coordinates_for_thermompnn(
+            tmp_pdb_path, atoms=sidechain_atoms, chain=chain, target_pos=pos
+        )
         
-        if isinstance(xyz, str) and xyz == 'no_chain':
-            # Fallback without chain filter
-            xyz, seq, resn_list = parse_pdb_coordinates_for_thermompnn(tmp_pdb_path, atoms=sidechain_atoms, chain=None)
+        if isinstance(xyz, str) and xyz == 'span_too_large':
+            raise HTTPException(status_code=400, detail="Residue numbering span exceeds maximum supported length (5000)")
 
-        if isinstance(xyz, str) and xyz == 'no_chain' or len(xyz) == 0:
+        if (isinstance(xyz, str) and xyz == 'no_chain') or len(xyz) == 0:
             raise HTTPException(status_code=400, detail="Could not extract coordinates from PDB structure")
 
-        # Locate residue position index
-        pos_str = str(pos)
-        target_seq_idx = None
-        for idx, r_num in enumerate(resn_list):
-            if r_num == pos_str:
-                target_seq_idx = idx
-                break
+        # Locate residue position index synchronized with sequence & coordinates
+        target_seq_idx = resn_to_seq_idx.get(str(pos))
+        if target_seq_idx is None:
+            target_seq_idx = resn_to_seq_idx.get(pos)
 
         if target_seq_idx is None:
-            # Fallback 1-indexed match
-            if 1 <= pos <= len(resn_list):
+            # Check 1-indexed fallback only if position is within bounds
+            if 0 <= pos - 1 < len(seq[0]) and seq[0][pos - 1] != '-':
                 target_seq_idx = pos - 1
             else:
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Residue position {pos} not found in parsed structure (range: 1-{len(resn_list)})"
+                    detail=f"Residue position {pos} is not resolved or has missing coordinates in the structure"
                 )
+
+        parsed_wt = seq[0][target_seq_idx]
+        if parsed_wt == '-':
+            raise HTTPException(
+                status_code=422,
+                detail=f"Residue position {pos} is in an unmodeled gap / missing coordinate region"
+            )
+
+        if wt and parsed_wt != wt:
+            logger.warning(f"Wildtype residue mismatch at pos {pos}: expected {wt}, structure has {parsed_wt}")
+
+        chain_id = resolved_chain or chain or 'A'
 
         # Build parsed PDB dictionary structure expected by ProteinMPNN tied_featurize
         parsed_pdb_dict = {
             'name': 'query_struct',
             'num_of_chains': 1,
             'seq': seq[0],
-            'seq_chain_' + chain: seq[0],
-            'coords_chain_' + chain: {
-                'N_chain_' + chain: xyz[:, 0, :].tolist(),
-                'CA_chain_' + chain: xyz[:, 1, :].tolist(),
-                'C_chain_' + chain: xyz[:, 2, :].tolist(),
-                'O_chain_' + chain: xyz[:, 3, :].tolist(),
+            'seq_chain_' + chain_id: seq[0],
+            'coords_chain_' + chain_id: {
+                'N_chain_' + chain_id: xyz[:, 0, :].tolist(),
+                'CA_chain_' + chain_id: xyz[:, 1, :].tolist(),
+                'C_chain_' + chain_id: xyz[:, 2, :].tolist(),
+                'O_chain_' + chain_id: xyz[:, 3, :].tolist(),
             }
         }
 
         mutation_obj = Mutation(
             position=target_seq_idx,
-            wildtype=wt,
+            wildtype=parsed_wt if parsed_wt in ALPHABET else wt,
             mutation=mut,
             ddG=None,
             pdb='query_struct'

@@ -271,6 +271,23 @@ export function getFoldxExecutionTarget(foldxBin: string, args: string[]): { fil
   };
 }
 
+function killProcessSafely(pid?: number) {
+  if (!pid) return;
+  if (process.platform === "win32") {
+    try {
+      execFile("taskkill", ["/F", "/T", "/PID", String(pid)], () => {});
+    } catch (_) {}
+  } else {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch (_) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (_) {}
+    }
+  }
+}
+
 function execFileAsync(
   file: string,
   args: string[],
@@ -283,20 +300,7 @@ function execFileAsync(
       if (err) {
         if (!killed) {
           killed = true;
-          const pid = child.pid;
-          if (pid) {
-            if (process.platform === "win32") {
-              try {
-                const { exec } = require("child_process");
-                exec(`taskkill /F /T /PID ${pid}`);
-              } catch (_) {}
-            } else {
-              try {
-                const { exec } = require("child_process");
-                exec(`kill -9 ${pid}`);
-              } catch (_) {}
-            }
-          }
+          killProcessSafely(child.pid);
         }
         reject(err);
       } else {
@@ -308,20 +312,7 @@ function execFileAsync(
       const onAbort = () => {
         if (!killed) {
           killed = true;
-          const pid = child.pid;
-          if (pid) {
-            if (process.platform === "win32") {
-              try {
-                const { exec } = require("child_process");
-                exec(`taskkill /F /T /PID ${pid}`);
-              } catch (_) {}
-            } else {
-              try {
-                const { exec } = require("child_process");
-                exec(`kill -9 ${pid}`);
-              } catch (_) {}
-            }
-          }
+          killProcessSafely(child.pid);
         }
       };
       options.signal.addEventListener("abort", onAbort);
@@ -337,10 +328,6 @@ function execFileAsync(
 // A-4 Fix: Dynamically size biophysical semaphore concurrency based on CPU core availability
 const defaultConcurrency = parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "", 10) || Math.max(1, os.cpus().length - 1);
 export const biophysicalSemaphore = new Semaphore(defaultConcurrency);
-
-const biophysicalConcurrency = process.env.BIOPHYSICAL_CONCURRENCY 
-  ? parseInt(process.env.BIOPHYSICAL_CONCURRENCY, 10) 
-  : 2;
 
 export interface FoldxOptions {
   pH?: number;
@@ -548,18 +535,19 @@ async function generateMutantPdbInternal(
       "/app/tools/foldx/molecules",
       path.join(process.cwd(), "molecules")
     ].filter(p => p && fs.existsSync(p));
-    if (candidateMolecules.length > 0) {
-      const sourceMolecules = candidateMolecules[0];
-      const destMolecules = path.join(jobDir, "molecules");
-      if (!fs.existsSync(destMolecules)) {
-        try {
-          console.log(`[Biophysical Modeling] Creating symlink/junction for FoldX molecules parameters...`);
-          const type = process.platform === "win32" ? "junction" : "dir";
-          fs.symlinkSync(sourceMolecules, destMolecules, type);
-        } catch (err: any) {
-          console.warn(`[Biophysical Modeling] Symlink molecules failed, falling back to copy: ${err.message}`);
-          fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
-        }
+    if (candidateMolecules.length === 0) {
+      throw new Error("FoldX parameter files missing: molecules/ directory not found in tools/foldx or /app/tools/foldx.");
+    }
+    const sourceMolecules = candidateMolecules[0];
+    const destMolecules = path.join(jobDir, "molecules");
+    if (!fs.existsSync(destMolecules)) {
+      try {
+        console.log(`[Biophysical Modeling] Creating symlink/junction for FoldX molecules parameters...`);
+        const type = process.platform === "win32" ? "junction" : "dir";
+        fs.symlinkSync(sourceMolecules, destMolecules, type);
+      } catch (err: any) {
+        console.warn(`[Biophysical Modeling] Symlink molecules failed, falling back to copy: ${err.message}`);
+        fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
       }
     }
 
@@ -569,17 +557,18 @@ async function generateMutantPdbInternal(
       "/app/tools/foldx/rotabase.txt",
       path.join(process.cwd(), "rotabase.txt")
     ].filter(p => p && fs.existsSync(p));
-    if (candidateRotabase.length > 0) {
-      const sourceRotabase = candidateRotabase[0];
-      const destRotabase = path.join(jobDir, "rotabase.txt");
-      if (!fs.existsSync(destRotabase)) {
-        try {
-          console.log(`[Biophysical Modeling] Creating symlink for FoldX rotabase from ${sourceRotabase}...`);
-          fs.symlinkSync(sourceRotabase, destRotabase, "file");
-        } catch (err: any) {
-          console.warn(`[Biophysical Modeling] Symlink rotabase failed, falling back to copy: ${err.message}`);
-          fs.copyFileSync(sourceRotabase, destRotabase);
-        }
+    if (candidateRotabase.length === 0) {
+      throw new Error("FoldX parameter files missing: rotabase.txt not found in tools/foldx or /app/tools/foldx.");
+    }
+    const sourceRotabase = candidateRotabase[0];
+    const destRotabase = path.join(jobDir, "rotabase.txt");
+    if (!fs.existsSync(destRotabase)) {
+      try {
+        console.log(`[Biophysical Modeling] Creating symlink for FoldX rotabase from ${sourceRotabase}...`);
+        fs.symlinkSync(sourceRotabase, destRotabase, "file");
+      } catch (err: any) {
+        console.warn(`[Biophysical Modeling] Symlink rotabase failed, falling back to copy: ${err.message}`);
+        fs.copyFileSync(sourceRotabase, destRotabase);
       }
     }
   }

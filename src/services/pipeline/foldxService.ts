@@ -5,6 +5,7 @@ import { PipelineBiophysicalSink } from "./types";
 import { setCachedVariant } from "./variantCache";
 
 export interface FoldxExecutionOptions {
+  gene?: string;
   uniprotId: string;
   variant: string;
   residueIndex: number | null;
@@ -18,7 +19,8 @@ export interface FoldxExecutionOptions {
 }
 
 export async function executeFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
-  const { uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
+  const { gene, uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
+  const cacheGeneKey = gene || uniprotId;
 
   if (!uniprotId || !uniprotId.trim()) {
     sink.setIsFolding(false);
@@ -117,7 +119,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       if (data.energetics) {
         applyEnergetics(data.energetics, data.provenance);
       }
-      setCachedVariant(uniprotId, variant, uniprotId, {
+      setCachedVariant(cacheGeneKey, variant, uniprotId, {
         mutantPdb: data.pdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
@@ -177,7 +179,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           if (resResult.energetics) {
             applyEnergetics(resResult.energetics, resResult.provenance);
           }
-          setCachedVariant(uniprotId, variant, uniprotId, {
+          setCachedVariant(cacheGeneKey, variant, uniprotId, {
             mutantPdb: resResult.pdb ?? null,
             foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
             foldingDdG: resResult.ddG ?? null,

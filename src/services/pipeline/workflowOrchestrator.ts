@@ -201,6 +201,7 @@ export async function executeFullAnalysisWorkflow({
         const needsBiophysicsBackfill = !cached.mutantPdb || !cached.foldingEnergetics || cached.foldingEnergetics?.stabilityoracle == null || cached.foldingStatus === "failed" || cached.foldingStatus === "unavailable";
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
           executeFoldxPipeline({
+            gene: targetGene,
             uniprotId: targetUniprot,
             variant: targetVariant,
             residueIndex: residueIndex ?? null,
@@ -259,6 +260,7 @@ export async function executeFullAnalysisWorkflow({
       }, 300000);
 
       executeFoldxPipeline({
+        gene: targetGene,
         uniprotId: targetUniprot,
         variant: targetVariant,
         residueIndex: residueIndex ?? null,
