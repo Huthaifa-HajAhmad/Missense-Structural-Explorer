@@ -35,7 +35,7 @@ export interface WorkflowOrchestratorParams {
   requestId: number;
   getActiveRequestId: () => number;
   getTraceContext: () => TraceContext;
-  fetchHomologs: (targetUniprot: string, apiClient: any, signal?: AbortSignal) => Promise<any>;
+  fetchHomologs: (targetUniprot: string, apiClient: any, signal?: AbortSignal, pos?: number) => Promise<any>;
   fetchPocketData: (
     targetUniprot: string,
     residueIndex: number,
@@ -165,8 +165,8 @@ export async function executeFullAnalysisWorkflow({
         analysisSink.setIsClinicalLoading(false);
         analysisSink.setIsNarrativeLoading(false);
 
-        if (!cached.homologs && targetUniprot) {
-          fetchHomologs(targetUniprot, apiClient, activeSignal);
+        if ((!cached.homologs || cached.homologs.length === 0) && targetUniprot) {
+          fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
         }
         if (!cached.pdbText) {
           fetchPdbCoordinates(
@@ -197,8 +197,8 @@ export async function executeFullAnalysisWorkflow({
         }
 
         // P0-CRITICAL: If the cached variant snapshot lacks mutantPdb or StabilityOracle energetics,
-        // dispatch executeFoldxPipeline in the background to compute / backfill biophysics without blocking the UI.
-        const needsBiophysicsBackfill = !cached.mutantPdb || !cached.foldingEnergetics || cached.foldingEnergetics?.stabilityoracle == null;
+        // or if previous run was failed/unavailable, dispatch executeFoldxPipeline to compute / backfill biophysics without blocking the UI.
+        const needsBiophysicsBackfill = !cached.mutantPdb || !cached.foldingEnergetics || cached.foldingEnergetics?.stabilityoracle == null || cached.foldingStatus === "failed" || cached.foldingStatus === "unavailable";
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
           executeFoldxPipeline({
             uniprotId: targetUniprot,
@@ -219,7 +219,7 @@ export async function executeFullAnalysisWorkflow({
       structureSink.resetViewerState();
     }
 
-    fetchHomologs(targetUniprot, apiClient, activeSignal);
+    fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
 
     // Stage 2: 3D Structure Fetch
     if (!cached?.pdbText) {

@@ -31,6 +31,9 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
           popeve: result.conservationData?.popeve,
           esm2Llr: result.esm2Eval?.llr ?? result.esm2?.llr ?? null,
           saprotLlr: result.saprotEval?.llr ?? null,
+          vesmLlr: result.esmcEval?.llr ?? null,
+          gpnStar: result.conservationData?.gpnStar ?? null,
+          evo2: result.conservationData?.evo2 ?? null,
           spliceProximity: result.conservationData?.spliceProximity,
           spliceai: result.conservationData?.spliceai,
           dbscsnv: result.conservationData?.dbscsnv
@@ -51,6 +54,9 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
 
         const votingBenignCount = concordance.benignTools.filter(t => !t.isInformationalOnly).length;
         const infoBenignCount = concordance.benignTools.filter(t => t.isInformationalOnly).length;
+
+        const votingVusCount = concordance.vusTools.filter(t => !t.isInformationalOnly).length;
+        const infoVusCount = concordance.vusTools.filter(t => t.isInformationalOnly).length;
 
         if (concordance.nPathogenic > activeVotingTotal / 2) {
           verdictTitle = `Concordant Pathogenic (${concordance.nPathogenic}/${activeVotingTotal} consensus tools)`;
@@ -144,7 +150,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
               <div className="p-3 rounded-lg border bg-amber-500/5 border-amber-500/20 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between font-black text-[10.5px] uppercase tracking-wide text-[var(--cs-text-primary)] mb-2" style={{ color: "var(--cs-text-primary)" }}>
-                    <span>VUS / Intermediate ({concordance.vusTools.length})</span>
+                    <span>VUS / Intermediate ({votingVusCount}{infoVusCount > 0 ? ` + ${infoVusCount} info` : ""})</span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 font-mono border border-amber-500/30 font-black text-[var(--cs-text-primary)]" style={{ color: "var(--cs-text-primary)" }}>Indeterminate</span>
                   </div>
                   {concordance.vusTools.length > 0 ? (
@@ -152,6 +158,9 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
                       {concordance.vusTools.map((t) => (
                         <span key={t.key} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono font-black bg-amber-500/25 border border-amber-500/40 shadow-xs" style={{ color: "var(--cs-text-primary)" }}>
                           <span style={{ color: "var(--cs-text-primary)" }}>{t.name}</span>
+                          {t.isInformationalOnly && (
+                            <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/40 font-black uppercase tracking-tighter" style={{ color: "var(--cs-text-primary)" }}>Info</span>
+                          )}
                         </span>
                       ))}
                     </div>
@@ -164,7 +173,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
 
             <div className="text-[11px] leading-relaxed space-y-1 text-[var(--cs-text-secondary)] pt-1">
               <p>
-                Calculated from <span className="font-semibold text-[var(--cs-text-primary)]">{total} available in-silico predictors</span> ({activeVotingTotal} consensus voting tools + {concordance.available.length - activeVotingTotal} informational model).
+                Calculated from <span className="font-semibold text-[var(--cs-text-primary)]">{total} available in-silico predictors</span> ({activeVotingTotal} consensus voting tools + {concordance.available.length - activeVotingTotal} informational {concordance.available.length - activeVotingTotal === 1 ? "model" : "models"}).
                 {concordance.unavailable.length > 0 && (
                   <span> Unavailable: <span className="font-mono text-[10px]">{concordance.unavailable.join(", ")}</span>.</span>
                 )}
@@ -177,6 +186,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
       <PredictorSpecialistPanels 
         predictorData={result.predictorData}
         conservationData={result.conservationData}
+        vesmScore={result.esmcEval?.llr ?? null}
         esm2Score={result.esm2Eval?.llr ?? result.esm2?.llr ?? null}
         isLoading={analysisState.isLoading || isBiophysicalLoading}
       />

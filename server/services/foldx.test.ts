@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { parseFoldxDifFile, generateMutantPdb, cleanPdbForFoldX } from "./foldx.ts";
+import { parseFoldxDifFile, generateMutantPdb, cleanPdbForFoldX, getFoldxExecutionTarget } from "./foldx.ts";
 
 describe("FoldX Service & Parser Unit Tests", () => {
   describe("parseFoldxDifFile", () => {
@@ -331,6 +331,38 @@ END
       expect(enriched.energetics.stabilityoracle).toBe(-0.42);
       expect(enriched.energetics.consensusVerdict).toBeDefined();
       expect(enriched.energetics.consensusVerdict).not.toBeNull();
+    });
+
+    it("should resolve FoldX directly on non-ARM or Windows platforms", () => {
+      const target = getFoldxExecutionTarget("tools/foldx/foldx.exe", ["--command=RepairPDB"]);
+      if (process.platform === "win32") {
+        expect(target.file).toBe("tools/foldx/foldx.exe");
+        expect(target.args).toEqual(["--command=RepairPDB"]);
+      }
+    });
+
+    it("should route through Box64 on Linux ARM64 if box64 binary exists", () => {
+      const origPlatform = process.platform;
+      const origArch = process.arch;
+      const origEnv = process.env.BOX64_PATH;
+      try {
+        Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+        Object.defineProperty(process, "arch", { value: "arm64", configurable: true });
+        // Point BOX64_PATH to a known file so existsSync passes
+        process.env.BOX64_PATH = path.resolve(__filename);
+
+        const target = getFoldxExecutionTarget("/app/tools/foldx/foldx", ["--command=RepairPDB"]);
+        expect(target.file).toBe(path.resolve(__filename));
+        expect(target.args).toEqual(["/app/tools/foldx/foldx", "--command=RepairPDB"]);
+      } finally {
+        Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
+        Object.defineProperty(process, "arch", { value: origArch, configurable: true });
+        if (origEnv !== undefined) {
+          process.env.BOX64_PATH = origEnv;
+        } else {
+          delete process.env.BOX64_PATH;
+        }
+      }
     });
   });
 });

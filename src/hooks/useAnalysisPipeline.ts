@@ -199,12 +199,14 @@ export function useAnalysisPipeline() {
   const fetchHomologs = useCallback(async (
     targetUniprot: string,
     apiClient: any,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    pos?: number
   ) => {
     return fetchHomologStructures(
       targetUniprot,
       apiClient,
       { setHomologs, setIsHomologsLoading },
+      pos,
       signal,
       getTraceContext()
     );

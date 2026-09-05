@@ -4,7 +4,7 @@
  * Includes strict cache versioning and legacy storage migration/cleanup.
  */
 
-export const CACHE_VERSION = "v3.4";
+export const CACHE_VERSION = "v3.5";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

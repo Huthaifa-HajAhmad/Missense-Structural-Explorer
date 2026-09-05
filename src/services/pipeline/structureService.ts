@@ -61,6 +61,7 @@ export async function fetchHomologStructures(
   targetUniprot: string,
   apiClient: any,
   sink: Pick<PipelineStructureSink, "setHomologs" | "setIsHomologsLoading">,
+  pos?: number,
   signal?: AbortSignal,
   traceContext?: TraceContext
 ): Promise<void> {
@@ -74,7 +75,7 @@ export async function fetchHomologStructures(
   const startTime = performance.now();
 
   try {
-    const homologsList = await apiClient.getHomologs(targetUniprot.trim(), signal);
+    const homologsList = await apiClient.getHomologs(targetUniprot.trim(), pos, signal);
     const durationMs = Math.round(performance.now() - startTime);
     const offsetMs = traceContext ? Math.max(0, Math.round(startTime - traceContext.traceStart)) : 0;
 

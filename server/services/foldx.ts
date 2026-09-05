@@ -254,14 +254,32 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
   };
 }
 
+export function getFoldxExecutionTarget(foldxBin: string, args: string[]): { file: string; args: string[] } {
+  const isLinux = process.platform === "linux";
+  const isArm = process.arch === "arm64" || process.arch === "arm";
+  const box64Candidate = process.env.BOX64_PATH || "/usr/local/bin/box64";
+
+  if (isLinux && (isArm || process.env.USE_BOX64 === "true") && fs.existsSync(box64Candidate)) {
+    return {
+      file: box64Candidate,
+      args: [foldxBin, ...args]
+    };
+  }
+  return {
+    file: foldxBin,
+    args
+  };
+}
+
 function execFileAsync(
   file: string,
   args: string[],
   options: { timeout?: number; cwd?: string; signal?: AbortSignal }
 ): Promise<{ stdout: string; stderr: string }> {
+  const target = getFoldxExecutionTarget(file, args);
   return new Promise((resolve, reject) => {
     let killed = false;
-    const child = execFile(file, args, { maxBuffer: 16 * 1024 * 1024, ...options }, (err, stdout, stderr) => {
+    const child = execFile(target.file, target.args, { maxBuffer: 16 * 1024 * 1024, ...options }, (err, stdout, stderr) => {
       if (err) {
         if (!killed) {
           killed = true;
@@ -517,10 +535,17 @@ async function generateMutantPdbInternal(
     throw new Error(`FoldX binary not found or not executable at: ${foldxBin}`);
   }
 
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(foldxBin, 0o755);
+    } catch (_) {}
+  }
+
   if (foldxDir || process.cwd()) {
     const candidateMolecules = [
       foldxDir ? path.join(foldxDir, "molecules") : "",
       path.join(process.cwd(), "tools", "foldx", "molecules"),
+      "/app/tools/foldx/molecules",
       path.join(process.cwd(), "molecules")
     ].filter(p => p && fs.existsSync(p));
     if (candidateMolecules.length > 0) {
@@ -541,6 +566,7 @@ async function generateMutantPdbInternal(
     const candidateRotabase = [
       foldxDir ? path.join(foldxDir, "rotabase.txt") : "",
       path.join(process.cwd(), "tools", "foldx", "rotabase.txt"),
+      "/app/tools/foldx/rotabase.txt",
       path.join(process.cwd(), "rotabase.txt")
     ].filter(p => p && fs.existsSync(p));
     if (candidateRotabase.length > 0) {

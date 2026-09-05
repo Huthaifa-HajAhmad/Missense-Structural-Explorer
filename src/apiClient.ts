@@ -258,8 +258,9 @@ export function useApiClient() {
         return await res.text();
       },
 
-      async getHomologs(uniprotId: string, signal?: AbortSignal): Promise<any[]> {
-        const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(uniprotId)}`, {
+      async getHomologs(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<any[]> {
+        const query = pos != null ? `?pos=${encodeURIComponent(pos)}` : "";
+        const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(uniprotId)}${query}`, {
           timeout: 35000,
           signal
         });

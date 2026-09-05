@@ -74,6 +74,7 @@ export class SidecarSupervisor {
         } catch (_) {}
       } else {
         try {
+          execSync(`pkill -P ${pid} || true`, { stdio: "ignore" });
           this.modelServerProcess.kill("SIGTERM");
         } catch (_) {}
       }
@@ -107,7 +108,16 @@ export class SidecarSupervisor {
     };
 
     for (const key of Object.keys(process.env)) {
-      if (cleanSystemKeys.includes(key.toLowerCase()) || key.startsWith("SIDECAR_") || key === "MAX_LOADED_MODELS") {
+      const lower = key.toLowerCase();
+      if (
+        cleanSystemKeys.includes(lower) ||
+        key.startsWith("SIDECAR_") ||
+        key.startsWith("HF_") ||
+        key.startsWith("UV_") ||
+        key.startsWith("TORCH_") ||
+        key.startsWith("OMP_") ||
+        key === "MAX_LOADED_MODELS"
+      ) {
         sidecarEnv[key] = process.env[key] || "";
       }
     }
@@ -119,22 +129,22 @@ export class SidecarSupervisor {
 
     let useStandaloneUv = false;
     try {
-      const checkCmd = process.platform === "win32" ? "where uv" : "which uv";
+      const checkCmd = process.platform === "win32" ? "where uv" : "command -v uv";
       execSync(checkCmd, { stdio: "ignore" });
       useStandaloneUv = true;
     } catch (_) {
       // Standalone uv not on PATH
     }
 
-    if (fs.existsSync(venvPythonPath)) {
-      console.log(`[Sidecar Supervisor] Found local virtualenv python at ${venvPythonPath}. Launching sidecar directly...`);
-      this.modelServerProcess = spawn(venvPythonPath, [modelServerScript], {
+    if (useStandaloneUv) {
+      console.log("[Sidecar Supervisor] Launching sidecar via standalone uv (project: tools)...");
+      this.modelServerProcess = spawn("uv", ["run", "--project", "tools", modelServerScript], {
         stdio: "inherit",
         env: sidecarEnv
       });
-    } else if (useStandaloneUv) {
-      console.log("[Sidecar Supervisor] Found global uv executable. Launching sidecar via standalone uv...");
-      this.modelServerProcess = spawn("uv", ["run", "--project", "tools", modelServerScript], {
+    } else if (fs.existsSync(venvPythonPath)) {
+      console.log(`[Sidecar Supervisor] Found local virtualenv python at ${venvPythonPath}. Launching sidecar directly...`);
+      this.modelServerProcess = spawn(venvPythonPath, [modelServerScript], {
         stdio: "inherit",
         env: sidecarEnv
       });
@@ -225,7 +235,8 @@ export class SidecarSupervisor {
             try {
               if (process.platform === "win32" && this.modelServerProcess.pid) {
                 execSync(`taskkill /F /T /PID ${this.modelServerProcess.pid}`, { stdio: "ignore" });
-              } else {
+              } else if (this.modelServerProcess.pid) {
+                execSync(`pkill -P ${this.modelServerProcess.pid} || true`, { stdio: "ignore" });
                 this.modelServerProcess.kill("SIGKILL");
               }
             } catch (_) {}

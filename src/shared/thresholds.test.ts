@@ -146,6 +146,33 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.signals.saprot).toBe("vus");
       expect(res.signals.dann).toBe("pathogenic");
     });
+
+    it("should include VESM-150M, GPN-Star, and Evo 2 as informational frontier models without skewing voting counts", () => {
+      const res = countPredictorConcordance(
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        {
+          vesmLlr: -6.2,
+          gpnStar: -4.5,
+          evo2: -1.36
+        }
+      );
+
+      expect(res.available).toContain("VESM-150M");
+      expect(res.available).toContain("GPN-STAR");
+      expect(res.available).toContain("EVO 2");
+      expect(res.signals.vesm).toBe("vus");
+      expect(res.signals.gpn_star).toBe("pathogenic");
+      expect(res.signals.evo2).toBe("vus");
+      // Must not count toward active voting tallies (informational only)
+      expect(res.nPathogenic).toBe(0);
+      expect(res.nBenign).toBe(0);
+      expect(res.nVus).toBe(0);
+    });
   });
 
   describe("Consensus Biophysical Stability Verdicts", () => {

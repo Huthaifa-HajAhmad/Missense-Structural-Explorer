@@ -1,6 +1,6 @@
 import React from "react";
-import { ShieldAlert } from "lucide-react";
 import { TabComponentProps } from "./types";
+import { THRESHOLDS } from "../../shared/thresholds";
 
 export function GuidelinesTab({
   analysisState,
@@ -46,6 +46,7 @@ export function GuidelinesTab({
                 const dannVal = result.conservationData?.dann ?? null;
                 const popeveVal = result.conservationData?.popeve ?? null;
                 const esmVal = result.conservationData?.esm1b ?? null;
+                const vesmVal = result.esmcEval?.llr ?? null;
 
                 const foldxVal = foldingDdG ?? null;
                 const dynamut2Val = result.dynamut2 ?? foldingEnergetics?.dynamut2 ?? null;
@@ -142,7 +143,10 @@ export function GuidelinesTab({
                 rows.push(renderRow("popeve", "popEVE", popeveVal, popeveVal?.toFixed(3) ?? "—", "<= 0.25 (LLR >= -1.0)", ">= 0.75 (LLR <= -4.617 severe)", "PP3 / BP4", popeveStatus, popeveStatus === "path_strong" ? "Severe Path." : popeveStatus === "path" ? "Pathogenic" : popeveStatus === "benign" ? "Benign" : "VUS"));
 
                 const esmStatus = esmVal !== null ? (esmVal <= -5.0 ? "path" : esmVal >= -2.0 ? "benign" : "vus") : "none";
-                rows.push(renderRow("esm", "ESM-1b (VESM)", esmVal, esmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
+                rows.push(renderRow("esm", "ESM-1b", esmVal, esmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
+
+                const vesmStatus = vesmVal !== null ? (vesmVal <= -5.0 ? "path" : vesmVal >= -2.0 ? "benign" : "vus") : "none";
+                rows.push(renderRow("vesm", "VESM-150M", vesmVal, vesmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", vesmStatus, vesmStatus === "path" ? "Deleterious" : vesmStatus === "benign" ? "Tolerated" : "Neutral"));
 
                 // --- CATEGORY 2: Biophysical & Structural Energetics ---
                 rows.push(renderCategoryHeader("cat-biophys", "2. Biophysical & Structural Energetics"));

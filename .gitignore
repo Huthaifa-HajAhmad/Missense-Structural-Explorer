@@ -12,7 +12,11 @@ logs/
 temp_jobs/
 
 # Third-party / licensed tools (do not commit binaries or downloads)
-tools/foldx/
+tools/foldx/*
+!tools/foldx/rotabase.txt
+!tools/foldx/molecules/
+!tools/foldx/molecules/**
+!tools/foldx/foldx.cmd
 tools/p2rank/
 
 # Dev scratch scripts
@@ -55,6 +59,6 @@ graphify-out/
 .commandcode/
 .freebuff/
 .zcode/
-rotabase.txt
+/rotabase.txt
 pnpm-lock.yaml
 pnpm-workspace.yaml

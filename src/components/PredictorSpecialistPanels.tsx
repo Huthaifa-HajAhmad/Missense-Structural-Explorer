@@ -30,6 +30,7 @@ interface PredictorSpecialistPanelsProps {
     evo2?: number | null;
     source?: string;
   } | null;
+  vesmScore?: number | null;
   esm2Score?: number | null;
   isLoading?: boolean;
 }
@@ -39,6 +40,7 @@ type TabType = "lms" | "meta" | "annotations" | "evolution";
 export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps> = ({
   predictorData,
   conservationData,
+  vesmScore,
   esm2Score,
   isLoading = false
 }) => {
@@ -283,15 +285,15 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
       <div className="min-h-[220px]">
         {activeTab === "lms" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* VESM++ / VESM3 */}
-            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title="VESM++ Co-distilled Ensemble (ESM2-3B + ESM3) zero-shot Log-Likelihood Ratio (LLR)">
+            {/* VESM-150M */}
+            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.vesm}>
               <div className="flex justify-between items-start">
                 <div>
                   <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
-                    VESM++
+                    VESM-150M
                     <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal" style={{ background: "rgba(196,104,73,0.1)", color: "var(--cs-accent-clay)" }}>Co-distilled LM</span>
                   </h4>
-                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Co-distilled ESM-3/ESM2 LLR score</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Co-distilled ESM-2/3 Fitness LLR</p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -302,7 +304,39 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null ? "Informational" : undefined)}
+                  {renderBadge(getEsmSignal(vesmScore ?? null), vesmScore !== null && vesmScore !== undefined ? "Informational" : undefined)}
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
+                  {renderScoreValue(vesmScore ?? null, 2)}
+                </span>
+                {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -7.5, -5.0, true)}
+                {renderSourceLabel("Local VESM-150M (ntranoslab)")}
+              </div>
+            </div>
+
+            {/* ESM-2 */}
+            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.esm2}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
+                    ESM-2
+                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Foundation LM</span>
+                  </h4>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Evolutionary scale sequence LLR</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("esm2")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null && esm2Score !== undefined ? "Informational" : undefined)}
                 </div>
               </div>
               <div className="mt-4">
@@ -311,7 +345,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   {renderScoreValue(esm2Score ?? null, 2)}
                 </span>
                 {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
-                {renderSourceLabel("Local ESM-2/3 Sidecar")}
+                {renderSourceLabel("Meta FAIR (ESM-2 650M/3B)")}
               </div>
             </div>
 

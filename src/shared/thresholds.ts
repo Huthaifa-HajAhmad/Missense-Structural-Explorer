@@ -211,8 +211,14 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "ThermoMPNN (Pei 2024 / Tamarind Bio). Destabilizing ΔΔG ≥ +1.0 kcal/mol (ΔΔG = mutant - WT).",
   bayesdel:
     "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
+  vesm:
+    "VESM-150M (Ntranos Lab 2024). Co-distilled lightweight LM compressing ESM-2 and ESM-3 representations, fine-tuned on ProteinGym. Informational only.",
   esm:
-    "VESM Co-distilled LLR (ntranoslab, unpublished preprint). Informational only — no validated clinical threshold is applied, and it is excluded from concordance voting.",
+    "ESM-1b (Brandes et al. 2023, Nature Genetics; score ≤ -7.5 pathogenic, ≥ -5.0 benign).",
+  esm1b:
+    "ESM-1b (Brandes et al. 2023, Nature Genetics; score ≤ -7.5 pathogenic, ≥ -5.0 benign).",
+  esm2:
+    "ESM-2 (Meta FAIR, Lin et al. 2023 Science). Evolutionary scale masked protein language model.",
   gpnStar:
     "GPN-Star (Song Lab, bioRxiv 2025). Phylogeny-aware zero-shot LLR across 100+ vertebrate alignments. Severe evolutionary constraint LLR < -2.5 (Pathogenic Prior); Tolerated LLR ≥ 0.0.",
   evo2:
@@ -225,8 +231,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "Eigen (coding Phred score ≥ 4.0 deleterious).",
   dann:
     "DANN (deep learning score ≥ 0.96 deleterious).",
-  esm1b:
-    "ESM-1b (Brandes et al. 2023, Nature Genetics; score ≤ -7.5 pathogenic, ≥ -5.0 benign).",
   popEve:
     "popEVE (Population-calibrated EVE, Nature 2024). Severe pathogenic LLR ≤ -5.056 (99.99% likelihood), " +
     "Moderate pathogenic LLR ≤ -4.617 (99% likelihood), Supporting LLR ≤ -2.0; Benign LLR ≥ -1.0. " +
@@ -421,6 +425,9 @@ export function countPredictorConcordance(
     popeve?: number | null;
     esm2Llr?: number | null;
     saprotLlr?: number | null;
+    vesmLlr?: number | null;
+    gpnStar?: number | null;
+    evo2?: number | null;
     spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null;
     spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null;
     dbscsnv?: { ada_score: number | null; rf_score: number | null } | null;
@@ -508,6 +515,13 @@ export function countPredictorConcordance(
       isInformationalOnly: true,
     },
     {
+      key: "vesm",
+      name: "VESM-150M",
+      signal: evaluateEsm(extra?.vesmLlr),
+      scoreLabel: extra?.vesmLlr !== null && extra?.vesmLlr !== undefined ? `${extra.vesmLlr.toFixed(2)}` : "—",
+      isInformationalOnly: true,
+    },
+    {
       key: "esm2_3b",
       name: "ESM-2 3B",
       signal: evaluateEsm(extra?.esm2Llr),
@@ -519,6 +533,20 @@ export function countPredictorConcordance(
       name: "SaProt 650M",
       signal: evaluateEsm(extra?.saprotLlr),
       scoreLabel: extra?.saprotLlr !== null && extra?.saprotLlr !== undefined ? `${extra.saprotLlr.toFixed(2)}` : "—",
+      isInformationalOnly: true,
+    },
+    {
+      key: "gpn_star",
+      name: "GPN-Star",
+      signal: evaluateGpnStar(extra?.gpnStar),
+      scoreLabel: extra?.gpnStar !== null && extra?.gpnStar !== undefined ? `${extra.gpnStar.toFixed(2)}` : "—",
+      isInformationalOnly: true,
+    },
+    {
+      key: "evo2",
+      name: "Evo 2",
+      signal: evaluateEvo2(extra?.evo2),
+      scoreLabel: extra?.evo2 !== null && extra?.evo2 !== undefined ? `${extra.evo2.toFixed(2)}` : "—",
       isInformationalOnly: true,
     },
   ];

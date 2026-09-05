@@ -25,14 +25,93 @@ class Mutation:
     pdb: Optional[str] = ''
 
 try:
+    import numpy as np
     import torch
     import torch.nn as nn
-    from protein_mpnn_utils import alt_parse_PDB_biounits
     from transfer_model import TransferModel
     HAS_TORCH = True
 except ImportError as e:
     HAS_TORCH = False
     _import_err = str(e)
+
+def parse_pdb_coordinates_for_thermompnn(pdb_file_path: str, atoms: list[str] = ['N', 'CA', 'C', 'O'], chain: Optional[str] = None):
+    alpha_1 = list("ARNDCQEGHILKMFPSTWYV-")
+    alpha_3 = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+               'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'GAP']
+    aa_3_N = {b: a for a, b in enumerate(alpha_3)}
+    aa_N_1 = {a: b for a, b in enumerate(alpha_1)}
+
+    xyz, seq, min_resn, max_resn = {}, {}, 1000000, -1000000
+    resn_list = []
+    with open(pdb_file_path, "rb") as f:
+        for line in f:
+            line = line.decode("utf-8", "ignore").rstrip()
+            if line[:6] == "HETATM" and line[17:20] == "MSE":
+                line = "ATOM  " + line[6:17] + "MET" + line[20:]
+
+            if line[:4] == "ATOM":
+                ch = line[21:22]
+                if chain is None or ch == chain:
+                    atom = line[12:16].strip()
+                    resi = line[17:20].strip()
+                    raw_resn = line[22:27].strip()
+                    if raw_resn not in resn_list:
+                        resn_list.append(raw_resn)
+
+                    try:
+                        x_coord = float(line[30:38])
+                        y_coord = float(line[38:46])
+                        z_coord = float(line[46:54])
+                    except (ValueError, IndexError):
+                        continue
+
+                    if raw_resn[-1].isalpha():
+                        resa, res_num = raw_resn[-1], int(raw_resn[:-1]) - 1
+                    else:
+                        resa, res_num = "", int(raw_resn) - 1
+
+                    if res_num < min_resn:
+                        min_resn = res_num
+                    if res_num > max_resn:
+                        max_resn = res_num
+
+                    if res_num not in xyz:
+                        xyz[res_num] = {}
+                    if resa not in xyz[res_num]:
+                        xyz[res_num][resa] = {}
+                    if res_num not in seq:
+                        seq[res_num] = {}
+                    if resa not in seq[res_num]:
+                        seq[res_num][resa] = resi
+
+                    if atom not in xyz[res_num][resa]:
+                        xyz[res_num][resa][atom] = np.array([x_coord, y_coord, z_coord])
+
+    if min_resn > max_resn or not xyz:
+        return 'no_chain', 'no_chain', 'no_chain'
+
+    seq_, xyz_ = [], []
+    for resn in range(min_resn, max_resn + 1):
+        if resn in seq:
+            for k in sorted(seq[resn]):
+                seq_.append(aa_3_N.get(seq[resn][k], 20))
+        else:
+            seq_.append(20)
+
+        if resn in xyz:
+            for k in sorted(xyz[resn]):
+                for atom in atoms:
+                    if atom in xyz[resn][k]:
+                        xyz_.append(xyz[resn][k][atom])
+                    else:
+                        xyz_.append(np.full(3, np.nan))
+        else:
+            for atom in atoms:
+                xyz_.append(np.full(3, np.nan))
+
+    arr_xyz = np.array(xyz_).reshape(-1, len(atoms), 3)
+    parsed_seq = ["".join([aa_N_1.get(a, "-") for a in seq_])]
+    return arr_xyz, parsed_seq, list(dict.fromkeys(resn_list))
 
 router = APIRouter()
 
@@ -199,11 +278,11 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
 
     try:
         sidechain_atoms = ['N', 'CA', 'C', 'O']
-        xyz, seq, resn_list = alt_parse_PDB_biounits(tmp_pdb_path, atoms=sidechain_atoms, chain=chain)
+        xyz, seq, resn_list = parse_pdb_coordinates_for_thermompnn(tmp_pdb_path, atoms=sidechain_atoms, chain=chain)
         
         if isinstance(xyz, str) and xyz == 'no_chain':
             # Fallback without chain filter
-            xyz, seq, resn_list = alt_parse_PDB_biounits(tmp_pdb_path, atoms=sidechain_atoms, chain=None)
+            xyz, seq, resn_list = parse_pdb_coordinates_for_thermompnn(tmp_pdb_path, atoms=sidechain_atoms, chain=None)
 
         if isinstance(xyz, str) and xyz == 'no_chain' or len(xyz) == 0:
             raise HTTPException(status_code=400, detail="Could not extract coordinates from PDB structure")

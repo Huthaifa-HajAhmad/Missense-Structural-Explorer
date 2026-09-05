@@ -136,12 +136,15 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperUrl: "https://doi.org/10.1038/s41586-021-04043-8"
   },
   esm2: {
-    name: "VESM Co-distilled LLR",
-    category: "Protein Language Model",
-    description: "VESM (Variant Effect ESM) is a co-distilled protein language model that compresses the collective knowledge of the ESM family. It computes a log-likelihood ratio (LLR) reflecting variant effect predictions on ProteinGym without external structural or evolutionary inputs.",
-    interpretation: "LLR values range from -20 to +5. Informational only — no validated clinical threshold is applied, and it is excluded from ACMG concordance voting.",
-    paperTitle: "Ntranos Lab, bioRxiv (2024)",
-    paperUrl: "https://github.com/ntranoslab/vesm"
+    name: "ESM-2 Foundation LM",
+    category: "Evolutionary Scale Protein Language Model",
+    architecture: "650M / 3B Parameter Masked Transformer (UniRef50 Pretrained)",
+    modality: "Amino Acid Sequence",
+    description: "ESM-2 is a general-purpose protein language model developed by Meta FAIR. It computes zero-shot log-likelihood ratios (LLR) using masked marginals, capturing deep evolutionary conservation and fitness constraints across sequence space.",
+    interpretation: "LLR = log(P(mut)/P(wt)). LLR ≤ -7.5 indicates significant evolutionary depletion; ≥ -5.0 indicates tolerated/neutral substitutions. Informational prior.",
+    paperTitle: "Lin et al. Science (2023)",
+    paperUrl: "https://doi.org/10.1126/science.ade2574",
+    citation: "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science, 379(6637), 1123-1130."
   },
   foldx: {
     name: "FoldX ddG",
