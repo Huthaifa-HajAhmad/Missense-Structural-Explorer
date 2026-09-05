@@ -16,7 +16,7 @@ const geminiKey = process.env.OCR_API_KEY || process.env.GEMINI_API_KEY;
 const openaiKey = process.env.OPENAI_API_KEY;
 const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-const env: NodeJS.ProcessEnv = { ...process.env };
+const env: NodeJS.ProcessEnv = { ...process.env, OCR_NO_UPDATE: "1" };
 const targetModel = process.env.OCR_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash";
 
 const isPlaceholder = (key?: string) => !key || key.startsWith("YOUR_") || key.includes("example") || key.trim() === "";

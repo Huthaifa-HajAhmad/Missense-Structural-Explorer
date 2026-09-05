@@ -350,171 +350,225 @@ export async function fetchPdbFromRcsb(
   });
 }
 
-export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
-  const validatedUniprot = validateUniProt(uniprotId);
-  const cacheKey = `homologs_${validatedUniprot}`;
-  if (pdbCache.has(cacheKey)) {
-    const cachedData = pdbCache.get(cacheKey);
-    if (cachedData) {
-      try {
-        const parsed: PdbHomolog[] = JSON.parse(cachedData);
-        // Apply position coverage filter post-cache if pos is provided
-        return pos !== undefined
-          ? parsed.filter(h =>
-              h.querySeqFrom === undefined || h.querySeqTo === undefined ||
-              (pos >= h.querySeqFrom && pos <= h.querySeqTo)
-            )
-          : parsed;
-      } catch (_) {}
-    }
+interface RawHomologCandidate {
+  pdbId: string;
+  score: number;
+  identity: number;
+  coverage: number;
+  title: string;
+  organism: string;
+  isHuman: boolean;
+  method: string;
+  resolution: number | null;
+  querySeqFrom?: number;
+  querySeqTo?: number;
+}
+
+async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawHomologCandidate[]> {
+  const cacheKey = `raw_homologs_${validatedUniprot}`;
+  const cached = pdbCache.get(cacheKey);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (_) {}
   }
 
-  const sequence = await fetchUniprotSequence(validatedUniprot);
-  if (!sequence || sequence.length < 25) {
+  return singleFlight(cacheKey, async () => {
+    const cachedAgain = pdbCache.get(cacheKey);
+    if (cachedAgain) {
+      try {
+        return JSON.parse(cachedAgain);
+      } catch (_) {}
+    }
+
+    const sequence = await fetchUniprotSequence(validatedUniprot);
+    if (!sequence || sequence.length < 25) {
+      return [];
+    }
+
+    try {
+      const searchRes = await fetchWithRetry("https://search.rcsb.org/rcsbsearch/v2/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: {
+            type: "terminal",
+            service: "sequence",
+            parameters: {
+              evalue_cutoff: 1.0,
+              identity_cutoff: 0.22,
+              sequence_type: "protein",
+              value: sequence
+            }
+          },
+          request_options: {
+            results_content_type: ["experimental"],
+            paginate: {
+              start: 0,
+              rows: 50
+            }
+          },
+          return_type: "polymer_entity"
+        }),
+        timeout: 15000
+      });
+
+      if (!searchRes.ok) {
+        const errText = await searchRes.text().catch(() => "");
+        console.warn(`[RCSB Homolog Search] Query returned status ${searchRes.status}: ${errText}`);
+        return [];
+      }
+
+      const searchData = await searchRes.json() as any;
+      const hits = searchData?.result_set;
+      if (!Array.isArray(hits) || hits.length === 0) {
+        return [];
+      }
+
+      const topHits = hits.slice(0, 30);
+      const hitInfoMap = new Map<string, { score: number; entityId: string; rawHit: any }>();
+      const entryIdsToFetch = new Set<string>();
+
+      for (const h of topHits) {
+        const rawId = h.identifier as string;
+        if (!rawId) continue;
+        const [pdbId, entityId] = rawId.split("_");
+        if (!pdbId) continue;
+        const upperPdb = pdbId.toUpperCase();
+        if (!hitInfoMap.has(upperPdb)) {
+          hitInfoMap.set(upperPdb, { score: h.score ?? 0, entityId: entityId || "1", rawHit: h });
+          entryIdsToFetch.add(upperPdb);
+        }
+      }
+
+      const idsArray = Array.from(entryIdsToFetch);
+      if (idsArray.length === 0) {
+        return [];
+      }
+
+      const gqlQuery = `
+        query getEntries($ids: [String!]!) {
+          entries(entry_ids: $ids) {
+            rcsb_id
+            struct {
+              title
+            }
+            rcsb_entry_info {
+              experimental_method
+              resolution_combined
+            }
+            polymer_entities {
+              rcsb_entity_source_organism {
+                ncbi_scientific_name
+              }
+            }
+          }
+        }
+      `;
+
+      const gqlRes = await fetchWithRetry("https://data.rcsb.org/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: gqlQuery, variables: { ids: idsArray } }),
+        timeout: 15000
+      });
+
+      if (!gqlRes.ok) {
+        console.warn(`[RCSB Homolog Search] GraphQL metadata fetch failed: status ${gqlRes.status}`);
+        return [];
+      }
+
+      const gqlData = await gqlRes.json() as any;
+      const entries = gqlData?.data?.entries;
+      if (!Array.isArray(entries)) {
+        return [];
+      }
+
+      const entryMap = new Map<string, any>();
+      for (const e of entries) {
+        if (e && e.rcsb_id) {
+          entryMap.set(e.rcsb_id.toUpperCase(), e);
+        }
+      }
+
+      const seqLen = sequence.length;
+      const candidates: RawHomologCandidate[] = [];
+
+      for (const [pdbId, info] of hitInfoMap.entries()) {
+        const entryMeta = entryMap.get(pdbId);
+        if (!entryMeta) continue;
+
+        const title = entryMeta.struct?.title || "Experimental structure homolog";
+        const method = entryMeta.rcsb_entry_info?.experimental_method || "Experimental";
+        const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
+        const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
+
+        let rawIdentity: number = info.score;
+        let alignedLen = Math.round(seqLen * 0.8);
+        const mc = info.rawHit.services?.[0]?.nodes?.[0]?.match_context?.[0];
+        if (mc) {
+          if (typeof mc.sequence_identity === "number") rawIdentity = mc.sequence_identity;
+          if (typeof mc.alignment_length === "number") alignedLen = mc.alignment_length;
+        }
+
+        const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
+        const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
+
+        const qFrom = typeof mc?.query_sequence_from === "number" ? mc.query_sequence_from : undefined;
+        const qTo = typeof mc?.query_sequence_to === "number" ? mc.query_sequence_to : undefined;
+
+        candidates.push({
+          pdbId,
+          score: info.score,
+          identity: identityPercent,
+          coverage: coveragePercent,
+          title,
+          organism,
+          isHuman: organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human"),
+          method,
+          resolution,
+          querySeqFrom: qFrom,
+          querySeqTo: qTo,
+        });
+      }
+
+      pdbCache.set(cacheKey, JSON.stringify(candidates));
+      return candidates;
+    } catch (err: any) {
+      console.error("[RCSB Homolog Search] Failed to fetch raw candidates:", err.message || err);
+      return [];
+    }
+  });
+}
+
+export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
+  const validatedUniprot = validateUniProt(uniprotId);
+  const posCacheKey = `homologs_${validatedUniprot}_pos_${pos ?? "none"}`;
+  const cachedData = pdbCache.get(posCacheKey);
+  if (cachedData) {
+    try {
+      return JSON.parse(cachedData);
+    } catch (_) {}
+  }
+
+  const rawCandidates = await fetchRawHomologCandidates(validatedUniprot);
+  if (!rawCandidates || rawCandidates.length === 0) {
     return [];
   }
 
   try {
-    const searchRes = await fetchWithRetry("https://search.rcsb.org/rcsbsearch/v2/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: {
-          type: "terminal",
-          service: "sequence",
-          parameters: {
-            evalue_cutoff: 1.0,
-            identity_cutoff: 0.22,
-            sequence_type: "protein",
-            value: sequence
-          }
-        },
-        request_options: {
-          results_content_type: ["experimental"],
-          paginate: {
-            start: 0,
-            rows: 50
-          }
-        },
-        return_type: "polymer_entity"
-      }),
-      timeout: 15000
+    const candidates = rawCandidates.map(c => {
+      const coversPos = (pos !== undefined && c.querySeqFrom !== undefined && c.querySeqTo !== undefined)
+        ? (pos >= c.querySeqFrom && pos <= c.querySeqTo)
+        : true;
+      return {
+        ...c,
+        coversPosition: coversPos
+      };
     });
 
-    if (!searchRes.ok) {
-      const errText = await searchRes.text().catch(() => "");
-      console.warn(`[RCSB Homolog Search] Query returned status ${searchRes.status}: ${errText}`);
-      return [];
-    }
-
-    const searchData = await searchRes.json() as any;
-    const rawHits = searchData.result_set || [];
-    if (rawHits.length === 0) return [];
-
-    const entityToPdbMap = new Map<string, { score: number; entityId: string; rawHit: any }>();
-    const pdbIdSet = new Set<string>();
-
-    for (const h of rawHits) {
-      const parts = String(h.identifier).split("_");
-      const pdbId = parts[0].toUpperCase();
-      const entityId = parts[1] || "1";
-      pdbIdSet.add(pdbId);
-      if (!entityToPdbMap.has(pdbId)) {
-        entityToPdbMap.set(pdbId, { score: typeof h.score === "number" ? h.score : 0.5, entityId, rawHit: h });
-      }
-    }
-
-    const pdbIds = Array.from(pdbIdSet).slice(0, 50);
-    
-    const graphqlQuery = `
-      query getHomologMetadata($ids: [String!]!) {
-        entries(entry_ids: $ids) {
-          rcsb_id
-          struct { title }
-          rcsb_entry_info {
-            experimental_method
-            resolution_combined
-            structure_determination_methodology
-          }
-          polymer_entities {
-            rcsb_entity_source_organism {
-              ncbi_scientific_name
-            }
-          }
-        }
-      }
-    `;
-
-    let metadataMap: Record<string, any> = {};
-    try {
-      const gqlRes = await fetchWithRetry("https://data.rcsb.org/graphql", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: graphqlQuery,
-          variables: { ids: pdbIds }
-        }),
-        timeout: 30000
-      });
-      if (gqlRes.ok) {
-        const gqlData = await gqlRes.json() as any;
-        const entries = gqlData.data?.entries || [];
-        for (const entry of entries) {
-          if (entry.rcsb_id) {
-            metadataMap[entry.rcsb_id.toUpperCase()] = entry;
-          }
-        }
-      }
-    } catch (gqlErr: any) {
-      console.warn("[RCSB GraphQL] Failed to fetch batched metadata:", gqlErr.message);
-    }
-
-    const seqLen = sequence.length;
-    const candidates: PdbHomolog[] = [];
-
-    for (const [pdbId, info] of entityToPdbMap.entries()) {
-      const entryMeta = metadataMap[pdbId] || {};
-      const isComp = entryMeta.rcsb_entry_info?.structure_determination_methodology === "computational";
-      if (isComp) continue;
-
-      const title = entryMeta.struct?.title || "Experimental structure homolog";
-      const method = entryMeta.rcsb_entry_info?.experimental_method || "Experimental";
-      const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
-      const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
-
-      let rawIdentity: number = info.score;
-      let alignedLen = Math.round(seqLen * 0.8);
-      const mc = info.rawHit.services?.[0]?.nodes?.[0]?.match_context?.[0];
-      if (mc) {
-        if (typeof mc.sequence_identity === "number") rawIdentity = mc.sequence_identity;
-        if (typeof mc.alignment_length === "number") alignedLen = mc.alignment_length;
-      }
-
-      const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
-      const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
-
-      const qFrom = typeof mc?.query_sequence_from === "number" ? mc.query_sequence_from : undefined;
-      const qTo = typeof mc?.query_sequence_to === "number" ? mc.query_sequence_to : undefined;
-      const coversPos = (pos !== undefined && qFrom !== undefined && qTo !== undefined) ? (pos >= qFrom && pos <= qTo) : true;
-
-      candidates.push({
-        pdbId,
-        score: info.score,
-        identity: identityPercent,
-        coverage: coveragePercent,
-        title,
-        organism,
-        isHuman: organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human"),
-        method,
-        resolution,
-        querySeqFrom: qFrom,
-        querySeqTo: qTo,
-        coversPosition: coversPos
-      } as any);
-    }
-
     // Sort priority: 1. Covers variant position, 2. Identity descending, 3. Better resolution
-    candidates.sort((a: any, b: any) => {
+    candidates.sort((a, b) => {
       if (a.coversPosition && !b.coversPosition) return -1;
       if (!a.coversPosition && b.coversPosition) return 1;
       if (b.identity !== a.identity) return b.identity - a.identity;
@@ -523,10 +577,6 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       return resA - resB;
     });
 
-    // Smart Diversity & Non-Redundancy Clustering:
-    // 1. Exclude exact self-structures (>98% identity)
-    // 2. Prevent micro-redundancy (<4% identity difference from the same organism)
-    // 3. Cluster similar construct titles per organism
     const getTitleRoot = (t: string) => {
       return t.toLowerCase()
         .replace(/crystal|structure|of|the|in|complex|with|refinement|at|resolution|domain|allele-[a-z0-9]+/g, "")
@@ -536,26 +586,30 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
 
     const seenOrganisms = new Map<string, number[]>();
     const seenTitleRoots = new Set<string>();
+    const seenSelfOrganisms = new Set<string>();
     const homologs: PdbHomolog[] = [];
 
     for (const h of candidates) {
-      if (h.identity > 98) continue; // Exclude self-matches
-
       const orgNorm = h.organism.toLowerCase().trim();
       const titleRoot = getTitleRoot(h.title);
+
+      if (h.identity >= 95) {
+        if (seenSelfOrganisms.has(orgNorm)) {
+          continue;
+        }
+        seenSelfOrganisms.add(orgNorm);
+      }
 
       if (!seenOrganisms.has(orgNorm)) {
         seenOrganisms.set(orgNorm, []);
       }
       const existingIdentities = seenOrganisms.get(orgNorm)!;
 
-      // Avoid redundancy from same species if any existing representative is within 4% identity
       const isRedundantIdentity = existingIdentities.some(id => Math.abs(id - h.identity) < 5);
       if (isRedundantIdentity) {
         continue;
       }
 
-      // Avoid duplicate construct titles from same species
       const titleClusterKey = `${titleRoot}_${orgNorm}`;
       if (seenTitleRoots.has(titleClusterKey) && existingIdentities.length >= 2) {
         continue;
@@ -568,12 +622,11 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       if (homologs.length >= 8) break;
     }
 
-    pdbCache.set(cacheKey, JSON.stringify(homologs));
+    pdbCache.set(posCacheKey, JSON.stringify(homologs));
     return homologs;
 
   } catch (err: any) {
-    console.error("[RCSB Homolog Search] Failed to fetch homologs:", err.message || err);
+    console.error("[RCSB Homolog Search] Failed to cluster homologs:", err.message || err);
     return [];
   }
 }
-

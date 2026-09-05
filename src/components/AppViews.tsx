@@ -296,8 +296,9 @@ export function AppViews({
                         variant={variant}
                         heightClass="h-full"
                         active3dModelTab={masterView === "structure_esmfold" ? "esm3" : "alphafold2"}
-                        customPdbData={masterView === "structure_esmfold" ? (esmFoldWtPdb || undefined) : (customPdbUrl ? undefined : (pdbText || undefined))}
-                        comparePdbData={masterView === "structure_esmfold" ? (esmFoldAlignedPdb || undefined) : (viewMode === "mutant" ? (mutantPdb || undefined) : undefined)}
+                        viewMode={viewMode}
+                        customPdbData={masterView === "structure_esmfold" ? (esmFoldWtPdb || undefined) : (viewMode === "mutant" && !customPdbUrl ? (mutantPdb || undefined) : undefined)}
+                        comparePdbData={masterView === "structure_esmfold" ? (esmFoldAlignedPdb || undefined) : undefined}
                         mutantStatus={viewMode === "mutant" ? (foldingStatus as any) : undefined}
                         mutantDdG={viewMode === "mutant" ? (foldingDdG as any) : undefined}
                         metrics={masterView === "structure_esmfold" ? esmFoldMetrics : (viewMode === "mutant" ? foldxMetrics : undefined)}

@@ -29,6 +29,8 @@ export interface UseMolstarStructureOptions {
   variant?: string | null;
   esmFoldPdb?: string | null;
   esm3Eval?: any;
+  active3dModelTab?: "alphafold2" | "esm3";
+  viewMode?: "wildtype" | "mutant";
   setLoading: (loading: boolean) => void;
   setLoadError: (err: string | null) => void;
 }
@@ -57,6 +59,8 @@ export function useMolstarStructure({
   variant,
   esmFoldPdb,
   esm3Eval,
+  active3dModelTab = "alphafold2",
+  viewMode,
   setLoading,
   setLoadError
 }: UseMolstarStructureOptions) {
@@ -67,6 +71,7 @@ export function useMolstarStructure({
 
   const [plddtFilter, setPlddtFilter] = useState<"none" | "30" | "50" | "70">("none");
   const [templateSource, setTemplateSource] = useState<"experimental" | "alphafold" | null>(null);
+  const [activePdbId, setActivePdbId] = useState<string | null>(null);
   const [viewerStyle, setViewerStyle] = useState<"confidence" | "biomolecular" | "esm3-allosteric" | "displacement">("confidence");
   const [pdbText, setPdbText] = useState<string | null>(null);
   const [bFactorMetadata, setBFactorMetadata] = useState<{ source: "alphafold" | "experimental" | "unknown"; semantic: "plddt" | "temperature_factor"; inherited: boolean } | null>(null);
@@ -150,6 +155,7 @@ export function useMolstarStructure({
           fetchedPdbText = esmFoldPdb;
           currentSource = "alphafold";
           setTemplateSource("alphafold");
+          setActivePdbId(null);
         } else if (customPdbUrl) {
           if (!isValidPdbUrl(customPdbUrl)) {
             throw new Error(`Invalid custom PDB URL (${customPdbUrl}). Only RCSB PDB, AlphaFold DB, or local API proxies are permitted.`);
@@ -157,7 +163,8 @@ export function useMolstarStructure({
           const res = await fetchWithAuth(customPdbUrl);
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Failed to fetch structure from ${customPdbUrl} (status ${res.status})`);
+            const errMsg = errData?.error?.message || errData?.message || (typeof errData?.error === "string" ? errData.error : null) || `Failed to fetch structure from ${customPdbUrl} (status ${res.status})`;
+            throw new Error(errMsg);
           }
           const resData = await res.text();
           if (!resData || (!resData.includes("ATOM") && !resData.includes("HETATM") && !resData.includes("_atom_site"))) {
@@ -167,6 +174,7 @@ export function useMolstarStructure({
           currentSource = "experimental";
           setTemplateSource("experimental");
           const labelName = customPdbUrl.split("/").pop()?.replace(".pdb", "").replace(".ent", "").toUpperCase() || "PDB";
+          setActivePdbId(labelName);
           data = await localPlugin.builders.data.rawData({
             data: resData,
             label: `${gene || 'Homolog'} (${labelName})`
@@ -179,14 +187,28 @@ export function useMolstarStructure({
           fetchedPdbText = customPdbData;
           currentSource = "alphafold";
           setTemplateSource("alphafold");
+          setActivePdbId(null);
         } else if (uniprotId) {
-          const match = variant ? variant.match(/\d+/) : null;
-          const posQuery = match ? `?pos=${match[0]}` : "";
-          const res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`);
+          let res: Response;
+          if (active3dModelTab === "alphafold2") {
+            // Guarantee fetching the authentic full-length AlphaFold model directly
+            const afRes = await fetchWithAuth(`/api/v1/alphafold-pdb/${encodeURIComponent(uniprotId)}`);
+            if (afRes.ok) {
+              res = afRes;
+            } else {
+              const match = variant ? variant.match(/\d+/) : null;
+              const posQuery = match ? `?pos=${match[0]}` : "";
+              res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`);
+            }
+          } else {
+            const match = variant ? variant.match(/\d+/) : null;
+            const posQuery = match ? `?pos=${match[0]}` : "";
+            res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`);
+          }
 
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
-            let msg = errData.error || `Structure fetch failed (status ${res.status})`;
+            let msg = errData?.error?.message || errData?.message || (typeof errData?.error === "string" ? errData.error : null) || `Structure fetch failed (status ${res.status})`;
             if (res.status === 404) {
               msg = `No PDB structure found for UniProt ID ${uniprotId}.`;
             }
@@ -194,12 +216,15 @@ export function useMolstarStructure({
           }
 
           const sourceHeader = res.headers.get("X-Template-Source");
-          if (sourceHeader === "experimental") {
+          const pdbHeader = res.headers.get("X-Template-PdbId");
+          if (sourceHeader === "experimental" || sourceHeader === "homolog") {
             currentSource = "experimental";
             setTemplateSource("experimental");
+            setActivePdbId(pdbHeader || null);
           } else {
             currentSource = "alphafold";
             setTemplateSource("alphafold");
+            setActivePdbId(null);
           }
 
           const resData = await res.text();
@@ -439,7 +464,8 @@ export function useMolstarStructure({
     comparePdbData,
     plddtFilter,
     viewerStyle,
-    esmFoldPdb
+    esmFoldPdb,
+    active3dModelTab
   ]);
 
   // Residue focus & highlight effect
@@ -666,6 +692,7 @@ export function useMolstarStructure({
     componentRefRef2,
     plddtFilter, setPlddtFilter,
     templateSource, setTemplateSource,
+    activePdbId, setActivePdbId,
     viewerStyle, setViewerStyle,
     pdbText, setPdbText,
     bFactorMetadata

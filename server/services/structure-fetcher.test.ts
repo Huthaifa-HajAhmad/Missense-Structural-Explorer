@@ -123,7 +123,8 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
 
     const mockRcsbSearchResult = {
       result_set: [
-        { identifier: "5V3M_3", score: 1.0 }, // Self or near-identical human (100% -> should be skipped by >98% rule)
+        { identifier: "5V3M_3", score: 1.0 }, // Self or near-identical human (100% -> top representative kept)
+        { identifier: "5V3X_3", score: 1.0 }, // Duplicate 100% human structure -> should be filtered as redundant
         { identifier: "5V3J_3", score: 0.98 }, // 98% Mouse
         { identifier: "5WJQ_3", score: 0.97 }, // 97% Mouse (micro-redundant to 5V3J in same 95-100% bucket -> should be filtered)
         { identifier: "2I13_3", score: 0.76 }, // 76% Mouse (distinct 75% bucket -> kept)
@@ -140,6 +141,12 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
             rcsb_id: "5V3M",
             struct: { title: "mouseZFP568-ZnF1-10 allele A" },
             rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.1] },
+            polymer_entities: [{ rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }]
+          },
+          {
+            rcsb_id: "5V3X",
+            struct: { title: "mouseZFP568-ZnF1-10 allele A duplicate state" },
+            rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.5] },
             polymer_entities: [{ rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }]
           },
           {
@@ -208,13 +215,16 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
 
     const pdbIds = homologs.map(h => h.pdbId);
 
-    // 1. 5V3M (100% identity) excluded as self-match
-    expect(pdbIds).not.toContain("5V3M");
+    // 1. 5V3M (100% identity, Homo sapiens) included as top experimental structure
+    expect(pdbIds).toContain("5V3M");
 
-    // 2. 5V3J (98% Mouse) is included
+    // 2. 5V3X (100% identity duplicate, Homo sapiens) filtered out to prevent redundant self-construct flooding
+    expect(pdbIds).not.toContain("5V3X");
+
+    // 3. 5V3J (98% Mouse) is included as top representative for mouse
     expect(pdbIds).toContain("5V3J");
 
-    // 3. 5WJQ (97% Mouse) is filtered out because 5V3J is already selected in the 95-100% Mouse bucket
+    // 4. 5WJQ (97% Mouse) is filtered out because 5V3J is already selected in the >=95% Mouse bucket
     expect(pdbIds).not.toContain("5WJQ");
 
     // 4. 2I13 (76% Mouse) is included because it is in a distinct identity tier (75%)
@@ -230,5 +240,71 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
 
     // 7. 6ML2 (51% Mouse) is included
     expect(pdbIds).toContain("6ML2");
+  });
+
+  it("should dynamically re-rank and isolate cache results across different mutation positions", async () => {
+    const mockSequence = "MKVLVLGSGGREHALAWKAAQAAPEVVAVHTMKVLVLGSGGREHALAWKAAQAAPEVVAVHT";
+
+    const mockRcsbSearchResult = {
+      result_set: [
+        {
+          identifier: "1AAA_1",
+          score: 0.85,
+          services: [{ nodes: [{ match_context: [{ query_sequence_from: 1, query_sequence_to: 20 }] }] }]
+        },
+        {
+          identifier: "2BBB_1",
+          score: 0.80,
+          services: [{ nodes: [{ match_context: [{ query_sequence_from: 30, query_sequence_to: 60 }] }] }]
+        }
+      ]
+    };
+
+    const mockGqlResult = {
+      data: {
+        entries: [
+          {
+            rcsb_id: "1AAA",
+            struct: { title: "N-terminal domain structure" },
+            rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.0] },
+            polymer_entities: [{ rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }]
+          },
+          {
+            rcsb_id: "2BBB",
+            struct: { title: "C-terminal domain structure" },
+            rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.0] },
+            polymer_entities: [{ rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }]
+          }
+        ]
+      }
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uniprotkb")) {
+        return new Response(`>sp|P12345|POS_TEST\n${mockSequence}`, { status: 200 });
+      }
+      if (u.includes("rcsbsearch")) {
+        return new Response(JSON.stringify(mockRcsbSearchResult), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (u.includes("graphql")) {
+        return new Response(JSON.stringify(mockGqlResult), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response("{}", { status: 200 });
+    }));
+
+    // Query 1: pos 10 (covered by 1AAA, not 2BBB) -> 1AAA ranks first
+    const homologsPos10 = await fetchPdbHomologs("P12345", 10);
+    expect(homologsPos10[0].pdbId).toBe("1AAA");
+
+    // Query 2: pos 40 (covered by 2BBB, not 1AAA) -> 2BBB ranks first even though 1AAA has higher score
+    const homologsPos40 = await fetchPdbHomologs("P12345", 40);
+    expect(homologsPos40[0].pdbId).toBe("2BBB");
   });
 });

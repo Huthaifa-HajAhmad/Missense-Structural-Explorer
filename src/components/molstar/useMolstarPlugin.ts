@@ -148,6 +148,9 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
             if (location) {
               const resIdx = StructureProperties.residue.auth_seq_id(location);
               if (resIdx && onResidueClick) {
+                try {
+                  localPlugin.managers.structure.selection.clear();
+                } catch (_) {}
                 onResidueClick(resIdx);
               }
             }

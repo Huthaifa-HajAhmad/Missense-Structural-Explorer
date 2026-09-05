@@ -370,12 +370,21 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
                 ? (residueIdx >= selectedHom.querySeqFrom && residueIdx <= selectedHom.querySeqTo)
                 : true
             );
-            if (isCovered || residueIdx <= 0) return null;
-            return (
-              <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-700 dark:text-amber-300 leading-snug">
-                <span className="font-semibold">Out of bounds template:</span> PDB {selectedHom.pdbId} covers residues {selectedHom.querySeqFrom ?? '?' }–{selectedHom.querySeqTo ?? '?'}. Mutation site (position {residueIdx}) is outside the aligned coordinates.
-              </div>
-            );
+            if (!isCovered && residueIdx > 0) {
+              return (
+                <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-700 dark:text-amber-300 leading-snug">
+                  <span className="font-semibold">Out of bounds template:</span> PDB {selectedHom.pdbId} covers residues {selectedHom.querySeqFrom ?? '?' }–{selectedHom.querySeqTo ?? '?'}. Mutation site (position {residueIdx}) is outside the aligned coordinates. Switch back to AlphaFold2 Model for full-length structural context.
+                </div>
+              );
+            }
+            if (selectedHom.coverage && selectedHom.coverage < 90) {
+              return (
+                <div className="p-2 rounded-lg bg-cs-surface-2 border border-cs-border-subtle text-[10px] text-cs-text-secondary leading-snug">
+                  <span className="font-semibold text-cs-text-primary">Domain Construct:</span> PDB {selectedHom.pdbId} ({selectedHom.method}{selectedHom.resolution ? ` • ${selectedHom.resolution}Å` : ''}) covers {selectedHom.coverage}% of sequence{selectedHom.querySeqFrom && selectedHom.querySeqTo ? ` (${selectedHom.querySeqFrom}–${selectedHom.querySeqTo})` : ''}. Unmodelled domains are not present in this crystal construct.
+                </div>
+              );
+            }
+            return null;
           })()}
         </div>
       )}

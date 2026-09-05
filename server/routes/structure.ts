@@ -16,6 +16,9 @@ import {
 import {
   fetchPdbHomologs,
   fetchUniprotSequence,
+  fetchAlphafoldPdb,
+  getResolvedAlphafoldVersion,
+  fetchFullPdbEntry,
 } from "../services/external.ts";
 import { resolveStructure } from "../services/structure-resolver.ts";
 import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
@@ -39,7 +42,6 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     }
     const pdbId = rawPdbId.toUpperCase();
     try {
-      const { fetchFullPdbEntry } = await import("../services/external.ts");
       const pdbText = await fetchFullPdbEntry(pdbId);
       if (!pdbText) {
         sendError(res, 404, "NOT_FOUND", `Could not retrieve PDB structure for ${pdbId} from RCSB.`);
@@ -153,7 +155,32 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     }
   };
 
-  apiRouter.get("/alphafold-pdb/:uniprotId", handlePdbProxy);
+  apiRouter.get("/alphafold-pdb/:uniprotId", async (req, res) => {
+    let validatedUniprot: string;
+    try {
+      validatedUniprot = validateUniProt(req.params.uniprotId);
+    } catch (err: any) {
+      sendError(res, 400, "BAD_REQUEST", err.message);
+      return;
+    }
+
+    try {
+      const afData = await fetchAlphafoldPdb(validatedUniprot);
+      if (!afData) {
+        sendError(res, 404, "NOT_FOUND", `Could not retrieve AlphaFold DB model for accession: ${validatedUniprot}.`);
+        return;
+      }
+      const afdbVersion = getResolvedAlphafoldVersion(validatedUniprot) || "v6";
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("X-Template-Source", "alphafold");
+      res.setHeader("X-Template-AfdbVersion", afdbVersion);
+      res.send(afData);
+    } catch (err: any) {
+      console.error("[AlphaFold Route] Error:", err);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "Failed retrieving AlphaFold structure.");
+    }
+  });
+
   apiRouter.get("/pdb/:uniprotId", handlePdbProxy);
 
   const esmfoldSchema = z.object({

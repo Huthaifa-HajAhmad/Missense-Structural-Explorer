@@ -8,6 +8,8 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
   customPdbData,
   mutantStatus,
   active3dModelTab = "alphafold2",
+  viewMode,
+  activePdbId,
   customPdbUrl,
   pdbSource,
   pdbId,
@@ -47,17 +49,19 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: "var(--cs-accent)" }} />
           <span>
             {comparePdbData ? (
-              "Superimposed Structures"
-            ) : customPdbData ? (
-              mutantStatus === "success" ? "FoldX Mutant PDB" : "SCWRL4 Mutant PDB"
+              "Superimposed (Wild-Type vs Mutant)"
+            ) : viewMode === "mutant" ? (
+              mutantStatus === "success" ? "FoldX Mutant Model" : "Mutant Model"
             ) : active3dModelTab === "esm3" ? (
-              "ESM3 Mutant Model"
+              "ESM3 Structure Model"
             ) : customPdbUrl ? (
-              "Experimental Homolog PDB"
-            ) : pdbSource === "RCSB PDB" && pdbId ? (
+              `RCSB PDB: ${activePdbId || customPdbUrl.split("/").pop()?.replace(".pdb", "").replace(".ent", "").toUpperCase() || "Template"}`
+            ) : activePdbId ? (
+              `RCSB PDB: ${activePdbId.toUpperCase()}`
+            ) : templateSource === "experimental" && pdbId ? (
               `RCSB PDB: ${pdbId.toUpperCase()}`
             ) : uniprotId ? (
-              `AlphaFold DB (AF-${uniprotId})`
+              `AlphaFold DB (AF-${uniprotId}-F1 • Full-Length)`
             ) : (
               "No Structure Loaded"
             )}

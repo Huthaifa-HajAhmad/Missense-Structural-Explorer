@@ -336,4 +336,5 @@ export interface MolstarViewerProps {
   pdbId?: string | null;
   pdbSource?: string | null;
   metrics?: any | null;
+  viewMode?: "wildtype" | "mutant";
 }

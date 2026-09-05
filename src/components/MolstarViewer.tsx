@@ -38,7 +38,8 @@ export default function MolstarViewer({
   heightClass,
   variant,
   active3dModelTab = "alphafold2",
-  metrics
+  metrics,
+  viewMode
 }: MolstarViewerProps) {
   const { theme: contextTheme, settings, showPolarContacts: contextShowPolarContacts, setIsSettingsOpen } = useSettings();
   const { fetchWithAuth } = useApiClient();
@@ -69,6 +70,13 @@ export default function MolstarViewer({
   const energyUnit = settings.energyUnit;
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", handleFsChange);
+    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
+
   const [isAlertClosed, setIsAlertClosed] = useState<boolean>(false);
   const [alertPosition, setAlertPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -118,6 +126,8 @@ export default function MolstarViewer({
     variant: variant || undefined,
     esmFoldPdb,
     esm3Eval: esm3Eval,
+    active3dModelTab,
+    viewMode,
     setLoading: plugin.setLoading,
     setLoadError: plugin.setLoadError
   });
@@ -209,6 +219,8 @@ export default function MolstarViewer({
           customPdbData={customPdbData || null}
           mutantStatus={mutantStatus}
           active3dModelTab={active3dModelTab}
+          viewMode={viewMode || null}
+          activePdbId={structure.activePdbId}
           customPdbUrl={customPdbUrl || null}
           pdbSource={pdbSource || null}
           pdbId={pdbId || null}

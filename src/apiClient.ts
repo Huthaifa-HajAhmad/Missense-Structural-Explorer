@@ -247,9 +247,20 @@ export function useApiClient() {
         return await res.text();
       },
 
+      async getAlphaFoldPdb(uniprotId: string, signal?: AbortSignal): Promise<string> {
+        const res = await fetchWithAuth(`/api/v1/alphafold-pdb/${encodeURIComponent(uniprotId)}`, {
+          timeout: 35000,
+          signal
+        });
+        if (!res.ok) {
+          throw new Error(`Failed to fetch AlphaFold model: ${res.statusText}`);
+        }
+        return await res.text();
+      },
+
       async getHomologs(uniprotId: string, signal?: AbortSignal): Promise<any[]> {
         const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(uniprotId)}`, {
-          timeout: 10000,
+          timeout: 35000,
           signal
         });
         if (!res.ok) {
