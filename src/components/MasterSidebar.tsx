@@ -112,9 +112,8 @@ const STRUCTURE_SUB_ITEMS = [
 function StepIcon({ status }: { status: WorkflowStatusType }) {
   if (status === "complete") {
     return (
-      <span className="relative flex h-2.5 w-2.5 items-center justify-center shrink-0" title="Complete" aria-label="Complete">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
+      <span className="flex h-2.5 w-2.5 items-center justify-center shrink-0" title="Complete" aria-label="Complete">
+        <span className="inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500/90" />
       </span>
     );
   }

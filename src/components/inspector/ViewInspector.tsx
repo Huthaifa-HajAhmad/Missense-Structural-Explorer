@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   PanelRightClose, 
   PanelRightOpen, 
@@ -120,6 +120,36 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     return localStorage.getItem("cs-inspector-collapsed") === "true";
   });
 
+  const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
+    const saved = localStorage.getItem("cs-inspector-width");
+    const parsed = saved ? parseInt(saved, 10) : 320;
+    return isNaN(parsed) ? 320 : Math.max(280, Math.min(540, parsed));
+  });
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (isCollapsed) return;
+      const startX = e.clientX;
+      const startWidth = inspectorWidth;
+      const handleMouseMove = (me: MouseEvent) => {
+        // Dragging left (negative dx) increases inspector width on right panel
+        const newWidth = Math.max(280, Math.min(540, startWidth - (me.clientX - startX)));
+        setInspectorWidth(newWidth);
+        localStorage.setItem("cs-inspector-width", String(newWidth));
+      };
+      const handleMouseUp = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.cursor = "";
+      };
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+    },
+    [inspectorWidth, isCollapsed]
+  );
+
   const toggleCollapse = () => {
     setIsCollapsed(prev => {
       const next = !prev;
@@ -169,9 +199,21 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
 
   return (
     <aside 
-      className="w-80 min-w-[280px] max-w-[340px] flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col h-full overflow-hidden transition-all duration-200"
+      className="relative flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col h-full overflow-hidden transition-[width] duration-75 select-none"
+      style={{
+        width: inspectorWidth,
+        minWidth: inspectorWidth,
+      }}
       aria-label="Context & Provenance Inspector"
     >
+      {/* ── Left-edge resize drag handle ── */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute top-0 left-0 w-1.5 h-full transition-colors hover:bg-slate-500/20 active:bg-cs-accent-clay/30 cursor-col-resize select-none"
+        style={{ zIndex: 20 }}
+        title="Drag to resize inspector panel"
+      />
+
       {/* ── Inspector Header ── */}
       <div className="px-4 py-3.5 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface-2 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -200,7 +242,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       </div>
 
       {/* ── Dynamic Inspector Sub-view ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 no-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
         {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
           <StructureInspector
             analysisResult={analysisResult}

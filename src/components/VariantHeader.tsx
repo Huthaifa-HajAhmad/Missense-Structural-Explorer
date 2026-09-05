@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { AnalysisResult } from "../types";
+import { parseVariantCoordinate } from "../shared/variantCoordinate";
 
 interface VariantHeaderProps {
   gene: string;
@@ -74,14 +75,23 @@ function VariantHeader({
   const maneRefSeqId  = analysisResult?.maneRefSeqId ?? predictorData?.maneRefSeqId ?? null;
   const displayTranscriptId = maneRefSeqId ?? transcriptId;
 
+  const formattedVariant = useMemo(() => {
+    if (!variant) return "";
+    try {
+      return parseVariantCoordinate(variant).hgvsp3;
+    } catch {
+      return variant;
+    }
+  }, [variant]);
+
   return (
     <div className="variant-header" role="banner" aria-label="Active variant">
       {/* Tier 1 — Gene symbol (serif Display tier) */}
       <div className="variant-header-gene">{gene}</div>
 
       {/* Tier 2 — HGVS variant notation (monospace, secondary color) */}
-      {variant && (
-        <div className="variant-header-hgvs">{variant}</div>
+      {formattedVariant && (
+        <div className="variant-header-hgvs">{formattedVariant}</div>
       )}
 
       {/* Tier 3 — Verdict badges */}

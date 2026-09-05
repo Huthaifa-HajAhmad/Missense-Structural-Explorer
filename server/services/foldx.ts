@@ -517,28 +517,43 @@ async function generateMutantPdbInternal(
     throw new Error(`FoldX binary not found or not executable at: ${foldxBin}`);
   }
 
-  if (foldxDir) {
-    const sourceMolecules = path.join(foldxDir, "molecules");
-    const destMolecules = path.join(jobDir, "molecules");
-    if (fs.existsSync(sourceMolecules)) {
-      try {
-        console.log(`[Biophysical Modeling] Creating symlink/junction for FoldX molecules parameters...`);
-        const type = process.platform === "win32" ? "junction" : "dir";
-        fs.symlinkSync(sourceMolecules, destMolecules, type);
-      } catch (err: any) {
-        console.warn(`[Biophysical Modeling] Symlink molecules failed, falling back to copy: ${err.message}`);
-        fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
+  if (foldxDir || process.cwd()) {
+    const candidateMolecules = [
+      foldxDir ? path.join(foldxDir, "molecules") : "",
+      path.join(process.cwd(), "tools", "foldx", "molecules"),
+      path.join(process.cwd(), "molecules")
+    ].filter(p => p && fs.existsSync(p));
+    if (candidateMolecules.length > 0) {
+      const sourceMolecules = candidateMolecules[0];
+      const destMolecules = path.join(jobDir, "molecules");
+      if (!fs.existsSync(destMolecules)) {
+        try {
+          console.log(`[Biophysical Modeling] Creating symlink/junction for FoldX molecules parameters...`);
+          const type = process.platform === "win32" ? "junction" : "dir";
+          fs.symlinkSync(sourceMolecules, destMolecules, type);
+        } catch (err: any) {
+          console.warn(`[Biophysical Modeling] Symlink molecules failed, falling back to copy: ${err.message}`);
+          fs.cpSync(sourceMolecules, destMolecules, { recursive: true });
+        }
       }
     }
-    const sourceRotabase = path.join(foldxDir, "rotabase.txt");
-    const destRotabase = path.join(jobDir, "rotabase.txt");
-    if (fs.existsSync(sourceRotabase)) {
-      try {
-        console.log(`[Biophysical Modeling] Creating symlink for FoldX rotabase...`);
-        fs.symlinkSync(sourceRotabase, destRotabase, "file");
-      } catch (err: any) {
-        console.warn(`[Biophysical Modeling] Symlink rotabase failed, falling back to copy: ${err.message}`);
-        fs.copyFileSync(sourceRotabase, destRotabase);
+
+    const candidateRotabase = [
+      foldxDir ? path.join(foldxDir, "rotabase.txt") : "",
+      path.join(process.cwd(), "tools", "foldx", "rotabase.txt"),
+      path.join(process.cwd(), "rotabase.txt")
+    ].filter(p => p && fs.existsSync(p));
+    if (candidateRotabase.length > 0) {
+      const sourceRotabase = candidateRotabase[0];
+      const destRotabase = path.join(jobDir, "rotabase.txt");
+      if (!fs.existsSync(destRotabase)) {
+        try {
+          console.log(`[Biophysical Modeling] Creating symlink for FoldX rotabase from ${sourceRotabase}...`);
+          fs.symlinkSync(sourceRotabase, destRotabase, "file");
+        } catch (err: any) {
+          console.warn(`[Biophysical Modeling] Symlink rotabase failed, falling back to copy: ${err.message}`);
+          fs.copyFileSync(sourceRotabase, destRotabase);
+        }
       }
     }
   }
@@ -568,7 +583,8 @@ async function generateMutantPdbInternal(
   // RepairPDB. Skip repair for AF structures to avoid constant failures.
   const isAlphaFoldPdb = /ALPHAFOLD|DBREF.*AF\-/i.test(wtPdb) || 
     /^REMARK.*ALPHAFOLD/mi.test(wtPdb) ||
-    /^HEADER.*PREDICTED/mi.test(wtPdb);
+    /^HEADER.*PREDICTED/mi.test(wtPdb) ||
+    detectBFactorProvenance(wtPdb).source === "alphafold";
   const shouldRepair = residueCount <= 400 && !isAlphaFoldPdb;
 
   if (isAlphaFoldPdb) {

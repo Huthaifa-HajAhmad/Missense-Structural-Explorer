@@ -483,7 +483,7 @@ function VariantSearchPanel({
                     >
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
                         {isRunning ? (
-                          <span className="cs-spinner cs-spinner-sm shrink-0" />
+                          <Loader2 className="w-4 h-4 animate-spin text-[var(--cs-accent-clay)] shrink-0" />
                         ) : isDone ? (
                           <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                         ) : isDegraded || isErr ? (

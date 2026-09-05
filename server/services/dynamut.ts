@@ -23,10 +23,10 @@ export async function submitBioSigJob(
   const url = `https://biosig.lab.uq.edu.au/${tool}/api/prediction_single`;
   const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
 
-  // Pre-flight check: BioSig academic server rejects large structures (>500 residues)
+  // Pre-flight check: Safeguard against extreme unphysical structures (>1500 residues)
   const residueCount = (pdbText.match(/^ATOM\s+.*?CA\s+/gm) || []).length;
-  if (residueCount > 500) {
-    console.log(`[${toolName} API] Structure contains ${residueCount} residues (>500 threshold). Skipping remote BioSig submission.`);
+  if (residueCount > 1500) {
+    console.log(`[${toolName} API] Structure contains ${residueCount} residues (>1500 safeguard limit). Skipping remote BioSig submission.`);
     return null;
   }
 

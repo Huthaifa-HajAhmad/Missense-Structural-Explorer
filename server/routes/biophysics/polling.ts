@@ -283,8 +283,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     }
   });
 
-  const BIOSIG_MAX_AGE_MS = 60 * 1000; // 60s max wait for remote academic server
-
+  const BIOSIG_MAX_AGE_MS = 300 * 1000; // 300s (5 min) max wait for remote academic server queue
+ 
   async function checkBioSigJobStaleness(jobId: string, tool: "dynamut2" | "ddmut"): Promise<boolean> {
     try {
       if (fs.existsSync(REGISTRY_PATH)) {
@@ -294,7 +294,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         if (entry) {
           const ageMs = Date.now() - new Date(entry.timestamp).getTime();
           if (ageMs > BIOSIG_MAX_AGE_MS) {
-            console.warn(`[BioSig Staleness] ${tool} job ${jobId} is ${Math.round(ageMs / 1000)}s old (>60s timeout).`);
+            console.warn(`[BioSig Staleness] ${tool} job ${jobId} is ${Math.round(ageMs / 1000)}s old (>300s timeout).`);
             return true;
           }
         }
@@ -318,7 +318,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     if (isStale) {
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
       broadcastJobUpdate({ jobId, tool: "dynamut2", status: "UNAVAILABLE" });
-      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>60s wait)." });
+      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>5m wait)." });
     }
 
     const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
@@ -374,7 +374,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     if (isStale) {
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
       broadcastJobUpdate({ jobId, tool: "ddmut", status: "UNAVAILABLE" });
-      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>60s wait)." });
+      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>5m wait)." });
     }
 
     const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;

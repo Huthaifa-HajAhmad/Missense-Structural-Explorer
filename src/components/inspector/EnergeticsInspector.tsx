@@ -106,13 +106,15 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
             {/* FoldX Repair Warning */}
             {foldxRepairFailed && (
-              <div className="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-300 space-y-1">
+              <div className="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
                   <span>FoldX Repair Warning</span>
                 </div>
                 <p className="text-[10px] leading-relaxed opacity-90">
-                  FoldX RepairPDB phase failed for this structure. Calculations proceeded with the un-repaired starting structure.
+                  {(foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== null && (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== undefined
+                    ? "FoldX RepairPDB phase was bypassed for this structure. Calculations proceeded with un-repaired starting coordinates."
+                    : "FoldX RepairPDB phase failed and un-repaired BuildModel could not produce a valid energy estimate for this structure."}
                 </p>
               </div>
             )}
@@ -155,35 +157,80 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
         <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
           {/* FoldX Local */}
-          <div className="flex items-center justify-between text-[11px]">
+          {(() => {
+            const hasFoldxVal = (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== null && (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== undefined;
+            return (
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${
+                    isFolding
+                      ? "bg-amber-500 animate-ping"
+                      : hasFoldxVal
+                      ? "bg-emerald-500"
+                      : foldxRepairFailed
+                      ? "bg-amber-500"
+                      : foldingStatus === "failed"
+                      ? "bg-rose-500"
+                      : "bg-slate-400"
+                  }`} />
+                  <span className="font-semibold text-cs-text-primary">FoldX 5.0</span>
+                </div>
+                <span className="font-mono text-[10px] text-cs-text-muted">
+                  {isFolding
+                    ? "Repacking sidechains..."
+                    : hasFoldxVal
+                    ? "Local Force-Field (Ready)"
+                    : foldxRepairFailed
+                    ? "Repair Failed / Unavailable"
+                    : foldingStatus === "failed"
+                    ? "Simulation Failed"
+                    : "Idle"}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* StabilityOracle Structure ML */}
+          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
             <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${isFolding ? "bg-amber-500 animate-ping" : foldingStatus === "success" ? "bg-emerald-500" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">FoldX 5.0</span>
+              <span className={`w-2 h-2 rounded-full ${foldingEnergetics?.stabilityoracle !== null && foldingEnergetics?.stabilityoracle !== undefined ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span className="font-semibold text-cs-text-primary">StabilityOracle</span>
             </div>
             <span className="font-mono text-[10px] text-cs-text-muted">
-              {isFolding ? "Repacking sidechains..." : foldingStatus === "success" ? "Local Force-Field (Ready)" : "Idle"}
+              {foldingEnergetics?.stabilityoracle !== null && foldingEnergetics?.stabilityoracle !== undefined ? "Structure Graph ML (Ready)" : "Not Available"}
             </span>
           </div>
 
           {/* DynaMut2 */}
           <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
             <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${dynamut2Status === "pending" ? "bg-amber-500 animate-ping" : dynamut2Status === "done" ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span className={`w-2 h-2 rounded-full ${dynamut2Status === "pending" ? "bg-amber-500 animate-ping" : dynamut2Status === "done" ? "bg-emerald-500" : dynamut2Status === "unavailable" ? "bg-amber-500/70" : "bg-slate-400"}`} />
               <span className="font-semibold text-cs-text-primary">DynaMut2</span>
             </div>
             <span className="font-mono text-[10px] text-cs-text-muted">
-              {dynamut2Status === "pending" ? "Remote NMA Server..." : dynamut2Status === "done" ? "U. Melbourne Server (Ready)" : "Offline / Unused"}
+              {dynamut2Status === "pending" ? "Remote NMA Server..." : dynamut2Status === "done" ? "BioSig Server (Ready)" : dynamut2Status === "unavailable" ? "BioSig Queue / Unavailable" : "Idle"}
             </span>
           </div>
 
           {/* DDMut Siamese Transformer */}
           <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
             <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${ddmutStatus === "pending" ? "bg-amber-500 animate-ping" : ddmutStatus === "done" ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span className={`w-2 h-2 rounded-full ${ddmutStatus === "pending" ? "bg-amber-500 animate-ping" : ddmutStatus === "done" ? "bg-emerald-500" : ddmutStatus === "unavailable" ? "bg-amber-500/70" : "bg-slate-400"}`} />
               <span className="font-semibold text-cs-text-primary">DDMut</span>
             </div>
             <span className="font-mono text-[10px] text-cs-text-muted">
-              {ddmutStatus === "pending" ? "Graph Deep Learning..." : ddmutStatus === "done" ? "Siamese Transformer (Ready)" : "Offline / Unused"}
+              {ddmutStatus === "pending" ? "Graph Deep Learning..." : ddmutStatus === "done" ? "BioSig Siamese (Ready)" : ddmutStatus === "unavailable" ? "BioSig Queue / Unavailable" : "Idle"}
+            </span>
+          </div>
+
+          {/* RaSP Rapid ddG */}
+          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${foldingEnergetics?.rasp !== null && foldingEnergetics?.rasp !== undefined ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span className="font-semibold text-cs-text-primary">RaSP</span>
+            </div>
+            <span className="font-mono text-[10px] text-cs-text-muted">
+              {foldingEnergetics?.rasp !== null && foldingEnergetics?.rasp !== undefined ? "Precomputed / Local (Ready)" : raspReason ? "Coverage Limited" : "Not Available"}
             </span>
           </div>
 

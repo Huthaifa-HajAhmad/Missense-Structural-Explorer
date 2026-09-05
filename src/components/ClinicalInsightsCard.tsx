@@ -29,13 +29,21 @@ import {
 
 function SafeResponsiveContainer({ children }: { children: React.ReactElement }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!containerRef.current) return;
     const checkSize = () => {
-      if (containerRef.current && containerRef.current.clientWidth > 0 && containerRef.current.clientHeight > 0) {
-        setIsReady(true);
+      if (containerRef.current) {
+        const { clientWidth, clientHeight } = containerRef.current;
+        if (clientWidth > 0 && clientHeight > 0) {
+          setDimensions(prev => {
+            if (prev && prev.width === clientWidth && prev.height === clientHeight) {
+              return prev;
+            }
+            return { width: clientWidth, height: clientHeight };
+          });
+        }
       }
     };
     checkSize();
@@ -45,9 +53,15 @@ function SafeResponsiveContainer({ children }: { children: React.ReactElement })
   }, []);
 
   return (
-    <div ref={containerRef} className="w-full h-full min-h-[155px]">
-      {isReady ? (
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+    <div ref={containerRef} className="w-full h-full min-h-[155px]" style={{ minWidth: 0, minHeight: 155 }}>
+      {dimensions ? (
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={0}
+          minHeight={0}
+          initialDimension={dimensions}
+        >
           {children}
         </ResponsiveContainer>
       ) : null}

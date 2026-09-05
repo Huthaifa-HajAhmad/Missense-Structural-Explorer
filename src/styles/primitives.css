@@ -299,22 +299,32 @@
 }
 .cs-switch[data-checked="true"] .cs-switch-thumb { transform: translateX(14px); }
 
-/* Reduced-motion mode (set on <html> by SettingsContext) */
-html.reduce-motion *,
-html.reduce-motion *::before,
-html.reduce-motion *::after {
+/* Reduced-motion mode (set on <html> by SettingsContext)
+   Suppress decorative/layout motion, but exempt essential loading indicators
+   so users maintain visual feedback for in-flight async operations. */
+html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion]),
+html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::before,
+html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  html:not(.reduce-motion-optout) *,
-  html:not(.reduce-motion-optout) *::before,
-  html:not(.reduce-motion-optout) *::after {
+  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion]),
+  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::before,
+  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Explicit rule ensuring spinners retain continuous iteration */
+html.reduce-motion .animate-spin,
+html.reduce-motion .cs-spinner,
+html:not(.reduce-motion-optout) .animate-spin,
+html:not(.reduce-motion-optout) .cs-spinner {
+  animation-iteration-count: infinite !important;
 }

@@ -432,8 +432,9 @@ const EnergeticsView = memo(function EnergeticsView({
               const ddmut = energetics.ddmut;
               const rasp = energetics.rasp;
               const thermompnn = energetics.thermompnn;
+              const stabilityoracle = energetics.stabilityoracle;
 
-              const activeToolsCount = [foldxMean, dynamut2, ddmut, rasp, thermompnn].filter(v => v !== null).length;
+              const activeToolsCount = [foldxMean, dynamut2, ddmut, rasp, thermompnn, stabilityoracle].filter(v => v !== null).length;
 
               let styleClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
               if (calConsensus.consensusVerdict.includes("High")) {
@@ -449,8 +450,8 @@ const EnergeticsView = memo(function EnergeticsView({
               let detailText = "Variant consensus exhibits neutral biophysical stability.";
               if (calConsensus.consensusVerdict.includes("High")) {
                 detailText = "Calibrated consensus indicates high probability of protein destabilization.";
-              } else if (calConsensus.consensusVerdict.includes("Moderate")) {
-                detailText = "Moderate or conflicting stability predictions warrant clinical caution.";
+              } else if (calConsensus.consensusVerdict.includes("Moderate") || calConsensus.consensusVerdict.includes("Elevated")) {
+                detailText = "Moderate or elevated destabilization prediction warrants clinical attention.";
               }
 
               if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && activeToolsCount > 0) {
@@ -522,9 +523,11 @@ const EnergeticsView = memo(function EnergeticsView({
                 const ddmut = energetics.ddmut;
                 const rasp = energetics.rasp;
                 const thermompnn = energetics.thermompnn;
+                const stabilityoracle = energetics.stabilityoracle;
 
                 const toolsList = [
                   { name: "FoldX (Ensemble ddG)", val: foldxMean, key: "foldx" as const },
+                  { name: "StabilityOracle (Structure ML)", val: stabilityoracle, key: "stabilityoracle" as const },
                   { name: "DynaMut2 (Normal Mode Analysis)", val: dynamut2, key: "dynamut2" as const },
                   { name: "DDMut (Deep Learning)", val: ddmut, key: "ddmut" as const },
                   { name: "RaSP (Rapid ddG)", val: rasp, key: "rasp" as const },
@@ -556,7 +559,7 @@ const EnergeticsView = memo(function EnergeticsView({
         )}
 
         <div className="text-[9px] p-2.5 rounded border italic" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
-          * Consensus calculations are derived from FoldX energy grids and sequence-based evolutionary alignment dynamics.
+          * Multi-method calibrated consensus integrates physics-based force fields (FoldX), normal mode dynamics (DynaMut2), structural graph ML (StabilityOracle), deep learning (DDMut, RaSP), and language modeling (ThermoMPNN) with isotonic probability calibration.
         </div>
       </div>
 
