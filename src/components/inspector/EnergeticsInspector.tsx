@@ -67,12 +67,12 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <div className="space-y-2">
             {/* ThermoMPNN Error Notice */}
             {thermompnnStatus === "error" && thermompnnError && (
-              <div className="p-2.5 rounded-lg border border-rose-500/20 bg-rose-500/5 text-rose-600 dark:text-rose-400 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] uppercase tracking-wide">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <div className="p-2.5 rounded-lg border border-rose-500/25 bg-rose-500/10 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] uppercase tracking-wide text-rose-900 dark:text-rose-200">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
                   <span>ThermoMPNN Prediction Failed</span>
                 </div>
-                <p className="text-[10px] leading-relaxed opacity-90 font-mono break-words">
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary font-mono break-words">
                   {thermompnnError}
                 </p>
               </div>
@@ -80,12 +80,12 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
             {/* Asynchronous Services Offline */}
             {isAsyncOffline && (
-              <div className="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-300 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
-                  <Info className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
+                  <Info className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
                   <span>ΔΔG Partial (Async Services Offline)</span>
                 </div>
-                <p className="text-[10px] leading-relaxed opacity-90">
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
                   One or more remote biophysical prediction webhooks (DynaMut2 / DDMut) are currently offline. Displaying local force-field and deep learning fallback models.
                 </p>
               </div>
@@ -93,12 +93,12 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
             {/* Low-Confidence Template Alert */}
             {isLowConfidence && (
-              <div className="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-300 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
-                  <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
+                  <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
                   <span>Low-Confidence Template (pLDDT: {plddt?.toFixed(1)})</span>
                 </div>
-                <p className="text-[10px] leading-relaxed opacity-90">
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
                   The local AlphaFold template residue has low confidence (pLDDT &lt; 70). Rigid-backbone force-field calculations are highly speculative in disordered loops.
                 </p>
               </div>
@@ -106,12 +106,12 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
             {/* FoldX Repair Warning */}
             {foldxRepairFailed && (
-              <div className="p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
                   <span>FoldX Repair Warning</span>
                 </div>
-                <p className="text-[10px] leading-relaxed opacity-90">
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
                   {(foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== null && (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== undefined
                     ? "FoldX RepairPDB phase was bypassed for this structure. Calculations proceeded with un-repaired starting coordinates."
                     : "FoldX RepairPDB phase failed and un-repaired BuildModel could not produce a valid energy estimate for this structure."}
@@ -126,7 +126,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                   <Info className="w-3.5 h-3.5 shrink-0 text-cs-accent-clay" />
                   <span>RaSP Database Coverage</span>
                 </div>
-                <p className="text-[10px] leading-relaxed">
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
                   {raspReason}
                 </p>
               </div>
@@ -134,12 +134,12 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
             {/* Simulation Error */}
             {foldingError && (
-              <div className="p-2.5 rounded-lg border border-rose-500/20 bg-rose-500/5 text-rose-600 dark:text-rose-400 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <div className="p-2.5 rounded-lg border border-rose-500/25 bg-rose-500/10 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-rose-900 dark:text-rose-200">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
                   <span>Biophysical Simulation Failed</span>
                 </div>
-                <p className="text-[10px] leading-relaxed opacity-90 font-mono">
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary font-mono">
                   {foldingError}
                 </p>
               </div>
