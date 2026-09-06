@@ -120,7 +120,7 @@ export function PerturbationTab({
 
   const copyToClipboard = (text: string, label: string) => {
     if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(text);
+      navigator.clipboard.writeText(text).catch(() => {});
     }
     setCopiedCommand(label);
     setTimeout(() => setCopiedCommand(null), 2000);
