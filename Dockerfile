@@ -35,17 +35,20 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
-# Install Python, git, libgomp1, and curl for health check and ML sidecar runtime
+# Install Python, git, libgomp1, procps, and curl for health check and ML sidecar runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     git \
     libgomp1 \
+    procps \
     curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV OMP_NUM_THREADS=2
+ENV TORCH_NUM_THREADS=2
 
 # Copy package files
 COPY package*.json ./

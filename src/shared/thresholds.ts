@@ -176,6 +176,10 @@ export const THRESHOLDS = {
     pathogenicStrong: 0.35,
     pathogenicSupporting: 0.60,
   },
+  biophysicalConsensus: {
+    highRiskProbability: 0.42,
+    moderateRiskProbability: 0.20,
+  },
 } as const;
 
 export const LOCAL_STRUCTURAL_WINDOW = 5;
@@ -786,15 +790,15 @@ export function computeCalibratedConsensus(
 
   // Probability-based consensus threshold mapping
   let consensusVerdict = "Low Misfolding Risk (Neutral Stability)";
-  if (consensusProbability >= 0.42) {
+  if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
     consensusVerdict = "High Misfolding Risk (Destabilizing Consensus)";
-  } else if (consensusProbability >= 0.20) {
+  } else if (consensusProbability >= THRESHOLDS.biophysicalConsensus.moderateRiskProbability) {
     consensusVerdict = "Moderate Misfolding Risk (Conflicting Stability)";
   }
 
   // Handle single-predictor fallback label schema
   if (availableCount === 1) {
-    if (consensusProbability >= 0.42) {
+    if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
       consensusVerdict = "Elevated Misfolding Risk (Single-Tool Estimate)";
     } else {
       consensusVerdict = "Low Misfolding Risk (Single-Tool Estimate)";

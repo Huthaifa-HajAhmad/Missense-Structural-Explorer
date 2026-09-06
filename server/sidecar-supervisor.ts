@@ -32,6 +32,7 @@ export class SidecarSupervisor {
   private isSpawning = false;
   private isShuttingDown = false;
   private healthCheckConsecutiveFailures = 0;
+  private hasStandaloneUv: boolean | null = null;
 
   constructor() {
     ensureSidecarSecret();
@@ -67,17 +68,45 @@ export class SidecarSupervisor {
 
     if (this.modelServerProcess && this.modelServerProcess.pid) {
       console.log("[Sidecar Supervisor] Terminating model server sidecar process tree...");
-      const pid = this.modelServerProcess.pid;
-      if (process.platform === "win32") {
-        try {
-          execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore" });
-        } catch (_) {}
-      } else {
-        try {
-          execSync(`pkill -P ${pid} || true`, { stdio: "ignore" });
-          this.modelServerProcess.kill("SIGTERM");
-        } catch (_) {}
+      const proc = this.modelServerProcess;
+      const pid = proc.pid;
+      if (pid) {
+        if (process.platform === "win32") {
+          try {
+            execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore" });
+          } catch (_) {}
+        } else {
+          try {
+            process.kill(-pid, "SIGTERM");
+          } catch (_) {
+            try {
+              execSync(`pkill -P ${pid} || true`, { stdio: "ignore" });
+              proc.kill("SIGTERM");
+            } catch (_) {}
+          }
+        }
       }
+
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          try {
+            if (pid) {
+              if (process.platform !== "win32") {
+                process.kill(-pid, "SIGKILL");
+              } else {
+                proc.kill("SIGKILL");
+              }
+            }
+          } catch (_) {}
+          resolve();
+        }, 3000);
+
+        proc.once("exit", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
       this.modelServerProcess = null;
     }
   }
@@ -122,38 +151,40 @@ export class SidecarSupervisor {
       }
     }
 
+    // Enforce thread limits on multi-core systems to prevent starvation of Node.js
+    sidecarEnv.OMP_NUM_THREADS = process.env.OMP_NUM_THREADS || "2";
+    sidecarEnv.TORCH_NUM_THREADS = process.env.TORCH_NUM_THREADS || "2";
+
     // Auto-discover local virtualenv python
     const venvPythonPath = process.platform === "win32"
       ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
       : path.join(process.cwd(), "tools", ".venv", "bin", "python");
 
-    let useStandaloneUv = false;
-    try {
-      const checkCmd = process.platform === "win32" ? "where uv" : "command -v uv";
-      execSync(checkCmd, { stdio: "ignore" });
-      useStandaloneUv = true;
-    } catch (_) {
-      // Standalone uv not on PATH
+    if (this.hasStandaloneUv === null) {
+      try {
+        const checkCmd = process.platform === "win32" ? "where uv" : "command -v uv";
+        execSync(checkCmd, { stdio: "ignore" });
+        this.hasStandaloneUv = true;
+      } catch (_) {
+        this.hasStandaloneUv = false;
+      }
     }
 
-    if (useStandaloneUv) {
+    const spawnOptions = {
+      stdio: "inherit" as const,
+      env: sidecarEnv,
+      detached: process.platform !== "win32"
+    };
+
+    if (this.hasStandaloneUv) {
       console.log("[Sidecar Supervisor] Launching sidecar via standalone uv (project: tools)...");
-      this.modelServerProcess = spawn("uv", ["run", "--project", "tools", modelServerScript], {
-        stdio: "inherit",
-        env: sidecarEnv
-      });
+      this.modelServerProcess = spawn("uv", ["run", "--project", "tools", modelServerScript], spawnOptions);
     } else if (fs.existsSync(venvPythonPath)) {
       console.log(`[Sidecar Supervisor] Found local virtualenv python at ${venvPythonPath}. Launching sidecar directly...`);
-      this.modelServerProcess = spawn(venvPythonPath, [modelServerScript], {
-        stdio: "inherit",
-        env: sidecarEnv
-      });
+      this.modelServerProcess = spawn(venvPythonPath, [modelServerScript], spawnOptions);
     } else {
       console.log("[Sidecar Supervisor] Standalone uv not found in PATH. Launching sidecar via python -m uv...");
-      this.modelServerProcess = spawn("python", ["-m", "uv", "run", "--project", "tools", modelServerScript], {
-        stdio: "inherit",
-        env: sidecarEnv
-      });
+      this.modelServerProcess = spawn("python", ["-m", "uv", "run", "--project", "tools", modelServerScript], spawnOptions);
     }
 
     // Reset restart counter after 30 seconds of stable running
@@ -240,10 +271,11 @@ export class SidecarSupervisor {
                 this.modelServerProcess.kill("SIGKILL");
               }
             } catch (_) {}
-          } else if (!this.restartTimer) {
-            console.warn("[Sidecar Supervisor] Sidecar not running and no restart scheduled. Spawning new process...");
-            this.restartAttempts = 0;
+          } else if (!this.restartTimer && this.restartAttempts < 10) {
+            console.warn("[Sidecar Supervisor] Sidecar not running and retry quota remains. Spawning new process...");
             this.spawnModelServer();
+          } else if (this.restartAttempts >= 10) {
+            console.warn("[Sidecar Supervisor] Max restart quota reached. Awaiting manual resolution or healthy probe.");
           }
         }
       }

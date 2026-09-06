@@ -179,9 +179,11 @@ export default function useVariantAnalysis() {
 
   const fetchNearestResiduesWrapper = useCallback(
     (targetUniprot: string, targetVariant: string, residueIndex: number, pdbStr: string, signal?: AbortSignal) => {
-      return pipeline.fetchNearestResidues(targetUniprot, targetVariant, residueIndex, pdbStr, apiClient, signal);
+      return pipeline.fetchNearestResidues(targetUniprot, targetVariant, residueIndex, pdbStr, apiClient, signal, {
+        setComputedResiduesCache: store.setComputedResiduesCache
+      });
     },
-    [pipeline, apiClient]
+    [pipeline, apiClient, store.setComputedResiduesCache]
   );
 
   const fetchEsmFoldWrapper = useCallback(

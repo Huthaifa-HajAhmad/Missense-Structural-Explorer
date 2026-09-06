@@ -233,8 +233,15 @@ export function useAnalysisPipeline() {
     residueIndex: number,
     pdbText: string,
     apiClient: any,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    sink?: Pick<PipelineStructureSink, "setComputedResiduesCache">
   ) => {
+    const combinedSetCache = (updater: any) => {
+      setComputedResiduesCache(updater);
+      if (sink?.setComputedResiduesCache) {
+        sink.setComputedResiduesCache(updater);
+      }
+    };
     return fetchNearestResiduesService(
       targetUniprot,
       targetVariant,
@@ -242,7 +249,7 @@ export function useAnalysisPipeline() {
       pdbText,
       apiClient,
       computedResiduesCache,
-      setComputedResiduesCache,
+      combinedSetCache,
       pendingResiduesRef.current,
       signal
     );
@@ -284,6 +291,13 @@ export function useAnalysisPipeline() {
     const requestId = ++activeRequestIdRef.current;
 
     const controller = new AbortController();
+    if (providedSignal) {
+      if (providedSignal.aborted) {
+        controller.abort();
+      } else {
+        providedSignal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+    }
     analysisAbortRef.current = controller;
     const activeSignal = controller.signal;
 
