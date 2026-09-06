@@ -199,7 +199,8 @@ const EnergeticsView = memo(function EnergeticsView({
     bayesdel: result.conservationData?.bayesdel ?? null,
     consensusVerdict: foldingEnergetics?.consensusVerdict ?? null,
     raspReason: (foldingEnergetics as any)?.raspReason,
-    foldxRepairFailed: foldingEnergetics?.foldxRepairFailed ?? false
+    foldxRepairFailed: foldingEnergetics?.foldxRepairFailed ?? false,
+    foldxBinaryMissing: (foldingEnergetics as any)?.foldxBinaryMissing ?? false
   };
 
   return (
@@ -362,7 +363,13 @@ const EnergeticsView = memo(function EnergeticsView({
                       badge = { label: "Calculating", category: "Calculating", style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold" };
                     } else {
                       scoreText = "Unavailable";
-                      if (item.key === "rasp") {
+                      if (item.key === "foldx" && energetics.foldxBinaryMissing) {
+                        badge = {
+                          label: "Binary Not Installed",
+                          category: "Binary Not Installed",
+                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold"
+                        };
+                      } else if (item.key === "rasp") {
                         badge = { 
                           label: "Not in Zenodo DB", 
                           category: "Not in Zenodo DB", 

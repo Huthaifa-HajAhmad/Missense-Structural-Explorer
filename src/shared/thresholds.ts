@@ -714,6 +714,7 @@ export function computeCalibratedConsensus(
     thermompnn?: number | null;
     stabilityoracle?: number | null;
     foldxRepairFailed?: boolean;
+    foldxBinaryMissing?: boolean;
   } | null,
   uniprotFeatures?: any[],
   residueIndex?: number
@@ -727,7 +728,7 @@ export function computeCalibratedConsensus(
     };
   }
 
-  const isFoldxExcluded = !!energetics.foldxRepairFailed;
+  const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
   const foldxVal = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx ?? null);
   const dynamut2 = energetics.dynamut2 ?? null;
   const ddmut = energetics.ddmut ?? null;
@@ -822,6 +823,7 @@ export function computeConsensusVerdict(
     thermompnn?: number | null;
     stabilityoracle?: number | null;
     foldxRepairFailed?: boolean;
+    foldxBinaryMissing?: boolean;
   } | null
 ): string {
   return computeCalibratedConsensus(energetics).consensusVerdict;

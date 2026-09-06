@@ -168,10 +168,13 @@ export default function useVariantAnalysis() {
   );
 
   const fetchHomologsWrapper = useCallback(
-    (targetUniprot: string, signal?: AbortSignal) => {
-      return pipeline.fetchHomologs(targetUniprot, apiClient, signal);
+    (targetUniprot: string, signal?: AbortSignal, pos?: number) => {
+      return pipeline.fetchHomologs(targetUniprot, apiClient, signal, pos, {
+        setHomologs: store.setHomologs,
+        setIsHomologsLoading: store.setIsHomologsLoading
+      });
     },
-    [pipeline, apiClient]
+    [pipeline, apiClient, store.setHomologs, store.setIsHomologsLoading]
   );
 
   const fetchNearestResiduesWrapper = useCallback(

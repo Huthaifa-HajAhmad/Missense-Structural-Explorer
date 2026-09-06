@@ -200,12 +200,27 @@ export function useAnalysisPipeline() {
     targetUniprot: string,
     apiClient: any,
     signal?: AbortSignal,
-    pos?: number
+    pos?: number,
+    sink?: Pick<PipelineStructureSink, "setHomologs" | "setIsHomologsLoading">
   ) => {
+    const combinedSink = {
+      setHomologs: (val: any) => {
+        setHomologs(val);
+        if (sink?.setHomologs) {
+          sink.setHomologs(val);
+        }
+      },
+      setIsHomologsLoading: (val: any) => {
+        setIsHomologsLoading(val);
+        if (sink?.setIsHomologsLoading) {
+          sink.setIsHomologsLoading(val);
+        }
+      }
+    };
     return fetchHomologStructures(
       targetUniprot,
       apiClient,
-      { setHomologs, setIsHomologsLoading },
+      combinedSink,
       pos,
       signal,
       getTraceContext()
@@ -298,7 +313,7 @@ export function useAnalysisPipeline() {
         requestId,
         getActiveRequestId: () => activeRequestIdRef.current,
         getTraceContext,
-        fetchHomologs,
+        fetchHomologs: (u, api, sig, p) => fetchHomologs(u, api, sig, p, normalizedOptions.sinks.structure),
         fetchPocketData,
         mutantFoldAbortRef
       });

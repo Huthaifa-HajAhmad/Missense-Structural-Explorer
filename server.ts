@@ -75,15 +75,17 @@ function initBiophysicalJobQueue(): void {
         try {
           foldxResult = await generateMutantPdb(data.wtPdb, data.mutation, data.uniprotId, data.jobDir, signal, data.options);
         } catch (err: any) {
-          console.warn(`[Queue Worker] FoldX execution failed (${err.message}). Proceeding with independent biophysical predictors.`);
+          const isBinaryMissing = /not found|not executable|cannot be executed|parameter files missing|ENOENT/i.test(err.message);
+          console.warn(`[Queue Worker] FoldX execution failed (${err.message}). Binary missing: ${isBinaryMissing}. Proceeding with independent biophysical predictors.`);
           foldxResult = {
             pdb: null,
             ddG: null,
-            status: "failed",
+            status: isBinaryMissing ? "unavailable" : "failed",
             error: err.message,
             energetics: {
               foldxMean: null,
-              foldxRepairFailed: true,
+              foldxRepairFailed: !isBinaryMissing,
+              foldxBinaryMissing: isBinaryMissing,
               foldxError: err.message
             }
           };

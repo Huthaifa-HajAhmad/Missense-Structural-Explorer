@@ -239,6 +239,15 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(resTwoTools).toBe("Moderate Misfolding Risk (Conflicting Stability)");
     });
 
+    it("should exclude FoldX from consensus if foldxBinaryMissing is true", () => {
+      const res = computeConsensusVerdict({
+        foldxMean: 3.0,
+        rasp: 0.1,
+        foldxBinaryMissing: true
+      });
+      expect(res).toBe("Low Misfolding Risk (Single-Tool Estimate)");
+    });
+
     it("should resolve consensus using confidence weights under conflicting conditions (D2)", () => {
       // 1. Two weak tools (DynaMut2 + DDMut) are destabilizing: total destab weight = 2.0. Total available weight = 6.7.
       // ratio = 2.0 / 6.7 = 29.8% (< 44%) -> Moderate Misfolding Risk (Conflicting Stability)

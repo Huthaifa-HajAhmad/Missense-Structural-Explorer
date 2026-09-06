@@ -34,6 +34,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   const plddt = disruptionPredictor?.plddt ?? analysisResult?.disruptionPredictor?.plddt ?? null;
   const isLowConfidence = plddt !== null && plddt < 70;
   const foldxRepairFailed = foldingEnergetics?.foldxRepairFailed;
+  const foldxBinaryMissing = (foldingEnergetics as any)?.foldxBinaryMissing;
   const isAsyncOffline = (dynamut2Status === "unavailable" || ddmutStatus === "unavailable");
   const raspReason = (foldingEnergetics as any)?.raspReason || ((foldingEnergetics?.rasp === null) ? "Protein is not present in the pre-computed database" : null);
 
@@ -57,7 +58,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
       </div>
 
       {/* ── 2. Active Engine Notices & Diagnostics ── */}
-      {(thermompnnStatus === "error" || isAsyncOffline || isLowConfidence || foldxRepairFailed || foldingError || raspReason) && (
+      {(thermompnnStatus === "error" || isAsyncOffline || isLowConfidence || (foldxRepairFailed && !foldxBinaryMissing) || foldxBinaryMissing || (foldingError && !foldxBinaryMissing) || raspReason) && (
         <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
@@ -104,8 +105,21 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
               </div>
             )}
 
+            {/* FoldX Binary Missing Notice */}
+            {foldxBinaryMissing && (
+              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-cs-text-secondary">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-primary">
+                  <Info className="w-3.5 h-3.5 shrink-0 text-cs-accent-clay" />
+                  <span>FoldX 5.0 Engine Not Installed</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
+                  Local FoldX binary or parameter files are not mounted in the server container. Academic users can mount a Linux executable and parameter assets (<code className="font-mono text-[9.5px]">molecules/</code>, <code className="font-mono text-[9.5px]">rotabase.txt</code>) into <code className="font-mono text-[9.5px]">/app/tools/foldx/</code> to enable local empirical force-field calculations.
+                </p>
+              </div>
+            )}
+
             {/* FoldX Repair Warning */}
-            {foldxRepairFailed && (
+            {foldxRepairFailed && !foldxBinaryMissing && (
               <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -133,7 +147,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
             )}
 
             {/* Simulation Error */}
-            {foldingError && (
+            {foldingError && !foldxBinaryMissing && (
               <div className="p-2.5 rounded-lg border border-rose-500/25 bg-rose-500/10 space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-rose-900 dark:text-rose-200">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
@@ -167,6 +181,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                       ? "bg-amber-500 animate-ping"
                       : hasFoldxVal
                       ? "bg-emerald-500"
+                      : foldxBinaryMissing
+                      ? "bg-slate-400"
                       : foldxRepairFailed
                       ? "bg-amber-500"
                       : foldingStatus === "failed"
@@ -180,6 +196,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                     ? "Repacking sidechains..."
                     : hasFoldxVal
                     ? "Local Force-Field (Ready)"
+                    : foldxBinaryMissing
+                    ? "Not Installed (Mount Binary)"
                     : foldxRepairFailed
                     ? "Repair Failed / Unavailable"
                     : foldingStatus === "failed"

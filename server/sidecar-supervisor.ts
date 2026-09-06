@@ -100,7 +100,7 @@ export class SidecarSupervisor {
     const cleanSystemKeys = [
       "path", "systemroot", "systemdrive", "appdata", "localappdata",
       "temp", "tmp", "userprofile", "home", "pwd", "comspec",
-      "os", "windir"
+      "os", "windir", "pythonpath"
     ];
 
     const sidecarEnv: Record<string, string> = {

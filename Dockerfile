@@ -2,11 +2,13 @@
 FROM node:22-bookworm-slim AS node-builder
 WORKDIR /app
 
-# Install Python and uv for running tests in the builder stage
+# Install Python, uv, git, and OpenMP runtime for running tests in the builder stage
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    git \
+    libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
@@ -33,11 +35,14 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
-# Install Python and curl for health check
+# Install Python, git, libgomp1, and curl for health check and ML sidecar runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
+    git \
+    libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 ENV NODE_ENV=production
 ENV PORT=3000

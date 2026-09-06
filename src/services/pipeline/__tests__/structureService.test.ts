@@ -76,6 +76,29 @@ describe("structureService", () => {
       expect(setHomologs).toHaveBeenCalledWith([{ pdbId: "1PAH", resolution: 2.0 }]);
       expect(setIsHomologsLoading).toHaveBeenCalledWith(false);
     });
+
+    it("fetches homolog list with pos parameter and updates sinks", async () => {
+      const mockApiClient = {
+        getHomologs: vi.fn().mockResolvedValue([{ pdbId: "5V3M", identity: 45.2 }])
+      };
+      const setHomologs = vi.fn();
+      const setIsHomologsLoading = vi.fn();
+      const addTraceSpan = vi.fn();
+      const controller = new AbortController();
+
+      await fetchHomologStructures(
+        "Q9H116",
+        mockApiClient,
+        { setHomologs, setIsHomologsLoading },
+        591,
+        controller.signal,
+        { activeTraceId: "t2", traceStart: performance.now(), addTraceSpan }
+      );
+
+      expect(mockApiClient.getHomologs).toHaveBeenCalledWith("Q9H116", 591, controller.signal);
+      expect(setHomologs).toHaveBeenCalledWith([{ pdbId: "5V3M", identity: 45.2 }]);
+      expect(setIsHomologsLoading).toHaveBeenCalledWith(false);
+    });
   });
 
   describe("fetchBindingPocket", () => {
