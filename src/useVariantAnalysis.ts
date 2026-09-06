@@ -40,7 +40,17 @@ export default function useVariantAnalysis() {
     fetchWithAuth,
     store.pdbText
   );
-  const structuralFolding = useStructuralFolding();
+  const structuralFolding = useStructuralFolding({
+    setEsmFoldWtPdb: store.setEsmFoldWtPdb,
+    setEsmFoldMutPdb: store.setEsmFoldMutPdb,
+    setEsmFoldAlignedPdb: store.setEsmFoldAlignedPdb,
+    setEsmFoldMetrics: store.setEsmFoldMetrics,
+    setFoldxMetrics: store.setFoldxMetrics,
+    setIsEsmFolding: store.setIsEsmFolding,
+    setEsmFoldingError: store.setEsmFoldingError,
+    setActive3dModelTab: store.setActive3dModelTab,
+    resetEsmFoldState: store.resetEsmFoldState
+  });
   const pipeline = useAnalysisPipeline();
 
   const variantStyles = getVariantStyles(isDark);

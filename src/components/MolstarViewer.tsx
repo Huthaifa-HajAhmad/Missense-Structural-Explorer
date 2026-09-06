@@ -56,6 +56,7 @@ export default function MolstarViewer({
   const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
   const esmFoldPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
   const esm3Eval = useVariantAnalysisStore(s => s.analysisState?.result?.esm3Eval);
+  const landscapeLength = useVariantAnalysisStore(s => s.analysisState?.result?.landscapeData?.length ?? null);
 
   const analysisActions = useVariantAnalysisActions();
   const onResidueHover = analysisActions.setHoveredResidueIndex;
@@ -295,11 +296,12 @@ export default function MolstarViewer({
           {/* Structure Load Error Overlay */}
           {(plugin.loadError || (active3dModelTab === "esm3" && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (() => {
             const isEsmMode = active3dModelTab === "esm3";
+            const lengthMatch = esmFoldingError?.match(/Sequence length \((\d+)\s*aa\)/i) || esmFoldingError?.match(/(\d+)\s*aa/i);
+            const parsedLength = lengthMatch ? parseInt(lengthMatch[1], 10) : null;
+            const detectedAaLength = parsedLength || landscapeLength;
             const isLengthLimit = Boolean(
               esmFoldingError && /400\s*aa|exceeds.*limit|sequence length/i.test(esmFoldingError)
             );
-            const lengthMatch = esmFoldingError?.match(/Sequence length \((\d+)\s*aa\)/i) || esmFoldingError?.match(/(\d+)\s*aa/i);
-            const detectedAaLength = lengthMatch ? lengthMatch[1] : null;
 
             return (
               <div
@@ -357,12 +359,14 @@ export default function MolstarViewer({
 
                       {/* Title */}
                       <h4 className="font-semibold text-base mb-2" style={{ color: "var(--cs-text-primary)" }}>
-                        {isLengthLimit ? "Sequence Exceeds Public ESMFold Limit" : "ESMFold Structure Unavailable"}
+                        {isLengthLimit ? "Sequence Exceeds Public ESMFold Limit (400 aa)" : "ESMFold Structure Unavailable"}
                       </h4>
 
                       {/* Message Body */}
                       <p className="text-xs leading-relaxed mb-5" style={{ color: "var(--cs-text-secondary)" }}>
-                        {esmFoldingError || "The ESMFold de novo structure generation service encountered an error or is offline."}
+                        {esmFoldingError || (isLengthLimit
+                          ? `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ 400 amino acids. This protein has ${detectedAaLength ? `${detectedAaLength} residues` : "more than 400 residues"}.`
+                          : "The ESMFold de novo structure generation service encountered an error or is offline.")}
                       </p>
 
                       {/* Action Buttons */}
@@ -407,7 +411,15 @@ export default function MolstarViewer({
                         <p className="flex items-start gap-1.5">
                           <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--cs-accent-clay)" }} />
                           <span>
-                            <strong>Note:</strong> AlphaFold DB provides precomputed full-length coordinates with per-residue confidence (pLDDT) and pocket annotations for this protein without sequence length restrictions.
+                            {isLengthLimit ? (
+                              <>
+                                <strong>Public API Restriction:</strong> Sequences longer than 400 aa cannot be folded via the public ESM Atlas endpoint. Switch to <strong>AlphaFold</strong> to inspect full-length coordinates, or configure an <strong>EvolutionaryScale / Biohub API key</strong> in Settings for full-length de novo folding.
+                              </>
+                            ) : (
+                              <>
+                                <strong>Alternative:</strong> Switch to the <strong>AlphaFold structure</strong> to inspect predicted 3D coordinates for this variant.
+                              </>
+                            )}
                           </span>
                         </p>
                       </div>
