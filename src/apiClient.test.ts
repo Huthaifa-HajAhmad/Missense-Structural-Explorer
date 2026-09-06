@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { extractErrorMessage } from "./apiClient";
+// @vitest-environment jsdom
+import React from "react";
+import { renderHook } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { extractErrorMessage, useApiClient } from "./apiClient";
+import { SettingsProvider } from "./context/SettingsContext";
 
 describe("extractErrorMessage Unit Tests", () => {
   it("extracts nested error.message from standardized backend JSON error", async () => {
@@ -78,5 +82,59 @@ describe("extractErrorMessage Unit Tests", () => {
     const msg = await extractErrorMessage(res, "Failed to run ESMFold");
     expect(msg).toBe("Failed to run ESMFold (HTTP 502)");
     expect(msg).not.toContain("Failed to run ESMFold:");
+  });
+});
+
+describe("useApiClient getSidecarHealth", () => {
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(SettingsProvider, null, children);
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("calls /api/v1/sidecar-health and parses successful response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        reachable: true,
+        baseUrl: "http://127.0.0.1:8000",
+        latencyMs: 42,
+        status: "healthy",
+        modelLoaded: true,
+        activeModels: 2
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const health = await result.current.apiClient.getSidecarHealth();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/sidecar-health",
+      expect.objectContaining({ timeout: 5000 })
+    );
+    expect(health.reachable).toBe(true);
+    expect(health.status).toBe("healthy");
+    expect(health.modelLoaded).toBe(true);
+    expect(health.activeModels).toBe(2);
+    expect(health.latencyMs).toBe(42);
+  });
+
+  it("returns reachable false with HTTP status on non-ok responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      headers: new Headers({ "content-type": "text/plain" }),
+      json: async () => { throw new Error("not json"); },
+      text: async () => "Service Unavailable"
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const health = await result.current.apiClient.getSidecarHealth();
+
+    expect(health.reachable).toBe(false);
+    expect(health.error).toBe("Health check failed with HTTP 503");
   });
 });

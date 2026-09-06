@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { apiRouter } from "../routes.ts";
 import * as externalServices from "../services/external.ts";
+import { PUBLIC_ENDPOINTS } from "./state.ts";
+import { CONFIG } from "../config.ts";
 
 describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
   beforeEach(() => {
@@ -137,6 +139,11 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
     expect(route).toBeDefined();
     const handler = route!.route!.stack[route!.route!.stack.length - 1].handle;
 
+    it("should be whitelisted in PUBLIC_ENDPOINTS for unauthenticated client health checks", () => {
+      expect(PUBLIC_ENDPOINTS).toContain("/sidecar-health");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/sidecar-health");
+    });
+
     it("should return reachable true and model info when sidecar /health responds successfully", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -161,6 +168,50 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       expect(jsonVal.latencyMs).toBeTypeOf("number");
     });
 
+    it("should return reachable false with HTTP status code when sidecar returns HTTP 500 error", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      let jsonVal: any = null;
+      const req: any = {};
+      const res: any = {
+        json(data: any) {
+          jsonVal = data;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+      expect(jsonVal.reachable).toBe(false);
+      expect(jsonVal.error).toBe("Sidecar returned HTTP 500");
+      expect(jsonVal.remediation?.local).toContain("tools/model_server.py");
+      expect(jsonVal.remediation?.oci).toContain("SIDECAR_URL");
+    });
+
+    it("should return reachable false with timeout error when sidecar fetch times out", async () => {
+      const abortError = new Error("The operation was aborted due to timeout");
+      abortError.name = "TimeoutError";
+      const fetchMock = vi.fn().mockRejectedValue(abortError);
+      vi.stubGlobal("fetch", fetchMock);
+
+      let jsonVal: any = null;
+      const req: any = {};
+      const res: any = {
+        json(data: any) {
+          jsonVal = data;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+      expect(jsonVal.reachable).toBe(false);
+      expect(jsonVal.error).toContain("aborted due to timeout");
+      expect(jsonVal.remediation?.local).toContain("tools/model_server.py");
+    });
+
     it("should return reachable false with remediation commands when sidecar is offline", async () => {
       const fetchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
       vi.stubGlobal("fetch", fetchMock);
@@ -179,6 +230,33 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       expect(jsonVal.error).toContain("fetch failed");
       expect(jsonVal.remediation?.local).toContain("tools/model_server.py");
       expect(jsonVal.remediation?.oci).toContain("SIDECAR_URL");
+    });
+
+    it("should suppress baseUrl in production mode to prevent private IP disclosure", async () => {
+      const originalIsProd = CONFIG.server.isProduction;
+      try {
+        (CONFIG.server as any).isProduction = true;
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ status: "healthy", model_loaded: true, active_models: 1 })
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        let jsonVal: any = null;
+        const req: any = {};
+        const res: any = {
+          json(data: any) {
+            jsonVal = data;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(jsonVal.reachable).toBe(true);
+        expect(jsonVal.baseUrl).toBeUndefined();
+      } finally {
+        (CONFIG.server as any).isProduction = originalIsProd;
+      }
     });
   });
 });

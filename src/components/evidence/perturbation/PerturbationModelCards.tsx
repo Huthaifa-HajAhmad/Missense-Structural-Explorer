@@ -39,8 +39,17 @@ export function PerturbationModelCards({
           return (
             <div
               key={m.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectModel(m.id);
+                }
+              }}
               onClick={() => onSelectModel(m.id)}
-              className="group relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left opacity-85 hover:opacity-100"
+              className="group relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left opacity-85 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
               style={{
                 background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
                 borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
@@ -69,7 +78,20 @@ export function PerturbationModelCards({
                 </p>
               </div>
               <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2 text-left" style={{ color: "var(--cs-accent-clay)" }}>
-                <span>{m.hasKey ? "⚡ Click to view diagnostic & remedy" : `🔑 Configure ${m.tokenName.split(" ")[0]} key`}</span>
+                {!m.hasKey && onOpenSettings ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenSettings();
+                    }}
+                    className="hover:underline focus:outline-none flex items-center gap-1"
+                  >
+                    <span>🔑 Configure {m.tokenName.split(" ")[0]} key</span>
+                  </button>
+                ) : (
+                  <span>{m.hasKey ? "⚡ Click to view diagnostic & remedy" : `🔑 Configure ${m.tokenName.split(" ")[0]} key`}</span>
+                )}
               </div>
             </div>
           );
@@ -82,8 +104,17 @@ export function PerturbationModelCards({
         return (
           <div
             key={m.id}
+            role="button"
+            tabIndex={0}
+            aria-pressed={isSelected}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectModel(m.id);
+              }
+            }}
             onClick={() => onSelectModel(m.id)}
-            className="relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left"
+            className="relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
             style={{
               background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
               borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",

@@ -614,7 +614,7 @@ export function useApiClient() {
         error?: string;
         remediation?: { local: string; oci: string };
       }> {
-        const res = await fetchWithAuth("/api/structure/sidecar-health", {
+        const res = await fetchWithAuth("/api/v1/sidecar-health", {
           timeout: 5000,
           signal
         });

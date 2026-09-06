@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Activity, Layers, Sparkles, RefreshCw, AlertCircle, Terminal, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
@@ -76,24 +76,25 @@ export function PerturbationTab({
 
   const handleRetry = async () => {
     if (onRetryStructural) {
-      onRetryStructural();
+      setIsRetrying(true);
+      try {
+        await onRetryStructural();
+      } catch (err) {
+        console.error("[PerturbationTab] Retry failed:", err);
+      } finally {
+        setIsRetrying(false);
+      }
       return;
     }
     if (!result?.metadata?.gene || !result?.metadata?.variant || !result?.metadata?.uniprotId) return;
     setIsRetrying(true);
     try {
-      const structRes = await apiClient.getStructuralAssessments({
+      await apiClient.getStructuralAssessments({
         gene: result.metadata.gene,
         variant: result.metadata.variant,
         uniprotId: result.metadata.uniprotId,
         acmgWeighting: settings.acmgWeighting
       });
-      if (structRes) {
-        result.esm3Eval = structRes.esm3Eval;
-        result.esmcEval = structRes.esmcEval;
-        result.esm2Eval = structRes.esm2Eval;
-        result.saprotEval = structRes.saprotEval;
-      }
     } catch (err) {
       console.error("[PerturbationTab] Retry failed:", err);
     } finally {
@@ -118,12 +119,16 @@ export function PerturbationTab({
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
+  const copyToClipboard = async (text: string, label: string) => {
     if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).catch(() => {});
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopiedCommand(label);
+        setTimeout(() => setCopiedCommand(null), 2000);
+      } catch {
+        // Safe clipboard rejection handling
+      }
     }
-    setCopiedCommand(label);
-    setTimeout(() => setCopiedCommand(null), 2000);
   };
 
   const errorStatuses = models.map(m => m.data?.status).filter(Boolean);
@@ -145,20 +150,23 @@ export function PerturbationTab({
   const currentModel = models.find(m => m.id === activePerturbModel) || activeList[0] || models[0];
   const activeEval = currentModel?.data;
 
-  const allShifts = (!activeEval?.loading && !activeEval?.error && activeEval?.localShiftMap || []).map((d: any) => d.shift);
-  const maxShift = allShifts.length > 0 ? Math.max(...allShifts) : 1.0;
-  const shiftScale = maxShift > 0 ? (110 / (maxShift * 1.15)) : 110;
-  const points = (!activeEval?.loading && !activeEval?.error && activeEval?.localShiftMap || []).map((d: any, index: number) => {
-    const x = 40 + index * 24;
-    const rawY = 140 - d.shift * shiftScale;
-    const y = Math.max(12, Math.min(138, rawY));
-    return { x, y, position: d.position, residue: d.residue, shift: d.shift };
-  });
-  const pathD = points.map((p: any, i: number) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const { allShifts, maxShift, shiftScale, points, pathD, meanShift } = useMemo(() => {
+    const shifts = (!activeEval?.loading && !activeEval?.error && activeEval?.localShiftMap || []).map((d: any) => d.shift);
+    const max = shifts.length > 0 ? Math.max(...shifts) : 1.0;
+    const scale = max > 0 ? (110 / (max * 1.15)) : 110;
+    const pts = (!activeEval?.loading && !activeEval?.error && activeEval?.localShiftMap || []).map((d: any, index: number) => {
+      const x = 40 + index * 24;
+      const rawY = 140 - d.shift * scale;
+      const y = Math.max(12, Math.min(138, rawY));
+      return { x, y, position: d.position, residue: d.residue, shift: d.shift };
+    });
+    const dStr = pts.map((p: any, i: number) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+    const mean = shifts.length > 0 ? (shifts.reduce((a: number, b: number) => a + b, 0) / shifts.length) : 0;
+    return { allShifts: shifts, maxShift: max, shiftScale: scale, points: pts, pathD: dStr, meanShift: mean };
+  }, [activeEval]);
 
   const isEsmc = activePerturbModel === "esmc";
   const shiftMetric = isEsmc ? "Cosine Distance" : "Euclidean Distance";
-  const meanShift = allShifts.length > 0 ? (allShifts.reduce((a: number, b: number) => a + b, 0) / allShifts.length) : 0;
 
   return (
     <div className="space-y-6">

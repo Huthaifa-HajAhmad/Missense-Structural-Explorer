@@ -187,16 +187,18 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
   apiRouter.get("/sidecar-health", async (_req, res) => {
     const startTime = Date.now();
     const sidecarUrl = CONFIG.services.sidecarBaseUrl;
+    const timeoutMs = CONFIG.timeouts.sidecarHealthCheckMs || 3000;
+    const safeBaseUrl = CONFIG.server.isProduction ? undefined : sidecarUrl;
     try {
       const response = await fetch(`${sidecarUrl}/health`, {
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(timeoutMs)
       });
       const latencyMs = Date.now() - startTime;
       if (response.ok) {
         const data = await response.json() as any;
         res.json({
           reachable: true,
-          baseUrl: sidecarUrl,
+          baseUrl: safeBaseUrl,
           latencyMs,
           status: data.status || "healthy",
           modelLoaded: data.model_loaded ?? false,
@@ -206,23 +208,23 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       }
       res.json({
         reachable: false,
-        baseUrl: sidecarUrl,
+        baseUrl: safeBaseUrl,
         latencyMs,
         error: `Sidecar returned HTTP ${response.status}`,
         remediation: {
           local: "python -m uv run --project tools python tools/model_server.py",
-          oci: "export SIDECAR_URL=http://<oci-ip>:8000"
+          oci: "export SIDECAR_URL=http://<oci-private-or-public-ip>:8000"
         }
       });
     } catch (err: any) {
       res.json({
         reachable: false,
-        baseUrl: sidecarUrl,
+        baseUrl: safeBaseUrl,
         latencyMs: Date.now() - startTime,
         error: err.message || "Connection refused",
         remediation: {
           local: "python -m uv run --project tools python tools/model_server.py",
-          oci: "export SIDECAR_URL=http://<oci-ip>:8000"
+          oci: "export SIDECAR_URL=http://<oci-private-or-public-ip>:8000"
         }
       });
     }

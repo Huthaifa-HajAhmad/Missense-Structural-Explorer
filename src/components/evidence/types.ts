@@ -29,7 +29,7 @@ export interface EvidenceDashboardCardProps {
   active3dModelTab?: "alphafold2" | "esm3";
   metrics?: StructuralMetrics | null;
   onOpenSettings?: () => void;
-  onRetryStructural?: () => void;
+  onRetryStructural?: () => void | Promise<void>;
 }
 
 export interface TabComponentProps extends EvidenceDashboardCardProps {

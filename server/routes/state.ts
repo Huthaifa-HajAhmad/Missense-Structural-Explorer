@@ -59,6 +59,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/debug/clear-caches",
   "/api/v1/openapi.json",
   "/api/docs",
+  "/sidecar-health",
+  "/api/v1/sidecar-health",
   "/session/keys",
   "/session/refresh",
   "/api/v1/session/keys",

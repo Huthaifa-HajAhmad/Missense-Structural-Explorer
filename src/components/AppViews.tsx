@@ -241,6 +241,7 @@ export function AppViews({
                   active3dModelTab={active3dModelTab}
                   metrics={active3dModelTab === "esm3" ? esmFoldMetrics : foldxMetrics}
                   onOpenSettings={handleOpenSettingsMemo}
+                  onRetryStructural={actions.retryStructuralAnalysis}
                 />
               </ErrorBoundary>
             )}

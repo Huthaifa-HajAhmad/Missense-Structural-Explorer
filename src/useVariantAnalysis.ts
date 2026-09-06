@@ -8,6 +8,7 @@ import { useStructuralFolding } from "./hooks/useStructuralFolding";
 import { useAnalysisPipeline } from "./hooks/useAnalysisPipeline";
 import { getVariantStyles } from "./shared/variantStyles";
 import { useVariantAnalysisStore } from "./stores/useVariantAnalysisStore";
+import { fetchProgressiveStructuralAssessments } from "./services/pipeline/biophysicalService";
 
 /**
  * useVariantAnalysis — Backward-compatible adapter facade.
@@ -226,6 +227,27 @@ export default function useVariantAnalysis() {
     [settings.energyUnit]
   );
 
+  const retryStructuralAnalysisWrapper = useCallback(async () => {
+    const gene = store.gene || store.analysisState.result?.metadata?.gene;
+    const variant = store.variant || store.analysisState.result?.metadata?.variant;
+    const uniprotId = store.uniprotId || store.analysisState.result?.metadata?.uniprotId;
+    if (!gene || !variant || !uniprotId) return;
+    const acmgWeighting = settings.acmgWeighting;
+    fetchProgressiveStructuralAssessments(
+      {
+        gene,
+        variant,
+        uniprotId,
+        acmgWeighting
+      },
+      apiClient,
+      new AbortController().signal,
+      store.setAnalysisState,
+      Date.now(),
+      () => Date.now()
+    );
+  }, [store.gene, store.variant, store.uniprotId, store.analysisState.result?.metadata, store.setAnalysisState, settings.acmgWeighting, apiClient]);
+
   const state = {
     theme,
     isDark,
@@ -351,6 +373,7 @@ export default function useVariantAnalysis() {
     addToHistory: store.addToHistory,
     clearHistory: store.clearHistory,
     setAnalysisState: store.setAnalysisState,
+    retryStructuralAnalysis: retryStructuralAnalysisWrapper,
     executeAnalysis: executeAnalysisWrapper,
     translateVariantNotation: translateVariantNotationWrapper,
     fetchHomologs: fetchHomologsWrapper,
