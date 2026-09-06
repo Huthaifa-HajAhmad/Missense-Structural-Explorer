@@ -26,6 +26,7 @@ import crypto from "crypto";
 import { anySignal } from "../utils.ts";
 import { DatabaseSync } from "node:sqlite";
 import { computeCalibratedConsensus } from "../../src/shared/thresholds.ts";
+import { CONFIG } from "../config.ts";
 
 // ---------------------------------------------------------------------------
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
@@ -262,15 +263,17 @@ export async function submitThermoMpnnJob(
   apiKey?: string,
   signal?: AbortSignal
 ): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error"; error?: string }> {
-  const cacheKey = `${mutation}_${pdbContent.slice(0, 100)}`;
+  const pdbHash = crypto.createHash("sha256").update(pdbContent).digest("hex").slice(0, 16);
+  const cacheKey = `${mutation}_${pdbHash}`;
   const cached = thermompnnCache.get(cacheKey);
   if (cached && cached.prediction !== null) {
     return { jobId: cached.jobId || "cached", prediction: cached.prediction, status: "done" };
   }
 
   let chain = "A";
-  if (mutation && mutation.length >= 4) {
-    chain = mutation[1];
+  const fourPartMatch = mutation.match(/^[a-zA-Z]([a-zA-Z])\d+[a-zA-Z]$/);
+  if (fourPartMatch) {
+    chain = fourPartMatch[1].toUpperCase();
   }
 
   const provider = (process.env.THERMOMPNN_PROVIDER || "local").toLowerCase();
@@ -284,7 +287,7 @@ export async function submitThermoMpnnJob(
         ? anySignal([signal, AbortSignal.timeout(15000)])
         : AbortSignal.timeout(15000);
 
-      const localRes = await fetch("http://127.0.0.1:8000/predict/thermompnn", {
+      const localRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/thermompnn`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

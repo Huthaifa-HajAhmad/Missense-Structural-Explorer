@@ -6,13 +6,15 @@ describe("ESMC Service Integration Tests", () => {
     vi.restoreAllMocks();
   });
 
-  it("should return null if both Biohub API and local sidecar are unreachable/fail", async () => {
+  it("should return structured error object if both Biohub API and local sidecar are unreachable/fail", async () => {
     // Mock fetch to reject
     const fetchMock = vi.fn().mockRejectedValue(new Error("Network connection failed"));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runEsmcAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null);
-    expect(result).toBeNull();
+    expect(result).toBeDefined();
+    expect(result?.error).toContain("VESM-150M prediction failed");
+    expect(result?.status).toBe("offline");
   });
 
   it("should successfully parse sidecar response and map all metrics including mean local shift", async () => {

@@ -27,6 +27,7 @@ import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../servic
 import fs from "fs";
 import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { applyMutation } from "../utils/mutation.ts";
+import { CONFIG } from "../config.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -183,10 +184,6 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
   apiRouter.get("/pdb/:uniprotId", handlePdbProxy);
 
-  const esmfoldSchema = z.object({
-    sequence: z.string().min(5).max(768)
-  });
-
   const validateBiohubTokenSchema = z.object({
     token: z.string().min(8).optional()
   });
@@ -286,7 +283,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       if (!isExplicitDomainError) {
         // Inspect sidecar health status to provide extremely clear researcher feedback
         try {
-          const sidecarRes = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(1000) });
+          const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
           if (sidecarRes.ok) {
             const healthData = await sidecarRes.json() as any;
             if (healthData && healthData.model_loaded === false) {
@@ -377,7 +374,8 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         sendError(res, 400, "BAD_REQUEST", "Position must be a valid positive number (> 0).");
         return;
       }
-      const biohubToken = (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null;
+      const headerBiohub = req.headers["x-biohub-token"];
+      const biohubToken = (Array.isArray(headerBiohub) ? headerBiohub[0] : headerBiohub) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null;
       const evalResult = await fetchEsm3StructureEval(uniprotId, posVal, wtResidue, mutResidue, wtPdbText, biohubToken);
 
       let expectedSeqLen = 0;

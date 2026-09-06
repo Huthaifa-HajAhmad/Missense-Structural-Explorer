@@ -10,18 +10,27 @@ export interface EsmcLocalShift {
 }
 
 export interface EsmcEvalResult {
-  wtProbability: number;
-  mutProbability: number;
-  llr: number;
-  preferences: EsmcPreference[];
-  mutRank: number;
-  positionalEntropy: number;
-  embeddingShift: number;
-  localEmbeddingShift: number;
-  localShiftMap: EsmcLocalShift[];
+  wtProbability?: number;
+  mutProbability?: number;
+  llr?: number;
+  preferences?: EsmcPreference[];
+  mutRank?: number;
+  positionalEntropy?: number;
+  embeddingShift?: number;
+  localEmbeddingShift?: number;
+  localShiftMap?: EsmcLocalShift[];
   klDivergence?: number | null;
   provenance?: string;
+  error?: string;
+  status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
+
+import { CONFIG } from "../config.ts";
+
+export type ModelEvalError = {
+  error: string;
+  status: "offline" | "timeout" | "error" | "invalid_input" | string;
+};
 
 export async function runEsm2Analysis(
   gene: string,
@@ -51,8 +60,9 @@ export async function runEsm2Analysis(
   }
 
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
+  const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/esm2_3b`;
   try {
-    const sidecarRes = await fetch("http://127.0.0.1:8000/predict/esm2_3b", {
+    const sidecarRes = await fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -105,12 +115,15 @@ export async function runEsm2Analysis(
           provenance
         };
       }
+      return { error: `ESM-2 sidecar returned unexpected response format`, status: "error" };
     }
+    return { error: `ESM-2 sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
   } catch (err: any) {
-    console.warn(`[Local ESM-2 Analysis Warning] Failed to query local ESM-2 sidecar: ${err.message}.`);
+    const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
+    const status = isTimeout ? "timeout" : "offline";
+    console.warn(`[Local ESM-2 Analysis Warning] Failed to query local ESM-2 sidecar at ${sidecarUrl}: ${err.message}.`);
+    return { error: `ESM-2 analysis failed: ${err.message} (${sidecarUrl})`, status };
   }
-
-  return null;
 }
 
 function normalizeThreeLetterToSingle(three: string): string | null {

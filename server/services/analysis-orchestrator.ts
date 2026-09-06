@@ -237,12 +237,18 @@ export async function runStructuralAnalysis(
   });
 
   const basePayload = cached?.payload || assembleCoreResponsePayload(coreData, context);
+  const mergedServiceStatus = {
+    ...(basePayload.serviceStatus || coreData.serviceStatus || {}),
+    ...(structuralData.serviceStatus || {})
+  };
+
   const updatedPayload = {
     ...basePayload,
     esm3Eval: structuralData.esm3Eval,
     esmcEval: structuralData.esmcEval,
     esm2Eval: structuralData.esm2Eval,
     saprotEval: structuralData.saprotEval,
+    serviceStatus: mergedServiceStatus,
     ruleBasedInsights
   };
 
@@ -253,6 +259,7 @@ export async function runStructuralAnalysis(
     esmcEval: structuralData.esmcEval,
     esm2Eval: structuralData.esm2Eval,
     saprotEval: structuralData.saprotEval,
+    serviceStatus: mergedServiceStatus,
     ruleBasedInsights
   };
 }

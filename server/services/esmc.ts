@@ -10,16 +10,18 @@ export interface EsmcLocalShift {
 }
 
 export interface EsmcEvalResult {
-  wtProbability: number;
-  mutProbability: number;
-  llr: number;
-  preferences: EsmcPreference[];
-  mutRank: number;
-  positionalEntropy: number;
-  embeddingShift: number;
-  localEmbeddingShift: number;
-  localShiftMap: EsmcLocalShift[];
+  wtProbability?: number;
+  mutProbability?: number;
+  llr?: number;
+  preferences?: EsmcPreference[];
+  mutRank?: number;
+  positionalEntropy?: number;
+  embeddingShift?: number;
+  localEmbeddingShift?: number;
+  localShiftMap?: EsmcLocalShift[];
   provenance?: string;
+  error?: string;
+  status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
 
 const VOCAB: Record<string, number> = {
@@ -42,6 +44,13 @@ function tokenize(sequence: string): number[] {
 
 const AA_LIST = ["L", "A", "G", "V", "S", "E", "R", "T", "I", "D", "P", "F", "K", "N", "Q", "Y", "M", "H", "W", "C"];
 const AA_TOKENS = AA_LIST.map(aa => VOCAB[aa]);
+
+import { CONFIG } from "../config.ts";
+
+export type ModelEvalError = {
+  error: string;
+  status: "offline" | "timeout" | "error" | "invalid_input" | string;
+};
 
 export async function runEsmcAnalysis(
   gene: string,
@@ -70,8 +79,9 @@ export async function runEsmcAnalysis(
   }
 
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
+  const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/vesm`;
   try {
-    const sidecarRes = await fetch("http://127.0.0.1:8000/predict/vesm", {
+    const sidecarRes = await fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -121,12 +131,15 @@ export async function runEsmcAnalysis(
           provenance
         };
       }
+      return { error: `VESM sidecar returned unexpected response format`, status: "error" };
     }
+    return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
   } catch (err: any) {
-    console.warn(`[Local VESM Fallback Warning] Failed to fetch local VESM prediction: ${err.message}.`);
+    const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
+    const status = isTimeout ? "timeout" : "offline";
+    console.warn(`[Local VESM Fallback Warning] Failed to fetch local VESM prediction from ${sidecarUrl}: ${err.message}.`);
+    return { error: `VESM-150M prediction failed: ${err.message} (${sidecarUrl})`, status };
   }
-
-  return null;
 }
 
 function normalizeThreeLetterToSingle(three: string): string | null {

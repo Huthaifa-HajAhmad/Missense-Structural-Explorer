@@ -5,18 +5,19 @@ import {
   type PdbBestStructureMapping
 } from "./external.ts";
 import { fetchEsm3StructureEval, type ESM3StructureEvalResult } from "./esm3_forge.ts";
-import { runEsmcAnalysis, type EsmcEvalResult } from "./esmc.ts";
+import { runEsmcAnalysis, type EsmcEvalResult, type ModelEvalError } from "./esmc.ts";
 import { runEsm2Analysis } from "./esm2.ts";
 import { runSaprotAnalysis, type SaprotEvalResult } from "./saprot.ts";
 import type { ParsedVariantContext } from "../routes/variant/variant-parser.ts";
 
 export interface StructuralAnalysisData {
-  esm3Eval: ESM3StructureEvalResult | { error: string } | null;
-  esmcEval: EsmcEvalResult | null;
-  esm2Eval: EsmcEvalResult | null;
-  saprotEval: SaprotEvalResult | null;
+  esm3Eval: ESM3StructureEvalResult | ModelEvalError | null;
+  esmcEval: EsmcEvalResult | ModelEvalError | null;
+  esm2Eval: EsmcEvalResult | ModelEvalError | null;
+  saprotEval: SaprotEvalResult | ModelEvalError | null;
   pdbMapping: PdbBestStructureMapping | null;
   degraded?: boolean;
+  serviceStatus?: Record<string, "ok" | "error" | "timeout" | "offline">;
 }
 
 /**
@@ -27,7 +28,7 @@ export async function fetchStructuralModelData(
   context: ParsedVariantContext,
   biohubToken: string | null,
   hfToken: string | null,
-  timeoutMs: number = 30000,
+  timeoutMs: number = 45000,
   prefetched?: {
     pdbMappingPromise?: Promise<PdbBestStructureMapping | null>;
     pdbMapping?: PdbBestStructureMapping | null;
@@ -78,12 +79,15 @@ export async function fetchStructuralModelData(
 
   const esm3EvalPromise = pdbTextPromise.then(async (pdbText) => {
     try {
-      return await fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, pdbText, biohubToken);
-    } catch (err) {
+      const res = await fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, pdbText, biohubToken, sequence);
+      if (!res) return { error: "ESM3 returned empty evaluation", status: "offline" as const };
+      return res;
+    } catch (err: any) {
       console.warn("[ESM3 Parallel Run Warning] Failed to run ESM3 structural evaluation:", err);
-      return fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, null, biohubToken);
+      const fallbackRes = await fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, null, biohubToken, sequence);
+      return fallbackRes || { error: `ESM3 failed: ${err.message}`, status: "error" as const };
     }
-  }).catch(() => null);
+  }).catch((err: any) => ({ error: `ESM3 evaluation failed: ${err.message}`, status: "error" as const }));
 
   const esmcEvalPromise = runEsmcAnalysis(
     gene,
@@ -93,7 +97,7 @@ export async function fetchStructuralModelData(
     biohubToken
   ).catch(err => {
     console.warn("[ESMC Parallel Run Warning] Failed to run ESMC analysis:", err);
-    return null;
+    return { error: `ESMC-6B / VESM-150M analysis failed: ${err.message}`, status: "error" as const };
   });
 
   const esm2EvalPromise = runEsm2Analysis(
@@ -104,7 +108,7 @@ export async function fetchStructuralModelData(
     hfToken
   ).catch(err => {
     console.warn("[ESM2 3B Parallel Run Warning] Failed to run ESM-2 3B analysis:", err);
-    return null;
+    return { error: `ESM-2 3B analysis failed: ${err.message}`, status: "error" as const };
   });
 
   const saprotEvalPromise = pdbTextPromise.then(async (pdbText) => {
@@ -118,14 +122,24 @@ export async function fetchStructuralModelData(
     );
   }).catch(err => {
     console.warn("[SaProt Parallel Run Warning] Failed to run SaProt analysis:", err);
-    return null;
+    return { error: `SaProt analysis failed: ${err.message}`, status: "error" as const };
   });
 
-  const deepModelTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs));
-  const fastEsm3Promise = Promise.race([esm3EvalPromise, deepModelTimeout]);
-  const fastEsmcPromise = Promise.race([esmcEvalPromise, deepModelTimeout]);
-  const fastEsm2Promise = Promise.race([esm2EvalPromise, deepModelTimeout]);
-  const fastSaprotPromise = Promise.race([saprotEvalPromise, deepModelTimeout]);
+  const createTimeoutPromise = (name: string): Promise<ModelEvalError> =>
+    new Promise<ModelEvalError>(resolve => {
+      const timer = setTimeout(() => {
+        resolve({
+          error: `${name} analysis timed out after ${timeoutMs}ms`,
+          status: "timeout"
+        });
+      }, timeoutMs);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+
+  const fastEsm3Promise = Promise.race([esm3EvalPromise, createTimeoutPromise("ESM3")]);
+  const fastEsmcPromise = Promise.race([esmcEvalPromise, createTimeoutPromise("VESM-150M")]);
+  const fastEsm2Promise = Promise.race([esm2EvalPromise, createTimeoutPromise("ESM-2 3B")]);
+  const fastSaprotPromise = Promise.race([saprotEvalPromise, createTimeoutPromise("SaProt 650M AF2")]);
 
   const [esm3Eval, esmcEval, esm2Eval, saprotEval, pdbMapping] = await Promise.all([
     fastEsm3Promise,
@@ -135,9 +149,26 @@ export async function fetchStructuralModelData(
     pdbMappingPromise
   ]);
 
-  const isEsm3Failed = !esm3Eval || ("error" in esm3Eval && Boolean(esm3Eval.error));
-  const anyModelFailed = isEsm3Failed || !esmcEval || !esm2Eval || !saprotEval;
-  const anyModelSucceeded = Boolean((esm3Eval && !("error" in esm3Eval)) || esmcEval || esm2Eval || saprotEval);
+  const getStatus = (evalRes: any): "ok" | "error" | "timeout" | "offline" => {
+    if (!evalRes) return "offline";
+    if ("error" in evalRes && evalRes.error) {
+      if (evalRes.status === "timeout") return "timeout";
+      if (evalRes.status === "offline") return "offline";
+      return "error";
+    }
+    return "ok";
+  };
+
+  const structuralServiceStatus: Record<string, "ok" | "error" | "timeout" | "offline"> = {
+    esm3: getStatus(esm3Eval),
+    esmc: getStatus(esmcEval),
+    esm2: getStatus(esm2Eval),
+    saprot: getStatus(saprotEval)
+  };
+
+  const isSuccess = (evalRes: any) => Boolean(evalRes && !("error" in evalRes));
+  const anyModelFailed = !isSuccess(esm3Eval) || !isSuccess(esmcEval) || !isSuccess(esm2Eval) || !isSuccess(saprotEval);
+  const anyModelSucceeded = isSuccess(esm3Eval) || isSuccess(esmcEval) || isSuccess(esm2Eval) || isSuccess(saprotEval);
   const degraded = anyModelFailed && anyModelSucceeded;
 
   return {
@@ -146,6 +177,7 @@ export async function fetchStructuralModelData(
     esm2Eval,
     saprotEval,
     pdbMapping,
-    degraded
+    degraded,
+    serviceStatus: structuralServiceStatus
   };
 }

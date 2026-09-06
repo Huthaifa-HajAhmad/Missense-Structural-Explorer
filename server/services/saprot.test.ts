@@ -6,12 +6,14 @@ describe("SaProt Service Integration Tests", () => {
     vi.restoreAllMocks();
   });
 
-  it("should return null if sidecar is unreachable/fails", async () => {
+  it("should return structured error object if sidecar is unreachable/fails", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("Network connection failed"));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runSaprotAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null, null);
-    expect(result).toBeNull();
+    expect(result).toBeDefined();
+    expect(result?.error).toContain("SaProt analysis failed");
+    expect(result?.status).toBe("offline");
   });
 
   it("should successfully parse sidecar response and map all metrics including conformationState and klDivergence", async () => {

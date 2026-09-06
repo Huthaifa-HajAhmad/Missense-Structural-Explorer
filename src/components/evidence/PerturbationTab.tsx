@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Activity, Layers, Sparkles } from "lucide-react";
+import { Activity, Layers, Sparkles, RefreshCw, AlertCircle } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
 import { PerturbationModelCards, PerturbModelDef } from "./perturbation/PerturbationModelCards";
@@ -8,19 +8,23 @@ import { ResiduePreferenceList } from "./perturbation/ResiduePreferenceList";
 import { EmbeddingShiftChart } from "./perturbation/EmbeddingShiftChart";
 import { PhysicalPerturbationSection } from "./perturbation/PhysicalPerturbationSection";
 import { Esm3ExploratorySection } from "./perturbation/Esm3ExploratorySection";
+import { useApiClient } from "../../apiClient";
 
 export function PerturbationTab({
   analysisState,
   foldingEnergetics,
   structuralDiff,
   metrics,
-  onOpenSettings
+  onOpenSettings,
+  onRetryStructural
 }: TabComponentProps) {
   const result = analysisState.result;
   const { settings } = useSettings();
+  const { apiClient } = useApiClient();
   const [activePerturbModel, setActivePerturbModel] = useState<"saprot" | "esm2" | "esmc">(
     settings.defaultPerturbationModel
   );
+  const [isRetrying, setIsRetrying] = useState(false);
 
   if (!result) return null;
 
@@ -62,37 +66,94 @@ export function PerturbationTab({
     }
   ];
 
-  const activeList = models.filter(m => !!m.data);
+  const activeList = models.filter(m => !!m.data && !m.data.error);
   const hasAnyToken = !!settings.hfToken || !!settings.biohubApiToken;
+  const allFailedOrEmpty = models.every(m => !m.data || Boolean(m.data.error));
 
-  if (models.every(m => !m.data)) {
+  const handleRetry = async () => {
+    if (onRetryStructural) {
+      onRetryStructural();
+      return;
+    }
+    if (!result?.metadata?.gene || !result?.metadata?.variant || !result?.metadata?.uniprotId) return;
+    setIsRetrying(true);
+    try {
+      const structRes = await apiClient.getStructuralAssessments({
+        gene: result.metadata.gene,
+        variant: result.metadata.variant,
+        uniprotId: result.metadata.uniprotId,
+        acmgWeighting: settings.acmgWeighting
+      });
+      if (structRes) {
+        result.esm3Eval = structRes.esm3Eval;
+        result.esmcEval = structRes.esmcEval;
+        result.esm2Eval = structRes.esm2Eval;
+        result.saprotEval = structRes.saprotEval;
+      }
+    } catch (err) {
+      console.error("[PerturbationTab] Retry failed:", err);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  if (allFailedOrEmpty) {
+    const errorStatuses = models.map(m => m.data?.status).filter(Boolean);
+    const errorMsgs = models.map(m => m.data?.error).filter(Boolean);
+    const isOffline = errorStatuses.includes("offline") || errorMsgs.some((msg: string) => /unreachable|ECONNREFUSED|connect|offline/i.test(msg));
+    const isTimeout = errorStatuses.includes("timeout") || errorMsgs.some((msg: string) => /timed out|timeout/i.test(msg));
+
+    let bannerTitle = "Structural Perturbation Analysis Offline";
+    let bannerDesc = "Deep transformer representation metrics (SaProt, ESM-2 3B, ESMC-6B) require an active Hugging Face Access Token or Biohub API Token.";
+    
+    if (isOffline) {
+      bannerTitle = "Local ML Model Server Offline";
+      bannerDesc = "The Python biophysics sidecar microservice (tools/model_server.py) is unreachable. If running locally or on OCI, ensure the model server process is running at port 8000 (or check SIDECAR_URL).";
+    } else if (isTimeout) {
+      bannerTitle = "Model Loading / Inference Timeout";
+      bannerDesc = "Large language models (SaProt 650M, ESM-2 3B) may still be initializing or downloading weights in the background on CPU/OCI. Try re-running the analysis.";
+    } else if (hasAnyToken) {
+      bannerTitle = "Structural Perturbation Analysis Unavailable";
+      bannerDesc = "The local ML model server (VESM-150M / SaProt) did not return results. It may still be loading or the analysis timed out. Try re-running the analysis.";
+    }
+
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: "var(--cs-bg-subtle)", color: "var(--cs-text-muted)" }}>
-          <Activity className="w-4 h-4 animate-pulse" />
+        <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: isOffline ? "rgba(239, 68, 68, 0.1)" : "var(--cs-bg-subtle)", color: isOffline ? "var(--cs-text-danger)" : "var(--cs-text-muted)" }}>
+          {isOffline ? <AlertCircle className="w-4 h-4" /> : <Activity className="w-4 h-4 animate-pulse" />}
         </div>
         <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-text-primary)" }}>
-          {hasAnyToken ? "Structural Perturbation Analysis Unavailable" : "Structural Perturbation Analysis Offline"}
+          {bannerTitle}
         </span>
-        <p className="text-[11px] max-w-md font-sans leading-relaxed mb-3" style={{ color: "var(--cs-text-secondary)" }}>
-          {hasAnyToken
-            ? "The local ML model server (VESM-150M / SaProt) did not return results. It may still be loading or the analysis timed out. Try re-running the analysis."
-            : "Deep transformer representation metrics (SaProt, ESM-2 3B, ESMC-6B) require an active Hugging Face Access Token or Biohub API Token."}
+        <p className="text-[11px] max-w-md font-sans leading-relaxed mb-4 text-slate-400">
+          {bannerDesc}
         </p>
-        <button
-          type="button"
-          onClick={() => onOpenSettings?.()}
-          className="px-4 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface-2)] cursor-pointer transition-colors shadow-sm"
-          style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
-        >
-          {hasAnyToken ? "Review API Keys" : "Configure API Keys"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={isRetrying}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-sm disabled:opacity-50"
+            style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+          >
+            <RefreshCw className={`w-3 h-3 ${isRetrying ? "animate-spin" : ""}`} />
+            {isRetrying ? "Retrying..." : "Retry Analysis"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenSettings?.()}
+            className="px-4 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface-2)] cursor-pointer transition-colors shadow-sm"
+            style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
+          >
+            {hasAnyToken ? "Review Settings / API Keys" : "Configure API Keys"}
+          </button>
+        </div>
       </div>
     );
   }
 
-  const currentModel = models.find(m => m.id === activePerturbModel) || activeList[0];
-  const activeEval = currentModel.data;
+  const currentModel = models.find(m => m.id === activePerturbModel) || activeList[0] || models[0];
+  const activeEval = currentModel?.data;
 
   const allShifts = (!activeEval?.loading && !activeEval?.error && activeEval?.localShiftMap || []).map((d: any) => d.shift);
   const maxShift = allShifts.length > 0 ? Math.max(...allShifts) : 1.0;
@@ -154,9 +215,19 @@ export function PerturbationTab({
           <span className="font-mono text-xs font-semibold mb-1 text-rose-500">
             Failed to Load {currentModel.name}
           </span>
-          <p className="text-[11px] max-w-sm font-sans leading-relaxed text-slate-400">
+          <p className="text-[11px] max-w-sm font-sans leading-relaxed text-slate-400 mb-3">
             {activeEval.error || "An error occurred while loading this model."}
           </p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={isRetrying}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-sm"
+            style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+          >
+            <RefreshCw className={`w-3 h-3 ${isRetrying ? "animate-spin" : ""}`} />
+            {isRetrying ? "Retrying..." : "Retry Model"}
+          </button>
         </div>
       ) : activeEval ? (
         <>

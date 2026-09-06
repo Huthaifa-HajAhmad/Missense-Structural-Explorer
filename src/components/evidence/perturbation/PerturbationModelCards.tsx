@@ -33,32 +33,41 @@ export function PerturbationModelCards({
         const isSelected = m.id === activeModelId;
         const IconComponent = m.icon;
 
-        if (!m.data) {
+        if (!m.data || m.data.error) {
+          const errStatus = m.data?.status || "offline";
+          const isTimeout = errStatus === "timeout";
           return (
             <div
               key={m.id}
               onClick={() => onOpenSettings?.()}
-              className="group relative p-4 rounded-xl border border-dashed flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 opacity-60 hover:opacity-85 animate-pulse"
+              className="group relative p-4 rounded-xl border border-dashed flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 opacity-75 hover:opacity-95"
               style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
             >
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-mono tracking-wider uppercase font-bold" style={{ color: "var(--cs-text-muted)" }}>Offline Method</span>
+                  <span className="text-[10px] font-mono tracking-wider uppercase font-bold" style={{ color: isTimeout ? "var(--cs-accent-clay)" : "var(--cs-text-muted)" }}>
+                    {isTimeout ? "Model Timeout" : "Offline / Unreachable"}
+                  </span>
                   <div className="p-1 rounded" style={{ background: "var(--cs-bg-subtle)", color: "var(--cs-text-muted)" }}>
                     <IconComponent className="w-3.5 h-3.5" />
                   </div>
                 </div>
                 <h3 className="text-xs font-bold transition-colors" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
-                <p className="text-[9px] mt-1 leading-normal" style={{ color: "var(--cs-text-muted)" }}>{m.description}</p>
+                <p className="text-[9px] mt-1 leading-normal line-clamp-2" style={{ color: "var(--cs-text-muted)" }}>
+                  {m.data?.error || m.description}
+                </p>
               </div>
               <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2" style={{ color: "var(--cs-accent-clay)" }}>
-                <span>⚙️ Configure {m.tokenName.split(" ")[0]} key</span>
+                <span>⚙️ {m.hasKey ? "Check model server / keys" : `Configure ${m.tokenName.split(" ")[0]} key`}</span>
               </div>
             </div>
           );
         }
 
-        const isModelDangerous = m.data.llr <= THRESHOLDS.esm.pathogenic;
+        const llrVal = typeof m.data.llr === "number" ? m.data.llr : 0;
+        const isModelDangerous = llrVal <= THRESHOLDS.esm.pathogenic;
+        const shiftVal = typeof m.data.embeddingShift === "number" ? m.data.embeddingShift : 0;
+
         return (
           <div
             key={m.id}
@@ -99,13 +108,13 @@ export function PerturbationModelCards({
               <div>
                 <span className="block text-[8px] uppercase font-bold tracking-wider text-slate-400">Δ LLR (nats)</span>
                 <span className="text-xs font-mono font-bold" style={{ color: isModelDangerous ? "var(--cs-text-danger)" : "var(--cs-text-success)" }}>
-                  {m.data.llr.toFixed(3)}
+                  {llrVal.toFixed(3)}
                 </span>
               </div>
               <div>
                 <span className="block text-[8px] uppercase font-bold tracking-wider text-slate-400">Emb. Shift</span>
                 <span className="text-xs font-mono font-bold" style={{ color: "var(--cs-accent-clay)" }}>
-                  {m.data.embeddingShift.toFixed(3)}
+                  {shiftVal.toFixed(3)}
                 </span>
               </div>
             </div>

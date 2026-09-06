@@ -2,12 +2,14 @@ import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { fetchWithRetry } from "./external.ts";
 import { extractSequenceFromPdb } from "./pdb-parser.ts";
+import { fetchUniprotSequence } from "./uniprot.ts";
 import path from "path";
 import fs from "fs";
 import os from "os";
 import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { CONFIG } from "../config.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -55,6 +57,9 @@ export interface ESM3StructureEvalResult {
     sequenceCoverage: number;
   };
   provenance?: string;
+  sasa?: { rsa: number; sse: string; sasa: number } | null;
+  error?: string;
+  status?: "ok" | "error" | "timeout" | "offline";
 }
 
 export const esm3StructureCache = new LRUCache<string, any>({
@@ -68,7 +73,8 @@ export async function fetchEsm3StructureEval(
   wtResidue: string,
   mutResidue: string,
   wtPdbText?: string | null,
-  biohubToken?: string | null
+  biohubToken?: string | null,
+  sequenceOverride?: string | null
 ): Promise<ESM3StructureEvalResult | null> {
   const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}`;
   const cached = esm3StructureCache.get(cacheKey);
@@ -87,17 +93,23 @@ export async function fetchEsm3StructureEval(
   let seqLen = 300;
   let esm3Error: string | undefined;
 
-  let sequence = "";
-  if (wtPdbText) {
+  let sequence = sequenceOverride || "";
+  if (!sequence && wtPdbText) {
     try {
       const parsed = extractSequenceFromPdb(wtPdbText, "A");
       sequence = parsed.sequence;
     } catch (_) {}
   }
 
-  // If no sequence could be extracted and no raw WT PDB is provided, we use a placeholder sequence of length 100
+  if (!sequence && uniprotId) {
+    try {
+      const fetched = await fetchUniprotSequence(uniprotId);
+      if (fetched) sequence = fetched;
+    } catch (_) {}
+  }
+
+  // If still no sequence could be extracted, generate minimal sequence
   if (!sequence) {
-    // Generate a simple poly-A sequence as fallback
     sequence = "M" + "A".repeat(Math.max(10, position + 20));
   }
 
@@ -106,7 +118,7 @@ export async function fetchEsm3StructureEval(
   let provenance = "ESM3-Medium (Remote)";
 
   try {
-    const sidecarRes = await fetch("http://127.0.0.1:8000/predict/esm3", {
+    const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

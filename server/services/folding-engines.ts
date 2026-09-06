@@ -1,5 +1,6 @@
 import { foldSequence } from "./esmfold.ts";
 import { generateMutantPdb } from "./foldx.ts";
+import { CONFIG } from "../config.ts";
 
 export interface StructureResult {
   pdb: string | null;
@@ -78,7 +79,7 @@ export class ESM3Engine implements FoldingEngine {
       const tokenToUse = context.biohubToken || process.env.BIOHUB_API_TOKEN || null;
       const sidecarSecret = process.env.SIDECAR_SECRET || "";
 
-      const response = await fetch("http://127.0.0.1:8000/predict/esm3", {
+      const response = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -25,14 +25,14 @@ async function main() {
 
   const start = Date.now();
   
-  const predictorCallback = async (gene: string, variant: string, uniprotId: string, sequence: string) => {
+  const predictorCallback = async (gene: string, variant: string, uniprotId: string, sequence: string): Promise<number | null> => {
     if (modelChoice === "esm2") {
       const res = await runEsm2Analysis(gene, variant, uniprotId, sequence, hfToken);
-      return res ? res.llr : null;
+      return typeof res?.llr === "number" ? res.llr : null;
     } else {
       // Default to ESM-C (VESM-150M local or ESMC-6B remote)
       const res = await runEsmcAnalysis(gene, variant, uniprotId, sequence, biohubToken);
-      return res ? res.llr : null;
+      return typeof res?.llr === "number" ? res.llr : null;
     }
   };
 

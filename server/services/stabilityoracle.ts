@@ -1,3 +1,5 @@
+import { CONFIG } from "../config.ts";
+
 export interface StabilityOracleEvalResult {
   ddG: number;
   isStabilizing: boolean;
@@ -45,7 +47,7 @@ export async function runStabilityOracleAnalysis(
 
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   try {
-    const sidecarRes = await fetch("http://127.0.0.1:8000/predict/stabilityoracle", {
+    const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/stabilityoracle`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

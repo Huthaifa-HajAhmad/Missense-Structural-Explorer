@@ -18,13 +18,12 @@ import { promisify } from "util";
 import { LRUCache } from "lru-cache";
 import { type PdbAtom, parseAtomsFromPdbMaybeAsync } from "./pdb-parser.ts";
 import { LOCAL_STRUCTURAL_WINDOW } from "../../src/shared/thresholds.ts";
-
-
+import { CONFIG } from "../config.ts";
 
 const execFileAsync = promisify(execFile);
 
-const esm2Cache = new LRUCache<string, any>({
-  max: 500
+const esm2Cache = new LRUCache<string, { llr: number; verdict: string }>({
+  max: 200
 });
 
 export async function runEsm2Eval(
@@ -40,7 +39,7 @@ export async function runEsm2Eval(
 
   // Try HTTP first
   try {
-    const res = await fetch("http://127.0.0.1:8000/predict/vesm", {
+    const res = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/vesm`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -77,7 +76,6 @@ export async function runEsm2Eval(
       return result;
     }
     console.warn(`[ESM2-Eval] Predictor returned error or invalid format:`, parsed);
-    esm2Cache.set(cacheKey, null);
     return null;
   } catch (err: any) {
     console.warn(`[ESM2-Eval] Process execution failed:`, err.message);

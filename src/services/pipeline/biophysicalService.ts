@@ -147,22 +147,62 @@ export function fetchProgressiveStructuralAssessments(
   signal: AbortSignal,
   setAnalysisState: (fn: any) => void,
   requestId: number,
-  getActiveRequestId: () => number
+  getActiveRequestId: () => number,
+  traceContext?: TraceContext
 ): void {
   console.log("[BiophysicalService] Starting progressive fetch for heavy structural models...");
   apiClient
     .getStructuralAssessments(params, signal)
     .then((structRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
-      console.log("[BiophysicalService] Progressive heavy structural models loaded successfully");
+      console.log("[BiophysicalService] Progressive heavy structural models response received:", structRes);
+
+      // DevConsole diagnostics: inspect each structural model and emit clear diagnostic warnings/errors
+      const modelEntries: [string, any][] = [
+        ["SaProt 650M AF2", structRes.saprotEval],
+        ["ESM-2 3B", structRes.esm2Eval],
+        ["ESMC-6B / VESM-150M", structRes.esmcEval],
+        ["ESM3", structRes.esm3Eval]
+      ];
+
+      const failedModels: string[] = [];
+      for (const [modelName, evalResult] of modelEntries) {
+        if (!evalResult) {
+          failedModels.push(`${modelName} (no data returned)`);
+          console.warn(`[StructuralModel] ${modelName}: No evaluation data returned (likely offline).`);
+        } else if ("error" in evalResult && evalResult.error) {
+          failedModels.push(`${modelName} (${evalResult.status || "error"}: ${evalResult.error})`);
+          console.warn(`[StructuralModel] ${modelName} failed (${evalResult.status || "error"}): ${evalResult.error}`);
+        } else {
+          console.log(`[StructuralModel] ${modelName}: Successfully loaded.`);
+        }
+      }
+
+      if (failedModels.length === modelEntries.length) {
+        console.error(
+          `[StructuralAnalysis] All deep language model evaluations failed or timed out.\n` +
+          `Failed models: ${failedModels.join(", ")}\n` +
+          `If running locally or on OCI, ensure the Python model server is active and accessible.`
+        );
+      }
+
       setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
+        const mergedServiceStatus = {
+          ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
+          ...(structRes.serviceStatus || {})
+        };
         const updatedResult = {
           ...prev.result,
           esm3Eval: structRes.esm3Eval,
           esmcEval: structRes.esmcEval,
           esm2Eval: structRes.esm2Eval,
           saprotEval: structRes.saprotEval,
+          serviceStatus: mergedServiceStatus,
+          metadata: {
+            ...(prev.result.metadata || {}),
+            serviceStatus: mergedServiceStatus
+          },
           ruleBasedInsights: structRes.ruleBasedInsights || prev.result.ruleBasedInsights
         };
         setCachedVariant(params.gene, params.variant, params.uniprotId, { analysisResult: updatedResult });
@@ -174,17 +214,32 @@ export function fetchProgressiveStructuralAssessments(
     })
     .catch((structErr: any) => {
       if (!signal.aborted) {
-        console.warn("[BiophysicalService Warning] Progressive structural assessments fetch failed:", structErr);
+        console.error("[BiophysicalService Error] Progressive structural assessments fetch failed:", structErr);
         setAnalysisState((prev: any) => {
           if (!prev.result) return prev;
+          const failureStatus: Record<string, string> = {
+            esm3: "error",
+            esmc: "error",
+            esm2: "error",
+            saprot: "error"
+          };
+          const mergedServiceStatus = {
+            ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
+            ...failureStatus
+          };
           return {
             ...prev,
             result: {
               ...prev.result,
-              esm3Eval: { error: structErr.message || "Failed" },
-              esmcEval: { error: structErr.message || "Failed" },
-              esm2Eval: { error: structErr.message || "Failed" },
-              saprotEval: { error: structErr.message || "Failed" }
+              esm3Eval: { error: structErr.message || "Failed", status: "error" },
+              esmcEval: { error: structErr.message || "Failed", status: "error" },
+              esm2Eval: { error: structErr.message || "Failed", status: "error" },
+              saprotEval: { error: structErr.message || "Failed", status: "error" },
+              serviceStatus: mergedServiceStatus,
+              metadata: {
+                ...(prev.result.metadata || {}),
+                serviceStatus: mergedServiceStatus
+              }
             }
           };
         });

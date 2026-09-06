@@ -138,18 +138,28 @@ export const esmcLocalShiftSchema = z.object({
 });
 
 export const esmcEvalResultSchema = z.object({
-  wtProbability: z.number(),
-  mutProbability: z.number(),
-  llr: z.number(),
-  preferences: z.array(esmcPreferenceSchema),
-  mutRank: z.number(),
-  positionalEntropy: z.number(),
-  embeddingShift: z.number(),
-  localEmbeddingShift: z.number(),
-  localShiftMap: z.array(esmcLocalShiftSchema),
+  wtProbability: z.number().optional(),
+  mutProbability: z.number().optional(),
+  llr: z.number().optional(),
+  preferences: z.array(esmcPreferenceSchema).optional(),
+  mutRank: z.number().optional(),
+  positionalEntropy: z.number().optional(),
+  embeddingShift: z.number().optional(),
+  localEmbeddingShift: z.number().optional(),
+  localShiftMap: z.array(esmcLocalShiftSchema).optional(),
   klDivergence: z.number().nullable().optional(),
-  conformationState: z.string().nullable().optional()
+  conformationState: z.string().nullable().optional(),
+  provenance: z.string().optional(),
+  error: z.string().optional(),
+  status: z.string().optional()
 });
+
+export const modelEvalErrorSchema = z.object({
+  error: z.string(),
+  status: z.string().optional()
+});
+
+export type ModelEvalError = z.infer<typeof modelEvalErrorSchema>;
 
 export type EsmcPreference = z.infer<typeof esmcPreferenceSchema>;
 export type EsmcLocalShift = z.infer<typeof esmcLocalShiftSchema>;
@@ -595,24 +605,27 @@ export const analyzeVariantResponseSchema = z.object({
   }).nullable().optional(),
   esm3Eval: z.union([
     z.object({
-      uniprotId: z.string(),
-      position: z.number(),
-      wtResidue: z.string(),
-      mutResidue: z.string(),
-      pdbText: z.string().nullable(),
-      perturbationScores: z.array(z.number()),
-      maxDriftResidue: z.number(),
-      structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]),
-      microenvironments: z.array(z.string()),
-      putativeStructuralChanges: z.array(z.string()),
+      uniprotId: z.string().optional(),
+      position: z.number().optional(),
+      wtResidue: z.string().optional(),
+      mutResidue: z.string().optional(),
+      pdbText: z.string().nullable().optional(),
+      perturbationScores: z.array(z.number()).optional(),
+      maxDriftResidue: z.number().optional(),
+      structuralChangeLevel: z.enum(["none", "minor", "moderate", "major"]).optional(),
+      microenvironments: z.array(z.string()).optional(),
+      putativeStructuralChanges: z.array(z.string()).optional(),
       confidence: z.object({
         level: z.enum(["high", "moderate", "low"]),
         plddt: z.number().nullable().optional(),
         sequenceCoverage: z.number().nullable().optional()
-      })
-    }),
+      }).optional(),
+      provenance: z.string().optional(),
+      status: z.string().optional()
+    }).passthrough(),
     z.object({
-      error: z.string()
+      error: z.string(),
+      status: z.string().optional()
     })
   ]).nullable().optional(),
   esmcEval: esmcEvalResultSchema.nullable().optional(),

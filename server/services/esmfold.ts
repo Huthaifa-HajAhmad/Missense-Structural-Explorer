@@ -1,5 +1,6 @@
 import { LRUCache } from "lru-cache";
 import crypto from "crypto";
+import { CONFIG } from "../config.ts";
 
 export const esmfoldCache = new LRUCache<string, string>({
   max: 100,
@@ -32,7 +33,7 @@ async function foldSequenceInternal(
   if (biohubToken) {
     try {
       const sidecarSecret = process.env.SIDECAR_SECRET || "";
-      const response = await fetch("http://127.0.0.1:8000/predict/esmfold", {
+      const response = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esmfold`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
