@@ -184,6 +184,50 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
   apiRouter.get("/pdb/:uniprotId", handlePdbProxy);
 
+  apiRouter.get("/sidecar-health", async (_req, res) => {
+    const startTime = Date.now();
+    const sidecarUrl = CONFIG.services.sidecarBaseUrl;
+    try {
+      const response = await fetch(`${sidecarUrl}/health`, {
+        signal: AbortSignal.timeout(3000)
+      });
+      const latencyMs = Date.now() - startTime;
+      if (response.ok) {
+        const data = await response.json() as any;
+        res.json({
+          reachable: true,
+          baseUrl: sidecarUrl,
+          latencyMs,
+          status: data.status || "healthy",
+          modelLoaded: data.model_loaded ?? false,
+          activeModels: data.active_models ?? 0
+        });
+        return;
+      }
+      res.json({
+        reachable: false,
+        baseUrl: sidecarUrl,
+        latencyMs,
+        error: `Sidecar returned HTTP ${response.status}`,
+        remediation: {
+          local: "python -m uv run --project tools python tools/model_server.py",
+          oci: "export SIDECAR_URL=http://<oci-ip>:8000"
+        }
+      });
+    } catch (err: any) {
+      res.json({
+        reachable: false,
+        baseUrl: sidecarUrl,
+        latencyMs: Date.now() - startTime,
+        error: err.message || "Connection refused",
+        remediation: {
+          local: "python -m uv run --project tools python tools/model_server.py",
+          oci: "export SIDECAR_URL=http://<oci-ip>:8000"
+        }
+      });
+    }
+  });
+
   const validateBiohubTokenSchema = z.object({
     token: z.string().min(8).optional()
   });

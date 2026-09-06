@@ -131,4 +131,54 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       expect(sentBody).toBe(mockPdb);
     });
   });
+
+  describe("GET /sidecar-health", () => {
+    const route = apiRouter.stack.find(s => s.route && s.route.path === "/sidecar-health");
+    expect(route).toBeDefined();
+    const handler = route!.route!.stack[route!.route!.stack.length - 1].handle;
+
+    it("should return reachable true and model info when sidecar /health responds successfully", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: "healthy", model_loaded: true, active_models: 2 })
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      let jsonVal: any = null;
+      const req: any = {};
+      const res: any = {
+        json(data: any) {
+          jsonVal = data;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+      expect(jsonVal.reachable).toBe(true);
+      expect(jsonVal.status).toBe("healthy");
+      expect(jsonVal.modelLoaded).toBe(true);
+      expect(jsonVal.activeModels).toBe(2);
+      expect(jsonVal.latencyMs).toBeTypeOf("number");
+    });
+
+    it("should return reachable false with remediation commands when sidecar is offline", async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      let jsonVal: any = null;
+      const req: any = {};
+      const res: any = {
+        json(data: any) {
+          jsonVal = data;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+      expect(jsonVal.reachable).toBe(false);
+      expect(jsonVal.error).toContain("fetch failed");
+      expect(jsonVal.remediation?.local).toContain("tools/model_server.py");
+      expect(jsonVal.remediation?.oci).toContain("SIDECAR_URL");
+    });
+  });
 });

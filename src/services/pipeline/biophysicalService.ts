@@ -182,7 +182,8 @@ export function fetchProgressiveStructuralAssessments(
         console.error(
           `[StructuralAnalysis] All deep language model evaluations failed or timed out.\n` +
           `Failed models: ${failedModels.join(", ")}\n` +
-          `If running locally or on OCI, ensure the Python model server is active and accessible.`
+          `Remedy (Local): Run 'python -m uv run --project tools python tools/model_server.py'\n` +
+          `Remedy (OCI): Set SIDECAR_URL=http://<oci-private-or-public-ip>:8000 in your .env or system environment.`
         );
       }
 

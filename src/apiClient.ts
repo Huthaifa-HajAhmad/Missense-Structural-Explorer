@@ -602,6 +602,30 @@ export function useApiClient() {
           throw new Error(errorMsg);
         }
         return await res.json();
+      },
+
+      async getSidecarHealth(signal?: AbortSignal): Promise<{
+        reachable: boolean;
+        baseUrl: string;
+        latencyMs?: number;
+        status?: string;
+        modelLoaded?: boolean;
+        activeModels?: number;
+        error?: string;
+        remediation?: { local: string; oci: string };
+      }> {
+        const res = await fetchWithAuth("/api/structure/sidecar-health", {
+          timeout: 5000,
+          signal
+        });
+        if (!res.ok) {
+          return {
+            reachable: false,
+            baseUrl: "",
+            error: `Health check failed with HTTP ${res.status}`
+          };
+        }
+        return await res.json();
       }
     };
   }, [fetchWithAuth]);

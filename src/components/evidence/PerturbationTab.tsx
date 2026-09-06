@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Activity, Layers, Sparkles, RefreshCw, AlertCircle } from "lucide-react";
+import { Activity, Layers, Sparkles, RefreshCw, AlertCircle, Terminal, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
 import { PerturbationModelCards, PerturbModelDef } from "./perturbation/PerturbationModelCards";
@@ -25,6 +25,10 @@ export function PerturbationTab({
     settings.defaultPerturbationModel
   );
   const [isRetrying, setIsRetrying] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [healthCheckStatus, setHealthCheckStatus] = useState<string | null>(null);
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
 
   if (!result) return null;
 
@@ -97,59 +101,45 @@ export function PerturbationTab({
     }
   };
 
-  if (allFailedOrEmpty) {
-    const errorStatuses = models.map(m => m.data?.status).filter(Boolean);
-    const errorMsgs = models.map(m => m.data?.error).filter(Boolean);
-    const isOffline = errorStatuses.includes("offline") || errorMsgs.some((msg: string) => /unreachable|ECONNREFUSED|connect|offline/i.test(msg));
-    const isTimeout = errorStatuses.includes("timeout") || errorMsgs.some((msg: string) => /timed out|timeout/i.test(msg));
-
-    let bannerTitle = "Structural Perturbation Analysis Offline";
-    let bannerDesc = "Deep transformer representation metrics (SaProt, ESM-2 3B, ESMC-6B) require an active Hugging Face Access Token or Biohub API Token.";
-    
-    if (isOffline) {
-      bannerTitle = "Local ML Model Server Offline";
-      bannerDesc = "The Python biophysics sidecar microservice (tools/model_server.py) is unreachable. If running locally or on OCI, ensure the model server process is running at port 8000 (or check SIDECAR_URL).";
-    } else if (isTimeout) {
-      bannerTitle = "Model Loading / Inference Timeout";
-      bannerDesc = "Large language models (SaProt 650M, ESM-2 3B) may still be initializing or downloading weights in the background on CPU/OCI. Try re-running the analysis.";
-    } else if (hasAnyToken) {
-      bannerTitle = "Structural Perturbation Analysis Unavailable";
-      bannerDesc = "The local ML model server (VESM-150M / SaProt) did not return results. It may still be loading or the analysis timed out. Try re-running the analysis.";
+  const checkSidecarHealth = async () => {
+    setIsCheckingHealth(true);
+    try {
+      const health = await apiClient.getSidecarHealth();
+      if (health.reachable) {
+        setHealthCheckStatus(`✓ Sidecar Connected (${health.latencyMs}ms) — models: ${health.activeModels ?? 0} loaded`);
+        await handleRetry();
+      } else {
+        setHealthCheckStatus(`✗ Sidecar Offline at ${health.baseUrl || "port 8000"}: ${health.error || "Connection refused"}`);
+      }
+    } catch (err: any) {
+      setHealthCheckStatus(`✗ Sidecar Unreachable: ${err.message}`);
+    } finally {
+      setIsCheckingHealth(false);
     }
+  };
 
-    return (
-      <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center mb-2.5" style={{ background: isOffline ? "rgba(239, 68, 68, 0.1)" : "var(--cs-bg-subtle)", color: isOffline ? "var(--cs-text-danger)" : "var(--cs-text-muted)" }}>
-          {isOffline ? <AlertCircle className="w-4 h-4" /> : <Activity className="w-4 h-4 animate-pulse" />}
-        </div>
-        <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-text-primary)" }}>
-          {bannerTitle}
-        </span>
-        <p className="text-[11px] max-w-md font-sans leading-relaxed mb-4 text-slate-400">
-          {bannerDesc}
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleRetry}
-            disabled={isRetrying}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-sm disabled:opacity-50"
-            style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
-          >
-            <RefreshCw className={`w-3 h-3 ${isRetrying ? "animate-spin" : ""}`} />
-            {isRetrying ? "Retrying..." : "Retry Analysis"}
-          </button>
-          <button
-            type="button"
-            onClick={() => onOpenSettings?.()}
-            className="px-4 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface-2)] cursor-pointer transition-colors shadow-sm"
-            style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
-          >
-            {hasAnyToken ? "Review Settings / API Keys" : "Configure API Keys"}
-          </button>
-        </div>
-      </div>
-    );
+  const copyToClipboard = (text: string, label: string) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text);
+    }
+    setCopiedCommand(label);
+    setTimeout(() => setCopiedCommand(null), 2000);
+  };
+
+  const errorStatuses = models.map(m => m.data?.status).filter(Boolean);
+  const errorMsgs = models.map(m => m.data?.error).filter(Boolean);
+  const isOffline = errorStatuses.includes("offline") || errorMsgs.some((msg: string) => /unreachable|ECONNREFUSED|connect|offline|fetch failed/i.test(msg));
+  const isTimeout = errorStatuses.includes("timeout") || errorMsgs.some((msg: string) => /timed out|timeout/i.test(msg));
+
+  let bannerTitle = "Deep Language Models (SaProt, ESM-2, VESM) Offline";
+  let bannerDesc = "The Python biophysics sidecar microservice (tools/model_server.py) is currently disconnected. Primary biophysical stability models remain 100% operational.";
+  
+  if (isTimeout) {
+    bannerTitle = "Language Model Loading / Inference Timeout";
+    bannerDesc = "Large language models (SaProt 650M, ESM-2 3B) may still be downloading weights or compiling on CPU. Re-run after weights initialize.";
+  } else if (!isOffline && !hasAnyToken) {
+    bannerTitle = "Optional Language Model Tokens Unconfigured";
+    bannerDesc = "Local VESM-150M runs without keys. For remote cloud inference on SaProt or ESM-2 3B, configure a Hugging Face or Biohub token.";
   }
 
   const currentModel = models.find(m => m.id === activePerturbModel) || activeList[0] || models[0];
@@ -183,6 +173,102 @@ export function PerturbationTab({
       </div>
 
       {/* SECTION A HEADER */}
+      {allFailedOrEmpty && (
+        <div className="p-4 rounded-xl border flex flex-col gap-3 my-2 text-left" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: isOffline ? "rgba(239, 68, 68, 0.1)" : "rgba(234, 179, 8, 0.1)", color: isOffline ? "var(--cs-text-danger)" : "var(--cs-accent-clay)" }}>
+                {isOffline ? <AlertCircle className="w-4 h-4" /> : <Activity className="w-4 h-4 animate-pulse" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-bold" style={{ color: "var(--cs-text-primary)" }}>
+                    {bannerTitle}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded font-semibold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+                    Primary Biophysics Active
+                  </span>
+                </div>
+                <p className="text-[11px] font-sans leading-relaxed text-slate-400 mt-1">
+                  {bannerDesc}
+                </p>
+                <p className="text-[10px] font-sans text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
+                  ✓ Core FoldX energetics, Consensus ΔΔG stability, and 3D PDB structure are fully operational in their tabs.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={checkSidecarHealth}
+                disabled={isCheckingHealth || isRetrying}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-sm disabled:opacity-50"
+                style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+              >
+                <RefreshCw className={`w-3 h-3 ${isCheckingHealth || isRetrying ? "animate-spin" : ""}`} />
+                {isCheckingHealth ? "Testing..." : isRetrying ? "Retrying..." : "Check & Retry"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowGuide(!showGuide)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface)] cursor-pointer transition-colors shadow-sm"
+                style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
+              >
+                <Terminal className="w-3.5 h-3.5 text-slate-400" />
+                <span>Connection Clues</span>
+                {showGuide ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            </div>
+          </div>
+
+          {healthCheckStatus && (
+            <div className="text-[11px] font-mono px-3 py-1.5 rounded-md bg-slate-900 text-slate-200 border border-slate-800">
+              {healthCheckStatus}
+            </div>
+          )}
+
+          {showGuide && (
+            <div className="mt-2 pt-3 border-t grid grid-cols-1 md:grid-cols-2 gap-3" style={{ borderColor: "var(--cs-border-subtle)" }}>
+              <div className="p-3 rounded-lg border bg-slate-950/60 border-slate-800 text-left">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-mono font-bold uppercase text-slate-300">Local Development Startup</span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard("python -m uv run --project tools python tools/model_server.py", "local")}
+                    className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-400 cursor-pointer font-mono"
+                  >
+                    {copiedCommand === "local" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {copiedCommand === "local" ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <code className="text-[10px] font-mono text-slate-300 block select-all bg-slate-900 px-2 py-1 rounded">
+                  python -m uv run --project tools python tools/model_server.py
+                </code>
+                <p className="text-[9px] text-slate-400 mt-1">Starts the Python model server on port 8000 with pre-loaded VESM-150M weights.</p>
+              </div>
+
+              <div className="p-3 rounded-lg border bg-slate-950/60 border-slate-800 text-left">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-mono font-bold uppercase text-slate-300">OCI Cloud Deployment Setup</span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard("export SIDECAR_URL=http://<oci-private-or-public-ip>:8000", "oci")}
+                    className="flex items-center gap-1 text-[10px] text-amber-500 hover:text-amber-400 cursor-pointer font-mono"
+                  >
+                    {copiedCommand === "oci" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {copiedCommand === "oci" ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <code className="text-[10px] font-mono text-slate-300 block select-all bg-slate-900 px-2 py-1 rounded">
+                  export SIDECAR_URL=http://&lt;oci-ip&gt;:8000
+                </code>
+                <p className="text-[9px] text-slate-400 mt-1">Point your Node.js application to your deployed OCI ARM64 Python sidecar.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pt-1">
         <span className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
           Section A: Sequence-Language-Model representation perturbation
@@ -213,21 +299,31 @@ export function PerturbationTab({
       ) : activeEval?.error ? (
         <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
           <span className="font-mono text-xs font-semibold mb-1 text-rose-500">
-            Failed to Load {currentModel.name}
+            {currentModel.name} Disconnected / Error
           </span>
-          <p className="text-[11px] max-w-sm font-sans leading-relaxed text-slate-400 mb-3">
+          <p className="text-[11px] max-w-md font-mono text-slate-400 mb-3 break-all">
             {activeEval.error || "An error occurred while loading this model."}
           </p>
-          <button
-            type="button"
-            onClick={handleRetry}
-            disabled={isRetrying}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-sm"
-            style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
-          >
-            <RefreshCw className={`w-3 h-3 ${isRetrying ? "animate-spin" : ""}`} />
-            {isRetrying ? "Retrying..." : "Retry Model"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={checkSidecarHealth}
+              disabled={isCheckingHealth || isRetrying}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-sm"
+              style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+            >
+              <RefreshCw className={`w-3 h-3 ${isCheckingHealth || isRetrying ? "animate-spin" : ""}`} />
+              {isCheckingHealth ? "Testing..." : isRetrying ? "Retrying..." : "Check & Retry"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenSettings?.()}
+              className="px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface)] cursor-pointer transition-colors shadow-sm"
+              style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
+            >
+              {hasAnyToken ? "Review Settings / Tokens" : "Configure API Keys"}
+            </button>
+          </div>
         </div>
       ) : activeEval ? (
         <>

@@ -39,26 +39,37 @@ export function PerturbationModelCards({
           return (
             <div
               key={m.id}
-              onClick={() => onOpenSettings?.()}
-              className="group relative p-4 rounded-xl border border-dashed flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 opacity-75 hover:opacity-95"
-              style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
+              onClick={() => onSelectModel(m.id)}
+              className="group relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left opacity-85 hover:opacity-100"
+              style={{
+                background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
+                borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
+                boxShadow: isSelected ? "0 0 0 1px var(--cs-accent-clay)" : "none"
+              }}
             >
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-mono tracking-wider uppercase font-bold" style={{ color: isTimeout ? "var(--cs-accent-clay)" : "var(--cs-text-muted)" }}>
-                    {isTimeout ? "Model Timeout" : "Offline / Unreachable"}
+                  <span
+                    className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border"
+                    style={{
+                      background: isTimeout ? "rgba(234, 179, 8, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                      color: isTimeout ? "var(--cs-accent-clay)" : "var(--cs-text-danger)",
+                      borderColor: isTimeout ? "rgba(234, 179, 8, 0.2)" : "rgba(239, 68, 68, 0.2)"
+                    }}
+                  >
+                    {isTimeout ? "Model Timeout" : "Sidecar Disconnected"}
                   </span>
-                  <div className="p-1 rounded" style={{ background: "var(--cs-bg-subtle)", color: "var(--cs-text-muted)" }}>
+                  <div className="p-1 rounded" style={{ background: isSelected ? "rgba(196, 104, 73, 0.1)" : "var(--cs-bg-subtle)", color: isSelected ? "var(--cs-accent-clay)" : "var(--cs-text-muted)" }}>
                     <IconComponent className="w-3.5 h-3.5" />
                   </div>
                 </div>
-                <h3 className="text-xs font-bold transition-colors" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
-                <p className="text-[9px] mt-1 leading-normal line-clamp-2" style={{ color: "var(--cs-text-muted)" }}>
+                <h3 className="text-xs font-bold transition-colors text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
+                <p className="text-[9px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left">
                   {m.data?.error || m.description}
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2" style={{ color: "var(--cs-accent-clay)" }}>
-                <span>⚙️ {m.hasKey ? "Check model server / keys" : `Configure ${m.tokenName.split(" ")[0]} key`}</span>
+              <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2 text-left" style={{ color: "var(--cs-accent-clay)" }}>
+                <span>{m.hasKey ? "⚡ Click to view diagnostic & remedy" : `🔑 Configure ${m.tokenName.split(" ")[0]} key`}</span>
               </div>
             </div>
           );
