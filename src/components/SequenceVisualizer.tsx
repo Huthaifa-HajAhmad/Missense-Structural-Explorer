@@ -146,10 +146,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         }
       } catch (err: any) {
         if (active) {
-          console.warn("Unable to fetch sequence, using synthetic fallback:", err);
-          setError("Using offline high-fidelity sequence proxy.");
-          // safe generic mock for custom genes if something goes fully offline
-          setSequence("MAELQAELDLVEKSLSVDVEKVYTLRESLSDVEDVYTLRESLDVEDVYTLRDAEMQRLRELQEELELVEKSLSVDVEKVYTLRESLSVDVEKVYTLRESLDVEDVYTLRDAEMQRLRELQEELDLAEESLEADVEKMYTLRESLDVEDVYTLKDAEMQRLRELQEELE");
+          console.warn("Unable to fetch UniProt sequence:", err);
+          setError("UniProt sequence data unavailable. Check network or server connection.");
+          setSequence("");
         }
       } finally {
         if (active) {

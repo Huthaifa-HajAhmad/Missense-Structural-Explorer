@@ -146,6 +146,48 @@ class TestModelServerHelpers(unittest.TestCase):
             # Explicit 503 is expected if offline without pre-trained weights
             self.assertEqual(e.status_code, 503)
 
+    def test_saprot_fill_mask_bpe_parsing(self):
+        from tools.model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        
+        # 1. BPE tokens with leading spaces (e.g. " Sa", " Cc") must match canonical amino acids
+        mock_bpe_preds = [
+            {"token_str": " Sa", "score": 0.45},
+            {"token_str": " Cc", "score": 0.05},
+            {"token_str": " Ad", "score": 0.20},
+            {"token_str": " G#", "score": 0.15},
+            {"token_str": " Lb", "score": 0.15}
+        ]
+        probs = parse_saprot_fill_mask_scores(mock_bpe_preds, expected_wt="S", expected_mut="C")
+        self.assertAlmostEqual(sum(probs.values()), 1.0, places=4)
+        self.assertGreater(probs["S"], probs["C"])
+        self.assertGreater(probs["A"], probs["C"])
+        self.assertEqual(probs["W"], 1e-9 / sum([0.45, 0.05, 0.20, 0.15, 0.15] + [1e-9]*15))
+
+        # 2. Degenerate tokens (all whitespace or unparseable) must raise ValueError
+        mock_degenerate_preds = [
+            {"token_str": "   ", "score": 0.36},
+            {"token_str": "<unk>", "score": 0.02}
+        ]
+        with self.assertRaises(ValueError):
+            parse_saprot_fill_mask_scores(mock_degenerate_preds)
+
+        # 3. Special tokens like <mask>, <pad>, <s>, [CLS] must be rejected and never mapped to M, P, S, C
+        mock_special_tokens = [
+            {"token_str": "<mask>", "score": 0.50},
+            {"token_str": "<pad>", "score": 0.20},
+            {"token_str": "<s>", "score": 0.10},
+            {"token_str": "[CLS]", "score": 0.10},
+            {"token_str": " Aa", "score": 0.05},
+            {"token_str": " Rd", "score": 0.05}
+        ]
+        probs_special = parse_saprot_fill_mask_scores(mock_special_tokens, expected_wt="A", expected_mut="R")
+        # 'M' (from <mask>), 'P' (from <pad>), 'C' (from [CLS]) must receive fallback 1e-9, NOT high probability
+        self.assertAlmostEqual(probs_special["A"], 0.5, delta=0.01)
+        self.assertAlmostEqual(probs_special["R"], 0.5, delta=0.01)
+        self.assertLess(probs_special["M"], 1e-4)
+        self.assertLess(probs_special["P"], 1e-4)
+        self.assertLess(probs_special["C"], 1e-4)
+
 if __name__ == "__main__":
     unittest.main()
 

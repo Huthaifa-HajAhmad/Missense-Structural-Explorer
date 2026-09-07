@@ -515,14 +515,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             });
         }
 
-        // Detach: keep a settled handler so Node does not surface unhandled rejection warnings.
-        Promise.allSettled([d2Promise, ddmutPromise, tmPromise, stabilityOraclePromise]);
+        // Give remote submissions up to 1.5s to acquire job IDs on fast connections before responding,
+        // while allowing slower background submissions to continue without blocking indefinitely.
+        await Promise.race([
+          Promise.allSettled([d2Promise, ddmutPromise, tmPromise, stabilityOraclePromise]),
+          new Promise(r => setTimeout(r, 1500))
+        ]);
 
-        // P0-1.2: Fire remote submissions asynchronously in the background.
-        // The queue worker already records remote-job state via `updateQueueJobRemoteData`,
-        // so the client can poll `/foldx-job/:jobId` to see DynaMut2/DDMut/ThermoMPNN progress.
-        // Do not block the response on those submissions — they are optional enrichment and
-        // must never stall the FoldX enqueue when their upstream is degraded.
         if (cachedFoldx) {
           // Cache hit: return full result synchronously
           console.log(`[Cache Hit] Serving cached mutant simulation for ${foldxCacheKey}`);

@@ -478,11 +478,21 @@ const EnergeticsView = memo(function EnergeticsView({
                 detailText = `${detailText} WARNING: Low template confidence (pLDDT < 70) at this position; predictions are speculative.`;
               }
 
+              const pendingTools: string[] = [];
+              if (dynamut2Status === "pending") pendingTools.push("DynaMut2");
+              if (ddmutStatus === "pending") pendingTools.push("DDMut");
+              if (thermompnnStatus === "pending") pendingTools.push("ThermoMPNN");
+
               return (
                 <div className="flex flex-col gap-3 border-b pb-4 animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider font-mono" style={{ color: "var(--cs-text-muted)" }}>
-                      {activeToolsCount}-Method Calibrated Consensus
+                  <div className="flex items-center justify-between flex-wrap gap-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider font-mono flex items-center gap-1.5" style={{ color: "var(--cs-text-muted)" }}>
+                      <span>{activeToolsCount}-Method Calibrated Consensus</span>
+                      {pendingTools.length > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold tracking-normal normal-case">
+                          Preliminary — Calculating: {pendingTools.join(", ")}
+                        </span>
+                      )}
                     </span>
                     <span className={`text-[10px] px-2 py-0.5 rounded border ${styleClass}`}>
                       {calConsensus.consensusVerdict}

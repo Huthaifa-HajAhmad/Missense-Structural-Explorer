@@ -139,8 +139,16 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       }
 
       let delay = 2000;
+      let foldxCommitted = false;
+      const pollStart = Date.now();
+      let consecutiveErrors = 0;
+
       while (true) {
         if (signal.aborted || getActiveRequestId() !== requestId) return;
+
+        if (Date.now() - pollStart > 300000) {
+          throw new Error("Biophysical simulation timed out after 5 minutes.");
+        }
 
         // Wait with progressive backoff
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -148,19 +156,35 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
         if (signal.aborted || getActiveRequestId() !== requestId) return;
 
-        const pollRes = await fetchWithAuth(`/api/v1/foldx-job/${jobId}`, {
-          method: "GET",
-          headers: { "Accept": "application/json" },
-          signal
-        });
+        let pollRes: Response;
+        try {
+          pollRes = await fetchWithAuth(`/api/v1/foldx-job/${jobId}`, {
+            method: "GET",
+            headers: { "Accept": "application/json" },
+            signal
+          });
+        } catch (fetchErr: any) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3 || signal.aborted) {
+            throw fetchErr;
+          }
+          console.warn(`[FoldxService] Polling network glitch (${consecutiveErrors}/3):`, fetchErr.message);
+          continue;
+        }
 
         if (signal.aborted || getActiveRequestId() !== requestId) return;
 
         if (!pollRes.ok) {
-          const pollErrData = await pollRes.json().catch(() => ({}));
-          throw new Error(pollErrData.error || `Polling failed with status ${pollRes.status}`);
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            const pollErrData = await pollRes.json().catch(() => ({}));
+            throw new Error(pollErrData.error || `Polling failed with status ${pollRes.status}`);
+          }
+          console.warn(`[FoldxService] Polling HTTP ${pollRes.status} (${consecutiveErrors}/3), retrying...`);
+          continue;
         }
 
+        consecutiveErrors = 0;
         const pollData = await pollRes.json();
 
         // Update remote job IDs and statuses dynamically
@@ -172,43 +196,66 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         if (pollData.thermompnnStatus != null) sink.setThermompnnStatus(pollData.thermompnnStatus as any);
         if (pollData.thermompnnError != null) sink.setThermompnnError(pollData.thermompnnError);
 
-        if (pollData.status === "completed") {
-          const rawResult = pollData.result;
-          const parsedRes = generateMutantResponseSchema.safeParse(rawResult);
-          const resResult: GenerateMutantData = parsedRes.success ? parsedRes.data : (rawResult as GenerateMutantData);
-
-          const isFoldxSuccess = (resResult.status === "success" || resResult.status === "completed") && resResult.ddG !== null;
-          const effectiveFoldingStatus = isFoldxSuccess ? "success" : (resResult.status === "unavailable" ? "unavailable" : "failed");
-
-          sink.setMutantPdb(resResult.pdb ?? null);
-          sink.setFoldedResidueIndex(resResult.foldedResidueIndex ?? residueIndex);
-          sink.setFoldingDdG(resResult.ddG ?? null);
-          sink.setFoldingStatus(effectiveFoldingStatus);
-          if (!isFoldxSuccess && (resResult.error || resResult.energetics?.foldxError)) {
-            sink.setFoldingError(resResult.error || resResult.energetics?.foldxError || "FoldX simulation failed");
-          }
-
-          if (resResult.energetics) {
-            applyEnergetics(resResult.energetics, resResult.provenance);
-          }
-          setCachedVariant(cacheGeneKey, variant, uniprotId, {
-            mutantPdb: resResult.pdb ?? null,
-            foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
-            foldingDdG: resResult.ddG ?? null,
-            foldingEnergetics: resResult.energetics ?? null,
-            foldingStatus: effectiveFoldingStatus
-          });
-          break;
-        } else if (pollData.status === "failed") {
-          if (pollData.result) {
+        if (pollData.status === "completed" || pollData.status === "failed") {
+          if (!foldxCommitted) {
+            foldxCommitted = true;
             const rawResult = pollData.result;
             const parsedRes = generateMutantResponseSchema.safeParse(rawResult);
             const resResult: GenerateMutantData = parsedRes.success ? parsedRes.data : (rawResult as GenerateMutantData);
-            if (resResult.energetics) {
-              applyEnergetics(resResult.energetics, resResult.provenance);
+
+            if (pollData.status === "completed") {
+              const isFoldxSuccess = (resResult.status === "success" || resResult.status === "completed") && resResult.ddG !== null;
+              const effectiveFoldingStatus = isFoldxSuccess ? "success" : (resResult.status === "unavailable" ? "unavailable" : "failed");
+
+              sink.setMutantPdb(resResult.pdb ?? null);
+              sink.setFoldedResidueIndex(resResult.foldedResidueIndex ?? residueIndex);
+              sink.setFoldingDdG(resResult.ddG ?? null);
+              sink.setFoldingStatus(effectiveFoldingStatus);
+              if (!isFoldxSuccess && (resResult.error || resResult.energetics?.foldxError)) {
+                sink.setFoldingError(resResult.error || resResult.energetics?.foldxError || "FoldX simulation failed");
+              }
+
+              if (resResult.energetics) {
+                applyEnergetics(resResult.energetics, resResult.provenance);
+              }
+              setCachedVariant(cacheGeneKey, variant, uniprotId, {
+                mutantPdb: resResult.pdb ?? null,
+                foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
+                foldingDdG: resResult.ddG ?? null,
+                foldingEnergetics: resResult.energetics ?? null,
+                foldingStatus: effectiveFoldingStatus
+              });
+            } else {
+              // Failed status
+              if (resResult?.energetics) {
+                applyEnergetics(resResult.energetics, resResult.provenance);
+              }
             }
           }
-          throw new Error(pollData.error || "Background FoldX execution failed.");
+
+          // Check if any remote jobs are still pending without a jobId
+          const d2PendingNoId = pollData.dynamut2Status === "pending" && pollData.dynamut2JobId == null;
+          const ddmutPendingNoId = pollData.ddmutStatus === "pending" && pollData.ddmutJobId == null;
+          const tmPendingNoId = pollData.thermompnnStatus === "pending" && pollData.thermompnnJobId == null;
+          const hasUnresolvedRemoteIds = d2PendingNoId || ddmutPendingNoId || tmPendingNoId;
+          const elapsed = Date.now() - pollStart;
+
+          // Keep polling up to 25s if remote jobs are pending and have no ID yet
+          if (hasUnresolvedRemoteIds && elapsed < 25000 && pollData.status !== "failed") {
+            continue;
+          }
+
+          // If timeout expired and remote IDs are still null, mark pending jobs unavailable so UI doesn't stall
+          if (hasUnresolvedRemoteIds) {
+            if (d2PendingNoId) sink.setDynamut2Status("unavailable");
+            if (ddmutPendingNoId) sink.setDdmutStatus("unavailable");
+            if (tmPendingNoId) sink.setThermompnnStatus("unavailable");
+          }
+
+          if (pollData.status === "failed") {
+            throw new Error(pollData.error || "Background FoldX execution failed.");
+          }
+          break;
         }
       }
     }

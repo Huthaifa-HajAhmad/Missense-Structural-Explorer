@@ -5,7 +5,8 @@ import {
   getSequenceEvidenceText,
   getEnergeticEvidenceText,
   getGeometricEvidenceText,
-  getOverallInterpretationText
+  getOverallInterpretationText,
+  computeMultiModelLlr
 } from "../perturbationHelpers";
 
 describe("Perturbation Interpretation Helpers", () => {
@@ -89,6 +90,70 @@ describe("Perturbation Interpretation Helpers", () => {
       expect(severeInterpretation).toContain("severe local folding disruption");
       expect(mildInterpretation).toContain("likely affects local packing without evidence for a large conformational rearrangement");
       expect(neutralInterpretation).toContain("minimal structural disruption");
+    });
+  });
+
+  describe("Multi-Model Sequence Consensus", () => {
+    it("aggregates valid deep models and calculates mean LLR", () => {
+      const evaluations = [
+        { provenance: "ESMC-6B (Local)", llr: -6.0 },
+        { provenance: "SaProt 650M AF2 (Local)", llr: -4.0 },
+        { provenance: "ESM-2 3B (Local)", llr: -2.0 }
+      ];
+      const consensus = computeMultiModelLlr(evaluations);
+      expect(consensus.count).toBe(3);
+      expect(consensus.llr).toBeCloseTo(-4.0, 2);
+      expect(consensus.details).toBe("ESMC-6B: -6.0, SaProt: -4.0, ESM-2: -2.0");
+    });
+
+    it("filters out degenerate flat distributions (e.g. llr === 0 with uniform prefs)", () => {
+      const AA_LIST = ["L", "A", "G", "V", "S", "E", "R", "T", "I", "D", "P", "F", "K", "N", "Q", "Y", "M", "H", "W", "C"];
+      const flatPreferences = AA_LIST.map(aa => ({ aa, prob: 0.0491 }));
+
+      const evaluations = [
+        { provenance: "ESMC-6B (Local)", llr: -5.5 },
+        { provenance: "SaProt 650M AF2 (Local)", llr: 0.0, preferences: flatPreferences },
+        { provenance: "ESM-2 3B (Local)", llr: -3.5 }
+      ];
+
+      const consensus = computeMultiModelLlr(evaluations);
+      expect(consensus.count).toBe(2);
+      expect(consensus.llr).toBeCloseTo(-4.5, 2);
+      expect(consensus.details).toBe("ESMC-6B: -5.5, ESM-2: -3.5");
+      expect(consensus.details).not.toContain("SaProt");
+    });
+
+    it("safely handles null, undefined, empty, or non-array evaluations", () => {
+      expect(computeMultiModelLlr(null as any)).toEqual({
+        llr: null,
+        count: 0,
+        details: "No valid sequence model data"
+      });
+      expect(computeMultiModelLlr(undefined as any)).toEqual({
+        llr: null,
+        count: 0,
+        details: "No valid sequence model data"
+      });
+      expect(computeMultiModelLlr([])).toEqual({
+        llr: null,
+        count: 0,
+        details: "No valid sequence model data"
+      });
+      expect(computeMultiModelLlr([null, undefined, { llr: NaN }, { llr: "invalid" }] as any)).toEqual({
+        llr: null,
+        count: 0,
+        details: "No valid sequence model data"
+      });
+    });
+
+    it("formats consensus evidence text when multiModel has count > 1", () => {
+      const consensus = {
+        llr: -5.2,
+        count: 3,
+        details: "ESMC-6B: -6.0, SaProt: -5.0, ESM-2: -4.6"
+      };
+      const text = getSequenceEvidenceText(-6.0, "ESMC-6B", consensus);
+      expect(text).toBe("Sequence-model consensus (3 models): strong perturbation (ESMC-6B: -6.0, SaProt: -5.0, ESM-2: -4.6)");
     });
   });
 });

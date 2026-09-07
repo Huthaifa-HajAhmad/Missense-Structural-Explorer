@@ -186,6 +186,8 @@ export class SidecarSupervisor {
       this.modelServerProcess = spawn("python", ["-m", "uv", "run", "--project", "tools", "--no-sync", "python", modelServerScript], spawnOptions);
     }
 
+    this.isSpawning = false;
+
     // Reset restart counter after 30 seconds of stable running
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = setTimeout(() => {

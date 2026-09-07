@@ -92,16 +92,57 @@ export function getLpsDetails(score: number | null): LPSResult {
 }
 
 /**
+ * Computes a synthesized sequence LLR across all valid deep language models,
+ * filtering out any degenerate uniform distributions.
+ */
+export function computeMultiModelLlr(
+  evaluations: any[]
+): { llr: number | null; count: number; details: string } {
+  const list = Array.isArray(evaluations) ? evaluations : [];
+  const validModels: { name: string; llr: number }[] = [];
+  for (const ev of list) {
+    if (!ev || typeof ev.llr !== "number" || isNaN(ev.llr)) continue;
+    // Guard against degenerate uniform distributions (e.g. llr === 0 with perfectly flat prefs)
+    if (Math.abs(ev.llr) < 1e-4 && Array.isArray(ev.preferences) && ev.preferences.length >= 20) {
+      const firstProb = ev.preferences[0]?.prob;
+      if (typeof firstProb === "number" && !isNaN(firstProb)) {
+        const allEqual = ev.preferences.every((p: any) => typeof p?.prob === "number" && Math.abs(p.prob - firstProb) < 1e-4);
+        if (allEqual) continue;
+      }
+    }
+    const rawName = (ev.provenance || "").split(" ")[0]?.replace(/[()]/g, "") || "Model";
+    validModels.push({ name: rawName, llr: ev.llr });
+  }
+
+  if (validModels.length === 0) {
+    return { llr: null, count: 0, details: "No valid sequence model data" };
+  }
+
+  const meanLlr = validModels.reduce((acc, m) => acc + m.llr, 0) / validModels.length;
+  const details = validModels.map(m => `${m.name}: ${m.llr.toFixed(1)}`).join(", ");
+  return { llr: meanLlr, count: validModels.length, details };
+}
+
+/**
  * Returns structural interpretation text for the summary bullets
  */
-export function getSequenceEvidenceText(llr: number | null | undefined, modelName = "ESMC"): string {
-  if (llr === null || llr === undefined || isNaN(llr)) {
+export function getSequenceEvidenceText(
+  llr: number | null | undefined,
+  modelName = "ESMC",
+  multiModel?: { llr: number | null; count: number; details: string }
+): string {
+  const effectiveLlr = (multiModel && multiModel.llr !== null) ? multiModel.llr : llr;
+  if (effectiveLlr === null || effectiveLlr === undefined || isNaN(effectiveLlr)) {
     return "Sequence evidence: no prediction model data available.";
   }
-  const isDangerous = llr <= THRESHOLDS.esm.pathogenic; // -5.0
-  const isModerate = llr <= THRESHOLDS.esm.benign; // -2.0
+  const isDangerous = effectiveLlr <= THRESHOLDS.esm.pathogenic; // -5.0
+  const isModerate = effectiveLlr <= THRESHOLDS.esm.benign; // -2.0
   const strength = isDangerous ? "strong" : isModerate ? "moderate" : "minimal";
-  return `Sequence-model evidence: ${strength} perturbation (${modelName} LLR ${llr.toFixed(1)})`;
+
+  if (multiModel && multiModel.count > 1) {
+    return `Sequence-model consensus (${multiModel.count} models): ${strength} perturbation (${multiModel.details})`;
+  }
+  return `Sequence-model evidence: ${strength} perturbation (${modelName} LLR ${effectiveLlr.toFixed(1)})`;
 }
 
 export function getEnergeticEvidenceText(vdw: number | null | undefined, sd?: number | null): string {

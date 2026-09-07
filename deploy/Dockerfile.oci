@@ -43,6 +43,8 @@ RUN npm ci
 
 # Copy Python dependency lockfiles & build venv
 COPY tools/pyproject.toml tools/uv.lock ./tools/
+ENV UV_LINK_MODE=copy
+ENV UV_COMPILE_BYTECODE=1
 RUN uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
 
 # Copy source tree
@@ -65,6 +67,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     git \
+    libgomp1 \
+    procps \
     curl \
     ca-certificates \
     default-jre-headless \

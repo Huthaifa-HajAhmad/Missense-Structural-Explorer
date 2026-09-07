@@ -6,13 +6,15 @@ import {
   getSequenceEvidenceText,
   getEnergeticEvidenceText,
   getGeometricEvidenceText,
-  getOverallInterpretationText
+  getOverallInterpretationText,
+  computeMultiModelLlr
 } from "../../../shared/perturbationHelpers";
 import { BackboneDisplacementChart } from "./BackboneDisplacementChart";
 
 interface PhysicalPerturbationSectionProps {
   activeEval: any;
   currentModelName: string;
+  allEvaluations?: any[];
   foldingEnergetics?: any;
   structuralDiff?: any;
   metrics?: any;
@@ -22,6 +24,7 @@ interface PhysicalPerturbationSectionProps {
 export function PhysicalPerturbationSection({
   activeEval,
   currentModelName,
+  allEvaluations,
   foldingEnergetics,
   structuralDiff,
   metrics,
@@ -38,10 +41,13 @@ export function PhysicalPerturbationSection({
     ? Math.max(...structuralDiff.windowDisplacements.map((d: any) => d.displacement))
     : null;
 
-  const lpsScore = calculateLps(activeEval?.llr, vdw, structuralDiff?.clashes?.diff, maxCaDisp);
+  const multiModel = computeMultiModelLlr(allEvaluations && allEvaluations.length > 0 ? allEvaluations : [activeEval]);
+  const effectiveSequenceLlr = multiModel.llr ?? activeEval?.llr;
+
+  const lpsScore = calculateLps(effectiveSequenceLlr, vdw, structuralDiff?.clashes?.diff, maxCaDisp);
   const lpsDetails = getLpsDetails(lpsScore);
 
-  const seqEvidence = getSequenceEvidenceText(activeEval?.llr, currentModelName.split(" ")[0]);
+  const seqEvidence = getSequenceEvidenceText(activeEval?.llr, currentModelName.split(" ")[0], multiModel);
   const energyEvidence = getEnergeticEvidenceText(vdw, foldingEnergetics?.foldxSd);
   const geomEvidence = getGeometricEvidenceText(maxCaDisp);
   const overallInterpretation = getOverallInterpretationText(maxCaDisp, vdw);
@@ -67,7 +73,7 @@ export function PhysicalPerturbationSection({
           </div>
           <ul className="list-disc pl-5 space-y-1.5 text-[11px] leading-relaxed text-slate-300">
             <li>
-              <strong>Sequence-model evidence</strong>: {seqEvidence.replace(/Sequence-model evidence:\s*/i, "")}
+              <strong>Sequence-model evidence</strong>: {seqEvidence.replace(/^Sequence-model (?:evidence|consensus(?:\s*\([^)]*\))?):\s*/i, "")}
             </li>
             <li>
               <strong>Energetic evidence</strong>: {energyEvidence.replace(/Energetic evidence:\s*/i, "")}

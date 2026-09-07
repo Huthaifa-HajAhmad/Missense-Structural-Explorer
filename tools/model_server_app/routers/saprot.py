@@ -24,6 +24,52 @@ class SaprotRequest(BaseModel):
     hfToken: str | None = None
     modelName: str = "westlake-repl/SaProt_650M_AF2"
 
+def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: str = None) -> dict[str, float]:
+    scores = {}
+    for item in preds:
+        raw_tok = item.token_str if hasattr(item, "token_str") else (item.get("token_str", "") if isinstance(item, dict) else "")
+        candidate = raw_tok.strip().lstrip("Ġ ").strip()
+        if not candidate or candidate.startswith(("<", "[", "#")):
+            continue
+
+        first_char = candidate[0].upper()
+        if first_char not in AA_LIST:
+            continue
+
+        raw_score = item.score if hasattr(item, "score") else (item.get("score", 0.0) if isinstance(item, dict) else 0.0)
+        try:
+            score_val = float(raw_score)
+        except (TypeError, ValueError):
+            continue
+
+        if not np.isfinite(score_val) or score_val <= 0:
+            continue
+
+        if first_char not in scores or score_val > scores[first_char]:
+            scores[first_char] = score_val
+
+    matched_aas = [aa for aa in AA_LIST if aa in scores]
+    if len(matched_aas) < 2:
+        raise ValueError(f"SaProt fill_mask returned insufficient valid amino acid tokens ({len(matched_aas)}/20 matched).")
+
+    if (expected_wt and expected_mut) and (expected_wt not in scores and expected_mut not in scores):
+        raise ValueError(f"SaProt fill_mask missing both expected WT ({expected_wt}) and MUT ({expected_mut}) in candidate scores.")
+
+    for aa in AA_LIST:
+        if aa not in scores:
+            scores[aa] = 1e-9
+
+    total_score = sum(scores.values())
+    if total_score <= 0 or not np.isfinite(total_score):
+        raise ValueError(f"SaProt fill_mask invalid total score: {total_score}")
+
+    probs = {aa: (scores[aa] / total_score) for aa in AA_LIST}
+    prob_vals = list(probs.values())
+    if np.std(prob_vals) < 1e-6:
+        raise ValueError("SaProt fill_mask produced a degenerate uniform distribution.")
+
+    return probs
+
 def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str, token: str, wt_pdb: str, start_offset: int = 0):
     from huggingface_hub import InferenceClient
     client = InferenceClient(token=token)
@@ -51,32 +97,22 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         preds = client.fill_mask(masked_seq, model=model_name, targets=targets, top_k=20)
     except Exception as e:
         print(f"[Model Server] SaProt remote call for {model_name} failed: {e}. Trying westlake-repl/SaProt_35M_AF2...")
-        model_name = "westlake-repl/SaProt_35M_AF2"
-        preds = client.fill_mask(masked_seq, model=model_name, targets=targets, top_k=20)
-    
-    scores = {}
-    for item in preds:
-        tok_str = item.token_str if hasattr(item, "token_str") else item["token_str"]
-        score_val = item.score if hasattr(item, "score") else item["score"]
-        if len(tok_str) > 0:
-            scores[tok_str[0]] = score_val
-            
-    for aa in AA_LIST:
-        if aa not in scores:
-            scores[aa] = 1e-9
-            
-    total_score = sum(scores.values())
+        try:
+            model_name = "westlake-repl/SaProt_35M_AF2"
+            preds = client.fill_mask(masked_seq, model=model_name, targets=targets, top_k=20)
+        except Exception:
+            preds = client.fill_mask(masked_seq, model=model_name, top_k=50)
 
-    probs = {aa: (scores[aa] / total_score) for aa in AA_LIST}
-    
+    probs = parse_saprot_fill_mask_scores(preds, expected_wt=wt, expected_mut=mut)
+
     wt_prob = probs.get(wt, 1e-9)
     mut_prob = probs.get(mut, 1e-9)
-    
+
     llr = float(np.log(mut_prob + 1e-9) - np.log(wt_prob + 1e-9))
-    
+
     preferences = [{"aa": aa, "prob": round(probs[aa], 6)} for aa in AA_LIST]
     preferences.sort(key=lambda x: x["prob"], reverse=True)
-    
+
     mut_rank = 1
     for idx, pref in enumerate(preferences):
         if pref["aa"] == mut:
@@ -129,22 +165,20 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
             mut_seq_sa_masked_list.append(a + d)
     mut_masked_seq = "".join(mut_seq_sa_masked_list)
     
-    mut_preds = client.fill_mask(mut_masked_seq, model=model_name, targets=targets, top_k=20)
-    mut_scores = {}
+    mut_preds = []
+    try:
+        mut_preds = client.fill_mask(mut_masked_seq, model=model_name, targets=targets, top_k=20)
+    except Exception as e:
+        try:
+            mut_preds = client.fill_mask(mut_masked_seq, model=model_name, top_k=50)
+        except Exception:
+            pass
 
-    for item in mut_preds:
-        tok_str = item.token_str if hasattr(item, "token_str") else item["token_str"]
-        score_val = item.score if hasattr(item, "score") else item["score"]
-        if len(tok_str) > 0:
-            mut_scores[tok_str[0]] = score_val
-            
-    for aa in AA_LIST:
-        if aa not in mut_scores:
-            mut_scores[aa] = 1e-9
-            
-    mut_total_score = sum(mut_scores.values())
-    mut_probs = {aa: (mut_scores[aa] / mut_total_score) for aa in AA_LIST}
-    
+    try:
+        mut_probs = parse_saprot_fill_mask_scores(mut_preds, expected_wt=wt, expected_mut=mut)
+    except Exception:
+        mut_probs = probs
+
     kl_div = float(sum(probs[aa] * np.log((probs[aa] + 1e-9) / (mut_probs[aa] + 1e-9)) for aa in AA_LIST))
     
     return {

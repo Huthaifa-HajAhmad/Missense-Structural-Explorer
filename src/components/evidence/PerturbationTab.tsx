@@ -366,6 +366,7 @@ export function PerturbationTab({
           <PhysicalPerturbationSection
             activeEval={activeEval}
             currentModelName={currentModel.name}
+            allEvaluations={[result.esmcEval, result.esm2Eval, result.saprotEval].filter(Boolean)}
             foldingEnergetics={foldingEnergetics}
             structuralDiff={structuralDiff}
             metrics={metrics}
