@@ -8,8 +8,14 @@ from tools.esm2_eval import download_weights
 vesm_tokenizer = None
 vesm_model = None
 
-MAX_LOADED_MODELS = int(os.environ.get("MAX_LOADED_MODELS", "2"))
+MAX_LOADED_MODELS = int(os.environ.get("MAX_LOADED_MODELS", "1"))
 loaded_models: "OrderedDict[str, tuple]" = OrderedDict()
+
+# Optimize CPU thread allocation for OCI Ampere A1 (2-4 cores)
+if not torch.cuda.is_available():
+    torch_threads = int(os.environ.get("TORCH_NUM_THREADS", "2"))
+    torch.set_num_threads(torch_threads)
+    print(f"[Model Server] PyTorch CPU thread count set to {torch_threads}.")
 
 # Backward-compatible references for router and health check inspections
 esm2_models = loaded_models
@@ -37,6 +43,7 @@ HF_MODEL_REVISIONS = {
     "facebook/esm2_t33_650M_UR50D": os.environ.get("HF_REV_ESM2_650M", "08e4846e537177426273712802403f7ba8261b6c"),
     "facebook/esm2_t30_150M_UR50D": os.environ.get("HF_REV_ESM2_150M", "a695f6045e2e32885fa60af20c13cb35398ce30c"),
     "westlake-repl/SaProt_650M_AF2": os.environ.get("HF_REV_SAPROT_650M", "d9b9ad00ef61c0990e611b2b43f2231c7de24b38"),
+    "westlake-repl/SaProt_35M_AF2": os.environ.get("HF_REV_SAPROT_35M", "f9f257ef5352c3c9c61230e7ea2054ffcfab51d9"),
 }
 
 def _safe_load_tokenizer(model_name: str, token: str = None, revision: str = None):

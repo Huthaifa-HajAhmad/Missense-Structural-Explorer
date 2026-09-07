@@ -142,7 +142,7 @@ export function fetchProgressiveLandscape(
 }
 
 export function fetchProgressiveStructuralAssessments(
-  params: BiophysicalAnalysisParams & { acmgWeighting?: any },
+  params: BiophysicalAnalysisParams & { acmgWeighting?: any; saprotEngine?: string },
   apiClient: any,
   signal: AbortSignal,
   setAnalysisState: (fn: any) => void,

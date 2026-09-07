@@ -28,7 +28,8 @@ export function PerturbationModelCards({
   onOpenSettings
 }: PerturbationModelCardsProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {models.map(m => {
         const isSelected = m.id === activeModelId;
         const IconComponent = m.icon;
@@ -126,7 +127,21 @@ export function PerturbationModelCards({
                 {(() => {
                   const prov = ((m.data as any).provenance || "").toLowerCase();
                   if (prov.includes("fallback") || prov.includes("vesm")) {
-                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">Fallback (CPU)</span>;
+                    return (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
+                          Fallback (CPU)
+                        </span>
+                        {m.data?.hfError && (
+                          <span 
+                            title={`HF Diagnostic: ${m.data.hfError}`}
+                            className="text-[10px] cursor-help px-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                          >
+                            ℹ️
+                          </span>
+                        )}
+                      </div>
+                    );
                   }
                   if (prov.includes("remote") || prov.includes("biohub") || prov.includes("hf")) {
                     return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">Cloud Remote</span>;
@@ -169,6 +184,10 @@ export function PerturbationModelCards({
           </div>
         );
       })}
+    </div>
+    <p className="text-[10px] text-slate-400 font-mono mt-2 px-1">
+      Note: Embedding shift scale reflects latent model dimensionality (768-dim for VESM / SaProt 35M, 1280-dim for ESM-2 650M / SaProt 650M, 2560-dim for ESMC-6B).
+    </p>
     </div>
   );
 }

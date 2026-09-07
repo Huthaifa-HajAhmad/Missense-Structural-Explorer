@@ -75,8 +75,9 @@ function initBiophysicalJobQueue(): void {
         try {
           foldxResult = await generateMutantPdb(data.wtPdb, data.mutation, data.uniprotId, data.jobDir, signal, data.options);
         } catch (err: any) {
-          const isBinaryMissing = /not found|not executable|cannot be executed|parameter files missing|ENOENT/i.test(err.message);
-          console.warn(`[Queue Worker] FoldX execution failed (${err.message}). Binary missing: ${isBinaryMissing}. Proceeding with independent biophysical predictors.`);
+          const isPdbResidueMissing = /not found in the PDB structure|Mutation mismatch|Invalid mutation code/i.test(err.message);
+          const isBinaryMissing = !isPdbResidueMissing && /FoldX binary not found|parameter files missing|cannot be executed|ENOENT/i.test(err.message);
+          console.warn(`[Queue Worker] FoldX execution failed (${err.message}). Binary missing: ${isBinaryMissing}. PDB coordinate mismatch: ${isPdbResidueMissing}. Proceeding with independent biophysical predictors.`);
           foldxResult = {
             pdb: null,
             ddG: null,
@@ -84,7 +85,7 @@ function initBiophysicalJobQueue(): void {
             error: err.message,
             energetics: {
               foldxMean: null,
-              foldxRepairFailed: !isBinaryMissing,
+              foldxRepairFailed: !isBinaryMissing && !isPdbResidueMissing,
               foldxBinaryMissing: isBinaryMissing,
               foldxError: err.message
             }
@@ -106,9 +107,9 @@ function initBiophysicalJobQueue(): void {
         };
         const structureProvenance = latestJob?.structureProvenance || data.structureProvenance || {};
 
-        const mutMatch = data.mutation ? data.mutation.trim().match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/) : null;
+        const mutMatch = data.mutation ? data.mutation.trim().match(/^([a-zA-Z])([a-zA-Z])?(\d+)([a-zA-Z])$/) : null;
         const wt1 = mutMatch ? mutMatch[1].toUpperCase() : "";
-        const resolvedChain = mutMatch ? mutMatch[2].toUpperCase() : "A";
+        const resolvedChain = (mutMatch && mutMatch[2]) ? mutMatch[2].toUpperCase() : "A";
         const posNum = mutMatch ? parseInt(mutMatch[3], 10) : 0;
         const mut1 = mutMatch ? mutMatch[4].toUpperCase() : "";
 
@@ -212,6 +213,14 @@ async function startServer(): Promise<void> {
 
   const serverInstance = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  });
+
+  serverInstance.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`\n[FATAL PORT COLLISION] Port ${PORT} is already in use by another process!`);
+      console.error(`Please terminate the conflicting process on port ${PORT} or configure a different port via PORT=...\n`);
+      process.exit(1);
+    }
   });
 
   // Register graceful shutdown coordinator

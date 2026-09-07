@@ -140,7 +140,7 @@ export function ConnectionsSection() {
           placeholder="Enter EvolutionaryScale Forge API key…"
           value={settings.biohubApiToken || ""}
           onChange={(value) => updateSetting("biohubApiToken", value)}
-          description="Enables ESM3 structural refinement, allosteric perturbations, and ESMC representation metrics."
+          description="Enables ESM3 structural refinement, Evo 2 40B genomic foundation scoring, GPN-Star phylogeny LM, and ESMC representation metrics."
           action={{
             label: "Test connection",
             busyLabel: "Testing…",
@@ -170,7 +170,7 @@ export function ConnectionsSection() {
           placeholder="Enter HF_TOKEN…"
           value={settings.hfToken || ""}
           onChange={(value) => updateSetting("hfToken", value)}
-          description="Downloads and runs ESM-2 3B, SaProt, and VESM predictions via Hugging Face inference."
+          description="Downloads and runs ESM-2 650M, SaProt (local CPU / cloud), and VESM predictions via Hugging Face inference."
           action={{
             label: "Test connection",
             busyLabel: "Testing…",

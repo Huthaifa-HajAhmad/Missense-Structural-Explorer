@@ -111,6 +111,10 @@ export async function fetchStructuralModelData(
     return { error: `ESM-2 3B analysis failed: ${err.message}`, status: "error" as const };
   });
 
+  const chosenSaprotModel = context.saprotEngine === "saprot-35m"
+    ? "westlake-repl/SaProt_35M_AF2"
+    : "westlake-repl/SaProt_650M_AF2";
+
   const saprotEvalPromise = pdbTextPromise.then(async (pdbText) => {
     return runSaprotAnalysis(
       gene,
@@ -118,7 +122,9 @@ export async function fetchStructuralModelData(
       uniprotId,
       sequence,
       hfToken,
-      pdbText
+      pdbText,
+      chosenSaprotModel,
+      context.saprotEngine
     );
   }).catch(err => {
     console.warn("[SaProt Parallel Run Warning] Failed to run SaProt analysis:", err);

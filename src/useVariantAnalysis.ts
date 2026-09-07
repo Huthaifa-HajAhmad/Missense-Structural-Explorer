@@ -238,7 +238,8 @@ export default function useVariantAnalysis() {
         gene,
         variant,
         uniprotId,
-        acmgWeighting
+        acmgWeighting,
+        saprotEngine: settings.saprotEngine
       },
       apiClient,
       new AbortController().signal,
@@ -246,7 +247,7 @@ export default function useVariantAnalysis() {
       Date.now(),
       () => Date.now()
     );
-  }, [store.gene, store.variant, store.uniprotId, store.analysisState.result?.metadata, store.setAnalysisState, settings.acmgWeighting, apiClient]);
+  }, [store.gene, store.variant, store.uniprotId, store.analysisState.result?.metadata, store.setAnalysisState, settings.acmgWeighting, settings.saprotEngine, apiClient]);
 
   const state = {
     theme,

@@ -22,6 +22,7 @@ export interface SaprotEvalResult {
   klDivergence?: number | null;
   conformationState?: string | null;
   provenance?: string;
+  hfError?: string | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
@@ -40,7 +41,8 @@ export async function runSaprotAnalysis(
   sequence: string,
   hfToken?: string | null,
   wtPdb?: string | null,
-  modelName: string = "westlake-repl/SaProt_650M_AF2"
+  modelName: string = "westlake-repl/SaProt_650M_AF2",
+  saprotEngine?: string
 ): Promise<SaprotEvalResult | null> {
   const mutMatch = variant.match(/([a-zA-Z]{3}|[a-zA-Z])\s*(\d+)\s*([a-zA-Z]{3}|[a-zA-Z])/);
   if (!mutMatch) return null;
@@ -77,7 +79,9 @@ export async function runSaprotAnalysis(
         mut: mutRes,
         wtPdb: wtPdb || null,
         hfToken: hfToken || null,
-        modelName: modelName
+        modelName: modelName,
+        preferRemote: saprotEngine === "remote-hf",
+        engine: saprotEngine || null
       }),
       signal: AbortSignal.timeout(120000) // CPU inference + model load can take 1-2 min
     });
@@ -117,7 +121,8 @@ export async function runSaprotAnalysis(
           localShiftMap,
           klDivergence,
           conformationState,
-          provenance
+          provenance,
+          hfError: data.hfError || undefined
         };
       }
       return { error: `SaProt sidecar returned unexpected response format`, status: "error" };

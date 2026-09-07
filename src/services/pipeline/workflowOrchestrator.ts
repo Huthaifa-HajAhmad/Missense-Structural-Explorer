@@ -391,7 +391,8 @@ export async function executeFullAnalysisWorkflow({
               gene: targetGene,
               variant: targetVariant,
               uniprotId: targetUniprot,
-              acmgWeighting: settings.acmgWeighting
+              acmgWeighting: settings.acmgWeighting,
+              saprotEngine: settings.saprotEngine
             },
             apiClient,
             activeSignal,

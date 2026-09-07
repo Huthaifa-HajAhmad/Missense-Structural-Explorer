@@ -411,7 +411,9 @@ export const conservationDataSchema = z.object({
   esm1bPred: z.string().nullable().optional(),
   popeve: z.number().nullable().optional(),
   gpnStar: z.number().nullable().optional(),
+  gpnStarStatus: z.enum(["live", "token_required", "unavailable"]).optional(),
   evo2: z.number().nullable().optional(),
+  evo2Status: z.enum(["live", "token_required", "unavailable"]).optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),

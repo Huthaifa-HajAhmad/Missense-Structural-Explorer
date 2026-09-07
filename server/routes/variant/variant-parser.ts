@@ -20,6 +20,10 @@ export const analyzeVariantSchema = z.object({
   variant: z.string().min(1).max(200),
   uniprotId: z.string().max(50).optional().default(""),
   acmgWeighting: z.enum(["standard", "conservative", "strict-structural"]).optional(),
+  userDirections: z.string().max(1000).optional(),
+  originalNotation: z.string().max(200).optional(),
+  biohubToken: z.string().optional(),
+  saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
 export interface ParsedVariantContext {
@@ -36,6 +40,8 @@ export interface ParsedVariantContext {
   pos: number;
   wt1Letter: string;
   mut1Letter: string;
+  biohubToken?: string | null;
+  saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
 export async function validateAndParseVariantRequest(req: any, res: any): Promise<ParsedVariantContext | null> {
@@ -149,6 +155,8 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     sequence,
     pos,
     wt1Letter,
-    mut1Letter
+    mut1Letter,
+    biohubToken: (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null,
+    saprotEngine: req.body?.saprotEngine || (req.headers["x-saprot-engine"] as string) || undefined
   };
 }

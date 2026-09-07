@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState, useEffect, useMemo, memo } from "react";
 import { 
   Activity, 
   ShieldAlert, 
@@ -139,9 +139,34 @@ const EnergeticsView = memo(function EnergeticsView({
   foldingError = null
 }: EnergeticsViewProps) {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [skippedSlowPredictors, setSkippedSlowPredictors] = useState(false);
   const { settings } = useSettings();
   const energyUnit = settings.energyUnit;
   const result = analysisState.result;
+
+  useEffect(() => {
+    let interval: any;
+    const isAnyPending = isFolding || dynamut2Status === "pending" || ddmutStatus === "pending" || thermompnnStatus === "pending";
+    if (isAnyPending && !skippedSlowPredictors) {
+      const start = Date.now();
+      interval = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isFolding, dynamut2Status, ddmutStatus, thermompnnStatus, skippedSlowPredictors]);
+
+  const getSimulationStage = (elapsed: number) => {
+    if (elapsed < 12) return { stage: 1, label: "Queued", detail: "Worker scheduled & PDB coordinates validated" };
+    if (elapsed < 40) return { stage: 2, label: "NMA / Graph Embedding", detail: "Computing normal mode elastic network & graph convolutions" };
+    if (elapsed < 75) return { stage: 3, label: "Scoring & Repacking", detail: "Running atomic force field minimization & stability head" };
+    return { stage: 4, label: "Finalizing", detail: "Aggregating calibrated multi-tool consensus" };
+  };
 
   const formatDdGValue = (val: number | null, unit: "kcal/mol" | "kJ/mol") => {
     if (val === null || val === undefined) return "N/A";
@@ -183,25 +208,53 @@ const EnergeticsView = memo(function EnergeticsView({
     );
   }
 
-  const energetics = {
-    foldx: foldingEnergetics?.foldx ?? foldingDdG,
-    foldxMean: foldingEnergetics?.foldxMean ?? foldingDdG,
-    foldxSd: foldingEnergetics?.foldxSd ?? 0,
-    vdw: foldingEnergetics?.vdw ?? 0,
-    electrostatics: foldingEnergetics?.electrostatics ?? 0,
-    stericClashWarning: foldingEnergetics?.stericClashWarning ?? false,
-    localSidechainRmsd: foldingEnergetics?.localSidechainRmsd ?? 0.0,
-    dynamut2: foldingEnergetics?.dynamut2 ?? null,
-    ddmut: foldingEnergetics?.ddmut ?? null,
-    rasp: foldingEnergetics?.rasp ?? null,
-    thermompnn: foldingEnergetics?.thermompnn ?? null,
-    stabilityoracle: foldingEnergetics?.stabilityoracle ?? null,
-    bayesdel: result.conservationData?.bayesdel ?? null,
-    consensusVerdict: foldingEnergetics?.consensusVerdict ?? null,
-    raspReason: (foldingEnergetics as any)?.raspReason,
-    foldxRepairFailed: foldingEnergetics?.foldxRepairFailed ?? false,
-    foldxBinaryMissing: (foldingEnergetics as any)?.foldxBinaryMissing ?? false
-  };
+  const uniprotFeatures = result?.uniprotFeatures?.features;
+  const residueIndex = result?.metadata?.residueIndex ?? 0;
+  const foldxDdG = foldingEnergetics?.foldx ?? foldingDdG;
+  const foldxMeanVal = foldingEnergetics?.foldxMean ?? foldingDdG;
+  const foldxSd = foldingEnergetics?.foldxSd ?? 0;
+  const vdw = foldingEnergetics?.vdw ?? 0;
+  const electrostatics = foldingEnergetics?.electrostatics ?? 0;
+  const stericClashWarning = foldingEnergetics?.stericClashWarning ?? false;
+  const localSidechainRmsd = foldingEnergetics?.localSidechainRmsd ?? 0.0;
+  const dynamut2 = foldingEnergetics?.dynamut2 ?? null;
+  const ddmut = foldingEnergetics?.ddmut ?? null;
+  const rasp = foldingEnergetics?.rasp ?? null;
+  const thermompnn = foldingEnergetics?.thermompnn ?? null;
+  const stabilityoracle = foldingEnergetics?.stabilityoracle ?? null;
+  const bayesdel = result?.conservationData?.bayesdel ?? null;
+  const consensusVerdict = foldingEnergetics?.consensusVerdict ?? null;
+  const raspReason = (foldingEnergetics as any)?.raspReason;
+  const foldxRepairFailed = foldingEnergetics?.foldxRepairFailed ?? false;
+  const foldxBinaryMissing = (foldingEnergetics as any)?.foldxBinaryMissing ?? false;
+
+  const energetics = useMemo(() => ({
+    foldx: foldxDdG,
+    foldxMean: foldxMeanVal,
+    foldxSd,
+    vdw,
+    electrostatics,
+    stericClashWarning,
+    localSidechainRmsd,
+    dynamut2,
+    ddmut,
+    rasp,
+    thermompnn,
+    stabilityoracle,
+    bayesdel,
+    consensusVerdict,
+    raspReason,
+    foldxRepairFailed,
+    foldxBinaryMissing
+  }), [
+    foldxDdG, foldxMeanVal, foldxSd, vdw, electrostatics, stericClashWarning,
+    localSidechainRmsd, dynamut2, ddmut, rasp, thermompnn, stabilityoracle,
+    bayesdel, consensusVerdict, raspReason, foldxRepairFailed, foldxBinaryMissing
+  ]);
+
+  const calConsensus = useMemo(() => {
+    return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex);
+  }, [energetics, uniprotFeatures, residueIndex]);
 
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full font-mono text-xs`} id="energetics-view" role="region" aria-label="Biophysical Energetics Analysis">
@@ -286,15 +339,66 @@ const EnergeticsView = memo(function EnergeticsView({
         )}
         {/* ─────────────────────────────────────────────────────────────────── */}
 
-        {isFolding && (
-          <div className="p-3.5 rounded-lg border space-y-1 animate-fade-in" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
-            <div className="font-bold text-xs uppercase flex items-center gap-2">
-              <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
-              <span>Biophysical Simulation In Progress</span>
+        {isFolding && !skippedSlowPredictors && (
+          <div className="p-4 rounded-xl border space-y-3 animate-fade-in" style={{ background: "rgba(196,104,73,0.06)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-bold text-xs uppercase flex items-center gap-2">
+                <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
+                <span>Biophysical Simulation In Progress</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-accent-clay)" }}>
+                  Elapsed: {elapsedSeconds}s (typical: 45–75s)
+                </span>
+                {elapsedSeconds >= 45 && (
+                  <button
+                    type="button"
+                    onClick={() => setSkippedSlowPredictors(true)}
+                    className="text-[11px] px-2.5 py-1 rounded-md font-semibold border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                  >
+                    Skip Slow Predictors
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-xs leading-relaxed opacity-90">
-              FoldX mutant minimization, DynaMut2, and DDMut simulations are currently calculating in the background. Generating mutated structures and running atomic force fields. Please wait...
-            </p>
+
+            {/* Stage Indicator Stepper */}
+            {(() => {
+              const current = getSimulationStage(elapsedSeconds);
+              const stages = [
+                { id: 1, name: "Queued" },
+                { id: 2, name: "NMA / Embedding" },
+                { id: 3, name: "Force Field Repack" },
+                { id: 4, name: "Scoring" }
+              ];
+              return (
+                <div className="space-y-1.5 pt-1">
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    {stages.map((st) => {
+                      const isActive = current.stage === st.id;
+                      const isPast = current.stage > st.id;
+                      return (
+                        <div
+                          key={st.id}
+                          className={`text-[10px] font-mono py-1 px-1 rounded border transition-all ${
+                            isActive
+                              ? "bg-[var(--cs-accent-clay)] text-white border-[var(--cs-accent-clay)] font-bold animate-pulse"
+                              : isPast
+                              ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium"
+                              : "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)] opacity-60"
+                          }`}
+                        >
+                          {st.id}. {st.name}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-sans italic">
+                    Current stage: <span className="font-medium text-[var(--cs-text-primary)]">{current.detail}</span>
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -312,8 +416,8 @@ const EnergeticsView = memo(function EnergeticsView({
               <tbody>
                 {(() => {
                   const isFoldxPending = isFolding && energetics.foldxMean === null;
-                  const isDynamutPending = (dynamut2Status === "pending" || (isFolding && energetics.dynamut2 === null));
-                  const isDdmutPending = (ddmutStatus === "pending" || (isFolding && energetics.ddmut === null));
+                  const isDynamutPending = !skippedSlowPredictors && (dynamut2Status === "pending" || (isFolding && energetics.dynamut2 === null));
+                  const isDdmutPending = !skippedSlowPredictors && (ddmutStatus === "pending" || (isFolding && energetics.ddmut === null));
                   const isThermompnnPending = (thermompnnStatus === "pending" || (isFolding && energetics.thermompnn === null));
                   const isStabilityOraclePending = isFolding && energetics.stabilityoracle === null;
 
@@ -359,8 +463,23 @@ const EnergeticsView = memo(function EnergeticsView({
                         };
                       }
                     } else if (item.isPending) {
-                      scoreText = "Calculating...";
-                      badge = { label: "Calculating", category: "Calculating", style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold" };
+                      scoreText = item.key === "dynamut2" 
+                        ? `Running NMA (${elapsedSeconds}s)` 
+                        : (item.key === "ddmut" 
+                            ? `Graph Embedding (${elapsedSeconds}s)` 
+                            : `Simulating (${elapsedSeconds}s)...`);
+                      badge = { 
+                        label: `In Progress (${elapsedSeconds}s)`, 
+                        category: `In Progress (${elapsedSeconds}s)`, 
+                        style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold" 
+                      };
+                    } else if (skippedSlowPredictors && (item.key === "dynamut2" || item.key === "ddmut")) {
+                      scoreText = "Skipped";
+                      badge = { 
+                        label: "Skipped by User", 
+                        category: "Skipped", 
+                        style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
+                      };
                     } else {
                       scoreText = "Unavailable";
                       if (item.key === "foldx" && energetics.foldxBinaryMissing) {
@@ -438,9 +557,6 @@ const EnergeticsView = memo(function EnergeticsView({
           <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
 
             {(() => {
-              const uniprotFeatures = analysisState.result?.uniprotFeatures?.features;
-              const residueIndex = analysisState.result?.metadata?.residueIndex ?? 0;
-              const calConsensus = computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex);
               const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
               const foldxMean = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx);
               const dynamut2 = energetics.dynamut2;
@@ -577,7 +693,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     <div key={t.key} className="flex justify-between items-center text-[10px] font-mono py-1.5 border-b border-dashed" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
                       <span style={{ color: "var(--cs-text-secondary)" }}>{t.name}:</span>
                       <div className="flex gap-2">
-                        <span className="font-bold" style={{ color: "var(--cs-text-primary)" }}>{t.val.toFixed(2)} kcal/mol</span>
+                        <span className="font-bold" style={{ color: "var(--cs-text-primary)" }}>{formatDdGValue(t.val, energyUnit)}</span>
                         <span className="text-slate-400">| P: {prob}% [{lower}%–{upper}%]</span>
                       </div>
                     </div>

@@ -23,6 +23,8 @@ class SaprotRequest(BaseModel):
     wtPdb: str | None = None
     hfToken: str | None = None
     modelName: str = "westlake-repl/SaProt_650M_AF2"
+    preferRemote: bool = False
+    engine: str | None = None
 
 def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: str = None) -> dict[str, float]:
     scores = {}
@@ -150,7 +152,7 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
                 shift_val = float(distances[target_token_idx])
                 res_char = wt_sequence[target_token_idx - 1]
                 local_shift_map.append({
-                    "position": target_token_idx,
+                    "position": target_token_idx + start_offset,
                     "residue": res_char,
                     "shift": round(shift_val, 4)
                 })
@@ -203,14 +205,20 @@ def predict_saprot_sync(req: SaprotRequest):
     mut = req.mut.upper()
     pos = req.position
     
-    sequence, pos, start_offset = crop_sequence_around_mutation(sequence, pos, 1022)
+    # Window sequence to 510 residues so sequence + 3Di pairs remain strictly within 1026 position embeddings
+    sequence, pos, start_offset = crop_sequence_around_mutation(sequence, pos, 510)
             
     if pos < 1 or pos > len(sequence):
         raise HTTPException(status_code=400, detail=f"Position {pos} out of bounds.")
     if sequence[pos - 1] != wt:
         raise HTTPException(status_code=400, detail="Wild-type AA mismatch.")
 
-    if req.hfToken:
+    if getattr(req, "engine", None) == "saprot-35m" and req.modelName == "westlake-repl/SaProt_650M_AF2":
+        req.modelName = "westlake-repl/SaProt_35M_AF2"
+
+    hf_error_detail = None
+    should_prefer_remote = getattr(req, "preferRemote", False) or getattr(req, "engine", None) == "remote-hf"
+    if req.hfToken and should_prefer_remote:
         try:
             print(f"[Model Server] Querying SaProt remotely via HF Serverless Inference API (model={req.modelName})...")
             result = run_saprot_remote(req.modelName, sequence, pos, wt, mut, req.hfToken, req.wtPdb, start_offset=start_offset)
@@ -218,115 +226,123 @@ def predict_saprot_sync(req: SaprotRequest):
             return result
         except Exception as e:
             import traceback
-            print(f"[Model Server] SaProt remote run FAILED: {type(e).__name__}: {e}")
+            hf_error_detail = f"{type(e).__name__}: {e}"
+            print(f"[Model Server] SaProt remote run FAILED: {hf_error_detail}")
             print(traceback.format_exc())
 
-    if not torch.cuda.is_available():
-        print(f"[Model Server] No GPU detected. SaProt falling back to VESM-150M.")
-        vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-        vesm_res = predict_vesm_sync(vesm_req)
-        vesm_res["klDivergence"] = 0.0
-        vesm_res["conformationState"] = "#"
-        vesm_res["provenance"] = "VESM-150M (CPU Local - no GPU)" if not req.hfToken else "VESM-150M (CPU Fallback - SaProt remote failed)"
-        return vesm_res
+    # Local CPU / GPU inference via PyTorch (zero CUDA requirement)
+    target_models = [req.modelName]
+    if req.modelName != "westlake-repl/SaProt_35M_AF2":
+        target_models.append("westlake-repl/SaProt_35M_AF2")
 
-    try:
-        tokenizer, model = models.get_saprot_model(req.modelName, token=req.hfToken)
-        device = next(model.parameters()).device
-        
-        if req.wtPdb:
-            seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1)
-        else:
-            seq_3di = "#" * len(sequence)
+    last_local_err = None
+    for model_candidate in target_models:
+        try:
+            print(f"[Model Server] Attempting local SaProt execution using {model_candidate}...")
+            tokenizer, model = models.get_saprot_model(model_candidate, token=req.hfToken)
+            device = next(model.parameters()).device
             
-        seq_sa = "".join(a + d for a, d in zip(sequence, seq_3di))
-        
-        inputs = tokenizer(seq_sa, return_tensors="pt")
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-        
-        with torch.inference_mode():
-            outputs = model(**inputs, output_hidden_states=True)
-            
-        logits = outputs.logits[0]
-        hidden_states = outputs.hidden_states[-1][0]
-        
-        s_pos = seq_3di[pos - 1]
-        
-        vocab_map = {}
-        for aa in AA_LIST:
-            tok_str = aa + s_pos
-            tok_id = tokenizer.convert_tokens_to_ids(tok_str)
-            if tok_id == tokenizer.unk_token_id or tok_id is None:
-                tok_id = tokenizer.convert_tokens_to_ids(aa + "#")
-            vocab_map[aa] = tok_id
-            
-        wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
-            logits, pos, wt, mut, vocab_map
-        )
-        
-        mut_seq_chars = list(sequence)
-        mut_seq_chars[pos - 1] = mut
-        mut_sequence = "".join(mut_seq_chars)
-        mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
-        
-        mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
-        mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
-        with torch.inference_mode():
-            mut_outputs = model(**mut_inputs, output_hidden_states=True)
-            
-        mut_hidden_states = mut_outputs.hidden_states[-1][0]
-        
-        seq_len = min(hidden_states.size(0), mut_hidden_states.size(0))
-        diff = hidden_states[:seq_len] - mut_hidden_states[:seq_len]
-        distances = torch.norm(diff, p=2, dim=-1)
-        
-        embedding_shift = round(distances[pos].item(), 4)
-        
-        local_shift_map = []
-        for i in range(-10, 11):
-            target_token_idx = pos + i
-            if 1 <= target_token_idx < seq_len - 1:
-                shift_val = distances[target_token_idx].item()
-                res_char = sequence[target_token_idx - 1]
-                local_shift_map.append({
-                    "position": target_token_idx,
-                    "residue": res_char,
-                    "shift": round(shift_val, 4)
-                })
+            if req.wtPdb:
+                seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1)
+            else:
+                seq_3di = "#" * len(sequence)
                 
-        aa_tokens = [vocab_map[aa] for aa in AA_LIST]
-        wt_logits = logits[pos]
-        wt_std_logits = torch.tensor([wt_logits[tok].item() for tok in aa_tokens])
-        p_wt = torch.softmax(wt_std_logits, dim=-1)
-        
-        mut_logits = mut_outputs.logits[0, pos]
-        mut_std_logits = torch.tensor([mut_logits[tok].item() for tok in aa_tokens])
-        p_mut = torch.softmax(mut_std_logits, dim=-1)
-        
-        kl_div = float(torch.sum(p_wt * torch.log((p_wt + 1e-9) / (p_mut + 1e-9))).item())
-        
-        return {
-            "status": "success",
-            "wtProbability": wt_prob,
-            "mutProbability": mut_prob,
-            "llr": llr,
-            "preferences": preferences,
-            "mutRank": mut_rank,
-            "positionalEntropy": pos_entropy,
-            "embeddingShift": embedding_shift,
-            "localShiftMap": local_shift_map,
-            "klDivergence": round(kl_div, 4),
-            "conformationState": s_pos,
-            "provenance": f"SaProt ({req.modelName.split('/')[-1]})"
-        }
-    except Exception as e:
-        print(f"[Model Server] SaProt local run failed: {e}. Falling back to VESM-150M.")
-        vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-        vesm_res = predict_vesm_sync(vesm_req)
-        vesm_res["klDivergence"] = 0.0
-        vesm_res["conformationState"] = "#"
-        vesm_res["provenance"] = "VESM-150M (Local Fallback)"
-        return vesm_res
+            seq_sa = "".join(a + d for a, d in zip(sequence, seq_3di))
+            
+            inputs = tokenizer(seq_sa, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            with torch.inference_mode():
+                outputs = model(**inputs, output_hidden_states=True)
+                
+            logits = outputs.logits[0]
+            hidden_states = outputs.hidden_states[-1][0]
+            
+            s_pos = seq_3di[pos - 1]
+            
+            vocab_map = {}
+            for aa in AA_LIST:
+                tok_str = aa + s_pos
+                tok_id = tokenizer.convert_tokens_to_ids(tok_str)
+                if tok_id == tokenizer.unk_token_id or tok_id is None:
+                    tok_id = tokenizer.convert_tokens_to_ids(aa + "#")
+                vocab_map[aa] = tok_id
+                
+            wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
+                logits, pos, wt, mut, vocab_map
+            )
+            
+            mut_seq_chars = list(sequence)
+            mut_seq_chars[pos - 1] = mut
+            mut_sequence = "".join(mut_seq_chars)
+            mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
+            
+            mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
+            mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
+            with torch.inference_mode():
+                mut_outputs = model(**mut_inputs, output_hidden_states=True)
+                
+            mut_hidden_states = mut_outputs.hidden_states[-1][0]
+            
+            seq_len = min(hidden_states.size(0), mut_hidden_states.size(0))
+            diff = hidden_states[:seq_len] - mut_hidden_states[:seq_len]
+            distances = torch.norm(diff, p=2, dim=-1)
+            
+            embedding_shift = round(distances[pos].item(), 4)
+            
+            local_shift_map = []
+            for i in range(-10, 11):
+                target_token_idx = pos + i
+                if 1 <= target_token_idx < seq_len - 1:
+                    shift_val = distances[target_token_idx].item()
+                    res_char = sequence[target_token_idx - 1]
+                    local_shift_map.append({
+                        "position": target_token_idx + start_offset,
+                        "residue": res_char,
+                        "shift": round(shift_val, 4)
+                    })
+                    
+            aa_tokens = [vocab_map[aa] for aa in AA_LIST]
+            wt_logits = logits[pos]
+            wt_std_logits = torch.tensor([wt_logits[tok].item() for tok in aa_tokens])
+            p_wt = torch.softmax(wt_std_logits, dim=-1)
+            
+            mut_logits = mut_outputs.logits[0, pos]
+            mut_std_logits = torch.tensor([mut_logits[tok].item() for tok in aa_tokens])
+            p_mut = torch.softmax(mut_std_logits, dim=-1)
+            
+            kl_div = float(torch.sum(p_wt * torch.log((p_wt + 1e-9) / (p_mut + 1e-9))).item())
+            
+            provenance_label = f"SaProt ({model_candidate.split('/')[-1]} - Local CPU)" if device.type == "cpu" else f"SaProt ({model_candidate.split('/')[-1]})"
+            
+            return {
+                "status": "success",
+                "wtProbability": wt_prob,
+                "mutProbability": mut_prob,
+                "llr": llr,
+                "preferences": preferences,
+                "mutRank": mut_rank,
+                "positionalEntropy": pos_entropy,
+                "embeddingShift": embedding_shift,
+                "localShiftMap": local_shift_map,
+                "klDivergence": round(kl_div, 4),
+                "conformationState": s_pos,
+                "provenance": provenance_label,
+                "hfError": hf_error_detail
+            }
+        except Exception as local_err:
+            print(f"[Model Server] SaProt candidate {model_candidate} failed: {local_err}")
+            last_local_err = local_err
+
+    # Fallback to VESM-150M if all SaProt attempts fail
+    print(f"[Model Server] All SaProt candidates failed ({last_local_err}). Falling back to VESM-150M.")
+    vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
+    vesm_res = predict_vesm_sync(vesm_req)
+    vesm_res["klDivergence"] = 0.0
+    vesm_res["conformationState"] = "#"
+    vesm_res["provenance"] = "VESM-150M (Local Fallback - SaProt unavailable)"
+    vesm_res["hfError"] = hf_error_detail
+    return vesm_res
 
 @router.post("/predict/saprot")
 async def predict_saprot(req: SaprotRequest):

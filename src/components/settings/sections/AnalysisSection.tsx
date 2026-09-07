@@ -97,6 +97,22 @@ export function AnalysisSection() {
             ]}
           />
         </SettingsRow>
+        <SettingsRow
+          label="SaProt inference engine"
+          description="Local CPU execution is safe for 8 GB OCI memory. Fallback diagnostics are shown in evidence cards."
+        >
+          <select
+            value={settings.saprotEngine || "saprot-650m"}
+            onChange={(e) =>
+              updateSetting("saprotEngine", e.target.value as any)
+            }
+            className="cs-input cursor-pointer w-64 text-xs"
+          >
+            <option value="saprot-650m">SaProt 650M (Local CPU / High Accuracy - ~3.5s)</option>
+            <option value="saprot-35m">SaProt 35M (Local CPU / Fast - ~200ms)</option>
+            <option value="remote-hf">Remote Hugging Face (Cloud Inference)</option>
+          </select>
+        </SettingsRow>
       </SettingsSection>
 
       <SettingsSection

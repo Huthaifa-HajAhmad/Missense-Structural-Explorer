@@ -52,7 +52,8 @@ export async function fetchCoreVariantData(
     sequence,
     pos,
     wt1Letter,
-    mut1Letter
+    mut1Letter,
+    biohubToken
   } = context;
 
   const overallStart = performance.now();
@@ -150,7 +151,9 @@ export async function fetchCoreVariantData(
     uniprotId,
     pdbMappingPromise,
     predictorPromise,
-    genosPromise
+    genosPromise,
+    biohubToken,
+    sequence
   }).catch(err => {
     console.warn("[Conservation Parallel Run Warning] Failed to fetch conservation:", err);
     conservationHasError = true;

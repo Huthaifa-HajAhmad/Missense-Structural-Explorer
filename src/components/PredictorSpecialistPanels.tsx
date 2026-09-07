@@ -27,7 +27,9 @@ interface PredictorSpecialistPanelsProps {
     esm1bPred?: string | null;
     popeve?: number | null;
     gpnStar?: number | null;
+    gpnStarStatus?: "live" | "token_required" | "unavailable";
     evo2?: number | null;
+    evo2Status?: "live" | "token_required" | "unavailable";
     source?: string;
   } | null;
   vesmScore?: number | null;
@@ -85,7 +87,9 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const esm1b = conservationData?.esm1b ?? null;
   const popeve = conservationData?.popeve ?? null;
   const gpnScore = conservationData?.gpnStar ?? null;
+  const gpnStatus = conservationData?.gpnStarStatus ?? (gpnScore !== null ? "live" : "token_required");
   const evo2Score = conservationData?.evo2 ?? null;
+  const evo2Status = conservationData?.evo2Status ?? (evo2Score !== null ? "live" : "token_required");
 
   // Helper to render score bars
   const renderScoreBar = (val: number | null, min: number, max: number, threshLow: number, threshHigh: number, invert = false) => {
@@ -370,9 +374,13 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(
-                    getGpnSignal(gpnScore),
-                    gpnScore !== null ? (gpnScore <= -2.5 ? "Conserved (Prior)" : "Tolerated") : undefined
+                  {gpnScore !== null ? (
+                    renderBadge(
+                      getGpnSignal(gpnScore),
+                      gpnScore <= -2.5 ? "Conserved (Prior)" : "Tolerated"
+                    )
+                  ) : (
+                    renderBadge("unavailable", "Not in dbNSFP")
                   )}
                 </div>
               </div>
@@ -385,7 +393,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   renderScoreBar(gpnScore, -10, 2, -2.5, 0.0, true)
                 ) : (
                   <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
-                    Zero-shot prior from Song Lab vertebrate alignments
+                    Zero-shot vertebrate alignment prior precomputed in dbNSFP
                   </p>
                 )}
                 {renderSourceLabel("Song Lab @ UC Berkeley / Hugging Face")}
@@ -413,9 +421,17 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(
-                    getEvo2Signal(evo2Score),
-                    evo2Score !== null ? (evo2Score <= -4.0 ? "Disruptive" : "Tolerated") : undefined
+                  {evo2Score !== null ? (
+                    renderBadge(
+                      getEvo2Signal(evo2Score),
+                      evo2Score <= -4.0 ? "Disruptive" : "Tolerated"
+                    )
+                  ) : evo2Status === "token_required" ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="EvolutionaryScale / Biohub token required">
+                      Requires ES Key
+                    </span>
+                  ) : (
+                    renderBadge("unavailable")
                   )}
                 </div>
               </div>
@@ -426,6 +442,10 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 </span>
                 {evo2Score !== null ? (
                   renderScoreBar(evo2Score, -15, 2, -4.0, -1.0, true)
+                ) : evo2Status === "token_required" ? (
+                  <p className="text-[10px] mt-1.5 text-amber-500/80 font-mono">
+                    Configure Biohub / EvolutionaryScale key in Settings to query 40B model
+                  </p>
                 ) : (
                   <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
                     1M+ bp context foundation model prior

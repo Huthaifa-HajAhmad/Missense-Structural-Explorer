@@ -9,6 +9,7 @@ import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.
 import { queryGenosWebservice } from "./genos_web.ts";
 import { resolveSpliceProximity } from "./splice_resolver.ts";
 import { buildPredictorsKey, buildConservationKey } from "./cache-keys.ts";
+import { fetchEvo2Score } from "./evolutionaryscale.ts";
 
 function safeParseFloat(val: any): number | null {
   if (val === undefined || val === null || val === "." || val === "") return null;
@@ -652,7 +653,9 @@ export async function fetchConservationData(
         esm1bPred: null,
         popeve: null,
         gpnStar: null,
+        gpnStarStatus: "unavailable",
         evo2: null,
+        evo2Status: "token_required",
         aouFrequency: null,
         spliceProximity,
         spliceai: null,
@@ -711,7 +714,9 @@ export async function fetchConservationData(
               esm1bPred: null,
               popeve: popEVEVal,
               gpnStar: resolveGpnStarScore(rec, wtAa, mutAa, rec.phylop, rec.gerp),
+              gpnStarStatus: resolveGpnStarScore(rec, wtAa, mutAa, rec.phylop, rec.gerp) !== null ? "live" : "unavailable",
               evo2: resolveEvo2Score(rec, wtAa, mutAa, rec.revel, rec.esm1b),
+              evo2Status: resolveEvo2Score(rec, wtAa, mutAa, rec.revel, rec.esm1b) !== null ? "live" : "token_required",
               aouFrequency: {
                 aouAC: rec.aou_ac,
                 aouAN: rec.aou_an ?? null,
@@ -778,7 +783,9 @@ export async function fetchConservationData(
             esm1bPred: null,
             popeve: popEVEVal,
             gpnStar: resolveGpnStarScore(activeGenosRec, wtAa, mutAa, activeGenosRec.phylop, activeGenosRec.gerp),
+            gpnStarStatus: resolveGpnStarScore(activeGenosRec, wtAa, mutAa, activeGenosRec.phylop, activeGenosRec.gerp) !== null ? "live" : "unavailable",
             evo2: resolveEvo2Score(activeGenosRec, wtAa, mutAa, activeGenosRec.revel, activeGenosRec.esm1b),
+            evo2Status: resolveEvo2Score(activeGenosRec, wtAa, mutAa, activeGenosRec.revel, activeGenosRec.esm1b) !== null ? "live" : "token_required",
             aouFrequency: (activeGenosRec.aou_ac !== null && activeGenosRec.aou_ac !== undefined) ? {
               aouAC: activeGenosRec.aou_ac,
               aouAN: activeGenosRec.aou_an ?? null,
@@ -842,7 +849,9 @@ export async function fetchConservationData(
             esm1bPred: null,
             popeve: popEVEVal,
             gpnStar: resolveGpnStarScore(pubDbnsfp, wtAa, mutAa, pubDbnsfp.phylop ?? null, pubDbnsfp.gerp ?? null),
+            gpnStarStatus: resolveGpnStarScore(pubDbnsfp, wtAa, mutAa, pubDbnsfp.phylop ?? null, pubDbnsfp.gerp ?? null) !== null ? "live" : "unavailable",
             evo2: resolveEvo2Score(pubDbnsfp, wtAa, mutAa, pubDbnsfp.revel ?? null, pubDbnsfp.esm1b ?? null),
+            evo2Status: resolveEvo2Score(pubDbnsfp, wtAa, mutAa, pubDbnsfp.revel ?? null, pubDbnsfp.esm1b ?? null) !== null ? "live" : "token_required",
             aouFrequency: null,
             spliceProximity,
             spliceai: null,
@@ -1079,7 +1088,9 @@ export async function fetchConservationData(
             esm1bPred: esm1bPred,
             popeve: finalPopEVE,
             gpnStar: resolveGpnStarScore(dbnsfp, wtAa, mutAa, phylop, gerp),
+            gpnStarStatus: resolveGpnStarScore(dbnsfp, wtAa, mutAa, phylop, gerp) !== null ? "live" : "unavailable",
             evo2: resolveEvo2Score(dbnsfp, wtAa, mutAa, revel, esm1b),
+            evo2Status: resolveEvo2Score(dbnsfp, wtAa, mutAa, revel, esm1b) !== null ? "live" : "token_required",
             aouFrequency: hasAou ? {
               aouAC,
               aouAN,
@@ -1121,6 +1132,8 @@ export interface ProgressiveConservationContext {
   pdbMappingPromise?: Promise<any>;
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
+  biohubToken?: string | null;
+  sequence?: string | null;
 }
 
 export async function fetchConservationDataProgressive(
@@ -1133,7 +1146,9 @@ export async function fetchConservationDataProgressive(
     uniprotId,
     pdbMappingPromise,
     predictorPromise,
-    genosPromise
+    genosPromise,
+    biohubToken,
+    sequence
   } = context;
 
   const resolvedPos = (pos !== undefined && pos !== null) 
@@ -1142,6 +1157,16 @@ export async function fetchConservationDataProgressive(
         const match = variant.match(/\d+/);
         return match ? parseInt(match[0], 10) : null;
       })();
+
+  const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+  const toSingleAa = (aa: string) => {
+    if (!aa) return "";
+    if (aa.length === 1) return aa.toUpperCase();
+    const map: Record<string, string> = { ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLU:'E', GLN:'Q', GLY:'G', HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S', THR:'T', TRP:'W', TYR:'Y', VAL:'V' };
+    return map[aa.toUpperCase()] || aa.toUpperCase();
+  };
+  const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
+  const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
 
   // 1. Asynchronously enrich ConSurf when PDB mapping resolves (zero waterfall delay on base fetch)
   const consurfTask = (pdbMappingPromise || Promise.resolve(null))
@@ -1201,16 +1226,29 @@ export async function fetchConservationDataProgressive(
     null
   );
 
-  // 4. Merge enriched ConSurf, PopEVE, and Splice data as they resolve
-  const [consurfVal, enrichment] = await Promise.all([
+  // 4. Concurrently query EvolutionaryScale API for Evo 2 if not present in base dbNSFP
+  const fallbackStatus: "unavailable" | "token_required" = biohubToken ? "unavailable" : "token_required";
+  const evoTask = (baseConservation.evo2 !== null)
+    ? Promise.resolve({ score: baseConservation.evo2, status: "live" as const })
+    : (sequence && resolvedPos !== null && wtAa && mutAa)
+      ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, biohubToken)
+      : Promise.resolve({ score: null, status: fallbackStatus });
+
+  // 5. Merge enriched ConSurf, PopEVE, Splice, and EvolutionaryScale data as they resolve
+  const [consurfVal, enrichment, evoRes] = await Promise.all([
     consurfTask,
-    predictorEnrichmentTask
+    predictorEnrichmentTask,
+    evoTask
   ]);
 
   return {
     ...baseConservation,
     consurf: consurfVal ?? baseConservation.consurf,
     popeve: baseConservation.popeve ?? enrichment.popEVEScore,
-    spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity
+    spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity,
+    evo2: evoRes.score ?? baseConservation.evo2,
+    evo2Status: evoRes.status ?? baseConservation.evo2Status,
+    gpnStar: baseConservation.gpnStar,
+    gpnStarStatus: baseConservation.gpnStar !== null ? "live" : "unavailable"
   };
 }

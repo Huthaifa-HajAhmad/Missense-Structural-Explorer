@@ -495,16 +495,20 @@ export function useApiClient() {
         return await res.json();
       },
 
-      async getStructuralAssessments(params: { gene: string, uniprotId: string, variant: string, acmgWeighting?: string }, signal?: AbortSignal): Promise<{
+      async getStructuralAssessments(params: { gene: string, uniprotId: string, variant: string, acmgWeighting?: string, saprotEngine?: string }, signal?: AbortSignal): Promise<{
         esm3Eval: any;
         esmcEval: any;
         esm2Eval: any;
         saprotEval: any;
         ruleBasedInsights: any;
       }> {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (params.saprotEngine) {
+          headers["X-SaProt-Engine"] = params.saprotEngine;
+        }
         const res = await fetchWithAuth("/api/v1/analyze-variant/structural", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(params),
           timeout: 45000,
           signal

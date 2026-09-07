@@ -225,7 +225,7 @@ export interface LanguageModelEvaluations {
   esm3Eval?: Esm3EvalResult | { error: string } | null;
   esmcEval?: EsmcEvalResult | null;
   esm2Eval?: EsmcEvalResult | null;
-  saprotEval?: (EsmcEvalResult & { conformationState?: string | null; klDivergence?: number | null }) | null;
+  saprotEval?: (EsmcEvalResult & { conformationState?: string | null; klDivergence?: number | null; hfError?: string | null }) | null;
   esm2?: Esm2ScoreData | null;
 }
 
@@ -294,6 +294,7 @@ export interface UserSettings {
   reducedMotion: boolean;
   defaultPerturbationModel: "saprot" | "esm2" | "esmc";
   defaultStructureModel: "alphafold" | "esmfold";
+  saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf";
   biophysicsConditions: BiophysicsConditions;
 }
 

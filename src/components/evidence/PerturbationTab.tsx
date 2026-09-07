@@ -50,7 +50,7 @@ export function PerturbationTab({
     },
     {
       id: "esm2",
-      name: "ESM-2 3B",
+      name: "ESM-2 650M",
       description: "Genomic Sequence Evolutionary Scale Transformer",
       data: result.esm2Eval,
       icon: Activity,
@@ -93,7 +93,8 @@ export function PerturbationTab({
         gene: result.metadata.gene,
         variant: result.metadata.variant,
         uniprotId: result.metadata.uniprotId,
-        acmgWeighting: settings.acmgWeighting
+        acmgWeighting: settings.acmgWeighting,
+        saprotEngine: settings.saprotEngine
       });
     } catch (err) {
       console.error("[PerturbationTab] Retry failed:", err);

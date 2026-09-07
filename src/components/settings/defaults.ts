@@ -34,6 +34,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   reducedMotion: false,
   defaultPerturbationModel: "saprot",
   defaultStructureModel: "alphafold",
+  saprotEngine: "saprot-650m",
   biophysicsConditions: {
     ph: 7.4,
     temperature: 25,
