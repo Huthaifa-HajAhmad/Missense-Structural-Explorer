@@ -98,7 +98,7 @@ export const energeticsDataSchema = z.object({
   localSidechainRmsd: nullableFiniteNumber.optional(),
   foldxRepairFailed: z.boolean().optional(),
   foldxBinaryMissing: z.boolean().optional(),
-  foldxError: z.string().optional(),
+  foldxError: z.string().nullable().optional(),
   dynamut2: nullableFiniteNumber.optional(),
   ddmut: nullableFiniteNumber.optional(),
   rasp: nullableFiniteNumber.optional(),

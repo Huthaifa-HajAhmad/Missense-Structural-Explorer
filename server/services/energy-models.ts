@@ -502,12 +502,14 @@ export function enrichBiophysicalResult(
 
   const evidenceComplete = pendingTools.length === 0;
   const foldxRepairFailed = foldxRawResult?.energetics?.foldxRepairFailed ?? false;
+  const foldxBinaryMissing = foldxRawResult?.energetics?.foldxBinaryMissing ?? false;
   const calResult = computeCalibratedConsensus({
     foldxMean,
     rasp,
     thermompnn: jobs.thermompnnVal ?? null,
     stabilityoracle: stabilityoracleVal,
-    foldxRepairFailed
+    foldxRepairFailed,
+    foldxBinaryMissing
   });
   const rawConsensusVerdict = calResult.consensusVerdict;
   const consensusVerdict = (!evidenceComplete && rawConsensusVerdict)
@@ -528,6 +530,7 @@ export function enrichBiophysicalResult(
     thermompnnJobId: jobs.thermompnnJobId ?? null,
     thermompnnStatus: jobs.thermompnnStatus ?? null,
     thermompnnError: jobs.thermompnnError ?? null,
+    error: foldxRawResult?.error ?? foldxRawResult?.energetics?.foldxError ?? null,
     energetics: {
       foldx: foldxMean,
       vdw,
@@ -536,6 +539,8 @@ export function enrichBiophysicalResult(
       localSidechainRmsd,
       rawDdGs: foldxRawDdGs,
       foldxRepairFailed,
+      foldxBinaryMissing: foldxRawResult?.energetics?.foldxBinaryMissing ?? false,
+      foldxError: foldxRawResult?.energetics?.foldxError ?? foldxRawResult?.error ?? null,
       dynamut2: null,
       ddmut: null,
       rasp,

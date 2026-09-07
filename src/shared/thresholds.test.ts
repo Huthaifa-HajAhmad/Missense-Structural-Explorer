@@ -12,6 +12,7 @@ import {
   evaluateSplicePredictor,
   countPredictorConcordance,
   computeConsensusVerdict,
+  computeCalibratedConsensus,
   normalizeDestabilizationMagnitude,
   THRESHOLDS
 } from "./thresholds";
@@ -349,6 +350,62 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(THRESHOLDS.rasp).toBeDefined();
       expect(THRESHOLDS.rasp.destabilizing).toBe(1.0);
       expect(normalizeDestabilizationMagnitude("rasp", THRESHOLDS.rasp.destabilizing).isDestabilizing).toBe(true);
+    });
+  });
+
+  describe("computeCalibratedConsensus (No Heuristics & Empty Data Handling)", () => {
+    it("should return Insufficient Biophysical Data when energetics is null", () => {
+      const result = computeCalibratedConsensus(null);
+      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
+      expect(result.consensusProbability).toBeNull();
+      expect(result.consensusConfMin).toBeNull();
+      expect(result.consensusConfMax).toBeNull();
+    });
+
+    it("should return Insufficient Biophysical Data when all predictors are null", () => {
+      const result = computeCalibratedConsensus({
+        foldxMean: null,
+        foldx: null,
+        stabilityoracle: null,
+        dynamut2: null,
+        ddmut: null,
+        rasp: null,
+        thermompnn: null
+      });
+      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
+      expect(result.consensusProbability).toBeNull();
+      expect(result.consensusConfMin).toBeNull();
+      expect(result.consensusConfMax).toBeNull();
+    });
+
+    it("should exclude FoldX when foldxRepairFailed is true and report Insufficient Data if no others present", () => {
+      const result = computeCalibratedConsensus({
+        foldxMean: 3.5,
+        foldxRepairFailed: true
+      });
+      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
+      expect(result.consensusProbability).toBeNull();
+    });
+
+    it("should exclude FoldX when foldxBinaryMissing is true and report Insufficient Data if no others present", () => {
+      const result = computeCalibratedConsensus({
+        foldxMean: 3.5,
+        foldxBinaryMissing: true
+      });
+      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
+      expect(result.consensusProbability).toBeNull();
+    });
+
+    it("should compute calibrated consensus when at least one valid predictor exists", () => {
+      const result = computeCalibratedConsensus({
+        foldxMean: 3.0,
+        foldxRepairFailed: false,
+        foldxBinaryMissing: false
+      });
+      expect(result.consensusVerdict).not.toBe("Insufficient Biophysical Data");
+      expect(result.consensusProbability).not.toBeNull();
+      expect(typeof result.consensusProbability).toBe("number");
+      expect(result.consensusProbability).toBeGreaterThan(0);
     });
   });
 });

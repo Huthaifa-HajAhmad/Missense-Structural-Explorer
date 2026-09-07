@@ -33,6 +33,7 @@ export class SidecarSupervisor {
   private isShuttingDown = false;
   private healthCheckConsecutiveFailures = 0;
   private hasStandaloneUv: boolean | null = null;
+  private startupGraceUntil = 0;
 
   constructor() {
     ensureSidecarSecret();
@@ -123,37 +124,19 @@ export class SidecarSupervisor {
     }
 
     this.isSpawning = true;
+    this.startupGraceUntil = Date.now() + 30000;
     console.log("[Sidecar Supervisor] Launching local ML model server sidecar...");
 
     const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
-    const cleanSystemKeys = [
-      "path", "systemroot", "systemdrive", "appdata", "localappdata",
-      "temp", "tmp", "userprofile", "home", "pwd", "comspec",
-      "os", "windir", "pythonpath"
-    ];
 
+    // Inherit full environment to preserve Windows runtime DLLs, system paths, and profile settings
     const sidecarEnv: Record<string, string> = {
-      SIDECAR_SECRET: process.env.SIDECAR_SECRET || ""
+      ...process.env as Record<string, string>,
+      SIDECAR_SECRET: process.env.SIDECAR_SECRET || "",
+      PYTHONUNBUFFERED: "1",
+      OMP_NUM_THREADS: process.env.OMP_NUM_THREADS || "2",
+      TORCH_NUM_THREADS: process.env.TORCH_NUM_THREADS || "2"
     };
-
-    for (const key of Object.keys(process.env)) {
-      const lower = key.toLowerCase();
-      if (
-        cleanSystemKeys.includes(lower) ||
-        key.startsWith("SIDECAR_") ||
-        key.startsWith("HF_") ||
-        key.startsWith("UV_") ||
-        key.startsWith("TORCH_") ||
-        key.startsWith("OMP_") ||
-        key === "MAX_LOADED_MODELS"
-      ) {
-        sidecarEnv[key] = process.env[key] || "";
-      }
-    }
-
-    // Enforce thread limits on multi-core systems to prevent starvation of Node.js
-    sidecarEnv.OMP_NUM_THREADS = process.env.OMP_NUM_THREADS || "2";
-    sidecarEnv.TORCH_NUM_THREADS = process.env.TORCH_NUM_THREADS || "2";
 
     // Auto-discover local virtualenv python
     const venvPythonPath = process.platform === "win32"
@@ -162,9 +145,9 @@ export class SidecarSupervisor {
 
     if (this.hasStandaloneUv === null) {
       try {
-        const checkCmd = process.platform === "win32" ? "where uv" : "command -v uv";
-        execSync(checkCmd, { stdio: "ignore" });
-        this.hasStandaloneUv = true;
+        const checkCmd = process.platform === "win32" ? "where.exe uv" : "command -v uv";
+        const found = execSync(checkCmd, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+        this.hasStandaloneUv = found.length > 0;
       } catch (_) {
         this.hasStandaloneUv = false;
       }
@@ -199,6 +182,7 @@ export class SidecarSupervisor {
     this.modelServerProcess.on("error", (err) => {
       console.error("[Sidecar Supervisor] Failed to start sidecar:", err.message);
       AuditLogger.log("SIDECAR_ERROR", { message: err.message });
+      this.modelServerProcess = null;
       this.isSpawning = false;
     });
 
@@ -238,6 +222,7 @@ export class SidecarSupervisor {
 
     this.healthCheckInterval = setInterval(async () => {
       if (this.isShuttingDown) return;
+      if (Date.now() < this.startupGraceUntil) return;
 
       let sidecarHealthy = false;
       try {

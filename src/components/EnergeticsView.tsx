@@ -323,7 +323,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
                     { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: false, isPending: false },
                     { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending },
-                    { key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: isStabilityOraclePending }
+                    ...(energetics.stabilityoracle !== null ? [{ key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: isStabilityOraclePending }] : [])
                   ];
 
                   return items.map((item, idx) => {
@@ -368,6 +368,13 @@ const EnergeticsView = memo(function EnergeticsView({
                           label: "Binary Not Installed",
                           category: "Binary Not Installed",
                           style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold"
+                        };
+                      } else if (item.key === "foldx" && (foldingStatus === "failed" || (energetics as any)?.foldxError || energetics.foldxRepairFailed)) {
+                        scoreText = "Failed";
+                        badge = {
+                          label: "Simulation Failed",
+                          category: "Simulation Failed",
+                          style: "bg-rose-500/10 text-rose-500 border border-rose-500/20 font-semibold"
                         };
                       } else if (item.key === "rasp") {
                         badge = { 
@@ -434,7 +441,8 @@ const EnergeticsView = memo(function EnergeticsView({
               const uniprotFeatures = analysisState.result?.uniprotFeatures?.features;
               const residueIndex = analysisState.result?.metadata?.residueIndex ?? 0;
               const calConsensus = computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex);
-              const foldxMean = energetics.foldxMean ?? energetics.foldx;
+              const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
+              const foldxMean = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx);
               const dynamut2 = energetics.dynamut2;
               const ddmut = energetics.ddmut;
               const rasp = energetics.rasp;
@@ -444,18 +452,23 @@ const EnergeticsView = memo(function EnergeticsView({
               const activeToolsCount = [foldxMean, dynamut2, ddmut, rasp, thermompnn, stabilityoracle].filter(v => v !== null).length;
 
               let styleClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
-              if (calConsensus.consensusVerdict.includes("High")) {
+              if (calConsensus.consensusVerdict.includes("Insufficient")) {
+                styleClass = "bg-slate-500/10 text-slate-400 border border-slate-500/20";
+              } else if (calConsensus.consensusVerdict.includes("High")) {
                 styleClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold";
               } else if (calConsensus.consensusVerdict.includes("Moderate") || calConsensus.consensusVerdict.includes("Elevated")) {
                 styleClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold";
               }
 
-              const pPercent = Math.round(calConsensus.consensusProbability * 100);
-              const minPercent = Math.round(calConsensus.consensusConfMin * 100);
-              const maxPercent = Math.round(calConsensus.consensusConfMax * 100);
+              const hasValidConsensus = calConsensus.consensusProbability !== null;
+              const pPercent = hasValidConsensus ? Math.round(calConsensus.consensusProbability! * 100) : 0;
+              const minPercent = calConsensus.consensusConfMin !== null ? Math.round(calConsensus.consensusConfMin * 100) : 0;
+              const maxPercent = calConsensus.consensusConfMax !== null ? Math.round(calConsensus.consensusConfMax * 100) : 0;
 
               let detailText = "Variant consensus exhibits neutral biophysical stability.";
-              if (calConsensus.consensusVerdict.includes("High")) {
+              if (calConsensus.consensusVerdict.includes("Insufficient")) {
+                detailText = "Insufficient biophysical data to compute a destabilization consensus. No valid predictor models have evaluated.";
+              } else if (calConsensus.consensusVerdict.includes("High")) {
                 detailText = "Calibrated consensus indicates high probability of protein destabilization.";
               } else if (calConsensus.consensusVerdict.includes("Moderate") || calConsensus.consensusVerdict.includes("Elevated")) {
                 detailText = "Moderate or elevated destabilization prediction warrants clinical attention.";
@@ -476,7 +489,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     </span>
                   </div>
 
-                  {activeToolsCount > 0 ? (
+                  {activeToolsCount > 0 && hasValidConsensus ? (
                     <div className="space-y-3 mt-1 pl-2">
                       <div className="flex justify-between items-center text-[10px] font-mono">
                         <span style={{ color: "var(--cs-text-secondary)" }}>Calibrated Probability of Destabilization:</span>
@@ -525,7 +538,8 @@ const EnergeticsView = memo(function EnergeticsView({
                 Calibrated Tool Breakdown:
               </span>
               {(() => {
-                const foldxMean = energetics.foldxMean ?? energetics.foldx;
+                const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
+                const foldxMean = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx);
                 const dynamut2 = energetics.dynamut2;
                 const ddmut = energetics.ddmut;
                 const rasp = energetics.rasp;

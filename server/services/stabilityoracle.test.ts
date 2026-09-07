@@ -6,14 +6,12 @@ describe("StabilityOracle Service Integration Tests", () => {
     vi.restoreAllMocks();
   });
 
-  it("should return fallback stability prediction if sidecar is unreachable/fails", async () => {
+  it("should return null if sidecar is unreachable/fails (No Heuristics Policy)", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("Network connection failed"));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runStabilityOracleAnalysis("LMNA", "p.Arg527His", "P02545", "MAEQ...", null);
-    expect(result).not.toBeNull();
-    expect(result?.provenance).toContain("Geometric Graph Fallback");
-    expect(typeof result?.ddG).toBe("number");
+    expect(result).toBeNull();
   });
 
   it("should return null for an unparseable variant string", async () => {
@@ -61,7 +59,7 @@ describe("StabilityOracle Service Integration Tests", () => {
     expect(body.position).toBe(527);
   });
 
-  it("should return fallback prediction when sidecar returns non-success status", async () => {
+  it("should return null when sidecar returns non-success status (No Heuristics Policy)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ status: "error", error: "Model loading failed" })
@@ -69,7 +67,6 @@ describe("StabilityOracle Service Integration Tests", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runStabilityOracleAnalysis("LMNA", "p.Arg527His", "P02545", "MAEQ...", null);
-    expect(result).not.toBeNull();
-    expect(result?.provenance).toContain("Geometric Graph Fallback");
+    expect(result).toBeNull();
   });
 });

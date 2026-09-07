@@ -698,9 +698,9 @@ export function calibrateRawScore(
 }
 
 export interface CalibratedConsensusResult {
-  consensusProbability: number;
-  consensusConfMin: number;
-  consensusConfMax: number;
+  consensusProbability: number | null;
+  consensusConfMin: number | null;
+  consensusConfMax: number | null;
   consensusVerdict: string;
 }
 
@@ -725,10 +725,10 @@ export function computeCalibratedConsensus(
 ): CalibratedConsensusResult {
   if (!energetics) {
     return {
-      consensusProbability: 0,
-      consensusConfMin: 0,
-      consensusConfMax: 0,
-      consensusVerdict: "Low Misfolding Risk (Neutral Stability)"
+      consensusProbability: null,
+      consensusConfMin: null,
+      consensusConfMax: null,
+      consensusVerdict: "Insufficient Biophysical Data"
     };
   }
 
@@ -777,10 +777,10 @@ export function computeCalibratedConsensus(
 
   if (availableCount === 0 || totalWeight === 0) {
     return {
-      consensusProbability: 0,
-      consensusConfMin: 0,
-      consensusConfMax: 0,
-      consensusVerdict: "Low Misfolding Risk (Neutral Stability)"
+      consensusProbability: null,
+      consensusConfMin: null,
+      consensusConfMax: null,
+      consensusVerdict: "Insufficient Biophysical Data"
     };
   }
 

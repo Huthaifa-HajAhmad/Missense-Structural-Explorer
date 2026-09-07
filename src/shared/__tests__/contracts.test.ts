@@ -192,6 +192,28 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.foldx).toBe(2.34);
     expect(parsed.dynamut2).toBe(-0.45);
     expect(parsed.consensusVerdict).toBe("High Misfolding Risk");
+
+    // Test with nullable foldxError and binary flags
+    const withErrorPayload = energeticsDataSchema.parse({
+      foldx: null,
+      foldxRepairFailed: true,
+      foldxBinaryMissing: false,
+      foldxError: null,
+      stabilityoracle: null,
+      consensusVerdict: "Insufficient Biophysical Data"
+    });
+    expect(withErrorPayload.foldxError).toBeNull();
+    expect(withErrorPayload.foldxRepairFailed).toBe(true);
+    expect(withErrorPayload.stabilityoracle).toBeNull();
+
+    const withErrorStringPayload = energeticsDataSchema.parse({
+      foldx: null,
+      foldxRepairFailed: false,
+      foldxBinaryMissing: true,
+      foldxError: "FoldX binary not found at tools/foldx/foldx.exe"
+    });
+    expect(withErrorStringPayload.foldxBinaryMissing).toBe(true);
+    expect(withErrorStringPayload.foldxError).toContain("FoldX binary not found");
   });
 
   it("should validate generateMutantResponseSchema successfully", () => {

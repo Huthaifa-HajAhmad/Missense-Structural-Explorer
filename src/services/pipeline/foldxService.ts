@@ -110,11 +110,17 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       });
     };
 
-    if (data.status === "success" || data.status === "completed") {
+    if (data.status !== "queued" && data.status !== "running") {
+      const isFoldxSuccess = (data.status === "success" || data.status === "completed") && data.ddG !== null;
+      const effectiveFoldingStatus = isFoldxSuccess ? "success" : (data.status === "unavailable" ? "unavailable" : "failed");
+
       sink.setMutantPdb(data.pdb ?? null);
       sink.setFoldedResidueIndex(data.foldedResidueIndex ?? residueIndex);
       sink.setFoldingDdG(data.ddG ?? null);
-      sink.setFoldingStatus("success");
+      sink.setFoldingStatus(effectiveFoldingStatus);
+      if (!isFoldxSuccess && (data.error || data.energetics?.foldxError)) {
+        sink.setFoldingError(data.error || data.energetics?.foldxError || "FoldX simulation failed");
+      }
 
       if (data.energetics) {
         applyEnergetics(data.energetics, data.provenance);
@@ -124,7 +130,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
         foldingEnergetics: data.energetics ?? null,
-        foldingStatus: "success"
+        foldingStatus: effectiveFoldingStatus
       });
     } else if (data.status === "queued" || data.status === "running") {
       const jobId = data.foldxJobId;
@@ -171,10 +177,16 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           const parsedRes = generateMutantResponseSchema.safeParse(rawResult);
           const resResult: GenerateMutantData = parsedRes.success ? parsedRes.data : (rawResult as GenerateMutantData);
 
+          const isFoldxSuccess = (resResult.status === "success" || resResult.status === "completed") && resResult.ddG !== null;
+          const effectiveFoldingStatus = isFoldxSuccess ? "success" : (resResult.status === "unavailable" ? "unavailable" : "failed");
+
           sink.setMutantPdb(resResult.pdb ?? null);
           sink.setFoldedResidueIndex(resResult.foldedResidueIndex ?? residueIndex);
           sink.setFoldingDdG(resResult.ddG ?? null);
-          sink.setFoldingStatus("success");
+          sink.setFoldingStatus(effectiveFoldingStatus);
+          if (!isFoldxSuccess && (resResult.error || resResult.energetics?.foldxError)) {
+            sink.setFoldingError(resResult.error || resResult.energetics?.foldxError || "FoldX simulation failed");
+          }
 
           if (resResult.energetics) {
             applyEnergetics(resResult.energetics, resResult.provenance);
@@ -184,7 +196,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
             foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
             foldingDdG: resResult.ddG ?? null,
             foldingEnergetics: resResult.energetics ?? null,
-            foldingStatus: "success"
+            foldingStatus: effectiveFoldingStatus
           });
           break;
         } else if (pollData.status === "failed") {

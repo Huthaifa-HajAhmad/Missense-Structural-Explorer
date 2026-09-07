@@ -173,6 +173,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           {/* FoldX Local */}
           {(() => {
             const hasFoldxVal = (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== null && (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== undefined;
+            const isFailed = foldingStatus === "failed" || (!hasFoldxVal && !isFolding && (foldingError || (foldingEnergetics as any)?.foldxError || foldxRepairFailed));
             return (
               <div className="flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1.5">
@@ -183,25 +184,23 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                       ? "bg-emerald-500"
                       : foldxBinaryMissing
                       ? "bg-slate-400"
-                      : foldxRepairFailed
-                      ? "bg-amber-500"
-                      : foldingStatus === "failed"
+                      : isFailed
                       ? "bg-rose-500"
                       : "bg-slate-400"
                   }`} />
                   <span className="font-semibold text-cs-text-primary">FoldX 5.0</span>
                 </div>
-                <span className="font-mono text-[10px] text-cs-text-muted">
+                <span className="font-mono text-[10px] text-cs-text-muted" title={foldingError || undefined}>
                   {isFolding
                     ? "Repacking sidechains..."
                     : hasFoldxVal
                     ? "Local Force-Field (Ready)"
                     : foldxBinaryMissing
                     ? "Not Installed (Mount Binary)"
-                    : foldxRepairFailed
-                    ? "Repair Failed / Unavailable"
-                    : foldingStatus === "failed"
-                    ? "Simulation Failed"
+                    : isFailed
+                    ? (foldingError ? `Failed: ${foldingError.slice(0, 32)}...` : "Simulation Failed")
+                    : foldingStatus === "unavailable"
+                    ? "Unavailable"
                     : "Idle"}
                 </span>
               </div>
@@ -215,7 +214,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
               <span className="font-semibold text-cs-text-primary">StabilityOracle</span>
             </div>
             <span className="font-mono text-[10px] text-cs-text-muted">
-              {foldingEnergetics?.stabilityoracle !== null && foldingEnergetics?.stabilityoracle !== undefined ? "Structure Graph ML (Ready)" : "Not Available"}
+              {foldingEnergetics?.stabilityoracle !== null && foldingEnergetics?.stabilityoracle !== undefined ? "Structure Graph ML (Ready)" : "Unavailable (No Heuristics)"}
             </span>
           </div>
 
