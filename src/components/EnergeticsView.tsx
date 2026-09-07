@@ -427,7 +427,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
                     { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: false, isPending: false },
                     { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending },
-                    ...(energetics.stabilityoracle !== null ? [{ key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: isStabilityOraclePending }] : [])
+                    { key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: isStabilityOraclePending }
                   ];
 
                   return items.map((item, idx) => {
@@ -467,7 +467,9 @@ const EnergeticsView = memo(function EnergeticsView({
                         ? `Running NMA (${elapsedSeconds}s)` 
                         : (item.key === "ddmut" 
                             ? `Graph Embedding (${elapsedSeconds}s)` 
-                            : `Simulating (${elapsedSeconds}s)...`);
+                            : (item.key === "stabilityoracle"
+                                ? `3D Graphormer (${elapsedSeconds}s)`
+                                : `Simulating (${elapsedSeconds}s)...`));
                       badge = { 
                         label: `In Progress (${elapsedSeconds}s)`, 
                         category: `In Progress (${elapsedSeconds}s)`, 
@@ -508,12 +510,39 @@ const EnergeticsView = memo(function EnergeticsView({
                           category: "BioSig Congested", 
                           style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold" 
                         };
-                      } else if (item.key === "thermompnn" && thermompnnStatus === "error") {
-                        scoreText = "Error";
-                        badge = { 
-                          label: "API Error", 
-                          category: "API Error", 
-                          style: "bg-rose-500/10 text-rose-500 border border-rose-500/20 font-semibold" 
+                      } else if (item.key === "thermompnn") {
+                        if (thermompnnStatus === "error") {
+                          if (thermompnnError && /warming|starting|initializing/i.test(thermompnnError)) {
+                            scoreText = "Warming Up";
+                            badge = { 
+                              label: "Engine Initializing", 
+                              category: "Engine Initializing", 
+                              style: "bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold animate-pulse" 
+                            };
+                          } else {
+                            scoreText = "Standby";
+                            badge = { 
+                              label: "Sidecar Standby", 
+                              category: "Sidecar Standby", 
+                              style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
+                            };
+                          }
+                        } else if (thermompnnStatus === "unavailable") {
+                          scoreText = "Standby";
+                          badge = { 
+                            label: "Sidecar Standby", 
+                            category: "Sidecar Standby", 
+                            style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
+                          };
+                        } else {
+                          badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
+                        }
+                      } else if (item.key === "stabilityoracle") {
+                        scoreText = "Standby";
+                        badge = {
+                          label: "Sidecar Standby",
+                          category: "Sidecar Standby",
+                          style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold"
                         };
                       } else {
                         badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };

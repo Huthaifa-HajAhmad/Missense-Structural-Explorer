@@ -107,6 +107,14 @@ export function setCachedVariant(
 
   memoryVariantCache.set(key, updated);
 
+  // Do not persist preliminary or failed/errored variant evaluations into long-term sessionStorage
+  const isPreliminary = updated.foldingEnergetics?.evidenceComplete === false ||
+    Boolean(updated.foldingEnergetics?.pendingTools && updated.foldingEnergetics.pendingTools.length > 0);
+
+  if (updated.foldingStatus === "failed" || (updated.foldingEnergetics as any)?.foldxError || isPreliminary) {
+    return;
+  }
+
   // Enforce LRU bounds in memory
   if (memoryVariantCache.size > MAX_CACHE_ENTRIES) {
     const oldestKey = memoryVariantCache.keys().next().value;

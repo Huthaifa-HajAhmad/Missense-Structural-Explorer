@@ -28,6 +28,7 @@ export interface SaprotEvalResult {
 }
 
 import { CONFIG } from "../config.ts";
+import { runJapanFoldInference } from "./japanfold.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -127,12 +128,58 @@ export async function runSaprotAnalysis(
       }
       return { error: `SaProt sidecar returned unexpected response format`, status: "error" };
     }
-    return { error: `SaProt sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
+
+    console.warn(`[Local SaProt Analysis Warning] Local sidecar returned HTTP ${sidecarRes.status}. Attempting keyless JapanFold fallback...`);
+    const jfResult = await runJapanFoldInference("saprot", {
+      sequence,
+      position: pos,
+      wt: wtRes,
+      mut: mutRes,
+      structure: wtPdb || undefined
+    });
+    if (jfResult.success && jfResult.data) {
+      return {
+        wtProbability: jfResult.data.wtProbability ?? 0,
+        mutProbability: jfResult.data.mutProbability ?? 0,
+        llr: jfResult.data.llr ?? 0,
+        preferences: jfResult.data.preferences ?? [],
+        mutRank: jfResult.data.mutRank ?? 1,
+        positionalEntropy: jfResult.data.positionalEntropy ?? 0,
+        embeddingShift: jfResult.data.embeddingShift ?? 0,
+        localEmbeddingShift: jfResult.data.embeddingShift ?? 0,
+        localShiftMap: jfResult.data.localShiftMap ?? [],
+        provenance: "JapanFold (Cloud)"
+      };
+    }
+    return { error: `SaProt sidecar initializing or unavailable`, status: "offline" };
   } catch (err: any) {
+    console.warn(`[Local SaProt Analysis Warning] Local sidecar unavailable (${err.message}). Attempting keyless JapanFold fallback...`);
+    try {
+      const jfResult = await runJapanFoldInference("saprot", {
+        sequence,
+        position: pos,
+        wt: wtRes,
+        mut: mutRes,
+        structure: wtPdb || undefined
+      });
+      if (jfResult.success && jfResult.data) {
+        return {
+          wtProbability: jfResult.data.wtProbability ?? 0,
+          mutProbability: jfResult.data.mutProbability ?? 0,
+          llr: jfResult.data.llr ?? 0,
+          preferences: jfResult.data.preferences ?? [],
+          mutRank: jfResult.data.mutRank ?? 1,
+          positionalEntropy: jfResult.data.positionalEntropy ?? 0,
+          embeddingShift: jfResult.data.embeddingShift ?? 0,
+          localEmbeddingShift: jfResult.data.embeddingShift ?? 0,
+          localShiftMap: jfResult.data.localShiftMap ?? [],
+          provenance: "JapanFold (Cloud)"
+        };
+      }
+    } catch (_) {}
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
-    console.warn(`[Local SaProt Analysis Warning] Failed to query local SaProt sidecar at ${sidecarUrl}: ${err.message}.`);
-    return { error: `SaProt analysis failed: ${err.message} (${sidecarUrl})`, status };
+    return { error: `SaProt inference in standby (local sidecar warming up or offline)`, status };
   }
 }
 

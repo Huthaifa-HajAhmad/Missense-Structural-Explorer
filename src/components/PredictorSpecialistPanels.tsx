@@ -60,7 +60,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
     }
     return "N/A";
   };
-  const [activeTab, setActiveTab] = useState<TabType>("lms");
+  const [activeTab, setActiveTab] = useState<TabType>("meta");
   const [knowledgeModalKey, setKnowledgeModalKey] = useState<string | null>(null);
 
   const renderSourceLabel = (source: string) => {
@@ -308,16 +308,16 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(vesmScore ?? null), vesmScore !== null && vesmScore !== undefined ? "Informational" : undefined)}
+                  {renderBadge(getEsmSignal(vesmScore ?? null), vesmScore !== null && vesmScore !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby / Ready on Demand"))}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {renderScoreValue(vesmScore ?? null, 2)}
+                  {vesmScore !== null && vesmScore !== undefined ? renderScoreValue(vesmScore, 2) : (isLoading ? "Calculating..." : "Standby (Local / Cloud)")}
                 </span>
                 {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -5.0, -2.0, true)}
-                {renderSourceLabel("Local VESM-150M (ntranoslab)")}
+                {renderSourceLabel("Local VESM-150M / JapanFold ESMC")}
               </div>
             </div>
 
@@ -340,13 +340,13 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null && esm2Score !== undefined ? "Informational" : undefined)}
+                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null && esm2Score !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby / Ready on Demand"))}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {renderScoreValue(esm2Score ?? null, 2)}
+                  {esm2Score !== null && esm2Score !== undefined ? renderScoreValue(esm2Score, 2) : (isLoading ? "Calculating..." : "Standby (Local / Cloud)")}
                 </span>
                 {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
                 {renderSourceLabel("Meta FAIR (ESM-2 650M/3B)")}
@@ -380,20 +380,20 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       gpnScore <= -2.5 ? "Conserved (Prior)" : "Tolerated"
                     )
                   ) : (
-                    renderBadge("unavailable", "Not in dbNSFP")
+                    renderBadge("unavailable", "Outside Genomic Scope")
                   )}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>LLR Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {renderScoreValue(gpnScore, 2)}
+                  {gpnScore !== null ? renderScoreValue(gpnScore, 2) : "Outside Scope"}
                 </span>
                 {gpnScore !== null ? (
                   renderScoreBar(gpnScore, -10, 2, -2.5, 0.0, true)
                 ) : (
                   <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
-                    Zero-shot vertebrate alignment prior precomputed in dbNSFP
+                    Zero-shot vertebrate alignment prior (canonical coding transcripts)
                   </p>
                 )}
                 {renderSourceLabel("Song Lab @ UC Berkeley / Hugging Face")}
@@ -427,11 +427,11 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       evo2Score <= -4.0 ? "Disruptive" : "Tolerated"
                     )
                   ) : evo2Status === "token_required" ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="EvolutionaryScale / Biohub token required">
-                      Requires ES Key
+                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="EvolutionaryScale / Biohub token optional">
+                      Cloud Token Optional
                     </span>
                   ) : (
-                    renderBadge("unavailable")
+                    renderBadge("unavailable", "Cloud Inference Standby")
                   )}
                 </div>
               </div>

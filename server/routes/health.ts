@@ -32,19 +32,48 @@ export function registerHealthRoutes(apiRouter: Router): void {
   });
 
   apiRouter.get("/diagnostics", async (req, res) => {
-    // foldxReady: check binary exists (no exec)
+    // foldxReady: check binary exists across candidate directories and platforms
     const foldxBinEnv = process.env.FOLDX_BINARY || "";
     let foldxReady = false;
     if (foldxBinEnv) {
       foldxReady = fs.existsSync(foldxBinEnv);
     } else {
-      try {
-        const toolsDir = path.join(process.cwd(), "tools", "foldx");
-        if (fs.existsSync(toolsDir)) {
-          const files = fs.readdirSync(toolsDir);
-          foldxReady = files.some(f => /^foldx.*\.exe$/i.test(f));
-        }
-      } catch { foldxReady = false; }
+      const candidateDirs = [
+        process.env.FOLDX_DIR,
+        path.join(process.cwd(), "tools", process.platform === "win32" ? "foldx" : "foldx_linux"),
+        path.join(process.cwd(), "tools", "foldx_linux"),
+        path.join(process.cwd(), "tools", "foldx"),
+        "/app/tools/foldx_linux",
+        "/app/tools/foldx"
+      ].filter(Boolean) as string[];
+
+      for (const dir of candidateDirs) {
+        if (!fs.existsSync(dir)) continue;
+        try {
+          const files = fs.readdirSync(dir);
+          const found = files.some(f => {
+            const lower = f.toLowerCase();
+            if (process.platform === "win32") {
+              return lower.startsWith("foldx") && lower.endsWith(".exe");
+            } else {
+              return (
+                lower.startsWith("foldx") &&
+                !lower.endsWith(".exe") &&
+                !lower.endsWith(".txt") &&
+                !lower.endsWith(".cmd") &&
+                !lower.endsWith(".bat") &&
+                !lower.endsWith(".ps1") &&
+                !lower.endsWith(".sh") &&
+                !lower.endsWith(".zip")
+              );
+            }
+          });
+          if (found) {
+            foldxReady = true;
+            break;
+          }
+        } catch { }
+      }
     }
     // geminiReady: key is set and not a known placeholder
     const geminiKey = process.env.GEMINI_API_KEY || "";
@@ -54,10 +83,10 @@ export function registerHealthRoutes(apiRouter: Router): void {
     // modelServerReady: query local FastAPI sidecar health endpoint (A-6)
     let modelServerReady = false;
     try {
-      const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(500) });
+      const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
       if (sidecarRes.ok) {
         const data = await sidecarRes.json() as any;
-        modelServerReady = data.status === "healthy";
+        modelServerReady = data.status === "ok" || data.status === "healthy" || data.state === "ready" || data.state === "warming_up";
       }
     } catch (_) {
       modelServerReady = false;

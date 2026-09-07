@@ -124,8 +124,8 @@ export class SidecarSupervisor {
     }
 
     this.isSpawning = true;
-    this.startupGraceUntil = Date.now() + 30000;
-    console.log("[Sidecar Supervisor] Launching local ML model server sidecar...");
+    this.startupGraceUntil = Date.now() + 180000;
+    console.log("[Sidecar Supervisor] Launching local ML model server sidecar (180s startup grace window)...");
 
     const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
 
@@ -243,26 +243,28 @@ export class SidecarSupervisor {
       if (Date.now() < this.startupGraceUntil) return;
 
       let sidecarHealthy = false;
+      let isWarmingUp = false;
       try {
-        const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(CONFIG.timeouts.sidecarHealthCheckMs) });
+        const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(10000) });
         if (sidecarRes.ok) {
           const data = await sidecarRes.json() as any;
           sidecarHealthy = data.status === "healthy";
+          isWarmingUp = data.state === "warming_up";
         }
       } catch (_) {
         sidecarHealthy = false;
       }
 
-      if (sidecarHealthy) {
+      if (sidecarHealthy || isWarmingUp) {
         this.healthCheckConsecutiveFailures = 0;
         this.restartAttempts = 0;
       } else {
         this.healthCheckConsecutiveFailures++;
-        console.warn(`[Sidecar Supervisor] Background health check failed (strike ${this.healthCheckConsecutiveFailures}/2).`);
+        console.warn(`[Sidecar Supervisor] Background health check probe failed (strike ${this.healthCheckConsecutiveFailures}/3).`);
 
-        if (this.healthCheckConsecutiveFailures >= 2) {
+        if (this.healthCheckConsecutiveFailures >= 3) {
           this.healthCheckConsecutiveFailures = 0;
-          console.warn("[Sidecar Supervisor] 2 consecutive health checks failed. Initiating sidecar recovery...");
+          console.warn("[Sidecar Supervisor] 3 consecutive health checks failed. Initiating sidecar recovery...");
 
           if (this.modelServerProcess) {
             console.warn("[Sidecar Supervisor] Terminating unresponsive sidecar process tree...");

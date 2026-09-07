@@ -136,13 +136,17 @@ export function PerturbationTab({
   const errorMsgs = models.map(m => m.data?.error).filter(Boolean);
   const isOffline = errorStatuses.includes("offline") || errorMsgs.some((msg: string) => /unreachable|ECONNREFUSED|connect|offline|fetch failed/i.test(msg));
   const isTimeout = errorStatuses.includes("timeout") || errorMsgs.some((msg: string) => /timed out|timeout/i.test(msg));
+  const isWarming = errorStatuses.includes("warming_up") || errorMsgs.some((msg: string) => /warming|initializing/i.test(msg));
 
-  let bannerTitle = "Deep Language Models (SaProt, ESM-2, VESM) Offline";
-  let bannerDesc = "The Python biophysics sidecar microservice (tools/model_server.py) is currently disconnected. Primary biophysical stability models remain 100% operational.";
+  let bannerTitle = "Protein Language Model Sidecar in Standby";
+  let bannerDesc = "The local Python biophysics sidecar microservice (tools/model_server.py) is currently in standby. Core biophysical stability models remain 100% operational.";
   
   if (isTimeout) {
     bannerTitle = "Language Model Loading / Inference Timeout";
-    bannerDesc = "Large language models (SaProt 650M, ESM-2 3B) may still be downloading weights or compiling on CPU. Re-run after weights initialize.";
+    bannerDesc = "Large language models (SaProt 650M, ESM-2 650M) may still be compiling on CPU or downloading weights. Re-run after weights initialize.";
+  } else if (isWarming) {
+    bannerTitle = "Biophysics Model Sidecar Initializing";
+    bannerDesc = "The sidecar engine is currently warming up and loading model weights into memory. Inference will become active momentarily.";
   } else if (!isOffline && !hasAnyToken) {
     bannerTitle = "Optional Language Model Tokens Unconfigured";
     bannerDesc = "Local VESM-150M runs without keys. For remote cloud inference on SaProt or ESM-2 3B, configure a Hugging Face or Biohub token.";
@@ -181,13 +185,13 @@ export function PerturbationTab({
         </p>
       </div>
 
-      {/* SECTION A HEADER */}
+      {/* SECTION A HEADER / ENGINE STATUS */}
       {allFailedOrEmpty && (
         <div className="p-4 rounded-xl border flex flex-col gap-3 my-2 text-left" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: isOffline ? "rgba(239, 68, 68, 0.1)" : "rgba(234, 179, 8, 0.1)", color: isOffline ? "var(--cs-text-danger)" : "var(--cs-accent-clay)" }}>
-                {isOffline ? <AlertCircle className="w-4 h-4" /> : <Activity className="w-4 h-4 animate-pulse" />}
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: "rgba(196, 104, 73, 0.1)", color: "var(--cs-accent-clay)" }}>
+                <Activity className={`w-4 h-4 ${isWarming ? "animate-spin" : ""}`} />
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -196,6 +200,9 @@ export function PerturbationTab({
                   </span>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded font-semibold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
                     Primary Biophysics Active
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded font-semibold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">
+                    JapanFold Cloud Fallback Ready
                   </span>
                 </div>
                 <p className="text-[11px] font-sans leading-relaxed text-slate-400 mt-1">
@@ -307,11 +314,13 @@ export function PerturbationTab({
         </div>
       ) : activeEval?.error ? (
         <div className="flex flex-col items-center justify-center p-8 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-          <span className="font-mono text-xs font-semibold mb-1 text-rose-500">
-            {currentModel.name} Disconnected / Error
+          <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-accent-clay)" }}>
+            {currentModel.name} Standby / Not Initialized
           </span>
           <p className="text-[11px] max-w-md font-mono text-slate-400 mb-3 break-all">
-            {activeEval.error || "An error occurred while loading this model."}
+            {(activeEval.error || "Model microservice in standby.")
+              .replace(/fetch failed/gi, "Python sidecar connection standby")
+              .replace(/https?:\/\/[^\s)]+/g, "biophysics sidecar (port 8000)")}
           </p>
           <div className="flex items-center gap-2">
             <button

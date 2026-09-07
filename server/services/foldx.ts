@@ -482,31 +482,43 @@ async function generateMutantPdbInternal(
   let foldxBin = process.env.FOLDX_BINARY || "foldx";
   let foldxDir = "";
   if (foldxBin === "foldx") {
-    const localToolsDir = path.join(process.cwd(), "tools", "foldx");
-    if (fs.existsSync(localToolsDir)) {
-      const files = fs.readdirSync(localToolsDir);
-      // Platform-aware check (BIO-2)
-      const exeFile = files.find(f => {
-        const lower = f.toLowerCase();
-        if (process.platform === "win32") {
-          return lower.startsWith("foldx") && lower.endsWith(".exe");
-        } else {
-          return (
-            lower.startsWith("foldx") &&
-            !lower.endsWith(".exe") &&
-            !lower.endsWith(".txt") &&
-            !lower.endsWith(".cmd") &&
-            !lower.endsWith(".bat") &&
-            !lower.endsWith(".ps1") &&
-            !lower.endsWith(".sh")
-          );
+    const candidateDirs = [
+      process.env.FOLDX_DIR,
+      path.join(process.cwd(), "tools", process.platform === "win32" ? "foldx" : "foldx_linux"),
+      path.join(process.cwd(), "tools", "foldx_linux"),
+      path.join(process.cwd(), "tools", "foldx"),
+      "/app/tools/foldx_linux",
+      "/app/tools/foldx"
+    ].filter(Boolean) as string[];
+
+    for (const dir of candidateDirs) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        const files = fs.readdirSync(dir);
+        const exeFile = files.find(f => {
+          const lower = f.toLowerCase();
+          if (process.platform === "win32") {
+            return lower.startsWith("foldx") && lower.endsWith(".exe");
+          } else {
+            return (
+              lower.startsWith("foldx") &&
+              !lower.endsWith(".exe") &&
+              !lower.endsWith(".txt") &&
+              !lower.endsWith(".cmd") &&
+              !lower.endsWith(".bat") &&
+              !lower.endsWith(".ps1") &&
+              !lower.endsWith(".sh") &&
+              !lower.endsWith(".zip")
+            );
+          }
+        });
+        if (exeFile) {
+          foldxBin = path.join(dir, exeFile);
+          foldxDir = dir;
+          console.log(`[Biophysical Modeling] Auto-detected FoldX binary: ${foldxBin}`);
+          break;
         }
-      });
-      if (exeFile) {
-        foldxBin = path.join(localToolsDir, exeFile);
-        foldxDir = localToolsDir;
-        console.log(`[Biophysical Modeling] Auto-detected local FoldX binary: ${foldxBin}`);
-      }
+      } catch (_) {}
     }
   } else {
     foldxDir = path.dirname(foldxBin);
@@ -514,7 +526,7 @@ async function generateMutantPdbInternal(
 
   // Prevent executing Windows scripts on POSIX/Linux platforms
   if (process.platform !== "win32" && (foldxBin.toLowerCase().endsWith(".cmd") || foldxBin.toLowerCase().endsWith(".bat"))) {
-    throw new Error(`Invalid FoldX binary on ${process.platform}: Windows batch script '${path.basename(foldxBin)}' cannot be executed on Linux. Please install a Linux FoldX executable or mount it into /app/tools/foldx/`);
+    throw new Error(`Invalid FoldX binary on ${process.platform}: Windows batch script '${path.basename(foldxBin)}' cannot be executed on Linux. Please install a Linux FoldX executable or mount it into /app/tools/foldx/ or /app/tools/foldx_linux/`);
   }
 
   // Fail fast if the binary does not exist (P0-1.5)
@@ -525,18 +537,22 @@ async function generateMutantPdbInternal(
   if (process.platform !== "win32") {
     try {
       fs.chmodSync(foldxBin, 0o755);
-    } catch (_) {}
+    } catch (_) {
+      // Ignored if mounted in a read-only filesystem (:ro)
+    }
   }
 
   if (foldxDir || process.cwd()) {
     const candidateMolecules = [
       foldxDir ? path.join(foldxDir, "molecules") : "",
+      path.join(process.cwd(), "tools", "foldx_linux", "molecules"),
       path.join(process.cwd(), "tools", "foldx", "molecules"),
+      "/app/tools/foldx_linux/molecules",
       "/app/tools/foldx/molecules",
       path.join(process.cwd(), "molecules")
     ].filter(p => p && fs.existsSync(p));
     if (candidateMolecules.length === 0) {
-      throw new Error("FoldX parameter files missing: molecules/ directory not found in tools/foldx or /app/tools/foldx.");
+      throw new Error("FoldX parameter files missing: molecules/ directory not found in tools/foldx, tools/foldx_linux, or /app/tools/foldx.");
     }
     const sourceMolecules = candidateMolecules[0];
     const destMolecules = path.join(jobDir, "molecules");
@@ -554,11 +570,13 @@ async function generateMutantPdbInternal(
     const candidateRotabase = [
       foldxDir ? path.join(foldxDir, "rotabase.txt") : "",
       path.join(process.cwd(), "tools", "foldx", "rotabase.txt"),
+      path.join(process.cwd(), "tools", "foldx_linux", "rotabase.txt"),
       "/app/tools/foldx/rotabase.txt",
+      "/app/tools/foldx_linux/rotabase.txt",
       path.join(process.cwd(), "rotabase.txt")
     ].filter(p => p && fs.existsSync(p));
     if (candidateRotabase.length === 0) {
-      throw new Error("FoldX parameter files missing: rotabase.txt not found in tools/foldx or /app/tools/foldx.");
+      throw new Error("FoldX parameter files missing: rotabase.txt not found in tools/foldx, tools/foldx_linux, or /app/tools/foldx.");
     }
     const sourceRotabase = candidateRotabase[0];
     const destRotabase = path.join(jobDir, "rotabase.txt");

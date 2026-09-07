@@ -3,10 +3,13 @@ import sys
 import re
 import tempfile
 import asyncio
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 # Add tools/thermompnn to sys.path for direct access to official modules
 THERMOMPNN_DIR = Path(__file__).resolve().parent.parent.parent / "thermompnn"

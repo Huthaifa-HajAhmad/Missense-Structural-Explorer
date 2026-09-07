@@ -140,7 +140,8 @@ export function AboutSection() {
       const res = await fetch("/api/v1/debug/clear-caches", { method: "POST", headers });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error?.message || data.error || `HTTP ${res.status}`);
-      flashStatus("Server caches purged. Re-run analyses to rebuild them.");
+      clearClientVariantCache();
+      flashStatus("All server and client variant caches purged. Re-run analyses to rebuild them.");
       refresh();
     } catch (err) {
       flashStatus(err instanceof Error ? err.message : "Server cache purge failed.");

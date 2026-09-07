@@ -156,6 +156,8 @@ export async function getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promi
   });
 }
 
+import { clearEnergyModelCaches } from "./energy-models.ts";
+
 export function clearAllCaches(includeSqlite = false) {
   pdbCache.clear();
   bestPdbCache.clear();
@@ -170,6 +172,7 @@ export function clearAllCaches(includeSqlite = false) {
   landscapeCache.clear();
   narrativeCache.clear();
   inFlightPromises.clear();
+  clearEnergyModelCaches();
 
   if (includeSqlite) {
     try {

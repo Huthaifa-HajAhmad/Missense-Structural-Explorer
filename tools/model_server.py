@@ -19,11 +19,11 @@ from fastapi import HTTPException  # Re-export HTTPException for test compatibil
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm up local models on server start
+    # Trigger non-blocking background model warmup so uvicorn binds port 8000 immediately
     try:
-        models.load_vesm()
+        models.start_background_warmup()
     except Exception as e:
-        print(f"[Model Server Error] Failed to load local VESM model: {e}")
+        print(f"[Model Server Error] Failed to initiate background warmup: {e}")
     yield
     models.clear_vesm()
     models.clear_gpu_cache()
@@ -43,10 +43,14 @@ async def verify_secret_header(request: Request, call_next):
 
 @app.get("/health")
 def health_check():
+    is_warming = models.model_status.get("vesm") in ("downloading", "loading")
     return {
         "status": "healthy",
+        "state": "warming_up" if is_warming else "ready",
         "model_loaded": models.vesm_model is not None,
-        "active_models": len(models.esm2_models) + len(models.saprot_models)
+        "active_models": len(models.esm2_models) + len(models.saprot_models),
+        "models": models.model_status,
+        "model_status": models.model_status
     }
 
 @app.post("/models/clear-cache")

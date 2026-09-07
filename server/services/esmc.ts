@@ -46,6 +46,7 @@ const AA_LIST = ["L", "A", "G", "V", "S", "E", "R", "T", "I", "D", "P", "F", "K"
 const AA_TOKENS = AA_LIST.map(aa => VOCAB[aa]);
 
 import { CONFIG } from "../config.ts";
+import { runJapanFoldInference } from "./japanfold.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -97,48 +98,92 @@ export async function runEsmcAnalysis(
       signal: AbortSignal.timeout(60000) // VESM-150M needs up to 60s for first-run model load
     });
 
-    if (sidecarRes.ok) {
-      const data = await sidecarRes.json() as any;
-      if (data && data.status === "success" && typeof data.llr === "number") {
-        const llr = data.llr;
-        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : 0.0;
-        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : 0.0;
-        const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
-        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
-        const preferences = Array.isArray(data.preferences) ? data.preferences : [];
-
-        // Retrieve real embedding shifts from sidecar response
-        const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : 0.0;
-        const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
-        let localEmbeddingShift = 0.0;
-        if (localShiftMap.length > 0) {
-          const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
-          localEmbeddingShift = sumShift / localShiftMap.length;
-        }
-
-        const provenance = typeof data.provenance === "string" ? data.provenance : "ESMC-6B (Remote)";
-
+    if (!sidecarRes.ok) {
+      console.warn(`[Local VESM Analysis Warning] Local sidecar returned HTTP ${sidecarRes.status}. Attempting keyless JapanFold fallback...`);
+      const jfResult = await runJapanFoldInference("esmc", {
+        sequence,
+        position: pos,
+        wt: wtRes,
+        mut: mutRes
+      });
+      if (jfResult.success && jfResult.data) {
         return {
-          wtProbability: wtProb,
-          mutProbability: mutProb,
-          llr,
-          preferences,
-          mutRank,
-          positionalEntropy,
-          embeddingShift,
-          localEmbeddingShift,
-          localShiftMap,
-          provenance
+          wtProbability: jfResult.data.wtProbability ?? 0,
+          mutProbability: jfResult.data.mutProbability ?? 0,
+          llr: jfResult.data.llr ?? 0,
+          preferences: jfResult.data.preferences ?? [],
+          mutRank: jfResult.data.mutRank ?? 1,
+          positionalEntropy: jfResult.data.positionalEntropy ?? 0,
+          embeddingShift: jfResult.data.embeddingShift ?? 0,
+          localEmbeddingShift: jfResult.data.embeddingShift ?? 0,
+          localShiftMap: jfResult.data.localShiftMap ?? [],
+          provenance: "JapanFold ESMC (Cloud)"
         };
       }
-      return { error: `VESM sidecar returned unexpected response format`, status: "error" };
+      return { error: `VESM sidecar initializing or unavailable`, status: "offline" };
     }
-    return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
+
+    const data = await sidecarRes.json() as any;
+    if (data && data.status === "success" && typeof data.llr === "number") {
+      const llr = data.llr;
+      const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : 0.0;
+      const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : 0.0;
+      const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
+      const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
+      const preferences = Array.isArray(data.preferences) ? data.preferences : [];
+
+      // Retrieve real embedding shifts from sidecar response
+      const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : 0.0;
+      const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
+      let localEmbeddingShift = 0.0;
+      if (localShiftMap.length > 0) {
+        const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
+        localEmbeddingShift = sumShift / localShiftMap.length;
+      }
+
+      const provenance = typeof data.provenance === "string" ? data.provenance : "ESMC-6B (Remote)";
+
+      return {
+        wtProbability: wtProb,
+        mutProbability: mutProb,
+        llr,
+        preferences,
+        mutRank,
+        positionalEntropy,
+        embeddingShift,
+        localEmbeddingShift,
+        localShiftMap,
+        provenance
+      };
+    }
+    return { error: `VESM sidecar returned unexpected response format`, status: "error" };
   } catch (err: any) {
+    console.warn(`[Local VESM Analysis Warning] Local sidecar unavailable (${err.message}). Attempting keyless JapanFold fallback...`);
+    try {
+      const jfResult = await runJapanFoldInference("esmc", {
+        sequence,
+        position: pos,
+        wt: wtRes,
+        mut: mutRes
+      });
+      if (jfResult.success && jfResult.data) {
+        return {
+          wtProbability: jfResult.data.wtProbability ?? 0,
+          mutProbability: jfResult.data.mutProbability ?? 0,
+          llr: jfResult.data.llr ?? 0,
+          preferences: jfResult.data.preferences ?? [],
+          mutRank: jfResult.data.mutRank ?? 1,
+          positionalEntropy: jfResult.data.positionalEntropy ?? 0,
+          embeddingShift: jfResult.data.embeddingShift ?? 0,
+          localEmbeddingShift: jfResult.data.embeddingShift ?? 0,
+          localShiftMap: jfResult.data.localShiftMap ?? [],
+          provenance: "JapanFold ESMC (Cloud)"
+        };
+      }
+    } catch (_) {}
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
-    console.warn(`[Local VESM Fallback Warning] Failed to fetch local VESM prediction from ${sidecarUrl}: ${err.message}.`);
-    return { error: `VESM-150M prediction failed: ${err.message} (${sidecarUrl})`, status };
+    return { error: `VESM inference in standby (local sidecar warming up or offline)`, status };
   }
 }
 

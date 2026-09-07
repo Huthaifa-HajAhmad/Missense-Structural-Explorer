@@ -121,8 +121,8 @@ export async function runEsm2Analysis(
   } catch (err: any) {
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
-    console.warn(`[Local ESM-2 Analysis Warning] Failed to query local ESM-2 sidecar at ${sidecarUrl}: ${err.message}.`);
-    return { error: `ESM-2 analysis failed: ${err.message} (${sidecarUrl})`, status };
+    console.warn(`[Local ESM-2 Analysis Warning] Failed to query local ESM-2 sidecar: ${err.message}.`);
+    return { error: `ESM-2 inference in standby (local sidecar warming up or offline)`, status };
   }
 }
 

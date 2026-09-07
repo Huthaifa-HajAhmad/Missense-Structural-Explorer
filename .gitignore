@@ -17,6 +17,9 @@ tools/foldx/*
 !tools/foldx/molecules/
 !tools/foldx/molecules/**
 !tools/foldx/foldx.cmd
+tools/foldx_linux/*
+!tools/foldx_linux/molecules/
+!tools/foldx_linux/molecules/**
 tools/p2rank/
 
 # Dev scratch scripts
@@ -52,6 +55,10 @@ data/*.json
 graphify-out/
 .graphify/
 
+# Graft context graph cache
+/graft/
+.ignore
+
 # Local secrets
 .sidecar_secret
 
@@ -62,3 +69,8 @@ graphify-out/
 /rotabase.txt
 pnpm-lock.yaml
 pnpm-workspace.yaml
+
+# Large FoldX binaries
+tools/foldx_linux/*
+!tools/foldx_linux/.gitkeep
+tools/graft/

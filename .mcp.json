@@ -23,6 +23,15 @@
         "C:/Users/HSA19/antigravity/Missense-Structural-Explorer/graphify-out/graph.json"
       ],
       "description": "graphify: AST code knowledge graph \u2014 symbol traversal, architecture communities, caller graphs"
+    },
+    "graft": {
+      "command": "node",
+      "args": [
+        "tools/graft/cli.cjs",
+        "mcp",
+        "C:/Users/HSA19/antigravity/Missense-Structural-Explorer"
+      ],
+      "description": "graft: AST codebase graph \u2014 symbol wiring, call hierarchies, skeletons, and architecture maps"
     }
   }
 }

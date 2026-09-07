@@ -233,6 +233,11 @@ export async function runRaspLocal(
 
 export const thermompnnCache = new LRUCache<string, { prediction: number | null; jobId?: string; status: "pending" | "running" | "done" | "error" }>({ max: 200 });
 
+export function clearEnergyModelCaches(): void {
+  thermompnnCache.clear();
+  raspCache.clear();
+}
+
 export async function testTamarindConnection(apiKey?: string): Promise<{ valid: boolean; message: string }> {
   const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
   if (!keyToUse) {
@@ -262,7 +267,7 @@ export async function submitThermoMpnnJob(
   mutation: string,
   apiKey?: string,
   signal?: AbortSignal
-): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error"; error?: string }> {
+): Promise<{ jobId: string | null; prediction: number | null; status: "pending" | "done" | "error" | "unavailable"; error?: string }> {
   const pdbHash = crypto.createHash("sha256").update(pdbContent).digest("hex").slice(0, 16);
   const cacheKey = `${mutation}_${pdbHash}`;
   const cached = thermompnnCache.get(cacheKey);
@@ -311,21 +316,24 @@ export async function submitThermoMpnnJob(
         const errJson = await localRes.json().catch(() => ({}));
         const detail = (errJson as any)?.detail || `HTTP ${localRes.status}`;
         console.warn(`[ThermoMPNN] Local sidecar rejected (${localRes.status}): ${detail}`);
+        if (localRes.status === 503 || /warming|initializing/i.test(String(detail))) {
+          return { jobId: "local_warming", prediction: null, status: "pending", error: `ThermoMPNN engine is warming up: ${detail}` };
+        }
         if (!keyToUse) {
-          return { jobId: null, prediction: null, status: "error", error: `Local ThermoMPNN unavailable: ${detail}` };
+          return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN in standby: ${detail}` };
         }
       }
     } catch (localErr: any) {
       console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
       if (!keyToUse) {
-        return { jobId: null, prediction: null, status: "error", error: `Local ThermoMPNN sidecar error: ${localErr.message}` };
+        return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN sidecar in standby: ${localErr.message}` };
       }
     }
   }
 
   // 2. Remote Tamarind Bio API (Fallback when key is configured)
   if (!keyToUse) {
-    return { jobId: null, prediction: null, status: "error", error: "Tamarind Bio API key not configured. Set THERMOMPNN_PROVIDER=local or enter API key in Settings." };
+    return { jobId: null, prediction: null, status: "unavailable", error: "Local ThermoMPNN sidecar in standby. Start sidecar or enter Tamarind API key." };
   }
 
   const generatedJobName = `thermompnn_${mutation.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;

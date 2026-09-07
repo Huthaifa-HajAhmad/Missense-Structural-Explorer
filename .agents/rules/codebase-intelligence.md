@@ -9,8 +9,10 @@ When answering questions about architecture, tracing execution paths, discoverin
 
 ## 1. Decision Routing
 
+* **API Surfaces & Skeletons (Token-Efficient)**: Use **Graft** (`graft_file_api` MCP or `npm run graft -- skeleton <file>`). Saves ~90% tokens when checking signatures/types.
+* **Transitive Callers & Blast Radius**: Use **Graft** (`graft_trace_calls` MCP or `npm run graft -- callers <symbol> -d <N>`).
 * **Symbol Relationships & Function Call Paths**: Use **Graphify** (`graphify path "<A>" "<B>"` or `query_graph` MCP).
-* **Architecture Questions & Subsystem Mapping**: Use **Graphify** (`graphify query "<question>"`, `graphify god-nodes`).
+* **Architecture Questions & Subsystem Mapping**: Use **Graphify** (`graphify query "<question>"`, `graphify god-nodes`) or **Graft** (`graft_repo_map` MCP, `npm run graft -- map`).
 * **High-Level Docs, Decisions & Git Signals**: Use **Repowise** (`repowise docs`, `repowise scan`).
 * **Dead Code & Unused Exports**: Use **Repowise** (`repowise dead-code`).
 * **Exact String Literals / Error Regexes**: Use standard `grep_search`.

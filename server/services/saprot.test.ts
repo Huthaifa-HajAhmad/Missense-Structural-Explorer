@@ -12,7 +12,7 @@ describe("SaProt Service Integration Tests", () => {
 
     const result = await runSaprotAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null, null);
     expect(result).toBeDefined();
-    expect(result?.error).toContain("SaProt analysis failed");
+    expect(result?.error).toMatch(/standby|offline|failed/i);
     expect(result?.status).toBe("offline");
   });
 

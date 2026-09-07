@@ -17,6 +17,7 @@ services:
       - ../data:/app/data
       # Academic FoldX binary mount (licensed executable, rotabase.txt, molecules/)
       - ../tools/foldx:/app/tools/foldx:ro
+      - ../tools/foldx_linux:/app/tools/foldx_linux:ro
       # FoldX calculation and biophysical cache
       - ../logs:/app/logs
       # Hugging Face downloaded model weights cache

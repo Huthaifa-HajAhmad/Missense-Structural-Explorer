@@ -13,7 +13,7 @@ describe("ESMC Service Integration Tests", () => {
 
     const result = await runEsmcAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null);
     expect(result).toBeDefined();
-    expect(result?.error).toContain("VESM-150M prediction failed");
+    expect(result?.error).toMatch(/standby|offline|failed/i);
     expect(result?.status).toBe("offline");
   });
 

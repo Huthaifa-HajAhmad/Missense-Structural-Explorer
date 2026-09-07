@@ -1,5 +1,5 @@
 import React from "react";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, Loader2 } from "lucide-react";
 import { THRESHOLDS } from "../../../shared/thresholds";
 
 export interface PerturbModelDef {
@@ -34,9 +34,90 @@ export function PerturbationModelCards({
         const isSelected = m.id === activeModelId;
         const IconComponent = m.icon;
 
+        // 1. Loading State
+        if (m.data?.loading) {
+          return (
+            <div
+              key={m.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectModel(m.id);
+                }
+              }}
+              onClick={() => onSelectModel(m.id)}
+              className="relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)] animate-pulse"
+              style={{
+                background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
+                borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
+                boxShadow: isSelected ? "0 0 0 1px var(--cs-accent-clay)" : "none"
+              }}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="flex items-center gap-1 text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    Calculating...
+                  </span>
+                  <div className="p-1 rounded" style={{ background: isSelected ? "rgba(196, 104, 73, 0.1)" : "var(--cs-bg-subtle)", color: isSelected ? "var(--cs-accent-clay)" : "var(--cs-text-muted)" }}>
+                    <IconComponent className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <h3 className="text-xs font-bold transition-colors text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
+                <p className="text-[9px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left">
+                  Computing evolutionary sequence log-likelihood and residue embedding shifts...
+                </p>
+              </div>
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t text-[9px] font-mono text-purple-500" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                <span>Evaluating forward pass...</span>
+              </div>
+            </div>
+          );
+        }
+
+        // 2. Error / Standby / Offline State
         if (!m.data || m.data.error) {
           const errStatus = m.data?.status || "offline";
           const isTimeout = errStatus === "timeout";
+          const isWarming = errStatus === "warming_up" || (m.data?.error && /warming|initializing/i.test(m.data.error));
+          const isDownloading = errStatus === "downloading" || (m.data?.error && /download/i.test(m.data.error));
+
+          let badgeLabel = "Sidecar Standby";
+          let badgeBg = "rgba(148, 163, 184, 0.1)";
+          let badgeColor = "var(--cs-text-secondary)";
+          let badgeBorder = "rgba(148, 163, 184, 0.2)";
+
+          if (isTimeout) {
+            badgeLabel = "Model Timeout";
+            badgeBg = "rgba(234, 179, 8, 0.1)";
+            badgeColor = "var(--cs-accent-clay)";
+            badgeBorder = "rgba(234, 179, 8, 0.2)";
+          } else if (isWarming) {
+            badgeLabel = "Engine Initializing";
+            badgeBg = "rgba(234, 179, 8, 0.1)";
+            badgeColor = "var(--cs-accent-clay)";
+            badgeBorder = "rgba(234, 179, 8, 0.2)";
+          } else if (isDownloading) {
+            badgeLabel = "Downloading Weights";
+            badgeBg = "rgba(56, 189, 248, 0.1)";
+            badgeColor = "#0284c7";
+            badgeBorder = "rgba(56, 189, 248, 0.2)";
+          }
+
+          let displayDesc = m.description;
+          if (m.data?.error) {
+            if (/fetch failed|unreachable|ECONNREFUSED|connect|offline/i.test(m.data.error)) {
+              displayDesc = "Sidecar microservice in standby. Click 'Check & Retry' or configure keys.";
+            } else if (isWarming) {
+              displayDesc = "Engine microservice is starting and pre-loading initial weights.";
+            } else {
+              displayDesc = m.data.error.replace(/https?:\/\/[^\s)]+/g, "microservice");
+            }
+          }
+
           return (
             <div
               key={m.id}
@@ -60,14 +141,14 @@ export function PerturbationModelCards({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <span
-                    className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border"
+                    className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border ${isWarming || isDownloading ? "animate-pulse" : ""}`}
                     style={{
-                      background: isTimeout ? "rgba(234, 179, 8, 0.1)" : "rgba(239, 68, 68, 0.1)",
-                      color: isTimeout ? "var(--cs-accent-clay)" : "var(--cs-text-danger)",
-                      borderColor: isTimeout ? "rgba(234, 179, 8, 0.2)" : "rgba(239, 68, 68, 0.2)"
+                      background: badgeBg,
+                      color: badgeColor,
+                      borderColor: badgeBorder
                     }}
                   >
-                    {isTimeout ? "Model Timeout" : "Sidecar Disconnected"}
+                    {badgeLabel}
                   </span>
                   <div className="p-1 rounded" style={{ background: isSelected ? "rgba(196, 104, 73, 0.1)" : "var(--cs-bg-subtle)", color: isSelected ? "var(--cs-accent-clay)" : "var(--cs-text-muted)" }}>
                     <IconComponent className="w-3.5 h-3.5" />
@@ -75,7 +156,7 @@ export function PerturbationModelCards({
                 </div>
                 <h3 className="text-xs font-bold transition-colors text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
                 <p className="text-[9px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left">
-                  {m.data?.error || m.description}
+                  {displayDesc}
                 </p>
               </div>
               <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2 text-left" style={{ color: "var(--cs-accent-clay)" }}>
@@ -126,6 +207,9 @@ export function PerturbationModelCards({
               <div className="flex items-center justify-between mb-1.5">
                 {(() => {
                   const prov = ((m.data as any).provenance || "").toLowerCase();
+                  if (prov.includes("japanfold")) {
+                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">JapanFold Cloud</span>;
+                  }
                   if (prov.includes("fallback") || prov.includes("vesm")) {
                     return (
                       <div className="flex items-center gap-1">
