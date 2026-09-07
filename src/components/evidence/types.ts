@@ -13,7 +13,7 @@ export interface EvidenceDashboardCardProps {
   classTextMute: string;
   analysisState: AnalysisState;
   foldingDdG: number | null;
-  foldingStatus: "success" | "failed" | null;
+  foldingStatus: "success" | "failed" | "unavailable" | null;
   foldingEnergetics?: EnergeticsData | null;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;

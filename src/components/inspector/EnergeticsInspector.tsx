@@ -6,7 +6,7 @@ import { useSettings } from "../../context/SettingsContext";
 interface EnergeticsInspectorProps {
   analysisResult: AnalysisResult | null;
   foldingEnergetics?: EnergeticsData | null;
-  foldingStatus?: "failed" | "success" | null;
+  foldingStatus?: "failed" | "success" | "unavailable" | null;
   foldingError?: string | null;
   dynamut2Status?: "pending" | "unavailable" | "done" | null;
   ddmutStatus?: "pending" | "unavailable" | "done" | null;

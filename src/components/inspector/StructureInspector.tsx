@@ -27,7 +27,7 @@ interface StructureInspectorProps {
   viewMode: "wildtype" | "mutant";
   setViewMode?: (mode: "wildtype" | "mutant") => void;
   isFolding: boolean;
-  foldingStatus: "failed" | "success" | null;
+  foldingStatus: "failed" | "success" | "unavailable" | null;
   foldingDdG: number | null;
   homologs?: PdbHomolog[];
   isHomologsLoading?: boolean;

@@ -27,7 +27,7 @@ export interface ViewInspectorProps {
   onViewChange: (view: MasterView) => void;
   analysisResult: AnalysisResult | null;
   isFolding: boolean;
-  foldingStatus?: "failed" | "success" | null;
+  foldingStatus?: "failed" | "success" | "unavailable" | null;
   foldingError?: string | null;
   foldingDdG?: number | null;
   foldingEnergetics?: EnergeticsData | null;

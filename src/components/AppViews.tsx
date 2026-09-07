@@ -225,7 +225,7 @@ export function AppViews({
                   classTextMute={classTextMute}
                   analysisState={analysisState}
                   foldingDdG={foldingDdG}
-                  foldingStatus={foldingStatus as "failed" | "success" | null}
+                  foldingStatus={foldingStatus as "failed" | "success" | "unavailable" | null}
                   foldingEnergetics={foldingEnergetics}
                   dynamut2Status={dynamut2Status}
                   ddmutStatus={ddmutStatus}
@@ -262,7 +262,7 @@ export function AppViews({
                   classTextMute={classTextMute}
                   analysisState={analysisState}
                   foldingDdG={foldingDdG}
-                  foldingStatus={foldingStatus as "failed" | "success" | null}
+                  foldingStatus={foldingStatus as "failed" | "success" | "unavailable" | null}
                   foldingEnergetics={foldingEnergetics}
                   dynamut2Status={dynamut2Status}
                   ddmutStatus={ddmutStatus}
