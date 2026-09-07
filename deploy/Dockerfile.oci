@@ -82,6 +82,7 @@ RUN chmod +x /usr/local/bin/box64
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HF_HOME=/root/.cache/huggingface
+ENV PATH="/app/tools/.venv/bin:$PATH"
 
 # 1. Install production Node dependencies (cached unless package.json changes)
 COPY package*.json ./

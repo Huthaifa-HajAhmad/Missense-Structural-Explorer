@@ -129,19 +129,34 @@ export class SidecarSupervisor {
 
     const modelServerScript = path.join(process.cwd(), "tools", "model_server.py");
 
+    // Auto-discover local virtualenv python and bin dir
+    const venvPythonPath = process.platform === "win32"
+      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
+      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+
+    const venvBinDir = process.platform === "win32"
+      ? path.join(process.cwd(), "tools", ".venv", "Scripts")
+      : path.join(process.cwd(), "tools", ".venv", "bin");
+
+    const currentPath = process.env.PATH || "";
+    const sidecarPath = fs.existsSync(venvBinDir) ? `${venvBinDir}${path.delimiter}${currentPath}` : currentPath;
+
     // Inherit full environment to preserve Windows runtime DLLs, system paths, and profile settings
     const sidecarEnv: Record<string, string> = {
       ...process.env as Record<string, string>,
+      PATH: sidecarPath,
       SIDECAR_SECRET: process.env.SIDECAR_SECRET || "",
       PYTHONUNBUFFERED: "1",
       OMP_NUM_THREADS: process.env.OMP_NUM_THREADS || "2",
       TORCH_NUM_THREADS: process.env.TORCH_NUM_THREADS || "2"
     };
 
-    // Auto-discover local virtualenv python
-    const venvPythonPath = process.platform === "win32"
-      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
-      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+    const sidecarUrl = CONFIG.services.sidecarBaseUrl;
+    const isLocalSidecar = sidecarUrl.includes("localhost") || sidecarUrl.includes("127.0.0.1") || sidecarUrl.includes("0.0.0.0");
+    if (!isLocalSidecar) {
+      console.log(`[Sidecar Supervisor] SIDECAR_URL points to external host (${sidecarUrl}). Skipping local sidecar process spawn.`);
+      return;
+    }
 
     if (this.hasStandaloneUv === null) {
       try {
@@ -159,15 +174,16 @@ export class SidecarSupervisor {
       detached: process.platform !== "win32"
     };
 
-    if (this.hasStandaloneUv) {
-      console.log("[Sidecar Supervisor] Launching sidecar via standalone uv (project: tools)...");
-      this.modelServerProcess = spawn("uv", ["run", "--project", "tools", modelServerScript], spawnOptions);
-    } else if (fs.existsSync(venvPythonPath)) {
+    // Priority 1: Direct virtualenv Python execution (fastest, pre-synced, zero network overhead)
+    if (fs.existsSync(venvPythonPath)) {
       console.log(`[Sidecar Supervisor] Found local virtualenv python at ${venvPythonPath}. Launching sidecar directly...`);
       this.modelServerProcess = spawn(venvPythonPath, [modelServerScript], spawnOptions);
+    } else if (this.hasStandaloneUv) {
+      console.log("[Sidecar Supervisor] Launching sidecar via standalone uv (project: tools)...");
+      this.modelServerProcess = spawn("uv", ["run", "--project", "tools", "--no-sync", "python", modelServerScript], spawnOptions);
     } else {
       console.log("[Sidecar Supervisor] Standalone uv not found in PATH. Launching sidecar via python -m uv...");
-      this.modelServerProcess = spawn("python", ["-m", "uv", "run", "--project", "tools", modelServerScript], spawnOptions);
+      this.modelServerProcess = spawn("python", ["-m", "uv", "run", "--project", "tools", "--no-sync", "python", modelServerScript], spawnOptions);
     }
 
     // Reset restart counter after 30 seconds of stable running
