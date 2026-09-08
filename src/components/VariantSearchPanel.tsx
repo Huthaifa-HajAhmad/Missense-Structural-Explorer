@@ -103,6 +103,16 @@ function VariantSearchPanel({
   const { hasConfiguredGeminiKey, openSettingsTab } = useSettings();
   const result = analysisState.result;
 
+  // Check if any pipeline stage or background solver is still in active execution
+  const isPipelineActive = Boolean(
+    analysisState.isLoading ||
+    isBiophysicalLoading ||
+    isClinicalLoading ||
+    isNarrativeLoading ||
+    isFolding ||
+    isPocketLoading
+  );
+
   const isGenomicVariant = (customVariant && (
     /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
     /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
@@ -369,12 +379,12 @@ function VariantSearchPanel({
                 ) : (
                   <button
                     type="submit"
-                    disabled={analysisState.isLoading}
+                    disabled={isPipelineActive}
                     aria-label="Analyze Variant"
                     className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 active:scale-[0.99]"
                     style={{ background: "var(--cs-accent-clay)" }}
                   >
-                    {analysisState.isLoading ? (
+                    {isPipelineActive ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         Executing Pipeline Analysis…
@@ -441,9 +451,9 @@ function VariantSearchPanel({
                   <Layers className="w-4 h-4 text-[var(--cs-accent-clay)]" />
                   Workflow Pipeline
                 </h2>
-                <span className={result ? "text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1.5" : "badge-data-source flex items-center gap-1.5"}>
-                  <Activity className={`w-3 h-3 ${result ? "text-emerald-500" : "text-[var(--cs-accent-clay)]"}`} />
-                  {analysisState.isLoading ? "Live Execution" : result ? "Result Loaded" : "Est. ~30 sec"}
+                <span className={!isPipelineActive && result ? "text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1.5" : "badge-data-source flex items-center gap-1.5"}>
+                  <Activity className={`w-3 h-3 ${!isPipelineActive && result ? "text-emerald-500" : "text-[var(--cs-accent-clay)] animate-pulse"}`} />
+                  {isPipelineActive ? "Live Execution" : result ? "Result Loaded" : "Est. ~30 sec"}
                 </span>
               </div>
 
@@ -535,8 +545,8 @@ function VariantSearchPanel({
             <div className="p-3.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11px] leading-relaxed flex items-center gap-2.5 shadow-xs" style={{ color: "var(--cs-text-secondary)" }}>
               <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
               <span>
-                {analysisState.isLoading 
-                  ? loadingStep || "Processing query..." 
+                {isPipelineActive 
+                  ? loadingStep || "Processing pipeline analysis…" 
                   : result 
                     ? "Analysis complete! Click on any pipeline step card above to navigate and explore the results." 
                     : "Parallel biophysical computation engine"}

@@ -132,13 +132,14 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     // 8. JapanFold Sovereign Cloud Connectivity Check (Structure Prediction)
     let japanFoldReachable = false;
     try {
+      const jfUrl = process.env.JAPANFOLD_API_URL || "https://api.japanfold.aiand.com/v1/predictions";
       const jfHeaders = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0" };
-      const jfRes = await fetch("https://api.japanfold.aiand.com/v1/predictions", {
+      const jfRes = await fetch(jfUrl, {
         method: "OPTIONS",
         headers: jfHeaders,
         signal: AbortSignal.timeout(2000)
       }).catch(async () => {
-        return await fetch("https://api.japanfold.aiand.com/v1/predictions", {
+        return await fetch(jfUrl, {
           method: "GET",
           headers: jfHeaders,
           signal: AbortSignal.timeout(2000)

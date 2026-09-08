@@ -131,4 +131,41 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     const reportStatus = getWorkflowStageStatus("report", cachedResult, false, false, false, false, undefined, false, null, null, false);
     expect(reportStatus.status).toBe("complete");
   });
+
+  it("should NOT mark energetics, report, or literature as complete when placeholder analysis is present and biophysics/clinical is still loading", () => {
+    const placeholderResult: AnalysisResult = {
+      analysis: "Biophysical analysis in progress...",
+      insights: null,
+      clinvar: null,
+      foldingEnergetics: null,
+      landscapeData: null
+    };
+
+    // When biophysical & clinical are loading and 3D repacking is active:
+    const evidenceStatus = getWorkflowStageStatus("evidence", placeholderResult, true, true, true);
+    expect(evidenceStatus.status).toBe("progress");
+
+    const structureStatus = getWorkflowStageStatus("structure", placeholderResult, true, true, true);
+    expect(structureStatus.status).toBe("progress");
+
+    const energeticsStatus = getWorkflowStageStatus("energetics", placeholderResult, true, true, true);
+    expect(energeticsStatus.status).toBe("progress");
+    expect(energeticsStatus.status).not.toBe("complete");
+
+    const landscapeStatus = getWorkflowStageStatus("landscape", placeholderResult, true, true, true);
+    expect(landscapeStatus.status).toBe("progress");
+
+    const insightsStatus = getWorkflowStageStatus("insights", placeholderResult, true, true, true);
+    expect(insightsStatus.status).toBe("pending");
+    expect(insightsStatus.status).not.toBe("complete");
+
+    const literatureStatus = getWorkflowStageStatus("literature", placeholderResult, true, true, true);
+    expect(literatureStatus.status).toBe("progress");
+    expect(literatureStatus.status).not.toBe("complete");
+
+    const reportStatus = getWorkflowStageStatus("report", placeholderResult, true, true, true);
+    expect(reportStatus.status).toBe("pending");
+    expect(reportStatus.status).not.toBe("complete");
+  });
 });
+

@@ -2,19 +2,103 @@ import { AnalysisResult } from "../types";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
 
+export function hasRealAnalysis(result: AnalysisResult | null | undefined): boolean {
+  if (typeof result?.analysis !== "string") return false;
+  const a = result.analysis.toLowerCase();
+  return (
+    !a.includes("in progress") &&
+    !a.includes("unavailable") &&
+    !a.includes("generation failed") &&
+    !a.includes("error occurred") &&
+    !a.includes("rate limit exceeded")
+  );
+}
+
+export function isAnalysisFailed(result: AnalysisResult | null | undefined): boolean {
+  if (typeof result?.analysis !== "string") return false;
+  const a = result.analysis.toLowerCase();
+  return (
+    a.includes("generation failed") ||
+    a.includes("error occurred") ||
+    a.includes("rate limit exceeded")
+  );
+}
+
+export interface WorkflowStageStatusParams {
+  view: string;
+  result?: AnalysisResult | null;
+  isFolding?: boolean;
+  isBiophysicalLoading?: boolean;
+  isClinicalLoading?: boolean;
+  isLoadingSearch?: boolean;
+  loadingStep?: string;
+  isPocketLoading?: boolean;
+  dynamut2Status?: string | null;
+  ddmutStatus?: string | null;
+  isNarrativeLoading?: boolean;
+  hasStructureCoordinates?: boolean;
+}
+
+export function getWorkflowStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string };
 export function getWorkflowStageStatus(
   view: string,
-  result: AnalysisResult | null | undefined,
-  isFolding: boolean,
-  isBiophysicalLoading: boolean,
-  isClinicalLoading: boolean,
+  result?: AnalysisResult | null,
+  isFolding?: boolean,
+  isBiophysicalLoading?: boolean,
+  isClinicalLoading?: boolean,
   isLoadingSearch?: boolean,
   loadingStep?: string,
   isPocketLoading?: boolean,
   dynamut2Status?: string | null,
   ddmutStatus?: string | null,
-  isNarrativeLoading?: boolean
+  isNarrativeLoading?: boolean,
+  hasStructureCoordinates?: boolean
+): { status: WorkflowStatusType; desc: string };
+export function getWorkflowStageStatus(
+  viewOrParams: string | WorkflowStageStatusParams,
+  argResult?: AnalysisResult | null,
+  argIsFolding?: boolean,
+  argIsBiophysicalLoading?: boolean,
+  argIsClinicalLoading?: boolean,
+  argIsLoadingSearch?: boolean,
+  argLoadingStep?: string,
+  argIsPocketLoading?: boolean,
+  argDynamut2Status?: string | null,
+  argDdmutStatus?: string | null,
+  argIsNarrativeLoading?: boolean,
+  argHasStructureCoordinates?: boolean
 ): { status: WorkflowStatusType; desc: string } {
+  const p: WorkflowStageStatusParams =
+    typeof viewOrParams === "string"
+      ? {
+          view: viewOrParams,
+          result: argResult,
+          isFolding: argIsFolding ?? false,
+          isBiophysicalLoading: argIsBiophysicalLoading ?? false,
+          isClinicalLoading: argIsClinicalLoading ?? false,
+          isLoadingSearch: argIsLoadingSearch,
+          loadingStep: argLoadingStep,
+          isPocketLoading: argIsPocketLoading,
+          dynamut2Status: argDynamut2Status,
+          ddmutStatus: argDdmutStatus,
+          isNarrativeLoading: argIsNarrativeLoading,
+          hasStructureCoordinates: argHasStructureCoordinates
+        }
+      : viewOrParams;
+
+  const {
+    view,
+    result,
+    isFolding = false,
+    isBiophysicalLoading = false,
+    isClinicalLoading = false,
+    isLoadingSearch = false,
+    loadingStep = "",
+    isPocketLoading = false,
+    isNarrativeLoading = false,
+    hasStructureCoordinates = false
+  } = p;
+
   // Define default descriptions for stages
   const defaultDescs: Record<string, string> = {
     evidence: "ClinVar, gnomAD & ACMG rules engine",
@@ -75,6 +159,8 @@ export function getWorkflowStageStatus(
 
   // 2. Landed state (active background computation tracking)
   if (result != null) {
+    const realAnalysis = hasRealAnalysis(result);
+
     if (view === "evidence") {
       if (isClinicalLoading || isBiophysicalLoading) {
         return {
@@ -96,13 +182,17 @@ export function getWorkflowStageStatus(
           desc: isFolding ? "Repacking mutant side-chains..." : "Running binding pocket solver..."
         };
       }
-      // PDB text is held in the viewer/pipeline state rather than AnalysisResult.
-      // AnalysisResult only carries structure evidence (for example ESM3 output),
-      // so do not read a non-existent result.pdbText field here.
+      // PDB coordinates are available when:
+      // 1. Explicitly flagged via hasStructureCoordinates, OR
+      // 2. An experimental pdbId is present, OR
+      // 3. A UniProt/Gene accession is present in metadata (AlphaFold/ESMFold warmup), OR
+      // 4. ESM3 PDB text, folding energetics, or real analysis are populated.
       const hasStructureEvidence = Boolean(
+        hasStructureCoordinates ||
         result.metadata?.pdbId ||
+        result.metadata?.uniprotId ||
         (result.esm3Eval && "pdbText" in result.esm3Eval && result.esm3Eval.pdbText) ||
-        result.analysis ||
+        realAnalysis ||
         result.foldingEnergetics
       );
       if (hasStructureEvidence) {
@@ -118,12 +208,15 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "energetics") {
-      const hasStructure = isBiophysicalLoading ||
+      const hasStructure = hasStructureCoordinates ||
+                           Boolean(result.metadata?.uniprotId || result.metadata?.pdbId) ||
+                           isBiophysicalLoading ||
+                           isFolding ||
                            result.foldingEnergetics != null ||
                            result.dynamut2 != null ||
                            result.ddmut != null ||
                            result.biophysicalEnergetics != null ||
-                           result.analysis != null;
+                           realAnalysis;
       if (!hasStructure) {
         return {
           status: "pending",
@@ -132,16 +225,16 @@ export function getWorkflowStageStatus(
       }
 
       const hasBiophysics = result.foldingEnergetics != null || result.dynamut2 != null || result.ddmut != null || result.biophysicalEnergetics != null;
-      const isProgress = !!isBiophysicalLoading && !hasBiophysics && !result.analysis;
+      const isProgress = (isBiophysicalLoading || (isFolding && !hasBiophysics)) && !hasBiophysics && !realAnalysis;
 
       if (isProgress) {
         return {
           status: "progress",
-          desc: "Computing AI biophysical assessment..."
+          desc: isFolding ? "Modeling FoldX, DynaMut2 & DDMut stability..." : "Computing AI biophysical assessment..."
         };
       }
 
-      if (hasBiophysics || result.analysis) {
+      if (hasBiophysics || realAnalysis) {
         const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.foldingEnergetics?.thermompnn ?? result.dynamut2;
         const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "Biophysical stability models active · In-silico chips updating";
         return {
@@ -177,9 +270,15 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "insights") {
-      const hasPrereq = result.clinvar != null || result.landscapeData != null || result.foldingEnergetics != null || result.biophysicalEnergetics != null;
+      if (isAnalysisFailed(result)) {
+        return {
+          status: "degraded",
+          desc: "Variant narrative generation failed"
+        };
+      }
+
       const isPrereqLoading = isBiophysicalLoading || isClinicalLoading;
-      if (isPrereqLoading && !hasPrereq) {
+      if (isPrereqLoading) {
         return {
           status: "pending",
           desc: "Awaiting prerequisite biophysical & clinical data..."
@@ -193,7 +292,7 @@ export function getWorkflowStageStatus(
         };
       }
 
-      if (result.analysis || result.insights) {
+      if (realAnalysis || (result.insights && Object.keys(result.insights).length > 0)) {
         return {
           status: "complete",
           desc: "Variant interpretation consensus ready"
@@ -207,8 +306,12 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "literature") {
-      // Literature mining does not depend on LLM clinical narrative synthesis.
-      // If the variant search has completed and result exists, citations are indexed/ready.
+      if (isClinicalLoading || isBiophysicalLoading) {
+        return {
+          status: "progress",
+          desc: "Mining PubMed & Europe PMC citations..."
+        };
+      }
       return {
         status: "complete",
         desc: "PubMed & Europe PMC citations indexed"
@@ -216,10 +319,10 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "report") {
-      if (!result.analysis && (isNarrativeLoading || isBiophysicalLoading || isClinicalLoading)) {
+      if (isAnalysisFailed(result)) {
         return {
-          status: "pending",
-          desc: "Awaiting variant insights..."
+          status: "error",
+          desc: "Clinical summary generation failed"
         };
       }
 
@@ -230,7 +333,14 @@ export function getWorkflowStageStatus(
         };
       }
 
-      if (result.analysis) {
+      if (!realAnalysis && (isBiophysicalLoading || isClinicalLoading)) {
+        return {
+          status: "pending",
+          desc: "Awaiting variant insights & clinical evidence..."
+        };
+      }
+
+      if (realAnalysis) {
         return {
           status: "complete",
           desc: "Clinical summary & report compiled"

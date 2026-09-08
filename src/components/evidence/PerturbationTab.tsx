@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Activity, Layers, Sparkles, RefreshCw, AlertCircle, Terminal, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Activity, Layers, Sparkles, RefreshCw } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
 import { PerturbationModelCards, PerturbModelDef } from "./perturbation/PerturbationModelCards";
@@ -25,10 +25,6 @@ export function PerturbationTab({
     settings.defaultPerturbationModel
   );
   const [isRetrying, setIsRetrying] = useState(false);
-  const [showGuide, setShowGuide] = useState(false);
-  const [healthCheckStatus, setHealthCheckStatus] = useState<string | null>(null);
-  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
-  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
 
   if (!result) return null;
 
@@ -103,54 +99,9 @@ export function PerturbationTab({
     }
   };
 
-  const checkSidecarHealth = async () => {
-    setIsCheckingHealth(true);
-    try {
-      const health = await apiClient.getSidecarHealth();
-      if (health.reachable) {
-        setHealthCheckStatus(`✓ Sidecar Connected (${health.latencyMs}ms) — models: ${health.activeModels ?? 0} loaded`);
-        await handleRetry();
-      } else {
-        setHealthCheckStatus(`✗ Sidecar Offline at ${health.baseUrl || "port 8000"}: ${health.error || "Connection refused"}`);
-      }
-    } catch (err: any) {
-      setHealthCheckStatus(`✗ Sidecar Unreachable: ${err.message}`);
-    } finally {
-      setIsCheckingHealth(false);
-    }
-  };
-
-  const copyToClipboard = async (text: string, label: string) => {
-    if (navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedCommand(label);
-        setTimeout(() => setCopiedCommand(null), 2000);
-      } catch {
-        // Safe clipboard rejection handling
-      }
-    }
-  };
-
   const errorStatuses = models.map(m => m.data?.status).filter(Boolean);
   const errorMsgs = models.map(m => m.data?.error).filter(Boolean);
-  const isOffline = errorStatuses.includes("offline") || errorMsgs.some((msg: string) => /unreachable|ECONNREFUSED|connect|offline|fetch failed/i.test(msg));
-  const isTimeout = errorStatuses.includes("timeout") || errorMsgs.some((msg: string) => /timed out|timeout/i.test(msg));
   const isWarming = errorStatuses.includes("warming_up") || errorMsgs.some((msg: string) => /warming|initializing/i.test(msg));
-
-  let bannerTitle = "Protein Language Model Sidecar in Standby";
-  let bannerDesc = "The local Python biophysics sidecar microservice (tools/model_server.py) is currently in standby. Core biophysical stability models remain 100% operational.";
-  
-  if (isTimeout) {
-    bannerTitle = "Language Model Loading / Inference Timeout";
-    bannerDesc = "Large language models (SaProt 650M, ESM-2 650M) may still be compiling on CPU or downloading weights. Re-run after weights initialize.";
-  } else if (isWarming) {
-    bannerTitle = "Biophysics Model Sidecar Initializing";
-    bannerDesc = "The sidecar engine is currently warming up and loading model weights into memory. Inference will become active momentarily.";
-  } else if (!isOffline && !hasAnyToken) {
-    bannerTitle = "Optional Language Model Tokens Unconfigured";
-    bannerDesc = "Local VESM-150M runs without keys. For remote cloud inference on SaProt or ESM-2 3B, configure a Hugging Face or Biohub token.";
-  }
 
   const currentModel = models.find(m => m.id === activePerturbModel) || activeList[0] || models[0];
   const activeEval = currentModel?.data;
@@ -212,12 +163,12 @@ export function PerturbationTab({
             <button
               type="button"
               onClick={handleRetry}
-              disabled={isCheckingHealth || isRetrying}
+              disabled={isRetrying}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-xs disabled:opacity-50"
               style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
             >
-              <RefreshCw className={`w-3 h-3 ${isCheckingHealth || isRetrying ? "animate-spin" : ""}`} />
-              {isCheckingHealth ? "Testing..." : isRetrying ? "Retrying..." : "Check & Retry"}
+              <RefreshCw className={`w-3 h-3 ${isRetrying ? "animate-spin" : ""}`} />
+              {isRetrying ? "Retrying..." : "Check & Retry"}
             </button>
             <button
               type="button"

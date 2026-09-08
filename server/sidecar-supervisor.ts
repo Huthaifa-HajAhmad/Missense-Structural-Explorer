@@ -155,6 +155,7 @@ export class SidecarSupervisor {
     const isLocalSidecar = sidecarUrl.includes("localhost") || sidecarUrl.includes("127.0.0.1") || sidecarUrl.includes("0.0.0.0");
     if (!isLocalSidecar) {
       console.log(`[Sidecar Supervisor] SIDECAR_URL points to external host (${sidecarUrl}). Skipping local sidecar process spawn.`);
+      this.isSpawning = false;
       return;
     }
 

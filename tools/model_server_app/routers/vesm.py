@@ -10,6 +10,15 @@ from tools.model_server_app.utils import (
 )
 from tools.model_server_app import models
 
+# Canonical ESM-C / ESM-3 amino acid token indices (EvolutionaryScale vocabulary):
+# Indices 0..3 are <cls>, <pad>, <eos>, <unk>. Standard amino acids start at index 4.
+ESMC_CANONICAL_VOCAB = {
+    "L": 4, "A": 5, "G": 6, "V": 7, "S": 8, "E": 9,
+    "R": 10, "T": 11, "I": 12, "D": 13, "P": 14, "F": 15,
+    "K": 16, "N": 17, "Q": 18, "Y": 19, "M": 20, "H": 21,
+    "W": 22, "C": 23
+}
+
 router = APIRouter()
 
 class VesmRequest(BaseModel):
@@ -68,7 +77,6 @@ def predict_vesm_sync(req: VesmRequest):
                 embeddings = raw_embs_tensor[0] if raw_embs_tensor.ndim > 2 else raw_embs_tensor
             else:
                 raise ValueError("Could not find embeddings in client response")
-            
             vocab_map = {}
             if hasattr(client, "tokenizer") and client.tokenizer:
                 try:
@@ -83,8 +91,8 @@ def predict_vesm_sync(req: VesmRequest):
                         pt_aa = client.encode(p_aa)
                         vocab_map[aa] = int(pt_aa.sequence[1].item())
                 except Exception as ve:
-                    print(f"[Model Server] Failed to build dynamic ESMC vocab map: {ve}. Using fallback order.")
-                    vocab_map = {aa: i for i, aa in enumerate(AA_LIST)}
+                    print(f"[Model Server] Failed to build dynamic ESMC vocab map: {ve}. Using canonical ESM-C token indices.")
+                    vocab_map = ESMC_CANONICAL_VOCAB.copy()
 
             wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
                 logits, pos, wt, mut, vocab_map

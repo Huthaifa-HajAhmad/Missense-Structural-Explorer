@@ -80,8 +80,8 @@ const NAV_ZONES: NavZone[] = [
     zoneLabel: "Synthesis",
     items: [
       { id: "insights", label: "Insights", sublabel: "Variant interpretation", Icon: FlaskConical },
-      { id: "report",   label: "Report",   sublabel: "Clinical narrative",     Icon: FileText     },
       { id: "literature", label: "Literature", sublabel: "Citations & PubMed", Icon: BookOpen     },
+      { id: "report",   label: "Report",   sublabel: "Clinical narrative",     Icon: FileText     },
     ],
   },
   {

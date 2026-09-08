@@ -24,27 +24,6 @@ export interface EsmcEvalResult {
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
 
-const VOCAB: Record<string, number> = {
-  "<cls>": 0, "<pad>": 1, "<eos>": 2, "<unk>": 3,
-  "L": 4, "A": 5, "G": 6, "V": 7, "S": 8, "E": 9,
-  "R": 10, "T": 11, "I": 12, "D": 13, "P": 14, "F": 15,
-  "K": 16, "N": 17, "Q": 18, "Y": 19, "M": 20, "H": 21,
-  "W": 22, "C": 23, "X": 24, "B": 25, "U": 26, "Z": 27,
-  "O": 28, ".": 29, "-": 30, "<null_1>": 31, "<mask>": 32
-};
-
-function tokenize(sequence: string): number[] {
-  const tokens = [0];
-  for (const char of sequence.toUpperCase()) {
-    tokens.push(VOCAB[char] !== undefined ? VOCAB[char] : 3);
-  }
-  tokens.push(2);
-  return tokens;
-}
-
-const AA_LIST = ["L", "A", "G", "V", "S", "E", "R", "T", "I", "D", "P", "F", "K", "N", "Q", "Y", "M", "H", "W", "C"];
-const AA_TOKENS = AA_LIST.map(aa => VOCAB[aa]);
-
 import { CONFIG } from "../config.ts";
 
 export type ModelEvalError = {
