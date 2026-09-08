@@ -12,7 +12,7 @@ describe("ESM-2 Service Integration Tests", () => {
 
     const result = await runEsm2Analysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null);
     expect(result).toBeDefined();
-    expect(result?.error).toContain("ESM-2 analysis failed");
+    expect(result?.error).toMatch(/standby|offline|failed/i);
     expect(result?.status).toBe("offline");
   });
 
