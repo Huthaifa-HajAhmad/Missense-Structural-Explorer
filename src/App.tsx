@@ -32,6 +32,7 @@ export default function App() {
     analysisState,
     isBiophysicalLoading,
     isClinicalLoading,
+    isNarrativeLoading,
     isPocketLoading,
     isFolding,
     dynamut2Status,
@@ -106,6 +107,7 @@ export default function App() {
           isFolding={isFolding}
           isBiophysicalLoading={isBiophysicalLoading}
           isClinicalLoading={isClinicalLoading}
+          isNarrativeLoading={isNarrativeLoading}
           isPocketLoading={isPocketLoading}
           dynamut2Status={dynamut2Status}
           ddmutStatus={ddmutStatus}

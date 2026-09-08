@@ -58,6 +58,16 @@ interface VariantSearchPanelProps {
   onViewChange?: (view: MasterView) => void;
 }
 
+const WORKFLOW_STAGES = [
+  { key: "evidence", title: "Evidence Pipeline", Icon: BarChart2, targetView: "evidence" as MasterView },
+  { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
+  { key: "energetics", title: "Energetics Engine", Icon: Activity, targetView: "energetics" as MasterView },
+  { key: "landscape", title: "Landscape Minimap", Icon: Map, targetView: "landscape" as MasterView },
+  { key: "insights", title: "Variant Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
+  { key: "literature", title: "Literature Mining", Icon: BookOpen, targetView: "literature" as MasterView },
+  { key: "report", title: "Clinical Report", Icon: FileText, targetView: "report" as MasterView },
+] as const;
+
 /** Reads clipboard text and calls setter. Silently ignores permission errors. */
 async function pasteFromClipboard(setter: (val: string) => void) {
   try {
@@ -137,19 +147,19 @@ function VariantSearchPanel({
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "literature" | "report") => {
-    const raw = getWorkflowStageStatus(
-      stage,
+    const raw = getWorkflowStageStatus({
+      view: stage,
       result,
       isFolding,
       isBiophysicalLoading,
       isClinicalLoading,
-      analysisState.isLoading,
+      isLoadingSearch: analysisState.isLoading,
       loadingStep,
       isPocketLoading,
       dynamut2Status,
       ddmutStatus,
       isNarrativeLoading
-    );
+    });
     const statusMap: Record<string, string> = {
       complete: "Complete",
       progress: "In Progress",
@@ -459,15 +469,7 @@ function VariantSearchPanel({
 
               {/* Workflow Live Stages List — Evenly Distributed without Dead Space */}
               <div className="flex-1 flex flex-col justify-between gap-2 my-1">
-                {[
-                  { key: "evidence", title: "Evidence Pipeline", Icon: BarChart2, targetView: "evidence" as MasterView },
-                  { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
-                  { key: "energetics", title: "Energetics Engine", Icon: Activity, targetView: "energetics" as MasterView },
-                  { key: "landscape", title: "Landscape Minimap", Icon: Map, targetView: "landscape" as MasterView },
-                  { key: "insights", title: "Variant Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
-                  { key: "literature", title: "Literature Mining", Icon: BookOpen, targetView: "literature" as MasterView },
-                  { key: "report", title: "Clinical Report", Icon: FileText, targetView: "report" as MasterView },
-                ].map(({ key, title, Icon, targetView }) => {
+                {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
                   const info = getStageInfo(key as any);
                   const isClickable = !!result && !!onViewChange;
                   const isRunning = info.status === "In Progress" || info.status === "Computing";

@@ -43,6 +43,7 @@ interface MasterSidebarProps {
   isPocketLoading?: boolean;
   dynamut2Status?: string | null;
   ddmutStatus?: string | null;
+  isNarrativeLoading?: boolean;
   isLoadingSearch?: boolean;
   loadingStep?: string;
   unreadConsoleCount?: number;
@@ -171,6 +172,7 @@ function MasterSidebar({
   isPocketLoading = false,
   dynamut2Status = null,
   ddmutStatus = null,
+  isNarrativeLoading = false,
   isLoadingSearch = false,
   loadingStep = "",
   unreadConsoleCount = 0,
@@ -289,9 +291,9 @@ function MasterSidebar({
               const isActive =
                 activeView === id ||
                 (id === "structure" && (activeView === "structure_alphafold" || activeView === "structure_esmfold"));
-              const { status } = getWorkflowStageStatus(
-                id,
-                analysisResult,
+              const { status } = getWorkflowStageStatus({
+                view: id,
+                result: analysisResult,
                 isFolding,
                 isBiophysicalLoading,
                 isClinicalLoading,
@@ -299,8 +301,9 @@ function MasterSidebar({
                 loadingStep,
                 isPocketLoading,
                 dynamut2Status,
-                ddmutStatus
-              );
+                ddmutStatus,
+                isNarrativeLoading
+              });
 
               return (
                 <div key={id} className="flex flex-col">

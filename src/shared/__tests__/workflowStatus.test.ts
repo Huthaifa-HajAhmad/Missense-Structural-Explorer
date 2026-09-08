@@ -167,5 +167,65 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(reportStatus.status).toBe("pending");
     expect(reportStatus.status).not.toBe("complete");
   });
+
+  it("should mark structure stage as complete when AlphaFold coordinates have loaded with metadata and isFolding is false", () => {
+    const warmupResult: AnalysisResult = {
+      analysis: "Biophysical analysis in progress...",
+      metadata: {
+        uniprotId: "Q9H116",
+        gene: "GZF1",
+        variant: "p.Arg591Trp"
+      }
+    } as any;
+
+    const structureStatus = getWorkflowStageStatus({
+      view: "structure",
+      result: warmupResult,
+      isFolding: false,
+      isPocketLoading: false
+    });
+    expect(structureStatus.status).toBe("complete");
+    expect(structureStatus.desc).toContain("coordinates ready");
+  });
+
+  it("should show report stage in progress when isNarrativeLoading is true on fresh runs", () => {
+    const inProgressResult: AnalysisResult = {
+      analysis: "Biophysical analysis in progress...",
+      metadata: { uniprotId: "Q9H116" }
+    } as any;
+
+    const reportStatus = getWorkflowStageStatus({
+      view: "report",
+      result: inProgressResult,
+      isNarrativeLoading: true,
+      isBiophysicalLoading: false,
+      isClinicalLoading: false
+    });
+    expect(reportStatus.status).toBe("progress");
+    expect(reportStatus.desc).toContain("Compiling clinical summary");
+  });
+
+  it("should mark insights and report as degraded or error when narrative generation fails", () => {
+    const failedResult: AnalysisResult = {
+      analysis: "### ❌ Narrative Generation Failed\n\nAn error occurred while communicating with Gemini: rate limit exceeded."
+    } as any;
+
+    const insightsStatus = getWorkflowStageStatus({
+      view: "insights",
+      result: failedResult,
+      isNarrativeLoading: false
+    });
+    expect(insightsStatus.status).toBe("degraded");
+    expect(insightsStatus.status).not.toBe("complete");
+
+    const reportStatus = getWorkflowStageStatus({
+      view: "report",
+      result: failedResult,
+      isNarrativeLoading: false
+    });
+    expect(reportStatus.status).toBe("error");
+    expect(reportStatus.status).not.toBe("complete");
+  });
 });
+
 
