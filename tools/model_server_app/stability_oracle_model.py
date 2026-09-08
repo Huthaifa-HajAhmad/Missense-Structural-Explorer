@@ -10,6 +10,38 @@ import pandas as pd
 import numpy as np
 
 
+class LayerScale(nn.Module):
+    def __init__(self, dim: int, init_values: float = 1e-5, inplace: bool = False):
+        super().__init__()
+        self.inplace = inplace
+        self.gamma = nn.Parameter(init_values * torch.ones(dim))
+
+    def forward(self, x):
+        return x.mul_(self.gamma) if self.inplace else x * self.gamma
+
+
+def drop_path(x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True):
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1.0 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+    if keep_prob > 0.0 and scale_by_keep:
+        random_tensor.div_(keep_prob)
+    return x * random_tensor
+
+
+class DropPath(nn.Module):
+    def __init__(self, drop_prob: float = 0.0, scale_by_keep: bool = True):
+        super().__init__()
+        self.drop_prob = drop_prob
+        self.scale_by_keep = scale_by_keep
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
+
+
+
 _NUM_ATOM_TYPES = 9
 _element_mapping = lambda x: {
     "H": 0,
