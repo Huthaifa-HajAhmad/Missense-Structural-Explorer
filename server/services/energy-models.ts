@@ -502,11 +502,12 @@ export function enrichBiophysicalResult(
   const rasp = foldxRawResult?.energetics?.rasp ?? null;
   const raspReason = foldxRawResult?.energetics?.raspReason ?? undefined;
   const stabilityoracleVal = jobs.stabilityoracleVal ?? foldxRawResult?.energetics?.stabilityoracle ?? null;
+  const thermompnnVal = jobs.thermompnnVal ?? foldxRawResult?.energetics?.thermompnn ?? null;
 
   const pendingTools: string[] = [];
   if (jobs.dynamut2Status === "pending") pendingTools.push("DynaMut2");
   if (jobs.ddmutStatus === "pending") pendingTools.push("DDMut");
-  if (jobs.thermompnnStatus === "pending") pendingTools.push("ThermoMPNN");
+  if (jobs.thermompnnStatus === "pending" && thermompnnVal === null) pendingTools.push("ThermoMPNN");
 
   const evidenceComplete = pendingTools.length === 0;
   const foldxRepairFailed = foldxRawResult?.energetics?.foldxRepairFailed ?? false;
@@ -514,7 +515,7 @@ export function enrichBiophysicalResult(
   const calResult = computeCalibratedConsensus({
     foldxMean,
     rasp,
-    thermompnn: jobs.thermompnnVal ?? null,
+    thermompnn: thermompnnVal,
     stabilityoracle: stabilityoracleVal,
     foldxRepairFailed,
     foldxBinaryMissing
@@ -528,7 +529,7 @@ export function enrichBiophysicalResult(
     pdb: finalPdb,
     ddG: finalDdG,
     foldxDdG: foldxMean,
-    thermompnnDdG: jobs.thermompnnVal ?? null,
+    thermompnnDdG: thermompnnVal,
     status: finalStatus,
     foldedResidueIndex: posNum,
     dynamut2JobId: jobs.dynamut2JobId ?? null,
@@ -553,7 +554,7 @@ export function enrichBiophysicalResult(
       ddmut: null,
       rasp,
       raspReason,
-      thermompnn: jobs.thermompnnVal ?? null,
+      thermompnn: thermompnnVal,
       stabilityoracle: stabilityoracleVal,
       consensusProbability: calResult.consensusProbability,
       consensusConfMin: calResult.consensusConfMin,

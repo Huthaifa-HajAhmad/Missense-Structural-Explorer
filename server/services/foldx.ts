@@ -13,7 +13,7 @@ import {
   parseAtomsFromPdb
 } from "./pdb-parser.ts";
 import { calculateLocalSidechainRmsd } from "./structural-diff.ts";
-import { runRaspLocal } from "./energy-models.ts";
+import { runRaspLocal, submitThermoMpnnJob } from "./energy-models.ts";
 import { runStabilityOracleAnalysis } from "./stabilityoracle.ts";
 
 
@@ -843,6 +843,23 @@ async function generateMutantPdbInternal(
       console.warn(`[StabilityOracle] Failed to compute prediction:`, soErr.message);
     }
 
+    // Run local ThermoMPNN score calculation
+    let thermompnn: number | null = null;
+    try {
+      const tmRes = await submitThermoMpnnJob(
+        wtPdb,
+        `${wt1}${resolvedChain}${pos}${mut1}`,
+        undefined,
+        AbortSignal.timeout(10000)
+      );
+      if (tmRes && typeof tmRes.prediction === "number") {
+        thermompnn = tmRes.prediction;
+        console.log(`[ThermoMPNN] Local prediction computed: ${thermompnn} kcal/mol`);
+      }
+    } catch (tmErr: any) {
+      console.warn(`[ThermoMPNN] Failed to compute local prediction:`, tmErr.message);
+    }
+
     const bFactorMetadata = detectBFactorProvenance(wtPdb);
 
     const energetics = {
@@ -861,6 +878,7 @@ async function generateMutantPdbInternal(
       bFactorMetadata,
       rasp,
       raspReason,
+      thermompnn,
       stabilityoracle
     };
 

@@ -549,6 +549,27 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             }
           }
 
+          let finalThermompnnVal = thermompnnVal ?? cachedFoldx?.energetics?.thermompnn ?? null;
+          if (finalThermompnnVal === null && effectiveWtPdb) {
+            try {
+              const tmRes = await submitThermoMpnnJob(
+                cleanPdbForFoldX(effectiveWtPdb),
+                actualMutation,
+                tamarindApiKey,
+                AbortSignal.timeout(5000)
+              );
+              if (tmRes && typeof tmRes.prediction === "number") {
+                finalThermompnnVal = tmRes.prediction;
+                if (cachedFoldx.energetics) {
+                  cachedFoldx.energetics.thermompnn = finalThermompnnVal;
+                }
+                writeMutantToCache(foldxCacheKey, cachedFoldx);
+              }
+            } catch (tmErr: any) {
+              console.warn("[ThermoMPNN Cache Backfill Warning]:", tmErr.message);
+            }
+          }
+
           const enriched = enrichBiophysicalResult(cachedFoldx, {
             dynamut2JobId,
             dynamut2Status,
@@ -557,7 +578,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             thermompnnJobId,
             thermompnnStatus,
             thermompnnError,
-            thermompnnVal,
+            thermompnnVal: finalThermompnnVal,
             stabilityoracleVal: finalStabilityoracleVal
           }, {
             source: resolvedStructure?.provenance.source ?? "client-provided",
