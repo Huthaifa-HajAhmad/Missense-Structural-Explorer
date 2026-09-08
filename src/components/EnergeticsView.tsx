@@ -483,11 +483,11 @@ const EnergeticsView = memo(function EnergeticsView({
                         style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
                       };
                     } else {
-                      scoreText = "Unavailable";
+                      scoreText = "—";
                       if (item.key === "foldx" && energetics.foldxBinaryMissing) {
                         badge = {
-                          label: "Binary Not Installed",
-                          category: "Binary Not Installed",
+                          label: "Standby",
+                          category: "Standby",
                           style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold"
                         };
                       } else if (item.key === "foldx" && (foldingStatus === "failed" || (energetics as any)?.foldxError || energetics.foldxRepairFailed)) {
@@ -504,10 +504,9 @@ const EnergeticsView = memo(function EnergeticsView({
                           style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" 
                         };
                       } else if ((item.key === "dynamut2" || item.key === "ddmut") && (dynamut2Status === "unavailable" || ddmutStatus === "unavailable")) {
-                        scoreText = "Queued Upstream";
                         badge = { 
-                          label: "BioSig Congested", 
-                          category: "BioSig Congested", 
+                          label: "Upstream Congested", 
+                          category: "Upstream Congested", 
                           style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold" 
                         };
                       } else if (item.key === "thermompnn") {
@@ -515,37 +514,34 @@ const EnergeticsView = memo(function EnergeticsView({
                           if (thermompnnError && /warming|starting|initializing/i.test(thermompnnError)) {
                             scoreText = "Warming Up";
                             badge = { 
-                              label: "Engine Initializing", 
-                              category: "Engine Initializing", 
+                              label: "Initializing", 
+                              category: "Initializing", 
                               style: "bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold animate-pulse" 
                             };
                           } else {
-                            scoreText = "Standby";
                             badge = { 
-                              label: "Sidecar Standby", 
-                              category: "Sidecar Standby", 
+                              label: "Standby", 
+                              category: "Standby", 
                               style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
                             };
                           }
                         } else if (thermompnnStatus === "unavailable") {
-                          scoreText = "Standby";
                           badge = { 
-                            label: "Sidecar Standby", 
-                            category: "Sidecar Standby", 
+                            label: "Standby", 
+                            category: "Standby", 
                             style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
                           };
                         } else {
-                          badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
+                          badge = { label: "Standby", category: "Standby", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
                         }
                       } else if (item.key === "stabilityoracle") {
-                        scoreText = "Standby";
                         badge = {
-                          label: "Sidecar Standby",
-                          category: "Sidecar Standby",
+                          label: "Standby",
+                          category: "Standby",
                           style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold"
                         };
                       } else {
-                        badge = { label: "Unavailable", category: "Unavailable", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
+                        badge = { label: "Standby", category: "Standby", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
                       }
                     }
 

@@ -129,19 +129,22 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
       sidecarReachable = false;
     }
 
-    // 8. JapanFold Sovereign Cloud Connectivity Check
+    // 8. JapanFold Sovereign Cloud Connectivity Check (Structure Prediction)
     let japanFoldReachable = false;
     try {
+      const jfHeaders = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0" };
       const jfRes = await fetch("https://api.japanfold.aiand.com/v1/predictions", {
         method: "OPTIONS",
-        signal: AbortSignal.timeout(1500)
+        headers: jfHeaders,
+        signal: AbortSignal.timeout(2000)
       }).catch(async () => {
         return await fetch("https://api.japanfold.aiand.com/v1/predictions", {
           method: "GET",
-          signal: AbortSignal.timeout(1500)
+          headers: jfHeaders,
+          signal: AbortSignal.timeout(2000)
         });
       });
-      japanFoldReachable = jfRes.status < 500;
+      japanFoldReachable = jfRes.status < 500 && jfRes.status !== 403;
     } catch (_) {
       japanFoldReachable = false;
     }
@@ -225,23 +228,22 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         id: "saprot",
         name: "SaProt 650M AF2 (Structure-Aware Protein LM)",
         category: "language_model",
-        status: sidecarReachable ? (sidecarModelStatus.saprot === "ready" ? "ready" : "standby") : (japanFoldReachable ? "ready" : "standby"),
+        status: sidecarReachable ? (sidecarModelStatus.saprot === "ready" ? "ready" : "standby") : "standby",
         details: {
           localSidecarReachable: sidecarReachable,
           sidecarModelStatus: sidecarModelStatus.saprot || "unloaded",
-          japanFoldFallbackActive: japanFoldReachable,
           hfTokenConfigured: hfConfigured
         }
       },
       {
         id: "japanfold",
-        name: "JapanFold Sovereign AI Cloud",
-        category: "language_model",
+        name: "JapanFold Sovereign Folding Cloud",
+        category: "biophysical",
         status: japanFoldReachable ? "ready" : "standby",
         details: {
           endpoint: "https://api.japanfold.aiand.com/v1/predictions",
           keyless: true,
-          supportedModels: ["saprot", "esmc"],
+          supportedModels: ["esmfold2-fast", "esmfold2", "boltz2", "openfold3"],
           reachable: japanFoldReachable
         }
       }

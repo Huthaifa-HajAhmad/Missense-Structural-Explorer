@@ -46,7 +46,6 @@ const AA_LIST = ["L", "A", "G", "V", "S", "E", "R", "T", "I", "D", "P", "F", "K"
 const AA_TOKENS = AA_LIST.map(aa => VOCAB[aa]);
 
 import { CONFIG } from "../config.ts";
-import { runJapanFoldInference } from "./japanfold.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -99,28 +98,7 @@ export async function runEsmcAnalysis(
     });
 
     if (!sidecarRes.ok) {
-      console.warn(`[Local VESM Analysis Warning] Local sidecar returned HTTP ${sidecarRes.status}. Attempting keyless JapanFold fallback...`);
-      const jfResult = await runJapanFoldInference("esmc", {
-        sequence,
-        position: pos,
-        wt: wtRes,
-        mut: mutRes
-      });
-      if (jfResult.success && jfResult.data) {
-        return {
-          wtProbability: jfResult.data.wtProbability ?? 0,
-          mutProbability: jfResult.data.mutProbability ?? 0,
-          llr: jfResult.data.llr ?? 0,
-          preferences: jfResult.data.preferences ?? [],
-          mutRank: jfResult.data.mutRank ?? 1,
-          positionalEntropy: jfResult.data.positionalEntropy ?? 0,
-          embeddingShift: jfResult.data.embeddingShift ?? 0,
-          localEmbeddingShift: jfResult.data.embeddingShift ?? 0,
-          localShiftMap: jfResult.data.localShiftMap ?? [],
-          provenance: "JapanFold ESMC (Cloud)"
-        };
-      }
-      return { error: `VESM sidecar initializing or unavailable`, status: "offline" };
+      return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };
     }
 
     const data = await sidecarRes.json() as any;
@@ -158,31 +136,9 @@ export async function runEsmcAnalysis(
     }
     return { error: `VESM sidecar returned unexpected response format`, status: "error" };
   } catch (err: any) {
-    console.warn(`[Local VESM Analysis Warning] Local sidecar unavailable (${err.message}). Attempting keyless JapanFold fallback...`);
-    try {
-      const jfResult = await runJapanFoldInference("esmc", {
-        sequence,
-        position: pos,
-        wt: wtRes,
-        mut: mutRes
-      });
-      if (jfResult.success && jfResult.data) {
-        return {
-          wtProbability: jfResult.data.wtProbability ?? 0,
-          mutProbability: jfResult.data.mutProbability ?? 0,
-          llr: jfResult.data.llr ?? 0,
-          preferences: jfResult.data.preferences ?? [],
-          mutRank: jfResult.data.mutRank ?? 1,
-          positionalEntropy: jfResult.data.positionalEntropy ?? 0,
-          embeddingShift: jfResult.data.embeddingShift ?? 0,
-          localEmbeddingShift: jfResult.data.embeddingShift ?? 0,
-          localShiftMap: jfResult.data.localShiftMap ?? [],
-          provenance: "JapanFold ESMC (Cloud)"
-        };
-      }
-    } catch (_) {}
     const isTimeout = err.name === "TimeoutError" || err.name === "AbortError" || /timeout/i.test(err.message);
     const status = isTimeout ? "timeout" : "offline";
+    console.warn(`[Local VESM Analysis Warning] Failed to query local VESM sidecar: ${err.message}.`);
     return { error: `VESM inference in standby (local sidecar warming up or offline)`, status };
   }
 }

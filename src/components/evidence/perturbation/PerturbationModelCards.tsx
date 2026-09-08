@@ -85,38 +85,29 @@ export function PerturbationModelCards({
           const isWarming = errStatus === "warming_up" || (m.data?.error && /warming|initializing/i.test(m.data.error));
           const isDownloading = errStatus === "downloading" || (m.data?.error && /download/i.test(m.data.error));
 
-          let badgeLabel = "Sidecar Standby";
+          let badgeLabel = "Standby";
           let badgeBg = "rgba(148, 163, 184, 0.1)";
           let badgeColor = "var(--cs-text-secondary)";
           let badgeBorder = "rgba(148, 163, 184, 0.2)";
 
           if (isTimeout) {
-            badgeLabel = "Model Timeout";
+            badgeLabel = "Timeout";
             badgeBg = "rgba(234, 179, 8, 0.1)";
             badgeColor = "var(--cs-accent-clay)";
             badgeBorder = "rgba(234, 179, 8, 0.2)";
           } else if (isWarming) {
-            badgeLabel = "Engine Initializing";
+            badgeLabel = "Initializing";
             badgeBg = "rgba(234, 179, 8, 0.1)";
             badgeColor = "var(--cs-accent-clay)";
             badgeBorder = "rgba(234, 179, 8, 0.2)";
           } else if (isDownloading) {
-            badgeLabel = "Downloading Weights";
+            badgeLabel = "Downloading";
             badgeBg = "rgba(56, 189, 248, 0.1)";
             badgeColor = "#0284c7";
             badgeBorder = "rgba(56, 189, 248, 0.2)";
           }
 
-          let displayDesc = m.description;
-          if (m.data?.error) {
-            if (/fetch failed|unreachable|ECONNREFUSED|connect|offline/i.test(m.data.error)) {
-              displayDesc = "Sidecar microservice in standby. Click 'Check & Retry' or configure keys.";
-            } else if (isWarming) {
-              displayDesc = "Engine microservice is starting and pre-loading initial weights.";
-            } else {
-              displayDesc = m.data.error.replace(/https?:\/\/[^\s)]+/g, "microservice");
-            }
-          }
+          const displayDesc = m.description;
 
           return (
             <div
@@ -131,7 +122,7 @@ export function PerturbationModelCards({
                 }
               }}
               onClick={() => onSelectModel(m.id)}
-              className="group relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left opacity-85 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
+              className="group relative p-4 rounded-xl border flex flex-col justify-between h-[145px] cursor-pointer transition-all duration-300 shadow-xs text-left opacity-85 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
               style={{
                 background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
                 borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
@@ -155,25 +146,13 @@ export function PerturbationModelCards({
                   </div>
                 </div>
                 <h3 className="text-xs font-bold transition-colors text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
-                <p className="text-[9px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left">
+                <p className="text-[10px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left font-sans">
                   {displayDesc}
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] font-semibold mt-2 text-left" style={{ color: "var(--cs-accent-clay)" }}>
-                {!m.hasKey && onOpenSettings ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenSettings();
-                    }}
-                    className="hover:underline focus:outline-none flex items-center gap-1"
-                  >
-                    <span>🔑 Configure {m.tokenName.split(" ")[0]} key</span>
-                  </button>
-                ) : (
-                  <span>{m.hasKey ? "⚡ Click to view diagnostic & remedy" : `🔑 Configure ${m.tokenName.split(" ")[0]} key`}</span>
-                )}
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t pt-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                <span>Score: —</span>
+                <span className="text-[9px] text-slate-500">Standby</span>
               </div>
             </div>
           );
@@ -207,9 +186,6 @@ export function PerturbationModelCards({
               <div className="flex items-center justify-between mb-1.5">
                 {(() => {
                   const prov = ((m.data as any).provenance || "").toLowerCase();
-                  if (prov.includes("japanfold")) {
-                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">JapanFold Cloud</span>;
-                  }
                   if (prov.includes("fallback") || prov.includes("vesm")) {
                     return (
                       <div className="flex items-center gap-1">

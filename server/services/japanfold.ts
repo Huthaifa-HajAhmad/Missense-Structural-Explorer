@@ -2,15 +2,15 @@ import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { anySignal } from "../utils.ts";
 
+export type JapanFoldModel = "esmfold2-fast" | "esmfold2" | "boltz2" | "openfold3";
+
 export interface JapanFoldPredictionResponse {
   id?: string;
   status: "pending" | "running" | "completed" | "failed";
   output?: {
-    llr?: number;
-    wtProbability?: number;
-    mutProbability?: number;
-    embeddingShift?: number;
-    localShiftMap?: Array<{ position: number; residue: string; shift: number }>;
+    pdb?: string;
+    plddt?: number[];
+    ptm?: number;
   };
   error?: string;
 }
@@ -19,24 +19,17 @@ const JAPANFOLD_BASE_URL = process.env.JAPANFOLD_API_URL || "https://api.japanfo
 const japanfoldCache = new LRUCache<string, any>({ max: 200, ttl: 12 * 60 * 60 * 1000 });
 
 /**
- * Executes or polls a keyless structural prediction job via the JapanFold sovereign platform.
+ * Executes or polls a keyless structural folding job via the JapanFold sovereign platform.
  */
 export async function runJapanFoldInference(
-  model: "saprot" | "esmc" | "esmfold",
+  model: JapanFoldModel = "esmfold2-fast",
   payload: {
     sequence: string;
-    position?: number;
-    wt?: string;
-    mut?: string;
-    structure?: string;
   },
   signal?: AbortSignal
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   const seqHash = crypto.createHash("sha256").update(payload.sequence).digest("hex").slice(0, 16);
-  const structHash = payload.structure
-    ? crypto.createHash("sha256").update(payload.structure).digest("hex").slice(0, 16)
-    : "none";
-  const cacheKey = `${model}:${seqHash}:${structHash}:${payload.position ?? 0}:${payload.wt ?? ""}:${payload.mut ?? ""}`;
+  const cacheKey = `${model}:${seqHash}`;
   const cached = japanfoldCache.get(cacheKey);
   if (cached) {
     return { success: true, data: cached };
@@ -44,7 +37,8 @@ export async function runJapanFoldInference(
 
   const apiKey = process.env.JAPANFOLD_API_KEY;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0"
   };
   if (apiKey) {
     headers["Authorization"] = `Bearer ${apiKey}`;
@@ -53,14 +47,14 @@ export async function runJapanFoldInference(
   try {
     const fetchSignal = signal
       ? signal
-      : AbortSignal.timeout(20000);
+      : AbortSignal.timeout(30000);
 
     const submitRes = await fetch(JAPANFOLD_BASE_URL, {
       method: "POST",
       headers,
       body: JSON.stringify({
         model,
-        input: payload
+        sequence: payload.sequence
       }),
       signal: fetchSignal
     });

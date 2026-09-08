@@ -217,23 +217,6 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
       {/* Tabs list */}
       <div className="grid grid-cols-4 gap-2 mb-6">
         <button
-          onClick={() => setActiveTab("lms")}
-          className="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg text-xs font-semibold border transition-all duration-200 cursor-pointer"
-          style={activeTab === "lms" ? {
-            background: "rgba(196,104,73,0.13)",
-            color: "var(--cs-accent-clay)",
-            borderColor: "rgba(196,104,73,0.25)"
-          } : {
-            background: "var(--cs-surface-2)",
-            color: "var(--cs-text-muted)",
-            borderColor: "var(--cs-border)"
-          }}
-        >
-          <Brain className="w-4 h-4" />
-          <span>Genomic & Protein LMs</span>
-        </button>
-
-        <button
           onClick={() => setActiveTab("meta")}
           className="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg text-xs font-semibold border transition-all duration-200 cursor-pointer"
           style={activeTab === "meta" ? {
@@ -248,6 +231,23 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
         >
           <Layers className="w-4 h-4" />
           <span>Meta-Predictors</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("lms")}
+          className="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-lg text-xs font-semibold border transition-all duration-200 cursor-pointer"
+          style={activeTab === "lms" ? {
+            background: "rgba(196,104,73,0.13)",
+            color: "var(--cs-accent-clay)",
+            borderColor: "rgba(196,104,73,0.25)"
+          } : {
+            background: "var(--cs-surface-2)",
+            color: "var(--cs-text-muted)",
+            borderColor: "var(--cs-border)"
+          }}
+        >
+          <Brain className="w-4 h-4" />
+          <span>Genomic & Protein LMs</span>
         </button>
 
         <button
@@ -308,16 +308,16 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(vesmScore ?? null), vesmScore !== null && vesmScore !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby / Ready on Demand"))}
+                  {renderBadge(getEsmSignal(vesmScore ?? null), vesmScore !== null && vesmScore !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby"))}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {vesmScore !== null && vesmScore !== undefined ? renderScoreValue(vesmScore, 2) : (isLoading ? "Calculating..." : "Standby (Local / Cloud)")}
+                  {vesmScore !== null && vesmScore !== undefined ? renderScoreValue(vesmScore, 2) : (isLoading ? "Calculating..." : "—")}
                 </span>
                 {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -5.0, -2.0, true)}
-                {renderSourceLabel("Local VESM-150M / JapanFold ESMC")}
+                {renderSourceLabel("Local VESM-150M / EvolutionaryScale")}
               </div>
             </div>
 
@@ -340,13 +340,13 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null && esm2Score !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby / Ready on Demand"))}
+                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null && esm2Score !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby"))}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {esm2Score !== null && esm2Score !== undefined ? renderScoreValue(esm2Score, 2) : (isLoading ? "Calculating..." : "Standby (Local / Cloud)")}
+                  {esm2Score !== null && esm2Score !== undefined ? renderScoreValue(esm2Score, 2) : (isLoading ? "Calculating..." : "—")}
                 </span>
                 {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
                 {renderSourceLabel("Meta FAIR (ESM-2 650M/3B)")}
