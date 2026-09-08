@@ -8,12 +8,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pandas as pd
 import numpy as np
-from timm.models.vision_transformer import LayerScale
-import torch.utils.checkpoint as checkpoint
-try:
-    from timm.layers import DropPath
-except ImportError:
-    from timm.models.layers import DropPath
 
 
 _NUM_ATOM_TYPES = 9
@@ -556,12 +550,8 @@ from typing import List, Literal
 import torch
 import pandas as pd
 import numpy as np
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel
-from timm.models.vision_transformer import Block as AttentionBlock
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.utils import ModelEma
 
 # Backbone, Transformer, Mlp defined in blocks
 
