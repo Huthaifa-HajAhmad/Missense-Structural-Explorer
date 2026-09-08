@@ -18,6 +18,9 @@ services:
       # Academic FoldX binary mount (licensed executable, rotabase.txt, molecules/)
       - ../tools/foldx:/app/tools/foldx:ro
       - ../tools/foldx_linux:/app/tools/foldx_linux:ro
+      # Biophysical neural models & sidecar
+      - ../tools/thermompnn:/app/tools/thermompnn:ro
+      - ../tools/model_server_app:/app/tools/model_server_app:ro
       # FoldX calculation and biophysical cache
       - ../logs:/app/logs
       # Hugging Face downloaded model weights cache

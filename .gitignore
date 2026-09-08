@@ -20,6 +20,8 @@ tools/foldx/*
 tools/foldx_linux/*
 !tools/foldx_linux/molecules/
 !tools/foldx_linux/molecules/**
+!tools/foldx_linux/foldx_20261231
+!tools/foldx_linux/rotabase.txt
 tools/p2rank/
 
 # Dev scratch scripts
@@ -38,10 +40,16 @@ __pycache__/
 *.pyc
 *.pth
 *.pt
+!tools/model_server_app/checkpoints/stability_oracle_cdna117k.pt
+!tools/thermompnn/models/*.pt
+!tools/thermompnn/vanilla_model_weights/*.pt
 .venv/
 tools/.venv/
 tools/vesm/
-tools/thermompnn/
+tools/thermompnn/__pycache__/
+tools/thermompnn/.idea/
+tools/thermompnn/data_all/
+tools/thermompnn/dataset_splits/
 
 
 data/*.csv
@@ -70,7 +78,4 @@ graphify-out/
 pnpm-lock.yaml
 pnpm-workspace.yaml
 
-# Large FoldX binaries
-tools/foldx_linux/*
-!tools/foldx_linux/.gitkeep
 tools/graft/
