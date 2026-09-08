@@ -61,6 +61,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/docs",
   "/sidecar-health",
   "/api/v1/sidecar-health",
+  "/capabilities",
+  "/api/v1/capabilities",
   "/session/keys",
   "/session/refresh",
   "/api/v1/session/keys",
