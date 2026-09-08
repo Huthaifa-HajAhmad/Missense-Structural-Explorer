@@ -237,19 +237,38 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       const ionVal = req.body.ionicStrength !== undefined ? parseFloat(String(req.body.ionicStrength)) : undefined;
       const seedVal = req.body.seed !== undefined ? parseInt(String(req.body.seed), 10) : undefined;
 
-      // ── Authoritative server-side structure resolution ────────────────────────
-      // resolveStructure() uses the same LRU-cached fetchers as the /pdb/ route, so
-      // this is typically a cache hit (no extra network round-trip).
+      const wt1 = mutTrimmed[0].toUpperCase();
+      const mut1 = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+      const expectedWt3 = AMINO_ACID_1_TO_3[wt1];
+
+      // ── Structure resolution & validation ────────────────────────
+      let effectiveWtPdb = wtPdb;
       let resolvedStructure: ResolvedStructure | null = null;
-      try {
-        resolvedStructure = await resolveStructure(uniprotId, posNum);
-        if (resolvedStructure && resolvedStructure.provenance.source !== "alphafold") {
-          try {
+
+      // Check if client-provided PDB contains the matching wild-type residue
+      let clientPdbValid = false;
+      if (wtPdb && typeof wtPdb === "string" && (wtPdb.includes("ATOM") || wtPdb.includes("HETATM"))) {
+        try {
+          const residues = await parseResiduesFromPdbMaybeAsync(wtPdb);
+          const targetRes = residues.find(r => r.resSeq === posNum && r.chain.toUpperCase() === chainParam);
+          if (targetRes && (!expectedWt3 || targetRes.resName3.toUpperCase() === expectedWt3.toUpperCase())) {
+            clientPdbValid = true;
+          }
+        } catch (_) {}
+      }
+
+      if (!clientPdbValid) {
+        // Resolve structure from PDBe / AlphaFold
+        try {
+          resolvedStructure = await resolveStructure(uniprotId, posNum);
+          if (resolvedStructure) {
             const residues = await parseResiduesFromPdbMaybeAsync(resolvedStructure.pdbText);
             const targetChain = resolvedStructure.provenance.chainId || chainParam;
-            const hasResidue = residues.some(r => r.resSeq === posNum && r.chain.toUpperCase() === targetChain.toUpperCase());
-            if (!hasResidue) {
-              console.warn(`[generate-mutant] Resolved structure ${resolvedStructure.provenance.pdbId} is missing coordinates for residue ${posNum} on chain ${targetChain}. Falling back to AlphaFold.`);
+            const targetRes = residues.find(r => r.resSeq === posNum && r.chain.toUpperCase() === targetChain.toUpperCase());
+            const matchesExpected = targetRes && (!expectedWt3 || targetRes.resName3.toUpperCase() === expectedWt3.toUpperCase());
+
+            if (!matchesExpected && resolvedStructure.provenance.source !== "alphafold") {
+              console.warn(`[generate-mutant] Resolved structure ${resolvedStructure.provenance.pdbId} lacks matching wild-type ${wt1} at position ${posNum} on chain ${targetChain}. Falling back to AlphaFold.`);
               const afData = await fetchAlphafoldPdb(uniprotId);
               if (afData) {
                 resolvedStructure = {
@@ -258,22 +277,18 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 };
               }
             }
-          } catch (checkErr: any) {
-            console.warn("[generate-mutant] Failed to verify residue coverage in resolved structure:", checkErr.message);
           }
+        } catch (resolveErr: any) {
+          console.warn("[generate-mutant] resolveStructure failed, falling back to client-provided PDB:", resolveErr.message);
         }
-      } catch (resolveErr: any) {
-        console.warn("[generate-mutant] resolveStructure failed, falling back to client-provided PDB:", resolveErr.message);
-      }
-      // Use server-resolved PDB if available; otherwise trust the client-provided wtPdb
-      const effectiveWtPdb = resolvedStructure?.pdbText ?? wtPdb;
 
-      if (resolvedStructure && resolvedStructure.provenance.chainId) {
-        resolvedChain = resolvedStructure.provenance.chainId;
-        resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+        effectiveWtPdb = resolvedStructure?.pdbText ?? wtPdb;
+        if (resolvedStructure && resolvedStructure.provenance.chainId) {
+          resolvedChain = resolvedStructure.provenance.chainId;
+          resolvedChainUpper = resolvedChain.toUpperCase() || "A";
+        }
       }
-      const wt1 = mutTrimmed[0].toUpperCase();
-      const mut1 = mutTrimmed[mutTrimmed.length - 1].toUpperCase();
+
       const actualMutation = `${wt1}${resolvedChain}${posNum}${mut1}`;
 
       if (!effectiveWtPdb || typeof effectiveWtPdb !== "string" || (!effectiveWtPdb.includes("ATOM") && !effectiveWtPdb.includes("HETATM"))) {
@@ -286,7 +301,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
       }
 
       // 3-Way Fail-Fast Invariant Check (Finding 3.3)
-      const expectedWt3 = AMINO_ACID_1_TO_3[wt1];
       try {
         const parsedResidues = await parseResiduesFromPdbMaybeAsync(effectiveWtPdb);
         const targetPdbRes = parsedResidues.find(r => r.resSeq === posNum && r.chain.toUpperCase() === resolvedChainUpper);
