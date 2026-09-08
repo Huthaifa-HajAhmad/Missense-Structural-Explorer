@@ -684,7 +684,7 @@ async function generateMutantPdbInternal(
         "--numberOfRuns=5",
         ...extraArgs
       ], {
-        timeout: 120000,
+        timeout: 300000,   // 5 min — BuildModel 5 runs on large chains (~400 res) under Box64 emulation takes ~2-3 min
         cwd: jobDir,
         signal
       });
