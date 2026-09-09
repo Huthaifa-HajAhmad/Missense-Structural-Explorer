@@ -259,4 +259,36 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
     }
   });
+
+  describe("validateGeminiApiKey", () => {
+    it("should succeed when key is valid and generateContent responds", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent.mockResolvedValueOnce({ text: "OK" });
+      await expect(geminiService.validateGeminiApiKey("valid-api-key-12345")).resolves.toBeUndefined();
+    });
+
+    it("should immediately reject invalid keys with API_KEY_INVALID (403)", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent.mockRejectedValueOnce({
+        status: 401,
+        message: "API key not valid. Please pass a valid API key."
+      });
+      await expect(geminiService.validateGeminiApiKey("invalid-api-key-12345")).rejects.toMatchObject({
+        code: "API_KEY_INVALID",
+        status: 403
+      });
+    });
+
+    it("should map transient timeout errors to TIMEOUT (504)", async () => {
+      const geminiService = await import("./gemini.ts");
+      mockGenerateContent.mockRejectedValue({
+        status: 504,
+        message: "Deadline exceeded or request timed out"
+      });
+      await expect(geminiService.validateGeminiApiKey("timeout-api-key-12345")).rejects.toMatchObject({
+        code: "TIMEOUT",
+        status: 504
+      });
+    });
+  });
 });

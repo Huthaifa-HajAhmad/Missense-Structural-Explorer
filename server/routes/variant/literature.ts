@@ -1,5 +1,5 @@
 import { type Router } from "express";
-import { sendError } from "../../utils.ts";
+import { sendError, getApiKeyFromSession } from "../../utils.ts";
 import { getGeneCitations, syncLiteratureForGene, searchGeneLiterature } from "../../services/literature-rag.ts";
 
 export function registerLiteratureRoutes(apiRouter: Router): void {
@@ -16,7 +16,15 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
     }
     
     try {
-      const customApiKey = req.headers["x-gemini-session-id"] as string | undefined;
+      const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
+      let customApiKey: string | undefined;
+      if (customSessionId) {
+        try {
+          customApiKey = getApiKeyFromSession(customSessionId);
+        } catch (_) {
+          // If session is invalid/expired, fall through to server-side GEMINI_API_KEY
+        }
+      }
       let citations;
 
       if (customQuery) {

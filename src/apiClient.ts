@@ -21,6 +21,15 @@ import { fetchWithRetry } from "./shared/fetch-retry";
 
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
 const invalidApiKeys = new Set<string>();
+let sessionReauthPromise: Promise<{ sessionId: string; expiresAt: number } | null> | null = null;
+let lastReauthFailureTime = 0;
+const REAUTH_COOLDOWN_MS = 30000;
+
+function isGeminiSessionEndpoint(url: string): boolean {
+  return url.includes("/analyze-variant-narrative") ||
+    url.includes("/analyze-variant-biophysical") ||
+    url.includes("/literature");
+}
 
 /**
  * Unified helper to extract researcher-friendly error messages from API responses.
@@ -70,6 +79,12 @@ export function useApiClient() {
   ): Promise<Response> => {
     let currentSessionId = geminiSessionId;
     const expiresAt = geminiSessionExpiresAt || 0;
+    const isExpired = !expiresAt || Date.now() >= expiresAt;
+
+    // Never use or forward an expired session token
+    if (isExpired && currentSessionId) {
+      currentSessionId = "";
+    }
 
     let timeoutId: any = null;
     let signal = options.signal;
@@ -87,66 +102,98 @@ export function useApiClient() {
       }, options.timeout);
     }
 
+    const isRelativeOrSameOrigin = !url.startsWith("http://") && !url.startsWith("https://");
+    const targetRequiresGemini = isGeminiSessionEndpoint(url);
+
     try {
-      // Proactively refresh session ID if near expiry (< 60s) or missing
-      if (currentSessionId && Date.now() < expiresAt && Date.now() >= (expiresAt - 60000)) {
-        try {
-          const refreshHeaders: Record<string, string> = {
-            "Content-Type": "application/json",
-            "X-Gemini-Session-ID": currentSessionId
-          };
-          if (appApiToken) {
-            refreshHeaders["Authorization"] = `Bearer ${appApiToken}`;
+      // Only perform Gemini session handshake for endpoints that need it, or when appApiToken is not configured
+      const shouldCheckSession = targetRequiresGemini || (!appApiToken && isRelativeOrSameOrigin);
+
+      if (shouldCheckSession && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
+        // Proactively refresh session ID if near expiry (< 60s) but not yet expired
+        if (currentSessionId && Date.now() < expiresAt && Date.now() >= (expiresAt - 60000)) {
+          try {
+            const refreshHeaders: Record<string, string> = {
+              "Content-Type": "application/json",
+              "X-Gemini-Session-ID": currentSessionId
+            };
+            if (appApiToken) {
+              refreshHeaders["Authorization"] = `Bearer ${appApiToken}`;
+            }
+            const refreshRes = await fetch("/api/v1/session/refresh", {
+              method: "POST",
+              headers: refreshHeaders,
+              signal
+            });
+            if (refreshRes.ok) {
+              const refreshData = await refreshRes.json();
+              if (refreshData.sessionId) {
+                currentSessionId = refreshData.sessionId;
+                updateSetting("geminiSessionId", refreshData.sessionId);
+                updateSetting("geminiSessionExpiresAt", refreshData.expiresAt || (Date.now() + 15 * 60 * 1000));
+              }
+            }
+          } catch (_) {
+            // Fall back to attempting request with current credentials
           }
-          const refreshRes = await fetch("/api/v1/session/refresh", {
-            method: "POST",
-            headers: refreshHeaders,
-            signal
-          });
-          if (refreshRes.ok) {
-            const refreshData = await refreshRes.json();
-            if (refreshData.sessionId) {
-              currentSessionId = refreshData.sessionId;
-              updateSetting("geminiSessionId", refreshData.sessionId);
-              updateSetting("geminiSessionExpiresAt", refreshData.expiresAt || (Date.now() + 15 * 60 * 1000));
+        } else if (!currentSessionId || isExpired) {
+          // Deduplicate in-flight session requests & respect backoff cooldown
+          if (Date.now() - lastReauthFailureTime > REAUTH_COOLDOWN_MS) {
+            if (!sessionReauthPromise) {
+              sessionReauthPromise = (async () => {
+                try {
+                  const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
+                  if (appApiToken) {
+                    reauthHeaders["Authorization"] = `Bearer ${appApiToken}`;
+                  }
+                  const sessionRes = await fetch("/api/v1/session/keys", {
+                    method: "POST",
+                    headers: reauthHeaders,
+                    body: JSON.stringify({ apiKey: geminiApiKey }),
+                    signal: signal
+                  });
+                  if (sessionRes.ok) {
+                    invalidApiKeys.delete(geminiApiKey);
+                    const sessionData = await sessionRes.json();
+                    if (sessionData.sessionId) {
+                      return {
+                        sessionId: sessionData.sessionId,
+                        expiresAt: sessionData.expiresAt || (Date.now() + 15 * 60 * 1000)
+                      };
+                    }
+                  } else if (sessionRes.status === 400 || sessionRes.status === 403) {
+                    invalidApiKeys.add(geminiApiKey);
+                    console.warn("[apiClient] Gemini API key is invalid or unauthorized. Pausing auto-authentication attempts for this key until updated in Settings.");
+                  } else {
+                    lastReauthFailureTime = Date.now();
+                  }
+                } catch (_) {
+                  lastReauthFailureTime = Date.now();
+                } finally {
+                  sessionReauthPromise = null;
+                }
+                return null;
+              })();
+            }
+
+            const reauthResult = await sessionReauthPromise;
+            if (reauthResult) {
+              currentSessionId = reauthResult.sessionId;
+              updateSetting("geminiSessionId", reauthResult.sessionId);
+              updateSetting("geminiSessionExpiresAt", reauthResult.expiresAt);
+            } else {
+              currentSessionId = "";
+              updateSetting("geminiSessionId", "");
+              updateSetting("geminiSessionExpiresAt", 0);
             }
           }
-        } catch (err) {
-          // Fall back to attempting request with current credentials
-        }
-      } else if (geminiApiKey && !invalidApiKeys.has(geminiApiKey) && (!currentSessionId || Date.now() >= expiresAt)) {
-        try {
-          const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
-          if (appApiToken) {
-            reauthHeaders["Authorization"] = `Bearer ${appApiToken}`;
-          }
-          const sessionRes = await fetch("/api/v1/session/keys", {
-            method: "POST",
-            headers: reauthHeaders,
-            body: JSON.stringify({ apiKey: geminiApiKey }),
-            signal: signal
-          });
-          if (sessionRes.ok) {
-            invalidApiKeys.delete(geminiApiKey);
-            const sessionData = await sessionRes.json();
-            if (sessionData.sessionId) {
-              currentSessionId = sessionData.sessionId;
-              updateSetting("geminiSessionId", sessionData.sessionId);
-              updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 15 * 60 * 1000));
-            }
-          } else if (sessionRes.status === 400 || sessionRes.status === 403) {
-            invalidApiKeys.add(geminiApiKey);
-            console.warn("[apiClient] Gemini API key is invalid or unauthorized. Pausing auto-authentication attempts for this key until updated in Settings.");
-          }
-        } catch (err) {
-          // Fall back to attempting request with current credentials
         }
       }
 
       const headers = { ...(options.headers as Record<string, string> || {}) };
-      const isRelativeOrSameOrigin = !url.startsWith("http://") && !url.startsWith("https://");
       if (isRelativeOrSameOrigin) {
-        if (currentSessionId) {
+        // Only attach X-Gemini-Session-ID if valid, non-expired, and relevant
+        if (currentSessionId && !isExpired && (targetRequiresGemini || !appApiToken)) {
           headers["X-Gemini-Session-ID"] = currentSessionId;
         }
         if (appApiToken) {
@@ -165,8 +212,8 @@ export function useApiClient() {
 
       let response = await fetchWithRetry(url, { ...options, headers, signal });
 
-      // Attempt re-auth if 401 is returned (e.g. server restart)
-      if (response.status === 401 && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
+      // Attempt re-auth only if 401 was returned on an endpoint that actually uses Gemini sessions
+      if (response.status === 401 && targetRequiresGemini && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
         try {
           const reauthHeaders: Record<string, string> = { "Content-Type": "application/json" };
           if (appApiToken) {

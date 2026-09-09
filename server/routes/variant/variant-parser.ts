@@ -5,7 +5,6 @@ import {
   validateUniProt,
   sendError,
   filterPII,
-  getApiKeyFromSession,
   formatZodError,
 } from "../../utils.ts";
 import {
@@ -51,14 +50,6 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
   if (!parseResult.success) {
     sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
     return null;
-  }
-  const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
-  if (customSessionId) {
-    const customApiKey = getApiKeyFromSession(customSessionId);
-    if (!customApiKey) {
-      sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate in Settings.");
-      return null;
-    }
   }
 
   let gene: string, variant: string, uniprotId: string;

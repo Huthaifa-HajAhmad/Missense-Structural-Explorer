@@ -97,19 +97,51 @@ export async function validateGeminiApiKey(apiKey: string): Promise<void> {
     throw new GeminiError("API_KEY_MISSING", "Google Gemini API key is missing or is a placeholder value.", 400);
   }
 
+  const client = getGeminiClient(cleanKey);
+
+  // 1. Fast-path: Attempt lightweight models.list metadata check (<300ms, zero LLM queue delay)
+  if (typeof client.models?.list === "function") {
+    try {
+      const modelList = await client.models.list({
+        config: { pageSize: 1, abortSignal: AbortSignal.timeout(5000) }
+      });
+      if (modelList) {
+        return;
+      }
+    } catch (err: any) {
+      const errMsg = String(err?.message || "").toLowerCase();
+      const errStatus = Number(err?.status || 0);
+      if (
+        errStatus === 401 || errStatus === 403 ||
+        errMsg.includes("api key") || errMsg.includes("unauthorized") ||
+        errMsg.includes("unauthenticated") || errMsg.includes("permission") ||
+        errMsg.includes("access_token_type_unsupported")
+      ) {
+        throw new GeminiError(
+          "API_KEY_INVALID", 
+          "Gemini API key is invalid or unauthorized (HTTP 401: UNAUTHENTICATED). Please ensure the key was generated at aistudio.google.com/apikey and that the Generative Language API is enabled.", 
+          403
+        );
+      }
+      // If models.list failed due to mock or network quirk, proceed to generateContent fallback
+    }
+  }
+
   let lastError: any = null;
   let hadTransientError = false;
-  for (const modelName of getConfiguredGeminiModels()) {
+  // Test at most 2 models with bounded timeouts (never loop across 5 models sequentially)
+  const modelsToTest = getConfiguredGeminiModels().slice(0, 2);
+
+  for (const modelName of modelsToTest) {
     try {
-      const client = getGeminiClient(cleanKey);
       await client.models.generateContent({
         model: modelName,
         contents: "Reply with OK.",
         config: {
           temperature: 0,
           maxOutputTokens: 1,
-          httpOptions: { timeout: 10000 },
-          abortSignal: AbortSignal.timeout(12000)
+          httpOptions: { timeout: 4500 },
+          abortSignal: AbortSignal.timeout(5000)
         }
       });
       return;
@@ -117,8 +149,21 @@ export async function validateGeminiApiKey(apiKey: string): Promise<void> {
       lastError = err;
       const errMsg = String(err?.message || "").toLowerCase();
       const errStatus = Number(err?.status || 0);
-      // Track server-side transient errors (overloaded / 503 / 429) so that if
-      // ALL models fail this way we surface a retryable error, not MODEL_UNAVAILABLE.
+
+      // Fail fast immediately on authentication/authorization errors
+      if (
+        errStatus === 401 || errStatus === 403 ||
+        errMsg.includes("api key") || errMsg.includes("unauthorized") ||
+        errMsg.includes("unauthenticated") || errMsg.includes("permission") ||
+        errMsg.includes("access_token_type_unsupported")
+      ) {
+        throw new GeminiError(
+          "API_KEY_INVALID", 
+          "Gemini API key is invalid or unauthorized (HTTP 401: UNAUTHENTICATED). Please ensure the key was generated at aistudio.google.com/apikey and that the Generative Language API is enabled.", 
+          403
+        );
+      }
+
       if (
         errStatus === 503 || errStatus === 429 ||
         errMsg.includes("overload") ||

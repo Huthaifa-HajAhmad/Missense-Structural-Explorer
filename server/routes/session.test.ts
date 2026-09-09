@@ -7,29 +7,71 @@ describe("Session Authentication & Key Validation", () => {
     process.env.APP_SESSION_SECRET = "dev-session-secret-must-be-changed-in-prod";
   });
 
-  describe("/analyze-variant Session Validation", () => {
-    it("should return SESSION_EXPIRED when session has expired on /analyze-variant", async () => {
+  describe("Session Validation: Decoupled Core vs Narrative", () => {
+    it("should NOT fail with SESSION_EXPIRED on /analyze-variant when an expired session token is passed", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant");
       expect(route).toBeDefined();
       if (!route || !route.route) throw new Error("Route /analyze-variant not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
 
+      const analysisOrchestrator = await import("../services/analysis-orchestrator.ts");
+      const coreSpy = vi.spyOn(analysisOrchestrator, "runCoreAnalysis").mockResolvedValue({
+        gene: "PAH",
+        variant: "p.Met1Val",
+        uniprotId: "P00439",
+        _internal: {}
+      } as any);
+
       const externalServices = await import("../services/external.ts");
-      const biophysicsServices = await import("../services/biophysics.ts");
-
       const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M");
-      const clinvarSpy = vi.spyOn(externalServices, "fetchClinVarData").mockResolvedValue({} as any);
-      const predSpy = vi.spyOn(externalServices, "fetchPredictorData").mockResolvedValue({} as any);
-      const consSpy = vi.spyOn(externalServices, "fetchConservationData").mockResolvedValue({} as any);
-      const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
-      const freqSpy = vi.spyOn(externalServices, "fetchGnomadVariantFrequency").mockResolvedValue({} as any);
-      const pdbSpy = vi.spyOn(externalServices, "fetchBestPdbStructure").mockResolvedValue({} as any);
-      const afPdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
-      const constSpy = vi.spyOn(externalServices, "fetchGnomadGeneConstraint").mockResolvedValue({} as any);
-      const featSpy = vi.spyOn(externalServices, "fetchUniprotFeatures").mockResolvedValue({} as any);
 
-      const disSpy = vi.spyOn(biophysicsServices, "predictStructuralDisruption").mockResolvedValue({ level: "low", reason: "mocked", plddt: 100 } as any);
-      const esmSpy = vi.spyOn(biophysicsServices, "runEsm2Eval").mockResolvedValue({ llr: -5, verdict: "neutral" } as any);
+      const encryptSecret = "dev-session-secret-must-be-changed-in-prod";
+      const expiredSessionId = encryptSession(
+        { apiKey: "test-key-expired", expiresAt: Date.now() - 5000 },
+        encryptSecret
+      );
+      
+      const req: any = {
+        body: {
+          gene: "PAH",
+          variant: "p.Met1Val",
+          uniprotId: "P00439"
+        },
+        headers: {
+          "authorization": "Bearer dummy-token",
+          "x-gemini-session-id": expiredSessionId
+        }
+      };
+      
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+      
+      await handler(req, res, () => {});
+      
+      // Core analysis should succeed without checking Gemini session
+      expect(statusCode).toBe(200);
+      expect(jsonVal).toBeDefined();
+      expect(jsonVal.error).toBeUndefined();
+
+      seqSpy.mockRestore();
+      coreSpy.mockRestore();
+    });
+
+    it("should return SESSION_EXPIRED on /analyze-variant-narrative when an expired session token is passed", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant-narrative");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /analyze-variant-narrative not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
 
       const encryptSecret = "dev-session-secret-must-be-changed-in-prod";
       const expiredSessionId = encryptSession(
@@ -66,43 +108,13 @@ describe("Session Authentication & Key Validation", () => {
       
       expect(statusCode).toBe(401);
       expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
-
-      seqSpy.mockRestore();
-      clinvarSpy.mockRestore();
-      predSpy.mockRestore();
-      consSpy.mockRestore();
-      strSpy.mockRestore();
-      freqSpy.mockRestore();
-      pdbSpy.mockRestore();
-      afPdbSpy.mockRestore();
-      constSpy.mockRestore();
-      featSpy.mockRestore();
-      disSpy.mockRestore();
-      esmSpy.mockRestore();
     });
 
-    it("should return SESSION_EXPIRED when session is completely invalid on /analyze-variant", async () => {
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant");
+    it("should return SESSION_EXPIRED on /analyze-variant-narrative when session is completely invalid", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/analyze-variant-narrative");
       expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /analyze-variant not found");
+      if (!route || !route.route) throw new Error("Route /analyze-variant-narrative not found");
       const handler = route.route.stack[route.route.stack.length - 1].handle;
-
-      const externalServices = await import("../services/external.ts");
-      const biophysicsServices = await import("../services/biophysics.ts");
-
-      const seqSpy = vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M");
-      const clinvarSpy = vi.spyOn(externalServices, "fetchClinVarData").mockResolvedValue({} as any);
-      const predSpy = vi.spyOn(externalServices, "fetchPredictorData").mockResolvedValue({} as any);
-      const consSpy = vi.spyOn(externalServices, "fetchConservationData").mockResolvedValue({} as any);
-      const strSpy = vi.spyOn(externalServices, "fetchStringInteractions").mockResolvedValue([] as any);
-      const freqSpy = vi.spyOn(externalServices, "fetchGnomadVariantFrequency").mockResolvedValue({} as any);
-      const pdbSpy = vi.spyOn(externalServices, "fetchBestPdbStructure").mockResolvedValue({} as any);
-      const afPdbSpy = vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue("dummy-pdb-text");
-      const constSpy = vi.spyOn(externalServices, "fetchGnomadGeneConstraint").mockResolvedValue({} as any);
-      const featSpy = vi.spyOn(externalServices, "fetchUniprotFeatures").mockResolvedValue({} as any);
-
-      const disSpy = vi.spyOn(biophysicsServices, "predictStructuralDisruption").mockResolvedValue({ level: "low", reason: "mocked", plddt: 100 } as any);
-      const esmSpy = vi.spyOn(biophysicsServices, "runEsm2Eval").mockResolvedValue({ llr: -5, verdict: "neutral" } as any);
 
       const req: any = {
         body: {
@@ -133,19 +145,6 @@ describe("Session Authentication & Key Validation", () => {
       
       expect(statusCode).toBe(401);
       expect(jsonVal.error.code).toBe("SESSION_EXPIRED");
-
-      seqSpy.mockRestore();
-      clinvarSpy.mockRestore();
-      predSpy.mockRestore();
-      consSpy.mockRestore();
-      strSpy.mockRestore();
-      freqSpy.mockRestore();
-      pdbSpy.mockRestore();
-      afPdbSpy.mockRestore();
-      constSpy.mockRestore();
-      featSpy.mockRestore();
-      disSpy.mockRestore();
-      esmSpy.mockRestore();
     });
   });
 
