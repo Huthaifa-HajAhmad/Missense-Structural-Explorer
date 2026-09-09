@@ -25,6 +25,7 @@ export interface EsmcEvalResult {
 }
 
 import { CONFIG } from "../config.ts";
+import { queryEsmc } from "./japanfold-client.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -37,7 +38,7 @@ export async function runEsmcAnalysis(
   uniprotId: string,
   sequence: string,
   biohubToken?: string | null
-): Promise<EsmcEvalResult | null> {
+): Promise<EsmcEvalResult | ModelEvalError | null> {
   const mutMatch = variant.match(/([a-zA-Z]{3}|[a-zA-Z])\s*(\d+)\s*([a-zA-Z]{3}|[a-zA-Z])/);
   if (!mutMatch) return null;
 
@@ -57,6 +58,34 @@ export async function runEsmcAnalysis(
     return null;
   }
 
+  // 1. Attempt Tier-1: JapanFold ESMC (Tenstorrent Galaxy Superclusters)
+  try {
+    const jfResult = await queryEsmc(sequence, pos, wtRes, mutRes);
+    if (jfResult && jfResult.status === "success") {
+      const localShiftMap: EsmcLocalShift[] = jfResult.localShiftMap || [];
+      let localEmbeddingShift = 0.0;
+      if (localShiftMap.length > 0) {
+        const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
+        localEmbeddingShift = sumShift / localShiftMap.length;
+      }
+      return {
+        wtProbability: jfResult.wtProbability,
+        mutProbability: jfResult.mutProbability,
+        llr: jfResult.llr,
+        preferences: jfResult.preferences || [],
+        mutRank: jfResult.mutRank,
+        positionalEntropy: jfResult.positionalEntropy,
+        embeddingShift: jfResult.embeddingShift,
+        localEmbeddingShift,
+        localShiftMap,
+        provenance: jfResult.provenance
+      };
+    }
+  } catch (jfErr: any) {
+    console.warn(`[JapanFold ESMC] Tier-1 call failed: ${jfErr.message}. Falling back to local sidecar...`);
+  }
+
+  // 2. Fallback to Local Sidecar (VESM-150M on CPU / Biohub remote)
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/vesm`;
   try {

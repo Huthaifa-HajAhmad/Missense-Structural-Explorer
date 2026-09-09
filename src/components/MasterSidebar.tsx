@@ -99,6 +99,7 @@ const EVIDENCE_SUB_ITEMS = [
   { id: "splicing",     label: "RNA Splicing"            },
   { id: "structure",    label: "Residue Shifts"          },
   { id: "perturbation", label: "Structural Perturbation" },
+  { id: "multimers",    label: "Multimer Assembly"       },
   { id: "function",     label: "Functional Site"         },
   { id: "interactions", label: "PPI Networks"            },
   { id: "guidelines",   label: "Scores Thresholds"       },

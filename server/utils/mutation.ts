@@ -32,3 +32,55 @@ export function applyMutation(wtSequence: string, mutation: Mutation): string {
 
   return wtSequence.substring(0, position - 1) + mt.toUpperCase() + wtSequence.substring(position);
 }
+
+import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+
+export function parseMutationParam(mutation: string): { wtLetter: string; mutLetter: string; posNum: number; chainParam: string } | null {
+  if (!mutation || typeof mutation !== "string" || mutation.length > 80) return null;
+  let clean = mutation;
+  const parenMatch = mutation.match(/\((p\.[^)]+)\)/);
+  if (parenMatch) {
+    clean = parenMatch[1];
+  }
+  clean = clean.replace(/^p\./i, "").trim();
+
+  // 1. FoldX 4-part format: e.g. RA408W (WT=R, Chain=A, Pos=408, Mut=W)
+  const foldxMatch = clean.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+  if (foldxMatch) {
+    return {
+      wtLetter: foldxMatch[1].toUpperCase(),
+      chainParam: foldxMatch[2].toUpperCase(),
+      posNum: parseInt(foldxMatch[3], 10),
+      mutLetter: foldxMatch[4].toUpperCase()
+    };
+  }
+
+  // 2. Standard 1-letter missense: e.g. R408W (WT=R, Pos=408, Mut=W)
+  const standard1Match = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+  if (standard1Match) {
+    return {
+      wtLetter: standard1Match[1].toUpperCase(),
+      chainParam: "",
+      posNum: parseInt(standard1Match[2], 10),
+      mutLetter: standard1Match[3].toUpperCase()
+    };
+  }
+
+  // 3. 3-letter HGVS format: e.g. Arg408Trp
+  const standard3Match = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
+  if (standard3Match) {
+    const wtLetter = AMINO_ACID_3_TO_1[standard3Match[1].toUpperCase()];
+    const mutLetter = AMINO_ACID_3_TO_1[standard3Match[3].toUpperCase()];
+    if (wtLetter && mutLetter) {
+      return {
+        wtLetter,
+        chainParam: "",
+        posNum: parseInt(standard3Match[2], 10),
+        mutLetter
+      };
+    }
+  }
+
+  return null;
+}
+

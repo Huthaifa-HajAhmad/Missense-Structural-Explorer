@@ -258,5 +258,119 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
         (CONFIG.server as any).isProduction = originalIsProd;
       }
     });
+
+    it("should sanitize error message in production mode to prevent private IP disclosure", async () => {
+      const originalIsProd = CONFIG.server.isProduction;
+      try {
+        (CONFIG.server as any).isProduction = true;
+        const fetchMock = vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED 10.0.1.45:8000"));
+        vi.stubGlobal("fetch", fetchMock);
+
+        let jsonVal: any = null;
+        const req: any = {};
+        const res: any = {
+          json(data: any) {
+            jsonVal = data;
+            return this;
+          }
+        };
+
+        await handler(req, res, () => {});
+        expect(jsonVal.reachable).toBe(false);
+        expect(jsonVal.error).not.toContain("10.0.1.45");
+        expect(jsonVal.error).toBe("Model server sidecar connection unavailable");
+      } finally {
+        (CONFIG.server as any).isProduction = originalIsProd;
+      }
+    });
+  });
+
+  describe("POST /structure/multimer", () => {
+    it("rejects request with 400 if required fields are invalid or missing", async () => {
+      const multimerRoute: any = apiRouter.stack.find(
+        (s: any) => s.route && (s.route.path === "/structure/multimer" || (Array.isArray(s.route.path) && s.route.path.includes("/structure/multimer")))
+      );
+      expect(multimerRoute).toBeDefined();
+
+      const handler = multimerRoute.route.stack[multimerRoute.route.stack.length - 1].handle;
+      let statusCode = 0;
+      let errorBody: any = null;
+      const req: any = { body: { gene: "PAH", variant: "invalid" } }; // missing uniprotId
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      await handler(req, res);
+      expect(statusCode).toBe(400);
+      expect(errorBody?.error?.code).toBe("BAD_REQUEST");
+    });
+  });
+
+  describe("POST /ppi/binding-affinity", () => {
+    it("rejects request if gene or variant missing", async () => {
+      const ppiRoute: any = apiRouter.stack.find(
+        (s: any) => s.route && (s.route.path === "/ppi/binding-affinity" || (Array.isArray(s.route.path) && s.route.path.includes("/ppi/binding-affinity")))
+      );
+      expect(ppiRoute).toBeDefined();
+
+      const handler = ppiRoute.route.stack[ppiRoute.route.stack.length - 1].handle;
+      let statusCode = 0;
+      let errorBody: any = null;
+      const req: any = { body: { gene: "PAH" } };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      await handler(req, res);
+      expect(statusCode).toBe(400);
+      expect(errorBody?.error?.code).toBe("BAD_REQUEST");
+    });
+
+    it("rejects request if chainA and chainB are identical", async () => {
+      const ppiRoute: any = apiRouter.stack.find(
+        (s: any) => s.route && (s.route.path === "/ppi/binding-affinity" || (Array.isArray(s.route.path) && s.route.path.includes("/ppi/binding-affinity")))
+      );
+      const handler = ppiRoute.route.stack[ppiRoute.route.stack.length - 1].handle;
+      let statusCode = 0;
+      let errorBody: any = null;
+      const req: any = {
+        body: {
+          gene: "PAH",
+          variant: "p.Arg408Trp",
+          chainA: "A",
+          chainB: "A",
+          wtPdb: "ATOM...",
+          mutPdb: "ATOM..."
+        }
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      await handler(req, res);
+      expect(statusCode).toBe(400);
+      expect(errorBody?.error?.message).toContain("chainA and chainB must represent distinct");
+    });
   });
 });

@@ -7,7 +7,7 @@
  *   POST /structural-diff
  */
 import { type Router } from "express";
-import { sendError, validateUniProt, AuditLogger, formatZodError } from "../utils.ts";
+import { sendError, validateUniProt, validateGene, validateVariant, AuditLogger, formatZodError } from "../utils.ts";
 import { z } from "zod";
 import {
   esmFoldRequestSchema,
@@ -28,6 +28,8 @@ import fs from "fs";
 import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
 import { applyMutation } from "../utils/mutation.ts";
 import { CONFIG } from "../config.ts";
+import { analyzeMultimerStructure } from "../services/multimer.ts";
+import { analyzePpiBinding } from "../services/ppi.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -221,7 +223,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         reachable: false,
         baseUrl: safeBaseUrl,
         latencyMs: Date.now() - startTime,
-        error: err.message || "Connection refused",
+        error: CONFIG.server.isProduction
+          ? "Model server sidecar connection unavailable"
+          : (err.message || "Connection refused"),
         remediation: {
           local: "python -m uv run --project tools python tools/model_server.py",
           oci: "export SIDECAR_URL=http://<oci-private-or-public-ip>:8000"
@@ -516,4 +520,81 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "Failed to align structures.");
     }
   });
+
+  const multimerRequestSchema = z.object({
+    gene: z.string().trim().min(1, "gene is required").max(30),
+    variant: z.string().trim().min(3, "variant is required").max(50),
+    uniprotId: z.string().trim().min(3, "uniprotId is required").max(20)
+  });
+
+  const ppiBindingRequestSchema = z.object({
+    gene: z.string().trim().min(1, "gene is required").max(30),
+    variant: z.string().trim().min(3, "variant is required").max(50),
+    uniprotId: z.string().trim().min(3).max(20).optional().nullable(),
+    wtPdb: z.string().max(10 * 1024 * 1024).refine(s => s.includes("ATOM") || s.includes("HETATM"), "Must contain valid PDB coordinate records").optional().nullable(),
+    mutPdb: z.string().max(10 * 1024 * 1024).refine(s => s.includes("ATOM") || s.includes("HETATM"), "Must contain valid PDB coordinate records").optional().nullable(),
+    chainA: z.string().trim().regex(/^[A-Za-z0-9]{1,4}$/, "Chain A must be 1-4 alphanumeric characters").default("A"),
+    chainB: z.string().trim().regex(/^[A-Za-z0-9]{1,4}$/, "Chain B must be 1-4 alphanumeric characters").default("B")
+  }).refine(data => !data.wtPdb || !data.mutPdb || data.chainA.toUpperCase() !== data.chainB.toUpperCase(), {
+    message: "chainA and chainB must represent distinct interaction partners",
+    path: ["chainB"]
+  });
+
+  apiRouter.post("/structure/multimer", jsonParserRegular, async (req, res) => {
+    const parseResult = multimerRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    const clientAbortController = new AbortController();
+    if (req && typeof req.on === "function") {
+      req.on("close", () => {
+        if (!res.headersSent) clientAbortController.abort();
+      });
+    }
+    try {
+      const validGene = validateGene(parseResult.data.gene);
+      const validVariant = validateVariant(parseResult.data.variant);
+      const validUniprot = validateUniProt(parseResult.data.uniprotId);
+
+      const result = await analyzeMultimerStructure(validGene, validVariant, validUniprot, clientAbortController.signal);
+      res.json(result);
+    } catch (err: any) {
+      sendError(res, 400, "BAD_REQUEST", err.message || "Failed to analyze multimer structure.");
+    }
+  });
+
+  apiRouter.post(["/ppi/binding-affinity", "/ppi/binding-affinity/"], jsonParserPdb, async (req, res) => {
+    const parseResult = ppiBindingRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    const clientAbortController = new AbortController();
+    if (req && typeof req.on === "function") {
+      req.on("close", () => {
+        if (!res.headersSent) clientAbortController.abort();
+      });
+    }
+    try {
+      const validGene = validateGene(parseResult.data.gene);
+      const validVariant = validateVariant(parseResult.data.variant);
+      const validUniprot = parseResult.data.uniprotId ? validateUniProt(parseResult.data.uniprotId) : undefined;
+
+      const result = await analyzePpiBinding(
+        validGene,
+        validVariant,
+        validUniprot,
+        parseResult.data.wtPdb || null,
+        parseResult.data.mutPdb || null,
+        parseResult.data.chainA,
+        parseResult.data.chainB,
+        clientAbortController.signal
+      );
+      res.json(result);
+    } catch (err: any) {
+      sendError(res, 400, "BAD_REQUEST", err.message || "Failed to analyze PPI binding affinity.");
+    }
+  });
 }
+

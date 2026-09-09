@@ -28,6 +28,7 @@ export interface SaprotEvalResult {
 }
 
 import { CONFIG } from "../config.ts";
+import { querySaProt } from "./japanfold-client.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -63,6 +64,36 @@ export async function runSaprotAnalysis(
     return null;
   }
 
+  // 1. Attempt Tier-1: JapanFold SaProt (Tenstorrent Galaxy Superclusters)
+  try {
+    const jfResult = await querySaProt(sequence, pos, wtRes, mutRes, wtPdb);
+    if (jfResult && jfResult.status === "success") {
+      const localShiftMap: EsmcLocalShift[] = jfResult.localShiftMap || [];
+      let localEmbeddingShift = 0.0;
+      if (localShiftMap.length > 0) {
+        const sumShift = localShiftMap.reduce((acc: number, curr: any) => acc + (curr.shift || 0.0), 0.0);
+        localEmbeddingShift = sumShift / localShiftMap.length;
+      }
+      return {
+        wtProbability: jfResult.wtProbability,
+        mutProbability: jfResult.mutProbability,
+        llr: jfResult.llr,
+        preferences: jfResult.preferences || [],
+        mutRank: jfResult.mutRank,
+        positionalEntropy: jfResult.positionalEntropy,
+        embeddingShift: jfResult.embeddingShift,
+        localEmbeddingShift,
+        localShiftMap,
+        klDivergence: jfResult.klDivergence,
+        conformationState: jfResult.conformationState,
+        provenance: jfResult.provenance
+      };
+    }
+  } catch (jfErr: any) {
+    console.warn(`[JapanFold SaProt] Tier-1 call failed: ${jfErr.message}. Falling back to local sidecar...`);
+  }
+
+  // 2. Fallback to Local Sidecar (runs on CPU on OCI 2 OCPU / 8GB RAM with SaProt_35M_AF2)
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/saprot`;
   try {

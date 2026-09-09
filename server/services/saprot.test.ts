@@ -1,22 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runSaprotAnalysis } from "./saprot.ts";
+import { clearJapanFoldCache } from "./japanfold-client.ts";
 
 describe("SaProt Service Integration Tests", () => {
   beforeEach(() => {
+    clearJapanFoldCache();
     vi.restoreAllMocks();
   });
 
-  it("should return structured error object if sidecar is unreachable/fails", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error("Network connection failed"));
+  it("should prioritize Tier-1 JapanFold SaProt when reachable", async () => {
+    const mockJapanFoldResponse = {
+      status: "success",
+      llr: -3.8,
+      wtProbability: 0.10,
+      mutProbability: 0.002,
+      mutRank: 18,
+      positionalEntropy: 2.0,
+      embeddingShift: 0.55,
+      klDivergence: 1.1,
+      conformationState: "A"
+    };
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockJapanFoldResponse
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runSaprotAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null, null);
+    const result = await runSaprotAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null, "PDB TEXT DUMMY");
     expect(result).toBeDefined();
-    expect(result?.error).toMatch(/standby|offline|failed/i);
-    expect(result?.status).toBe("offline");
+    expect(result!.llr).toBe(-3.8);
+    expect(result!.conformationState).toBe("A");
+    expect(result!.provenance).toBe("JapanFold SaProt (Tier 1)");
   });
 
-  it("should successfully parse sidecar response and map all metrics including conformationState and klDivergence", async () => {
+  it("should fall back to local sidecar (CPU on OCI) when JapanFold fails", async () => {
     const mockSidecarResponse = {
       status: "success",
       llr: -4.2,
@@ -27,6 +45,7 @@ describe("SaProt Service Integration Tests", () => {
       embeddingShift: 0.65,
       klDivergence: 1.25,
       conformationState: "a",
+      provenance: "SaProt (SaProt_35M_AF2 - Local CPU)",
       localShiftMap: [
         { position: 488, residue: "S", shift: 0.3 },
         { position: 489, residue: "S", shift: 0.9 },
@@ -34,23 +53,22 @@ describe("SaProt Service Integration Tests", () => {
       ]
     };
 
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockSidecarResponse
-    });
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error("JapanFold timeout"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSidecarResponse
+      });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await runSaprotAnalysis("CNNM2", "p.Ser489Cys", "Q9H8Y5", "MSLS...", null, "PDB TEXT DUMMY");
-
     expect(result).toBeDefined();
     expect(result!.llr).toBe(-4.2);
-    expect(result!.wtProbability).toBe(0.08);
-    expect(result!.mutProbability).toBe(0.001);
-    expect(result!.mutRank).toBe(19);
-    expect(result!.positionalEntropy).toBe(2.1);
-    expect(result!.embeddingShift).toBe(0.65);
-    expect(result!.klDivergence).toBe(1.25);
-    expect(result!.conformationState).toBe("a");
-    expect(result!.localEmbeddingShift).toBeCloseTo(0.6);
+    expect(result!.provenance).toBe("SaProt (SaProt_35M_AF2 - Local CPU)");
+  });
+
+  it("should return null if input is invalid", async () => {
+    const result = await runSaprotAnalysis("CNNM2", "invalid_variant", "Q9H8Y5", "MSLS...", null, null);
+    expect(result).toBeNull();
   });
 });

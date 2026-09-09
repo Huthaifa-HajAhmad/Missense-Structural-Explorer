@@ -7,6 +7,7 @@ import { SplicingTab } from "./evidence/SplicingTab";
 import { PredictorsTab } from "./evidence/PredictorsTab";
 import { StructureTab } from "./evidence/StructureTab";
 import { PerturbationTab } from "./evidence/PerturbationTab";
+import { MultimersTab } from "./evidence/MultimersTab";
 import { FunctionTab, InteractionsTab } from "./evidence/FunctionInteractionsTabs";
 import { GuidelinesTab } from "./evidence/GuidelinesTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
@@ -147,6 +148,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "predictors" && <PredictorsTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}
         {activeTab === "perturbation" && <PerturbationTab {...tabProps} />}
+        {activeTab === "multimers" && <MultimersTab {...tabProps} />}
         {activeTab === "function" && <FunctionTab {...tabProps} />}
         {activeTab === "interactions" && <InteractionsTab {...tabProps} />}
         {activeTab === "splicing" && <SplicingTab {...tabProps} />}

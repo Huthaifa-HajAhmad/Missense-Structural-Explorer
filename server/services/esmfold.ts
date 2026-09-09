@@ -1,6 +1,7 @@
 import { LRUCache } from "lru-cache";
 import crypto from "crypto";
 import { CONFIG } from "../config.ts";
+import { queryEsmfold2 } from "./japanfold-client.ts";
 
 export const esmfoldCache = new LRUCache<string, string>({
   max: 100,
@@ -29,7 +30,18 @@ async function foldSequenceInternal(
   sequence: string,
   biohubToken?: string | null
 ): Promise<string> {
-  // 1. If Biohub token is available, attempt to query the official Biohub ESMFold2 model via Python sidecar
+  // 1. Attempt Tier-1: JapanFold ESMFold-2 (Up to 1,024 residues, Tenstorrent hardware)
+  try {
+    const jfPdb = await queryEsmfold2(sequence);
+    if (jfPdb && jfPdb.includes("ATOM")) {
+      console.log(`[ESMFold] Successfully folded ${sequence.length} aa sequence via Tier-1 JapanFold ESMFold-2`);
+      return jfPdb;
+    }
+  } catch (jfErr: any) {
+    console.warn(`[ESMFold] Tier-1 JapanFold call failed: ${jfErr.message}. Proceeding to local sidecar fallback...`);
+  }
+
+  // 2. Fallback: If Biohub token is available, query official Biohub ESMFold2 via Python sidecar
   if (biohubToken) {
     try {
       const sidecarSecret = process.env.SIDECAR_SECRET || "";

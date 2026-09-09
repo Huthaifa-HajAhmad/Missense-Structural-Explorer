@@ -137,4 +137,31 @@ describe("ThermoMPNN and Folding Engine verifyStability Bridges", () => {
 
     fetchSpy.mockRestore();
   });
+
+  it("should prioritize Tier-1 JapanFold ESMFold-2 and return coordinates", async () => {
+    const japanfoldPdb = "ATOM      1  N   MET A   1       1.000   1.000   1.000  1.00 95.00           N\nTER";
+    const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url) => {
+      if (typeof url === "string" && url.includes("api.japanfold.aiand.com")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ status: "success", pdb: japanfoldPdb })
+        } as any;
+      }
+      return { ok: false, status: 500 } as any;
+    });
+
+    const engine = new ESMFoldEngine();
+    const result = await engine.fold("MTEYKL", {
+      wtPdb: "",
+      uniprotId: "P12345",
+      jobDir: "./temp",
+      mutationCode: "M1V"
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.pdb).toBe(japanfoldPdb);
+    fetchSpy.mockRestore();
+  });
 });
+

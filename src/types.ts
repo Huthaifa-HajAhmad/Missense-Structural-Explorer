@@ -238,6 +238,8 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   conservationData?: ConservationData | null;
   landscapeData?: LandscapeResidueItem[] | null;
   stringInteractions?: StringInteractionItem[] | null;
+  multimerData?: MultimerData | null;
+  ppiBindingData?: PpiBindingData | null;
   isDemoData?: boolean;
   metadata?: VariantMetadata;
   disruptionPredictor?: DisruptionPredictorResult;
@@ -245,6 +247,43 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadConstraint?: GnomadConstraintData | null;
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
+}
+
+export interface PpiBindingData {
+  status: "success" | "unavailable" | "failed";
+  gene: string;
+  variant: string;
+  uniprotId?: string;
+  stringPartners: Array<{ partner: string; score: number }>;
+  bindingShift: {
+    ddgBind: number | null;
+    unit: string;
+    classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" | "UNKNOWN";
+    provenance: string;
+  } | null;
+  interfaceResidues: Array<{
+    pos: number;
+    description: string;
+    isVariantPosition: boolean;
+  }>;
+  error?: string;
+}
+
+export interface MultimerData {
+  status: "success" | "monomeric" | "failed";
+  gene: string;
+  uniprotId: string;
+  oligomericState: string;
+  chainCount: number;
+  chainIds: string[];
+  complexPdb: string | null;
+  ipTm: number | null;
+  pTm: number | null;
+  interfaceContacts: Array<{ resA: number; resB: number; distance: number }>;
+  mutationInterfaceDisrupted: boolean;
+  provenance: string;
+  subunitComment?: string | null;
+  error?: string;
 }
 
 export interface AnalysisState {
