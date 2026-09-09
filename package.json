@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "test:smoke": "vitest run server/tests/smoke.test.ts",
     "test:canary": "vitest run server/tests/canary.test.ts",
+    "test:canary:live": "tsx scripts/canary-check.ts",
     "benchmark:proteingym": "tsx tools/run_proteingym_benchmark.ts",
     "review": "tsx scripts/review.ts review",
     "review:preview": "tsx scripts/review.ts review --preview",

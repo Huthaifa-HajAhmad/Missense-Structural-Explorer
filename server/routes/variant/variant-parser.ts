@@ -23,6 +23,7 @@ export const analyzeVariantSchema = z.object({
   userDirections: z.string().max(1000).optional(),
   originalNotation: z.string().max(200).optional(),
   biohubToken: z.string().optional(),
+  hfToken: z.string().optional(),
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
@@ -41,6 +42,7 @@ export interface ParsedVariantContext {
   wt1Letter: string;
   mut1Letter: string;
   biohubToken?: string | null;
+  hfToken?: string | null;
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
@@ -142,6 +144,12 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     return null;
   }
 
+  const getHeader = (val: string | string[] | undefined): string | null => {
+    if (!val) return null;
+    const raw = Array.isArray(val) ? val[0] : val;
+    return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+  };
+
   return {
     gene,
     variant,
@@ -156,7 +164,8 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     pos,
     wt1Letter,
     mut1Letter,
-    biohubToken: (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null,
-    saprotEngine: req.body?.saprotEngine || (req.headers["x-saprot-engine"] as string) || undefined
+    biohubToken: getHeader(req.headers["x-biohub-token"]) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null,
+    hfToken: getHeader(req.headers["x-hf-token"]) || req.body?.hfToken || process.env.HF_TOKEN || null,
+    saprotEngine: req.body?.saprotEngine || getHeader(req.headers["x-saprot-engine"]) || undefined
   };
 }

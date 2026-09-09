@@ -112,16 +112,52 @@ def get_saprot_model(model_name: str, token: str = None):
 
 model_status: dict[str, str] = {
     "vesm": "standby",
-    "thermompnn": "ready",
-    "stabilityoracle": "ready",
+    "thermompnn": "standby",
+    "stabilityoracle": "standby",
     "saprot": "standby",
     "esm2": "standby"
 }
+model_errors: dict[str, str] = {}
+
+def verify_local_checkpoints():
+    """
+    Dry-runs unpickling and model architecture initialization for StabilityOracle and ThermoMPNN.
+    Catches LayerScale/DropPath/AttentionBlock NameErrors or missing weights immediately on startup.
+    """
+    global model_status, model_errors
+    # 1. StabilityOracle validation
+    try:
+        from tools.model_server_app.routers.stabilityoracle import get_stability_oracle_model
+        get_stability_oracle_model()
+        model_status["stabilityoracle"] = "ready"
+        print("[Model Server Guard] StabilityOracle verified: architecture and weights intact.")
+    except Exception as e:
+        model_status["stabilityoracle"] = "failed"
+        model_errors["stabilityoracle"] = str(e)
+        print(f"[Model Server Guard] CRITICAL: StabilityOracle failed startup self-test: {e}", file=sys.stderr)
+
+    # 2. ThermoMPNN validation
+    try:
+        from tools.model_server_app.routers.thermompnn import get_official_model
+        m = get_official_model()
+        if m is not None:
+            model_status["thermompnn"] = "ready"
+            print("[Model Server Guard] ThermoMPNN verified: architecture and weights intact.")
+        else:
+            model_status["thermompnn"] = "standby"
+    except Exception as e:
+        model_status["thermompnn"] = "failed"
+        model_errors["thermompnn"] = str(e)
+        print(f"[Model Server Guard] CRITICAL: ThermoMPNN failed startup self-test: {e}", file=sys.stderr)
 
 def start_background_warmup():
     """Starts background warmup of local models so uvicorn binds port 8000 immediately."""
     import threading
     def _warmup():
+        try:
+            verify_local_checkpoints()
+        except Exception as e:
+            print(f"[Model Server Warning] Local checkpoints verification error: {e}")
         try:
             load_vesm()
         except Exception as e:

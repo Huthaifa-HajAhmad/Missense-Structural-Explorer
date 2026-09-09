@@ -149,9 +149,9 @@ export function fetchProgressiveStructuralAssessments(
   requestId: number,
   getActiveRequestId: () => number,
   traceContext?: TraceContext
-): void {
+): Promise<void> {
   console.log("[BiophysicalService] Starting progressive fetch for heavy structural models...");
-  apiClient
+  return apiClient
     .getStructuralAssessments(params, signal)
     .then((structRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;

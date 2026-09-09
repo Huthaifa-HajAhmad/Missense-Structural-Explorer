@@ -71,27 +71,10 @@ export function PerturbationTab({
   const allFailedOrEmpty = models.every(m => !m.data || Boolean(m.data.error));
 
   const handleRetry = async () => {
-    if (onRetryStructural) {
-      setIsRetrying(true);
-      try {
-        await onRetryStructural();
-      } catch (err) {
-        console.error("[PerturbationTab] Retry failed:", err);
-      } finally {
-        setIsRetrying(false);
-      }
-      return;
-    }
-    if (!result?.metadata?.gene || !result?.metadata?.variant || !result?.metadata?.uniprotId) return;
+    if (!onRetryStructural) return;
     setIsRetrying(true);
     try {
-      await apiClient.getStructuralAssessments({
-        gene: result.metadata.gene,
-        variant: result.metadata.variant,
-        uniprotId: result.metadata.uniprotId,
-        acmgWeighting: settings.acmgWeighting,
-        saprotEngine: settings.saprotEngine
-      });
+      await onRetryStructural();
     } catch (err) {
       console.error("[PerturbationTab] Retry failed:", err);
     } finally {

@@ -12,38 +12,47 @@ const evo2Cache = new LRUCache<string, EvolutionaryScaleResult>({
   ttl: 1000 * 60 * 60 * 24 * 14 // 14 days
 });
 
+const gpnCache = new LRUCache<string, EvolutionaryScaleResult>({
+  max: 1000,
+  ttl: 1000 * 60 * 60 * 24 * 14 // 14 days
+});
+
 export function clearEvo2Cache(): void {
   evo2Cache.clear();
 }
 
-/**
- * Queries EvolutionaryScale API endpoint for Evo 2 foundation model delta LLR score.
- * Endpoint: https://api.evolutionaryscale.ai/v1/evo2 (or EVO2_API_URL)
- */
-export async function fetchEvo2Score(
-  sequence: string,
-  pos: number,
-  wt: string,
-  mut: string,
-  token?: string | null
-): Promise<EvolutionaryScaleResult> {
+export function clearGpnCache(): void {
+  gpnCache.clear();
+}
+
+interface QueryModelOptions {
+  model: string;
+  sequence: string;
+  pos: number;
+  wt: string;
+  mut: string;
+  token?: string | null;
+  cache: LRUCache<string, EvolutionaryScaleResult>;
+  endpoint: string;
+  label: string;
+}
+
+async function queryEvolutionaryScaleModel(options: QueryModelOptions): Promise<EvolutionaryScaleResult> {
+  const { model, sequence, pos, wt, mut, token, cache, endpoint, label } = options;
   const tokenToUse = token || process.env.BIOHUB_API_TOKEN || process.env.EVO2_API_KEY || null;
   const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
   const cacheKey = `${seqHash}:${pos}:${wt.toUpperCase()}:${mut.toUpperCase()}`;
 
-  const cached = evo2Cache.get(cacheKey);
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   if (!tokenToUse) {
-    const res: EvolutionaryScaleResult = {
+    return {
       score: null,
       status: "token_required",
-      message: "Requires EvolutionaryScale / Biohub API key"
+      message: `Requires EvolutionaryScale / Biohub API key for ${label}`
     };
-    return res;
   }
-
-  const endpoint = process.env.EVO2_API_URL || "https://api.evolutionaryscale.ai/v1/evo2";
 
   try {
     const response = await fetch(endpoint, {
@@ -53,32 +62,30 @@ export async function fetchEvo2Score(
         "Authorization": `Bearer ${tokenToUse}`
       },
       body: JSON.stringify({
-        model: "evo2-40b",
+        model,
         sequence,
         position: pos,
         wt: wt.toUpperCase(),
         mut: mut.toUpperCase()
       }),
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(25000)
     });
 
     if (response.status === 401 || response.status === 403) {
-      const res: EvolutionaryScaleResult = {
+      // Do not cache auth errors in the shared variant cache to avoid cross-user pollution
+      return {
         score: null,
         status: "token_required",
-        message: "EvolutionaryScale token invalid or unauthorized"
+        message: `EvolutionaryScale token invalid or unauthorized for ${label}`
       };
-      evo2Cache.set(cacheKey, res, { ttl: 60 * 1000 });
-      return res;
     }
 
     if (!response.ok) {
-      const res: EvolutionaryScaleResult = {
+      return {
         score: null,
         status: "unavailable",
         message: `Upstream error ${response.status}: ${response.statusText}`
       };
-      return res;
     }
 
     const data = (await response.json()) as any;
@@ -93,21 +100,71 @@ export async function fetchEvo2Score(
         score: scoreVal,
         status: "live"
       };
-      evo2Cache.set(cacheKey, res);
+      cache.set(cacheKey, res);
       return res;
     }
 
     return {
       score: null,
       status: "unavailable",
-      message: "No score returned by upstream Evo 2 API"
+      message: `No score returned by upstream ${label} API`
     };
   } catch (err: any) {
     const isTimeout = err.name === "TimeoutError" || err.message?.includes("timeout");
     return {
       score: null,
       status: "unavailable",
-      message: isTimeout ? "Evo 2 API timed out (5s limit)" : (err.message || "Network error")
+      message: isTimeout ? `${label} API timed out (25s limit)` : (err.message || "Network error")
     };
   }
+}
+
+/**
+ * Queries EvolutionaryScale API endpoint for Evo 2 foundation model delta LLR score.
+ * Endpoint: https://api.evolutionaryscale.ai/v1/evo2 (or EVO2_API_URL)
+ */
+export async function fetchEvo2Score(
+  sequence: string,
+  pos: number,
+  wt: string,
+  mut: string,
+  token?: string | null
+): Promise<EvolutionaryScaleResult> {
+  const endpoint = process.env.EVO2_API_URL || "https://api.evolutionaryscale.ai/v1/evo2";
+  return queryEvolutionaryScaleModel({
+    model: "evo2-40b",
+    sequence,
+    pos,
+    wt,
+    mut,
+    token,
+    cache: evo2Cache,
+    endpoint,
+    label: "Evo 2"
+  });
+}
+
+/**
+ * Queries EvolutionaryScale API endpoint for GPN-Star protein-specific zero-shot likelihood score.
+ * Endpoint: https://api.evolutionaryscale.ai/v1/evo2 (or GPN_API_URL / EVO2_API_URL)
+ */
+export async function fetchGpnStarScore(
+  sequence: string,
+  pos: number,
+  wt: string,
+  mut: string,
+  token?: string | null
+): Promise<EvolutionaryScaleResult> {
+  const endpoint = process.env.GPN_API_URL || process.env.EVO2_API_URL || "https://api.evolutionaryscale.ai/v1/evo2";
+  return queryEvolutionaryScaleModel({
+    model: "gpn-star",
+    sequence,
+    pos,
+    wt,
+    mut,
+    token,
+    cache: gpnCache,
+    endpoint,
+    label: "GPN-Star"
+  });
 }

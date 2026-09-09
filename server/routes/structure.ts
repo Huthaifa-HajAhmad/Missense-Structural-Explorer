@@ -364,9 +364,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      // Attempt lightweight ping call to Biohub / EvolutionaryScale endpoint
+      // Attempt lightweight ping call to EvolutionaryScale / Biohub endpoint
       try {
-        let testRes = await fetch("https://biohub.ai/v1/models", {
+        let testRes = await fetch("https://api.evolutionaryscale.ai/v1/models", {
           method: "GET",
           headers: { 
             "Authorization": `Bearer ${token.trim()}`,
@@ -376,6 +376,17 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         }).catch(() => null);
 
         if (!testRes) {
+          testRes = await fetch("https://biohub.ai/v1/models", {
+            method: "GET",
+            headers: { 
+              "Authorization": `Bearer ${token.trim()}`,
+              "User-Agent": "MissenseResolve/1.0"
+            },
+            signal: AbortSignal.timeout(6000)
+          }).catch(() => null);
+        }
+
+        if (!testRes) {
           testRes = await fetch("https://forge.evolutionaryscale.ai/v1/models", {
             method: "GET",
             headers: { 
@@ -383,20 +394,21 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
               "User-Agent": "MissenseResolve/1.0"
             },
             signal: AbortSignal.timeout(6000)
-          });
+          }).catch(() => null);
+        }
+
+        if (!testRes) {
+          throw new Error("Unable to reach EvolutionaryScale API endpoints");
         }
 
         if (testRes.status === 200) {
-          res.json({ valid: true, message: "Biohub / EvolutionaryScale (ESM3) token registered & active." });
+          res.json({ valid: true, message: "Biohub / EvolutionaryScale token verified & active." });
           return;
         } else if (testRes.status === 401 || testRes.status === 403) {
           res.json({ valid: false, message: "Invalid or unauthorized Biohub API token (HTTP 401/403)." });
           return;
-        } else if (testRes.status === 404 || testRes.status === 400 || testRes.status === 405) {
-          res.json({ valid: true, message: "Biohub / EvolutionaryScale API key registered & active." });
-          return;
         } else {
-          res.json({ valid: false, message: `API endpoint returned HTTP ${testRes.status}.` });
+          res.json({ valid: false, message: `Upstream verification returned unexpected HTTP ${testRes.status}.` });
           return;
         }
       } catch (netErr: any) {

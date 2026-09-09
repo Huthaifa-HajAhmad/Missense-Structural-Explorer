@@ -50,7 +50,8 @@ def health_check():
         "model_loaded": models.vesm_model is not None,
         "active_models": len(models.esm2_models) + len(models.saprot_models),
         "models": models.model_status,
-        "model_status": models.model_status
+        "model_status": models.model_status,
+        "model_errors": models.model_errors
     }
 
 @app.post("/models/clear-cache")

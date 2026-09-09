@@ -28,12 +28,21 @@ export {
   persistAnalysis
 };
 
-function isStaleCachedPayload(payload: any): boolean {
+function isStaleCachedPayload(payload: any, context?: ParsedVariantContext): boolean {
   if (!payload) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
     if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
       return true;
+    }
+    // Invalidate stale cache if EvolutionaryScale / Biohub token is provided but cached payload lacks Evo 2 or GPN-Star
+    const hasBiohubToken = Boolean(context?.biohubToken);
+    if (hasBiohubToken) {
+      const evoMissing = cons.evo2 === null && (cons.evo2Status === "token_required" || cons.evo2Status === "unavailable" || !cons.evo2Status);
+      const gpnMissing = cons.gpnStar === null && (cons.gpnStarStatus === "token_required" || cons.gpnStarStatus === "unavailable" || !cons.gpnStarStatus);
+      if (evoMissing || gpnMissing) {
+        return true;
+      }
     }
   }
   return false;
@@ -48,7 +57,7 @@ export async function runCoreAnalysis(context: ParsedVariantContext): Promise<an
   // Check persistent SQLite database
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = db.getVariantAnalysis(gene, variant, acmgWeighting);
-  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload)) {
+  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context)) {
     return healCachedAnalysisIfPossible(cachedRecord.payload, context);
   }
 
@@ -84,7 +93,7 @@ export async function streamCoreAnalysis(
 
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = db.getVariantAnalysis(gene, variant, context.acmgWeighting);
-  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload)) {
+  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context)) {
     const healed = healCachedAnalysisIfPossible(cachedRecord.payload, context);
     onChunk({
       chunkIndex: 1,

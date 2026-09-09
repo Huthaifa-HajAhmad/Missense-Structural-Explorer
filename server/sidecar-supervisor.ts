@@ -170,6 +170,7 @@ export class SidecarSupervisor {
     }
 
     const spawnOptions = {
+      cwd: process.cwd(),
       stdio: "inherit" as const,
       env: sidecarEnv,
       detached: process.platform !== "win32"
@@ -269,6 +270,7 @@ export class SidecarSupervisor {
 
           if (this.modelServerProcess) {
             console.warn("[Sidecar Supervisor] Terminating unresponsive sidecar process tree...");
+            this.restartAttempts = 0;
             try {
               if (process.platform === "win32" && this.modelServerProcess.pid) {
                 execSync(`taskkill /F /T /PID ${this.modelServerProcess.pid}`, { stdio: "ignore" });
@@ -277,11 +279,10 @@ export class SidecarSupervisor {
                 this.modelServerProcess.kill("SIGKILL");
               }
             } catch (_) {}
-          } else if (!this.restartTimer && this.restartAttempts < 10) {
-            console.warn("[Sidecar Supervisor] Sidecar not running and retry quota remains. Spawning new process...");
+          } else if (!this.restartTimer) {
+            console.warn("[Sidecar Supervisor] Sidecar not running. Resetting retry quota and spawning new process...");
+            this.restartAttempts = 0;
             this.spawnModelServer();
-          } else if (this.restartAttempts >= 10) {
-            console.warn("[Sidecar Supervisor] Max restart quota reached. Awaiting manual resolution or healthy probe.");
           }
         }
       }

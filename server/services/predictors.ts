@@ -9,7 +9,7 @@ import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.
 import { queryGenosWebservice } from "./genos_web.ts";
 import { resolveSpliceProximity } from "./splice_resolver.ts";
 import { buildPredictorsKey, buildConservationKey } from "./cache-keys.ts";
-import { fetchEvo2Score } from "./evolutionaryscale.ts";
+import { fetchEvo2Score, fetchGpnStarScore, type EvolutionaryScaleResult } from "./evolutionaryscale.ts";
 
 function safeParseFloat(val: any): number | null {
   if (val === undefined || val === null || val === "." || val === "") return null;
@@ -1133,6 +1133,7 @@ export interface ProgressiveConservationContext {
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
   biohubToken?: string | null;
+  hfToken?: string | null;
   sequence?: string | null;
 }
 
@@ -1148,6 +1149,7 @@ export async function fetchConservationDataProgressive(
     predictorPromise,
     genosPromise,
     biohubToken,
+    hfToken,
     sequence
   } = context;
 
@@ -1226,19 +1228,33 @@ export async function fetchConservationDataProgressive(
     null
   );
 
-  // 4. Concurrently query EvolutionaryScale API for Evo 2 if not present in base dbNSFP
-  const fallbackStatus: "unavailable" | "token_required" = biohubToken ? "unavailable" : "token_required";
-  const evoTask = (baseConservation.evo2 !== null)
-    ? Promise.resolve({ score: baseConservation.evo2, status: "live" as const })
+  // 4. Concurrently query EvolutionaryScale API for Evo 2 and GPN-Star if not present in base dbNSFP
+  // EvolutionaryScale endpoint strictly requires a Biohub / EvolutionaryScale API key
+  const apiToken = biohubToken || null;
+  const fallbackStatus: "unavailable" | "token_required" = apiToken ? "unavailable" : "token_required";
+  const evoTask: Promise<EvolutionaryScaleResult> = (baseConservation.evo2 !== null && baseConservation.evo2 !== undefined)
+    ? Promise.resolve({ score: baseConservation.evo2 ?? null, status: "live" })
     : (sequence && resolvedPos !== null && wtAa && mutAa)
-      ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, biohubToken)
+      ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, apiToken)
+      : Promise.resolve({ score: null, status: fallbackStatus });
+
+  const gpnTask: Promise<EvolutionaryScaleResult> = (baseConservation.gpnStar !== null && baseConservation.gpnStar !== undefined)
+    ? Promise.resolve({ score: baseConservation.gpnStar ?? null, status: "live" })
+    : (sequence && resolvedPos !== null && wtAa && mutAa)
+      ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, apiToken)
       : Promise.resolve({ score: null, status: fallbackStatus });
 
   // 5. Merge enriched ConSurf, PopEVE, Splice, and EvolutionaryScale data as they resolve
-  const [consurfVal, enrichment, evoRes] = await Promise.all([
+  const [consurfVal, enrichment, evoRes, gpnRes]: [
+    any,
+    { popEVEScore: number | null; spliceProximity: any },
+    EvolutionaryScaleResult,
+    EvolutionaryScaleResult
+  ] = await Promise.all([
     consurfTask,
     predictorEnrichmentTask,
-    evoTask
+    evoTask,
+    gpnTask
   ]);
 
   return {
@@ -1248,7 +1264,7 @@ export async function fetchConservationDataProgressive(
     spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity,
     evo2: evoRes.score ?? baseConservation.evo2,
     evo2Status: evoRes.status ?? baseConservation.evo2Status,
-    gpnStar: baseConservation.gpnStar,
-    gpnStarStatus: baseConservation.gpnStar !== null ? "live" : "unavailable"
+    gpnStar: gpnRes.score ?? baseConservation.gpnStar,
+    gpnStarStatus: gpnRes.status ?? baseConservation.gpnStarStatus ?? (gpnRes.score !== null ? "live" : "unavailable")
   };
 }

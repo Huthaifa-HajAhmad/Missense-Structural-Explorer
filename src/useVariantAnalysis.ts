@@ -232,8 +232,25 @@ export default function useVariantAnalysis() {
     const variant = store.variant || store.analysisState.result?.metadata?.variant;
     const uniprotId = store.uniprotId || store.analysisState.result?.metadata?.uniprotId;
     if (!gene || !variant || !uniprotId) return;
+
+    // Immediately dispatch optimistic loading state so the UI responds instantly
+    store.setAnalysisState((prev: any) => {
+      if (!prev?.result) return prev;
+      return {
+        ...prev,
+        result: {
+          ...prev.result,
+          esm2Eval: { loading: true },
+          saprotEval: { loading: true },
+          esmcEval: { loading: true },
+          esm3Eval: { loading: true }
+        }
+      };
+    });
+
     const acmgWeighting = settings.acmgWeighting;
-    fetchProgressiveStructuralAssessments(
+    const requestId = ++pipeline.activeRequestIdRef.current;
+    return await fetchProgressiveStructuralAssessments(
       {
         gene,
         variant,
@@ -244,10 +261,10 @@ export default function useVariantAnalysis() {
       apiClient,
       new AbortController().signal,
       store.setAnalysisState,
-      Date.now(),
-      () => Date.now()
+      requestId,
+      () => pipeline.activeRequestIdRef.current
     );
-  }, [store.gene, store.variant, store.uniprotId, store.analysisState.result?.metadata, store.setAnalysisState, settings.acmgWeighting, settings.saprotEngine, apiClient]);
+  }, [store.gene, store.variant, store.uniprotId, store.analysisState.result?.metadata, store.setAnalysisState, settings.acmgWeighting, settings.saprotEngine, apiClient, pipeline.activeRequestIdRef]);
 
   const state = {
     theme,
