@@ -8,6 +8,10 @@ from tools.esm2_eval import download_weights
 vesm_tokenizer = None
 vesm_model = None
 
+import threading
+
+_model_lock = threading.Lock()
+
 MAX_LOADED_MODELS = int(os.environ.get("MAX_LOADED_MODELS", "1"))
 loaded_models: "OrderedDict[str, tuple]" = OrderedDict()
 
@@ -30,7 +34,9 @@ def clear_gpu_cache():
     print("[Model Server] GPU memory cache cleared.")
 
 def _evict_if_needed(max_size: int = MAX_LOADED_MODELS):
-    """Evicts the least recently used model from memory if unified cache limit exceeded."""
+    """Evicts the least recently used model from memory if unified cache limit exceeded.
+    Must be called within _model_lock context to ensure thread-safety on multi-threaded runtimes.
+    """
     while len(loaded_models) >= max_size:
         evicted_name, (evicted_tok, evicted_mod) = loaded_models.popitem(last=False)
         print(f"[Model Server] Evicting model from memory: {evicted_name}")
@@ -75,39 +81,41 @@ def _safe_load_esm_model(model_name: str, dtype, token: str = None, revision: st
 
 def get_esm2_model(model_name: str, token: str = None):
     cache_key = f"esm2:{model_name}"
-    if cache_key in loaded_models:
-        loaded_models.move_to_end(cache_key)
-        return loaded_models[cache_key]
-    _evict_if_needed()
-    print(f"[Model Server] Loading ESM-2 model: {model_name}...")
-    revision = HF_MODEL_REVISIONS.get(model_name)
-    tokenizer = _safe_load_tokenizer(model_name, token=token, revision=revision)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.float16 if device == "cuda" else torch.float32
-    model = _safe_load_esm_model(model_name, dtype=dtype, token=token, revision=revision)
-    model.to(device)
-    model.eval()
-    print(f"[Model Server] ESM-2 model {model_name} loaded successfully on {device}.")
-    loaded_models[cache_key] = (tokenizer, model)
-    return tokenizer, model
+    with _model_lock:
+        if cache_key in loaded_models:
+            loaded_models.move_to_end(cache_key)
+            return loaded_models[cache_key]
+        _evict_if_needed()
+        print(f"[Model Server] Loading ESM-2 model: {model_name}...")
+        revision = HF_MODEL_REVISIONS.get(model_name)
+        tokenizer = _safe_load_tokenizer(model_name, token=token, revision=revision)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        model = _safe_load_esm_model(model_name, dtype=dtype, token=token, revision=revision)
+        model.to(device)
+        model.eval()
+        print(f"[Model Server] ESM-2 model {model_name} loaded successfully on {device}.")
+        loaded_models[cache_key] = (tokenizer, model)
+        return tokenizer, model
 
 def get_saprot_model(model_name: str, token: str = None):
     cache_key = f"saprot:{model_name}"
-    if cache_key in loaded_models:
-        loaded_models.move_to_end(cache_key)
-        return loaded_models[cache_key]
-    _evict_if_needed()
-    print(f"[Model Server] Loading SaProt model: {model_name}...")
-    revision = HF_MODEL_REVISIONS.get(model_name)
-    tokenizer = _safe_load_tokenizer(model_name, token=token, revision=revision)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.float16 if device == "cuda" else torch.float32
-    model = _safe_load_esm_model(model_name, dtype=dtype, token=token, revision=revision)
-    model.to(device)
-    model.eval()
-    print(f"[Model Server] SaProt model {model_name} loaded successfully on {device}.")
-    loaded_models[cache_key] = (tokenizer, model)
-    return tokenizer, model
+    with _model_lock:
+        if cache_key in loaded_models:
+            loaded_models.move_to_end(cache_key)
+            return loaded_models[cache_key]
+        _evict_if_needed()
+        print(f"[Model Server] Loading SaProt model: {model_name}...")
+        revision = HF_MODEL_REVISIONS.get(model_name)
+        tokenizer = _safe_load_tokenizer(model_name, token=token, revision=revision)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        model = _safe_load_esm_model(model_name, dtype=dtype, token=token, revision=revision)
+        model.to(device)
+        model.eval()
+        print(f"[Model Server] SaProt model {model_name} loaded successfully on {device}.")
+        loaded_models[cache_key] = (tokenizer, model)
+        return tokenizer, model
 
 
 model_status: dict[str, str] = {

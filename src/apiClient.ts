@@ -77,11 +77,13 @@ export function useApiClient() {
 
     if (controller && options.timeout) {
       if (options.signal) {
-        options.signal.addEventListener("abort", () => controller.abort());
+        options.signal.addEventListener("abort", () => {
+          controller.abort(options.signal?.reason);
+        });
       }
       signal = controller.signal;
       timeoutId = setTimeout(() => {
-        controller.abort();
+        controller.abort(new DOMException(`Request timed out after ${options.timeout}ms`, "TimeoutError"));
       }, options.timeout);
     }
 
@@ -510,7 +512,7 @@ export function useApiClient() {
           method: "POST",
           headers,
           body: JSON.stringify(params),
-          timeout: 45000,
+          timeout: 75000,
           signal
         });
         if (!res.ok) {

@@ -241,6 +241,10 @@ def predict_esm2_3b_sync(req: Esm2Request):
         vesm_res["provenance"] = "VESM-150M (Local Fallback)"
         return vesm_res
 
+_inference_semaphore = asyncio.Semaphore(1)
+
+@router.post("/predict/esm2")
 @router.post("/predict/esm2_3b")
 async def predict_esm2_3b(req: Esm2Request):
-    return await asyncio.to_thread(predict_esm2_3b_sync, req)
+    async with _inference_semaphore:
+        return await asyncio.to_thread(predict_esm2_3b_sync, req)

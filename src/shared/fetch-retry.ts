@@ -28,13 +28,15 @@ export async function fetchWithRetry(
   while (true) {
     const controller = new AbortController();
     const timeoutVal = options.timeout ?? 60000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutVal);
+    const timeoutId = setTimeout(() => {
+      controller.abort(new DOMException(`Network request timed out after ${timeoutVal}ms`, "TimeoutError"));
+    }, timeoutVal);
 
-    const onSignalAbort = () => controller.abort();
+    const onSignalAbort = () => controller.abort(options.signal?.reason);
     if (options.signal) {
       options.signal.addEventListener("abort", onSignalAbort);
       if (options.signal.aborted) {
-        controller.abort();
+        controller.abort(options.signal.reason);
       }
     }
 

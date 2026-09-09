@@ -214,36 +214,47 @@ export function fetchProgressiveStructuralAssessments(
       });
     })
     .catch((structErr: any) => {
-      if (!signal.aborted) {
-        console.error("[BiophysicalService Error] Progressive structural assessments fetch failed:", structErr);
-        setAnalysisState((prev: any) => {
-          if (!prev.result) return prev;
-          const failureStatus: Record<string, string> = {
-            esm3: "error",
-            esmc: "error",
-            esm2: "error",
-            saprot: "error"
-          };
-          const mergedServiceStatus = {
-            ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
-            ...failureStatus
-          };
-          return {
-            ...prev,
-            result: {
-              ...prev.result,
-              esm3Eval: { error: structErr.message || "Failed", status: "error" },
-              esmcEval: { error: structErr.message || "Failed", status: "error" },
-              esm2Eval: { error: structErr.message || "Failed", status: "error" },
-              saprotEval: { error: structErr.message || "Failed", status: "error" },
-              serviceStatus: mergedServiceStatus,
-              metadata: {
-                ...(prev.result.metadata || {}),
-                serviceStatus: mergedServiceStatus
-              }
-            }
-          };
-        });
+      if (
+        getActiveRequestId() !== requestId ||
+        signal.aborted ||
+        structErr.name === "AbortError"
+      ) {
+        return;
       }
+
+      const isTimeout = structErr.name === "TimeoutError" || structErr.message?.includes("timed out");
+      const errMessage = isTimeout
+        ? "Structural evaluation timed out (server busy) — click Check & Retry to resume."
+        : (structErr.message || "Failed");
+
+      console.error("[BiophysicalService Error] Progressive structural assessments fetch failed:", structErr);
+      setAnalysisState((prev: any) => {
+        if (!prev.result) return prev;
+        const failureStatus: Record<string, string> = {
+          esm3: isTimeout ? "timeout" : "error",
+          esmc: isTimeout ? "timeout" : "error",
+          esm2: isTimeout ? "timeout" : "error",
+          saprot: isTimeout ? "timeout" : "error"
+        };
+        const mergedServiceStatus = {
+          ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
+          ...failureStatus
+        };
+        return {
+          ...prev,
+          result: {
+            ...prev.result,
+            esm3Eval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
+            esmcEval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
+            esm2Eval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
+            saprotEval: { error: errMessage, status: isTimeout ? "timeout" : "error" },
+            serviceStatus: mergedServiceStatus,
+            metadata: {
+              ...(prev.result.metadata || {}),
+              serviceStatus: mergedServiceStatus
+            }
+          }
+        };
+      });
     });
 }

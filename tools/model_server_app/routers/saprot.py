@@ -344,6 +344,9 @@ def predict_saprot_sync(req: SaprotRequest):
     vesm_res["hfError"] = hf_error_detail
     return vesm_res
 
+_inference_semaphore = asyncio.Semaphore(1)
+
 @router.post("/predict/saprot")
 async def predict_saprot(req: SaprotRequest):
-    return await asyncio.to_thread(predict_saprot_sync, req)
+    async with _inference_semaphore:
+        return await asyncio.to_thread(predict_saprot_sync, req)
