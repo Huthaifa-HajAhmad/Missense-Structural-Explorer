@@ -288,19 +288,38 @@ async function findBindingPocketInternal(
       console.log(`[Pocket Finder ML] Injecting discovered JAVA_HOME: ${discoveredJavaHome}`);
     }
     let options: any = { timeout: 25000, cwd: jobDir, signal, env };
-    if (p2rankCmd.endsWith(".bat") || p2rankCmd.endsWith(".cmd")) {
-      options.shell = true;
-    }
+
+    // Execute binary without shell: true to prevent command injection (SEC-001 defense-in-depth)
+    const runP2Rank = async (cmd: string, args: string[], opt: any) => {
+      let resolvedCmd = cmd;
+      if (process.platform === "win32" && !resolvedCmd.includes(".") && !path.isAbsolute(resolvedCmd)) {
+        // If invoking bare command on Windows like "p2rank" or "prank", probe for batch script
+        resolvedCmd = `${cmd}.bat`;
+      }
+
+      const isBatch = resolvedCmd.toLowerCase().endsWith(".bat") || resolvedCmd.toLowerCase().endsWith(".cmd");
+      if (isBatch && process.platform === "win32") {
+        const shellBinary = process.env.ComSpec || "cmd.exe";
+        // Wrap command line in an outer pair of quotes with windowsVerbatimArguments: true
+        // to prevent cmd.exe /s from stripping quotes when paths contain whitespace
+        const quotedCmdLine = `"${[resolvedCmd, ...args].map(a => `"${a.replace(/"/g, '""')}"`).join(" ")}"`;
+        return await execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
+          ...opt,
+          windowsVerbatimArguments: true
+        });
+      }
+      return await execFileAsync(resolvedCmd, args, opt);
+    };
     
     let stdout = "";
     try {
-      const runRes = await execFileAsync(p2rankCmd, execArgs, options);
+      const runRes = await runP2Rank(p2rankCmd, execArgs, options);
       stdout = typeof runRes.stdout === "string" ? runRes.stdout : (runRes.stdout as any).toString("utf8");
     } catch (execErr: any) {
       if (execErr.code === "ENOENT" && p2rankCmd === "p2rank") {
         console.log(`[Pocket Finder ML] 'p2rank' command not recognized. Trying 'prank' as fallback...`);
         p2rankCmd = "prank";
-        const runRes = await execFileAsync(p2rankCmd, execArgs, options);
+        const runRes = await runP2Rank(p2rankCmd, execArgs, options);
         stdout = typeof runRes.stdout === "string" ? runRes.stdout : (runRes.stdout as any).toString("utf8");
       } else {
         throw execErr;

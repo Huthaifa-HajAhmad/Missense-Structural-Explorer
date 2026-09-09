@@ -3,21 +3,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { AuditLogger } from "./utils.ts";
-import { CONFIG } from "./config.ts";
-
-/**
- * Ensures a valid SIDECAR_SECRET token exists in process.env.
- * Generates an in-memory random UUID if none is configured.
- */
-export function ensureSidecarSecret(): string {
-  if (!process.env.SIDECAR_SECRET) {
-    console.warn(
-      `[WARNING] SIDECAR_SECRET is not configured in the environment. Generating a random UUID in-memory. If the model sidecar is deployed separately, this will trigger authentication failures.`
-    );
-    process.env.SIDECAR_SECRET = crypto.randomUUID();
-  }
-  return process.env.SIDECAR_SECRET;
-}
+import { CONFIG, ensureSidecarSecret } from "./config.ts";
+export { ensureSidecarSecret };
 
 /**
  * Manages the lifecycle, auto-restart exponential backoff, and health-check watchdog

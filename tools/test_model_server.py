@@ -188,6 +188,97 @@ class TestModelServerHelpers(unittest.TestCase):
         self.assertLess(probs_special["P"], 1e-4)
         self.assertLess(probs_special["C"], 1e-4)
 
+    def test_encode_pdb_to_3di_alignment_and_insertion_codes(self):
+        from tools.model_server_app.utils import encode_pdb_to_3di
+
+        mock_pdb = "\n".join([
+            "ATOM      1  N   ALA A 100       1.000   2.000   3.000  1.00 20.00           N",
+            "ATOM      2  CA  ALA A 100       1.500   2.500   3.500  1.00 20.00           C",
+            "ATOM      3  C   ALA A 100       2.000   3.000   4.000  1.00 20.00           C",
+            "ATOM      4  CB  ALA A 100       2.500   3.500   4.500  1.00 20.00           C",
+            "ATOM      5  N   ALA A 100A      3.000   4.000   5.000  1.00 20.00           N",
+            "ATOM      6  CA  ALA A 100A      3.500   4.500   5.500  1.00 20.00           C",
+            "ATOM      7  C   ALA A 100A      4.000   5.000   6.000  1.00 20.00           C",
+            "ATOM      8  CB  ALA A 100A      4.500   5.500   6.500  1.00 20.00           C",
+            "ATOM      9  N   GLY A 101       5.000   6.000   7.000  1.00 20.00           N",
+            "ATOM     10  CA  GLY A 101       5.500   6.500   7.500  1.00 20.00           C",
+            "ATOM     11  C   GLY A 101       6.000   7.000   8.000  1.00 20.00           C",
+        ])
+
+        # Test 1: Full sequence matching observed residues
+        result = encode_pdb_to_3di(mock_pdb, target_seq="AAG")
+        self.assertEqual(len(result), 3)
+
+        # Test 2: Target sequence with unmodeled N-terminal residue
+        result_with_gap = encode_pdb_to_3di(mock_pdb, target_seq="MAAG")
+        self.assertEqual(len(result_with_gap), 4)
+        self.assertEqual(result_with_gap[0], "#") # Unmodeled 'M' masked
+
+    def test_sidecar_secret_authentication(self):
+        import asyncio
+        from starlette.requests import Request
+        from starlette.responses import Response
+        from model_server import verify_secret_header
+
+        async def dummy_call_next(req):
+            return Response(content=b"ok", status_code=200)
+
+        # 1. /health is always allowed without secret
+        scope_health = {
+            "type": "http",
+            "method": "GET",
+            "path": "/health",
+            "headers": []
+        }
+        res_health = asyncio.run(verify_secret_header(Request(scope_health), dummy_call_next))
+        self.assertEqual(res_health.status_code, 200)
+
+        # 2. When SIDECAR_SECRET is configured:
+        test_secret = "super_secure_test_secret_32bytes!!"
+        old_secret = os.environ.get("SIDECAR_SECRET")
+        try:
+            os.environ["SIDECAR_SECRET"] = test_secret
+
+            # 2a. Missing header -> 401
+            scope_no_header = {
+                "type": "http",
+                "method": "POST",
+                "path": "/models/clear-cache",
+                "headers": []
+            }
+            res_no_header = asyncio.run(verify_secret_header(Request(scope_no_header), dummy_call_next))
+            self.assertEqual(res_no_header.status_code, 401)
+
+            # 2b. Wrong secret -> 401
+            scope_wrong = {
+                "type": "http",
+                "method": "POST",
+                "path": "/models/clear-cache",
+                "headers": [(b"x-sidecar-secret", b"wrong_secret")]
+            }
+            res_wrong = asyncio.run(verify_secret_header(Request(scope_wrong), dummy_call_next))
+            self.assertEqual(res_wrong.status_code, 401)
+
+            # 2c. Correct secret -> 200
+            scope_ok = {
+                "type": "http",
+                "method": "POST",
+                "path": "/models/clear-cache",
+                "headers": [(b"x-sidecar-secret", test_secret.encode("utf-8"))]
+            }
+            res_ok = asyncio.run(verify_secret_header(Request(scope_ok), dummy_call_next))
+            self.assertEqual(res_ok.status_code, 200)
+
+            # 2d. When SIDECAR_SECRET is not configured on sidecar -> 401
+            os.environ.pop("SIDECAR_SECRET", None)
+            res_no_env = asyncio.run(verify_secret_header(Request(scope_ok), dummy_call_next))
+            self.assertEqual(res_no_env.status_code, 401)
+        finally:
+            if old_secret is not None:
+                os.environ["SIDECAR_SECRET"] = old_secret
+            else:
+                os.environ.pop("SIDECAR_SECRET", None)
+
 if __name__ == "__main__":
     unittest.main()
 

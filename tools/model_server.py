@@ -1,5 +1,15 @@
 import os
 import sys
+
+# Configure OpenMP, MKL, and PyTorch CPU thread allocations prior to importing torch or neural modules
+DEFAULT_NUM_THREADS = os.environ.get("TORCH_NUM_THREADS", os.environ.get("OMP_NUM_THREADS", "2"))
+os.environ.setdefault("OMP_NUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("MKL_NUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("NUMEXPR_NUM_THREADS", DEFAULT_NUM_THREADS)
+
+import hmac
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -32,16 +42,43 @@ app = FastAPI(title="Missense Structural Explorer Model Server", lifespan=lifesp
 
 @app.middleware("http")
 async def verify_secret_header(request: Request, call_next):
-    expected_secret = os.environ.get("SIDECAR_SECRET")
+    # Public health check / liveness probe does not require authentication
+    if request.url.path.rstrip("/") == "/health":
+        return await call_next(request)
 
-    if expected_secret and request.url.path != "/health":
-        client_secret = request.headers.get("X-Sidecar-Secret")
-        if client_secret != expected_secret:
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized sidecar request"})
+    expected_secret = os.environ.get("SIDECAR_SECRET", "").strip()
+    if not expected_secret:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized: SIDECAR_SECRET is not configured on the sidecar"}
+        )
+
+    client_secret = request.headers.get("X-Sidecar-Secret", "").strip()
+    if not client_secret or not hmac.compare_digest(client_secret, expected_secret):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized: Invalid or missing X-Sidecar-Secret header"}
+        )
+
     response = await call_next(request)
     return response
 
-@app.get("/health")
+from pydantic import BaseModel
+
+class HealthResponse(BaseModel):
+    status: str
+    state: str
+    model_loaded: bool
+    active_models: int
+    models: dict[str, str]
+    model_status: dict[str, str]
+    model_errors: dict[str, str]
+
+class ClearCacheResponse(BaseModel):
+    status: str
+    message: str
+
+@app.get("/health", response_model=HealthResponse)
 def health_check():
     is_warming = models.model_status.get("vesm") in ("downloading", "loading")
     return {
@@ -54,7 +91,7 @@ def health_check():
         "model_errors": models.model_errors
     }
 
-@app.post("/models/clear-cache")
+@app.post("/models/clear-cache", response_model=ClearCacheResponse)
 def clear_model_cache():
     """Explicitly releases cached PyTorch model weights and flushes GPU RAM."""
     models.esm2_models.clear()

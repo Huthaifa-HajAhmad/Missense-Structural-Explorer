@@ -5,6 +5,22 @@
  * are managed here with safe defaults and environment variable overrides.
  */
 
+import crypto from "crypto";
+
+/**
+ * Ensures a valid, cryptographically secure SIDECAR_SECRET exists in process.env.
+ * Generates an in-memory 256-bit hex secret if none is configured.
+ */
+export function ensureSidecarSecret(): string {
+  if (!process.env.SIDECAR_SECRET || !process.env.SIDECAR_SECRET.trim()) {
+    process.env.SIDECAR_SECRET = crypto.randomBytes(32).toString("hex");
+  }
+  return process.env.SIDECAR_SECRET;
+}
+
+// Guarantee SIDECAR_SECRET is populated early upon config initialization
+ensureSidecarSecret();
+
 export const CONFIG = {
   server: {
     port: parseInt(process.env.PORT || "3000", 10),
@@ -21,6 +37,8 @@ export const CONFIG = {
     sidecarHealthCheckMs: parseInt(process.env.SIDECAR_HEALTH_MS || "5000", 10),
     httpDefaultTimeoutMs: parseInt(process.env.HTTP_DEFAULT_TIMEOUT_MS || "15000", 10),
     gracefulShutdownWatchdogMs: parseInt(process.env.SHUTDOWN_WATCHDOG_MS || "10000", 10),
+    japanfoldZeroShotMs: parseInt(process.env.JAPANFOLD_ZEROSHOT_TIMEOUT_MS || "3500", 10),
+    japanfoldFoldingMs: parseInt(process.env.JAPANFOLD_FOLDING_TIMEOUT_MS || "15000", 10),
   },
   memory: {
     minFreeBytes: process.env.NODE_ENV === "test"
@@ -32,6 +50,8 @@ export const CONFIG = {
   },
   services: {
     sidecarBaseUrl: (process.env.SIDECAR_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""),
+    japanfoldBaseUrl: (process.env.JAPANFOLD_URL || "https://api.japanfold.aiand.com").replace(/\/+$/, ""),
+    japanfoldApiKey: process.env.JAPANFOLD_API_KEY || null,
   }
 } as const;
 
@@ -66,6 +86,12 @@ export function validateStartupEnvironment(): void {
   if (!sessionSecret || (CONFIG.server.isProduction && (defaultValues.some(d => sessionSecret.toLowerCase().includes(d)) || sessionSecret.length < 32))) {
     console.error("FATAL: APP_SESSION_SECRET is not set or is using a weak/development fallback in production (must be 32+ characters). Refusing to start.");
     process.exit(1);
+  }
+
+  const sidecarUrl = CONFIG.services.sidecarBaseUrl;
+  const isLocalSidecar = sidecarUrl.includes("localhost") || sidecarUrl.includes("127.0.0.1") || sidecarUrl.includes("0.0.0.0");
+  if (!isLocalSidecar && (!process.env.SIDECAR_SECRET || !process.env.SIDECAR_SECRET.trim())) {
+    console.warn("[WARNING] SIDECAR_URL points to an external host, but SIDECAR_SECRET is not configured in .env. Ephemeral in-memory secret will cause authentication failures on the remote sidecar.");
   }
 }
 
