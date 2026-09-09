@@ -23,6 +23,16 @@ class StabilityOracleRequest(BaseModel):
     mut: str
     wtPdb: str | None = None
 
+class StabilityOracleResponse(BaseModel):
+    status: str
+    ddG: float | None = None
+    ddg: float | None = None
+    isStabilizing: bool | None = None
+    contacts: int | None = None
+    contactsAnalyzed: int | None = None
+    provenance: str | None = None
+    error: str | None = None
+
 AA_3TO1 = {
     "CYS": "C", "ASP": "D", "SER": "S", "GLN": "Q", "LYS": "K",
     "ILE": "I", "PRO": "P", "THR": "T", "PHE": "F", "ASN": "N",
@@ -202,6 +212,6 @@ def predict_stabilityoracle_sync(req: StabilityOracleRequest):
     except Exception as ie:
         raise HTTPException(status_code=500, detail=f"StabilityOracle inference failed: {ie}")
 
-@router.post("/predict/stabilityoracle")
+@router.post("/predict/stabilityoracle", response_model=StabilityOracleResponse)
 async def predict_stabilityoracle(req: StabilityOracleRequest):
     return await asyncio.to_thread(predict_stabilityoracle_sync, req)

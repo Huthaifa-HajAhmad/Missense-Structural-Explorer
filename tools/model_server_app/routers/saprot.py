@@ -26,6 +26,32 @@ class SaprotRequest(BaseModel):
     preferRemote: bool = False
     engine: str | None = None
 
+class SaprotPreferenceItem(BaseModel):
+    aa: str
+    prob: float
+
+class SaprotLocalShiftItem(BaseModel):
+    position: int
+    residue: str
+    shift: float
+
+class SaprotResponse(BaseModel):
+    status: str
+    wtProbability: float | None = None
+    mutProbability: float | None = None
+    llr: float | None = None
+    preferences: list[SaprotPreferenceItem] | None = None
+    mutRank: int | None = None
+    positionalEntropy: float | None = None
+    embeddingShift: float | None = None
+    localShiftMap: list[SaprotLocalShiftItem] | None = None
+    klDivergence: float | None = None
+    conformationState: str | None = None
+    provenance: str | None = None
+    hfError: str | None = None
+    verdict: str | None = None
+    error: str | None = None
+
 def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: str = None) -> dict[str, float]:
     scores = {}
     for item in preds:
@@ -79,7 +105,7 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     wt_sequence = sequence.upper()
     
     if wt_pdb:
-        seq_3di = encode_pdb_to_3di(wt_pdb, len(wt_sequence), start_idx=start_offset + 1)
+        seq_3di = encode_pdb_to_3di(wt_pdb, len(wt_sequence), start_idx=start_offset + 1, target_seq=wt_sequence)
     else:
         seq_3di = "#" * len(wt_sequence)
         
@@ -102,7 +128,8 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         try:
             model_name = "westlake-repl/SaProt_35M_AF2"
             preds = client.fill_mask(masked_seq, model=model_name, targets=targets, top_k=20)
-        except Exception:
+        except Exception as e2:
+            print(f"[Model Server] SaProt remote targets call failed: {e2}. Trying top_k=50...")
             preds = client.fill_mask(masked_seq, model=model_name, top_k=50)
 
     probs = parse_saprot_fill_mask_scores(preds, expected_wt=wt, expected_mut=mut)
@@ -173,16 +200,20 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     except Exception as e:
         try:
             mut_preds = client.fill_mask(mut_masked_seq, model=model_name, top_k=50)
-        except Exception:
-            pass
+        except Exception as e2:
+            print(f"[Model Server] SaProt mutant fill_mask failed: {e2}")
+            mut_preds = []
 
-    try:
-        mut_probs = parse_saprot_fill_mask_scores(mut_preds, expected_wt=wt, expected_mut=mut)
-    except Exception:
-        mut_probs = probs
+    kl_div = None
+    if mut_preds:
+        try:
+            mut_probs = parse_saprot_fill_mask_scores(mut_preds, expected_wt=wt, expected_mut=mut)
+            kl_div = float(sum(probs[aa] * np.log((probs[aa] + 1e-9) / (mut_probs[aa] + 1e-9)) for aa in AA_LIST))
+            kl_div = round(kl_div, 4)
+        except Exception as parse_err:
+            print(f"[Model Server] SaProt parse mutant fill_mask scores failed: {parse_err}")
+            kl_div = None
 
-    kl_div = float(sum(probs[aa] * np.log((probs[aa] + 1e-9) / (mut_probs[aa] + 1e-9)) for aa in AA_LIST))
-    
     return {
         "status": "success",
         "wtProbability": round(wt_prob, 6),
@@ -193,7 +224,7 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         "positionalEntropy": round(pos_entropy, 4),
         "embeddingShift": round(embedding_shift, 4),
         "localShiftMap": local_shift_map,
-        "klDivergence": round(kl_div, 4),
+        "klDivergence": kl_div,
         "conformationState": s_pos,
         "provenance": f"SaProt ({model_name.split('/')[-1]} - Remote)"
     }
@@ -243,7 +274,7 @@ def predict_saprot_sync(req: SaprotRequest):
             device = next(model.parameters()).device
             
             if req.wtPdb:
-                seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1)
+                seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1, target_seq=sequence)
             else:
                 seq_3di = "#" * len(sequence)
                 
@@ -338,7 +369,7 @@ def predict_saprot_sync(req: SaprotRequest):
     print(f"[Model Server] All SaProt candidates failed ({last_local_err}). Falling back to VESM-150M.")
     vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
     vesm_res = predict_vesm_sync(vesm_req)
-    vesm_res["klDivergence"] = 0.0
+    vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM cannot compute 3Di structural KL divergence
     vesm_res["conformationState"] = "#"
     vesm_res["provenance"] = "VESM-150M (Local Fallback - SaProt unavailable)"
     vesm_res["hfError"] = hf_error_detail
@@ -346,7 +377,7 @@ def predict_saprot_sync(req: SaprotRequest):
 
 _inference_semaphore = asyncio.Semaphore(1)
 
-@router.post("/predict/saprot")
+@router.post("/predict/saprot", response_model=SaprotResponse)
 async def predict_saprot(req: SaprotRequest):
     async with _inference_semaphore:
         return await asyncio.to_thread(predict_saprot_sync, req)

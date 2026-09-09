@@ -28,6 +28,32 @@ class VesmRequest(BaseModel):
     mut: str
     biohubToken: str | None = None
 
+class VesmPreferenceItem(BaseModel):
+    aa: str
+    prob: float
+
+class VesmLocalShiftItem(BaseModel):
+    position: int
+    residue: str
+    shift: float
+
+class VesmResponse(BaseModel):
+    status: str
+    wtProbability: float | None = None
+    mutProbability: float | None = None
+    llr: float | None = None
+    preferences: list[VesmPreferenceItem] | None = None
+    mutRank: int | None = None
+    positionalEntropy: float | None = None
+    embeddingShift: float | None = None
+    localShiftMap: list[VesmLocalShiftItem] | None = None
+    klDivergence: float | None = None
+    conformationState: str | None = None
+    provenance: str | None = None
+    verdict: str | None = None
+    hfError: str | None = None
+    error: str | None = None
+
 def predict_vesm_sync(req: VesmRequest):
     validate_missense_residues(req.wt, req.mut)
     sequence = req.sequence.upper()
@@ -81,8 +107,8 @@ def predict_vesm_sync(req: VesmRequest):
             if hasattr(client, "tokenizer") and client.tokenizer:
                 try:
                     vocab_map = {aa: client.tokenizer.encode(aa)[0] for aa in AA_LIST}
-                except Exception:
-                    pass
+                except Exception as tok_err:
+                    print(f"[Model Server] Tokenizer encode check: {tok_err}")
             
             if not vocab_map:
                 try:
@@ -218,6 +244,6 @@ def predict_vesm_sync(req: VesmRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/predict/vesm")
+@router.post("/predict/vesm", response_model=VesmResponse)
 async def predict_vesm(req: VesmRequest):
     return await asyncio.to_thread(predict_vesm_sync, req)

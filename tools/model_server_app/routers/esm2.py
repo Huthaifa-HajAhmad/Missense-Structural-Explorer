@@ -22,6 +22,30 @@ class Esm2Request(BaseModel):
     hfToken: str | None = None
     modelName: str = "facebook/esm2_t33_650M_UR50D"
 
+class Esm2PreferenceItem(BaseModel):
+    aa: str
+    prob: float
+
+class Esm2LocalShiftItem(BaseModel):
+    position: int
+    residue: str
+    shift: float
+
+class Esm2Response(BaseModel):
+    status: str
+    wtProbability: float | None = None
+    mutProbability: float | None = None
+    llr: float | None = None
+    preferences: list[Esm2PreferenceItem] | None = None
+    mutRank: int | None = None
+    positionalEntropy: float | None = None
+    embeddingShift: float | None = None
+    localShiftMap: list[Esm2LocalShiftItem] | None = None
+    klDivergence: float | None = None
+    provenance: str | None = None
+    verdict: str | None = None
+    error: str | None = None
+
 def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str, token: str):
     from huggingface_hub import InferenceClient
     client = InferenceClient(token=token)
@@ -158,7 +182,7 @@ def predict_esm2_3b_sync(req: Esm2Request):
         print(f"[Model Server] No GPU detected. Using VESM-150M for fast CPU inference.")
         vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
         vesm_res = predict_vesm_sync(vesm_req)
-        vesm_res["klDivergence"] = 0.0
+        vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
         vesm_res["provenance"] = "VESM-150M (CPU Local - no GPU)" if not req.hfToken else "VESM-150M (CPU Fallback - remote failed)"
         return vesm_res
 
@@ -237,14 +261,14 @@ def predict_esm2_3b_sync(req: Esm2Request):
         print(f"[Model Server] ESM-2 local run failed: {e}. Falling back to VESM-150M.")
         vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
         vesm_res = predict_vesm_sync(vesm_req)
-        vesm_res["klDivergence"] = 0.0
+        vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
         vesm_res["provenance"] = "VESM-150M (Local Fallback)"
         return vesm_res
 
 _inference_semaphore = asyncio.Semaphore(1)
 
-@router.post("/predict/esm2")
-@router.post("/predict/esm2_3b")
+@router.post("/predict/esm2", response_model=Esm2Response)
+@router.post("/predict/esm2_3b", response_model=Esm2Response)
 async def predict_esm2_3b(req: Esm2Request):
     async with _inference_semaphore:
         return await asyncio.to_thread(predict_esm2_3b_sync, req)

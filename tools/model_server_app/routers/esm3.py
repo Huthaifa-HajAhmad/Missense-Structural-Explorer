@@ -18,6 +18,26 @@ class Esm3Request(BaseModel):
     refine: bool = False
     wtPdb: str | None = None
 
+class Esm3SecondaryStructureShiftItem(BaseModel):
+    position: int | None = None
+    wtSS: str | None = None
+    mutSS: str | None = None
+    probDelta: float | None = None
+
+class Esm3ContactShiftItem(BaseModel):
+    pos1: int | None = None
+    pos2: int | None = None
+    probDelta: float | None = None
+
+class Esm3Response(BaseModel):
+    status: str
+    perturbationScores: list[float] | None = None
+    secondaryStructureShifts: list[Esm3SecondaryStructureShiftItem] | None = None
+    contactShifts: list[Esm3ContactShiftItem] | None = None
+    refinedPdb: str | None = None
+    provenance: str | None = None
+    error: str | None = None
+
 def predict_esm3_sync(req: Esm3Request):
     validate_missense_residues(req.wt, req.mut)
     sequence = req.sequence.upper()
@@ -101,10 +121,11 @@ def predict_esm3_sync(req: Esm3Request):
                 try:
                     wt_protein_obj = ESMProtein.from_pdb(temp_path)
                 finally:
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
+                    if os.path.exists(temp_path):
+                        try:
+                            os.unlink(temp_path)
+                        except OSError as e:
+                            print(f"[ESM3 Refinement] Could not unlink temp file {temp_path}: {e}")
                 
                 wt_coords = wt_protein_obj.coordinates.copy()
                 mut_coords = wt_coords.copy()
@@ -174,8 +195,8 @@ def predict_esm3_sync(req: Esm3Request):
                     if hasattr(refined_protein, "structure") and refined_protein.structure:
                         try:
                             refined_protein.structure = refined_protein.structure.from_coordinates(locked_coords)
-                        except:
-                            pass
+                        except Exception as struct_err:
+                            print(f"[ESM3 Refinement] Structure from coordinates warning: {struct_err}")
                     
                     refined_pdb = refined_protein.to_pdb()
             except Exception as gen_err:
@@ -194,7 +215,7 @@ def predict_esm3_sync(req: Esm3Request):
         try:
             vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
             vesm_res = predict_vesm_sync(vesm_req)
-            full_length_scores = [0.0] * len(sequence)
+            full_length_scores = [-1.0] * len(sequence)
             for item in vesm_res.get("localShiftMap", []):
                 res_pos = item.get("position")
                 shift_val = item.get("shift", 0.0)
@@ -210,6 +231,6 @@ def predict_esm3_sync(req: Esm3Request):
         except Exception as local_err:
             raise HTTPException(status_code=500, detail=f"ESM-3 failed and local fallback failed: {local_err}")
 
-@router.post("/predict/esm3")
+@router.post("/predict/esm3", response_model=Esm3Response)
 async def predict_esm3(req: Esm3Request):
     return await asyncio.to_thread(predict_esm3_sync, req)

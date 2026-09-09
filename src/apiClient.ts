@@ -491,18 +491,60 @@ export function useApiClient() {
         const decoder = new TextDecoder();
         let buffer = "";
         let finalPayload: any = null;
+        const IDLE_WATCHDOG_MS = 30000;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+        try {
+          while (true) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            let abortListener: (() => void) | undefined;
 
-          for (const line of lines) {
-            if (!line.trim()) continue;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(new Error(`Streaming connection stalled: no data received for ${IDLE_WATCHDOG_MS / 1000}s.`));
+              }, IDLE_WATCHDOG_MS);
+            });
+
+            const abortPromise = new Promise<never>((_, reject) => {
+              if (signal?.aborted) {
+                reject(new Error("Biophysical analysis stream aborted by client."));
+                return;
+              }
+              if (signal) {
+                abortListener = () => reject(new Error("Biophysical analysis stream aborted by client."));
+                signal.addEventListener("abort", abortListener, { once: true });
+              }
+            });
+
+            let readResult: ReadableStreamReadResult<Uint8Array>;
             try {
-              const parsed = JSON.parse(line);
+              readResult = await Promise.race([
+                reader.read(),
+                timeoutPromise,
+                abortPromise
+              ]);
+            } finally {
+              if (timer) clearTimeout(timer);
+              if (signal && abortListener) {
+                signal.removeEventListener("abort", abortListener);
+              }
+            }
+
+            const { done, value } = readResult;
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              let parsed: any;
+              try {
+                parsed = JSON.parse(line);
+              } catch (err: any) {
+                console.warn("[Stream Parse Warning]:", err);
+                continue;
+              }
+
               if (parsed.type === "error") {
                 throw new Error(parsed.error || "Stream error");
               }
@@ -510,20 +552,33 @@ export function useApiClient() {
                 finalPayload = parsed.data || parsed.payload;
               }
               onChunk(parsed.data || parsed.payload || parsed);
-            } catch (err: any) {
-              console.warn("[Stream Parse Warning]:", err);
             }
           }
+        } catch (err) {
+          try {
+            await reader.cancel();
+          } catch (_) {}
+          throw err;
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch (_) {}
         }
 
         if (buffer.trim()) {
+          let parsed: any;
           try {
-            const parsed = JSON.parse(buffer);
+            parsed = JSON.parse(buffer);
+          } catch (_) {}
+          if (parsed) {
+            if (parsed.type === "error") {
+              throw new Error(parsed.error || "Stream error");
+            }
             if (parsed.isFinal || parsed.type === "full") {
               finalPayload = parsed.data || parsed.payload;
             }
             onChunk(parsed.data || parsed.payload || parsed);
-          } catch (_) {}
+          }
         }
 
         return biophysicalAnalysisResponseSchema.parse(finalPayload);

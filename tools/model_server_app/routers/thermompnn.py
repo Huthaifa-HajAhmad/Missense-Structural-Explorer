@@ -170,6 +170,15 @@ class ThermoMpnnRequest(BaseModel):
     mutation: str  # e.g., "RA408W", "A:R408W", or "R408W"
     chain: str | None = None
 
+class ThermoMpnnResponse(BaseModel):
+    status: str
+    ddG: float | None = None
+    isStabilizing: bool | None = None
+    mutation: str | None = None
+    contactsAnalyzed: int | None = None
+    provenance: str | None = None
+    error: str | None = None
+
 ALPHABET = 'ACDEFGHIKLMNPQRSTVWYX'
 
 def parse_mutation_code(mutation: str, default_chain: str = "A"):
@@ -409,7 +418,7 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
             except OSError:
                 pass
 
-@router.post("/predict/thermompnn")
-@router.post("/models/thermompnn/predict")
+@router.post("/predict/thermompnn", response_model=ThermoMpnnResponse)
+@router.post("/models/thermompnn/predict", response_model=ThermoMpnnResponse)
 async def predict_thermompnn(req: ThermoMpnnRequest):
     return await asyncio.to_thread(predict_thermompnn_sync, req)
