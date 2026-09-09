@@ -127,23 +127,21 @@ export function persistVariantAnalysisPayload(
   payload: any,
   acmgVerdict?: string | null
 ): void {
-  try {
-    const db = AnalysisDatabase.getInstance();
-    db.saveVariantAnalysis({
-      gene: context.gene,
-      variant: context.variant,
-      uniprotId: context.uniprotId,
-      pos: context.pos,
-      wildType: context.wildType,
-      mutant: context.mutant,
-      acmgWeighting: context.acmgWeighting,
-      acmgVerdict: acmgVerdict ?? payload?.ruleBasedInsights?.acmgVerdict ?? null,
-      payload,
-      modelVersions: { esm2: "esm2_t12_35M", version: "1.0.0" }
-    });
-  } catch (err: any) {
+  const db = AnalysisDatabase.getInstance();
+  db.saveVariantAnalysisAsync({
+    gene: context.gene,
+    variant: context.variant,
+    uniprotId: context.uniprotId,
+    pos: context.pos,
+    wildType: context.wildType,
+    mutant: context.mutant,
+    acmgWeighting: context.acmgWeighting,
+    acmgVerdict: acmgVerdict ?? payload?.ruleBasedInsights?.acmgVerdict ?? null,
+    payload,
+    modelVersions: { esm2: "esm2_t12_35M", version: "1.0.0" }
+  }).catch((err: any) => {
     console.warn("[Analysis DB Warning] Failed to persist analysis payload:", err.message);
-  }
+  });
 }
 
 export const buildAnalysisPayload = assembleCoreResponsePayload;

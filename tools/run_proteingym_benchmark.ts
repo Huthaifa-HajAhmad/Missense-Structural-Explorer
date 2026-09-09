@@ -32,7 +32,7 @@ async function main() {
     } else {
       // Default to ESM-C (VESM-150M local or ESMC-6B remote)
       const res = await runEsmcAnalysis(gene, variant, uniprotId, sequence, biohubToken);
-      return typeof res?.llr === "number" ? res.llr : null;
+      return res && "llr" in res && typeof res.llr === "number" ? res.llr : null;
     }
   };
 

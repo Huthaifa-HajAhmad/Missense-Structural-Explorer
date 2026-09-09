@@ -1,5 +1,14 @@
 import os
 import sys
+
+# Configure OpenMP, MKL, and PyTorch CPU thread allocations prior to importing torch or numpy
+DEFAULT_NUM_THREADS = os.environ.get("TORCH_NUM_THREADS", os.environ.get("OMP_NUM_THREADS", "2"))
+os.environ.setdefault("OMP_NUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("MKL_NUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", DEFAULT_NUM_THREADS)
+os.environ.setdefault("NUMEXPR_NUM_THREADS", DEFAULT_NUM_THREADS)
+
 import gc
 import torch
 from collections import OrderedDict
@@ -15,11 +24,11 @@ _model_lock = threading.Lock()
 MAX_LOADED_MODELS = int(os.environ.get("MAX_LOADED_MODELS", "1"))
 loaded_models: "OrderedDict[str, tuple]" = OrderedDict()
 
-# Optimize CPU thread allocation for OCI Ampere A1 (2-4 cores)
+# Optimize CPU thread allocation for OCI Ampere A1 (2-4 cores) and local dev
 if not torch.cuda.is_available():
-    torch_threads = int(os.environ.get("TORCH_NUM_THREADS", "2"))
+    torch_threads = int(DEFAULT_NUM_THREADS)
     torch.set_num_threads(torch_threads)
-    print(f"[Model Server] PyTorch CPU thread count set to {torch_threads}.")
+    print(f"[Model Server] PyTorch CPU thread count set to {torch_threads} (OMP/MKL: {DEFAULT_NUM_THREADS}).")
 
 # Backward-compatible references for router and health check inspections
 esm2_models = loaded_models

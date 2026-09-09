@@ -222,4 +222,34 @@ describe("AnalysisDatabase (Persistent SQLite Store)", () => {
     expect(db.getExternalCache("key_v3")).toBeDefined();
     expect(db.getExternalCache("key_v2")).toBeNull();
   });
+
+  it("supports non-blocking async operations that yield the event loop", async () => {
+    const saved = await db.saveVariantAnalysisAsync({
+      gene: "BRCA1",
+      variant: "p.Cys61Gly",
+      uniprotId: "P38398",
+      pos: 61,
+      wildType: "Cys",
+      mutant: "Gly",
+      acmgVerdict: "Pathogenic",
+      payload: { asyncTest: true }
+    });
+    expect(saved.id).toBeGreaterThan(0);
+
+    const retrieved = await db.getVariantAnalysisAsync("BRCA1", "p.Cys61Gly");
+    expect(retrieved?.acmgVerdict).toBe("Pathogenic");
+    expect(retrieved?.payload.asyncTest).toBe(true);
+
+    await db.saveExternalCacheAsync("async_cache_key", { data: "async_value" }, "uniprot", 3600);
+    const cached = await db.getExternalCacheAsync("async_cache_key");
+    expect(cached?.data.data).toBe("async_value");
+
+    const recentAsync = await db.listRecentAnalysesAsync(10);
+    expect(recentAsync.length).toBeGreaterThan(0);
+    expect(recentAsync[0].gene).toBe("BRCA1");
+
+    const recentFullAsync = await db.listRecentAnalysesAsync(10, 0, true);
+    expect(recentFullAsync.length).toBeGreaterThan(0);
+    expect((recentFullAsync[0] as any).payload.asyncTest).toBe(true);
+  });
 });

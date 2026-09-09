@@ -128,7 +128,11 @@ export class AnalysisDatabase {
     try {
       this.purgeExpiredExternalCache();
       this.purgeOutdatedSchemaExternalCache(CACHE_SCHEMA_VERSION);
-      this.purgeStaleVariantAnalyses();
+      setImmediate(() => {
+        try {
+          this.purgeStaleVariantAnalyses();
+        } catch (_) {}
+      });
     } catch (_) {}
   }
 
@@ -267,6 +271,38 @@ export class AnalysisDatabase {
     };
   }
 
+  /**
+   * Asynchronous non-blocking companion to saveVariantAnalysis that yields the event loop.
+   */
+  public async saveVariantAnalysisAsync(params: {
+    gene: string;
+    variant: string;
+    uniprotId: string;
+    pos: number;
+    wildType: string;
+    mutant: string;
+    acmgWeighting?: string;
+    acmgVerdict?: string | null;
+    payload: any;
+    modelVersions?: any;
+  }): Promise<StoredVariantAnalysis> {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    return this.saveVariantAnalysis(params);
+  }
+
+  /**
+   * Asynchronous non-blocking companion to getVariantAnalysis that yields the event loop.
+   */
+  public async getVariantAnalysisAsync(
+    gene: string,
+    variant: string,
+    acmgWeighting: string = "standard",
+    options?: AnalysisCacheOptions
+  ): Promise<StoredVariantAnalysis | null> {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    return this.getVariantAnalysis(gene, variant, acmgWeighting, options);
+  }
+
   public listRecentAnalyses(limit?: number, offset?: number, includePayload?: false): StoredVariantAnalysisSummary[];
   public listRecentAnalyses(limit: number, offset: number, includePayload: true): StoredVariantAnalysis[];
   public listRecentAnalyses(limit = 50, offset = 0, includePayload = false): (StoredVariantAnalysis | StoredVariantAnalysisSummary)[] {
@@ -325,6 +361,16 @@ export class AnalysisDatabase {
     }));
   }
 
+  /**
+   * Asynchronous non-blocking companion to listRecentAnalyses that yields the event loop.
+   */
+  public async listRecentAnalysesAsync(limit?: number, offset?: number, includePayload?: false): Promise<StoredVariantAnalysisSummary[]>;
+  public async listRecentAnalysesAsync(limit: number, offset: number, includePayload: true): Promise<StoredVariantAnalysis[]>;
+  public async listRecentAnalysesAsync(limit = 50, offset = 0, includePayload = false): Promise<(StoredVariantAnalysis | StoredVariantAnalysisSummary)[]> {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    return this.listRecentAnalyses(limit, offset, includePayload as any);
+  }
+
   public saveExternalCache(
     cacheKey: string,
     data: any,
@@ -376,6 +422,29 @@ export class AnalysisDatabase {
     }
   }
 
+  /**
+   * Asynchronous non-blocking companion to saveExternalCache that yields the event loop.
+   */
+  public async saveExternalCacheAsync(
+    cacheKey: string,
+    data: any,
+    source: string,
+    ttlSeconds?: number,
+    etag?: string,
+    schemaVersion = CACHE_SCHEMA_VERSION
+  ): Promise<void> {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    this.saveExternalCache(cacheKey, data, source, ttlSeconds, etag, schemaVersion);
+  }
+
+  /**
+   * Asynchronous non-blocking companion to getExternalCache that yields the event loop.
+   */
+  public async getExternalCacheAsync<T = any>(cacheKey: string): Promise<{ data: T; source: string; fetchedAt: string; etag: string | null } | null> {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    return this.getExternalCache<T>(cacheKey);
+  }
+
   public purgeExpiredExternalCache(): number {
     const now = new Date().toISOString();
     const info = this.db.prepare("DELETE FROM external_cache WHERE expires_at IS NOT NULL AND expires_at < ?;").run(now);
@@ -389,21 +458,36 @@ export class AnalysisDatabase {
 
   public purgeStaleVariantAnalyses(): number {
     try {
-      const rows = this.db.prepare("SELECT id, payload_json FROM variant_analyses").all() as any[];
-      let deleted = 0;
+      const rows = this.db.prepare("SELECT id, payload_json FROM variant_analyses LIMIT 1000").all() as any[];
+      if (rows.length === 0) return 0;
+
+      const toDelete: number[] = [];
       for (const row of rows) {
         try {
           const payload = JSON.parse(row.payload_json);
           const cons = payload?.conservationData;
           if (cons && cons.available === true) {
             if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
-              this.db.prepare("DELETE FROM variant_analyses WHERE id = ?").run(row.id);
-              deleted++;
+              toDelete.push(row.id);
             }
           }
         } catch (_) {}
       }
-      return deleted;
+
+      if (toDelete.length > 0) {
+        this.db.exec("BEGIN TRANSACTION;");
+        try {
+          const deleteStmt = this.db.prepare("DELETE FROM variant_analyses WHERE id = ?");
+          for (const id of toDelete) {
+            deleteStmt.run(id);
+          }
+          this.db.exec("COMMIT;");
+        } catch (txErr) {
+          this.db.exec("ROLLBACK;");
+          throw txErr;
+        }
+      }
+      return toDelete.length;
     } catch {
       return 0;
     }

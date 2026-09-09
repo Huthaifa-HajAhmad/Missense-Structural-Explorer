@@ -56,7 +56,7 @@ export async function runCoreAnalysis(context: ParsedVariantContext): Promise<an
 
   // Check persistent SQLite database
   const db = AnalysisDatabase.getInstance();
-  const cachedRecord = db.getVariantAnalysis(gene, variant, acmgWeighting);
+  const cachedRecord = await db.getVariantAnalysisAsync(gene, variant, acmgWeighting);
   if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context)) {
     return healCachedAnalysisIfPossible(cachedRecord.payload, context);
   }
@@ -92,7 +92,7 @@ export async function streamCoreAnalysis(
   } = context;
 
   const db = AnalysisDatabase.getInstance();
-  const cachedRecord = db.getVariantAnalysis(gene, variant, context.acmgWeighting);
+  const cachedRecord = await db.getVariantAnalysisAsync(gene, variant, context.acmgWeighting);
   if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context)) {
     const healed = healCachedAnalysisIfPossible(cachedRecord.payload, context);
     onChunk({
@@ -218,7 +218,7 @@ export async function runStructuralAnalysis(
 
   // Check persistent SQLite database for existing core data
   const db = AnalysisDatabase.getInstance();
-  const cached = db.getVariantAnalysis(gene, variant, acmgWeighting);
+  const cached = await db.getVariantAnalysisAsync(gene, variant, acmgWeighting);
   const cachedPdbMapping = cached?.payload?._internal?.pdbMapping || null;
 
   // Run deep models concurrently with core data fetching (or reuse existing)

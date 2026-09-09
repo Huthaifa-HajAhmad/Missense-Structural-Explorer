@@ -49,6 +49,7 @@ const DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
 
 let localDb: DatabaseSync | null = null;
 let dbCheckFailed = false;
+let hasGenomicColumnsChecked: boolean | null = null;
 
 export function isLocalDbnsfpAvailable(): boolean {
   if (process.env.ENABLE_LOCAL_DBNSFP !== 'true') return false;
@@ -167,6 +168,7 @@ export async function queryLocalDbnsfpVariant(
   alt?: string | null,
   aaChange?: string | null
 ): Promise<LocalDbnsfpRecord | null> {
+  await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
   if (!db) return null;
 
@@ -216,6 +218,7 @@ export async function queryLocalDbnsfpLandscape(
   startPos?: number,
   endPos?: number
 ): Promise<any[] | null> {
+  await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
   if (!db) return null;
 
@@ -330,6 +333,7 @@ export async function queryLocalDbnsfpByGenomic(
   ref: string,
   alt: string
 ): Promise<LocalDbnsfpRecord | null> {
+  await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
   if (!db) return null;
 
@@ -338,10 +342,12 @@ export async function queryLocalDbnsfpByGenomic(
 
   try {
     // Check that the genomic columns exist (they are absent in pre-migration DBs)
-    const cols = (db.prepare("PRAGMA table_info(variant_scores)").all as any)() as Array<{ name: string }>;
-    const hasGenomic = cols.some(c => c.name === 'pos_genomic');
-    if (!hasGenomic) {
-      // Database exists but was built without genomic columns \u2014 can't serve this query.
+    if (hasGenomicColumnsChecked === null) {
+      const cols = (db.prepare("PRAGMA table_info(variant_scores)").all as any)() as Array<{ name: string }>;
+      hasGenomicColumnsChecked = cols.some(c => c.name === 'pos_genomic');
+    }
+    if (!hasGenomicColumnsChecked) {
+      // Database exists but was built without genomic columns — can't serve this query.
       // Callers should fall back to the Ensembl VEP translation path.
       return null;
     }

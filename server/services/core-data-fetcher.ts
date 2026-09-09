@@ -393,7 +393,7 @@ export async function fetchCoreVariantData(
     if (genosRec) {
       try {
         const db = AnalysisDatabase.getInstance();
-        const existing = db.getVariantAnalysis(context.gene, context.variant, acmgWeighting);
+        const existing = await db.getVariantAnalysisAsync(context.gene, context.variant, acmgWeighting);
         if (existing?.payload) {
           healCachedAnalysisIfPossible(existing.payload, context);
         }
@@ -407,7 +407,7 @@ export async function fetchCoreVariantData(
     if (cRes && cRes.classification !== "Not found in ClinVar") {
       try {
         const db = AnalysisDatabase.getInstance();
-        const existing = db.getVariantAnalysis(context.gene, context.variant, acmgWeighting);
+        const existing = await db.getVariantAnalysisAsync(context.gene, context.variant, acmgWeighting);
         if (existing?.payload) {
           healCachedAnalysisIfPossible(existing.payload, context);
         }

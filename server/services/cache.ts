@@ -121,7 +121,7 @@ export async function getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promi
   if (!bypassSqlite) {
     try {
       const db = AnalysisDatabase.getInstance();
-      const sqliteEntry = db.getExternalCache<T>(key);
+      const sqliteEntry = await db.getExternalCacheAsync<T>(key);
       if (sqliteEntry && sqliteEntry.data !== undefined) {
         if (l1Cache) {
           l1Cache.set(key, sqliteEntry.data);
@@ -146,7 +146,7 @@ export async function getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promi
       if (!bypassSqlite) {
         try {
           const db = AnalysisDatabase.getInstance();
-          db.saveExternalCache(key, result, source, ttlSeconds);
+          await db.saveExternalCacheAsync(key, result, source, ttlSeconds);
         } catch (dbErr: any) {
           console.warn(`[L2 Cache Write Warning] Failed saving external_cache for ${key}:`, dbErr.message);
         }
