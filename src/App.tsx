@@ -13,7 +13,7 @@ import SettingsDrawer from "./components/settings/SettingsDrawer";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import StructuralLegendModal from "./components/modals/StructuralLegendModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
-import { VariantAnalysisProvider } from "./context/VariantAnalysisContext";
+import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/VariantAnalysisContext";
 import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 
@@ -21,32 +21,34 @@ export default function App() {
   const { state, actions } = useVariantAnalysis();
   const { fetchWithAuth } = useApiClient();
   const { state: consoleState, dispatch: consoleDispatch, pushErrorEntry } = useDevConsole();
-  const { settings } = useSettings();
-
   const {
+    settings,
     isDark,
-    gene,
-    variant,
-    uniprotId,
-    selectedResidueIndex,
-    analysisState,
-    isBiophysicalLoading,
-    isClinicalLoading,
-    isNarrativeLoading,
-    isPocketLoading,
-    isFolding,
-    dynamut2Status,
-    ddmutStatus,
-    foldingStatus,
-    showPolarContacts
-  } = state;
-
-  const {
     toggleTheme,
     setIsSettingsOpen,
-    removeNotification,
+    showPolarContacts,
     setShowPolarContacts
-  } = actions;
+  } = useSettings();
+
+  // Fine-grained Zustand selectors for the App shell to isolate root tree from rapid sub-state changes
+  const gene = useVariantAnalysisStore(s => s.gene);
+  const variant = useVariantAnalysisStore(s => s.variant);
+  const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
+  const selectedResidueIndex = useVariantAnalysisStore(s => s.selectedResidueIndex);
+  const analysisState = useVariantAnalysisStore(s => s.analysisState);
+  const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
+  const isClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading);
+  const isNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
+  const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
+  const isFolding = useVariantAnalysisStore(s => s.isFolding);
+  const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status);
+  const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus);
+  const foldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
+  const loadingStep = useVariantAnalysisStore(s => s.loadingStep);
+  const notifications = useVariantAnalysisStore(s => s.notifications);
+  const viewMode = useVariantAnalysisStore(s => s.viewMode);
+
+  const { removeNotification } = actions;
 
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");
@@ -112,7 +114,7 @@ export default function App() {
           dynamut2Status={dynamut2Status}
           ddmutStatus={ddmutStatus}
           isLoadingSearch={analysisState.isLoading}
-          loadingStep={state.loadingStep}
+          loadingStep={loadingStep}
           unreadConsoleCount={consoleState.errorState.unreadCount}
         />
 
@@ -210,13 +212,13 @@ export default function App() {
             showPolarContacts={showPolarContacts}
             setShowPolarContacts={setShowPolarContacts}
             selectedResidueIndex={selectedResidueIndex}
-            viewMode={state.viewMode}
+            viewMode={viewMode}
             foldingStatus={foldingStatus as string | null}
           />
 
           {/* Floating Notifications Toast Container */}
           <NotificationToastContainer
-            notifications={state.notifications}
+            notifications={notifications}
             isDark={isDark}
             onRemoveNotification={removeNotification}
           />

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 export * from "./variantAnalysisUtils";
 import { VariantPreset } from "./types";
 import { useSettings } from "./context/SettingsContext";
@@ -13,6 +13,7 @@ import { fetchProgressiveStructuralAssessments } from "./services/pipeline/bioph
 /**
  * useVariantAnalysis — Backward-compatible adapter facade.
  * Slices are canonically managed by Zustand (src/stores/useVariantAnalysisStore.ts).
+ * This facade avoids full-store subscription to prevent cascading re-renders.
  */
 export default function useVariantAnalysis() {
   const {
@@ -31,26 +32,27 @@ export default function useVariantAnalysis() {
   } = useSettings();
 
   const { fetchWithAuth, apiClient } = useApiClient();
-  const store = useVariantAnalysisStore();
+  // Subscribe strictly to pdbText for biophysical modeling instead of entire store
+  const pdbText = useVariantAnalysisStore(s => s.pdbText);
 
   // Subsystem execution hooks
   const biophysical = useBiophysicalModeling(
     settings,
-    store.addNotification,
+    useVariantAnalysisStore.getState().addNotification,
     apiClient,
     fetchWithAuth,
-    store.pdbText
+    pdbText
   );
   const structuralFolding = useStructuralFolding({
-    setEsmFoldWtPdb: store.setEsmFoldWtPdb,
-    setEsmFoldMutPdb: store.setEsmFoldMutPdb,
-    setEsmFoldAlignedPdb: store.setEsmFoldAlignedPdb,
-    setEsmFoldMetrics: store.setEsmFoldMetrics,
-    setFoldxMetrics: store.setFoldxMetrics,
-    setIsEsmFolding: store.setIsEsmFolding,
-    setEsmFoldingError: store.setEsmFoldingError,
-    setActive3dModelTab: store.setActive3dModelTab,
-    resetEsmFoldState: store.resetEsmFoldState
+    setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,
+    setEsmFoldMutPdb: useVariantAnalysisStore.getState().setEsmFoldMutPdb,
+    setEsmFoldAlignedPdb: useVariantAnalysisStore.getState().setEsmFoldAlignedPdb,
+    setEsmFoldMetrics: useVariantAnalysisStore.getState().setEsmFoldMetrics,
+    setFoldxMetrics: useVariantAnalysisStore.getState().setFoldxMetrics,
+    setIsEsmFolding: useVariantAnalysisStore.getState().setIsEsmFolding,
+    setEsmFoldingError: useVariantAnalysisStore.getState().setEsmFoldingError,
+    setActive3dModelTab: useVariantAnalysisStore.getState().setActive3dModelTab,
+    resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState
   });
   const pipeline = useAnalysisPipeline();
 
@@ -64,62 +66,63 @@ export default function useVariantAnalysis() {
     biophysical.clearThermoMpnnPoll();
     biophysical.clearThermoMpnnComparePoll();
     structuralFolding.resetEsmFoldState();
-    store.resetViewerState();
-  }, [biophysical, structuralFolding, store]);
+    useVariantAnalysisStore.getState().resetViewerState();
+  }, [biophysical, structuralFolding]);
 
   const executeAnalysisWrapper = useCallback(
     (targetGene: string, targetVariant: string, targetUniprot?: string, providedSignal?: AbortSignal) => {
+      const currentStore = useVariantAnalysisStore.getState();
       return pipeline.executeAnalysis(targetGene, targetVariant, targetUniprot, providedSignal, {
         fetchWithAuth,
         apiClient,
         settings,
-        userDirections: store.userDirections,
+        userDirections: currentStore.userDirections,
         sinks: {
           search: {
-            setGene: store.setGene,
-            setVariant: store.setVariant,
-            setUniprotId: store.setUniprotId,
-            setSearchVal: store.setSearchVal,
-            setCustomGene: store.setCustomGene,
-            setCustomVariant: store.setCustomVariant,
-            setCustomUniprot: store.setCustomUniprot,
-            setSelectedResidueIndex: store.setSelectedResidueIndex,
+            setGene: currentStore.setGene,
+            setVariant: currentStore.setVariant,
+            setUniprotId: currentStore.setUniprotId,
+            setSearchVal: currentStore.setSearchVal,
+            setCustomGene: currentStore.setCustomGene,
+            setCustomVariant: currentStore.setCustomVariant,
+            setCustomUniprot: currentStore.setCustomUniprot,
+            setSelectedResidueIndex: currentStore.setSelectedResidueIndex,
             addToHistory: (gene: string, variant: string, uniprotId: string) =>
-              store.addToHistory({ gene, variant, uniprotId })
+              currentStore.addToHistory({ gene, variant, uniprotId })
           },
           analysis: {
-            setAnalysisState: store.setAnalysisState,
-            setLoadingStep: store.setLoadingStep,
-            setIsBiophysicalLoading: store.setIsBiophysicalLoading,
-            setIsClinicalLoading: store.setIsClinicalLoading,
-            setIsNarrativeLoading: store.setIsNarrativeLoading
+            setAnalysisState: currentStore.setAnalysisState,
+            setLoadingStep: currentStore.setLoadingStep,
+            setIsBiophysicalLoading: currentStore.setIsBiophysicalLoading,
+            setIsClinicalLoading: currentStore.setIsClinicalLoading,
+            setIsNarrativeLoading: currentStore.setIsNarrativeLoading
           },
           biophysical: {
-            setIsFolding: store.setIsFolding,
-            setFoldingError: store.setFoldingError,
-            setFoldingStatus: store.setFoldingStatus,
-            setMutantPdb: store.setMutantPdb,
-            setFoldedResidueIndex: store.setFoldedResidueIndex,
-            setFoldingDdG: store.setFoldingDdG,
-            setFoldingEnergetics: store.setFoldingEnergetics,
-            setDynamut2JobId: store.setDynamut2JobId,
-            setDynamut2Status: store.setDynamut2Status,
-            setDdmutJobId: store.setDdmutJobId,
-            setDdmutStatus: store.setDdmutStatus,
-            setThermompnnJobId: store.setThermompnnJobId,
-            setThermompnnStatus: store.setThermompnnStatus,
-            setThermompnnError: store.setThermompnnError,
+            setIsFolding: currentStore.setIsFolding,
+            setFoldingError: currentStore.setFoldingError,
+            setFoldingStatus: currentStore.setFoldingStatus,
+            setMutantPdb: currentStore.setMutantPdb,
+            setFoldedResidueIndex: currentStore.setFoldedResidueIndex,
+            setFoldingDdG: currentStore.setFoldingDdG,
+            setFoldingEnergetics: currentStore.setFoldingEnergetics,
+            setDynamut2JobId: currentStore.setDynamut2JobId,
+            setDynamut2Status: currentStore.setDynamut2Status,
+            setDdmutJobId: currentStore.setDdmutJobId,
+            setDdmutStatus: currentStore.setDdmutStatus,
+            setThermompnnJobId: currentStore.setThermompnnJobId,
+            setThermompnnStatus: currentStore.setThermompnnStatus,
+            setThermompnnError: currentStore.setThermompnnError,
             lastFetchedFoldRef: biophysical.lastFetchedFoldRef
           },
           structure: {
-            setPdbText: store.setPdbText,
-            setComputedPocket: store.setComputedPocket,
-            setIsPocketLoading: store.setIsPocketLoading,
-            setPocketError: store.setPocketError,
-            setHomologs: store.setHomologs,
-            setIsHomologsLoading: store.setIsHomologsLoading,
-            setComputedResiduesCache: store.setComputedResiduesCache,
-            setDisruptionPredictor: store.setDisruptionPredictor,
+            setPdbText: currentStore.setPdbText,
+            setComputedPocket: currentStore.setComputedPocket,
+            setIsPocketLoading: currentStore.setIsPocketLoading,
+            setPocketError: currentStore.setPocketError,
+            setHomologs: currentStore.setHomologs,
+            setIsHomologsLoading: currentStore.setIsHomologsLoading,
+            setComputedResiduesCache: currentStore.setComputedResiduesCache,
+            setDisruptionPredictor: currentStore.setDisruptionPredictor,
             resetViewerState,
             clearDynaMutPoll: biophysical.clearDynaMutPoll,
             clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll
@@ -127,88 +130,96 @@ export default function useVariantAnalysis() {
         }
       });
     },
-    [pipeline, fetchWithAuth, apiClient, settings, store, biophysical, resetViewerState]
+    [pipeline, fetchWithAuth, apiClient, settings, biophysical, resetViewerState]
   );
 
   const handleSelectHistoryItem = useCallback(
     (item: { gene: string; variant: string; uniprotId: string }) => {
-      store.handleSelectHistoryItem(item, {
+      const currentStore = useVariantAnalysisStore.getState();
+      currentStore.handleSelectHistoryItem(item, {
         abortAllPendingRequests: () =>
           pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
-        setAnalysisState: store.setAnalysisState
+        setAnalysisState: currentStore.setAnalysisState
       });
     },
-    [store, pipeline, biophysical, resetViewerState, executeAnalysisWrapper]
+    [pipeline, biophysical, resetViewerState, executeAnalysisWrapper]
   );
 
   const handleSelectPreset = useCallback(
     (preset: VariantPreset) => {
-      store.handleSelectPreset(preset, {
+      const currentStore = useVariantAnalysisStore.getState();
+      currentStore.handleSelectPreset(preset, {
         abortAllPendingRequests: () =>
           pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
-        setAnalysisState: store.setAnalysisState
+        setAnalysisState: currentStore.setAnalysisState
       });
     },
-    [store, pipeline, biophysical, resetViewerState, executeAnalysisWrapper]
+    [pipeline, biophysical, resetViewerState, executeAnalysisWrapper]
   );
 
   const handleSearchSubmit = useCallback(
     (e: React.FormEvent) => {
-      store.handleSearchSubmit(e, (g, v, u) => executeAnalysisWrapper(g, v, u));
+      const currentStore = useVariantAnalysisStore.getState();
+      currentStore.handleSearchSubmit(e, (g, v, u) => executeAnalysisWrapper(g, v, u));
     },
-    [store, executeAnalysisWrapper]
+    [executeAnalysisWrapper]
   );
 
   const handleCopyReport = useCallback(async () => {
-    await store.handleCopyReport(store.analysisState.result);
-  }, [store]);
+    const currentStore = useVariantAnalysisStore.getState();
+    await currentStore.handleCopyReport(currentStore.analysisState.result);
+  }, []);
 
   const translateVariantNotationWrapper = useCallback(
     (notation: string, signal: AbortSignal) => {
+      const currentStore = useVariantAnalysisStore.getState();
       return pipeline.translateVariantNotation(notation, signal, {
         apiClient,
-        setAnalysisState: store.setAnalysisState,
-        setLoadingStep: store.setLoadingStep
+        setAnalysisState: currentStore.setAnalysisState,
+        setLoadingStep: currentStore.setLoadingStep
       });
     },
-    [pipeline, apiClient, store.setAnalysisState, store.setLoadingStep]
+    [pipeline, apiClient]
   );
 
   const fetchHomologsWrapper = useCallback(
     (targetUniprot: string, signal?: AbortSignal, pos?: number) => {
+      const currentStore = useVariantAnalysisStore.getState();
       return pipeline.fetchHomologs(targetUniprot, apiClient, signal, pos, {
-        setHomologs: store.setHomologs,
-        setIsHomologsLoading: store.setIsHomologsLoading
+        setHomologs: currentStore.setHomologs,
+        setIsHomologsLoading: currentStore.setIsHomologsLoading
       });
     },
-    [pipeline, apiClient, store.setHomologs, store.setIsHomologsLoading]
+    [pipeline, apiClient]
   );
 
   const fetchNearestResiduesWrapper = useCallback(
     (targetUniprot: string, targetVariant: string, residueIndex: number, pdbStr: string, signal?: AbortSignal) => {
+      const currentStore = useVariantAnalysisStore.getState();
       return pipeline.fetchNearestResidues(targetUniprot, targetVariant, residueIndex, pdbStr, apiClient, signal, {
-        setComputedResiduesCache: store.setComputedResiduesCache
+        setComputedResiduesCache: currentStore.setComputedResiduesCache
       });
     },
-    [pipeline, apiClient, store.setComputedResiduesCache]
+    [pipeline, apiClient]
   );
 
   const fetchEsmFoldWrapper = useCallback(
     (uniprotIdArg?: string, variantArg?: string, wtSeq?: string, mutSeq?: string) => {
+      const { uniprotId, variant, addNotification } = useVariantAnalysisStore.getState();
       return structuralFolding.fetchEsmFold(
         apiClient,
-        store.addNotification,
-        uniprotIdArg || store.uniprotId,
-        variantArg || store.variant,
+        addNotification,
+        uniprotIdArg || uniprotId,
+        variantArg || variant,
         wtSeq,
         mutSeq
       );
     },
-    [structuralFolding, apiClient, store.addNotification, store.uniprotId, store.variant]
+    [structuralFolding, apiClient]
   );
 
   const formatEnergyString = useCallback(
@@ -228,13 +239,14 @@ export default function useVariantAnalysis() {
   );
 
   const retryStructuralAnalysisWrapper = useCallback(async () => {
-    const gene = store.gene || store.analysisState.result?.metadata?.gene;
-    const variant = store.variant || store.analysisState.result?.metadata?.variant;
-    const uniprotId = store.uniprotId || store.analysisState.result?.metadata?.uniprotId;
+    const currentStore = useVariantAnalysisStore.getState();
+    const gene = currentStore.gene || currentStore.analysisState.result?.metadata?.gene;
+    const variant = currentStore.variant || currentStore.analysisState.result?.metadata?.variant;
+    const uniprotId = currentStore.uniprotId || currentStore.analysisState.result?.metadata?.uniprotId;
     if (!gene || !variant || !uniprotId) return;
 
     // Immediately dispatch optimistic loading state so the UI responds instantly
-    store.setAnalysisState((prev: any) => {
+    currentStore.setAnalysisState((prev: any) => {
       if (!prev?.result) return prev;
       return {
         ...prev,
@@ -260,96 +272,29 @@ export default function useVariantAnalysis() {
       },
       apiClient,
       new AbortController().signal,
-      store.setAnalysisState,
+      currentStore.setAnalysisState,
       requestId,
       () => pipeline.activeRequestIdRef.current
     );
-  }, [store.gene, store.variant, store.uniprotId, store.analysisState.result?.metadata, store.setAnalysisState, settings.acmgWeighting, settings.saprotEngine, apiClient, pipeline.activeRequestIdRef]);
+  }, [settings.acmgWeighting, settings.saprotEngine, apiClient, pipeline.activeRequestIdRef]);
 
-  const state = {
-    theme,
-    isDark,
-    settings,
-    showPolarContacts,
-    isSettingsOpen,
-    ...variantStyles,
-    gene: store.gene,
-    variant: store.variant,
-    uniprotId: store.uniprotId,
-    selectedResidueIndex: store.selectedResidueIndex,
-    hoveredResidueIndex: store.hoveredResidueIndex,
-    searchVal: store.searchVal,
-    customGene: store.customGene,
-    customVariant: store.customVariant,
-    customUniprot: store.customUniprot,
-    customGenomic: store.customGenomic,
-    showCustomInputs: store.showCustomInputs,
-    copied: store.copied,
-    customPdbUrl: store.customPdbUrl,
-    userDirections: store.userDirections,
-    homologs: store.homologs,
-    isHomologsLoading: store.isHomologsLoading,
-    viewMode: store.viewMode,
-    disruptionPredictor: store.disruptionPredictor,
-    notifications: store.notifications,
-    esmFoldWtPdb: store.esmFoldWtPdb,
-    esmFoldMutPdb: store.esmFoldMutPdb,
-    esmFoldAlignedPdb: store.esmFoldAlignedPdb,
-    esmFoldMetrics: store.esmFoldMetrics,
-    foldxMetrics: store.foldxMetrics,
-    isEsmFolding: store.isEsmFolding,
-    esmFoldingError: store.esmFoldingError,
-    active3dModelTab: store.active3dModelTab,
-    history: store.history,
-    analysisState: store.analysisState,
-    loadingStep: store.loadingStep,
-    isBiophysicalLoading: store.isBiophysicalLoading,
-    isClinicalLoading: store.isClinicalLoading,
-    isNarrativeLoading: store.isNarrativeLoading,
-    triageOverride: store.triageOverride,
-    pdbText: store.pdbText,
-    isHowToInspectOpen: store.isHowToInspectOpen,
-    isLegendOpen: store.isLegendOpen,
-    mutantPdb: store.mutantPdb,
-    foldedResidueIndex: store.foldedResidueIndex,
-    isFolding: store.isFolding,
-    foldingError: store.foldingError,
-    foldingStatus: store.foldingStatus,
-    foldingDdG: store.foldingDdG,
-    foldingEnergetics: store.foldingEnergetics,
-    compareMode: store.compareMode,
-    compareVariant: store.compareVariant,
-    compareMutantPdb: store.compareMutantPdb,
-    compareFoldedResidueIndex: store.compareFoldedResidueIndex,
-    isFoldingCompare: store.isFoldingCompare,
-    foldingCompareError: store.foldingCompareError,
-    compareFoldingStatus: store.compareFoldingStatus,
-    compareFoldingDdG: store.compareFoldingDdG,
-    compareFoldingEnergetics: store.compareFoldingEnergetics,
-    comparisonLayout: store.comparisonLayout,
-    dynamut2Status: store.dynamut2Status,
-    compareDynamut2Status: store.compareDynamut2Status,
-    ddmutStatus: store.ddmutStatus,
-    compareDdmutStatus: store.compareDdmutStatus,
-    thermompnnStatus: store.thermompnnStatus,
-    compareThermompnnStatus: store.compareThermompnnStatus,
-    thermompnnError: store.thermompnnError,
-    compareThermompnnError: store.compareThermompnnError,
-    dynamut2JobId: store.dynamut2JobId,
-    compareDynamut2JobId: store.compareDynamut2JobId,
-    ddmutJobId: store.ddmutJobId,
-    compareDdmutJobId: store.compareDdmutJobId,
-    thermompnnJobId: store.thermompnnJobId,
-    compareThermompnnJobId: store.compareThermompnnJobId,
-    structuralDiff: store.structuralDiff,
-    compareStructuralDiff: store.compareStructuralDiff,
-    computedPocket: store.computedPocket,
-    isPocketLoading: store.isPocketLoading,
-    pocketError: store.pocketError,
-    computedResiduesCache: store.computedResiduesCache
-  };
+  // Backward-compatible state proxy that avoids establishing 50+ store subscriptions
+  const state = useMemo(() => {
+    return new Proxy({} as any, {
+      get(_target, prop: string | symbol) {
+        if (typeof prop !== "string") return undefined;
+        if (prop === "theme") return theme;
+        if (prop === "isDark") return isDark;
+        if (prop === "settings") return settings;
+        if (prop === "showPolarContacts") return showPolarContacts;
+        if (prop === "isSettingsOpen") return isSettingsOpen;
+        if (prop in variantStyles) return (variantStyles as any)[prop];
+        return (useVariantAnalysisStore.getState() as any)[prop];
+      }
+    });
+  }, [theme, isDark, settings, showPolarContacts, isSettingsOpen, variantStyles]);
 
-  const actions = {
+  const actions = useMemo(() => ({
     setTheme,
     toggleTheme,
     setSettings,
@@ -357,40 +302,10 @@ export default function useVariantAnalysis() {
     resetSettingsToDefault,
     setShowPolarContacts,
     setIsSettingsOpen,
-    setGene: store.setGene,
-    setVariant: store.setVariant,
-    setUniprotId: store.setUniprotId,
-    setSelectedResidueIndex: store.setSelectedResidueIndex,
-    setHoveredResidueIndex: store.setHoveredResidueIndex,
-    setSearchVal: store.setSearchVal,
-    setCustomGene: store.setCustomGene,
-    setCustomVariant: store.setCustomVariant,
-    setCustomUniprot: store.setCustomUniprot,
-    setCustomGenomic: store.setCustomGenomic,
-    setShowCustomInputs: store.setShowCustomInputs,
-    setCopied: store.setCopied,
-    setCustomPdbUrl: store.setCustomPdbUrl,
-    setUserDirections: store.setUserDirections,
-    setHomologs: store.setHomologs,
-    setViewMode: store.setViewMode,
-    setDisruptionPredictor: store.setDisruptionPredictor,
-    addNotification: store.addNotification,
-    removeNotification: store.removeNotification,
-    setEsmFoldWtPdb: store.setEsmFoldWtPdb,
-    setEsmFoldMutPdb: store.setEsmFoldMutPdb,
-    setEsmFoldAlignedPdb: store.setEsmFoldAlignedPdb,
-    setEsmFoldMetrics: store.setEsmFoldMetrics,
-    setFoldxMetrics: store.setFoldxMetrics,
-    setIsEsmFolding: store.setIsEsmFolding,
-    setEsmFoldingError: store.setEsmFoldingError,
-    setActive3dModelTab: store.setActive3dModelTab,
     handleSelectHistoryItem,
     handleSelectPreset,
     handleSearchSubmit,
     handleCopyReport,
-    addToHistory: store.addToHistory,
-    clearHistory: store.clearHistory,
-    setAnalysisState: store.setAnalysisState,
     retryStructuralAnalysis: retryStructuralAnalysisWrapper,
     executeAnalysis: executeAnalysisWrapper,
     translateVariantNotation: translateVariantNotationWrapper,
@@ -400,47 +315,99 @@ export default function useVariantAnalysis() {
     fetchEsmFold: fetchEsmFoldWrapper,
     resetViewerState,
     formatEnergyString,
-    setIsHowToInspectOpen: store.setIsHowToInspectOpen,
-    setIsLegendOpen: store.setIsLegendOpen,
-    setPdbText: store.setPdbText,
-    setTriageOverride: store.setTriageOverride,
-    setMutantPdb: store.setMutantPdb,
-    setFoldedResidueIndex: store.setFoldedResidueIndex,
-    setIsFolding: store.setIsFolding,
-    setFoldingError: store.setFoldingError,
-    setFoldingStatus: store.setFoldingStatus,
-    setFoldingDdG: store.setFoldingDdG,
-    setFoldingEnergetics: store.setFoldingEnergetics,
-    setCompareMode: store.setCompareMode,
-    setCompareVariant: store.setCompareVariant,
-    setCompareMutantPdb: store.setCompareMutantPdb,
-    setCompareFoldedResidueIndex: store.setCompareFoldedResidueIndex,
-    setIsFoldingCompare: store.setIsFoldingCompare,
-    setFoldingCompareError: store.setFoldingCompareError,
-    setCompareFoldingStatus: store.setCompareFoldingStatus,
-    setCompareFoldingDdG: store.setCompareFoldingDdG,
-    setCompareFoldingEnergetics: store.setCompareFoldingEnergetics,
-    setComparisonLayout: store.setComparisonLayout,
-    setDynamut2Status: store.setDynamut2Status,
-    setCompareDynamut2Status: store.setCompareDynamut2Status,
-    setDdmutStatus: store.setDdmutStatus,
-    setCompareDdmutStatus: store.setCompareDdmutStatus,
-    setThermompnnStatus: store.setThermompnnStatus,
-    setCompareThermompnnStatus: store.setCompareThermompnnStatus,
-    setThermompnnError: store.setThermompnnError,
-    setCompareThermompnnError: store.setCompareThermompnnError,
-    setDynamut2JobId: store.setDynamut2JobId,
-    setCompareDynamut2JobId: store.setCompareDynamut2JobId,
-    setDdmutJobId: store.setDdmutJobId,
-    setCompareDdmutJobId: store.setCompareDdmutJobId,
-    setThermompnnJobId: store.setThermompnnJobId,
-    setCompareThermompnnJobId: store.setCompareThermompnnJobId,
-    setStructuralDiff: store.setStructuralDiff,
-    setCompareStructuralDiff: store.setCompareStructuralDiff,
-    setComputedPocket: store.setComputedPocket,
-    setIsPocketLoading: store.setIsPocketLoading,
-    setPocketError: store.setPocketError
-  };
+    // Stable Zustand store action bindings
+    setGene: useVariantAnalysisStore.getState().setGene,
+    setVariant: useVariantAnalysisStore.getState().setVariant,
+    setUniprotId: useVariantAnalysisStore.getState().setUniprotId,
+    setSelectedResidueIndex: useVariantAnalysisStore.getState().setSelectedResidueIndex,
+    setHoveredResidueIndex: useVariantAnalysisStore.getState().setHoveredResidueIndex,
+    setSearchVal: useVariantAnalysisStore.getState().setSearchVal,
+    setCustomGene: useVariantAnalysisStore.getState().setCustomGene,
+    setCustomVariant: useVariantAnalysisStore.getState().setCustomVariant,
+    setCustomUniprot: useVariantAnalysisStore.getState().setCustomUniprot,
+    setCustomGenomic: useVariantAnalysisStore.getState().setCustomGenomic,
+    setShowCustomInputs: useVariantAnalysisStore.getState().setShowCustomInputs,
+    setCopied: useVariantAnalysisStore.getState().setCopied,
+    setCustomPdbUrl: useVariantAnalysisStore.getState().setCustomPdbUrl,
+    setUserDirections: useVariantAnalysisStore.getState().setUserDirections,
+    setHomologs: useVariantAnalysisStore.getState().setHomologs,
+    setViewMode: useVariantAnalysisStore.getState().setViewMode,
+    setDisruptionPredictor: useVariantAnalysisStore.getState().setDisruptionPredictor,
+    addNotification: useVariantAnalysisStore.getState().addNotification,
+    removeNotification: useVariantAnalysisStore.getState().removeNotification,
+    setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,
+    setEsmFoldMutPdb: useVariantAnalysisStore.getState().setEsmFoldMutPdb,
+    setEsmFoldAlignedPdb: useVariantAnalysisStore.getState().setEsmFoldAlignedPdb,
+    setEsmFoldMetrics: useVariantAnalysisStore.getState().setEsmFoldMetrics,
+    setFoldxMetrics: useVariantAnalysisStore.getState().setFoldxMetrics,
+    setIsEsmFolding: useVariantAnalysisStore.getState().setIsEsmFolding,
+    setEsmFoldingError: useVariantAnalysisStore.getState().setEsmFoldingError,
+    setActive3dModelTab: useVariantAnalysisStore.getState().setActive3dModelTab,
+    addToHistory: useVariantAnalysisStore.getState().addToHistory,
+    clearHistory: useVariantAnalysisStore.getState().clearHistory,
+    setAnalysisState: useVariantAnalysisStore.getState().setAnalysisState,
+    setIsHowToInspectOpen: useVariantAnalysisStore.getState().setIsHowToInspectOpen,
+    setIsLegendOpen: useVariantAnalysisStore.getState().setIsLegendOpen,
+    setPdbText: useVariantAnalysisStore.getState().setPdbText,
+    setTriageOverride: useVariantAnalysisStore.getState().setTriageOverride,
+    setMutantPdb: useVariantAnalysisStore.getState().setMutantPdb,
+    setFoldedResidueIndex: useVariantAnalysisStore.getState().setFoldedResidueIndex,
+    setIsFolding: useVariantAnalysisStore.getState().setIsFolding,
+    setFoldingError: useVariantAnalysisStore.getState().setFoldingError,
+    setFoldingStatus: useVariantAnalysisStore.getState().setFoldingStatus,
+    setFoldingDdG: useVariantAnalysisStore.getState().setFoldingDdG,
+    setFoldingEnergetics: useVariantAnalysisStore.getState().setFoldingEnergetics,
+    setCompareMode: useVariantAnalysisStore.getState().setCompareMode,
+    setCompareVariant: useVariantAnalysisStore.getState().setCompareVariant,
+    setCompareMutantPdb: useVariantAnalysisStore.getState().setCompareMutantPdb,
+    setCompareFoldedResidueIndex: useVariantAnalysisStore.getState().setCompareFoldedResidueIndex,
+    setIsFoldingCompare: useVariantAnalysisStore.getState().setIsFoldingCompare,
+    setFoldingCompareError: useVariantAnalysisStore.getState().setFoldingCompareError,
+    setCompareFoldingStatus: useVariantAnalysisStore.getState().setCompareFoldingStatus,
+    setCompareFoldingDdG: useVariantAnalysisStore.getState().setCompareFoldingDdG,
+    setCompareFoldingEnergetics: useVariantAnalysisStore.getState().setCompareFoldingEnergetics,
+    setComparisonLayout: useVariantAnalysisStore.getState().setComparisonLayout,
+    setDynamut2Status: useVariantAnalysisStore.getState().setDynamut2Status,
+    setCompareDynamut2Status: useVariantAnalysisStore.getState().setCompareDynamut2Status,
+    setDdmutStatus: useVariantAnalysisStore.getState().setDdmutStatus,
+    setCompareDdmutStatus: useVariantAnalysisStore.getState().setCompareDdmutStatus,
+    setThermompnnStatus: useVariantAnalysisStore.getState().setThermompnnStatus,
+    setCompareThermompnnStatus: useVariantAnalysisStore.getState().setCompareThermompnnStatus,
+    setThermompnnError: useVariantAnalysisStore.getState().setThermompnnError,
+    setCompareThermompnnError: useVariantAnalysisStore.getState().setCompareThermompnnError,
+    setDynamut2JobId: useVariantAnalysisStore.getState().setDynamut2JobId,
+    setCompareDynamut2JobId: useVariantAnalysisStore.getState().setCompareDynamut2JobId,
+    setDdmutJobId: useVariantAnalysisStore.getState().setDdmutJobId,
+    setCompareDdmutJobId: useVariantAnalysisStore.getState().setCompareDdmutJobId,
+    setThermompnnJobId: useVariantAnalysisStore.getState().setThermompnnJobId,
+    setCompareThermompnnJobId: useVariantAnalysisStore.getState().setCompareThermompnnJobId,
+    setStructuralDiff: useVariantAnalysisStore.getState().setStructuralDiff,
+    setCompareStructuralDiff: useVariantAnalysisStore.getState().setCompareStructuralDiff,
+    setComputedPocket: useVariantAnalysisStore.getState().setComputedPocket,
+    setIsPocketLoading: useVariantAnalysisStore.getState().setIsPocketLoading,
+    setPocketError: useVariantAnalysisStore.getState().setPocketError
+  }), [
+    setTheme,
+    toggleTheme,
+    setSettings,
+    updateSetting,
+    resetSettingsToDefault,
+    setShowPolarContacts,
+    setIsSettingsOpen,
+    handleSelectHistoryItem,
+    handleSelectPreset,
+    handleSearchSubmit,
+    handleCopyReport,
+    retryStructuralAnalysisWrapper,
+    executeAnalysisWrapper,
+    translateVariantNotationWrapper,
+    fetchHomologsWrapper,
+    fetchNearestResiduesWrapper,
+    biophysical.fetchPocketInfo,
+    fetchEsmFoldWrapper,
+    resetViewerState,
+    formatEnergyString
+  ]);
 
   return { state, actions, ...state, ...actions };
 }

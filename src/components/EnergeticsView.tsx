@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { 
   Activity, 
   ShieldAlert, 
@@ -56,7 +56,7 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "DynaMut2",
     category: "Normal Mode Analysis / Machine Learning",
     description: "DynaMut2 predicts stability changes (ΔΔG) by combining normal mode analysis (NMA) metrics of protein flexibility and dynamics (using ENM models) with machine learning models trained on experimental stability data.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
+    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative scores represent stabilizing variants. (Normalized: DynaMut2 natively reports negative values for destabilization, but values in this explorer are normalized so positive = destabilizing).",
     paperTitle: "Rodrigues et al. Bioinformatics (2020)",
     paperUrl: "https://doi.org/10.1093/bioinformatics/btaa784"
   },
@@ -64,7 +64,7 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "DDMut (Deep Learning)",
     category: "Graph Deep Learning / Transformers",
     description: "DDMut uses a Siamese neural network combining graph-based structural representations, convolutional layers, and Transformer encoders to predict free energy changes (ΔΔG) for single and multiple point mutations.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
+    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative scores represent stabilizing variants. (Normalized: DDMut natively reports negative values for destabilization, but values in this explorer are normalized so positive = destabilizing).",
     paperTitle: "Zhou et al. Nucleic Acids Res (2022)",
     paperUrl: "https://doi.org/10.1093/nar/gkac394"
   },
@@ -118,6 +118,91 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
   }
 };
 
+interface SimulationProgressBannerProps {
+  onSkipSlowPredictors: () => void;
+}
+
+const getSimulationStage = (elapsed: number) => {
+  if (elapsed < 12) return { stage: 1, label: "Queued", detail: "Worker scheduled & PDB coordinates validated" };
+  if (elapsed < 40) return { stage: 2, label: "NMA / Graph Embedding", detail: "Computing normal mode elastic network & graph convolutions" };
+  if (elapsed < 75) return { stage: 3, label: "Scoring & Repacking", detail: "Running atomic force field minimization & stability head" };
+  return { stage: 4, label: "Finalizing", detail: "Aggregating calibrated multi-tool consensus" };
+};
+
+const SimulationProgressBanner = memo(function SimulationProgressBanner({
+  onSkipSlowPredictors
+}: SimulationProgressBannerProps) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const current = getSimulationStage(elapsedSeconds);
+  const stages = [
+    { id: 1, name: "Queued" },
+    { id: 2, name: "NMA / Embedding" },
+    { id: 3, name: "Force Field Repack" },
+    { id: 4, name: "Scoring" }
+  ];
+
+  return (
+    <div className="p-4 rounded-xl border space-y-3 animate-fade-in" style={{ background: "rgba(196,104,73,0.06)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-bold text-xs uppercase flex items-center gap-2">
+          <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
+          <span>Biophysical Simulation In Progress</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-accent-clay)" }}>
+            Elapsed: {elapsedSeconds}s (typical: 45–75s)
+          </span>
+          {elapsedSeconds >= 45 && (
+            <button
+              type="button"
+              onClick={onSkipSlowPredictors}
+              className="text-[11px] px-2.5 py-1 rounded-md font-semibold border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer"
+            >
+              Skip Slow Predictors
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Stage Indicator Stepper */}
+      <div className="space-y-1.5 pt-1">
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {stages.map((st) => {
+            const isActive = current.stage === st.id;
+            const isPast = current.stage > st.id;
+            return (
+              <div
+                key={st.id}
+                className={`text-[10px] font-mono py-1 px-1 rounded border transition-all ${
+                  isActive
+                    ? "bg-[var(--cs-accent-clay)] text-white border-[var(--cs-accent-clay)] font-bold animate-pulse"
+                    : isPast
+                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium"
+                    : "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)] opacity-60"
+                }`}
+              >
+                {st.id}. {st.name}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-slate-400 font-sans italic">
+          Current stage: <span className="font-medium text-[var(--cs-text-primary)]">{current.detail}</span>
+        </p>
+      </div>
+    </div>
+  );
+});
+
 const EnergeticsView = memo(function EnergeticsView({
   isDark,
   classCard,
@@ -139,34 +224,11 @@ const EnergeticsView = memo(function EnergeticsView({
   foldingError = null
 }: EnergeticsViewProps) {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [skippedSlowPredictors, setSkippedSlowPredictors] = useState(false);
+  const handleSkipSlowPredictors = useCallback(() => setSkippedSlowPredictors(true), []);
   const { settings } = useSettings();
   const energyUnit = settings.energyUnit;
   const result = analysisState.result;
-
-  useEffect(() => {
-    let interval: any;
-    const isAnyPending = isFolding || dynamut2Status === "pending" || ddmutStatus === "pending" || thermompnnStatus === "pending";
-    if (isAnyPending && !skippedSlowPredictors) {
-      const start = Date.now();
-      interval = setInterval(() => {
-        setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
-      }, 1000);
-    } else {
-      setElapsedSeconds(0);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isFolding, dynamut2Status, ddmutStatus, thermompnnStatus, skippedSlowPredictors]);
-
-  const getSimulationStage = (elapsed: number) => {
-    if (elapsed < 12) return { stage: 1, label: "Queued", detail: "Worker scheduled & PDB coordinates validated" };
-    if (elapsed < 40) return { stage: 2, label: "NMA / Graph Embedding", detail: "Computing normal mode elastic network & graph convolutions" };
-    if (elapsed < 75) return { stage: 3, label: "Scoring & Repacking", detail: "Running atomic force field minimization & stability head" };
-    return { stage: 4, label: "Finalizing", detail: "Aggregating calibrated multi-tool consensus" };
-  };
 
   const formatDdGValue = (val: number | null, unit: "kcal/mol" | "kJ/mol") => {
     if (val === null || val === undefined) return "N/A";
@@ -253,8 +315,8 @@ const EnergeticsView = memo(function EnergeticsView({
   ]);
 
   const calConsensus = useMemo(() => {
-    return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex);
-  }, [energetics, uniprotFeatures, residueIndex]);
+    return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex, disruptionPredictor?.plddt);
+  }, [energetics, uniprotFeatures, residueIndex, disruptionPredictor?.plddt]);
 
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full font-mono text-xs`} id="energetics-view" role="region" aria-label="Biophysical Energetics Analysis">
@@ -340,66 +402,7 @@ const EnergeticsView = memo(function EnergeticsView({
         {/* ─────────────────────────────────────────────────────────────────── */}
 
         {isFolding && !skippedSlowPredictors && (
-          <div className="p-4 rounded-xl border space-y-3 animate-fade-in" style={{ background: "rgba(196,104,73,0.06)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-bold text-xs uppercase flex items-center gap-2">
-                <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
-                <span>Biophysical Simulation In Progress</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-accent-clay)" }}>
-                  Elapsed: {elapsedSeconds}s (typical: 45–75s)
-                </span>
-                {elapsedSeconds >= 45 && (
-                  <button
-                    type="button"
-                    onClick={() => setSkippedSlowPredictors(true)}
-                    className="text-[11px] px-2.5 py-1 rounded-md font-semibold border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer"
-                  >
-                    Skip Slow Predictors
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Stage Indicator Stepper */}
-            {(() => {
-              const current = getSimulationStage(elapsedSeconds);
-              const stages = [
-                { id: 1, name: "Queued" },
-                { id: 2, name: "NMA / Embedding" },
-                { id: 3, name: "Force Field Repack" },
-                { id: 4, name: "Scoring" }
-              ];
-              return (
-                <div className="space-y-1.5 pt-1">
-                  <div className="grid grid-cols-4 gap-2 text-center">
-                    {stages.map((st) => {
-                      const isActive = current.stage === st.id;
-                      const isPast = current.stage > st.id;
-                      return (
-                        <div
-                          key={st.id}
-                          className={`text-[10px] font-mono py-1 px-1 rounded border transition-all ${
-                            isActive
-                              ? "bg-[var(--cs-accent-clay)] text-white border-[var(--cs-accent-clay)] font-bold animate-pulse"
-                              : isPast
-                              ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium"
-                              : "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)] opacity-60"
-                          }`}
-                        >
-                          {st.id}. {st.name}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[11px] text-slate-400 font-sans italic">
-                    Current stage: <span className="font-medium text-[var(--cs-text-primary)]">{current.detail}</span>
-                  </p>
-                </div>
-              );
-            })()}
-          </div>
+          <SimulationProgressBanner onSkipSlowPredictors={handleSkipSlowPredictors} />
         )}
 
         <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
@@ -444,7 +447,8 @@ const EnergeticsView = memo(function EnergeticsView({
                           scoreText = `${mean.toFixed(2)} ± ${sd.toFixed(2)} kcal/mol`;
                         }
                       } else {
-                        scoreText = formatDdGValue(item.val, energyUnit);
+                        const displayVal = item.invertSign ? -item.val : item.val;
+                        scoreText = formatDdGValue(displayVal, energyUnit);
                       }
                       const badgeVal = item.invertSign ? -item.val : item.val;
                       badge = getDdGBadge(badgeVal);
@@ -464,15 +468,15 @@ const EnergeticsView = memo(function EnergeticsView({
                       }
                     } else if (item.isPending) {
                       scoreText = item.key === "dynamut2" 
-                        ? `Running NMA (${elapsedSeconds}s)` 
+                        ? "Running NMA..." 
                         : (item.key === "ddmut" 
-                            ? `Graph Embedding (${elapsedSeconds}s)` 
+                            ? "Graph Embedding..." 
                             : (item.key === "stabilityoracle"
-                                ? `3D Graphormer (${elapsedSeconds}s)`
-                                : `Simulating (${elapsedSeconds}s)...`));
+                                ? "3D Graphormer..."
+                                : "Simulating..."));
                       badge = { 
-                        label: `In Progress (${elapsedSeconds}s)`, 
-                        category: `In Progress (${elapsedSeconds}s)`, 
+                        label: "In Progress", 
+                        category: "In Progress", 
                         style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold" 
                       };
                     } else if (skippedSlowPredictors && (item.key === "dynamut2" || item.key === "ddmut")) {
@@ -575,6 +579,9 @@ const EnergeticsView = memo(function EnergeticsView({
             </tbody>
           </table>
         </div>
+        <p className="text-[10px] text-cs-text-muted mt-1.5 px-1 font-mono">
+          * All stability values normalized: positive ΔΔG = destabilizing, negative ΔΔG = stabilizing.
+        </p>
       </div>
 
         {/* Extended Biophysical Details & Consensus Verdict */}

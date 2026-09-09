@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, memo } from "react";
 import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings, ChevronDown, ChevronUp, Atom } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
 import { NearestResidue } from "../types";
 import { getNearestResidues } from "../data";
@@ -37,7 +38,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   uniprotId, 
   variant, 
   residueIndex, 
-  hoveredResidueIndex, 
+  hoveredResidueIndex: hoveredResidueIndexProp, 
   gene, 
   theme,
   onResidueClick,
@@ -54,6 +55,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
 }: SequenceVisualizerProps) {
   const { settings } = useSettings();
   const { fetchWithAuth } = useApiClient();
+  const storeHoveredIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
+  const hoveredResidueIndex = hoveredResidueIndexProp !== undefined ? hoveredResidueIndexProp : storeHoveredIndex;
   const seqColorScheme = seqColorSchemeProp || settings.seqColorScheme;
 
   const [sequence, setSequence] = useState<string>("");
