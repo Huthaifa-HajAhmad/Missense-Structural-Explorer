@@ -380,13 +380,21 @@ export function evaluateSplicePredictor(
   }
 
   const dist = spliceProximity?.distance ?? Infinity;
-  const isSpliceAIBenign = spliceai?.max_ds != null ? spliceai.max_ds <= 0.02 : true;
-  const isDbscsnvBenign = (dbscsnv?.ada_score != null || dbscsnv?.rf_score != null)
-    ? ((dbscsnv.ada_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering && (dbscsnv.rf_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering)
-    : true;
+  const hasSpliceAI = spliceai?.max_ds != null;
+  const isSpliceAIBenign = hasSpliceAI ? (spliceai!.max_ds! <= 0.02) : null;
 
-  if (dist > 10 && isSpliceAIBenign && isDbscsnvBenign) {
+  const hasDbscsnv = dbscsnv?.ada_score != null || dbscsnv?.rf_score != null;
+  const isDbscsnvBenign = hasDbscsnv
+    ? ((dbscsnv?.ada_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering && (dbscsnv?.rf_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering)
+    : null;
+
+  if (dist > 10 && isSpliceAIBenign !== false && isDbscsnvBenign !== false
+      && (isSpliceAIBenign === true || isDbscsnvBenign === true)) {
     return "benign";
+  }
+
+  if (isSpliceAIBenign === null && isDbscsnvBenign === null) {
+    return "unavailable";
   }
 
   return "vus";
@@ -721,7 +729,8 @@ export function computeCalibratedConsensus(
     foldxBinaryMissing?: boolean;
   } | null,
   uniprotFeatures?: any[],
-  residueIndex?: number
+  residueIndex?: number,
+  plddt?: number | null
 ): CalibratedConsensusResult {
   if (!energetics) {
     return {
@@ -752,6 +761,18 @@ export function computeCalibratedConsensus(
 
   const context = getResidueContext(uniprotFeatures, residueIndex ?? 0);
 
+  // Structural confidence damping for structure-dependent predictors (SCI-004)
+  const plddtVal = (plddt !== null && plddt !== undefined) ? plddt : 100;
+  const structureConfidenceFactor = plddtVal >= 70 ? 1.0 : (plddtVal >= 50 ? 0.5 : 0.1);
+  /**
+   * Identifies atomic-coordinate-sensitive engines (FoldX, ThermoMPNN, StabilityOracle).
+   * These engines rely on precise atomic packing, rotamer orientations, and 3D graph topologies;
+   * their ΔΔG estimates degrade rapidly in low-confidence/disordered regions (pLDDT < 70),
+   * requiring proportional down-weighting. In contrast, sequence-inferred or distance-invariant
+   * methods are less sensitive to coordinate jitter.
+   */
+  const isStructureTool = (name: string) => ["foldx", "thermompnn", "stabilityoracle"].includes(name);
+
   let totalWeight = 0;
   let weightedProbSum = 0;
   let weightedLowerSum = 0;
@@ -764,7 +785,7 @@ export function computeCalibratedConsensus(
       if (cal !== null) {
         const baseWeight = (stackingConfig as any)[tool.name]?.weight ?? 1.0;
         const calInfo = getCalibration(tool.name, context);
-        const weight = baseWeight * calInfo.weightMultiplier;
+        const weight = baseWeight * calInfo.weightMultiplier * (isStructureTool(tool.name) ? structureConfidenceFactor : 1.0);
 
         totalWeight += weight;
         weightedProbSum += weight * cal.p;
@@ -828,7 +849,10 @@ export function computeConsensusVerdict(
     stabilityoracle?: number | null;
     foldxRepairFailed?: boolean;
     foldxBinaryMissing?: boolean;
-  } | null
+  } | null,
+  uniprotFeatures?: any[],
+  residueIndex?: number,
+  plddt?: number | null
 ): string {
-  return computeCalibratedConsensus(energetics).consensusVerdict;
+  return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex, plddt).consensusVerdict;
 }

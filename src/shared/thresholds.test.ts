@@ -15,7 +15,8 @@ import {
   computeCalibratedConsensus,
   normalizeDestabilizationMagnitude,
   THRESHOLDS
-} from "./thresholds";
+} from "./thresholds.ts";
+import { getResidueContext, getCalibration } from "./uncertainty";
 
 describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
   describe("Individual Predictors Evaluation", () => {
@@ -92,6 +93,16 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
 
       // Far and low SpliceAI -> benign
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
+
+      // Far but missing both predictors -> unavailable (Zero-Heuristics SCI-002)
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, null)).toBe("unavailable");
+      expect(evaluateSplicePredictor({ distance: 25, isNearSpliceSite: false }, undefined, undefined)).toBe("unavailable");
+
+      // Far with benign dbscSNV and missing SpliceAI -> benign
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, { ada_score: 0.1, rf_score: 0.1 })).toBe("benign");
+
+      // Far with intermediate SpliceAI (0.05) -> vus
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.05, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.05 }, null)).toBe("vus");
 
       // Both null / undefined -> unavailable
       expect(evaluateSplicePredictor(null, null)).toBe("unavailable");
@@ -406,6 +417,42 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(result.consensusProbability).not.toBeNull();
       expect(typeof result.consensusProbability).toBe("number");
       expect(result.consensusProbability).toBeGreaterThan(0);
+    });
+
+    it("should dampen structure-dependent predictor weights when pLDDT is low (SCI-004)", () => {
+      // FoldX says destabilizing (3.0 kcal/mol), RaSP says neutral (0.0 kcal/mol)
+      // When pLDDT >= 70, FoldX weight is 1.2, RaSP weight is 1.0
+      const normalResult = computeCalibratedConsensus({
+        foldxMean: 3.0,
+        rasp: 0.0
+      }, undefined, undefined, 85);
+
+      // When pLDDT < 50 (e.g. 40), FoldX weight is damped by 0.1, while RaSP dominates
+      const dampedResult = computeCalibratedConsensus({
+        foldxMean: 3.0,
+        rasp: 0.0
+      }, undefined, undefined, 40);
+
+      expect(normalResult.consensusProbability).not.toBeNull();
+      expect(dampedResult.consensusProbability).not.toBeNull();
+      expect(dampedResult.consensusProbability!).toBeLessThan(normalResult.consensusProbability!);
+    });
+  });
+
+  describe("Structural Context Uncertainty (Zero-Heuristics SCI-005)", () => {
+    it("should return unknown context when features are absent or empty", () => {
+      expect(getResidueContext(undefined, 100)).toBe("unknown");
+      expect(getResidueContext([], 100)).toBe("unknown");
+      expect(getResidueContext(undefined, 0)).toBe("unknown");
+    });
+
+    it("should provide neutral calibration (weightMultiplier: 1.0) for unknown context across all tools", () => {
+      const tools = ["revel", "alphaMissense", "cadd", "popEVE", "foldx", "stabilityoracle", "thermompnn", "dynamut2", "ddmut", "rasp"];
+      for (const tool of tools) {
+        const cal = getCalibration(tool, "unknown");
+        expect(cal.weightMultiplier).toBe(1.0);
+        expect(cal.auc).toBe(0.80);
+      }
     });
   });
 });

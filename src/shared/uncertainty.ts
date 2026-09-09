@@ -1,6 +1,6 @@
 import calibrationData from "./protein_class_calibration.json" with { type: "json" };
 
-export type ProteinContext = "globular" | "transmembrane" | "disordered";
+export type ProteinContext = "globular" | "transmembrane" | "disordered" | "unknown";
 
 export interface CalibrationInfo {
   auc: number;
@@ -17,7 +17,7 @@ export function getResidueContext(
   residueIndex: number
 ): ProteinContext {
   if (!features || features.length === 0 || !residueIndex) {
-    return "globular"; // Fallback default
+    return "unknown"; // Neutral unannotated context (SCI-005)
   }
 
   for (const feature of features) {

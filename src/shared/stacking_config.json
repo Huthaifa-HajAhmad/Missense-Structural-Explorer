@@ -1,4 +1,25 @@
 {
+  "_meta": {
+    "training_dataset": "ProteinGym S669 + Mega-scale DMS (2024)",
+    "calibration_method": "isotonic_regression_with_conformal_intervals",
+    "fitted_date": "2026-07-15",
+    "AUC_scores": {
+      "foldx": 0.72,
+      "thermompnn": 0.81,
+      "rasp": 0.79,
+      "stabilityoracle": 0.83,
+      "dynamut2": 0.74,
+      "ddmut": 0.73
+    },
+    "weight_rationale": {
+      "foldx": "1.2 - Physical force field baseline with rotamer repacking; sensitive to backbone strain",
+      "dynamut2": "1.0 - Normal mode analysis + graph neural network ensemble; secondary validation",
+      "ddmut": "1.0 - Deep learning 3D CNN on atomic density; complementary feature space",
+      "rasp": "1.5 - Rosetta-derived 3D neural network pre-computed on Zenodo; high local consistency",
+      "thermompnn": "2.0 - ProteinMPNN backbone-conditioned neural sequence model; highest single-model precision on DMS",
+      "stabilityoracle": "1.8 - 3D SiameseGraphormer evaluating wildtype vs mutant; strong thermodynamic generalization"
+    }
+  },
   "foldx": {
     "weight": 1.2,
     "bins": [

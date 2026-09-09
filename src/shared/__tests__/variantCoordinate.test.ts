@@ -54,6 +54,36 @@ describe("VariantCoordinate Parser & Normalizer", () => {
     expect(coord.mut1).toBe("A");
   });
 
+  it("should parse variants with insertion codes (e.g. 408A) across all formats", () => {
+    // 3-letter with insertion code
+    const coord3 = parseVariantCoordinate("p.Arg408ATrp", { gene: "PAH" });
+    expect(coord3.pos).toBe(408);
+    expect(coord3.insCode).toBe("A");
+    expect(coord3.wt1).toBe("R");
+    expect(coord3.mut1).toBe("W");
+    expect(coord3.foldxCode).toBe("RA408AW");
+    expect(coord3.hgvsp1).toBe("p.R408AW");
+    expect(coord3.hgvsp3).toBe("p.Arg408ATrp");
+    expect(coord3.notation1).toBe("R408AW");
+
+    // 1-letter with insertion code
+    const coord1 = parseVariantCoordinate("R408AW");
+    expect(coord1.pos).toBe(408);
+    expect(coord1.insCode).toBe("A");
+    expect(coord1.wt1).toBe("R");
+    expect(coord1.mut1).toBe("W");
+    expect(coord1.foldxCode).toBe("RA408AW");
+
+    // FoldX with chain and insertion code
+    const coordFoldx = parseVariantCoordinate("RB215BH");
+    expect(coordFoldx.pos).toBe(215);
+    expect(coordFoldx.chain).toBe("B");
+    expect(coordFoldx.insCode).toBe("B");
+    expect(coordFoldx.wt1).toBe("R");
+    expect(coordFoldx.mut1).toBe("H");
+    expect(coordFoldx.foldxCode).toBe("RB215BH");
+  });
+
   it("should reject invalid amino acid strings", () => {
     expect(() => parseVariantCoordinate("p.Xyz100Abc")).toThrow();
     expect(() => parseVariantCoordinate("12345")).toThrow();

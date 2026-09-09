@@ -28,57 +28,120 @@ def crop_sequence_around_mutation(sequence: str, pos: int, max_len: int = 1022):
         start = max(0, end - max_len)
     return sequence[start:end], pos - start, start
 
-def encode_pdb_to_3di(pdb_content: str, seq_len: int = None, start_idx: int = 1) -> str:
+import difflib
+
+THREE_TO_ONE = {
+    "ALA": "A", "CYS": "C", "ASP": "D", "GLU": "E", "PHE": "F",
+    "GLY": "G", "HIS": "H", "ILE": "I", "LYS": "K", "LEU": "L",
+    "MET": "M", "ASN": "N", "PRO": "P", "GLN": "Q", "ARG": "R",
+    "SER": "S", "THR": "T", "VAL": "V", "TRP": "W", "TYR": "Y",
+    "MSE": "M", "SEC": "C", "PYL": "K"
+}
+
+def encode_pdb_to_3di(
+    pdb_content: str,
+    seq_len: int = None,
+    start_idx: int = 1,
+    target_seq: str = None,
+    chain_id: str = None
+) -> str:
+    nan_val = float("nan")
+
+    if target_seq:
+        expected_len = len(target_seq)
+    elif seq_len is not None:
+        expected_len = seq_len
+    else:
+        expected_len = None
+
     try:
         import mini3di
     except ImportError:
         print("[Model Server Warning] mini3di library not available. Using structure-masked fallback.")
-        return "#" * (seq_len if seq_len is not None else 1)
+        return "#" * (expected_len if expected_len is not None else 1)
 
     residues = {}
+    ordered_keys = []
     for line in pdb_content.splitlines():
         if line.startswith("ATOM  ") or line.startswith("HETATM"):
             try:
                 atom_name = line[12:16].strip()
-                res_seq = int(line[22:26].strip())
                 alt_loc = line[16]
                 if alt_loc != ' ' and alt_loc != 'A':
                     continue
+                res_name = line[17:20].strip().upper()
+                chain = line[21].strip() or "A"
+                res_seq = int(line[22:26].strip())
+                ins_code = line[26].strip() if len(line) > 26 else ""
+
+                key = (chain, res_seq, ins_code)
+                if key not in residues:
+                    residues[key] = {"atoms": {}, "res_name": res_name, "chain": chain}
+                    ordered_keys.append(key)
+
                 x = float(line[30:38].strip())
                 y = float(line[38:46].strip())
                 z = float(line[46:54].strip())
-                
-                if res_seq not in residues:
-                    residues[res_seq] = {}
-                if atom_name in ["N", "CA", "C", "CB"] and atom_name not in residues[res_seq]:
-                    residues[res_seq][atom_name] = [x, y, z]
+
+                if atom_name in ["N", "CA", "C", "CB"] and atom_name not in residues[key]["atoms"]:
+                    residues[key]["atoms"][atom_name] = [x, y, z]
             except Exception:
                 continue
 
-    sorted_res_seqs = sorted(residues.keys())
-    if not sorted_res_seqs:
-        return "#" * (seq_len if seq_len is not None else 1)
+    if not ordered_keys:
+        return "#" * (expected_len if expected_len is not None else 1)
 
-    min_seq = sorted_res_seqs[0]
-    max_seq = sorted_res_seqs[-1]
-    
-    length = seq_len if seq_len is not None else (max_seq - min_seq + 1)
-    offset = start_idx - 1
-    
+    target_chain = chain_id if chain_id else ordered_keys[0][0]
+    chain_keys = [k for k in ordered_keys if k[0] == target_chain]
+    if not chain_keys:
+        chain_keys = ordered_keys
+
+    pdb_seq = "".join(THREE_TO_ONE.get(residues[k]["res_name"], "X") for k in chain_keys)
+
     ca_coords = []
     cb_coords = []
     n_coords = []
     c_coords = []
-    
-    nan_val = float("nan")
-    for i in range(1, length + 1):
-        res_idx = i + offset
-        res = residues.get(res_idx, {})
-        ca_coords.append(res.get("CA", [nan_val, nan_val, nan_val]))
-        cb_coords.append(res.get("CB", [nan_val, nan_val, nan_val]))
-        n_coords.append(res.get("N", [nan_val, nan_val, nan_val]))
-        c_coords.append(res.get("C", [nan_val, nan_val, nan_val]))
 
+    if target_seq:
+        matcher = difflib.SequenceMatcher(None, target_seq.upper(), pdb_seq)
+        matching_blocks = matcher.get_matching_blocks()
+        target_to_pdb = {}
+        for block in matching_blocks:
+            for offset in range(block.size):
+                target_to_pdb[block.a + offset] = block.b + offset
+
+        for target_idx in range(len(target_seq)):
+            pdb_idx = target_to_pdb.get(target_idx)
+            if pdb_idx is not None and pdb_idx < len(chain_keys):
+                res_key = chain_keys[pdb_idx]
+                atoms = residues[res_key]["atoms"]
+                ca_coords.append(atoms.get("CA", [nan_val, nan_val, nan_val]))
+                cb_coords.append(atoms.get("CB", [nan_val, nan_val, nan_val]))
+                n_coords.append(atoms.get("N", [nan_val, nan_val, nan_val]))
+                c_coords.append(atoms.get("C", [nan_val, nan_val, nan_val]))
+            else:
+                ca_coords.append([nan_val, nan_val, nan_val])
+                cb_coords.append([nan_val, nan_val, nan_val])
+                n_coords.append([nan_val, nan_val, nan_val])
+                c_coords.append([nan_val, nan_val, nan_val])
+    else:
+        n_res = expected_len if expected_len is not None else len(chain_keys)
+        for i in range(n_res):
+            if i < len(chain_keys):
+                res_key = chain_keys[i]
+                atoms = residues[res_key]["atoms"]
+                ca_coords.append(atoms.get("CA", [nan_val, nan_val, nan_val]))
+                cb_coords.append(atoms.get("CB", [nan_val, nan_val, nan_val]))
+                n_coords.append(atoms.get("N", [nan_val, nan_val, nan_val]))
+                c_coords.append(atoms.get("C", [nan_val, nan_val, nan_val]))
+            else:
+                ca_coords.append([nan_val, nan_val, nan_val])
+                cb_coords.append([nan_val, nan_val, nan_val])
+                n_coords.append([nan_val, nan_val, nan_val])
+                c_coords.append([nan_val, nan_val, nan_val])
+
+    total_len = len(ca_coords)
     try:
         encoder = mini3di.Encoder()
         states = encoder.encode_atoms(
@@ -87,10 +150,20 @@ def encode_pdb_to_3di(pdb_content: str, seq_len: int = None, start_idx: int = 1)
             n=np.array(n_coords),
             c=np.array(c_coords)
         )
-        return encoder.build_sequence(states)
+        raw_3di = encoder.build_sequence(states)
+
+        result_chars = []
+        for i in range(total_len):
+            if np.isnan(ca_coords[i][0]) or np.isnan(n_coords[i][0]) or np.isnan(c_coords[i][0]):
+                result_chars.append("#")
+            elif i < len(raw_3di):
+                result_chars.append(raw_3di[i])
+            else:
+                result_chars.append("#")
+        return "".join(result_chars)
     except Exception as e:
         print(f"[Model Server Error] Foldseek 3Di encoding failed: {e}")
-        return "#" * length
+        return "#" * total_len
 
 def compute_scientific_metrics(logits, pos_idx, wt_aa, mut_aa, vocab_map):
     aa_tokens = [vocab_map.get(aa, 3) for aa in AA_LIST]

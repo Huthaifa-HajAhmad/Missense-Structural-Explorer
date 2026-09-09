@@ -561,7 +561,8 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                       const contextLabels: Record<string, string> = {
                         globular: "Structured / Globular Domain",
                         transmembrane: "Transmembrane / Hydrophobic Helix",
-                        disordered: "Intrinsically Disordered Region (IDR) / Loop"
+                        disordered: "Intrinsically Disordered Region (IDR) / Loop",
+                        unknown: "Unannotated / Unknown Context"
                       };
 
                       const predictors = [

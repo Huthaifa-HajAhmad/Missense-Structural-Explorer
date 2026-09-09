@@ -4,6 +4,7 @@ import { AMINO_ACID_1_TO_3_TITLE, AMINO_ACID_3_TO_1 } from "../aminoAcids.ts";
 export const VariantCoordinateSchema = z.object({
   gene: z.string().optional(),
   pos: z.number().int().positive(),
+  insCode: z.string().max(1).optional(),
   wt1: z.string().length(1),
   wt3: z.string().length(3),
   mut1: z.string().length(1),
@@ -35,7 +36,7 @@ export function normalizeAminoAcid3(code: string): string {
 export function cleanVariantString(input: string): string {
   let clean = input.trim();
   clean = clean.replace(/^p\./i, "").replace(/[()]/g, "").trim();
-  clean = clean.replace(/^[A-Z0-9_]{4,20}:\s*/i, ""); // Strip transcript/uniprot prefix
+  clean = clean.replace(/^[A-Z0-9_.]{4,25}:\s*/i, ""); // Strip transcript/uniprot prefix (e.g. ENST00000373031.7:, NM_000546.6:)
   clean = clean.replace(/^[A-Z]{2,10}\s+/i, "");      // Strip leading gene symbol
   clean = clean.replace(/_/g, "");                    // Strip underscores
   clean = clean.replace(/>(?=[A-Z])/i, "");           // Strip HGVS '>' arrows (e.g. R>H -> RH)
@@ -60,30 +61,33 @@ export function parseVariantCoordinate(
   const clean = cleanVariantString(variantStr);
   const defaultChain = options?.chain?.toUpperCase() || "A";
 
-  // 1. Try FoldX Format (e.g., "RA408W" or "RB215H")
-  const foldxMatch = clean.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
+  // 1. Try FoldX Format (e.g., "RA408W", "RB215H", or with insCode "RA408AW", "RB215BH")
+  const foldxMatch = clean.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])?([a-zA-Z])$/);
   if (foldxMatch) {
     const wt1 = foldxMatch[1].toUpperCase();
     const chain = foldxMatch[2].toUpperCase();
     const pos = parseInt(foldxMatch[3], 10);
-    const mut1 = foldxMatch[4].toUpperCase();
+    const insCode = foldxMatch[4] ? foldxMatch[4].toUpperCase() : undefined;
+    const mut1 = foldxMatch[5].toUpperCase();
 
     const wt3 = AMINO_ACID_1_TO_3_TITLE[wt1];
     const mut3 = AMINO_ACID_1_TO_3_TITLE[mut1];
 
     if (wt3 && mut3) {
+      const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
       return {
         gene: options?.gene?.trim().toUpperCase(),
         pos,
+        insCode,
         wt1,
         wt3,
         mut1,
         mut3,
-        foldxCode: `${wt1}${chain}${pos}${mut1}`,
-        hgvsp1: `p.${wt1}${pos}${mut1}`,
-        hgvsp3: `p.${wt3}${pos}${mut3}`,
-        notation1: `${wt1}${pos}${mut1}`,
-        notation3: `${wt3}${pos}${mut3}`,
+        foldxCode: `${wt1}${chain}${posStr}${mut1}`,
+        hgvsp1: `p.${wt1}${posStr}${mut1}`,
+        hgvsp3: `p.${wt3}${posStr}${mut3}`,
+        notation1: `${wt1}${posStr}${mut1}`,
+        notation3: `${wt3}${posStr}${mut3}`,
         isSynonymous: wt1 === mut1,
         chain,
         transcriptId: options?.transcriptId,
@@ -92,12 +96,13 @@ export function parseVariantCoordinate(
     }
   }
 
-  // 2. Try 3-letter AA format (e.g. "Arg408Trp", "arg408trp")
-  const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
+  // 2. Try 3-letter AA format (e.g. "Arg408Trp", "arg408trp", or with insCode "Arg408ATrp")
+  const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z])?([a-zA-Z]{3})$/);
   if (match3) {
     const rawWt3 = normalizeAminoAcid3(match3[1]);
     const pos = parseInt(match3[2], 10);
-    const rawMut3 = normalizeAminoAcid3(match3[3]);
+    const insCode = match3[3] ? match3[3].toUpperCase() : undefined;
+    const rawMut3 = normalizeAminoAcid3(match3[4]);
 
     const wt1 = AMINO_ACID_3_TO_1[rawWt3];
     const mut1 = AMINO_ACID_3_TO_1[rawMut3];
@@ -111,19 +116,21 @@ export function parseVariantCoordinate(
 
     const wt3 = AMINO_ACID_1_TO_3_TITLE[wt1] || rawWt3;
     const mut3 = AMINO_ACID_1_TO_3_TITLE[mut1] || rawMut3;
+    const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
 
     return {
       gene: options?.gene?.trim().toUpperCase(),
       pos,
+      insCode,
       wt1,
       wt3,
       mut1,
       mut3,
-      foldxCode: `${wt1}${defaultChain}${pos}${mut1}`,
-      hgvsp1: `p.${wt1}${pos}${mut1}`,
-      hgvsp3: `p.${wt3}${pos}${mut3}`,
-      notation1: `${wt1}${pos}${mut1}`,
-      notation3: `${wt3}${pos}${mut3}`,
+      foldxCode: `${wt1}${defaultChain}${posStr}${mut1}`,
+      hgvsp1: `p.${wt1}${posStr}${mut1}`,
+      hgvsp3: `p.${wt3}${posStr}${mut3}`,
+      notation1: `${wt1}${posStr}${mut1}`,
+      notation3: `${wt3}${posStr}${mut3}`,
       isSynonymous: wt1 === mut1,
       chain: defaultChain,
       transcriptId: options?.transcriptId,
@@ -131,12 +138,13 @@ export function parseVariantCoordinate(
     };
   }
 
-  // 3. Try 1-letter AA format (e.g. "R408W", "r408w")
-  const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+  // 3. Try 1-letter AA format (e.g. "R408W", "r408w", or with insCode "R408AW")
+  const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])?([a-zA-Z])$/);
   if (match1) {
     const wt1 = match1[1].toUpperCase();
     const pos = parseInt(match1[2], 10);
-    const mut1 = match1[3].toUpperCase();
+    const insCode = match1[3] ? match1[3].toUpperCase() : undefined;
+    const mut1 = match1[4].toUpperCase();
 
     const wt3 = AMINO_ACID_1_TO_3_TITLE[wt1];
     const mut3 = AMINO_ACID_1_TO_3_TITLE[mut1];
@@ -148,18 +156,21 @@ export function parseVariantCoordinate(
       );
     }
 
+    const posStr = insCode ? `${pos}${insCode}` : `${pos}`;
+
     return {
       gene: options?.gene?.trim().toUpperCase(),
       pos,
+      insCode,
       wt1,
       wt3,
       mut1,
       mut3,
-      foldxCode: `${wt1}${defaultChain}${pos}${mut1}`,
-      hgvsp1: `p.${wt1}${pos}${mut1}`,
-      hgvsp3: `p.${wt3}${pos}${mut3}`,
-      notation1: `${wt1}${pos}${mut1}`,
-      notation3: `${wt3}${pos}${mut3}`,
+      foldxCode: `${wt1}${defaultChain}${posStr}${mut1}`,
+      hgvsp1: `p.${wt1}${posStr}${mut1}`,
+      hgvsp3: `p.${wt3}${posStr}${mut3}`,
+      notation1: `${wt1}${posStr}${mut1}`,
+      notation3: `${wt3}${posStr}${mut3}`,
       isSynonymous: wt1 === mut1,
       chain: defaultChain,
       transcriptId: options?.transcriptId,
