@@ -129,6 +129,10 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/test-hf-connection",
   "/biophysics/verify-stability",
   "/api/v1/biophysics/verify-stability",
+  "/structure/multimer",
+  "/api/v1/structure/multimer",
+  "/ppi/binding-affinity",
+  "/api/v1/ppi/binding-affinity",
 ];
 
 // Initialize optional Redis Client

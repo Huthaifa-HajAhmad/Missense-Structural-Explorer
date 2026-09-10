@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { ShieldCheck, AlertTriangle, RefreshCw, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { PpiBindingData } from "../../types";
+import { useApiClient, extractErrorMessage } from "../../apiClient";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
 export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: TabComponentProps) {
   const result = analysisState.result;
@@ -9,7 +11,11 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
   const variant = result?.metadata?.variant;
   const uniprotId = result?.metadata?.uniprotId;
   const complexPdb = result?.multimerData?.complexPdb;
+  const chainIds = result?.multimerData?.chainIds;
+  const chainA = (chainIds && chainIds.length > 0 && chainIds[0]) ? chainIds[0] : "A";
+  const chainB = (chainIds && chainIds.length > 1 && chainIds[1]) ? chainIds[1] : "B";
 
+  const { fetchWithAuth } = useApiClient();
   const [ppiData, setPpiData] = useState<PpiBindingData | null>(result?.ppiBindingData || null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +25,7 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/v1/ppi/binding-affinity", {
+      const response = await fetchWithAuth("/api/v1/ppi/binding-affinity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -28,16 +34,27 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
           uniprotId,
           wtPdb: complexPdb || null,
           mutPdb: complexPdb || null,
-          chainA: "A",
-          chainB: "B"
+          chainA,
+          chainB
         }),
         signal
       });
       if (response.ok) {
         const data = await response.json();
         setPpiData(data);
+        useVariantAnalysisStore.getState().setAnalysisState((prev: any) => {
+          if (!prev?.result) return prev;
+          return {
+            ...prev,
+            result: {
+              ...prev.result,
+              ppiBindingData: data
+            }
+          };
+        });
       } else {
-        setError(`Failed to fetch PPI binding data (HTTP ${response.status})`);
+        const errorMsg = await extractErrorMessage(response, "Failed to fetch PPI binding data");
+        setError(errorMsg);
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -46,11 +63,15 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
     } finally {
       setIsLoading(false);
     }
-  }, [gene, variant, uniprotId, complexPdb]);
+  }, [gene, variant, uniprotId, complexPdb, chainA, chainB, fetchWithAuth]);
 
   // Synchronize local state on variant change and abort in-flight queries
   useEffect(() => {
-    setPpiData(result?.ppiBindingData || null);
+    if (result?.ppiBindingData) {
+      setPpiData(result.ppiBindingData);
+      return;
+    }
+    setPpiData(null);
     setError(null);
     if (!gene || !variant) return;
 
@@ -60,7 +81,7 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
     return () => {
       controller.abort();
     };
-  }, [gene, variant, uniprotId, complexPdb, fetchPpiData]);
+  }, [gene, variant, uniprotId, complexPdb, result?.ppiBindingData, fetchPpiData]);
 
   if (!result) return null;
 

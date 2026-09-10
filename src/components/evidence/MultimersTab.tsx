@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Layers, ShieldCheck, AlertCircle, RefreshCw, Box, AlertTriangle } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { MultimerData } from "../../types";
+import { useApiClient, extractErrorMessage } from "../../apiClient";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
 export function MultimersTab({ analysisState }: TabComponentProps) {
   const result = analysisState.result;
@@ -9,6 +11,7 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
   const variant = result?.metadata?.variant;
   const uniprotId = result?.metadata?.uniprotId;
 
+  const { fetchWithAuth } = useApiClient();
   const [multimerData, setMultimerData] = useState<MultimerData | null>(result?.multimerData || null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +21,7 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/v1/structure/multimer", {
+      const response = await fetchWithAuth("/api/v1/structure/multimer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gene, variant, uniprotId }),
@@ -27,8 +30,19 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
       if (response.ok) {
         const data = await response.json();
         setMultimerData(data);
+        useVariantAnalysisStore.getState().setAnalysisState((prev: any) => {
+          if (!prev?.result) return prev;
+          return {
+            ...prev,
+            result: {
+              ...prev.result,
+              multimerData: data
+            }
+          };
+        });
       } else {
-        setError(`Failed to fetch multimer data (HTTP ${response.status})`);
+        const errorMsg = await extractErrorMessage(response, "Failed to fetch multimer data");
+        setError(errorMsg);
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -37,11 +51,15 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [gene, variant, uniprotId]);
+  }, [gene, variant, uniprotId, fetchWithAuth]);
 
   // Synchronize on variant change and abort in-flight requests on unmount/variant switch
   useEffect(() => {
-    setMultimerData(result?.multimerData || null);
+    if (result?.multimerData) {
+      setMultimerData(result.multimerData);
+      return;
+    }
+    setMultimerData(null);
     setError(null);
     if (!gene || !variant || !uniprotId) return;
 
@@ -51,7 +69,7 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
     return () => {
       controller.abort();
     };
-  }, [gene, variant, uniprotId, fetchMultimerData]);
+  }, [gene, variant, uniprotId, result?.multimerData, fetchMultimerData]);
 
   if (!result) return null;
 
