@@ -111,7 +111,7 @@ export async function runSaprotAnalysis(
         wtPdb: wtPdb || null,
         hfToken: hfToken || null,
         modelName: modelName,
-        preferRemote: saprotEngine === "remote-hf",
+        preferRemote: saprotEngine === "remote-hf" || (Boolean(hfToken) && saprotEngine !== "saprot-35m"),
         engine: saprotEngine || null
       }),
       signal: AbortSignal.timeout(120000) // CPU inference + model load can take 1-2 min

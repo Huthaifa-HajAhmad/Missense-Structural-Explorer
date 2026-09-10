@@ -31,7 +31,7 @@ export const CONFIG = {
   },
   timeouts: {
     coreAnalysisMs: parseInt(process.env.CORE_TIMEOUT_MS || "45000", 10),
-    structuralModelsMs: parseInt(process.env.STRUCTURAL_TIMEOUT_MS || "45000", 10),
+    structuralModelsMs: parseInt(process.env.STRUCTURAL_TIMEOUT_MS || "120000", 10),
     foldxSec: parseInt(process.env.FOLDX_TIMEOUT_S || "300", 10),
     p2rankSec: parseInt(process.env.P2RANK_TIMEOUT_S || "120", 10),
     sidecarHealthCheckMs: parseInt(process.env.SIDECAR_HEALTH_MS || "5000", 10),

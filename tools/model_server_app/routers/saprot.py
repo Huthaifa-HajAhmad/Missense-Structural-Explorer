@@ -120,19 +120,35 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     
     s_pos = seq_3di[pos - 1]
     targets = [aa + s_pos for aa in AA_LIST]
-    
-    try:
-        preds = client.fill_mask(masked_seq, model=model_name, targets=targets, top_k=20)
-    except Exception as e:
-        print(f"[Model Server] SaProt remote call for {model_name} failed: {e}. Trying westlake-repl/SaProt_35M_AF2...")
-        try:
-            model_name = "westlake-repl/SaProt_35M_AF2"
-            preds = client.fill_mask(masked_seq, model=model_name, targets=targets, top_k=20)
-        except Exception as e2:
-            print(f"[Model Server] SaProt remote targets call failed: {e2}. Trying top_k=50...")
-            preds = client.fill_mask(masked_seq, model=model_name, top_k=50)
 
-    probs = parse_saprot_fill_mask_scores(preds, expected_wt=wt, expected_mut=mut)
+    candidate_models = [model_name]
+    if model_name != "westlake-repl/SaProt_35M_AF2":
+        candidate_models.append("westlake-repl/SaProt_35M_AF2")
+
+    preds = None
+    last_err = None
+    chosen_model = model_name
+
+    for cand_model in candidate_models:
+        try:
+            print(f"[Model Server] Attempting remote fill_mask on {cand_model}...")
+            try:
+                preds = client.fill_mask(masked_seq, model=cand_model, targets=targets, top_k=50)
+            except Exception as e_targets:
+                print(f"[Model Server] targets call on {cand_model} failed: {e_targets}. Retrying with top_k=50...")
+                preds = client.fill_mask(masked_seq, model=cand_model, top_k=50)
+            
+            # Verify parsed scores are valid
+            probs = parse_saprot_fill_mask_scores(preds, expected_wt=wt, expected_mut=mut)
+            chosen_model = cand_model
+            break
+        except Exception as cand_err:
+            print(f"[Model Server] Remote candidate {cand_model} failed: {cand_err}")
+            last_err = cand_err
+            preds = None
+
+    if preds is None or "probs" not in locals():
+        raise RuntimeError(f"All remote SaProt models failed: {last_err}")
 
     wt_prob = probs.get(wt, 1e-9)
     mut_prob = probs.get(mut, 1e-9)
@@ -159,11 +175,11 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     embedding_shift = 0.0
     local_shift_map = []
     try:
-        wt_emb = np.array(client.feature_extraction(wt_seq_sa, model=model_name))
+        wt_emb = np.array(client.feature_extraction(wt_seq_sa, model=chosen_model))
         if wt_emb.ndim == 3:
             wt_emb = wt_emb[0]
             
-        mut_emb = np.array(client.feature_extraction(mut_seq_sa, model=model_name))
+        mut_emb = np.array(client.feature_extraction(mut_seq_sa, model=chosen_model))
         if mut_emb.ndim == 3:
             mut_emb = mut_emb[0]
             
@@ -186,33 +202,10 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     except Exception as e:
         print(f"[Model Server] SaProt remote feature extraction skipped (not supported by HF API): {e}")
 
-    mut_seq_sa_masked_list = []
-    for idx, (a, d) in enumerate(zip(mut_sequence, seq_3di)):
-        if idx == pos - 1:
-            mut_seq_sa_masked_list.append("<mask>")
-        else:
-            mut_seq_sa_masked_list.append(a + d)
-    mut_masked_seq = "".join(mut_seq_sa_masked_list)
-    
-    mut_preds = []
-    try:
-        mut_preds = client.fill_mask(mut_masked_seq, model=model_name, targets=targets, top_k=20)
-    except Exception as e:
-        try:
-            mut_preds = client.fill_mask(mut_masked_seq, model=model_name, top_k=50)
-        except Exception as e2:
-            print(f"[Model Server] SaProt mutant fill_mask failed: {e2}")
-            mut_preds = []
-
+    # Remote fill_mask predicts conditional token likelihoods at a masked position, not full unmasked logits.
+    # Computing true 3Di structural KL divergence requires unmasked sequence forward evaluation.
+    # Per Zero-Heuristics Policy: strictly return None rather than fabricating zero divergence.
     kl_div = None
-    if mut_preds:
-        try:
-            mut_probs = parse_saprot_fill_mask_scores(mut_preds, expected_wt=wt, expected_mut=mut)
-            kl_div = float(sum(probs[aa] * np.log((probs[aa] + 1e-9) / (mut_probs[aa] + 1e-9)) for aa in AA_LIST))
-            kl_div = round(kl_div, 4)
-        except Exception as parse_err:
-            print(f"[Model Server] SaProt parse mutant fill_mask scores failed: {parse_err}")
-            kl_div = None
 
     return {
         "status": "success",
@@ -226,7 +219,7 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         "localShiftMap": local_shift_map,
         "klDivergence": kl_div,
         "conformationState": s_pos,
-        "provenance": f"SaProt ({model_name.split('/')[-1]} - Remote)"
+        "provenance": f"SaProt ({chosen_model.split('/')[-1]} - Remote)"
     }
 
 def predict_saprot_sync(req: SaprotRequest):
@@ -244,136 +237,152 @@ def predict_saprot_sync(req: SaprotRequest):
     if sequence[pos - 1] != wt:
         raise HTTPException(status_code=400, detail="Wild-type AA mismatch.")
 
-    if getattr(req, "engine", None) == "saprot-35m" and req.modelName == "westlake-repl/SaProt_650M_AF2":
-        req.modelName = "westlake-repl/SaProt_35M_AF2"
+    try:
+        if getattr(req, "engine", None) == "saprot-35m" and req.modelName == "westlake-repl/SaProt_650M_AF2":
+            req.modelName = "westlake-repl/SaProt_35M_AF2"
 
-    hf_error_detail = None
-    should_prefer_remote = getattr(req, "preferRemote", False) or getattr(req, "engine", None) == "remote-hf"
-    if req.hfToken and should_prefer_remote:
-        try:
-            print(f"[Model Server] Querying SaProt remotely via HF Serverless Inference API (model={req.modelName})...")
-            result = run_saprot_remote(req.modelName, sequence, pos, wt, mut, req.hfToken, req.wtPdb, start_offset=start_offset)
-            print(f"[Model Server] SaProt remote call succeeded.")
-            return result
-        except Exception as e:
-            import traceback
-            hf_error_detail = f"{type(e).__name__}: {e}"
-            print(f"[Model Server] SaProt remote run FAILED: {hf_error_detail}")
-            print(traceback.format_exc())
+        hf_error_detail = None
+        should_prefer_remote = getattr(req, "preferRemote", False) or getattr(req, "engine", None) == "remote-hf"
+        if req.hfToken and should_prefer_remote:
+            models.model_status["saprot"] = "remote_inference"
+            try:
+                print(f"[Model Server] Querying SaProt remotely via HF Serverless Inference API (model={req.modelName})...")
+                result = run_saprot_remote(req.modelName, sequence, pos, wt, mut, req.hfToken, req.wtPdb, start_offset=start_offset)
+                print(f"[Model Server] SaProt remote call succeeded.")
+                return result
+            except Exception as e:
+                import traceback
+                hf_error_detail = f"{type(e).__name__}: {e}"
+                print(f"[Model Server] SaProt remote run FAILED: {hf_error_detail}")
+                print(traceback.format_exc())
 
-    # Local CPU / GPU inference via PyTorch (zero CUDA requirement)
-    target_models = [req.modelName]
-    if req.modelName != "westlake-repl/SaProt_35M_AF2":
-        target_models.append("westlake-repl/SaProt_35M_AF2")
+        # Local CPU / GPU inference via PyTorch (zero CUDA requirement)
+        engine_choice = getattr(req, "engine", None)
+        if engine_choice == "saprot-35m":
+            target_models = ["westlake-repl/SaProt_35M_AF2"]
+        elif engine_choice == "saprot-650m":
+            target_models = ["westlake-repl/SaProt_650M_AF2", "westlake-repl/SaProt_35M_AF2"]
+        elif not torch.cuda.is_available():
+            # On CPU without explicit 650M selection, prioritize the fast 35M model (~1.5s) to avoid CPU timeout
+            target_models = ["westlake-repl/SaProt_35M_AF2", "westlake-repl/SaProt_650M_AF2"]
+        else:
+            target_models = [req.modelName]
+            if req.modelName != "westlake-repl/SaProt_35M_AF2":
+                target_models.append("westlake-repl/SaProt_35M_AF2")
 
-    last_local_err = None
-    for model_candidate in target_models:
-        try:
-            print(f"[Model Server] Attempting local SaProt execution using {model_candidate}...")
-            tokenizer, model = models.get_saprot_model(model_candidate, token=req.hfToken)
-            device = next(model.parameters()).device
-            
-            if req.wtPdb:
-                seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1, target_seq=sequence)
-            else:
-                seq_3di = "#" * len(sequence)
+        last_local_err = None
+        for model_candidate in target_models:
+            try:
+                print(f"[Model Server] Attempting local SaProt execution using {model_candidate}...")
+                models.model_status["saprot"] = "loading_into_ram"
+                tokenizer, model = models.get_saprot_model(model_candidate, token=req.hfToken)
+                device = next(model.parameters()).device
                 
-            seq_sa = "".join(a + d for a, d in zip(sequence, seq_3di))
-            
-            inputs = tokenizer(seq_sa, return_tensors="pt")
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            with torch.inference_mode():
-                outputs = model(**inputs, output_hidden_states=True)
-                
-            logits = outputs.logits[0]
-            hidden_states = outputs.hidden_states[-1][0]
-            
-            s_pos = seq_3di[pos - 1]
-            
-            vocab_map = {}
-            for aa in AA_LIST:
-                tok_str = aa + s_pos
-                tok_id = tokenizer.convert_tokens_to_ids(tok_str)
-                if tok_id == tokenizer.unk_token_id or tok_id is None:
-                    tok_id = tokenizer.convert_tokens_to_ids(aa + "#")
-                vocab_map[aa] = tok_id
-                
-            wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
-                logits, pos, wt, mut, vocab_map
-            )
-            
-            mut_seq_chars = list(sequence)
-            mut_seq_chars[pos - 1] = mut
-            mut_sequence = "".join(mut_seq_chars)
-            mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
-            
-            mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
-            mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
-            with torch.inference_mode():
-                mut_outputs = model(**mut_inputs, output_hidden_states=True)
-                
-            mut_hidden_states = mut_outputs.hidden_states[-1][0]
-            
-            seq_len = min(hidden_states.size(0), mut_hidden_states.size(0))
-            diff = hidden_states[:seq_len] - mut_hidden_states[:seq_len]
-            distances = torch.norm(diff, p=2, dim=-1)
-            
-            embedding_shift = round(distances[pos].item(), 4)
-            
-            local_shift_map = []
-            for i in range(-10, 11):
-                target_token_idx = pos + i
-                if 1 <= target_token_idx < seq_len - 1:
-                    shift_val = distances[target_token_idx].item()
-                    res_char = sequence[target_token_idx - 1]
-                    local_shift_map.append({
-                        "position": target_token_idx + start_offset,
-                        "residue": res_char,
-                        "shift": round(shift_val, 4)
-                    })
+                if req.wtPdb:
+                    models.model_status["saprot"] = "generating_3di_tokens"
+                    seq_3di = encode_pdb_to_3di(req.wtPdb, len(sequence), start_idx=start_offset + 1, target_seq=sequence)
+                else:
+                    seq_3di = "#" * len(sequence)
                     
-            aa_tokens = [vocab_map[aa] for aa in AA_LIST]
-            wt_logits = logits[pos]
-            wt_std_logits = torch.tensor([wt_logits[tok].item() for tok in aa_tokens])
-            p_wt = torch.softmax(wt_std_logits, dim=-1)
-            
-            mut_logits = mut_outputs.logits[0, pos]
-            mut_std_logits = torch.tensor([mut_logits[tok].item() for tok in aa_tokens])
-            p_mut = torch.softmax(mut_std_logits, dim=-1)
-            
-            kl_div = float(torch.sum(p_wt * torch.log((p_wt + 1e-9) / (p_mut + 1e-9))).item())
-            
-            provenance_label = f"SaProt ({model_candidate.split('/')[-1]} - Local CPU)" if device.type == "cpu" else f"SaProt ({model_candidate.split('/')[-1]})"
-            
-            return {
-                "status": "success",
-                "wtProbability": wt_prob,
-                "mutProbability": mut_prob,
-                "llr": llr,
-                "preferences": preferences,
-                "mutRank": mut_rank,
-                "positionalEntropy": pos_entropy,
-                "embeddingShift": embedding_shift,
-                "localShiftMap": local_shift_map,
-                "klDivergence": round(kl_div, 4),
-                "conformationState": s_pos,
-                "provenance": provenance_label,
-                "hfError": hf_error_detail
-            }
-        except Exception as local_err:
-            print(f"[Model Server] SaProt candidate {model_candidate} failed: {local_err}")
-            last_local_err = local_err
+                models.model_status["saprot"] = "scoring_perturbation"
+                seq_sa = "".join(a + d for a, d in zip(sequence, seq_3di))
+                
+                inputs = tokenizer(seq_sa, return_tensors="pt")
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                
+                with torch.inference_mode():
+                    outputs = model(**inputs, output_hidden_states=True)
+                    
+                logits = outputs.logits[0]
+                hidden_states = outputs.hidden_states[-1][0]
+                
+                s_pos = seq_3di[pos - 1]
+                
+                vocab_map = {}
+                for aa in AA_LIST:
+                    tok_str = aa + s_pos
+                    tok_id = tokenizer.convert_tokens_to_ids(tok_str)
+                    if tok_id == tokenizer.unk_token_id or tok_id is None:
+                        tok_id = tokenizer.convert_tokens_to_ids(aa + "#")
+                    vocab_map[aa] = tok_id
+                    
+                wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
+                    logits, pos, wt, mut, vocab_map
+                )
+                
+                mut_seq_chars = list(sequence)
+                mut_seq_chars[pos - 1] = mut
+                mut_sequence = "".join(mut_seq_chars)
+                mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
+                
+                mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
+                mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
+                with torch.inference_mode():
+                    mut_outputs = model(**mut_inputs, output_hidden_states=True)
+                    
+                mut_hidden_states = mut_outputs.hidden_states[-1][0]
+                
+                seq_len = min(hidden_states.size(0), mut_hidden_states.size(0))
+                diff = hidden_states[:seq_len] - mut_hidden_states[:seq_len]
+                distances = torch.norm(diff, p=2, dim=-1)
+                
+                embedding_shift = round(distances[pos].item(), 4)
+                
+                local_shift_map = []
+                for i in range(-10, 11):
+                    target_token_idx = pos + i
+                    if 1 <= target_token_idx < seq_len - 1:
+                        shift_val = distances[target_token_idx].item()
+                        res_char = sequence[target_token_idx - 1]
+                        local_shift_map.append({
+                            "position": target_token_idx + start_offset,
+                            "residue": res_char,
+                            "shift": round(shift_val, 4)
+                        })
+                        
+                aa_tokens = [vocab_map[aa] for aa in AA_LIST]
+                wt_logits = logits[pos]
+                wt_std_logits = torch.tensor([wt_logits[tok].item() for tok in aa_tokens])
+                p_wt = torch.softmax(wt_std_logits, dim=-1)
+                
+                mut_logits = mut_outputs.logits[0, pos]
+                mut_std_logits = torch.tensor([mut_logits[tok].item() for tok in aa_tokens])
+                p_mut = torch.softmax(mut_std_logits, dim=-1)
+                
+                kl_div = float(torch.sum(p_wt * torch.log((p_wt + 1e-9) / (p_mut + 1e-9))).item())
+                
+                provenance_label = f"SaProt ({model_candidate.split('/')[-1]} - Local CPU)" if device.type == "cpu" else f"SaProt ({model_candidate.split('/')[-1]})"
+                
+                return {
+                    "status": "success",
+                    "wtProbability": wt_prob,
+                    "mutProbability": mut_prob,
+                    "llr": llr,
+                    "preferences": preferences,
+                    "mutRank": mut_rank,
+                    "positionalEntropy": pos_entropy,
+                    "embeddingShift": embedding_shift,
+                    "localShiftMap": local_shift_map,
+                    "klDivergence": round(kl_div, 4),
+                    "conformationState": s_pos,
+                    "provenance": provenance_label,
+                    "hfError": hf_error_detail
+                }
+            except Exception as local_err:
+                print(f"[Model Server] SaProt candidate {model_candidate} failed: {local_err}")
+                last_local_err = local_err
 
-    # Fallback to VESM-150M if all SaProt attempts fail
-    print(f"[Model Server] All SaProt candidates failed ({last_local_err}). Falling back to VESM-150M.")
-    vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
-    vesm_res = predict_vesm_sync(vesm_req)
-    vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM cannot compute 3Di structural KL divergence
-    vesm_res["conformationState"] = "#"
-    vesm_res["provenance"] = "VESM-150M (Local Fallback - SaProt unavailable)"
-    vesm_res["hfError"] = hf_error_detail
-    return vesm_res
+        # Fallback to VESM-150M if all SaProt attempts fail
+        print(f"[Model Server] All SaProt candidates failed ({last_local_err}). Falling back to VESM-150M.")
+        vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
+        vesm_res = predict_vesm_sync(vesm_req)
+        vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM cannot compute 3Di structural KL divergence
+        vesm_res["conformationState"] = "#"
+        vesm_res["provenance"] = "VESM-150M (Local Fallback - SaProt unavailable)"
+        vesm_res["hfError"] = hf_error_detail
+        return vesm_res
+    finally:
+        models.model_status["saprot"] = "ready"
 
 _inference_semaphore = asyncio.Semaphore(1)
 

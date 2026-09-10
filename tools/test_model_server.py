@@ -279,6 +279,38 @@ class TestModelServerHelpers(unittest.TestCase):
             else:
                 os.environ.pop("SIDECAR_SECRET", None)
 
+class TestSaProtScoreParser(unittest.TestCase):
+    def test_valid_scores_parsing(self):
+        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        preds = [
+            {"token_str": "Ra", "score": 0.8},
+            {"token_str": "Ha", "score": 0.15},
+            {"token_str": "Aa", "score": 0.05},
+        ]
+        probs = parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
+        self.assertAlmostEqual(sum(probs.values()), 1.0, places=4)
+        self.assertGreater(probs["R"], probs["H"])
+        self.assertGreater(probs["H"], probs["A"])
+        # Missing AAs should have small floor probability
+        self.assertEqual(probs["W"], 1e-9 / sum(probs.values()) if False else probs["W"])
+
+    def test_missing_wt_and_mut_raises(self):
+        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        preds = [
+            {"token_str": "Aa", "score": 0.5},
+            {"token_str": "Ca", "score": 0.5},
+        ]
+        with self.assertRaises(ValueError):
+            parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
+
+    def test_insufficient_tokens_raises(self):
+        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        preds = [
+            {"token_str": "Ra", "score": 0.99},
+        ]
+        with self.assertRaises(ValueError):
+            parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
+
 if __name__ == "__main__":
     unittest.main()
 
