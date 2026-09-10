@@ -238,7 +238,7 @@ export default function useVariantAnalysis() {
     [settings.energyUnit]
   );
 
-  const retryStructuralAnalysisWrapper = useCallback(async () => {
+  const retryStructuralAnalysisWrapper = useCallback(async (overrides?: { saprotEngine?: string }) => {
     const currentStore = useVariantAnalysisStore.getState();
     const gene = currentStore.gene || currentStore.analysisState.result?.metadata?.gene;
     const variant = currentStore.variant || currentStore.analysisState.result?.metadata?.variant;
@@ -261,6 +261,7 @@ export default function useVariantAnalysis() {
     });
 
     const acmgWeighting = settings.acmgWeighting;
+    const saprotEngine = overrides?.saprotEngine ?? settings.saprotEngine;
     const requestId = ++pipeline.activeRequestIdRef.current;
     return await fetchProgressiveStructuralAssessments(
       {
@@ -268,7 +269,7 @@ export default function useVariantAnalysis() {
         variant,
         uniprotId,
         acmgWeighting,
-        saprotEngine: settings.saprotEngine
+        saprotEngine
       },
       apiClient,
       new AbortController().signal,

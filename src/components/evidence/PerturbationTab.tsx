@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from "react";
-import { Activity, Layers, Sparkles, RefreshCw } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { Activity, Layers, Sparkles, RefreshCw, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
 import { PerturbationModelCards, PerturbModelDef } from "./perturbation/PerturbationModelCards";
@@ -10,6 +10,125 @@ import { PhysicalPerturbationSection } from "./perturbation/PhysicalPerturbation
 import { Esm3ExploratorySection } from "./perturbation/Esm3ExploratorySection";
 import { useApiClient } from "../../apiClient";
 
+interface SaProtLoadingProgressBannerProps {
+  modelName: string;
+  saprotEngine?: string;
+  hasHfToken: boolean;
+  onSwitchTo35M: () => void;
+  onSwitchToRemoteHf: () => void;
+  onOpenSettings?: () => void;
+}
+
+const SAPROT_STAGES = [
+  { id: 1, label: "Environment & Setup", minSec: 0, desc: "Checking sidecar readiness and authentication tokens." },
+  { id: 2, label: "Loading SaProt Weights", minSec: 4, desc: "Loading model weights into RAM (SaProt 650M ~2.6GB) or warming serverless cloud worker." },
+  { id: 3, label: "3Di Backbone Tokenization", minSec: 18, desc: "Converting 3D coordinates into discrete 3Di structural geometric tokens." },
+  { id: 4, label: "Perturbation Scoring", minSec: 28, desc: "Calculating zero-shot mutation log-odds, embedding shift, and local conformation." }
+];
+
+const SaProtLoadingProgressBanner = React.memo(function SaProtLoadingProgressBanner({
+  modelName,
+  saprotEngine,
+  hasHfToken,
+  onSwitchTo35M,
+  onSwitchToRemoteHf,
+  onOpenSettings
+}: SaProtLoadingProgressBannerProps) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const t0 = Date.now();
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - t0) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const currentStageIndex = useMemo(() => {
+    if (elapsed < 4) return 0;
+    if (elapsed < 18) return 1;
+    if (elapsed < 28) return 2;
+    return 3;
+  }, [elapsed]);
+
+  const currentStage = SAPROT_STAGES[currentStageIndex];
+  const progressPercent = Math.min(95, Math.max(10, Math.round((elapsed / 35) * 100)));
+
+  return (
+    <div
+      className="p-5 rounded-xl border my-3 space-y-4 text-left transition-all"
+      style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 animate-spin text-purple-500" style={{ background: "rgba(147, 51, 234, 0.1)" }}>
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-semibold" style={{ color: "var(--cs-text-primary)" }}>
+                {modelName}: {currentStage.label}
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-medium border bg-purple-500/10 text-purple-400 border-purple-500/20">
+                {elapsed}s elapsed
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+              {currentStage.desc}
+            </p>
+          </div>
+        </div>
+
+        {/* Action button to switch to fast model */}
+        {saprotEngine !== "saprot-35m" && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onSwitchTo35M}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-xs"
+              style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+              title="Switch to SaProt 35M AF2 which evaluates in ~1.5s on CPU"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Switch to Fast 35M (~1.5s)
+            </button>
+            {hasHfToken && saprotEngine !== "remote-hf" && (
+              <button
+                type="button"
+                onClick={onSwitchToRemoteHf}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface)] cursor-pointer transition-colors shadow-xs"
+                style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
+              >
+                Use Cloud HF
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      <div className="space-y-1.5">
+        <div className="w-full h-1.5 rounded-full overflow-hidden bg-slate-700/30">
+          <div
+            className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-purple-500 via-indigo-500 to-[var(--cs-accent-clay)]"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+          {SAPROT_STAGES.map((st, idx) => (
+            <span
+              key={st.id}
+              className={`transition-colors ${idx === currentStageIndex ? "text-purple-400 font-semibold" : idx < currentStageIndex ? "text-slate-300" : "text-slate-500"}`}
+            >
+              {idx + 1}. {st.label.split(" ")[0]}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export function PerturbationTab({
   analysisState,
   foldingEnergetics,
@@ -19,7 +138,7 @@ export function PerturbationTab({
   onRetryStructural
 }: TabComponentProps) {
   const result = analysisState.result;
-  const { settings } = useSettings();
+  const { settings, updateSetting } = useSettings();
   const { apiClient } = useApiClient();
   const [activePerturbModel, setActivePerturbModel] = useState<"saprot" | "esm2" | "esmc">(
     settings.defaultPerturbationModel
@@ -32,10 +151,43 @@ export function PerturbationTab({
   const mutRes = result.metadata?.mutant || "H";
   const pos = result.metadata?.residueIndex || 408;
 
+  const saprotDisplayName = useMemo(() => {
+    if (result.saprotEval?.provenance) {
+      return result.saprotEval.provenance;
+    }
+    if (settings.saprotEngine === "saprot-35m") return "SaProt 35M AF2";
+    if (settings.saprotEngine === "remote-hf") return "SaProt (Remote HF)";
+    return "SaProt 650M AF2";
+  }, [result.saprotEval?.provenance, settings.saprotEngine]);
+
+  const handleSwitchTo35M = async () => {
+    updateSetting("saprotEngine", "saprot-35m");
+    if (onRetryStructural) {
+      setIsRetrying(true);
+      try {
+        await onRetryStructural({ saprotEngine: "saprot-35m" });
+      } finally {
+        setIsRetrying(false);
+      }
+    }
+  };
+
+  const handleSwitchToRemoteHf = async () => {
+    updateSetting("saprotEngine", "remote-hf");
+    if (onRetryStructural) {
+      setIsRetrying(true);
+      try {
+        await onRetryStructural({ saprotEngine: "remote-hf" });
+      } finally {
+        setIsRetrying(false);
+      }
+    }
+  };
+
   const models: PerturbModelDef[] = [
     {
       id: "saprot",
-      name: "SaProt 650M AF2",
+      name: saprotDisplayName,
       description: "Structure-Aware Residue & Conformation Predictor",
       data: result.saprotEval,
       icon: Layers,
@@ -181,32 +333,68 @@ export function PerturbationTab({
       />
 
       {activeEval?.loading ? (
-        <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-          <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3 animate-spin text-purple-500" style={{ background: "rgba(147, 51, 234, 0.1)" }}>
-            <Sparkles className="w-5 h-5 shrink-0" />
+        activePerturbModel === "saprot" ? (
+          <SaProtLoadingProgressBanner
+            modelName={currentModel.name}
+            saprotEngine={settings.saprotEngine}
+            hasHfToken={Boolean(settings.hfToken)}
+            onSwitchTo35M={handleSwitchTo35M}
+            onSwitchToRemoteHf={handleSwitchToRemoteHf}
+            onOpenSettings={onOpenSettings}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center p-12 text-center rounded-xl border border-dashed my-2" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3 animate-spin text-purple-500" style={{ background: "rgba(147, 51, 234, 0.1)" }}>
+              <Sparkles className="w-5 h-5 shrink-0" />
+            </div>
+            <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-text-primary)" }}>
+              Calculating Deep Structural Representations...
+            </span>
+            <p className="text-[11px] max-w-sm font-sans leading-relaxed text-slate-400">
+              Querying deep representation metrics and structure-aware embedding disruptions for {currentModel.name}.
+            </p>
           </div>
-          <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-text-primary)" }}>
-            Calculating Deep Structural Representations...
-          </span>
-          <p className="text-[11px] max-w-sm font-sans leading-relaxed text-slate-400">
-            Querying deep representation metrics and structure-aware embedding disruptions for {currentModel.name}.
-          </p>
-        </div>
+        )
       ) : activeEval?.error ? (
         <div className="flex flex-col items-center justify-center p-6 text-center rounded-xl border border-dashed my-3" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
           <span className="font-mono text-xs font-semibold mb-1" style={{ color: "var(--cs-text-primary)" }}>
             {currentModel.name} Standby
           </span>
           <p className="text-xs text-slate-400 max-w-md font-sans mb-3">
-            Inference engine is in standby. Configure an API token in Settings or launch the local sidecar to compute zero-shot evolutionary likelihoods and residue disruptions.
+            {activeEval.error?.includes("timeout")
+              ? `${currentModel.name} timed out on CPU. Switch to the fast 35M model (~1.5s) or run via Hugging Face Cloud Inference.`
+              : activeEval.error || "Inference engine is in standby. Configure an API token in Settings or launch the local sidecar to compute zero-shot evolutionary likelihoods and residue disruptions."}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {activePerturbModel === "saprot" && settings.saprotEngine !== "saprot-35m" && (
+              <button
+                type="button"
+                onClick={handleSwitchTo35M}
+                disabled={isRetrying}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-xs"
+                style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                Switch to Fast 35M (~1.5s)
+              </button>
+            )}
+            {activePerturbModel === "saprot" && Boolean(settings.hfToken) && settings.saprotEngine !== "remote-hf" && (
+              <button
+                type="button"
+                onClick={handleSwitchToRemoteHf}
+                disabled={isRetrying}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface)] cursor-pointer transition-colors shadow-xs"
+                style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
+              >
+                Run via Remote HF
+              </button>
+            )}
             <button
               type="button"
               onClick={handleRetry}
               disabled={isRetrying}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:opacity-90 cursor-pointer transition-colors shadow-xs"
-              style={{ background: "var(--cs-accent-clay)", color: "#fff", borderColor: "transparent" }}
+              style={{ background: activePerturbModel === "saprot" && settings.saprotEngine !== "saprot-35m" ? "var(--cs-surface)" : "var(--cs-accent-clay)", color: activePerturbModel === "saprot" && settings.saprotEngine !== "saprot-35m" ? "var(--cs-text-primary)" : "#fff", borderColor: activePerturbModel === "saprot" && settings.saprotEngine !== "saprot-35m" ? "var(--cs-border)" : "transparent" }}
             >
               <RefreshCw className={`w-3 h-3 ${isRetrying ? "animate-spin" : ""}`} />
               {isRetrying ? "Retrying..." : "Retry Analysis"}
