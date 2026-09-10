@@ -458,7 +458,7 @@ export function useBiophysicalModeling(
               pdb1: pdbText,
               pdb2: mutantPdb,
               targetIndex: foldedResidueIndex,
-              alignmentScope: "local"
+              alignmentScope: "global"
             })
           ]);
           if (isAborted) return;

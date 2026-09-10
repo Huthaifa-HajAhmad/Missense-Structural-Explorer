@@ -91,14 +91,20 @@ export function AppViews({
     settings,
     esmFoldWtPdb,
     esmFoldMutPdb,
-    esmFoldAlignedPdb,
     pdbText,
-    esmFoldMetrics,
-    foldxMetrics,
     active3dModelTab,
-    customPdbUrl,
-    compareMutantPdb
+    customPdbUrl
   } = state;
+
+  const storeCompareMutantPdb = useVariantAnalysisStore(s => s.compareMutantPdb);
+  const storeEsmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
+  const storeFoldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
+  const storeEsmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
+
+  const compareMutantPdb = storeCompareMutantPdb ?? state.compareMutantPdb;
+  const esmFoldAlignedPdb = storeEsmFoldAlignedPdb ?? state.esmFoldAlignedPdb;
+  const foldxMetrics = storeFoldxMetrics ?? state.foldxMetrics;
+  const esmFoldMetrics = storeEsmFoldMetrics ?? state.esmFoldMetrics;
 
   const {
     setSelectedResidueIndex,
@@ -112,8 +118,10 @@ export function AppViews({
   } = actions;
 
   const { apiClient } = useApiClient();
-  const [alignmentScope, setAlignmentScope] = useState<"local" | "global">("local");
   const isEsm = masterView === "structure_esmfold";
+  const [foldxAlignmentScope, setFoldxAlignmentScope] = useState<"local" | "global">("global");
+  const [esmAlignmentScope, setEsmAlignmentScope] = useState<"local" | "global">("local");
+  const alignmentScope = isEsm ? esmAlignmentScope : foldxAlignmentScope;
 
   const alignmentRequestIdRef = useRef(0);
 
@@ -179,7 +187,12 @@ export function AppViews({
   ]);
 
   const handleAlignmentScopeChange = useCallback(async (newScope: "local" | "global") => {
-    setAlignmentScope(newScope);
+    if (newScope === alignmentScope) return;
+    if (isEsm) {
+      setEsmAlignmentScope(newScope);
+    } else {
+      setFoldxAlignmentScope(newScope);
+    }
     const reqId = ++alignmentRequestIdRef.current;
     if (isEsm && esmFoldWtPdb && (esmFoldMutPdb || esmFoldAlignedPdb)) {
       const mutPdbToAlign = esmFoldMutPdb || esmFoldAlignedPdb;
@@ -222,7 +235,7 @@ export function AppViews({
         }
       }
     }
-  }, [isEsm, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, pdbText, mutantPdb, foldedResidueIndex, selectedResidueIndex, variant, apiClient]);
+  }, [alignmentScope, isEsm, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, pdbText, mutantPdb, foldedResidueIndex, selectedResidueIndex, variant, apiClient]);
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
   const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";

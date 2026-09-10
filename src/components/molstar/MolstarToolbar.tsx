@@ -134,7 +134,7 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
             <option value="confidence">pLDDT / B-factor</option>
             <option value="biomolecular">Cartoon & Sticks</option>
             <option value="esm3-allosteric">ESM3 Allosteric Heatmap</option>
-            <option value="displacement">Backbone Displacement Heatmap</option>
+            {Boolean(comparePdbData) && <option value="displacement">Backbone Displacement Heatmap</option>}
           </select>
         </div>
 

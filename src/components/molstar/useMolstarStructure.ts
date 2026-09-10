@@ -68,6 +68,8 @@ export function useMolstarStructure({
   const structure2Ref = useRef<any>(null);
   const componentRefRef = useRef<any>(null);
   const componentRefRef2 = useRef<any>(null);
+  const isStructureLoadingRef = useRef(false);
+  const [structureReadyVersion, setStructureReadyVersion] = useState(0);
 
   const [plddtFilter, setPlddtFilter] = useState<"none" | "30" | "50" | "70">("none");
   const [templateSource, setTemplateSource] = useState<"experimental" | "alphafold" | null>(null);
@@ -77,10 +79,12 @@ export function useMolstarStructure({
   const [bFactorMetadata, setBFactorMetadata] = useState<{ source: "alphafold" | "experimental" | "unknown"; semantic: "plddt" | "temperature_factor"; inherited: boolean } | null>(null);
 
   useEffect(() => {
-    if (comparePdbData) {
+    if (viewMode === "superimposed" && comparePdbData) {
       setViewerStyle("displacement");
+    } else if (viewMode === "wildtype" || viewMode === "mutant" || !comparePdbData) {
+      setViewerStyle((prev) => (prev === "displacement" ? "confidence" : prev));
     }
-  }, [comparePdbData]);
+  }, [viewMode, comparePdbData]);
 
   // Determine B-factor metadata
   useEffect(() => {
@@ -129,6 +133,7 @@ export function useMolstarStructure({
     let active = true;
 
     async function loadStructure() {
+      isStructureLoadingRef.current = true;
       setLoading(true);
       setLoadError(null);
       setPdbText(null);
@@ -136,7 +141,10 @@ export function useMolstarStructure({
 
       try {
         await localPlugin.clear();
-        if (!active) return;
+        if (!active) {
+          isStructureLoadingRef.current = false;
+          return;
+        }
         structureRef.current = null;
         structure2Ref.current = null;
         componentRefRef.current = null;
@@ -441,9 +449,12 @@ export function useMolstarStructure({
         }
 
         if (active) {
+          isStructureLoadingRef.current = false;
           setLoading(false);
+          setStructureReadyVersion((v) => v + 1);
         }
       } catch (err: any) {
+        isStructureLoadingRef.current = false;
         if (!active) return;
         console.error("Structure rendering error:", err);
         setLoadError(err.message || "Failed to render protein structure.");
@@ -454,6 +465,7 @@ export function useMolstarStructure({
     loadStructure();
     return () => {
       active = false;
+      isStructureLoadingRef.current = false;
     };
   }, [
     pluginCreated,
@@ -471,9 +483,11 @@ export function useMolstarStructure({
   // Residue focus & highlight effect
   useEffect(() => {
     if (!pluginCreated || !pluginRef.current || !structureRef.current) return;
+    if (isStructureLoadingRef.current) return;
     const localPlugin = pluginRef.current;
     const structure = structureRef.current;
     const structure2 = structure2Ref.current;
+    let active = true;
 
     async function applyResidueHighlight() {
       try {
@@ -498,7 +512,7 @@ export function useMolstarStructure({
         }
 
         // Verify structure ref is still present in Molstar state tree
-        if (!structure.ref || !localPlugin.state.data.tree.transforms.has(structure.ref)) {
+        if (!active || !structure.ref || !localPlugin?.state?.data?.tree?.transforms?.has(structure.ref)) {
           return;
         }
 
@@ -520,12 +534,16 @@ export function useMolstarStructure({
           ])
         });
 
+        if (!active || !structure.ref || !localPlugin?.state?.data?.tree?.transforms?.has(structure.ref)) return;
+
         const residueComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
           structure,
           expression,
           'mutated-residue',
           { label: `Mutated Residue ${residueIndex}` }
         );
+
+        if (!active) return;
 
         if (residueComponent) {
           componentRefRef.current = residueComponent.ref;
@@ -536,6 +554,8 @@ export function useMolstarStructure({
             colorParams: { value: comparePdbData ? 0x00bcd4 : residueColorHex },
             ...(neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : {})
           });
+
+          if (!active) return;
 
           if (neonHighContrast) {
             // Translucent spacefill halo makes the mutated residue pop on
@@ -550,6 +570,8 @@ export function useMolstarStructure({
             } catch (haloErr) {}
           }
 
+          if (!active) return;
+
           if (showPolarContacts) {
             try {
               await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
@@ -559,6 +581,8 @@ export function useMolstarStructure({
               });
             } catch (intrErr) {}
           }
+
+          if (!active) return;
 
           if (show3DLabels) {
             try {
@@ -590,7 +614,14 @@ export function useMolstarStructure({
           } catch (e) {}
         }
 
-        if (structure2 && structure2.ref && localPlugin.state.data.tree.transforms.has(structure2.ref) && compareResidueIndex !== null && compareResidueIndex !== undefined) {
+        if (
+          active &&
+          structure2 &&
+          structure2.ref &&
+          localPlugin?.state?.data?.tree?.transforms?.has(structure2.ref) &&
+          compareResidueIndex !== null &&
+          compareResidueIndex !== undefined
+        ) {
           const expression2 = MS.struct.generator.atomGroups({
             'residue-test': MS.core.rel.eq([
               MS.struct.atomProperty.macromolecular.auth_seq_id(),
@@ -604,6 +635,8 @@ export function useMolstarStructure({
             'compare-mutated-residue',
             { label: `Compare Residue ${compareResidueIndex}` }
           );
+
+          if (!active) return;
 
           if (residueComponent2) {
             componentRefRef2.current = residueComponent2.ref;
@@ -621,9 +654,10 @@ export function useMolstarStructure({
         }
 
         // Pocket highlights
-        if (showPocket && computedPocket && computedPocket.pocketResidues.length > 0) {
+        if (active && showPocket && computedPocket && computedPocket.pocketResidues.length > 0) {
           const refs: any[] = [];
           for (const res of computedPocket.pocketResidues) {
+            if (!active || !structure.ref || !localPlugin?.state?.data?.tree?.transforms?.has(structure.ref)) break;
             try {
               const pExpression = MS.struct.generator.atomGroups({
                 'residue-test': MS.core.rel.eq([
@@ -649,8 +683,12 @@ export function useMolstarStructure({
               }
             } catch (pErr) {}
           }
-          pocketComponentRefRef.current = refs;
+          if (active) {
+            pocketComponentRefRef.current = refs;
+          }
         }
+
+        if (!active) return;
 
         if (lociList.length > 0) {
           localPlugin.managers.structure.selection.clear();
@@ -662,8 +700,13 @@ export function useMolstarStructure({
           }
         }
       } catch (err: any) {
-        if (err?.message?.includes("is not present in the tree")) {
-          console.warn("[Molstar Highlight Warning] Highlight cancelled due to structure state change:", err.message);
+        const msg = err?.message || "";
+        if (
+          msg.includes("must be present in the tree") ||
+          msg.includes("is not present in the tree") ||
+          msg.includes("Cannot read properties of undefined")
+        ) {
+          console.warn("[Molstar Highlight Warning] Highlight cancelled due to structure state change:", msg);
         } else {
           console.error("Residue focus error:", err);
         }
@@ -671,8 +714,13 @@ export function useMolstarStructure({
     }
 
     applyResidueHighlight();
+    return () => {
+      active = false;
+    };
   }, [
     pluginCreated,
+    structureReadyVersion,
+    comparePdbData,
     residueIndex,
     compareResidueIndex,
     showPolarContacts,
@@ -682,9 +730,7 @@ export function useMolstarStructure({
     autoZoomOnSelect,
     cameraDuration,
     showPocket,
-    computedPocket,
-    comparePdbData,
-    pdbText
+    computedPocket
   ]);
 
   return {
