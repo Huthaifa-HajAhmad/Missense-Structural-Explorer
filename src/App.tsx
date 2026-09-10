@@ -137,14 +137,6 @@ export default function App() {
             isDark={isDark}
             isOpen={isSearchOpen}
             onClose={() => setIsSearchOpen(false)}
-            customGene={state.customGene}
-            setCustomGene={actions.setCustomGene}
-            customVariant={state.customVariant}
-            setCustomVariant={actions.setCustomVariant}
-            customUniprot={state.customUniprot}
-            setCustomUniprot={actions.setCustomUniprot}
-            customGenomic={state.customGenomic}
-            setCustomGenomic={actions.setCustomGenomic}
             analysisState={state.analysisState}
             handleSearchSubmit={actions.handleSearchSubmit}
             gene={state.gene}
@@ -185,12 +177,6 @@ export default function App() {
             classTextBody={classTextBody}
             classTextMute={classTextMute}
           />
-
-          {/* Footer info (28px height) */}
-          <footer className="border-t px-5 py-1.5 flex items-center justify-between flex-shrink-0 text-[9px] transition-colors z-20 bg-cs-surface-2 border-cs-border-subtle text-cs-text-muted">
-            <span>For research only. Not for diagnostic use. No PHI. &copy; 2026</span>
-            <span className="font-mono">Missense Structural Explorer · v1.0.0-dev</span>
-          </footer>
 
           {/* Settings Drawer Slide-over */}
           <SettingsDrawer />

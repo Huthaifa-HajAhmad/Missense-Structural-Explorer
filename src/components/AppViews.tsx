@@ -65,10 +65,6 @@ export function AppViews({
     foldedResidueIndex,
     viewMode,
     history,
-    customGene,
-    customVariant,
-    customUniprot,
-    customGenomic,
     analysisState,
     mutantPdb,
     foldingDdG,
@@ -108,10 +104,6 @@ export function AppViews({
     setSelectedResidueIndex,
     setFoldedResidueIndex,
     setViewMode,
-    setCustomGene,
-    setCustomVariant,
-    setCustomUniprot,
-    setCustomGenomic,
     clearHistory,
     handleSelectHistoryItem,
     formatEnergyString,
@@ -303,14 +295,6 @@ export function AppViews({
                     classCardTitle={classCardTitle}
                     classInput={classInput}
                     classBorderSec={classBorderSec}
-                    customGene={customGene}
-                    setCustomGene={setCustomGene}
-                    customVariant={customVariant}
-                    setCustomVariant={setCustomVariant}
-                    customUniprot={customUniprot}
-                    setCustomUniprot={setCustomUniprot}
-                    customGenomic={customGenomic}
-                    setCustomGenomic={setCustomGenomic}
                     analysisState={analysisState}
                     handleSearchSubmit={handleSearchSubmitAndOpen}
                     gene={gene}

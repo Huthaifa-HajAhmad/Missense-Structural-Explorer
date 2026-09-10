@@ -34,27 +34,27 @@ import { getWorkflowStageStatus } from "../shared/workflowStatus";
 
 interface VariantSearchPanelProps {
   isDark: boolean;
-  classCard: string;
-  classCardHeader: string;
-  classCardTitle: string;
-  classInput: string;
-  classBorderSec: string;
-  customGene: string;
-  setCustomGene: (val: string) => void;
-  customVariant: string;
-  setCustomVariant: (val: string) => void;
-  customUniprot: string;
-  setCustomUniprot: (val: string) => void;
-  customGenomic: string;
-  setCustomGenomic: (val: string) => void;
-  analysisState: AnalysisState;
-  handleSearchSubmit: (e: React.FormEvent) => void;
-  gene: string;
-  variant: string;
-  uniprotId: string;
-  history: SearchHistoryItem[];
-  clearHistory: () => void;
-  handleSelectHistoryItem: (item: SearchHistoryItem) => void;
+  classCard?: string;
+  classCardHeader?: string;
+  classCardTitle?: string;
+  classInput?: string;
+  classBorderSec?: string;
+  customGene?: string;
+  setCustomGene?: (val: string) => void;
+  customVariant?: string;
+  setCustomVariant?: (val: string) => void;
+  customUniprot?: string;
+  setCustomUniprot?: (val: string) => void;
+  customGenomic?: string;
+  setCustomGenomic?: (val: string) => void;
+  analysisState?: AnalysisState;
+  handleSearchSubmit?: (e: React.FormEvent) => void;
+  gene?: string;
+  variant?: string;
+  uniprotId?: string;
+  history?: SearchHistoryItem[];
+  clearHistory?: () => void;
+  handleSelectHistoryItem?: (item: SearchHistoryItem) => void;
   onViewChange?: (view: MasterView) => void;
 }
 
@@ -71,35 +71,52 @@ const WORKFLOW_STAGES = [
 /** Reads clipboard text and calls setter. Silently ignores permission errors. */
 async function pasteFromClipboard(setter: (val: string) => void) {
   try {
-    const text = await navigator.clipboard.readText();
-    if (text) setter(text.trim());
-  } catch {
-    // clipboard access denied or unavailable — no-op
+    if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+      const text = await navigator.clipboard.readText();
+      if (text !== undefined && text !== null) {
+        setter(text.trim());
+      }
+    }
+  } catch (err) {
+    console.warn("[Paste] Clipboard readText failed or permission denied:", err);
   }
 }
 
 function VariantSearchPanel({
   isDark,
-  classInput,
-  classBorderSec,
-  customGene,
-  setCustomGene,
-  customVariant,
-  setCustomVariant,
-  customUniprot,
-  setCustomUniprot,
-  customGenomic,
-  setCustomGenomic,
-  analysisState,
-  handleSearchSubmit,
-  gene,
-  variant,
-  history,
-  clearHistory,
-  handleSelectHistoryItem,
+  classInput = "",
+  classBorderSec = "",
+  customGene: propsCustomGene,
+  setCustomGene: propsSetCustomGene,
+  customVariant: propsCustomVariant,
+  setCustomVariant: propsSetCustomVariant,
+  customUniprot: propsCustomUniprot,
+  setCustomUniprot: propsSetCustomUniprot,
+  customGenomic: propsCustomGenomic,
+  setCustomGenomic: propsSetCustomGenomic,
+  analysisState: propsAnalysisState,
+  handleSearchSubmit: propsHandleSearchSubmit,
+  gene: propsGene,
+  variant: propsVariant,
+  uniprotId: propsUniprotId,
+  history: propsHistory,
+  clearHistory: propsClearHistory,
+  handleSelectHistoryItem: propsHandleSelectHistoryItem,
   onViewChange,
 }: VariantSearchPanelProps) {
   const [historyOpen, setHistoryOpen] = useState(true);
+
+  // Directly subscribe to Zustand store slices to guarantee instant re-renders on keystroke and paste
+  const storeCustomGene = useVariantAnalysisStore(s => s.customGene ?? "");
+  const storeCustomVariant = useVariantAnalysisStore(s => s.customVariant ?? "");
+  const storeCustomUniprot = useVariantAnalysisStore(s => s.customUniprot ?? "");
+  const storeCustomGenomic = useVariantAnalysisStore(s => s.customGenomic ?? "");
+  const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
+  const storeGene = useVariantAnalysisStore(s => s.gene ?? "");
+  const storeVariant = useVariantAnalysisStore(s => s.variant ?? "");
+  const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId ?? "");
+  const storeHistory = useVariantAnalysisStore(s => s.history ?? []);
+
   const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
   const loadingStep = useVariantAnalysisStore(s => s.loadingStep ?? "");
   const isFolding = useVariantAnalysisStore(s => s.isFolding ?? false);
@@ -109,8 +126,37 @@ function VariantSearchPanel({
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading ?? false);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
-  const { setUserDirections } = useVariantAnalysisActions();
+
+  const actions = useVariantAnalysisActions();
   const { hasConfiguredGeminiKey, openSettingsTab } = useSettings();
+
+  // Active state bindings with direct store reactivity
+  const customGene = storeCustomGene;
+  const setCustomGene = actions.setCustomGene;
+  const customVariant = storeCustomVariant;
+  const setCustomVariant = actions.setCustomVariant;
+  const customUniprot = storeCustomUniprot;
+  const setCustomUniprot = actions.setCustomUniprot;
+  const customGenomic = storeCustomGenomic;
+  const setCustomGenomic = actions.setCustomGenomic;
+  const setUserDirections = actions.setUserDirections;
+
+  const analysisState = propsAnalysisState ?? storeAnalysisState;
+  const gene = propsGene ?? storeGene;
+  const variant = propsVariant ?? storeVariant;
+  const history = propsHistory ?? storeHistory;
+  const clearHistory = propsClearHistory ?? actions.clearHistory;
+  const handleSelectHistoryItem = propsHandleSelectHistoryItem ?? ((item: SearchHistoryItem) => {
+    actions.setGene(item.gene);
+    actions.setVariant(item.variant);
+    actions.setUniprotId(item.uniprotId);
+    actions.setCustomGene(item.gene);
+    actions.setCustomVariant(item.variant);
+  });
+  const handleSearchSubmit = propsHandleSearchSubmit ?? ((e: React.FormEvent) => {
+    e.preventDefault();
+  });
+
   const result = analysisState.result;
 
   // Check if any pipeline stage or background solver is still in active execution
@@ -131,7 +177,7 @@ function VariantSearchPanel({
   const isGeneRequired = !isGenomicVariant;
   const isVariantRequired = !customGenomic.trim();
 
-  const inputBase = `w-full rounded-lg px-3 py-2 text-[13px] outline-none border transition-all font-medium ${classInput}`;
+  const inputBase = `w-full rounded-lg px-3 py-2 text-[13px] outline-none border transition-all font-medium select-text ${classInput}`;
 
   const PasteBtn = ({ setter }: { setter: (v: string) => void }) => (
     <button
@@ -139,7 +185,7 @@ function VariantSearchPanel({
       tabIndex={-1}
       title="Paste from clipboard"
       onClick={() => pasteFromClipboard(setter)}
-      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity cursor-pointer text-cs-text-muted hover:text-cs-accent-clay active:scale-95"
+      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity cursor-pointer text-cs-text-muted hover:text-cs-accent-clay active:scale-95 z-10"
     >
       <Clipboard className="w-3.5 h-3.5" />
     </button>
@@ -358,7 +404,7 @@ function VariantSearchPanel({
                           setUserDirections(text);
                         }}
                         maxLength={2000}
-                        className="w-full h-20 rounded-md border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)]"
+                        className="w-full h-20 rounded-md border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)] select-text"
                         style={{ color: "var(--cs-text-primary)" }}
                       />
                       <div className="flex justify-between items-center text-[10px]" style={{ color: "var(--cs-text-muted)" }}>

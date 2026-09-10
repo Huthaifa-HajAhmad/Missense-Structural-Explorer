@@ -8,29 +8,33 @@ interface QueryStripProps {
   isDark: boolean;
   isOpen: boolean;
   onClose: () => void;
-  customGene: string;
-  setCustomGene: (val: string) => void;
-  customVariant: string;
-  setCustomVariant: (val: string) => void;
-  customUniprot: string;
-  setCustomUniprot: (val: string) => void;
-  customGenomic: string;
-  setCustomGenomic: (val: string) => void;
-  analysisState: AnalysisState;
-  handleSearchSubmit: (e: React.FormEvent) => void;
-  gene: string;
-  variant: string;
-  history: SearchHistoryItem[];
-  clearHistory: () => void;
-  handleSelectHistoryItem: (item: SearchHistoryItem) => void;
+  customGene?: string;
+  setCustomGene?: (val: string) => void;
+  customVariant?: string;
+  setCustomVariant?: (val: string) => void;
+  customUniprot?: string;
+  setCustomUniprot?: (val: string) => void;
+  customGenomic?: string;
+  setCustomGenomic?: (val: string) => void;
+  analysisState?: AnalysisState;
+  handleSearchSubmit?: (e: React.FormEvent) => void;
+  gene?: string;
+  variant?: string;
+  history?: SearchHistoryItem[];
+  clearHistory?: () => void;
+  handleSelectHistoryItem?: (item: SearchHistoryItem) => void;
 }
 
 async function pasteFromClipboard(setter: (val: string) => void) {
   try {
-    const text = await navigator.clipboard.readText();
-    if (text) setter(text.trim());
-  } catch {
-    // clipboard access denied or unavailable
+    if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+      const text = await navigator.clipboard.readText();
+      if (text !== undefined && text !== null) {
+        setter(text.trim());
+      }
+    }
+  } catch (err) {
+    console.warn("[Paste] Clipboard readText failed or permission denied:", err);
   }
 }
 
@@ -38,27 +42,55 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
   isDark,
   isOpen,
   onClose,
-  customGene,
-  setCustomGene,
-  customVariant,
-  setCustomVariant,
-  customUniprot,
-  setCustomUniprot,
-  customGenomic,
-  setCustomGenomic,
-  analysisState,
-  handleSearchSubmit,
-  gene,
-  variant,
-  history,
-  clearHistory,
-  handleSelectHistoryItem,
+  analysisState: propsAnalysisState,
+  handleSearchSubmit: propsHandleSearchSubmit,
+  gene: propsGene,
+  variant: propsVariant,
+  history: propsHistory,
+  clearHistory: propsClearHistory,
+  handleSelectHistoryItem: propsHandleSelectHistoryItem,
 }) => {
   const { hasConfiguredGeminiKey, openSettingsTab } = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
   const geneInputRef = useRef<HTMLInputElement>(null);
-  const userDirections = useVariantAnalysisStore(s => s.userDirections);
-  const { setUserDirections } = useVariantAnalysisActions();
+
+  // Directly subscribe to Zustand store slices to guarantee instant re-renders on keystroke and paste
+  const storeCustomGene = useVariantAnalysisStore(s => s.customGene ?? "");
+  const storeCustomVariant = useVariantAnalysisStore(s => s.customVariant ?? "");
+  const storeCustomUniprot = useVariantAnalysisStore(s => s.customUniprot ?? "");
+  const storeCustomGenomic = useVariantAnalysisStore(s => s.customGenomic ?? "");
+  const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
+  const storeGene = useVariantAnalysisStore(s => s.gene ?? "");
+  const storeVariant = useVariantAnalysisStore(s => s.variant ?? "");
+  const storeHistory = useVariantAnalysisStore(s => s.history ?? []);
+  const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
+
+  const actions = useVariantAnalysisActions();
+  const customGene = storeCustomGene;
+  const setCustomGene = actions.setCustomGene;
+  const customVariant = storeCustomVariant;
+  const setCustomVariant = actions.setCustomVariant;
+  const customUniprot = storeCustomUniprot;
+  const setCustomUniprot = actions.setCustomUniprot;
+  const customGenomic = storeCustomGenomic;
+  const setCustomGenomic = actions.setCustomGenomic;
+  const setUserDirections = actions.setUserDirections;
+
+  const analysisState = propsAnalysisState ?? storeAnalysisState;
+  const gene = propsGene ?? storeGene;
+  const variant = propsVariant ?? storeVariant;
+  const history = propsHistory ?? storeHistory;
+  const clearHistory = propsClearHistory ?? actions.clearHistory;
+  const handleSelectHistoryItem = propsHandleSelectHistoryItem ?? ((item: SearchHistoryItem) => {
+    actions.setGene(item.gene);
+    actions.setVariant(item.variant);
+    actions.setUniprotId(item.uniprotId);
+    actions.setCustomGene(item.gene);
+    actions.setCustomVariant(item.variant);
+  });
+  const handleSearchSubmit = propsHandleSearchSubmit ?? ((e: React.FormEvent) => {
+    e.preventDefault();
+  });
   const isGenomicVariant = (customVariant && (
     /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
     /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
@@ -97,7 +129,7 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
 
   if (!isOpen) return null;
 
-  const inputClass = "w-full rounded-lg px-3 py-2 text-xs outline-none border transition-all font-medium bg-slate-950/40 text-slate-100 border-slate-800 focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/20";
+  const inputClass = "w-full rounded-lg px-3 py-2 text-xs outline-none border transition-all font-medium select-text bg-slate-950/40 text-slate-100 border-slate-800 focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/20";
 
   const PasteBtn = ({ setter }: { setter: (v: string) => void }) => (
     <button
@@ -105,7 +137,7 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
       tabIndex={-1}
       title="Paste from clipboard"
       onClick={() => pasteFromClipboard(setter)}
-      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded transition-opacity cursor-pointer hover:opacity-80 active:scale-95 text-slate-500 hover:text-teal-400"
+      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded transition-opacity cursor-pointer hover:opacity-80 active:scale-95 text-slate-500 hover:text-teal-400 z-10"
     >
       <Clipboard className="w-3 h-3" />
     </button>
