@@ -70,7 +70,8 @@ export function useApiClient() {
     appApiToken, 
     biohubApiToken, 
     tamarindApiKey, 
-    hfToken
+    hfToken,
+    nvidiaApiKey
   } = settings;
 
   const fetchWithAuth = useCallback(async (
@@ -208,6 +209,9 @@ export function useApiClient() {
         if (hfToken) {
           headers["x-hf-token"] = hfToken;
         }
+        if (nvidiaApiKey) {
+          headers["x-nvidia-api-key"] = nvidiaApiKey;
+        }
       }
 
       let response = await fetchWithRetry(url, { ...options, headers, signal });
@@ -262,6 +266,7 @@ export function useApiClient() {
     biohubApiToken, 
     tamarindApiKey, 
     hfToken, 
+    nvidiaApiKey,
     updateSetting
   ]);
 

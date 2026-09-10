@@ -34,6 +34,7 @@ export interface PipelineAnalysisSink {
   setAnalysisState: React.Dispatch<React.SetStateAction<any>>;
   setLoadingStep: (step: string) => void;
   setIsBiophysicalLoading: (loading: boolean) => void;
+  setIsStructuralLoading: (loading: boolean) => void;
   setIsClinicalLoading: (loading: boolean) => void;
   setIsNarrativeLoading: (loading: boolean) => void;
 }

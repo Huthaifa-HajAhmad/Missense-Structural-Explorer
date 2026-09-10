@@ -94,6 +94,7 @@ export default function useVariantAnalysis() {
             setAnalysisState: currentStore.setAnalysisState,
             setLoadingStep: currentStore.setLoadingStep,
             setIsBiophysicalLoading: currentStore.setIsBiophysicalLoading,
+            setIsStructuralLoading: currentStore.setIsStructuralLoading,
             setIsClinicalLoading: currentStore.setIsClinicalLoading,
             setIsNarrativeLoading: currentStore.setIsNarrativeLoading
           },
@@ -275,7 +276,9 @@ export default function useVariantAnalysis() {
       new AbortController().signal,
       currentStore.setAnalysisState,
       requestId,
-      () => pipeline.activeRequestIdRef.current
+      () => pipeline.activeRequestIdRef.current,
+      undefined,
+      currentStore.setIsStructuralLoading
     );
   }, [settings.acmgWeighting, settings.saprotEngine, apiClient, pipeline.activeRequestIdRef]);
 

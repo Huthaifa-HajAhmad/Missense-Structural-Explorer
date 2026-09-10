@@ -23,6 +23,8 @@ export const analyzeVariantSchema = z.object({
   originalNotation: z.string().max(200).optional(),
   biohubToken: z.string().optional(),
   hfToken: z.string().optional(),
+  nvidiaApiKey: z.string().optional(),
+  evo2Key: z.string().optional(),
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
@@ -42,6 +44,7 @@ export interface ParsedVariantContext {
   mut1Letter: string;
   biohubToken?: string | null;
   hfToken?: string | null;
+  nvidiaApiKey?: string | null;
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
@@ -135,10 +138,24 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     return null;
   }
 
-  const getHeader = (val: string | string[] | undefined): string | null => {
+  const sanitizeToken = (val: unknown): string | null => {
     if (!val) return null;
     const raw = Array.isArray(val) ? val[0] : val;
-    return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    // Enforce reasonable length bound (max 256 chars) and printable ASCII only
+    if (trimmed.length === 0 || trimmed.length > 256 || !/^[\x21-\x7E]+$/.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
+  };
+
+  const getEngine = (val: unknown): string | undefined => {
+    if (!val) return undefined;
+    const raw = Array.isArray(val) ? val[0] : val;
+    if (typeof raw !== "string") return undefined;
+    const trimmed = raw.trim().toLowerCase();
+    return trimmed === "local" || trimmed === "remote" ? trimmed : undefined;
   };
 
   return {
@@ -155,8 +172,9 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     pos,
     wt1Letter,
     mut1Letter,
-    biohubToken: getHeader(req.headers["x-biohub-token"]) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null,
-    hfToken: getHeader(req.headers["x-hf-token"]) || req.body?.hfToken || process.env.HF_TOKEN || null,
-    saprotEngine: req.body?.saprotEngine || getHeader(req.headers["x-saprot-engine"]) || undefined
+    biohubToken: sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken) || sanitizeToken(process.env.BIOHUB_API_TOKEN),
+    hfToken: sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken) || sanitizeToken(process.env.HF_TOKEN),
+    nvidiaApiKey: sanitizeToken(req.headers["x-nvidia-api-key"]) || sanitizeToken(req.headers["x-evo2-key"]) || sanitizeToken(req.body?.nvidiaApiKey) || sanitizeToken(req.body?.evo2Key) || sanitizeToken(process.env.NVIDIA_API_KEY) || sanitizeToken(process.env.EVO2_API_KEY),
+    saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };
 }

@@ -9,7 +9,8 @@ import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.
 import { queryGenosWebservice } from "./genos_web.ts";
 import { resolveSpliceProximity } from "./splice_resolver.ts";
 import { buildPredictorsKey, buildConservationKey } from "./cache-keys.ts";
-import { fetchEvo2Score, fetchGpnStarScore, type EvolutionaryScaleResult } from "./evolutionaryscale.ts";
+import { fetchEvo2Score, type ModelInferenceResult as EvolutionaryScaleResult } from "./evo2.ts";
+import { fetchGpnStarScore } from "./gpn.ts";
 
 function safeParseFloat(val: any): number | null {
   if (val === undefined || val === null || val === "." || val === "") return null;
@@ -868,7 +869,7 @@ export async function fetchConservationData(
       const queryStr = (resolvedPos !== null)
         ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen,dbnsfp.bayesdel,dbnsfp.dann,dbnsfp.esm1b,dbnsfp.gpn_star,dbnsfp.evo2";
+      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen,dbnsfp.bayesdel,dbnsfp.dann,dbnsfp.esm1b";
       const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
   
   try {
@@ -1133,6 +1134,7 @@ export interface ProgressiveConservationContext {
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
   biohubToken?: string | null;
+  nvidiaApiKey?: string | null;
   hfToken?: string | null;
   sequence?: string | null;
 }
@@ -1149,6 +1151,7 @@ export async function fetchConservationDataProgressive(
     predictorPromise,
     genosPromise,
     biohubToken,
+    nvidiaApiKey,
     hfToken,
     sequence
   } = context;
@@ -1228,21 +1231,21 @@ export async function fetchConservationDataProgressive(
     null
   );
 
-  // 4. Concurrently query EvolutionaryScale API for Evo 2 and GPN-Star if not present in base dbNSFP
-  // EvolutionaryScale endpoint strictly requires a Biohub / EvolutionaryScale API key
-  const apiToken = biohubToken || null;
-  const fallbackStatus: "unavailable" | "token_required" = apiToken ? "unavailable" : "token_required";
+  // 4. Concurrently query frontier genomic foundation models (Arc Evo 2 & Song Lab GPN-Star)
+  const evoToken = nvidiaApiKey || null;
+  const gpnToken = hfToken || null;
+
   const evoTask: Promise<EvolutionaryScaleResult> = (baseConservation.evo2 !== null && baseConservation.evo2 !== undefined)
     ? Promise.resolve({ score: baseConservation.evo2 ?? null, status: "live" })
     : (sequence && resolvedPos !== null && wtAa && mutAa)
-      ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, apiToken)
-      : Promise.resolve({ score: null, status: fallbackStatus });
+      ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, evoToken)
+      : Promise.resolve({ score: null, status: evoToken ? "unavailable" : "token_required" });
 
   const gpnTask: Promise<EvolutionaryScaleResult> = (baseConservation.gpnStar !== null && baseConservation.gpnStar !== undefined)
     ? Promise.resolve({ score: baseConservation.gpnStar ?? null, status: "live" })
     : (sequence && resolvedPos !== null && wtAa && mutAa)
-      ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, apiToken)
-      : Promise.resolve({ score: null, status: fallbackStatus });
+      ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, gpnToken)
+      : Promise.resolve({ score: null, status: gpnToken ? "unavailable" : "token_required" });
 
   // 5. Merge enriched ConSurf, PopEVE, Splice, and EvolutionaryScale data as they resolve
   const [consurfVal, enrichment, evoRes, gpnRes]: [

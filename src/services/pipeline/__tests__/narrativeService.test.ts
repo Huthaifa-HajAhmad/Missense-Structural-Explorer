@@ -46,6 +46,7 @@ describe("narrativeService", () => {
         setAnalysisState,
         setLoadingStep,
         setIsBiophysicalLoading: vi.fn(),
+        setIsStructuralLoading: vi.fn(),
         setIsClinicalLoading,
         setIsNarrativeLoading
       },
@@ -94,6 +95,7 @@ describe("narrativeService", () => {
         setAnalysisState,
         setLoadingStep: vi.fn(),
         setIsBiophysicalLoading: vi.fn(),
+        setIsStructuralLoading: vi.fn(),
         setIsClinicalLoading: vi.fn(),
         setIsNarrativeLoading: vi.fn()
       },

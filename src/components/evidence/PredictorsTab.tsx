@@ -2,8 +2,10 @@ import React from "react";
 import { TabComponentProps } from "./types";
 import { countPredictorConcordance } from "../../shared/thresholds";
 import { PredictorSpecialistPanels } from "../PredictorSpecialistPanels";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
-export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabComponentProps) {
+export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSettings }: TabComponentProps) {
+  const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const result = analysisState.result;
   if (!result) return null;
 
@@ -93,10 +95,10 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
               </span>
             </div>
 
-            {(isBiophysicalLoading || analysisState.isLoading) && (
+            {(isBiophysicalLoading || isStructuralLoading || analysisState.isLoading) && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/5 text-[11px] text-indigo-400 font-medium animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping shrink-0" />
-                <span>Enriching frontier genomic models &amp; SpliceAI scores in background...</span>
+                <span>Enriching frontier genomic models, structure-conditioned SaProt &amp; biophysical scores in background...</span>
               </div>
             )}
 
@@ -192,7 +194,11 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading }: TabCompon
         conservationData={result.conservationData}
         vesmScore={result.esmcEval?.llr ?? null}
         esm2Score={result.esm2Eval?.llr ?? result.esm2?.llr ?? null}
+        saprotScore={result.saprotEval?.llr ?? null}
+        saprotEval={result.saprotEval}
         isLoading={analysisState.isLoading || isBiophysicalLoading}
+        isStructuralLoading={isStructuralLoading}
+        onOpenSettings={onOpenSettings}
       />
     </div>
   );

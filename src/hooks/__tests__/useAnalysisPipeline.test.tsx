@@ -129,6 +129,7 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setAnalysisState: vi.fn(),
       setLoadingStep: vi.fn(),
       setIsBiophysicalLoading: vi.fn(),
+      setIsStructuralLoading: vi.fn(),
       setIsClinicalLoading: vi.fn(),
       setIsNarrativeLoading: vi.fn()
     };

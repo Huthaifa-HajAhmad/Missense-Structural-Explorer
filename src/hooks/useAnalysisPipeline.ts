@@ -84,6 +84,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setAnalysisState: flat.setAnalysisState || (() => {}),
         setLoadingStep: flat.setLoadingStep || (() => {}),
         setIsBiophysicalLoading: flat.setIsBiophysicalLoading || (() => {}),
+        setIsStructuralLoading: flat.setIsStructuralLoading || (() => {}),
         setIsClinicalLoading: flat.setIsClinicalLoading || (() => {}),
         setIsNarrativeLoading: flat.setIsNarrativeLoading || (() => {})
       },
@@ -305,10 +306,12 @@ export function useAnalysisPipeline() {
     if (cached?.analysisResult) {
       analysisSink.setAnalysisState({ isLoading: false, error: null, result: cached.analysisResult });
       analysisSink.setIsBiophysicalLoading(false);
+      analysisSink.setIsStructuralLoading(false);
       analysisSink.setIsClinicalLoading(false);
     } else {
       analysisSink.setAnalysisState({ isLoading: true, error: null, result: null });
       analysisSink.setIsBiophysicalLoading(true);
+      analysisSink.setIsStructuralLoading(true);
       analysisSink.setIsClinicalLoading(true);
     }
 

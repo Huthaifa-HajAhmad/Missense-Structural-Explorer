@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Brain, Cpu, Database, HeartHandshake, HelpCircle, Info, Layers, ShieldAlert, Sparkles } from "lucide-react";
 import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar, evaluateEvo2 } from "../shared/thresholds";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
+import { useSettings } from "../context/SettingsContext";
 
 interface PredictorSpecialistPanelsProps {
   predictorData?: {
@@ -34,7 +35,11 @@ interface PredictorSpecialistPanelsProps {
   } | null;
   vesmScore?: number | null;
   esm2Score?: number | null;
+  saprotScore?: number | null;
+  saprotEval?: any;
   isLoading?: boolean;
+  isStructuralLoading?: boolean;
+  onOpenSettings?: () => void;
 }
 
 type TabType = "lms" | "meta" | "annotations" | "evolution";
@@ -44,8 +49,13 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   conservationData,
   vesmScore,
   esm2Score,
-  isLoading = false
+  saprotScore,
+  saprotEval,
+  isLoading = false,
+  isStructuralLoading = false,
+  onOpenSettings
 }) => {
+  const { openSettingsTab } = useSettings();
   const renderScoreValue = (val: number | null, decimals = 3) => {
     if (val !== null && val !== undefined) {
       return decimals === 0 ? val.toString() : val.toFixed(decimals);
@@ -308,13 +318,25 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(vesmScore ?? null), vesmScore !== null && vesmScore !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby"))}
+                  {renderBadge(
+                    getEsmSignal(vesmScore ?? null),
+                    vesmScore !== null && vesmScore !== undefined
+                      ? "Informational"
+                      : (isStructuralLoading || isLoading ? "Evaluating..." : "Standby")
+                  )}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {vesmScore !== null && vesmScore !== undefined ? renderScoreValue(vesmScore, 2) : (isLoading ? "Calculating..." : "—")}
+                  {vesmScore !== null && vesmScore !== undefined ? (
+                    renderScoreValue(vesmScore, 2)
+                  ) : (isStructuralLoading || isLoading ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-indigo-400 font-medium animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping shrink-0" />
+                      <span>Evaluating...</span>
+                    </span>
+                  ) : "—")}
                 </span>
                 {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -5.0, -2.0, true)}
                 {renderSourceLabel("Local VESM-150M / EvolutionaryScale")}
@@ -340,16 +362,74 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   >
                     <Info className="w-3.5 h-3.5" />
                   </button>
-                  {renderBadge(getEsmSignal(esm2Score ?? null), esm2Score !== null && esm2Score !== undefined ? "Informational" : (isLoading ? "Computing..." : "Standby"))}
+                  {renderBadge(
+                    getEsmSignal(esm2Score ?? null),
+                    esm2Score !== null && esm2Score !== undefined
+                      ? "Informational"
+                      : (isStructuralLoading || isLoading ? "Evaluating..." : "Standby")
+                  )}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {esm2Score !== null && esm2Score !== undefined ? renderScoreValue(esm2Score, 2) : (isLoading ? "Calculating..." : "—")}
+                  {esm2Score !== null && esm2Score !== undefined ? (
+                    renderScoreValue(esm2Score, 2)
+                  ) : (isStructuralLoading || isLoading ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-indigo-400 font-medium animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping shrink-0" />
+                      <span>Evaluating...</span>
+                    </span>
+                  ) : "—")}
                 </span>
                 {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
                 {renderSourceLabel("Meta FAIR (ESM-2 650M/3B)")}
+              </div>
+            </div>
+
+            {/* SaProt 650M AF2 */}
+            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title="Structure-aware Protein Language Model conditioned on AlphaFold 3D coordinates via Foldseek 3Di tokens">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
+                    SaProt 650M AF2
+                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                      Structure-Aware LM
+                    </span>
+                  </h4>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Foldseek 3Di structural alphabet LLR</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("saprot")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {renderBadge(
+                    getEsmSignal(saprotScore ?? null),
+                    saprotScore !== null && saprotScore !== undefined
+                      ? "Informational"
+                      : (isStructuralLoading || isLoading ? "Evaluating..." : "Standby")
+                  )}
+                </div>
+              </div>
+              <div className="mt-4">
+                <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Score: </span>
+                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
+                  {saprotScore !== null && saprotScore !== undefined ? (
+                    renderScoreValue(saprotScore, 2)
+                  ) : (isStructuralLoading || isLoading ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-indigo-400 font-medium animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping shrink-0" />
+                      <span>Evaluating...</span>
+                    </span>
+                  ) : "—")}
+                </span>
+                {saprotScore !== null && saprotScore !== undefined && renderScoreBar(saprotScore, -20, 5, -6.0, -3.0, true)}
+                {renderSourceLabel("Westlake University / Hugging Face")}
               </div>
             </div>
 
@@ -379,21 +459,41 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       getGpnSignal(gpnScore),
                       gpnScore <= -2.5 ? "Conserved (Prior)" : "Tolerated"
                     )
+                  ) : gpnStatus === "token_required" ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                      Token Required
+                    </span>
                   ) : (
-                    renderBadge("unavailable", "Outside Genomic Scope")
+                    renderBadge("unavailable", "Endpoint Standby")
                   )}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>LLR Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {gpnScore !== null ? renderScoreValue(gpnScore, 2) : "Outside Scope"}
+                  {gpnScore !== null ? renderScoreValue(gpnScore, 2) : "Standby"}
                 </span>
                 {gpnScore !== null ? (
                   renderScoreBar(gpnScore, -10, 2, -2.5, 0.0, true)
+                ) : gpnStatus === "token_required" ? (
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] text-amber-500/90 font-mono">
+                      Song Lab GPN-Star requires HF token or sidecar
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenSettings) onOpenSettings();
+                        else openSettingsTab("connections");
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-colors cursor-pointer shrink-0"
+                    >
+                      Configure Token
+                    </button>
+                  </div>
                 ) : (
                   <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
-                    Zero-shot vertebrate alignment prior (canonical coding transcripts)
+                    Song Lab vertebrate alignment prior (canonical coding transcripts)
                   </p>
                 )}
                 {renderSourceLabel("Song Lab @ UC Berkeley / Hugging Face")}
@@ -427,8 +527,8 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       evo2Score <= -4.0 ? "Disruptive" : "Tolerated"
                     )
                   ) : evo2Status === "token_required" ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20" title="EvolutionaryScale / Biohub token optional">
-                      Cloud Token Optional
+                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                      Key Required
                     </span>
                   ) : (
                     renderBadge("unavailable", "Cloud Inference Standby")
@@ -438,20 +538,32 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Delta Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {renderScoreValue(evo2Score, 2)}
+                  {evo2Score !== null ? renderScoreValue(evo2Score, 2) : "Standby"}
                 </span>
                 {evo2Score !== null ? (
                   renderScoreBar(evo2Score, -15, 2, -4.0, -1.0, true)
                 ) : evo2Status === "token_required" ? (
-                  <p className="text-[10px] mt-1.5 text-amber-500/80 font-mono">
-                    Configure Biohub / EvolutionaryScale key in Settings to query 40B model
-                  </p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] text-amber-500/90 font-mono">
+                      Arc Institute Evo 2 requires NVIDIA BioNeMo key
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenSettings) onOpenSettings();
+                        else openSettingsTab("connections");
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-colors cursor-pointer shrink-0"
+                    >
+                      Configure Key
+                    </button>
+                  </div>
                 ) : (
                   <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
-                    1M+ bp context foundation model prior
+                    1M+ bp context foundation model prior (Arc Institute)
                   </p>
                 )}
-                {renderSourceLabel("Arc Institute / EvolutionaryScale")}
+                {renderSourceLabel("Arc Institute / NVIDIA BioNeMo")}
               </div>
             </div>
 

@@ -136,11 +136,18 @@ export function ConnectionsSection() {
           description="Authorizes structural mutations, AlphaFold proxies, and session creation on this lab server."
         />
         <SecretInput
-          label="Biohub / EvolutionaryScale (Forge) token"
+          label="Arc Institute Evo 2 (NVIDIA BioNeMo API key)"
+          placeholder="Enter NVIDIA_API_KEY or EVO2_API_KEY…"
+          value={settings.nvidiaApiKey || ""}
+          onChange={(value) => updateSetting("nvidiaApiKey", value)}
+          description="Enables zero-shot 40B genomic foundation likelihood scoring via NVIDIA BioNeMo NIM (integrate.api.nvidia.com) or local sidecar."
+        />
+        <SecretInput
+          label="EvolutionaryScale (Forge) token"
           placeholder="Enter EvolutionaryScale Forge API key…"
           value={settings.biohubApiToken || ""}
           onChange={(value) => updateSetting("biohubApiToken", value)}
-          description="Enables ESM3 structural refinement, Evo 2 40B genomic foundation scoring, GPN-Star phylogeny LM, and ESMC representation metrics."
+          description="Enables ESM3 multimodal generative structural refinement and generation on forge.evolutionaryscale.ai."
           action={{
             label: "Test connection",
             busyLabel: "Testing…",
@@ -170,7 +177,7 @@ export function ConnectionsSection() {
           placeholder="Enter HF_TOKEN…"
           value={settings.hfToken || ""}
           onChange={(value) => updateSetting("hfToken", value)}
-          description="Downloads and runs ESM-2 650M, SaProt (local CPU / cloud), and VESM predictions via Hugging Face inference."
+          description="Enables Song Lab GPN-Star phylogeny LM, SaProt 650M AF2 structure-aware scoring, and ESM-2 via Hugging Face inference."
           action={{
             label: "Test connection",
             busyLabel: "Testing…",

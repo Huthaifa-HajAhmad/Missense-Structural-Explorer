@@ -17,6 +17,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   geminiSessionExpiresAt: 0,
   appApiToken: "",
   biohubApiToken: "",
+  nvidiaApiKey: "",
   tamarindApiKey: "",
   hfToken: "",
   cameraDuration: 1200,
@@ -49,6 +50,7 @@ export const TRANSIENT_SETTING_KEYS = [
   "geminiSessionExpiresAt",
   "appApiToken",
   "biohubApiToken",
+  "nvidiaApiKey",
   "tamarindApiKey",
   "hfToken"
 ] as const;

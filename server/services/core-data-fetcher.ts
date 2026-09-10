@@ -54,7 +54,8 @@ export async function fetchCoreVariantData(
     wt1Letter,
     mut1Letter,
     biohubToken,
-    hfToken
+    hfToken,
+    nvidiaApiKey
   } = context;
 
   const overallStart = performance.now();
@@ -154,6 +155,7 @@ export async function fetchCoreVariantData(
     predictorPromise,
     genosPromise,
     biohubToken,
+    nvidiaApiKey,
     hfToken,
     sequence
   }).catch(err => {

@@ -5,6 +5,7 @@ export interface PipelineState {
   analysisState: AnalysisState;
   loadingStep: string;
   isBiophysicalLoading: boolean;
+  isStructuralLoading: boolean;
   isClinicalLoading: boolean;
   isNarrativeLoading: boolean;
   homologs: PdbHomolog[];
@@ -18,6 +19,7 @@ export interface PipelineActions {
   setAnalysisState: (updater: AnalysisState | ((prev: AnalysisState) => AnalysisState)) => void;
   setLoadingStep: (loadingStep: string) => void;
   setIsBiophysicalLoading: (isBiophysicalLoading: boolean) => void;
+  setIsStructuralLoading: (isStructuralLoading: boolean) => void;
   setIsClinicalLoading: (isClinicalLoading: boolean) => void;
   setIsNarrativeLoading: (isNarrativeLoading: boolean) => void;
   setHomologs: (homologs: PdbHomolog[] | ((prev: PdbHomolog[]) => PdbHomolog[])) => void;
@@ -38,6 +40,7 @@ export const createPipelineSlice: StateCreator<PipelineSlice, [], [], PipelineSl
   },
   loadingStep: "",
   isBiophysicalLoading: false,
+  isStructuralLoading: false,
   isClinicalLoading: false,
   isNarrativeLoading: false,
   homologs: [],
@@ -52,6 +55,7 @@ export const createPipelineSlice: StateCreator<PipelineSlice, [], [], PipelineSl
 
   setLoadingStep: (loadingStep) => set({ loadingStep }),
   setIsBiophysicalLoading: (isBiophysicalLoading) => set({ isBiophysicalLoading }),
+  setIsStructuralLoading: (isStructuralLoading) => set({ isStructuralLoading }),
   setIsClinicalLoading: (isClinicalLoading) => set({ isClinicalLoading }),
   setIsNarrativeLoading: (isNarrativeLoading) => set({ isNarrativeLoading }),
 

@@ -35,14 +35,23 @@ function isStaleCachedPayload(payload: any, context?: ParsedVariantContext): boo
     if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
       return true;
     }
-    // Invalidate stale cache if EvolutionaryScale / Biohub token is provided but cached payload lacks Evo 2 or GPN-Star
-    const hasBiohubToken = Boolean(context?.biohubToken);
-    if (hasBiohubToken) {
+    // Invalidate stale cache if NVIDIA BioNeMo / Evo 2 key is provided but cached payload lacks Evo 2
+    const hasEvo2Token = Boolean(context?.nvidiaApiKey || process.env.NVIDIA_API_KEY || process.env.EVO2_API_KEY);
+    if (hasEvo2Token) {
       const evoMissing = cons.evo2 === null && (cons.evo2Status === "token_required" || cons.evo2Status === "unavailable" || !cons.evo2Status);
+      if (evoMissing) return true;
+    }
+    // Invalidate stale cache if Hugging Face token is provided but cached payload lacks GPN-Star
+    const hasGpnToken = Boolean(context?.hfToken || process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY);
+    if (hasGpnToken) {
       const gpnMissing = cons.gpnStar === null && (cons.gpnStarStatus === "token_required" || cons.gpnStarStatus === "unavailable" || !cons.gpnStarStatus);
-      if (evoMissing || gpnMissing) {
-        return true;
-      }
+      if (gpnMissing) return true;
+    }
+    // Invalidate stale cache if Biohub token is provided but cached payload lacks ESM3
+    const hasBiohubToken = Boolean(context?.biohubToken || process.env.BIOHUB_API_TOKEN);
+    if (hasBiohubToken && payload.structuralModels) {
+      const esm3Missing = payload.structuralModels.esm3?.score === null && (payload.structuralModels.esm3?.status === "token_required" || !payload.structuralModels.esm3?.status);
+      if (esm3Missing) return true;
     }
   }
   return false;

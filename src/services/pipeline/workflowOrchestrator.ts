@@ -124,6 +124,7 @@ export async function executeFullAnalysisWorkflow({
           result: cached.analysisResult
         });
         analysisSink.setIsBiophysicalLoading(false);
+        analysisSink.setIsStructuralLoading(false);
         analysisSink.setIsClinicalLoading(false);
         analysisSink.setIsNarrativeLoading(false);
       }
@@ -162,6 +163,7 @@ export async function executeFullAnalysisWorkflow({
         }
         analysisSink.setLoadingStep("Analysis complete!");
         analysisSink.setIsBiophysicalLoading(false);
+        analysisSink.setIsStructuralLoading(false);
         analysisSink.setIsClinicalLoading(false);
         analysisSink.setIsNarrativeLoading(false);
 
@@ -398,7 +400,9 @@ export async function executeFullAnalysisWorkflow({
             activeSignal,
             analysisSink.setAnalysisState,
             requestId,
-            getActiveRequestId
+            getActiveRequestId,
+            getTraceContext(),
+            analysisSink.setIsStructuralLoading
           );
         } else {
           throw new Error("Biophysical result payload empty.");
@@ -408,6 +412,7 @@ export async function executeFullAnalysisWorkflow({
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
         console.error("Biophysical analysis error:", err);
         analysisSink.setIsBiophysicalLoading(false);
+        analysisSink.setIsStructuralLoading(false);
         analysisSink.setIsClinicalLoading(false);
         analysisSink.setIsNarrativeLoading(false);
 
@@ -437,6 +442,7 @@ export async function executeFullAnalysisWorkflow({
       };
       analysisSink.setAnalysisState(createTopLevelErrorAnalysisState(err?.message || "Unknown error", baseParams));
       analysisSink.setIsBiophysicalLoading(false);
+      analysisSink.setIsStructuralLoading(false);
       analysisSink.setIsClinicalLoading(false);
       analysisSink.setIsNarrativeLoading(false);
     }

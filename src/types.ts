@@ -316,6 +316,7 @@ export interface UserSettings {
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
   biohubApiToken?: string;
+  nvidiaApiKey?: string;
   tamarindApiKey?: string;
   hfToken?: string;
   cameraDuration: number; // e.g., 1200

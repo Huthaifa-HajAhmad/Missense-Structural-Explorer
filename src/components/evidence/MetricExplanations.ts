@@ -62,10 +62,10 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
       "Lacks 3D stereochemical forcefields and explicit atomic contact distance calculations.",
       "Sequence-level fitness scores may not distinguish gain-of-function from loss-of-function phenotypes."
     ],
-    provider: "Arc Institute, Stanford & EvolutionaryScale",
-    paperTitle: "Nguyen et al. Nature / bioRxiv (2026)",
+    provider: "Arc Institute, Stanford & NVIDIA BioNeMo",
+    paperTitle: "Nguyen et al. Science / bioRxiv (2024)",
     paperUrl: "https://doi.org/10.1101/2024.02.27.582234",
-    citation: "Nguyen, E., et al. (2026). Sequence modeling and design across DNA, RNA, and proteins with Evo. Nature."
+    citation: "Nguyen, E., et al. (2024). Sequence modeling and design across DNA, RNA, and proteins with Evo. Science / bioRxiv (Arc Institute)."
   },
   vesm: {
     name: "VESM++ (Co-distilled Ensemble)",

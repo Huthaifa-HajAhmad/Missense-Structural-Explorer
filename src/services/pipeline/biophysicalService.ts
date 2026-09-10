@@ -148,13 +148,16 @@ export function fetchProgressiveStructuralAssessments(
   setAnalysisState: (fn: any) => void,
   requestId: number,
   getActiveRequestId: () => number,
-  traceContext?: TraceContext
+  traceContext?: TraceContext,
+  setIsStructuralLoading?: (loading: boolean) => void
 ): Promise<void> {
   console.log("[BiophysicalService] Starting progressive fetch for heavy structural models...");
+  setIsStructuralLoading?.(true);
   return apiClient
     .getStructuralAssessments(params, signal)
     .then((structRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
+      setIsStructuralLoading?.(false);
       console.log("[BiophysicalService] Progressive heavy structural models response received:", structRes);
 
       // DevConsole diagnostics: inspect each structural model and emit clear diagnostic warnings/errors
@@ -221,6 +224,7 @@ export function fetchProgressiveStructuralAssessments(
       ) {
         return;
       }
+      setIsStructuralLoading?.(false);
 
       const isTimeout = structErr.name === "TimeoutError" || structErr.message?.includes("timed out");
       const errMessage = isTimeout
