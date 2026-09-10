@@ -9,6 +9,8 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
   mutantStatus,
   active3dModelTab = "alphafold2",
   viewMode,
+  alignmentScope = "local",
+  onAlignmentScopeChange,
   activePdbId,
   customPdbUrl,
   pdbSource,
@@ -135,6 +137,41 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
             <option value="displacement">Backbone Displacement Heatmap</option>
           </select>
         </div>
+
+        {/* Alignment Scope Toggle in Comparison View */}
+        {comparePdbData && onAlignmentScopeChange && (
+          <div className="flex items-center gap-1.5 pl-2 border-l" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <span className="text-[10px] font-bold uppercase tracking-wider hidden md:inline" style={{ color: "var(--cs-text-muted)" }}>
+              Alignment:
+            </span>
+            <div className="inline-flex rounded-lg p-0.5 border text-[10px] font-mono" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
+              <button
+                type="button"
+                onClick={() => onAlignmentScopeChange("local")}
+                className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                  alignmentScope !== "global"
+                    ? "bg-[var(--cs-accent-clay)] text-white shadow-xs font-bold"
+                    : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+                }`}
+                title="Align Kabsch frame on ±15 residue mutation pocket (prevents flexible terminal linkers from skewing alignment)"
+              >
+                Local Pocket
+              </button>
+              <button
+                type="button"
+                onClick={() => onAlignmentScopeChange("global")}
+                className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                  alignmentScope === "global"
+                    ? "bg-[var(--cs-accent-clay)] text-white shadow-xs font-bold"
+                    : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+                }`}
+                title="Align Kabsch frame over entire protein chain (measures whole-chain domain reorientation)"
+              >
+                Global
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* pLDDT Filter Selector */}
         {templateSource !== "experimental" && (

@@ -262,7 +262,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     try {
       let { sequence, uniprotId, variant, wtSeq, mutSeq } = parseResult.data;
       const headerVal = req.headers["x-biohub-token"];
-      const token = Array.isArray(headerVal) ? headerVal[0] : headerVal || process.env.ESM3_FORGE_API_KEY;
+      const token = (Array.isArray(headerVal) ? headerVal[0] : headerVal) || process.env.BIOHUB_API_TOKEN || process.env.ESM3_FORGE_API_KEY;
 
       if (!sequence && !wtSeq) {
         if (!uniprotId) {
@@ -368,37 +368,35 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      // Attempt lightweight ping call to EvolutionaryScale / Biohub endpoint
+      // Attempt lightweight probe call to EvolutionaryScale Forge / Biohub endpoint
       try {
-        let testRes = await fetch("https://api.evolutionaryscale.ai/v1/models", {
-          method: "GET",
-          headers: { 
-            "Authorization": `Bearer ${token.trim()}`,
-            "User-Agent": "MissenseResolve/1.0"
-          },
+        const probeBody = JSON.stringify({
+          model: "esm3-small-2024-08",
+          inputs: { sequence: "M" }
+        });
+        const probeHeaders = {
+          "Authorization": `Bearer ${token.trim()}`,
+          "Content-Type": "application/json",
+          "User-Agent": "MissenseResolve/1.0"
+        };
+
+        let testRes = await fetch("https://forge.evolutionaryscale.ai/api/v1/encode", {
+          method: "POST",
+          headers: probeHeaders,
+          body: probeBody,
           signal: AbortSignal.timeout(6000)
         }).catch(() => null);
 
-        if (!testRes) {
-          testRes = await fetch("https://biohub.ai/v1/models", {
-            method: "GET",
-            headers: { 
-              "Authorization": `Bearer ${token.trim()}`,
-              "User-Agent": "MissenseResolve/1.0"
-            },
+        if (!testRes || testRes.status === 451) {
+          const fallbackRes = await fetch("https://biohub.ai/api/v1/encode", {
+            method: "POST",
+            headers: probeHeaders,
+            body: probeBody,
             signal: AbortSignal.timeout(6000)
           }).catch(() => null);
-        }
-
-        if (!testRes) {
-          testRes = await fetch("https://forge.evolutionaryscale.ai/v1/models", {
-            method: "GET",
-            headers: { 
-              "Authorization": `Bearer ${token.trim()}`,
-              "User-Agent": "MissenseResolve/1.0"
-            },
-            signal: AbortSignal.timeout(6000)
-          }).catch(() => null);
+          if (fallbackRes) {
+            testRes = fallbackRes;
+          }
         }
 
         if (!testRes) {
@@ -410,6 +408,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
           return;
         } else if (testRes.status === 401 || testRes.status === 403) {
           res.json({ valid: false, message: "Invalid or unauthorized Biohub API token (HTTP 401/403)." });
+          return;
+        } else if (testRes.status === 451) {
+          res.json({ valid: false, message: "EvolutionaryScale endpoint is regionally restricted (HTTP 451). Consider using JapanFold or a VPN." });
           return;
         } else {
           res.json({ valid: false, message: `Upstream verification returned unexpected HTTP ${testRes.status}.` });
@@ -492,13 +493,14 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     try {
-      const { pdb1, pdb2, targetIndex } = parseResult.data;
+      const { pdb1, pdb2, targetIndex, alignmentScope } = parseResult.data;
       const posVal = targetIndex ?? 1;
       const alignResult = await runAlignMutantToWtInWorker({
         wtPdb: pdb1,
         mutPdb: pdb2,
         pos: posVal,
-        chain: "A"
+        chain: "A",
+        alignmentScope: alignmentScope || "local"
       });
       res.json({
         alignedPdb: alignResult.alignedMutPdb,

@@ -3,7 +3,9 @@ export interface MolstarToolbarProps {
   customPdbData: string | null;
   mutantStatus?: string | null;
   active3dModelTab?: "alphafold2" | "esm3";
-  viewMode?: "wildtype" | "mutant" | null;
+  viewMode?: "wildtype" | "mutant" | "superimposed" | null;
+  alignmentScope?: "local" | "global";
+  onAlignmentScopeChange?: (scope: "local" | "global") => void;
   activePdbId?: string | null;
   customPdbUrl: string | null;
   pdbSource: string | null;

@@ -18,12 +18,14 @@ export async function runAlignMutantToWt({
   wtPdb,
   mutPdb,
   pos,
-  chain
+  chain,
+  alignmentScope
 }: {
   wtPdb: string;
   mutPdb: string;
   pos: number;
   chain: string;
+  alignmentScope?: "local" | "global";
 }) {
-  return alignMutantToWt(wtPdb, mutPdb, pos, chain);
+  return alignMutantToWt(wtPdb, mutPdb, pos, chain, alignmentScope);
 }

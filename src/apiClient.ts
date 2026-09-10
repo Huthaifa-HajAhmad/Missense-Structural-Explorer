@@ -659,7 +659,7 @@ export function useApiClient() {
         return esmFoldResponseSchema.parse(data);
       },
 
-      async structuralAlign(params: { pdb1: string, pdb2: string, targetIndex?: number }, signal?: AbortSignal): Promise<StructuralAlignResponse> {
+      async structuralAlign(params: { pdb1: string, pdb2: string, targetIndex?: number, alignmentScope?: "local" | "global" }, signal?: AbortSignal): Promise<StructuralAlignResponse> {
         const res = await fetchWithAuth("/api/v1/structural-align", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

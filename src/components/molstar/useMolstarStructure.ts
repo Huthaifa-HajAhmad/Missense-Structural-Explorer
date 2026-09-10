@@ -30,7 +30,7 @@ export interface UseMolstarStructureOptions {
   esmFoldPdb?: string | null;
   esm3Eval?: any;
   active3dModelTab?: "alphafold2" | "esm3";
-  viewMode?: "wildtype" | "mutant";
+  viewMode?: "wildtype" | "mutant" | "superimposed";
   setLoading: (loading: boolean) => void;
   setLoadError: (err: string | null) => void;
 }
@@ -533,7 +533,7 @@ export function useMolstarStructure({
           await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
             type: 'ball-and-stick',
             color: 'uniform',
-            colorParams: { value: residueColorHex },
+            colorParams: { value: comparePdbData ? 0x00bcd4 : residueColorHex },
             ...(neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : {})
           });
 
@@ -682,7 +682,9 @@ export function useMolstarStructure({
     autoZoomOnSelect,
     cameraDuration,
     showPocket,
-    computedPocket
+    computedPocket,
+    comparePdbData,
+    pdbText
   ]);
 
   return {

@@ -6,7 +6,8 @@ import {
   calculateContacts, 
   calculateHBonds, 
   calculateChi1Deviation,
-  getKabschTransform
+  getKabschTransform,
+  alignMutantToWt
 } from "./structural-diff.ts";
 import { PdbAtom } from "./pdb-parser.ts";
 
@@ -121,6 +122,49 @@ describe("Structural Diff Engine Unit Tests (C-5)", () => {
       expect(transform.R[0][0]).toBeCloseTo(1, 4);
       expect(transform.R[1][1]).toBeCloseTo(1, 4);
       expect(transform.R[2][2]).toBeCloseTo(1, 4);
+    });
+  });
+
+  describe("alignMutantToWt", () => {
+    const dummyWtPdb = [
+      "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N",
+      "ATOM      2  CA  ALA A   1       1.458   0.000   0.000  1.00 20.00           C",
+      "ATOM      3  C   ALA A   1       2.000   1.400   0.000  1.00 20.00           C",
+      "ATOM      4  O   ALA A   1       1.200   2.300   0.000  1.00 20.00           O",
+      "ATOM      5  N   VAL A   2       3.300   1.500   0.000  1.00 20.00           N",
+      "ATOM      6  CA  VAL A   2       4.000   2.800   0.000  1.00 20.00           C",
+      "ATOM      7  N   GLY A   3       5.200   3.000   0.000  1.00 20.00           N",
+      "ATOM      8  CA  GLY A   3       6.000   4.200   0.000  1.00 20.00           C",
+      "ATOM      9  N   SER A   4       7.100   4.500   0.000  1.00 20.00           N",
+      "ATOM     10  CA  SER A   4       8.000   5.600   0.000  1.00 20.00           C"
+    ].join("\n");
+
+    // Mutant with chain B and shifted coordinates
+    const dummyMutPdbChainB = [
+      "ATOM      1  N   ALA B   1       0.500   0.000   0.000  1.00 20.00           N",
+      "ATOM      2  CA  ALA B   1       1.958   0.000   0.000  1.00 20.00           C",
+      "ATOM      3  C   ALA B   1       2.500   1.400   0.000  1.00 20.00           C",
+      "ATOM      4  O   ALA B   1       1.700   2.300   0.000  1.00 20.00           O",
+      "ATOM      5  N   LEU B   2       3.800   1.500   0.000  1.00 20.00           N",
+      "ATOM      6  CA  LEU B   2       4.500   2.800   0.000  1.00 20.00           C",
+      "ATOM      7  N   GLY B   3       5.700   3.000   0.000  1.00 20.00           N",
+      "ATOM      8  CA  GLY B   3       6.500   4.200   0.000  1.00 20.00           C",
+      "ATOM      9  N   SER B   4       7.600   4.500   0.000  1.00 20.00           N",
+      "ATOM     10  CA  SER B   4       8.500   5.600   0.000  1.00 20.00           C"
+    ].join("\n");
+
+    it("should align successfully across differing chains (chain A vs B) without null dereference", async () => {
+      const result = await alignMutantToWt(dummyWtPdb, dummyMutPdbChainB, 2, "A", "local");
+      expect(result.alignedMutPdb).toContain("ATOM");
+      expect(result.globalRmsd).toBeGreaterThanOrEqual(0);
+      expect(result.alignmentScope).toBe("local");
+      expect(result.displacements.length).toBeGreaterThan(0);
+    });
+
+    it("should support global alignment scope without crashing", async () => {
+      const result = await alignMutantToWt(dummyWtPdb, dummyMutPdbChainB, 2, "A", "global");
+      expect(result.alignmentScope).toBe("global");
+      expect(result.globalRmsd).toBeGreaterThanOrEqual(0);
     });
   });
 });

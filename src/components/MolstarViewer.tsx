@@ -40,7 +40,9 @@ export default function MolstarViewer({
   active3dModelTab = "alphafold2",
   onModelTabChange,
   metrics,
-  viewMode
+  viewMode,
+  alignmentScope,
+  onAlignmentScopeChange
 }: MolstarViewerProps) {
   const { theme: contextTheme, settings, showPolarContacts: contextShowPolarContacts, setIsSettingsOpen } = useSettings();
   const { fetchWithAuth } = useApiClient();
@@ -113,7 +115,7 @@ export default function MolstarViewer({
     customPdbUrl,
     comparePdbData,
     residueIndex: residueIndex ?? null,
-    compareResidueIndex: compareResidueIndex ?? null,
+    compareResidueIndex: (compareResidueIndex ?? residueIndex) ?? null,
     showPolarContacts,
     show3DLabels,
     residueColorHex,
@@ -184,7 +186,7 @@ export default function MolstarViewer({
       });
       const selection = Script.getStructureSelection(expression, struct.obj.data);
       const loci = StructureSelection.toLociWithSourceUnits(selection);
-      localPlugin.managers.camera.focusLoci(loci, { durationMs: 800 });
+      localPlugin.managers.camera.focusLoci(loci, { durationMs: 800, extraRadius: 8 });
     } catch (e) {
       console.warn("Failed to focus pocket residue:", e);
     }
@@ -222,6 +224,8 @@ export default function MolstarViewer({
           mutantStatus={mutantStatus}
           active3dModelTab={active3dModelTab}
           viewMode={viewMode || null}
+          alignmentScope={alignmentScope}
+          onAlignmentScopeChange={onAlignmentScopeChange}
           activePdbId={structure.activePdbId}
           customPdbUrl={customPdbUrl || null}
           pdbSource={pdbSource || null}

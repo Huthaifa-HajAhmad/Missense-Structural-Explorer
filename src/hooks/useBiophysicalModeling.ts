@@ -5,6 +5,7 @@ import { useDevConsole } from "../context/DevConsoleContext";
 import { computeConsensusVerdict } from "../shared/thresholds";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { useJobPoller } from "./useJobPoller";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 
 export function useBiophysicalModeling(
   settings: UserSettings,
@@ -446,14 +447,27 @@ export function useBiophysicalModeling(
       let isAborted = false;
       const runDiff = async () => {
         try {
-          const diffData = await apiClient.getStructuralDiff({
-            wtPdb: pdbText,
-            mutPdb: mutantPdb,
-            pos: foldedResidueIndex,
-            chain: "A"
-          });
+          const [diffData, alignData] = await Promise.all([
+            apiClient.getStructuralDiff({
+              wtPdb: pdbText,
+              mutPdb: mutantPdb,
+              pos: foldedResidueIndex,
+              chain: "A"
+            }),
+            apiClient.structuralAlign({
+              pdb1: pdbText,
+              pdb2: mutantPdb,
+              targetIndex: foldedResidueIndex,
+              alignmentScope: "local"
+            })
+          ]);
           if (isAborted) return;
           setStructuralDiff(diffData);
+          if (alignData.alignedPdb) {
+            setCompareMutantPdb(alignData.alignedPdb);
+            useVariantAnalysisStore.getState().setCompareMutantPdb(alignData.alignedPdb);
+            useVariantAnalysisStore.getState().setFoldxMetrics(alignData.metrics);
+          }
         } catch (err) {
           console.error("[Structural Diff Error]:", err);
         }
@@ -464,6 +478,9 @@ export function useBiophysicalModeling(
       };
     } else {
       setStructuralDiff(null);
+      setCompareMutantPdb(null);
+      useVariantAnalysisStore.getState().setCompareMutantPdb(null);
+      useVariantAnalysisStore.getState().setFoldxMetrics(null);
     }
   }, [foldingStatus, mutantPdb, pdbText, foldedResidueIndex, apiClient]);
 

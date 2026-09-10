@@ -58,6 +58,7 @@ export async function runAlignMutantToWtInWorker(params: {
   mutPdb: string;
   pos: number;
   chain: string;
+  alignmentScope?: "local" | "global";
 }) {
   return getBiophysicsPool().run(params, { name: "runAlignMutantToWt" });
 }

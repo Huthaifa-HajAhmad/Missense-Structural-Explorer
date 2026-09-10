@@ -52,13 +52,14 @@ export interface ViewInspectorProps {
   setMetricMode?: (mode: "mean" | "max") => void;
   windowSize?: number;
   setWindowSize?: (size: number) => void;
-  viewMode?: "wildtype" | "mutant";
-  setViewMode?: (mode: "wildtype" | "mutant") => void;
+  viewMode?: "wildtype" | "mutant" | "superimposed";
+  setViewMode?: (mode: "wildtype" | "mutant" | "superimposed") => void;
   activeEvidenceTab?: string;
   onSelectEvidenceTab?: (tab: string) => void;
   onSelectResidueIndex?: (idx: number) => void;
   metrics?: any;
   comparePdbData?: string | null;
+  hasMutantModel?: boolean;
   active3dModelTab?: "alphafold2" | "esm3";
   bFactorMetadata?: { source: string; details?: string } | null;
 }
@@ -68,7 +69,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   evidence: { title: "Evidence Lineage", subtitle: "Genomic & Database Provenance", Icon: BarChart2 },
   structure: { title: "Structure Inspector", subtitle: "Models, Homologs & Probes", Icon: Layers },
   structure_alphafold: { title: "AlphaFold Inspector", subtitle: "Full-Length 3D Model", Icon: Layers },
-  structure_esmfold: { title: "ESMFold Inspector", subtitle: "Transformer 3D Model", Icon: Layers },
+  structure_esmfold: { title: "ESM3 / ESMFold Inspector", subtitle: "Transformer De Novo 3D Model", Icon: Layers },
   energetics: { title: "Stability Telemetry", subtitle: "Engines & Thermodynamic Baseline", Icon: Activity },
   landscape: { title: "Landscape Controls", subtitle: "Intolerance & Domain Minimap", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
@@ -113,6 +114,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   onSelectResidueIndex,
   metrics,
   comparePdbData,
+  hasMutantModel,
   active3dModelTab = "alphafold2",
   bFactorMetadata
 }) => {
@@ -258,6 +260,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             active3dModelTab={active3dModelTab}
             metrics={metrics}
             comparePdbData={comparePdbData}
+            hasMutantModel={hasMutantModel}
             bFactorMetadata={bFactorMetadata}
           />
         )}

@@ -348,7 +348,8 @@ export type EsmFoldResponse = z.infer<typeof esmFoldResponseSchema>;
 export const structuralAlignRequestSchema = z.object({
   pdb1: z.string(),
   pdb2: z.string(),
-  targetIndex: z.number().optional()
+  targetIndex: z.number().optional(),
+  alignmentScope: z.enum(["local", "global"]).optional()
 });
 
 export const structuralAlignResponseSchema = z.object({

@@ -13,19 +13,12 @@ import {
 } from "lucide-react";
 import { AnalysisResult, PdbHomolog } from "../../types";
 
-interface StructuralMetrics {
-  localWindowRmsd?: number | null;
-  globalRmsd?: number | null;
-  chi1Deviation?: number | null;
-  sasaDiff?: { wtSasa?: number; mutSasa?: number; delta?: number } | null;
-  hBondsDiff?: { lostCount?: number; gainedCount?: number } | null;
-  contactsDiff?: { lostCount?: number; gainedCount?: number } | null;
-}
+import type { StructuralMetrics } from "../../types";
 
 interface StructureInspectorProps {
   analysisResult: AnalysisResult | null;
-  viewMode: "wildtype" | "mutant";
-  setViewMode?: (mode: "wildtype" | "mutant") => void;
+  viewMode: "wildtype" | "mutant" | "superimposed";
+  setViewMode?: (mode: "wildtype" | "mutant" | "superimposed") => void;
   isFolding: boolean;
   foldingStatus: "failed" | "success" | "unavailable" | null;
   foldingDdG: number | null;
@@ -36,6 +29,7 @@ interface StructureInspectorProps {
   active3dModelTab?: "alphafold2" | "esm3";
   metrics?: StructuralMetrics | null;
   comparePdbData?: string | null;
+  hasMutantModel?: boolean;
   bFactorMetadata?: { source: string; details?: string } | null;
 }
 
@@ -53,6 +47,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
   active3dModelTab = "alphafold2",
   metrics,
   comparePdbData,
+  hasMutantModel = false,
   bFactorMetadata
 }) => {
   const metadata = analysisResult?.metadata;
@@ -71,50 +66,71 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
           Active Coordinate Model
         </span>
 
-        <div className="grid grid-cols-2 gap-2">
-          {/* Wild-Type AF2 */}
+        <div className="grid grid-cols-3 gap-1.5">
+          {/* Wild-Type */}
           <button
             type="button"
             onClick={() => setViewMode?.("wildtype")}
-            className={`p-2 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer ${
+            className={`p-2 rounded-lg border text-[10.5px] font-semibold text-center transition-all cursor-pointer ${
               viewMode === "wildtype"
                 ? "border-cs-border bg-cs-surface-2 text-cs-text-primary shadow-xs"
                 : "border-transparent text-cs-text-secondary hover:bg-cs-bg-subtle"
             }`}
+            title="View baseline reference wild-type coordinates"
           >
-            <div className="flex items-center justify-center gap-1.5">
+            <div className="flex flex-col items-center justify-center gap-1">
               <span className={`w-1.5 h-1.5 rounded-full ${viewMode === "wildtype" ? "bg-emerald-500" : "bg-cs-text-muted"}`} />
-              <span>Wild-Type (AF2)</span>
+              <span className="truncate">{isEsmMode ? "WT (ESM)" : "WT (AF2)"}</span>
             </div>
           </button>
 
-          {/* Mutant FoldX */}
+          {/* Mutant */}
           <button
             type="button"
-            disabled={isFolding || foldingStatus !== "success"}
+            disabled={isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")}
             onClick={() => setViewMode?.("mutant")}
-            className={`p-2 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer ${
+            className={`p-2 rounded-lg border text-[10.5px] font-semibold text-center transition-all cursor-pointer ${
               viewMode === "mutant"
                 ? "border-cs-border bg-cs-surface-2 text-cs-text-primary shadow-xs"
                 : "border-transparent text-cs-text-secondary hover:bg-cs-bg-subtle"
-            } ${isFolding || foldingStatus !== "success" ? "opacity-40 cursor-not-allowed" : ""}`}
+            } ${(isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")) ? "opacity-40 cursor-not-allowed" : ""}`}
             title={
-              isFolding 
-                ? "Repacking mutant side-chains..." 
-                : foldingStatus !== "success" 
-                  ? "FoldX simulation in flight or not computed." 
-                  : "View FoldX repacked mutant coordinates"
+              isEsmMode 
+                ? "View de novo predicted mutant coordinates" 
+                : isFolding 
+                  ? "Repacking mutant side-chains..." 
+                  : foldingStatus !== "success" 
+                    ? "FoldX simulation in flight or not computed." 
+                    : "View FoldX repacked mutant coordinates"
             }
           >
-            <div className="flex items-center justify-center gap-1.5">
+            <div className="flex flex-col items-center justify-center gap-1">
               <span className={`w-1.5 h-1.5 rounded-full ${viewMode === "mutant" ? "bg-amber-500" : "bg-cs-text-muted"}`} />
-              <span>{isFolding ? "Repacking..." : "Mutant (FoldX)"}</span>
+              <span className="truncate">{isFolding ? "Repacking..." : (isEsmMode ? "Mutant (ESM)" : "Mutant (FoldX)")}</span>
+            </div>
+          </button>
+
+          {/* Superposition */}
+          <button
+            type="button"
+            disabled={isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")}
+            onClick={() => setViewMode?.("superimposed")}
+            className={`p-2 rounded-lg border text-[10.5px] font-semibold text-center transition-all cursor-pointer ${
+              viewMode === "superimposed"
+                ? "border-cs-border bg-cs-surface-2 text-cs-text-primary shadow-xs"
+                : "border-transparent text-cs-text-secondary hover:bg-cs-bg-subtle"
+            } ${(isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")) ? "opacity-40 cursor-not-allowed" : ""}`}
+            title="Superimpose mutant on reference wild-type coordinates with dual side-chain stick visualization"
+          >
+            <div className="flex flex-col items-center justify-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${viewMode === "superimposed" ? "bg-pink-500" : "bg-cs-text-muted"}`} />
+              <span className="truncate">Superposition</span>
             </div>
           </button>
         </div>
 
         {/* FoldX Repacking Details Card (Replacing floating FoldX banner dropdown) */}
-        {foldingStatus === "success" && (
+        {!isEsmMode && foldingStatus === "success" && (
           <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold text-cs-text-primary flex items-center gap-1.5">
@@ -201,13 +217,16 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
         </span>
 
         {isEsmMode ? (
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-primary space-y-1">
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-primary space-y-1.5">
             <div className="flex items-center gap-1.5 font-bold font-mono uppercase text-[10px] text-cs-text-primary">
               <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-              <span>ESMFold Exploratory Comparison</span>
+              <span>ESMFold De Novo Structural Dynamics</span>
             </div>
             <p className="text-[10px] text-cs-text-secondary leading-snug font-sans">
-              Single-sequence de novo models; displacement may include prediction variance and should be treated as hypothesis-generating.
+              Single-sequence de novo models. For large multi-domain proteins (&gt;400 aa), elevated global Cα RMSD often reflects stochastic conformational sampling of flexible linkers rather than whole-domain denaturation.
+            </p>
+            <p className="text-[9.5px] text-cs-text-muted leading-snug font-sans">
+              Tip: Local pocket alignment snaps structured domains (&lt;1.0 Å RMSD) to isolate active-site perturbations.
             </p>
           </div>
         ) : (

@@ -21,9 +21,11 @@ def predict_esmfold_sync(req: EsmfoldRequest):
         from esm.sdk.forge import SequenceStructureForgeInferenceClient
         from esm.sdk.api import ESMProteinError
 
+        import os
+        forge_url = os.environ.get("FORGE_API_URL", "https://forge.evolutionaryscale.ai").rstrip("/")
         client = SequenceStructureForgeInferenceClient(
             model="esmfold2-fast-2026-05",
-            url="https://biohub.ai",
+            url=forge_url,
             token=req.biohubToken
         )
         result = client.fold(req.sequence)

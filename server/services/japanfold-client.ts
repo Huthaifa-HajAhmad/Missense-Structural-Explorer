@@ -149,7 +149,7 @@ export async function queryEsmfold2(
   const cached = japanFoldCache.get(cacheKey);
   if (cached) return cached;
 
-  const timeoutMs = CONFIG.timeouts.japanfoldFoldingMs || 15000;
+  const timeoutMs = CONFIG.timeouts.japanfoldFoldingMs || 60000;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const effectiveSignal = anySignal([signal, timeoutSignal]);
 
@@ -159,22 +159,67 @@ export async function queryEsmfold2(
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
-        model: "esmfold-2",
-        sequence
+        model: "esmfold2-fast",
+        sequence,
+        params: {
+          output_format: "pdb"
+        }
       }),
       signal: effectiveSignal
     });
 
-    if (!response.ok) {
+    if (response.status === 200) {
+      const data = (await response.json()) as any;
+      const pdb = data?.pdb || data?.structure || (typeof data === "string" && data.includes("ATOM") ? data : null);
+      if (pdb) {
+        japanFoldCache.set(cacheKey, pdb);
+        return pdb;
+      }
+    } else if (response.status === 202) {
+      const jobData = (await response.json()) as any;
+      const jobId = jobData?.id;
+      const resultsPath = jobData?.links?.results || (jobId ? `/v1/jobs/${jobId}/results` : null);
+      
+      if (resultsPath) {
+        const resultsUrl = `${CONFIG.services.japanfoldBaseUrl}${resultsPath}`;
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < timeoutMs && !effectiveSignal?.aborted) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          if (effectiveSignal?.aborted) break;
+
+          try {
+            const pollRes = await fetch(resultsUrl, {
+              headers: getAuthHeaders(),
+              signal: effectiveSignal
+            });
+            if (!pollRes.ok) {
+              if ([400, 401, 403, 404].includes(pollRes.status)) {
+                console.warn(`[JapanFold Client] Polling failed with non-transient HTTP ${pollRes.status}. Aborting.`);
+                break;
+              }
+            } else {
+              const pollData = (await pollRes.json()) as any;
+              if (pollData.ready || pollData.status === "completed" || pollData.status === "succeeded") {
+                const pdb = pollData?.pdb || pollData?.structure || (typeof pollData === "string" && pollData.includes("ATOM") ? pollData : null);
+                if (pdb) {
+                  japanFoldCache.set(cacheKey, pdb);
+                  return pdb;
+                }
+                break;
+              } else if (pollData.status === "failed" || pollData.status === "error") {
+                console.warn(`[JapanFold Client] ESMFold-2 job failed: ${pollData.error || "Unknown error"}`);
+                break;
+              }
+            }
+          } catch (pollErr: any) {
+            console.warn(`[JapanFold Client] Polling error: ${pollErr.message}`);
+          }
+        }
+      }
+    } else {
       console.warn(`[JapanFold Client] ESMFold-2 query failed with HTTP ${response.status}`);
       return null;
-    }
-
-    const data = (await response.json()) as any;
-    const pdb = data?.pdb || (typeof data === "string" && data.includes("ATOM") ? data : null);
-    if (pdb) {
-      japanFoldCache.set(cacheKey, pdb);
-      return pdb;
     }
   } catch (err: any) {
     console.warn(`[JapanFold Client] ESMFold-2 invocation error: ${err.message}`);

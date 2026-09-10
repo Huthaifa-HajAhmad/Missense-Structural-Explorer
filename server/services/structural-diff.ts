@@ -801,6 +801,7 @@ export interface AlignedStructuralDiffResult {
   globalRmsd: number;
   localWindowRmsd: number;
   windowRadius: number;
+  alignmentScope?: "local" | "global";
   displacements: { resSeq: number; resName: string; displacement: number }[];
   lostContacts: number;
   gainedContacts: number;
@@ -820,7 +821,8 @@ export async function alignMutantToWt(
   wtPdb: string,
   mutPdb: string,
   pos: number,
-  chain: string
+  chain: string,
+  alignmentScope: "local" | "global" = "local"
 ): Promise<AlignedStructuralDiffResult> {
   const wtAtoms = await parseAtomsFromPdbMaybeAsync(wtPdb);
   const mutAtoms = await parseAtomsFromPdbMaybeAsync(mutPdb);
@@ -835,21 +837,41 @@ export async function alignMutantToWt(
     throw new Error("No matching CA atoms found between WT and mutant structures for alignment.");
   }
 
+  // Determine subset of CA pairs to compute Kabsch rotation & translation matrix
+  const localAlignmentWindow = 15;
+  let alignWt = matchedWt;
+  let alignMut = matchedMut;
+
+  if (alignmentScope === "local") {
+    const localIndices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(matchedWt[i].resSeq - pos) <= localAlignmentWindow) {
+        localIndices.push(i);
+      }
+    }
+    // Only use local alignment if >= 4 CA pairs are available within the pocket
+    if (localIndices.length >= 4) {
+      alignWt = localIndices.map(i => matchedWt[i]);
+      alignMut = localIndices.map(i => matchedMut[i]);
+    }
+  }
+
+  const nAlign = alignWt.length;
   let centroidWt = { x: 0, y: 0, z: 0 };
   let centroidMut = { x: 0, y: 0, z: 0 };
 
-  for (let i = 0; i < n; i++) {
-    centroidWt.x += matchedWt[i].x;
-    centroidWt.y += matchedWt[i].y;
-    centroidWt.z += matchedWt[i].z;
+  for (let i = 0; i < nAlign; i++) {
+    centroidWt.x += alignWt[i].x;
+    centroidWt.y += alignWt[i].y;
+    centroidWt.z += alignWt[i].z;
 
-    centroidMut.x += matchedMut[i].x;
-    centroidMut.y += matchedMut[i].y;
-    centroidMut.z += matchedMut[i].z;
+    centroidMut.x += alignMut[i].x;
+    centroidMut.y += alignMut[i].y;
+    centroidMut.z += alignMut[i].z;
   }
 
-  centroidWt.x /= n; centroidWt.y /= n; centroidWt.z /= n;
-  centroidMut.x /= n; centroidMut.y /= n; centroidMut.z /= n;
+  centroidWt.x /= nAlign; centroidWt.y /= nAlign; centroidWt.z /= nAlign;
+  centroidMut.x /= nAlign; centroidMut.y /= nAlign; centroidMut.z /= nAlign;
 
   let H: Matrix3 = [
     [0, 0, 0],
@@ -857,14 +879,14 @@ export async function alignMutantToWt(
     [0, 0, 0]
   ];
 
-  for (let i = 0; i < n; i++) {
-    const px = matchedWt[i].x - centroidWt.x;
-    const py = matchedWt[i].y - centroidWt.y;
-    const pz = matchedWt[i].z - centroidWt.z;
+  for (let i = 0; i < nAlign; i++) {
+    const px = alignWt[i].x - centroidWt.x;
+    const py = alignWt[i].y - centroidWt.y;
+    const pz = alignWt[i].z - centroidWt.z;
 
-    const qx = matchedMut[i].x - centroidMut.x;
-    const qy = matchedMut[i].y - centroidMut.y;
-    const qz = matchedMut[i].z - centroidMut.z;
+    const qx = alignMut[i].x - centroidMut.x;
+    const qy = alignMut[i].y - centroidMut.y;
+    const qz = alignMut[i].z - centroidMut.z;
 
     H[0][0] += px * qx; H[0][1] += px * qy; H[0][2] += px * qz;
     H[1][0] += py * qx; H[1][1] += py * qy; H[1][2] += py * qz;
@@ -895,14 +917,15 @@ export async function alignMutantToWt(
     const ay = R_inv[1][0] * qx + R_inv[1][1] * qy + R_inv[1][2] * qz + centroidWt.y;
     const az = R_inv[2][0] * qx + R_inv[2][1] * qy + R_inv[2][2] * qz + centroidWt.z;
 
-    sumSqDist += Math.pow(wtCas.find(a => a.resSeq === matchedWt[i].resSeq && a.chain === chain)!.x - ax, 2) +
-                 Math.pow(wtCas.find(a => a.resSeq === matchedWt[i].resSeq && a.chain === chain)!.y - ay, 2) +
-                 Math.pow(wtCas.find(a => a.resSeq === matchedWt[i].resSeq && a.chain === chain)!.z - az, 2);
+    sumSqDist += Math.pow(matchedWt[i].x - ax, 2) +
+                 Math.pow(matchedWt[i].y - ay, 2) +
+                 Math.pow(matchedWt[i].z - az, 2);
   }
   const globalRmsd = Math.sqrt(sumSqDist / n);
 
-  // Compute per-residue displacements within LOCAL_STRUCTURAL_WINDOW
+  // Compute per-residue displacements within LOCAL_STRUCTURAL_WINDOW and build fast O(1) map
   const displacements: { resSeq: number; resName: string; displacement: number }[] = [];
+  const resDispMap = new Map<string, number>();
   let sumSqDistLocal = 0;
   let countLocal = 0;
 
@@ -919,6 +942,9 @@ export async function alignMutantToWt(
     const az = R_inv[2][0] * qx + R_inv[2][1] * qy + R_inv[2][2] * qz + centroidWt.z;
 
     const dist = Math.sqrt(Math.pow(wtCa.x - ax, 2) + Math.pow(wtCa.y - ay, 2) + Math.pow(wtCa.z - az, 2));
+
+    resDispMap.set(`${mutCa.chain}:${mutCa.resSeq}`, dist);
+    resDispMap.set(`${mutCa.resSeq}`, dist);
 
     if (Math.abs(wtCa.resSeq - pos) <= LOCAL_STRUCTURAL_WINDOW) {
       displacements.push({
@@ -953,20 +979,7 @@ export async function alignMutantToWt(
         const ay = R_inv[1][0] * qx + R_inv[1][1] * qy + R_inv[1][2] * qz + centroidWt.y;
         const az = R_inv[2][0] * qx + R_inv[2][1] * qy + R_inv[2][2] * qz + centroidWt.z;
 
-        const wtCaMatch = matchedWt.find(a => a.resSeq === resSeq && a.chain === chainId);
-        let disp = 0.0;
-        if (wtCaMatch) {
-          const mutCaMatch = matchedMut.find(a => a.resSeq === resSeq && a.chain === chainId);
-          if (mutCaMatch) {
-            const mqx = mutCaMatch.x - centroidMut.x;
-            const mqy = mutCaMatch.y - centroidMut.y;
-            const mqz = mutCaMatch.z - centroidMut.z;
-            const max = R_inv[0][0] * mqx + R_inv[0][1] * mqy + R_inv[0][2] * mqz + centroidWt.x;
-            const may = R_inv[1][0] * mqx + R_inv[1][1] * mqy + R_inv[1][2] * mqz + centroidWt.y;
-            const maz = R_inv[2][0] * mqx + R_inv[2][1] * mqy + R_inv[2][2] * mqz + centroidWt.z;
-            disp = Math.sqrt(Math.pow(wtCaMatch.x - max, 2) + Math.pow(wtCaMatch.y - may, 2) + Math.pow(wtCaMatch.z - maz, 2));
-          }
-        }
+        const disp = resDispMap.get(`${chainId}:${resSeq}`) ?? resDispMap.get(`${resSeq}`) ?? 0.0;
 
         const paddedX = ax.toFixed(3).padStart(8, " ");
         const paddedY = ay.toFixed(3).padStart(8, " ");
@@ -981,10 +994,14 @@ export async function alignMutantToWt(
 
   const alignedMutPdb = alignedLines.join("\n");
 
+  // Dynamic chain detection for WT and mutant models
+  const wtChain = wtCas.find(a => a.resSeq === pos)?.chain || (wtCas[0]?.chain ?? chain);
+  const mutChain = mutCas.find(a => a.resSeq === pos)?.chain || (mutCas[0]?.chain ?? wtChain);
+
   // Secondary metrics
   // 1. Contact Map
-  const wtContacts = calculateContacts(wtAtoms, pos, chain);
-  const mutContacts = calculateContacts(mutAtoms, pos, chain);
+  const wtContacts = calculateContacts(wtAtoms, pos, wtChain);
+  const mutContacts = calculateContacts(mutAtoms, pos, mutChain);
   const lostContactsArr: number[] = [];
   const gainedContactsArr: number[] = [];
   const contactChanges: { partner: number; type: "lost" | "gained" }[] = [];
@@ -1003,8 +1020,8 @@ export async function alignMutantToWt(
   }
 
   // 2. Hydrogen Bond Network
-  const wtHBonds = calculateHBonds(wtAtoms, pos, chain);
-  const mutHBonds = calculateHBonds(mutAtoms, pos, chain);
+  const wtHBonds = calculateHBonds(wtAtoms, pos, wtChain);
+  const mutHBonds = calculateHBonds(mutAtoms, pos, mutChain);
   const lostHBArr: number[] = [];
   const gainedHBArr: number[] = [];
   const hBondChanges: { partner: number; type: "lost" | "gained" }[] = [];
@@ -1023,13 +1040,13 @@ export async function alignMutantToWt(
   }
 
   // 3. SASA
-  const wtSasa = calculateResidueSasa(wtAtoms, pos, chain);
-  const mutSasa = calculateResidueSasa(mutAtoms, pos, chain);
+  const wtSasa = calculateResidueSasa(wtAtoms, pos, wtChain);
+  const mutSasa = calculateResidueSasa(mutAtoms, pos, mutChain);
   const sasaChange = parseFloat((mutSasa - wtSasa).toFixed(2));
 
   // 4. Chi1 Dihedral
-  const wtChi1 = calculateChi1Dihedral(wtAtoms, pos, chain);
-  const mutChi1 = calculateChi1Dihedral(mutAtoms, pos, chain);
+  const wtChi1 = calculateChi1Dihedral(wtAtoms, pos, wtChain);
+  const mutChi1 = calculateChi1Dihedral(mutAtoms, pos, mutChain);
   const chi1Deviation = calculateChi1Deviation(wtChi1, mutChi1);
 
   return {
@@ -1037,6 +1054,7 @@ export async function alignMutantToWt(
     globalRmsd: parseFloat(globalRmsd.toFixed(4)),
     localWindowRmsd: parseFloat(localWindowRmsd.toFixed(4)),
     windowRadius: LOCAL_STRUCTURAL_WINDOW,
+    alignmentScope,
     displacements,
     lostContacts: lostContactsArr.length,
     gainedContacts: gainedContactsArr.length,

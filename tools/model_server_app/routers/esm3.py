@@ -66,9 +66,11 @@ def predict_esm3_sync(req: Esm3Request):
         from esm.sdk.forge import ESM3ForgeInferenceClient
         from esm.sdk.api import ESMProtein, GenerationConfig
 
+        import os
+        forge_url = os.environ.get("FORGE_API_URL", "https://forge.evolutionaryscale.ai").rstrip("/")
         client = ESM3ForgeInferenceClient(
             model="esm3-medium-2024-08",
-            url="https://biohub.ai",
+            url=forge_url,
             token=req.biohubToken
         )
         

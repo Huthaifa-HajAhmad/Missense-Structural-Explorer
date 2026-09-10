@@ -130,7 +130,8 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
       const alignData = await apiClient.structuralAlign({
         pdb1: foldData.wtPdb,
         pdb2: foldData.mutPdb,
-        targetIndex: position
+        targetIndex: position,
+        alignmentScope: "local"
       });
 
       if (alignData.alignedPdb) {

@@ -7,14 +7,14 @@ export interface NotificationItem {
 }
 
 export interface UiState {
-  viewMode: "wildtype" | "mutant";
+  viewMode: "wildtype" | "mutant" | "superimposed";
   isHowToInspectOpen: boolean;
   isLegendOpen: boolean;
   notifications: NotificationItem[];
 }
 
 export interface UiActions {
-  setViewMode: (viewMode: "wildtype" | "mutant") => void;
+  setViewMode: (viewMode: "wildtype" | "mutant" | "superimposed") => void;
   setIsHowToInspectOpen: (isHowToInspectOpen: boolean) => void;
   setIsLegendOpen: (isLegendOpen: boolean) => void;
   setNotifications: (
