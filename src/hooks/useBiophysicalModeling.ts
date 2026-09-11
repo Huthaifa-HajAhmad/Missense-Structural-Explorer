@@ -421,12 +421,14 @@ export function useBiophysicalModeling(
     notifyOnce
   });
 
-  const fetchPocketInfo = useCallback(async (pdbText: string, activeChain: string, activeResSeq: number, signal?: AbortSignal) => {
+  const fetchPocketInfo = useCallback(async (pdbText: string, activeChain: string, activeResSeq: number, uniprotId?: string, signal?: AbortSignal) => {
     setIsPocketLoading(true);
     setPocketError(null);
     try {
       const pocketData = await apiClient.detectPocket({
-        pdbText,
+        pdbText: pdbText || undefined,
+        uniprotId: uniprotId || undefined,
+        pdbRef: uniprotId || undefined,
         targetIndex: activeResSeq,
         targetChain: activeChain
       }, signal);

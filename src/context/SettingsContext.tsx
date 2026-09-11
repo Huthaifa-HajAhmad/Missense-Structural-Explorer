@@ -161,12 +161,25 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
 
       const transient = readTransientCredentials();
-      const firstRunReducedMotion =
-        parsed.reducedMotion === undefined ? prefersReducedMotion() : undefined;
+      // Legacy settings migration: ensure autoZoomOnSelect defaults to false
+      // unless explicitly enabled by the user in this version.
+      const legacyAutoZoomMigrated = parsed.__autoZoomMigrated === true;
+      let effectiveAutoZoom = DEFAULT_USER_SETTINGS.autoZoomOnSelect;
+      if (legacyAutoZoomMigrated && parsed.autoZoomOnSelect !== undefined) {
+        effectiveAutoZoom = !!parsed.autoZoomOnSelect;
+      } else if (!legacyAutoZoomMigrated && parsed.autoZoomOnSelect !== undefined) {
+        parsed.autoZoomOnSelect = false;
+        parsed.__autoZoomMigrated = true;
+        try {
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed));
+        } catch (_) {}
+        effectiveAutoZoom = false;
+      }
 
       const merged: UserSettings = {
         ...DEFAULT_USER_SETTINGS,
         ...parsed,
+        autoZoomOnSelect: effectiveAutoZoom,
         geminiApiKey: transient.geminiApiKey || "",
         geminiSessionId: transient.geminiSessionId || "",
         geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
@@ -174,14 +187,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         biohubApiToken: transient.biohubApiToken || "",
         hfToken: transient.hfToken || "",
         show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
+        reducedMotion: parsed.reducedMotion !== undefined ? !!parsed.reducedMotion : prefersReducedMotion(),
         biophysicsConditions: {
           ...DEFAULT_USER_SETTINGS.biophysicsConditions,
           ...(parsed.biophysicsConditions || {})
         }
       };
-      if (firstRunReducedMotion !== undefined) {
-        merged.reducedMotion = firstRunReducedMotion;
-      }
       return merged;
     } catch {
       return DEFAULT_USER_SETTINGS;
@@ -192,7 +203,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.setAttribute("data-accent", settings.primaryAccent || "indigo");
   }, [settings.primaryAccent]);
 
-  const [osReducedMotion, setOsReducedMotion] = useState<boolean>(prefersReducedMotion);
+  const [osReducedMotion, setOsReducedMotion] = useState<boolean>(() => prefersReducedMotion());
 
   useEffect(() => {
     try {
@@ -219,7 +230,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setSettings((prev) => {
       const updated = { ...prev, [key]: value };
       try {
-        const toSave = { ...updated } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
+        const toSave = { ...updated, __autoZoomMigrated: true } as Partial<Record<TransientSettingKey, unknown>> & UserSettings;
         // Credentials live only in sessionStorage for the tab lifetime — never
         // in localStorage, which persists across sessions on disk.
         for (const transientKey of TRANSIENT_SETTING_KEYS) {

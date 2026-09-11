@@ -298,21 +298,40 @@ export function executeListRecentAnalyses(
   `);
 
   const rows = stmt.all(limit, offset) as any[];
-  return rows.map(row => ({
-    id: Number(row.id),
-    gene: row.gene,
-    variant: row.variant,
-    uniprotId: row.uniprot_id,
-    pos: Number(row.pos),
-    wildType: row.wild_type,
-    mutant: row.mutant,
-    acmgWeighting: row.acmg_weighting || "standard",
-    acmgVerdict: row.acmg_verdict,
-    payload: JSON.parse(row.payload_json),
-    modelVersions: row.model_versions_json ? JSON.parse(row.model_versions_json) : null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }));
+  return rows.map(row => {
+    let payload: any = null;
+    let modelVersions: any = null;
+    try {
+      if (row.payload_json) {
+        payload = JSON.parse(row.payload_json);
+      }
+    } catch {
+      payload = null;
+    }
+    try {
+      if (row.model_versions_json) {
+        modelVersions = JSON.parse(row.model_versions_json);
+      }
+    } catch {
+      modelVersions = null;
+    }
+
+    return {
+      id: Number(row.id),
+      gene: row.gene,
+      variant: row.variant,
+      uniprotId: row.uniprot_id,
+      pos: Number(row.pos),
+      wildType: row.wild_type,
+      mutant: row.mutant,
+      acmgWeighting: row.acmg_weighting || "standard",
+      acmgVerdict: row.acmg_verdict,
+      payload,
+      modelVersions,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  });
 }
 
 export function executeSaveExternalCache(

@@ -130,12 +130,12 @@ export function FunctionTab({
               </div>
 
               {computedPocket.status !== "success" && (
-                <div className="p-3 rounded-lg border text-[11px] leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2.5" style={{ background: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)", color: "var(--cs-text-warning)" }}>
-                  <div>
-                    <span className="font-bold block uppercase text-[9px] mb-0.5 tracking-wider">
+                <div className="p-3.5 rounded-xl border text-[11px] leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100">
+                  <div className="space-y-0.5">
+                    <span className="font-bold block uppercase text-[9.5px] tracking-wider text-amber-800 dark:text-amber-400">
                       {computedPocket.status === "none_detected" ? "No Pocket Detected:" : "ML Model Offline / Standby:"}
                     </span>
-                    <span className="text-[11px] leading-tight block">
+                    <span className="text-[11.5px] leading-tight block text-cs-text-secondary">
                       {computedPocket.status === "none_detected"
                         ? "No ligand-binding pocket cavity was detected within proximity of this residue by P2Rank."
                         : "P2Rank machine learning service was unavailable during initial scan. If Java 17 has been initialized or runtime is now ready, retry detection."}
@@ -146,7 +146,7 @@ export function FunctionTab({
                       type="button"
                       onClick={() => onRetryPocket()}
                       disabled={isPocketLoading}
-                      className="px-3 py-1.5 rounded-md font-mono text-[10.5px] font-semibold flex items-center justify-center gap-1.5 transition-all bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-500/40 shrink-0"
+                      className="px-3.5 py-1.5 rounded-lg font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all bg-amber-600 hover:bg-amber-500 active:scale-95 text-white border border-amber-600 shadow-sm shrink-0 cursor-pointer disabled:opacity-50"
                     >
                       <RotateCw className={`w-3.5 h-3.5 ${isPocketLoading ? "animate-spin" : ""}`} />
                       Retry Pocket Detection
@@ -324,7 +324,7 @@ export function FunctionTab({
                   )}
                 </div>
 
-                {/* 2. Interactive Full-Length Protein Architecture SVG Track */}
+                {/* 2. Interactive Multi-Tiered Full-Length Protein Architecture SVG Track */}
                 <div className="p-3.5 rounded-xl border bg-cs-surface-2 border-cs-border space-y-2">
                   <div className="flex items-center justify-between text-[10.5px] font-mono text-cs-text-muted">
                     <span className="flex items-center gap-1">
@@ -336,40 +336,85 @@ export function FunctionTab({
 
                   <div className="w-full overflow-x-auto py-1">
                     <svg
-                      viewBox="0 0 800 74"
+                      viewBox="0 0 800 115"
                       className="w-full h-auto min-w-[500px] overflow-visible select-none"
                     >
                       <defs>
                         <linearGradient id="domainGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
-                          <stop offset="100%" stopColor="#059669" stopOpacity="0.6" />
+                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
+                          <stop offset="100%" stopColor="#059669" stopOpacity="0.55" />
                         </linearGradient>
                         <linearGradient id="activeDomainGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.75" />
+                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.8" />
                           <stop offset="100%" stopColor="#047857" stopOpacity="0.95" />
                         </linearGradient>
                       </defs>
 
-                      {/* Backbone track rail */}
+                      {/* Tier 1: Variant Indicator Pin & Callout Pill */}
+                      {pos && (() => {
+                        const varX = getTrackX(pos);
+                        const pillWidth = 96;
+                        const clampedPillX = Math.max(32, Math.min(varX - pillWidth / 2, 768 - pillWidth));
+                        return (
+                          <g className="cursor-default">
+                            {/* Callout Pill Background */}
+                            <rect
+                              x={clampedPillX}
+                              y="3"
+                              width={pillWidth}
+                              height="18"
+                              rx="5"
+                              className="fill-amber-500/15 dark:fill-amber-500/25 stroke-amber-500/40 stroke-[1]"
+                            />
+                            <text
+                              x={clampedPillX + pillWidth / 2}
+                              y="15.5"
+                              textAnchor="middle"
+                              className="text-[9px] font-mono font-extrabold fill-amber-600 dark:fill-amber-400 select-none"
+                            >
+                              ▼ {wt || "p."}{pos}{mut ? ` → ${mut}` : ""}
+                            </text>
+                            {/* Guide line down to domain rail */}
+                            <line
+                              x1={varX}
+                              y1="21"
+                              x2={varX}
+                              y2="44"
+                              className="stroke-amber-500 dark:stroke-amber-400 stroke-[1.5]"
+                              strokeDasharray="2 1.5"
+                            />
+                            {/* Glowing Beacon */}
+                            <circle
+                              cx={varX}
+                              cy="47"
+                              r="7.5"
+                              className="fill-amber-500/20 animate-ping pointer-events-none"
+                            />
+                            <circle
+                              cx={varX}
+                              cy="47"
+                              r="4"
+                              className="fill-amber-500 stroke-white dark:stroke-slate-950 stroke-[1.5]"
+                            />
+                          </g>
+                        );
+                      })()}
+
+                      {/* Tier 2: Backbone track rail & Domain Blocks */}
                       <rect
                         x="32"
-                        y="28"
+                        y="44"
                         width="736"
-                        height="8"
-                        rx="4"
+                        height="6"
+                        rx="3"
                         className="fill-slate-200 dark:fill-slate-800 stroke-slate-300 dark:stroke-slate-700 stroke-[0.5]"
                       />
-
-                      {/* Scale endpoint labels */}
-                      <text x="32" y="52" textAnchor="start" className="text-[9px] font-mono fill-slate-400">1</text>
-                      <text x="400" y="52" textAnchor="middle" className="text-[8.5px] font-mono fill-slate-400">{Math.round(seqLength / 2)}</text>
-                      <text x="768" y="52" textAnchor="end" className="text-[9px] font-mono fill-slate-400">{seqLength} aa</text>
 
                       {/* Domain Blocks */}
                       {domains.map((d: any, idx: number) => {
                         const x1 = getTrackX(d.start);
                         const x2 = getTrackX(d.end);
-                        const w = Math.max(x2 - x1, 5);
+                        const w = Math.max(x2 - x1, 6);
                         const isTargetInside = pos >= d.start && pos <= d.end;
                         return (
                           <g
@@ -379,10 +424,10 @@ export function FunctionTab({
                           >
                             <rect
                               x={x1}
-                              y="20"
+                              y="33"
                               width={w}
-                              height="24"
-                              rx="5"
+                              height="28"
+                              rx="6"
                               fill={isTargetInside ? "url(#activeDomainGrad)" : "url(#domainGrad)"}
                               className={`stroke-1 transition-all ${
                                 isTargetInside
@@ -390,15 +435,15 @@ export function FunctionTab({
                                   : "stroke-emerald-500/70 hover:stroke-emerald-300"
                               }`}
                             />
-                            {w > 42 && (
+                            {w > 38 && (
                               <text
                                 x={x1 + w / 2}
-                                y="36"
+                                y="50"
                                 textAnchor="middle"
-                                className="text-[9px] font-mono font-bold fill-emerald-950 dark:fill-emerald-100 pointer-events-none select-none"
+                                className="text-[9.5px] font-mono font-bold fill-emerald-950 dark:fill-emerald-100 pointer-events-none select-none"
                               >
-                                {d.description && d.description.length > 18
-                                  ? `${d.description.slice(0, 16)}…`
+                                {d.description && d.description.length > 20
+                                  ? `${d.description.slice(0, 18)}…`
                                   : d.description || "Domain"}
                               </text>
                             )}
@@ -407,66 +452,63 @@ export function FunctionTab({
                         );
                       })}
 
-                      {/* Curated Point Site Pins / Ticks */}
+                      {/* Tier 3: Dedicated Functional Site Lane */}
+                      <line
+                        x1="32"
+                        y1="78"
+                        x2="768"
+                        y2="78"
+                        className="stroke-slate-200 dark:stroke-slate-800 stroke-[1]"
+                        strokeDasharray="2 3"
+                      />
                       {functionalSites.map((s: any, idx: number) => {
                         const cx = getTrackX(s.start);
                         const isRose = s.type.toLowerCase().includes("active") || s.type.toLowerCase().includes("catalytic");
                         const isPurple = s.type.toLowerCase().includes("binding") || s.type.toLowerCase().includes("metal");
                         const isSky = s.type.toLowerCase().includes("modified") || s.type.toLowerCase().includes("phospho") || s.type.toLowerCase().includes("acetyl");
                         const isAmber = s.type.toLowerCase().includes("disulfide") || s.type.toLowerCase().includes("cysteine");
-                        const pinColor = isRose ? "#f43f5e" : isPurple ? "#a855f7" : isSky ? "#38bdf8" : isAmber ? "#f59e0b" : "#94a3b8";
+                        const isCyan = s.type.toLowerCase().includes("transmembrane") || s.type.toLowerCase().includes("membrane");
+                        const pinColor = isRose ? "#f43f5e" : isPurple ? "#a855f7" : isSky ? "#0ea5e9" : isAmber ? "#f59e0b" : isCyan ? "#06b6d4" : "#64748b";
                         return (
-                          <circle
-                            key={idx}
-                            cx={cx}
-                            cy="32"
-                            r="3"
-                            fill={pinColor}
-                            className="stroke-white dark:stroke-slate-900 stroke-[1] cursor-pointer hover:scale-125 transition-transform"
-                            onClick={() => onSelectResidue?.(s.start)}
-                          >
+                          <g key={idx} className="cursor-pointer group" onClick={() => onSelectResidue?.(s.start)}>
+                            {/* Lollipop stem */}
+                            <line
+                              x1={cx}
+                              y1="61"
+                              x2={cx}
+                              y2="78"
+                              className="stroke-slate-300 dark:stroke-slate-700 stroke-[0.75] opacity-60 group-hover:opacity-100 group-hover:stroke-slate-400"
+                            />
+                            {/* Site circle pin */}
+                            <circle
+                              cx={cx}
+                              cy="78"
+                              r="3.5"
+                              fill={pinColor}
+                              className="stroke-white dark:stroke-slate-900 stroke-[1] transition-transform group-hover:scale-125"
+                            />
                             <title>{`${s.type}: ${s.description || ""} (${s.start}${s.end !== s.start ? `–${s.end}` : ""})`}</title>
-                          </circle>
+                          </g>
                         );
                       })}
 
-                      {/* Variant Indicator Pin & Beacon */}
-                      {pos && (
-                        <g className="cursor-default">
-                          <circle
-                            cx={getTrackX(pos)}
-                            cy="32"
-                            r="7"
-                            className="fill-amber-500/25 animate-ping pointer-events-none"
-                          />
-                          <circle
-                            cx={getTrackX(pos)}
-                            cy="32"
-                            r="4.5"
-                            className="fill-amber-500 stroke-white dark:stroke-slate-950 stroke-[1.5]"
-                          />
-                          <line
-                            x1={getTrackX(pos)}
-                            y1="12"
-                            x2={getTrackX(pos)}
-                            y2="28"
-                            className="stroke-amber-500 dark:stroke-amber-400 stroke-[1.5]"
-                            strokeDasharray="2 1"
-                          />
-                          <polygon
-                            points={`${getTrackX(pos) - 4},10 ${getTrackX(pos) + 4},10 ${getTrackX(pos)},16`}
-                            className="fill-amber-500 dark:fill-amber-400"
-                          />
-                          <text
-                            x={getTrackX(pos)}
-                            y="8"
-                            textAnchor="middle"
-                            className="text-[9.5px] font-mono font-extrabold fill-amber-600 dark:fill-amber-400 select-none"
-                          >
-                            ▼ {wt || "p."}{pos}{mut ? `>${mut}` : ""}
-                          </text>
-                        </g>
-                      )}
+                      {/* Tier 4: Sequence Scale Ruler */}
+                      <line
+                        x1="32"
+                        y1="96"
+                        x2="768"
+                        y2="96"
+                        className="stroke-slate-300 dark:stroke-slate-700 stroke-[0.5]"
+                      />
+                      <line x1="32" y1="94" x2="32" y2="98" className="stroke-slate-400 stroke-[1]" />
+                      <line x1="216" y1="94" x2="216" y2="98" className="stroke-slate-300 dark:stroke-slate-700 stroke-[0.5]" />
+                      <line x1="400" y1="94" x2="400" y2="98" className="stroke-slate-400 stroke-[1]" />
+                      <line x1="584" y1="94" x2="584" y2="98" className="stroke-slate-300 dark:stroke-slate-700 stroke-[0.5]" />
+                      <line x1="768" y1="94" x2="768" y2="98" className="stroke-slate-400 stroke-[1]" />
+
+                      <text x="32" y="109" textAnchor="start" className="text-[9px] font-mono fill-slate-400">1</text>
+                      <text x="400" y="109" textAnchor="middle" className="text-[8.5px] font-mono fill-slate-400">{Math.round(seqLength / 2)}</text>
+                      <text x="768" y="109" textAnchor="end" className="text-[9px] font-mono fill-slate-400">{seqLength} aa</text>
                     </svg>
                   </div>
 
@@ -540,9 +582,16 @@ export function FunctionTab({
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 items-stretch">
                     {/* Upstream Vector */}
                     <div className="p-2.5 rounded-lg border bg-cs-surface border-cs-border-subtle flex flex-col justify-between">
-                      <span className="text-[10px] font-mono font-bold text-sky-600 dark:text-sky-400">
-                        {nearestUpstream ? `← -${nearestUpstream.distance} aa` : "← N-terminus"}
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono font-bold text-sky-600 dark:text-sky-400">
+                          {nearestUpstream ? `← -${nearestUpstream.distance} aa` : "← N-terminus"}
+                        </span>
+                        {nearestUpstream && (
+                          <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-bold uppercase border ${getFeatureBadgeStyle(nearestUpstream.feature.type)}`}>
+                            {nearestUpstream.feature.type}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] font-semibold text-cs-text-primary mt-1">
                         {nearestUpstream ? (nearestUpstream.feature.description || nearestUpstream.feature.type) : "Residue 1 (Start)"}
                       </span>
@@ -566,9 +615,16 @@ export function FunctionTab({
 
                     {/* Downstream Vector */}
                     <div className="p-2.5 rounded-lg border bg-cs-surface border-cs-border-subtle flex flex-col justify-between text-right">
-                      <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                        {nearestDownstream ? `+${nearestDownstream.distance} aa →` : `C-terminus →`}
-                      </span>
+                      <div className="flex items-center justify-between">
+                        {nearestDownstream && (
+                          <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-bold uppercase border ${getFeatureBadgeStyle(nearestDownstream.feature.type)}`}>
+                            {nearestDownstream.feature.type}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 ml-auto">
+                          {nearestDownstream ? `+${nearestDownstream.distance} aa →` : `C-terminus →`}
+                        </span>
+                      </div>
                       <span className="text-[11px] font-semibold text-cs-text-primary mt-1">
                         {nearestDownstream ? (nearestDownstream.feature.description || nearestDownstream.feature.type) : `Residue ${seqLength} (End)`}
                       </span>

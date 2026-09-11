@@ -150,7 +150,7 @@ export async function fetchBindingPocket(
   const pocketStart = performance.now();
 
   try {
-    const pocketParams: any = { mutIndex: residueIndex };
+    const pocketParams: any = { targetIndex: residueIndex, mutIndex: residueIndex };
     if (uniprotNorm) {
       pocketParams.pdbRef = uniprotNorm;
       pocketParams.uniprotId = uniprotNorm;
@@ -158,7 +158,9 @@ export async function fetchBindingPocket(
     if (hasValidPdb) {
       pocketParams.pdbText = pdbNorm;
     }
-    const validatedData = await apiClient.findPocket(pocketParams, signal);
+    const validatedData = typeof apiClient.detectPocket === "function"
+      ? await apiClient.detectPocket(pocketParams, signal)
+      : await apiClient.findPocket(pocketParams, signal);
     const durationMs = Math.round(performance.now() - pocketStart);
     const offsetMs = traceContext ? Math.max(0, Math.round(pocketStart - traceContext.traceStart)) : 0;
 

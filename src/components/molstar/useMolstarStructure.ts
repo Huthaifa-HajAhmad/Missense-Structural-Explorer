@@ -155,15 +155,15 @@ export function useMolstarStructure({
         let fetchedPdbText: string | null = null;
         let currentSource: "alphafold" | "experimental" = "alphafold";
 
-        if (esmFoldPdb) {
+        if (customPdbData) {
           data = await localPlugin.builders.data.rawData({
-            data: esmFoldPdb,
-            label: `${gene || 'ESMFold'} (${variant || 'Mutant'})`
+            data: customPdbData,
+            label: `${gene || 'Protein'} (${viewMode === 'mutant' ? 'Mutant' : 'Wild-Type'})`
           });
-          fetchedPdbText = esmFoldPdb;
-          currentSource = "alphafold";
-          setTemplateSource("alphafold");
-          setActivePdbId(null);
+          fetchedPdbText = customPdbData;
+          currentSource = (customPdbUrl || activePdbId) ? "experimental" : "alphafold";
+          setTemplateSource(currentSource);
+          setActivePdbId(activePdbId || null);
         } else if (customPdbUrl) {
           if (!isValidPdbUrl(customPdbUrl)) {
             throw new Error(`Invalid custom PDB URL (${customPdbUrl}). Only RCSB PDB, AlphaFold DB, or local API proxies are permitted.`);
@@ -187,12 +187,12 @@ export function useMolstarStructure({
             data: resData,
             label: `${gene || 'Homolog'} (${labelName})`
           });
-        } else if (customPdbData) {
+        } else if (esmFoldPdb && active3dModelTab === "esm3") {
           data = await localPlugin.builders.data.rawData({
-            data: customPdbData,
-            label: `${gene || 'Custom'} (${uniprotId || 'PDB'})`
+            data: esmFoldPdb,
+            label: `${gene || 'ESMFold'} (${variant || 'Structure'})`
           });
-          fetchedPdbText = customPdbData;
+          fetchedPdbText = esmFoldPdb;
           currentSource = "alphafold";
           setTemplateSource("alphafold");
           setActivePdbId(null);
@@ -241,6 +241,7 @@ export function useMolstarStructure({
           }
 
           fetchedPdbText = resData;
+          if (onPdbTextLoaded) onPdbTextLoaded(resData);
           data = await localPlugin.builders.data.rawData({
             data: resData,
             label: `${gene || 'Protein'} (${uniprotId})`
@@ -254,7 +255,6 @@ export function useMolstarStructure({
 
         if (fetchedPdbText) {
           setPdbText(fetchedPdbText);
-          if (onPdbTextLoaded) onPdbTextLoaded(fetchedPdbText);
         }
 
         const format = (fetchedPdbText && (fetchedPdbText.startsWith("data_") || fetchedPdbText.includes("_atom_site"))) ? "mmcif" : "pdb";
@@ -306,25 +306,27 @@ export function useMolstarStructure({
         }
 
         if (viewerStyle === "biomolecular") {
-          const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
-          if (!active) return;
-          if (proteinComp) {
-            await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
-              type: 'cartoon',
-              color: 'uniform',
-              colorParams: { value: Color(0x00bcd4) }
-            });
-            if (!active) return;
+          let reprTarget = targetStructure;
+          if (targetStructure === structure) {
+            const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+            if (proteinComp) reprTarget = proteinComp;
           }
-          const nucleicComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'nucleic');
+          await localPlugin.builders.structure.representation.addRepresentation(reprTarget, {
+            type: 'cartoon',
+            color: 'uniform',
+            colorParams: { value: Color(0x00bcd4) }
+          });
           if (!active) return;
-          if (nucleicComp) {
-            await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
-              type: 'cartoon',
-              color: 'uniform',
-              colorParams: { value: Color(0x888888) }
-            });
-            if (!active) return;
+          if (targetStructure === structure) {
+            const nucleicComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'nucleic');
+            if (nucleicComp) {
+              await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
+                type: 'cartoon',
+                color: 'uniform',
+                colorParams: { value: Color(0x888888) }
+              });
+              if (!active) return;
+            }
           }
         } else if (viewerStyle === "esm3-allosteric") {
           await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
@@ -338,17 +340,13 @@ export function useMolstarStructure({
           if (!active) return;
         } else if (viewerStyle === "displacement") {
           if (comparePdbData) {
-            const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
+            await localPlugin.builders.structure.representation.addRepresentation(targetStructure, {
+              type: 'cartoon',
+              color: 'uniform',
+              colorParams: { value: Color(0x94a3b8) },
+              typeParams: { alpha: 0.35 }
+            });
             if (!active) return;
-            if (proteinComp) {
-              await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
-                type: 'cartoon',
-                color: 'uniform',
-                colorParams: { value: Color(0xd3d3d3) },
-                typeParams: { alpha: 0.35 }
-              });
-              if (!active) return;
-            }
           } else {
             await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
               theme: { globalName: 'backbone-displacement' }
@@ -488,6 +486,13 @@ export function useMolstarStructure({
           }
         }
 
+        if (localPlugin.canvas3d?.camera) {
+          try {
+            localPlugin.canvas3d.camera.forceFull = true;
+            localPlugin.canvas3d.camera.setState({ clipFar: false });
+          } catch (e) {}
+        }
+
         if (active) {
           isStructureLoadingRef.current = false;
           setLoading(false);
@@ -517,7 +522,8 @@ export function useMolstarStructure({
     plddtFilter,
     viewerStyle,
     esmFoldPdb,
-    active3dModelTab
+    active3dModelTab,
+    viewMode
   ]);
 
   // Residue focus & highlight effect
@@ -730,14 +736,19 @@ export function useMolstarStructure({
 
         if (!active) return;
 
-        if (lociList.length > 0) {
+        if (localPlugin.canvas3d?.camera) {
+          try {
+            localPlugin.canvas3d.camera.forceFull = true;
+            localPlugin.canvas3d.camera.setState({ clipFar: false });
+          } catch (e) {}
+        }
+
+        if (lociList.length > 0 && autoZoomOnSelect) {
           localPlugin.managers.structure.selection.clear();
           for (const loci of lociList) {
             localPlugin.managers.structure.selection.fromLoci('add', loci);
           }
-          if (autoZoomOnSelect) {
-            localPlugin.managers.camera.focusLoci(lociList, { durationMs: cameraDuration });
-          }
+          localPlugin.managers.camera.focusLoci(lociList, { durationMs: cameraDuration });
         }
       } catch (err: any) {
         const msg = err?.message || "";

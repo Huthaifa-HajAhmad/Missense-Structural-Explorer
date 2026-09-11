@@ -58,7 +58,7 @@ describe("UniProt Features Service", () => {
     expect(bindingFeature?.description).toBe("Ligand: ATP");
   });
 
-  it("should extract InterPro cross-references and sequence length for domain annotations", async () => {
+  it("should extract InterPro cross-references with abbreviated database names and sequence length", async () => {
     const mockUniProtJson = {
       genes: [{ geneName: { value: "MAST2" } }],
       sequence: { length: 1798 },
@@ -66,12 +66,17 @@ describe("UniProt Features Service", () => {
         {
           database: "InterPro",
           id: "IPR000719",
-          properties: [{ key: "EntryName", value: "Protein kinase domain" }]
+          properties: [{ key: "EntryName", value: "Prot_kinase_dom" }]
+        },
+        {
+          database: "InterPro",
+          id: "IPR000961",
+          properties: [{ key: "EntryName", value: "AGC-kinase_C" }]
         },
         {
           database: "InterPro",
           id: "IPR001478",
-          properties: [{ key: "EntryName", value: "PDZ domain" }]
+          properties: [{ key: "EntryName", value: "PDZ" }]
         }
       ],
       features: [
@@ -79,6 +84,11 @@ describe("UniProt Features Service", () => {
           type: "Domain",
           description: "Protein kinase",
           location: { start: { value: 512 }, end: { value: 785 } }
+        },
+        {
+          type: "Domain",
+          description: "AGC-kinase C-terminal",
+          location: { start: { value: 786 }, end: { value: 854 } }
         },
         {
           type: "Domain",
@@ -100,6 +110,9 @@ describe("UniProt Features Service", () => {
 
     const kinaseDomain = result?.features.find(f => f.description === "Protein kinase");
     expect(kinaseDomain?.interproId).toBe("IPR000719");
+
+    const agcDomain = result?.features.find(f => f.description === "AGC-kinase C-terminal");
+    expect(agcDomain?.interproId).toBe("IPR000961");
 
     const pdzDomain = result?.features.find(f => f.description === "PDZ");
     expect(pdzDomain?.interproId).toBe("IPR001478");

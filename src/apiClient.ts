@@ -367,48 +367,6 @@ export function useApiClient() {
         return nearestResiduesResponseSchema.parse(data);
       },
 
-      async findPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, mutIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
-        const res = await fetchWithAuth("/api/v1/pocket-finder", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(params),
-          timeout: 30000,
-          signal
-        });
-        if (!res.ok) {
-          const errorMsg = await extractErrorMessage(res, "Failed to find binding pocket");
-          throw new Error(errorMsg);
-        }
-        const initialData = await res.json();
-        if (initialData.status === "queued" && initialData.pocketJobId) {
-          let attempt = 0;
-          const maxAttempts = 60;
-          while (attempt < maxAttempts) {
-            if (signal?.aborted) {
-              throw new Error("Pocket search query aborted by client.");
-            }
-            const jobRes = await fetchWithAuth(`/api/v1/pocket-job/${initialData.pocketJobId}`, {
-              method: "GET",
-              signal
-            });
-            if (!jobRes.ok) {
-              const errorMsg = await extractErrorMessage(jobRes, "Failed to poll pocket job status");
-              throw new Error(errorMsg);
-            }
-            const jobData = await jobRes.json();
-            if (jobData.status === "completed") {
-              return pocketFinderResponseSchema.parse(jobData.result);
-            } else if (jobData.status === "failed") {
-              throw new Error(jobData.error || "Pocket search job failed.");
-            }
-            attempt++;
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
-          throw new Error("Pocket search job timed out on server.");
-        }
-        return pocketFinderResponseSchema.parse(initialData);
-      },
-
       async detectPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
         const res = await fetchWithAuth("/api/v1/pocket-detect", {
           method: "POST",
@@ -449,6 +407,17 @@ export function useApiClient() {
           throw new Error("Pocket detection job timed out on server.");
         }
         return pocketFinderResponseSchema.parse(initialData);
+      },
+
+      async findPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex?: number, mutIndex?: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+        const targetIndex = params.targetIndex ?? params.mutIndex ?? 1;
+        return this.detectPocket({
+          pdbText: params.pdbText,
+          pdbRef: params.pdbRef,
+          uniprotId: params.uniprotId,
+          targetIndex,
+          targetChain: params.targetChain
+        }, signal);
       },
 
       async getBiophysicalAnalysis(params: { gene: string, uniprotId: string, variant: string, wtPdb?: string, options?: any }, signal?: AbortSignal): Promise<BiophysicalAnalysisResponse> {

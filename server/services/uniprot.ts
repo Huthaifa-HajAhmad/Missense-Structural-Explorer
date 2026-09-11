@@ -147,12 +147,30 @@ export async function fetchUniprotFeatures(
 
         // Build InterPro cross-reference map for domain annotation enrichment
         const interproMap = new Map<string, string>();
+        function normalizeDomainText(str: string): string {
+          let s = (str || "").toLowerCase().trim();
+          s = s.replace(/[_\-]+/g, " ");
+          s = s.replace(/\bprot\b/g, "protein");
+          s = s.replace(/\bdom\b/g, "domain");
+          s = s.replace(/\bsf\b/g, "superfamily");
+          s = s.replace(/\bpk\b/g, "protein kinase");
+          s = s.replace(/\bc\b/g, "c terminal");
+          s = s.replace(/\bc term\b/g, "c terminal");
+          s = s.replace(/\bn\b/g, "n terminal");
+          s = s.replace(/\bn term\b/g, "n terminal");
+          return s.replace(/\s+/g, " ").trim();
+        }
+
         const rawXrefs = json?.uniProtKBCrossReferences ?? [];
         for (const xref of rawXrefs) {
           if (xref?.database === "InterPro" && xref?.id) {
             const entryName = xref.properties?.find((p: any) => p.key === "EntryName")?.value || "";
             if (entryName) {
               interproMap.set(entryName.toLowerCase().trim(), xref.id);
+              const normEntry = normalizeDomainText(entryName);
+              if (normEntry) {
+                interproMap.set(normEntry, xref.id);
+              }
             }
           }
         }
@@ -171,25 +189,30 @@ export async function fetchUniprotFeatures(
             let interproId: string | undefined;
             if (f.type === "Domain") {
               const descLower = (f.description || "").toLowerCase().trim();
+              const descNorm = normalizeDomainText(f.description || "");
               if (descLower.length >= 2) {
-                // Pass 1: Exact or direct suffix match
+                // Pass 1: Exact or direct suffix match against raw or normalized map
                 for (const [iprName, id] of interproMap.entries()) {
                   if (
                     descLower === iprName ||
+                    descNorm === iprName ||
                     `${descLower} domain` === iprName ||
-                    descLower === `${iprName} domain`
+                    `${descNorm} domain` === iprName ||
+                    descLower === `${iprName} domain` ||
+                    descNorm === `${iprName} domain`
                   ) {
                     interproId = id;
                     break;
                   }
                 }
-                // Pass 2: Guarded substring match (minimum 4 chars, not generic "domain")
-                if (!interproId && descLower.length >= 4 && descLower !== "domain") {
+                // Pass 2: Normalized prefix / substring match (minimum 4 chars, not generic "domain")
+                if (!interproId && descNorm.length >= 4 && descNorm !== "domain") {
                   for (const [iprName, id] of interproMap.entries()) {
                     if (
-                      descLower.includes(iprName) ||
-                      iprName.includes(descLower) ||
-                      iprName.startsWith(descLower)
+                      iprName.startsWith(descNorm) ||
+                      descNorm.startsWith(iprName) ||
+                      iprName.includes(descNorm) ||
+                      descNorm.includes(iprName)
                     ) {
                       interproId = id;
                       break;

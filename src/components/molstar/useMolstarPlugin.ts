@@ -82,7 +82,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
               preserveDrawingBuffer: true
             },
             cameraClipping: {
-              radius: 100,
+              radius: 0,
               far: false,
               minNear: 0.1
             },
@@ -129,12 +129,12 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
 
         pluginRef.current = localPlugin;
 
-        // Ensure camera clipping and fog are off by default
+        // Ensure camera clipping and fog are completely disabled
         if (localPlugin.canvas3d) {
           try {
             localPlugin.canvas3d.setProps({
               cameraClipping: {
-                radius: 100,
+                radius: 0,
                 far: false,
                 minNear: 0.1
               },
@@ -143,6 +143,10 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
                 params: {}
               }
             });
+            if (localPlugin.canvas3d.camera) {
+              localPlugin.canvas3d.camera.forceFull = true;
+              localPlugin.canvas3d.camera.setState({ clipFar: false });
+            }
           } catch (clipErr) {
             console.warn('[Molstar] Could not set cameraClipping props:', clipErr);
           }

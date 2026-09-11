@@ -107,6 +107,8 @@ export function AppViews({
   const storeEsmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
   const storeFoldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
   const storeEsmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
+  const storeHomologs = useVariantAnalysisStore(s => s.homologs);
+  const storeIsHomologsLoading = useVariantAnalysisStore(s => s.isHomologsLoading);
 
   // Fallbacks for backward compatibility if legacy state object was passed
   const isDark = state?.isDark ?? settingsDark;
@@ -150,11 +152,14 @@ export function AppViews({
   const esmFoldAlignedPdb = storeEsmFoldAlignedPdb ?? state?.esmFoldAlignedPdb;
   const foldxMetrics = storeFoldxMetrics ?? state?.foldxMetrics;
   const esmFoldMetrics = storeEsmFoldMetrics ?? state?.esmFoldMetrics;
+  const homologs = state?.homologs ?? storeHomologs;
+  const isHomologsLoading = state?.isHomologsLoading ?? storeIsHomologsLoading;
 
   const setSelectedResidueIndex = actions?.setSelectedResidueIndex ?? useVariantAnalysisStore.getState().setSelectedResidueIndex;
   const setFoldedResidueIndex = actions?.setFoldedResidueIndex ?? useVariantAnalysisStore.getState().setFoldedResidueIndex;
   const setViewMode = actions?.setViewMode ?? useVariantAnalysisStore.getState().setViewMode;
   const clearHistory = actions?.clearHistory ?? useVariantAnalysisStore.getState().clearHistory;
+  const setCustomPdbUrl = actions?.setCustomPdbUrl ?? useVariantAnalysisStore.getState().setCustomPdbUrl;
 
   const handleSelectHistoryItem = propsHandleSelectHistoryItem || actions?.handleSelectHistoryItem;
   const formatEnergyString = propsFormatEnergyString || actions?.formatEnergyString;
@@ -400,12 +405,13 @@ export function AppViews({
                   active3dModelTab={active3dModelTab}
                   metrics={active3dModelTab === "esm3" ? esmFoldMetrics : foldxMetrics}
                   onOpenSettings={handleOpenSettingsMemo}
-                  onRetryStructural={actions.retryStructuralAnalysis}
+                  onRetryStructural={actions?.retryStructuralAnalysis}
                   onRetryPocket={() => {
                     const resIdx = analysisState.result?.metadata?.residueIndex;
                     const targetChain = (analysisState.result?.metadata as any)?.chain || "A";
-                    if (pdbText && resIdx && actions.fetchPocketInfo) {
-                      actions.fetchPocketInfo(pdbText, targetChain, resIdx);
+                    const targetUniprot = analysisState.result?.metadata?.uniprotId || uniprotId;
+                    if (resIdx && actions?.fetchPocketInfo) {
+                      actions.fetchPocketInfo(pdbText, targetChain, resIdx, targetUniprot);
                     }
                   }}
                   onSelectResidue={setSelectedResidueIndex}
@@ -595,10 +601,10 @@ export function AppViews({
               gene={gene}
               variant={variant}
               uniprotId={uniprotId}
-              homologs={state.homologs}
-              isHomologsLoading={state.isHomologsLoading}
-              customPdbUrl={state.customPdbUrl}
-              setCustomPdbUrl={actions.setCustomPdbUrl}
+              homologs={homologs}
+              isHomologsLoading={isHomologsLoading}
+              customPdbUrl={customPdbUrl}
+              setCustomPdbUrl={setCustomPdbUrl}
               dynamut2Status={dynamut2Status}
               ddmutStatus={ddmutStatus}
               thermompnnStatus={thermompnnStatus}
