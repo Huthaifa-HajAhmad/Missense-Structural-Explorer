@@ -424,6 +424,8 @@ export function useBiophysicalModeling(
   const fetchPocketInfo = useCallback(async (pdbText: string, activeChain: string, activeResSeq: number, uniprotId?: string, signal?: AbortSignal) => {
     setIsPocketLoading(true);
     setPocketError(null);
+    useVariantAnalysisStore.getState().setIsPocketLoading(true);
+    useVariantAnalysisStore.getState().setPocketError(null);
     try {
       const pocketData = await apiClient.detectPocket({
         pdbText: pdbText || undefined,
@@ -433,13 +435,17 @@ export function useBiophysicalModeling(
         targetChain: activeChain
       }, signal);
       setComputedPocket(pocketData);
+      useVariantAnalysisStore.getState().setComputedPocket(pocketData);
     } catch (err: any) {
       if (signal?.aborted) return;
       console.error("[Pocket Detection Error]:", err);
-      setPocketError(err.message || String(err));
+      const msg = err.message || String(err);
+      setPocketError(msg);
+      useVariantAnalysisStore.getState().setPocketError(msg);
     } finally {
       if (!signal?.aborted) {
         setIsPocketLoading(false);
+        useVariantAnalysisStore.getState().setIsPocketLoading(false);
       }
     }
   }, [apiClient]);

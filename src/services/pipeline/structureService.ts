@@ -133,7 +133,8 @@ export async function fetchBindingPocket(
   apiClient: any,
   sink: Pick<PipelineStructureSink, "setIsPocketLoading" | "setPocketError" | "setComputedPocket">,
   signal?: AbortSignal,
-  traceContext?: TraceContext
+  traceContext?: TraceContext,
+  targetChain?: string
 ): Promise<void> {
   const uniprotNorm = (targetUniprot || "").trim();
   const pdbNorm = (pdbText || "").trim();
@@ -157,6 +158,9 @@ export async function fetchBindingPocket(
     }
     if (hasValidPdb) {
       pocketParams.pdbText = pdbNorm;
+    }
+    if (targetChain) {
+      pocketParams.targetChain = targetChain;
     }
     const validatedData = typeof apiClient.detectPocket === "function"
       ? await apiClient.detectPocket(pocketParams, signal)

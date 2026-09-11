@@ -208,14 +208,16 @@ export async function fetchUniprotFeatures(
                 // Pass 2: Normalized prefix / substring match (minimum 4 chars, not generic "domain")
                 if (!interproId && descNorm.length >= 4 && descNorm !== "domain") {
                   for (const [iprName, id] of interproMap.entries()) {
-                    if (
-                      iprName.startsWith(descNorm) ||
-                      descNorm.startsWith(iprName) ||
-                      iprName.includes(descNorm) ||
-                      descNorm.includes(iprName)
-                    ) {
-                      interproId = id;
-                      break;
+                    if (iprName.length >= 4 && iprName !== "domain") {
+                      if (
+                        iprName.startsWith(descNorm) ||
+                        descNorm.startsWith(iprName) ||
+                        iprName.includes(descNorm) ||
+                        descNorm.includes(iprName)
+                      ) {
+                        interproId = id;
+                        break;
+                      }
                     }
                   }
                 }

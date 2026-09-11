@@ -411,13 +411,51 @@ export function useApiClient() {
 
       async findPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex?: number, mutIndex?: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
         const targetIndex = params.targetIndex ?? params.mutIndex ?? 1;
-        return this.detectPocket({
-          pdbText: params.pdbText,
-          pdbRef: params.pdbRef,
-          uniprotId: params.uniprotId,
-          targetIndex,
-          targetChain: params.targetChain
-        }, signal);
+        const res = await fetchWithAuth("/api/v1/pocket-detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pdbText: params.pdbText,
+            pdbRef: params.pdbRef,
+            uniprotId: params.uniprotId,
+            targetIndex,
+            targetChain: params.targetChain
+          }),
+          timeout: 30000,
+          signal
+        });
+        if (!res.ok) {
+          const errorMsg = await extractErrorMessage(res, "Failed to detect binding pocket");
+          throw new Error(errorMsg);
+        }
+        const initialData = await res.json();
+        if (initialData.status === "queued" && initialData.pocketJobId) {
+          let attempt = 0;
+          const maxAttempts = 60;
+          while (attempt < maxAttempts) {
+            if (signal?.aborted) {
+              throw new Error("Pocket detection query aborted by client.");
+            }
+            const jobRes = await fetchWithAuth(`/api/v1/pocket-job/${initialData.pocketJobId}`, {
+              method: "GET",
+              signal
+            });
+            if (!jobRes.ok) {
+              const errorMsg = await extractErrorMessage(jobRes, "Failed to poll pocket job status");
+              throw new Error(errorMsg);
+            }
+            const jobData = await jobRes.json();
+            if (jobData.status === "completed") {
+              return pocketFinderResponseSchema.parse(jobData.result);
+            } else if (jobData.status === "failed") {
+              throw new Error(jobData.error || "Pocket detection job failed.");
+            }
+            attempt++;
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          throw new Error("Pocket detection job timed out on server.");
+        }
+        return pocketFinderResponseSchema.parse(initialData);
       },
 
       async getBiophysicalAnalysis(params: { gene: string, uniprotId: string, variant: string, wtPdb?: string, options?: any }, signal?: AbortSignal): Promise<BiophysicalAnalysisResponse> {

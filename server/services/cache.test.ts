@@ -61,6 +61,7 @@ describe("LRU Cache", () => {
 
   it("reads from L1 and L2 via getCachedOrFetch", async () => {
     let fetchCount = 0;
+    const testKey = `test_2tier_key_${Date.now()}_${Math.random()}`;
     const fetcher = async () => {
       fetchCount++;
       return { score: 0.95 };
@@ -68,7 +69,7 @@ describe("LRU Cache", () => {
 
     // First call: executes fetcher, saves to L1 & L2
     const res1 = await getCachedOrFetch({
-      key: "test_2tier_key",
+      key: testKey,
       source: "UnitTest",
       l1Cache: clinvarCache,
       ttlSeconds: 60,
@@ -79,7 +80,7 @@ describe("LRU Cache", () => {
 
     // Second call: hits L1 memory cache
     const res2 = await getCachedOrFetch({
-      key: "test_2tier_key",
+      key: testKey,
       source: "UnitTest",
       l1Cache: clinvarCache,
       ttlSeconds: 60,
@@ -89,9 +90,9 @@ describe("LRU Cache", () => {
     expect(res2).toEqual({ score: 0.95 });
 
     // Clear L1 memory: third call hits L2 SQLite
-    clinvarCache.delete("test_2tier_key");
+    clinvarCache.delete(testKey);
     const res3 = await getCachedOrFetch({
-      key: "test_2tier_key",
+      key: testKey,
       source: "UnitTest",
       l1Cache: clinvarCache,
       ttlSeconds: 60,
@@ -100,7 +101,7 @@ describe("LRU Cache", () => {
     expect(fetchCount).toBe(1);
     expect(res3).toEqual({ score: 0.95 });
     // And verifies L1 was re-warmed
-    expect(clinvarCache.get("test_2tier_key")).toEqual({ score: 0.95 });
+    expect(clinvarCache.get(testKey)).toEqual({ score: 0.95 });
   });
 });
 
