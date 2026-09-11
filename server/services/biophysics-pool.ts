@@ -33,12 +33,14 @@ export function getBiophysicsPool(): Piscina {
 
     console.log(`[Biophysics Pool] Initializing worker pool with ${maxWorkers} threads. Worker path: ${workerPath}`);
 
+    const execArgv = process.env.VITEST ? ["--import", "tsx"] : process.execArgv;
+
     piscinaInstance = new Piscina({
       filename: workerPath,
       maxThreads: maxWorkers,
       minThreads: 1,
       idleTimeout: 30000, // reclaim idle threads after 30s
-      execArgv: process.execArgv // propagate tsx in development
+      execArgv // propagate tsx in development
     });
   }
   return piscinaInstance;

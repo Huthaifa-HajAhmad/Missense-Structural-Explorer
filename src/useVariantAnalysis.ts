@@ -32,16 +32,13 @@ export default function useVariantAnalysis() {
   } = useSettings();
 
   const { fetchWithAuth, apiClient } = useApiClient();
-  // Subscribe strictly to pdbText for biophysical modeling instead of entire store
-  const pdbText = useVariantAnalysisStore(s => s.pdbText);
 
   // Subsystem execution hooks
   const biophysical = useBiophysicalModeling(
     settings,
     useVariantAnalysisStore.getState().addNotification,
     apiClient,
-    fetchWithAuth,
-    pdbText
+    fetchWithAuth
   );
   const structuralFolding = useStructuralFolding({
     setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,

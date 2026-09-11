@@ -252,4 +252,47 @@ describe("AnalysisDatabase (Persistent SQLite Store)", () => {
     expect(recentFullAsync.length).toBeGreaterThan(0);
     expect((recentFullAsync[0] as any).payload.asyncTest).toBe(true);
   });
+
+  it("executes async operations against disk-backed DB via worker pool", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const os = await import("os");
+    const tmpDir = path.join(os.tmpdir(), `test-analysis-db-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpDbPath = path.join(tmpDir, "test.sqlite");
+
+    try {
+      const diskDb = AnalysisDatabase.resetInstance(tmpDbPath);
+
+      const saved = await diskDb.saveVariantAnalysisAsync({
+        gene: "LDLR",
+        variant: "p.Cys646Tyr",
+        uniprotId: "P01130",
+        pos: 646,
+        wildType: "Cys",
+        mutant: "Tyr",
+        acmgVerdict: "Pathogenic",
+        payload: { source: "worker-pool-test" }
+      });
+      expect(saved.id).toBeGreaterThan(0);
+
+      const retrieved = await diskDb.getVariantAnalysisAsync("LDLR", "p.Cys646Tyr");
+      expect(retrieved).toBeDefined();
+      expect(retrieved?.gene).toBe("LDLR");
+      expect(retrieved?.payload.source).toBe("worker-pool-test");
+
+      await diskDb.saveExternalCacheAsync("worker_test_key", { result: "ok" }, "test", 60);
+      const cached = await diskDb.getExternalCacheAsync("worker_test_key");
+      expect(cached?.data.result).toBe("ok");
+
+      const list = await diskDb.listRecentAnalysesAsync(5);
+      expect(list.length).toBe(1);
+      expect(list[0].gene).toBe("LDLR");
+    } finally {
+      AnalysisDatabase.resetInstance(":memory:");
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch (_) {}
+    }
+  });
 });

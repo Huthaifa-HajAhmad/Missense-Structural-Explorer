@@ -81,9 +81,14 @@ export function getGeminiClient(customApiKey?: string): GoogleGenAI {
 }
 
 export class GeminiError extends Error {
-  constructor(public code: string, message: string, public status: number) {
+  public code: string;
+  public status: number;
+
+  constructor(code: string, message: string, status: number) {
     super(message);
     this.name = "GeminiError";
+    this.code = code;
+    this.status = status;
   }
 }
 

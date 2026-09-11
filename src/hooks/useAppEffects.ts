@@ -2,16 +2,19 @@ import { useEffect, useRef } from "react";
 import { MasterView } from "../components/MasterSidebar";
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { getCachedVariant } from "../services/pipeline/variantCache";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 
 interface UseAppEffectsParams {
-  state: any;
-  actions: any;
+  state?: any;
+  actions?: any;
   masterView: MasterView;
   setMasterView: (view: MasterView) => void;
   setActiveEvidenceTab: (tab: string) => void;
   setIsOffline: (offline: boolean) => void;
   fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>;
   consoleDispatch: (action: any) => void;
+  executeAnalysis?: (g: string, v: string, u?: string, signal?: AbortSignal) => void;
+  fetchEsmFold?: (uniprotIdArg?: string, variantArg?: string, wtSeq?: string, mutSeq?: string) => void;
 }
 
 export function useAppEffects({
@@ -22,32 +25,42 @@ export function useAppEffects({
   setActiveEvidenceTab,
   setIsOffline,
   fetchWithAuth,
-  consoleDispatch
+  consoleDispatch,
+  executeAnalysis: propsExecuteAnalysis,
+  fetchEsmFold: propsFetchEsmFold
 }: UseAppEffectsParams) {
-  const {
-    uniprotId,
-    variant,
-    esmFoldWtPdb,
-    isEsmFolding,
-    esmFoldingError
-  } = state;
+  // Fine-grained Zustand store subscriptions
+  const storeGene = useVariantAnalysisStore(s => s.gene);
+  const storeVariant = useVariantAnalysisStore(s => s.variant);
+  const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId);
+  const storeEsmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
+  const storeIsEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
+  const storeEsmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
+  const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
+  const storeCustomPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
 
-  const {
-    fetchEsmFold,
-    setActive3dModelTab,
-    setCustomPdbUrl
-  } = actions;
+  const gene = state?.gene ?? storeGene;
+  const variant = state?.variant ?? storeVariant;
+  const uniprotId = state?.uniprotId ?? storeUniprotId;
+  const esmFoldWtPdb = state?.esmFoldWtPdb ?? storeEsmFoldWtPdb;
+  const isEsmFolding = state?.isEsmFolding ?? storeIsEsmFolding;
+  const esmFoldingError = state?.esmFoldingError ?? storeEsmFoldingError;
+  const analysisState = state?.analysisState ?? storeAnalysisState;
+  const customPdbUrl = state?.customPdbUrl ?? storeCustomPdbUrl;
+
+  const fetchEsmFold = propsFetchEsmFold || actions?.fetchEsmFold;
+  const executeAnalysis = propsExecuteAnalysis || actions?.executeAnalysis;
 
   // Stable refs for actions and callbacks called inside effects to prevent dependency cycles
   const fetchWithAuthRef = useRef(fetchWithAuth);
   const fetchEsmFoldRef = useRef(fetchEsmFold);
-  const setCustomPdbUrlRef = useRef(setCustomPdbUrl);
+  const executeAnalysisRef = useRef(executeAnalysis);
 
   useEffect(() => {
     fetchWithAuthRef.current = fetchWithAuth;
     fetchEsmFoldRef.current = fetchEsmFold;
-    setCustomPdbUrlRef.current = setCustomPdbUrl;
-  }, [fetchWithAuth, fetchEsmFold, setCustomPdbUrl]);
+    executeAnalysisRef.current = executeAnalysis;
+  }, [fetchWithAuth, fetchEsmFold, executeAnalysis]);
 
   const lastFoldedKeyRef = useRef<string>("");
   const hasInitializedFromUrlRef = useRef(false);
@@ -57,46 +70,49 @@ export function useAppEffects({
     if (hasInitializedFromUrlRef.current) return;
     hasInitializedFromUrlRef.current = true;
 
-    if (state.gene && state.variant && !state.analysisState.result && !state.analysisState.isLoading) {
-      const cached = getCachedVariant(state.gene, state.variant);
+    if (gene && variant && !analysisState.result && !analysisState.isLoading) {
+      const cached = getCachedVariant(gene, variant);
       if (cached?.analysisResult) {
-        actions.setAnalysisState({
+        const store = useVariantAnalysisStore.getState();
+        store.setAnalysisState({
           result: cached.analysisResult,
           isLoading: false,
           error: null
         });
-        if (cached.pdbText && actions.setPdbText) {
-          actions.setPdbText(cached.pdbText);
+        if (cached.pdbText) {
+          store.setPdbText(cached.pdbText);
         }
-        if (cached.mutantPdb && actions.setMutantPdb) {
-          actions.setMutantPdb(cached.mutantPdb);
+        if (cached.mutantPdb) {
+          store.setMutantPdb(cached.mutantPdb);
         }
-        if (cached.foldingDdG != null && actions.setFoldingDdG) {
-          actions.setFoldingDdG(cached.foldingDdG);
+        if (cached.foldingDdG != null) {
+          store.setFoldingDdG(cached.foldingDdG);
         }
-        if (cached.foldingEnergetics && actions.setFoldingEnergetics) {
-          actions.setFoldingEnergetics(cached.foldingEnergetics);
+        if (cached.foldingEnergetics) {
+          store.setFoldingEnergetics(cached.foldingEnergetics);
         }
-        if (cached.computedPocket && actions.setComputedPocket) {
-          actions.setComputedPocket(cached.computedPocket);
+        if (cached.computedPocket) {
+          store.setComputedPocket(cached.computedPocket);
         }
         return;
       }
 
       // Otherwise trigger analysis automatically without forcing tab switch
-      actions.executeAnalysis(state.gene, state.variant, state.uniprotId);
+      if (executeAnalysisRef.current) {
+        executeAnalysisRef.current(gene, variant, uniprotId);
+      }
     }
-  }, [state.gene, state.variant, state.uniprotId, state.analysisState.result, state.analysisState.isLoading, actions]);
+  }, [gene, variant, uniprotId, analysisState.result, analysisState.isLoading]);
 
   // Synchronize active 3D model tab
   useEffect(() => {
-    setActive3dModelTab(masterView === "structure_esmfold" ? "esm3" : "alphafold2");
-  }, [masterView, setActive3dModelTab]);
+    useVariantAnalysisStore.getState().setActive3dModelTab(masterView === "structure_esmfold" ? "esm3" : "alphafold2");
+  }, [masterView]);
 
   // Trigger ESMFold folding when masterView is "structure_esmfold"
   useEffect(() => {
     if (masterView === "structure_esmfold") {
-      const metadata = state.analysisState.result?.metadata;
+      const metadata = analysisState.result?.metadata;
       if (!metadata) return;
 
       const pos = metadata.residueIndex;
@@ -107,8 +123,8 @@ export function useAppEffects({
       // Prevent redundant fetches / folding routines if we already fold this variant
       if (lastFoldedKeyRef.current === foldKey) return;
 
-      if (state.customPdbUrl !== null) {
-        setCustomPdbUrlRef.current(null);
+      if (customPdbUrl !== null) {
+        useVariantAnalysisStore.getState().setCustomPdbUrl(null);
       }
 
       if (esmFoldWtPdb || isEsmFolding || esmFoldingError) {
@@ -140,7 +156,9 @@ export function useAppEffects({
 
         if (wtSeq && mutSeq && pos && !esmFoldWtPdb && !isEsmFolding && !esmFoldingError) {
           const variantString = metadata.variant || variant || `p.${metadata.wildType}${pos}${metadata.mutant}`;
-          fetchEsmFoldRef.current(activeUniprot, variantString, wtSeq, mutSeq);
+          if (fetchEsmFoldRef.current) {
+            fetchEsmFoldRef.current(activeUniprot, variantString, wtSeq, mutSeq);
+          }
         }
       };
 
@@ -148,12 +166,13 @@ export function useAppEffects({
     }
   }, [
     masterView,
-    state.analysisState.result?.metadata,
+    analysisState.result?.metadata,
     esmFoldWtPdb,
     isEsmFolding,
     esmFoldingError,
     uniprotId,
-    state.customPdbUrl
+    customPdbUrl,
+    variant
   ]);
 
   // Monitor network status

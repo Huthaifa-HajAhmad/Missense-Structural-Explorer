@@ -12,14 +12,15 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import LiteratureView from "./LiteratureView";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
+import { useSettings } from "../context/SettingsContext";
 
 const MolstarViewerLazy = lazy(() => import("./MolstarViewer"));
 
 interface AppViewsProps {
   masterView: MasterView;
   setMasterView: (view: MasterView) => void;
-  state: any;
-  actions: any;
+  state?: any;
+  actions?: any;
   pushErrorEntry: (entry: any) => void;
   setIsSettingsOpen: (open: boolean) => void;
   activeEvidenceTab: string;
@@ -34,6 +35,10 @@ interface AppViewsProps {
   classBorderSec: string;
   classTextBody: string;
   classTextMute: string;
+  handleSearchSubmit?: (e: React.FormEvent) => void;
+  handleSelectHistoryItem?: (item: any) => void;
+  handleCopyReport?: () => Promise<void>;
+  formatEnergyString?: (text: string | null | undefined) => string;
 }
 
 export function AppViews({
@@ -54,68 +59,107 @@ export function AppViews({
   classInput,
   classBorderSec,
   classTextBody,
-  classTextMute
+  classTextMute,
+  handleSearchSubmit: propsHandleSearchSubmit,
+  handleSelectHistoryItem: propsHandleSelectHistoryItem,
+  handleCopyReport: propsHandleCopyReport,
+  formatEnergyString: propsFormatEnergyString
 }: AppViewsProps) {
-  const {
-    isDark,
-    gene,
-    variant,
-    uniprotId,
-    selectedResidueIndex,
-    foldedResidueIndex,
-    viewMode,
-    history,
-    analysisState,
-    mutantPdb,
-    foldingDdG,
-    foldingStatus,
-    foldingEnergetics,
-    dynamut2Status,
-    ddmutStatus,
-    thermompnnStatus,
-    thermompnnError,
-    computedPocket,
-    isPocketLoading,
-    pocketError,
-    disruptionPredictor,
-    isFolding,
-    foldingError,
-    structuralDiff,
-    hoveredResidueIndex,
-    computedResiduesCache,
-    isBiophysicalLoading,
-    isClinicalLoading,
-    isNarrativeLoading,
-    copied,
-    loadingStep,
-    settings,
-    esmFoldWtPdb,
-    esmFoldMutPdb,
-    pdbText,
-    active3dModelTab,
-    customPdbUrl
-  } = state;
+  const { isDark: settingsDark, settings: contextSettings } = useSettings();
 
+  // Fine-grained Zustand store subscriptions
+  const storeGene = useVariantAnalysisStore(s => s.gene);
+  const storeVariant = useVariantAnalysisStore(s => s.variant);
+  const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId);
+  const storeSelectedResidueIndex = useVariantAnalysisStore(s => s.selectedResidueIndex);
+  const storeFoldedResidueIndex = useVariantAnalysisStore(s => s.foldedResidueIndex);
+  const storeHoveredResidueIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
+  const storeViewMode = useVariantAnalysisStore(s => s.viewMode);
+  const storeHistory = useVariantAnalysisStore(s => s.history);
+  const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
+  const storeMutantPdb = useVariantAnalysisStore(s => s.mutantPdb);
+  const storeFoldingDdG = useVariantAnalysisStore(s => s.foldingDdG);
+  const storeFoldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
+  const storeFoldingEnergetics = useVariantAnalysisStore(s => s.foldingEnergetics);
+  const storeDynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status);
+  const storeDdmutStatus = useVariantAnalysisStore(s => s.ddmutStatus);
+  const storeThermompnnStatus = useVariantAnalysisStore(s => s.thermompnnStatus);
+  const storeThermompnnError = useVariantAnalysisStore(s => s.thermompnnError);
+  const storeComputedPocket = useVariantAnalysisStore(s => s.computedPocket);
+  const storeIsPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
+  const storePocketError = useVariantAnalysisStore(s => s.pocketError);
+  const storeDisruptionPredictor = useVariantAnalysisStore(s => s.disruptionPredictor);
+  const storeIsFolding = useVariantAnalysisStore(s => s.isFolding);
+  const storeFoldingError = useVariantAnalysisStore(s => s.foldingError);
+  const storeStructuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
+  const storeComputedResiduesCache = useVariantAnalysisStore(s => s.computedResiduesCache);
+  const storeIsBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading);
+  const storeIsClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading);
+  const storeIsNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
+  const storeCopied = useVariantAnalysisStore(s => s.copied);
+  const storeLoadingStep = useVariantAnalysisStore(s => s.loadingStep);
+  const storeEsmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
+  const storeEsmFoldMutPdb = useVariantAnalysisStore(s => s.esmFoldMutPdb);
+  const storePdbText = useVariantAnalysisStore(s => s.pdbText);
+  const storeActive3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
+  const storeCustomPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
   const storeCompareMutantPdb = useVariantAnalysisStore(s => s.compareMutantPdb);
   const storeEsmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
   const storeFoldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
   const storeEsmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
 
-  const compareMutantPdb = storeCompareMutantPdb ?? state.compareMutantPdb;
-  const esmFoldAlignedPdb = storeEsmFoldAlignedPdb ?? state.esmFoldAlignedPdb;
-  const foldxMetrics = storeFoldxMetrics ?? state.foldxMetrics;
-  const esmFoldMetrics = storeEsmFoldMetrics ?? state.esmFoldMetrics;
+  // Fallbacks for backward compatibility if legacy state object was passed
+  const isDark = state?.isDark ?? settingsDark;
+  const settings = state?.settings ?? contextSettings;
+  const gene = state?.gene ?? storeGene;
+  const variant = state?.variant ?? storeVariant;
+  const uniprotId = state?.uniprotId ?? storeUniprotId;
+  const selectedResidueIndex = state?.selectedResidueIndex ?? storeSelectedResidueIndex;
+  const foldedResidueIndex = state?.foldedResidueIndex ?? storeFoldedResidueIndex;
+  const hoveredResidueIndex = state?.hoveredResidueIndex ?? storeHoveredResidueIndex;
+  const viewMode = state?.viewMode ?? storeViewMode;
+  const history = state?.history ?? storeHistory;
+  const analysisState = state?.analysisState ?? storeAnalysisState;
+  const mutantPdb = state?.mutantPdb ?? storeMutantPdb;
+  const foldingDdG = state?.foldingDdG ?? storeFoldingDdG;
+  const foldingStatus = state?.foldingStatus ?? storeFoldingStatus;
+  const foldingEnergetics = state?.foldingEnergetics ?? storeFoldingEnergetics;
+  const dynamut2Status = state?.dynamut2Status ?? storeDynamut2Status;
+  const ddmutStatus = state?.ddmutStatus ?? storeDdmutStatus;
+  const thermompnnStatus = state?.thermompnnStatus ?? storeThermompnnStatus;
+  const thermompnnError = state?.thermompnnError ?? storeThermompnnError;
+  const computedPocket = state?.computedPocket ?? storeComputedPocket;
+  const isPocketLoading = state?.isPocketLoading ?? storeIsPocketLoading;
+  const pocketError = state?.pocketError ?? storePocketError;
+  const disruptionPredictor = state?.disruptionPredictor ?? storeDisruptionPredictor;
+  const isFolding = state?.isFolding ?? storeIsFolding;
+  const foldingError = state?.foldingError ?? storeFoldingError;
+  const structuralDiff = state?.structuralDiff ?? storeStructuralDiff;
+  const computedResiduesCache = state?.computedResiduesCache ?? storeComputedResiduesCache;
+  const isBiophysicalLoading = state?.isBiophysicalLoading ?? storeIsBiophysicalLoading;
+  const isClinicalLoading = state?.isClinicalLoading ?? storeIsClinicalLoading;
+  const isNarrativeLoading = state?.isNarrativeLoading ?? storeIsNarrativeLoading;
+  const copied = state?.copied ?? storeCopied;
+  const loadingStep = state?.loadingStep ?? storeLoadingStep;
+  const esmFoldWtPdb = state?.esmFoldWtPdb ?? storeEsmFoldWtPdb;
+  const esmFoldMutPdb = state?.esmFoldMutPdb ?? storeEsmFoldMutPdb;
+  const pdbText = state?.pdbText ?? storePdbText;
+  const active3dModelTab = state?.active3dModelTab ?? storeActive3dModelTab;
+  const customPdbUrl = state?.customPdbUrl ?? storeCustomPdbUrl;
+  const compareMutantPdb = storeCompareMutantPdb ?? state?.compareMutantPdb;
+  const esmFoldAlignedPdb = storeEsmFoldAlignedPdb ?? state?.esmFoldAlignedPdb;
+  const foldxMetrics = storeFoldxMetrics ?? state?.foldxMetrics;
+  const esmFoldMetrics = storeEsmFoldMetrics ?? state?.esmFoldMetrics;
 
-  const {
-    setSelectedResidueIndex,
-    setFoldedResidueIndex,
-    setViewMode,
-    clearHistory,
-    handleSelectHistoryItem,
-    formatEnergyString,
-    handleSearchSubmit,
-    handleCopyReport
-  } = actions;
+  const setSelectedResidueIndex = actions?.setSelectedResidueIndex ?? useVariantAnalysisStore.getState().setSelectedResidueIndex;
+  const setFoldedResidueIndex = actions?.setFoldedResidueIndex ?? useVariantAnalysisStore.getState().setFoldedResidueIndex;
+  const setViewMode = actions?.setViewMode ?? useVariantAnalysisStore.getState().setViewMode;
+  const clearHistory = actions?.clearHistory ?? useVariantAnalysisStore.getState().clearHistory;
+
+  const handleSelectHistoryItem = propsHandleSelectHistoryItem || actions?.handleSelectHistoryItem;
+  const formatEnergyString = propsFormatEnergyString || actions?.formatEnergyString;
+  const handleSearchSubmit = propsHandleSearchSubmit || actions?.handleSearchSubmit;
+  const handleCopyReport = propsHandleCopyReport || actions?.handleCopyReport;
 
   const { apiClient } = useApiClient();
   const isEsm = masterView === "structure_esmfold";

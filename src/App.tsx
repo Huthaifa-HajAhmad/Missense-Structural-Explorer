@@ -18,7 +18,7 @@ import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 
 export default function App() {
-  const { state, actions } = useVariantAnalysis();
+  const { actions } = useVariantAnalysis();
   const { fetchWithAuth } = useApiClient();
   const { state: consoleState, dispatch: consoleDispatch, pushErrorEntry } = useDevConsole();
   const {
@@ -68,7 +68,6 @@ export default function App() {
 
   // Application side-effects hook
   useAppEffects({
-    state,
     actions,
     masterView,
     setMasterView,
@@ -89,7 +88,7 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion={settings.reducedMotion ? "always" : "user"}>
-      <VariantAnalysisProvider state={state} actions={actions}>
+      <VariantAnalysisProvider>
         <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
 
         {/* ── Resizable and Collapsible Master Sidebar ── */}
@@ -137,11 +136,7 @@ export default function App() {
             isDark={isDark}
             isOpen={isSearchOpen}
             onClose={() => setIsSearchOpen(false)}
-            analysisState={state.analysisState}
             handleSearchSubmit={actions.handleSearchSubmit}
-            gene={state.gene}
-            variant={state.variant}
-            history={state.history}
             clearHistory={actions.clearHistory}
             handleSelectHistoryItem={actions.handleSelectHistoryItem}
           />
@@ -160,7 +155,6 @@ export default function App() {
           <AppViews
             masterView={masterView}
             setMasterView={setMasterView}
-            state={state}
             actions={actions}
             pushErrorEntry={pushErrorEntry}
             setIsSettingsOpen={setIsSettingsOpen}

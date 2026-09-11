@@ -4,8 +4,13 @@
 export class Semaphore {
   private activeCount = 0;
   private queue: { resolve: () => void; reject: (err: Error) => void }[] = [];
+  private maxConcurrency: number;
+  private maxQueueLength: number;
 
-  constructor(private maxConcurrency: number, private maxQueueLength = 20) {}
+  constructor(maxConcurrency: number, maxQueueLength = 20) {
+    this.maxConcurrency = maxConcurrency;
+    this.maxQueueLength = maxQueueLength;
+  }
 
   async acquire(timeoutMs = 30000, signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) {
@@ -97,11 +102,15 @@ export class CircuitBreaker {
   private failures = 0;
   private lastFailureTime = 0;
   private currentCooldownMs = 60000;
+  private threshold: number;
+  private cooldownMs: number;
 
   constructor(
-    private threshold = 5,
-    private cooldownMs = 60000
+    threshold = 5,
+    cooldownMs = 60000
   ) {
+    this.threshold = threshold;
+    this.cooldownMs = cooldownMs;
     this.currentCooldownMs = cooldownMs;
   }
 
