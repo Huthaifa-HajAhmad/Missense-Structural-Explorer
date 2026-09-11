@@ -48,7 +48,7 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       const json = await res.json();
       expect(json.status).toBe("ok");
       expect(Array.isArray(json.engines)).toBe(true);
-      expect(json.engines.length).toBe(8);
+      expect(json.engines.length).toBe(9);
     });
 
     it("GET /capabilities should return 200 OK without requiring authentication", async () => {

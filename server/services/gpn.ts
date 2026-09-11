@@ -1,22 +1,172 @@
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
-import type { ModelInferenceResult } from "./evo2.ts";
+import { TabixIndexedFile } from "@gmod/tabix";
+import { getCachedOrFetch } from "./cache.ts";
 
-export type { ModelInferenceResult };
+export interface ModelInferenceResult {
+  score: number | null;
+  status: "live" | "token_required" | "unavailable";
+  message?: string;
+}
 
-// 14-day LRU cache for Song Lab GPN-Star predictions
+// 30-day LRU cache for Song Lab GPN-Star predictions
 const gpnCache = new LRUCache<string, ModelInferenceResult>({
-  max: 1000,
-  ttl: 1000 * 60 * 60 * 24 * 14 // 14 days
+  max: 2000,
+  ttl: 1000 * 60 * 60 * 24 * 30 // 30 days
 });
 
 export function clearGpnCache(): void {
   gpnCache.clear();
 }
 
+let tabixInstance: TabixIndexedFile | null = null;
+
+function getGpnTabix(): TabixIndexedFile {
+  if (!tabixInstance) {
+    tabixInstance = new TabixIndexedFile({
+      url: "https://huggingface.co/datasets/songlab/gpn-msa-hg38-scores/resolve/main/scores.tsv.bgz",
+      tbiUrl: "https://huggingface.co/datasets/songlab/gpn-msa-hg38-scores/resolve/main/scores.tsv.bgz.tbi"
+    });
+  }
+  return tabixInstance;
+}
+
 /**
- * Queries Song Lab GPN-Star (vertebrate MSA alignment / sapiens model) via
- * local GPN sidecar (GPN_API_URL) or Hugging Face Inference API.
+ * For test injection to mock the Tabix reader.
+ */
+export function setGpnTabixInstance(instance: TabixIndexedFile | null): void {
+  tabixInstance = instance;
+}
+
+/**
+ * Queries Song Lab GPN-Star whole-genome vertebrate MSA predictions on-demand
+ * via remote HTTP range Tabix queries against songlab/gpn-msa-hg38-scores (GRCh38).
+ * 
+ * 100% keyless and covers all ~9 billion single nucleotide variants in human GRCh38.
+ */
+export async function fetchGpnStarByCoordinate(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  signal?: AbortSignal,
+  customEndpoint?: string | null
+): Promise<ModelInferenceResult> {
+  if (!chrom || typeof pos !== "number" || pos < 1 || !ref || !alt) {
+    return {
+      score: null,
+      status: "unavailable",
+      message: "Invalid genomic coordinates for GPN-Star"
+    };
+  }
+
+  // 1. If researcher configured a dedicated local GPN sidecar, prioritize it
+  const sidecarUrl = (customEndpoint || process.env.GPN_API_URL)?.replace(/\/+$/, "");
+  if (sidecarUrl) {
+    try {
+      const combinedSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
+        : AbortSignal.timeout(15000);
+
+      const res = await fetch(sidecarUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chrom, pos, ref, alt }),
+        signal: combinedSignal
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const s =
+          typeof data.score === "number"
+            ? data.score
+            : typeof data.delta_llr === "number"
+            ? data.delta_llr
+            : null;
+        if (s !== null && Number.isFinite(s)) {
+          return { score: s, status: "live" };
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2. On-demand remote HTTP Range Tabix query against Song Lab whole-genome index
+  const cleanChrom = chrom.replace(/^chr/i, "");
+  const cleanRef = ref.toUpperCase();
+  const cleanAlt = alt.toUpperCase();
+  const cacheKey = `gpn_tabix_${cleanChrom}_${pos}_${cleanRef}_${cleanAlt}`;
+
+  return getCachedOrFetch({
+    key: cacheKey,
+    source: "Song Lab GPN-Star (Whole-Genome MSA Tabix)",
+    l1Cache: gpnCache,
+    ttlSeconds: 30 * 24 * 60 * 60, // 30 days
+    fetcher: async () => {
+      try {
+        const tbi = getGpnTabix();
+        let matchedScore: number | null = null;
+
+        // 0-based half-open interval covering the position
+        const start = Math.max(0, pos - 1);
+        const end = pos + 1;
+
+        const combinedSignal = signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(20000)])
+          : AbortSignal.timeout(20000);
+
+        await tbi.getLines(
+          cleanChrom,
+          start,
+          end,
+          {
+            signal: combinedSignal,
+            lineCallback: (line: string) => {
+              if (!line || line.startsWith("#")) return;
+              const cols = line.split("\t");
+              // TSV format: chrom, pos, ref, alt, score
+              if (cols.length >= 5) {
+                const linePos = parseInt(cols[1], 10);
+                const lineRef = cols[2]?.toUpperCase();
+                const lineAlt = cols[3]?.toUpperCase();
+                if (linePos === pos && lineRef === cleanRef && lineAlt === cleanAlt) {
+                  const parsed = parseFloat(cols[4]);
+                  if (!isNaN(parsed) && Number.isFinite(parsed)) {
+                    matchedScore = parsed;
+                  }
+                }
+              }
+            }
+          }
+        );
+
+        if (matchedScore !== null) {
+          return {
+            score: matchedScore,
+            status: "live"
+          };
+        }
+
+        return {
+          score: null,
+          status: "unavailable",
+          message: `Unindexed in GPN-Star whole-genome MSA (${cleanChrom}:${pos}${cleanRef}>${cleanAlt})`
+        };
+      } catch (err: any) {
+        const isTimeout = err.name === "TimeoutError" || err.message?.includes("timeout");
+        return {
+          score: null,
+          status: "unavailable",
+          message: isTimeout
+            ? "Remote GPN Tabix query timed out (20s limit)"
+            : `Remote GPN Tabix error: ${err.message || String(err)}`
+        };
+      }
+    }
+  });
+}
+
+/**
+ * Backwards-compatible variant coordinator that resolves GPN-Star score.
  */
 export async function fetchGpnStarScore(
   sequence: string,
@@ -35,139 +185,44 @@ export async function fetchGpnStarScore(
     };
   }
 
-  const isCustomUrl = Boolean(customEndpoint);
-  // Security Mandate: Never forward server-level environment secrets to client-supplied custom endpoints (prevent SSRF token exfiltration)
-  const tokenToUse = isCustomUrl
-    ? (token || null)
-    : (token || process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || null);
+  // If a custom dedicated endpoint was provided, query it
+  const sidecarUrl = (customEndpoint || process.env.GPN_API_URL)?.replace(/\/+$/, "");
+  if (sidecarUrl) {
+    try {
+      const combinedSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
+        : AbortSignal.timeout(15000);
 
-  const rawEndpoint =
-    customEndpoint ||
-    process.env.GPN_API_URL ||
-    (tokenToUse
-      ? "https://router.huggingface.co/hf-inference/models/songlab/gpn-msa-sapiens"
-      : null);
-  const endpoint = rawEndpoint ? rawEndpoint.replace(/\/+$/, "") : null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const wtUpper = wt.toUpperCase();
-  const mutUpper = mut.toUpperCase();
-  const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
-  const cacheKey = `${seqHash}:${pos}:${wtUpper}:${mutUpper}:${endpoint || "none"}`;
+      const res = await fetch(sidecarUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ sequence, pos, wt: wt.toUpperCase(), mut: mut.toUpperCase() }),
+        signal: combinedSignal
+      });
 
-  const cached = gpnCache.get(cacheKey);
-  if (cached) return cached;
-
-  if (!endpoint) {
-    return {
-      score: null,
-      status: "token_required",
-      message: "Song Lab GPN-Star requires Hugging Face token (songlab/gpn-msa-sapiens) or dedicated endpoint (GPN_API_URL)"
-    };
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const s =
+          typeof data.score === "number"
+            ? data.score
+            : typeof data.delta_llr === "number"
+            ? data.delta_llr
+            : null;
+        if (s !== null && Number.isFinite(s)) {
+          return { score: s, status: "live" };
+        }
+      }
+    } catch (_) {}
   }
 
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json"
-    };
-    if (tokenToUse) {
-      headers["Authorization"] = `Bearer ${tokenToUse}`;
-    }
-
-    const payload = {
-      model: "songlab/gpn-msa-sapiens",
-      sequence,
-      position: pos,
-      wt: wtUpper,
-      mut: mutUpper,
-      inputs: `${sequence}:${pos}:${wtUpper}>${mutUpper}`
-    };
-
-    const combinedSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(25000)])
-      : AbortSignal.timeout(25000);
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: combinedSignal
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      return {
-        score: null,
-        status: "token_required",
-        message: "Hugging Face inference token invalid or unauthorized (HTTP 401/403)"
-      };
-    }
-
-    if (response.status === 429) {
-      return {
-        score: null,
-        status: "unavailable",
-        message: "Hugging Face / GPN rate limit reached; please retry shortly (HTTP 429)"
-      };
-    }
-
-    if (response.status === 503) {
-      // Model loading / cold start on Hugging Face
-      return {
-        score: null,
-        status: "unavailable",
-        message: "Song Lab GPN model is warming up on Hugging Face; please retry in ~20s"
-      };
-    }
-
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => null);
-      const detail = typeof errBody?.error === "string" ? errBody.error : (errBody?.message || response.statusText);
-      const isDefaultServerless = endpoint.includes("router.huggingface.co") || endpoint.includes("api-inference.huggingface.co");
-      const message = (response.status === 404 || response.status === 400) && isDefaultServerless
-        ? "Song Lab GPN-Star requires a dedicated Hugging Face Inference Endpoint or local sidecar (gpn-msa-sapiens is not hosted on HF serverless). Set GPN_API_URL in Settings."
-        : `Upstream GPN error ${response.status}: ${detail}`;
-      return {
-        score: null,
-        status: "unavailable",
-        message
-      };
-    }
-
-    const data = (await response.json()) as any;
-    const rawVal =
-      typeof data.score === "number"
-        ? data.score
-        : typeof data.delta_llr === "number"
-        ? data.delta_llr
-        : typeof data.llr === "number"
-        ? data.llr
-        : typeof data.log_likelihood_ratio === "number"
-        ? data.log_likelihood_ratio
-        : Array.isArray(data) && typeof data[0]?.score === "number"
-        ? data[0].score
-        : null;
-
-    const scoreVal = rawVal !== null && Number.isFinite(rawVal) ? rawVal : null;
-
-    if (scoreVal !== null) {
-      const res: ModelInferenceResult = {
-        score: scoreVal,
-        status: "live"
-      };
-      gpnCache.set(cacheKey, res);
-      return res;
-    }
-
-    return {
-      score: null,
-      status: "unavailable",
-      message: "No valid finite score returned by upstream GPN API"
-    };
-  } catch (err: any) {
-    const isTimeout = err.name === "TimeoutError" || err.message?.includes("timeout");
-    return {
-      score: null,
-      status: "unavailable",
-      message: isTimeout ? "GPN API timed out (25s limit)" : (err.message || "Network error")
-    };
-  }
+  // GPN-Star is an alignment-based nucleotide model; when called with sequence alone without coordinates,
+  // indicate that genomic coordinates are required for whole-genome Tabix resolution.
+  return {
+    score: null,
+    status: "unavailable",
+    message: "GPN-Star requires genomic coordinates (GRCh38) for whole-genome Tabix lookup."
+  };
 }

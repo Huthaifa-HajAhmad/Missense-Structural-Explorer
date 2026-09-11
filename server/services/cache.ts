@@ -157,7 +157,6 @@ export async function getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promi
 }
 
 import { clearEnergyModelCaches } from "./energy-models.ts";
-import { clearEvo2Cache } from "./evo2.ts";
 import { clearGpnCache } from "./gpn.ts";
 
 export function clearAllCaches(includeSqlite = false) {
@@ -175,7 +174,6 @@ export function clearAllCaches(includeSqlite = false) {
   narrativeCache.clear();
   inFlightPromises.clear();
   clearEnergyModelCaches();
-  clearEvo2Cache();
   clearGpnCache();
 
   if (includeSqlite) {

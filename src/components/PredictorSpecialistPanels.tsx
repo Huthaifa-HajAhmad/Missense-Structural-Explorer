@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Brain, Cpu, Database, HeartHandshake, HelpCircle, Info, Layers, ShieldAlert, Sparkles } from "lucide-react";
-import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar, evaluateEvo2 } from "../shared/thresholds";
+import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar } from "../shared/thresholds";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 import { useSettings } from "../context/SettingsContext";
 
@@ -30,9 +30,6 @@ interface PredictorSpecialistPanelsProps {
     gpnStar?: number | null;
     gpnStarStatus?: "live" | "token_required" | "unavailable";
     gpnStarMessage?: string | null;
-    evo2?: number | null;
-    evo2Status?: "live" | "token_required" | "unavailable";
-    evo2Message?: string | null;
     source?: string;
   } | null;
   vesmScore?: number | null;
@@ -99,11 +96,8 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const esm1b = conservationData?.esm1b ?? null;
   const popeve = conservationData?.popeve ?? null;
   const gpnScore = conservationData?.gpnStar ?? null;
-  const gpnStatus = conservationData?.gpnStarStatus ?? (gpnScore !== null ? "live" : "token_required");
+  const gpnStatus = conservationData?.gpnStarStatus ?? (gpnScore !== null ? "live" : "unavailable");
   const gpnMessage = conservationData?.gpnStarMessage ?? null;
-  const evo2Score = conservationData?.evo2 ?? null;
-  const evo2Status = conservationData?.evo2Status ?? (evo2Score !== null ? "live" : "token_required");
-  const evo2Message = conservationData?.evo2Message ?? null;
 
   // Helper to render score bars
   const renderScoreBar = (val: number | null, min: number, max: number, threshLow: number, threshHigh: number, invert = false) => {
@@ -185,10 +179,6 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
 
   const getGpnSignal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
     return evaluateGpnStar(score);
-  };
-
-  const getEvo2Signal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
-    return evaluateEvo2(score);
   };
 
   const getAmSignal = (score: number | null): "pathogenic" | "benign" | "vus" | "unavailable" => {
@@ -526,102 +516,6 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   </p>
                 )}
                 {renderSourceLabel("Song Lab @ UC Berkeley / Hugging Face")}
-              </div>
-            </div>
-
-            {/* Evo 2 Family */}
-            <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.evo2}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
-                    Evo 2 Family
-                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                      World Model (40B)
-                    </span>
-                  </h4>
-                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>Multi-scale DNA/RNA/Protein foundation LLR</p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setKnowledgeModalKey("evo2")}
-                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
-                    title="Model details & literature citation"
-                  >
-                    <Info className="w-3.5 h-3.5" />
-                  </button>
-                  {evo2Score !== null ? (
-                    renderBadge(
-                      getEvo2Signal(evo2Score),
-                      evo2Score <= -4.0 ? "Disruptive" : "Tolerated"
-                    )
-                  ) : evo2Message ? (
-                    <span
-                      title={evo2Message}
-                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20 max-w-36 truncate"
-                    >
-                      {evo2Message.includes("401")
-                        ? "HTTP 401 (Key)"
-                        : evo2Message.includes("404")
-                        ? "HTTP 404 (URL)"
-                        : evo2Message.includes("422")
-                        ? "HTTP 422"
-                        : "Notice"}
-                    </span>
-                  ) : evo2Status === "token_required" ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                      Key Required
-                    </span>
-                  ) : (
-                    renderBadge("unavailable", "Cloud Inference Standby")
-                  )}
-                </div>
-              </div>
-              <div className="mt-4">
-                <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>Delta Score: </span>
-                <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {evo2Score !== null ? renderScoreValue(evo2Score, 2) : "Standby"}
-                </span>
-                {evo2Score !== null ? (
-                  renderScoreBar(evo2Score, -15, 2, -4.0, -1.0, true)
-                ) : evo2Message ? (
-                  <div className="mt-2 space-y-1.5">
-                    <p className="text-[10px] text-amber-500/90 font-mono leading-tight">
-                      {evo2Message}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onOpenSettings) onOpenSettings();
-                        else openSettingsTab("connections");
-                      }}
-                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-colors cursor-pointer"
-                    >
-                      Configure Evo 2
-                    </button>
-                  </div>
-                ) : evo2Status === "token_required" ? (
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] text-amber-500/90 font-mono">
-                      Arc Institute Evo 2 requires NVIDIA BioNeMo key
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onOpenSettings) onOpenSettings();
-                        else openSettingsTab("connections");
-                      }}
-                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-colors cursor-pointer shrink-0"
-                    >
-                      Configure Key
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-[10px] mt-1.5 text-slate-400 font-mono">
-                    1M+ bp context foundation model prior (Arc Institute)
-                  </p>
-                )}
-                {renderSourceLabel("Arc Institute / NVIDIA BioNeMo")}
               </div>
             </div>
 

@@ -351,74 +351,29 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             </span>
           </div>
 
-          {/* Arc Institute Evo 2 */}
-          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                conservationData?.evo2 !== null && conservationData?.evo2 !== undefined
-                  ? "bg-emerald-500"
-                  : conservationData?.evo2Message
-                  ? "bg-amber-500"
-                  : settings.nvidiaApiKey
-                  ? "bg-blue-400"
-                  : "bg-slate-400"
-              }`} />
-              <span className="font-semibold text-cs-text-primary">Arc Evo 2 (40B)</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              conservationData?.evo2 !== null && conservationData?.evo2 !== undefined
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : conservationData?.evo2Message
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                : settings.nvidiaApiKey
-                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-            }`}>
-              {conservationData?.evo2 !== null && conservationData?.evo2 !== undefined
-                ? "Scored"
-                : conservationData?.evo2Message
-                ? "Notice"
-                : settings.nvidiaApiKey
-                ? "Key Linked"
-                : "Unconfigured"}
-            </span>
-          </div>
-
           {/* Song Lab GPN-Star */}
           <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
             <div className="flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 rounded-full ${
                 conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
                   ? "bg-emerald-500"
-                  : conservationData?.gpnStarMessage
-                  ? "bg-amber-500"
-                  : settings.hfToken
-                  ? "bg-blue-400"
-                  : "bg-slate-400"
+                  : "bg-blue-400"
               }`} />
               <span className="font-semibold text-cs-text-primary">Song Lab GPN-Star</span>
             </div>
             <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
               conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : conservationData?.gpnStarMessage
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                : settings.hfToken
-                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+                : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
             }`}>
               {conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
-                ? "Scored"
-                : conservationData?.gpnStarMessage
-                ? "Endpoint Required"
-                : settings.hfToken
-                ? "Token Linked"
-                : "Unconfigured"}
+                ? "Scored (Tabix)"
+                : "Remote Tabix"}
             </span>
           </div>
 
           {/* Biophysical Engine Status */}
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
             <div className="flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 rounded-full ${diagnostics?.foldxReady ? "bg-emerald-500" : "bg-slate-400"}`} />
               <span className="font-semibold text-cs-text-primary">Biophysical Engines</span>
@@ -429,6 +384,33 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
             }`}>
               {diagnostics?.foldxReady ? "FoldX Live" : "Local Standby"}
+            </span>
+          </div>
+
+          {/* P2Rank ML Pocket Engine */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                diagnostics?.p2rankReady
+                  ? "bg-emerald-500"
+                  : diagnostics?.p2rankStatus === "unavailable"
+                  ? "bg-rose-400"
+                  : "bg-slate-400"
+              }`} />
+              <span className="font-semibold text-cs-text-primary">P2Rank Pocket Engine</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              diagnostics?.p2rankReady
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : diagnostics?.p2rankStatus === "unavailable"
+                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {diagnostics?.p2rankReady
+                ? (diagnostics.p2rankJavaVersion ? `P2Rank Live (Java ${diagnostics.p2rankJavaVersion.split(".")[0]})` : "P2Rank Live")
+                : diagnostics?.p2rankStatus === "unavailable"
+                ? "Java 17+ Missing"
+                : "Local Standby"}
             </span>
           </div>
         </div>

@@ -357,6 +357,14 @@ export function AppViews({
                   metrics={active3dModelTab === "esm3" ? esmFoldMetrics : foldxMetrics}
                   onOpenSettings={handleOpenSettingsMemo}
                   onRetryStructural={actions.retryStructuralAnalysis}
+                  onRetryPocket={() => {
+                    const resIdx = analysisState.result?.metadata?.residueIndex;
+                    const targetChain = (analysisState.result?.metadata as any)?.chain || "A";
+                    if (pdbText && resIdx && actions.fetchPocketInfo) {
+                      actions.fetchPocketInfo(pdbText, targetChain, resIdx);
+                    }
+                  }}
+                  onSelectResidue={setSelectedResidueIndex}
                 />
               </ErrorBoundary>
             )}

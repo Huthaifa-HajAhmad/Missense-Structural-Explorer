@@ -70,10 +70,7 @@ export function useApiClient() {
     geminiApiKey, 
     appApiToken, 
     biohubApiToken, 
-    tamarindApiKey, 
     hfToken,
-    nvidiaApiKey,
-    evo2ApiUrl,
     gpnApiUrl
   } = settings;
 
@@ -206,17 +203,8 @@ export function useApiClient() {
         if (biohubApiToken) {
           headers["x-biohub-token"] = biohubApiToken;
         }
-        if (tamarindApiKey) {
-          headers["x-tamarind-api-key"] = tamarindApiKey;
-        }
         if (hfToken) {
           headers["x-hf-token"] = hfToken;
-        }
-        if (nvidiaApiKey) {
-          headers["x-nvidia-api-key"] = nvidiaApiKey;
-        }
-        if (evo2ApiUrl) {
-          headers["x-evo2-api-url"] = evo2ApiUrl;
         }
         if (gpnApiUrl) {
           headers["x-gpn-api-url"] = gpnApiUrl;
@@ -273,10 +261,7 @@ export function useApiClient() {
     geminiApiKey, 
     appApiToken, 
     biohubApiToken, 
-    tamarindApiKey, 
     hfToken, 
-    nvidiaApiKey,
-    evo2ApiUrl,
     gpnApiUrl,
     updateSetting
   ]);

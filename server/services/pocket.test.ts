@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { discoverJavaHome, _resetJavaHomeCache } from "./pocket.ts";
+import { discoverJavaHome, _resetJavaHomeCache, checkP2RankCapability, pocketCache, findBindingPocket } from "./pocket.ts";
 
 describe("Pocket Service - Java & Fallback Resilience", () => {
   const originalEnv = process.env;
@@ -8,6 +8,7 @@ describe("Pocket Service - Java & Fallback Resilience", () => {
     vi.resetModules();
     process.env = { ...originalEnv };
     _resetJavaHomeCache();
+    pocketCache.clear();
   });
 
   afterEach(() => {
@@ -48,5 +49,20 @@ describe("Pocket Service - Java & Fallback Resilience", () => {
     delete process.env.P2RANK_JAVA_HOME;
     const third = await discoverJavaHome();
     expect(third).toBe(first);
+  });
+
+  it("should report P2Rank capability status accurately via checkP2RankCapability", async () => {
+    const cap = await checkP2RankCapability();
+    expect(cap).toBeDefined();
+    expect(typeof cap.installed).toBe("boolean");
+    expect(typeof cap.javaVersionCompatible).toBe("boolean");
+    expect(typeof cap.ready).toBe("boolean");
+  });
+
+  it("should not cache transient unavailable states in pocketCache", async () => {
+    // Calling findBindingPocket with empty text returns unavailable without caching
+    const res = await findBindingPocket("", 1, "C:\\Fake\\JobDir");
+    expect(res.status).toBe("unavailable");
+    expect(pocketCache.size).toBe(0);
   });
 });

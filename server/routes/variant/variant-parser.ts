@@ -23,9 +23,6 @@ export const analyzeVariantSchema = z.object({
   originalNotation: z.string().max(200).optional(),
   biohubToken: z.string().optional(),
   hfToken: z.string().optional(),
-  nvidiaApiKey: z.string().optional(),
-  evo2Key: z.string().optional(),
-  evo2ApiUrl: z.string().url().max(512).optional(),
   gpnApiUrl: z.string().url().max(512).optional(),
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
@@ -103,8 +100,6 @@ export interface ParsedVariantContext {
   mut1Letter: string;
   biohubToken?: string | null;
   hfToken?: string | null;
-  nvidiaApiKey?: string | null;
-  evo2ApiUrl?: string | null;
   gpnApiUrl?: string | null;
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
@@ -215,8 +210,6 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     mut1Letter,
     biohubToken: sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken) || sanitizeToken(process.env.BIOHUB_API_TOKEN),
     hfToken: sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken) || sanitizeToken(process.env.HF_TOKEN),
-    nvidiaApiKey: sanitizeToken(req.headers["x-nvidia-api-key"]) || sanitizeToken(req.headers["x-evo2-key"]) || sanitizeToken(req.body?.nvidiaApiKey) || sanitizeToken(req.body?.evo2Key) || sanitizeToken(process.env.NVIDIA_API_KEY) || sanitizeToken(process.env.EVO2_API_KEY),
-    evo2ApiUrl: sanitizeUrl(req.headers["x-evo2-api-url"]) || sanitizeUrl(req.body?.evo2ApiUrl) || sanitizeUrl(process.env.EVO2_API_URL),
     gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
     saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };

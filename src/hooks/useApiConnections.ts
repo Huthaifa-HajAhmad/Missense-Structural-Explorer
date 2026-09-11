@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 
-type TestId = "biohub" | "tamarind" | "hf";
+type TestId = "biohub" | "hf";
 
 interface TestState {
   testing: boolean;
@@ -22,11 +22,6 @@ const ENDPOINTS: Record<TestId, EndpointSpec> = {
     endpoint: "/api/v1/validate-biohub-token",
     payload: (token) => ({ token }),
     emptyMessage: "No Biohub API token entered."
-  },
-  tamarind: {
-    endpoint: "/api/v1/test-tamarind-connection",
-    payload: (token) => ({ tamarindApiKey: token }),
-    emptyMessage: "No Tamarind Bio API key entered."
   },
   hf: {
     endpoint: "/api/v1/test-hf-connection",
@@ -48,7 +43,6 @@ export function useApiConnections() {
   const { settings, updateSetting } = useSettings();
   const [tests, setTests] = useState<Record<TestId, TestState>>({
     biohub: IDLE_TEST,
-    tamarind: IDLE_TEST,
     hf: IDLE_TEST
   });
   const [linking, setLinking] = useState(false);
@@ -64,9 +58,7 @@ export function useApiConnections() {
       const token =
         id === "biohub"
           ? settings.biohubApiToken
-          : id === "tamarind"
-            ? settings.tamarindApiKey
-            : settings.hfToken;
+          : settings.hfToken;
 
       if (!token) {
         patchTest(id, { status: { valid: false, message: spec.emptyMessage } });
@@ -108,7 +100,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.biohubApiToken, settings.tamarindApiKey, settings.hfToken, settings.appApiToken]
+    [settings.biohubApiToken, settings.hfToken, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {

@@ -172,9 +172,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         geminiSessionExpiresAt: transient.geminiSessionExpiresAt || 0,
         appApiToken: transient.appApiToken || "",
         biohubApiToken: transient.biohubApiToken || "",
-        tamarindApiKey: transient.tamarindApiKey || "",
         hfToken: transient.hfToken || "",
-        nvidiaApiKey: transient.nvidiaApiKey || "",
         show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
         biophysicsConditions: {
           ...DEFAULT_USER_SETTINGS.biophysicsConditions,

@@ -182,7 +182,7 @@ export async function executeFullAnalysisWorkflow({
           ).then((pdb: any) => {
             if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
               structureSink.setPdbText(pdb);
-              if (residueIndex && !cached.computedPocket) {
+              if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
                 fetchPocketData(
                   targetUniprot,
                   residueIndex,
@@ -319,7 +319,7 @@ export async function executeFullAnalysisWorkflow({
     pdbWarmupPromise.then((pdb: any) => {
       if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
         structureSink.setPdbText(pdb);
-        if (residueIndex && !cached?.computedPocket) {
+        if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
           fetchPocketData(
             targetUniprot,
             residueIndex,

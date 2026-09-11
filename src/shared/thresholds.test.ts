@@ -8,7 +8,6 @@ import {
   evaluateEsm,
   evaluateEsm1b,
   evaluateGpnStar,
-  evaluateEvo2,
   evaluateSplicePredictor,
   countPredictorConcordance,
   computeConsensusVerdict,
@@ -75,13 +74,6 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateGpnStar(-1.2)).toBe("vus");
       expect(evaluateGpnStar(0.5)).toBe("benign");
       expect(evaluateGpnStar(null)).toBe("unavailable");
-    });
-
-    it("should evaluate Evo 2 scores correctly using zero-shot foundation delta thresholds", () => {
-      expect(evaluateEvo2(-5.0)).toBe("pathogenic");
-      expect(evaluateEvo2(-2.5)).toBe("vus");
-      expect(evaluateEvo2(-0.5)).toBe("benign");
-      expect(evaluateEvo2(undefined)).toBe("unavailable");
     });
 
     it("should evaluate splice-site proximity and SpliceAI scores correctly", () => {
@@ -159,7 +151,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.signals.dann).toBe("pathogenic");
     });
 
-    it("should include VESM-150M, GPN-Star, and Evo 2 as informational frontier models without skewing voting counts", () => {
+    it("should include VESM-150M and GPN-Star as informational frontier models without skewing voting counts", () => {
       const res = countPredictorConcordance(
         null,
         null,
@@ -169,17 +161,14 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         null,
         {
           vesmLlr: -6.2,
-          gpnStar: -4.5,
-          evo2: -1.36
+          gpnStar: -4.5
         }
       );
 
       expect(res.available).toContain("VESM-150M");
       expect(res.available).toContain("GPN-STAR");
-      expect(res.available).toContain("EVO 2");
       expect(res.signals.vesm).toBe("vus");
       expect(res.signals.gpn_star).toBe("pathogenic");
-      expect(res.signals.evo2).toBe("vus");
       // Must not count toward active voting tallies (informational only)
       expect(res.nPathogenic).toBe(0);
       expect(res.nBenign).toBe(0);

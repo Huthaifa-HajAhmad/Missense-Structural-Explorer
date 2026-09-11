@@ -25,6 +25,7 @@ import { geminiCache } from "./shared.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
 import { adapterRegistry } from "../services/adapters/service-adapters.ts";
 import { CONFIG } from "../config.ts";
+import { pocketCache, checkP2RankCapability } from "../services/pocket.ts";
 
 export function registerHealthRoutes(apiRouter: Router): void {
   apiRouter.get("/health", (req, res) => {
@@ -108,9 +109,11 @@ export function registerHealthRoutes(apiRouter: Router): void {
       uniprotFeaturesCache: { size: uniprotFeaturesCache.size, max: uniprotFeaturesCache.max, ttl: "3d" },
       landscapeCache: { size: landscapeCache.size, max: landscapeCache.max, ttl: "24h" },
       mutantCache: { size: mutantCache.size, max: mutantCache.max, ttl: "24h" },
+      pocketCache: { size: pocketCache.size, max: pocketCache.max, ttl: "7d" },
       geminiCache: { size: geminiCache.size, max: 200, ttl: "24h" }
     };
 
+    const p2rankCap = await checkP2RankCapability();
     const serviceHealth = await adapterRegistry.checkAllHealth();
 
     res.json({
@@ -120,6 +123,10 @@ export function registerHealthRoutes(apiRouter: Router): void {
       geminiReady,
       geminiModel,
       modelServerReady,
+      p2rankReady: p2rankCap.ready,
+      p2rankStatus: p2rankCap.status,
+      p2rankJavaCompatible: p2rankCap.javaVersionCompatible,
+      p2rankJavaVersion: p2rankCap.javaVersion,
       auditLogFailures: AuditLogger.failureCount,
       cacheDiagnostics,
       serviceHealth
@@ -131,6 +138,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
       // 1. Clear in-memory and persistent SQLite caches
       clearAllCaches(true);
       mutantCache.clear();
+      pocketCache.clear();
       geminiCache.clear();
 
       // 2. Delete FoldX disk cache files (.json files in logs/foldx_cache)

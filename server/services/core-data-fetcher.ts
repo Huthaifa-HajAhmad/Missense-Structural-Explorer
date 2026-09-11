@@ -55,8 +55,6 @@ export async function fetchCoreVariantData(
     mut1Letter,
     biohubToken,
     hfToken,
-    nvidiaApiKey,
-    evo2ApiUrl,
     gpnApiUrl
   } = context;
 
@@ -157,8 +155,6 @@ export async function fetchCoreVariantData(
     predictorPromise,
     genosPromise,
     biohubToken,
-    nvidiaApiKey,
-    evo2ApiUrl,
     hfToken,
     gpnApiUrl,
     sequence

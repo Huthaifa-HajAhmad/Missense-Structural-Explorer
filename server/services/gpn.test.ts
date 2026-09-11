@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchGpnStarScore, clearGpnCache } from "./gpn.ts";
+import {
+  fetchGpnStarScore,
+  fetchGpnStarByCoordinate,
+  clearGpnCache,
+  setGpnTabixInstance
+} from "./gpn.ts";
 
 describe("GPN-Star Foundation Model Service", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     clearGpnCache();
+    setGpnTabixInstance(null);
     vi.restoreAllMocks();
     process.env = { ...originalEnv };
     delete process.env.HF_TOKEN;
@@ -15,6 +21,8 @@ describe("GPN-Star Foundation Model Service", () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    setGpnTabixInstance(null);
+    vi.restoreAllMocks();
   });
 
   it("should reject invalid coordinates or empty sequence", async () => {
@@ -22,16 +30,21 @@ describe("GPN-Star Foundation Model Service", () => {
     expect(res.status).toBe("unavailable");
     expect(res.score).toBeNull();
     expect(res.message).toContain("Invalid sequence");
+
+    const coordRes = await fetchGpnStarByCoordinate("", 0, "", "");
+    expect(coordRes.status).toBe("unavailable");
+    expect(coordRes.score).toBeNull();
+    expect(coordRes.message).toContain("Invalid genomic coordinates");
   });
 
-  it("should return token_required when no credentials or custom endpoints are provided", async () => {
+  it("should inform user that genomic coordinates are needed when called without custom endpoint", async () => {
     const res = await fetchGpnStarScore("MKWVTFISLLFLFSSAYS", 2, "K", "R");
-    expect(res.status).toBe("token_required");
+    expect(res.status).toBe("unavailable");
     expect(res.score).toBeNull();
+    expect(res.message).toContain("genomic coordinates (GRCh38)");
   });
 
-  it("should NEVER send server environment HF_TOKEN to a customEndpoint (SSRF prevention)", async () => {
-    process.env.HF_TOKEN = "server-hf-secret-key";
+  it("should query custom endpoint when provided for sequence score", async () => {
     let capturedHeaders: Record<string, string> = {};
 
     global.fetch = vi.fn().mockImplementation(async (url, init) => {
@@ -39,7 +52,7 @@ describe("GPN-Star Foundation Model Service", () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ score: 0.82 })
+        json: async () => ({ delta_llr: -1.75 })
       };
     });
 
@@ -48,52 +61,26 @@ describe("GPN-Star Foundation Model Service", () => {
       2,
       "K",
       "R",
-      null,
+      "test_token",
       undefined,
       "https://custom-gpn-inference.internal:8000/predict"
     );
 
-    expect(capturedHeaders["Authorization"]).toBeUndefined();
-    expect(res.status).toBe("live");
-    expect(res.score).toBe(0.82);
-  });
-
-  it("should return informative diagnosis when HF serverless returns 404", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: "Not Found",
-      json: async () => ({ error: "Model songlab/gpn-msa-sapiens is not available on Serverless Inference" })
-    } as any);
-
-    const res = await fetchGpnStarScore(
-      "MKWVTFISLLFLFSSAYS",
-      2,
-      "K",
-      "R",
-      "hf_user_token"
-    );
-
-    expect(res.status).toBe("unavailable");
-    expect(res.message).toContain("dedicated Hugging Face Inference Endpoint or local sidecar");
-  });
-
-  it("should parse delta_llr or score correctly", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ delta_llr: -1.75 })
-    } as any);
-
-    const res = await fetchGpnStarScore(
-      "MKWVTFISLLFLFSSAYS",
-      2,
-      "K",
-      "R",
-      "hf_user_token"
-    );
-
+    expect(capturedHeaders["Authorization"]).toBe("Bearer test_token");
     expect(res.status).toBe("live");
     expect(res.score).toBe(-1.75);
+  });
+
+  it("should parse score from Tabix query correctly", async () => {
+    const mockTabix = {
+      getLines: vi.fn(async (_chrom: string, _start: number, _end: number, opts: any) => {
+        opts.lineCallback("1\t12345678\tA\tT\t-2.450000");
+      })
+    } as any;
+    setGpnTabixInstance(mockTabix);
+
+    const res = await fetchGpnStarByCoordinate("1", 12345678, "A", "T");
+    expect(res.status).toBe("live");
+    expect(res.score).toBe(-2.45);
   });
 });

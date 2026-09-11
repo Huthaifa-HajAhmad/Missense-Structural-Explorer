@@ -148,6 +148,7 @@ export interface UniprotFeatureItem {
   description: string;
   start: number;
   end: number;
+  interproId?: string;
 }
 
 export interface UniprotFeaturesData {
@@ -155,6 +156,7 @@ export interface UniprotFeaturesData {
   geneName?: string;
   subunitComment?: string | null;
   isMultimer?: boolean;
+  sequenceLength?: number;
 }
 
 export interface GnomadConstraintData {
@@ -318,9 +320,6 @@ export interface UserSettings {
   geminiSessionExpiresAt?: number;
   appApiToken?: string;
   biohubApiToken?: string;
-  nvidiaApiKey?: string;
-  evo2ApiUrl?: string;
-  tamarindApiKey?: string;
   hfToken?: string;
   gpnApiUrl?: string;
   cameraDuration: number; // e.g., 1200
@@ -359,6 +358,8 @@ export interface PocketResult {
   likelyCofactor: string;
   pocketDistance: number | null;
   status?: "success" | "fallback" | "none_detected" | "unavailable" | string;
+  sasPoints?: number;
+  surfaceAtoms?: number;
 }
 
 export interface StructuralMetrics {

@@ -35,7 +35,6 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           saprotLlr: result.saprotEval?.llr ?? null,
           vesmLlr: result.esmcEval?.llr ?? null,
           gpnStar: result.conservationData?.gpnStar ?? null,
-          evo2: result.conservationData?.evo2 ?? null,
           spliceProximity: result.conservationData?.spliceProximity,
           spliceai: result.conservationData?.spliceai,
           dbscsnv: result.conservationData?.dbscsnv

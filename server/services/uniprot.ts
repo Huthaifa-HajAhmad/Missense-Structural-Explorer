@@ -74,11 +74,12 @@ export async function fetchUniprotSequence(uniprotId: string): Promise<string> {
 }
 
 export interface UniprotFeature {
-  type: string;            // e.g. "Active site", "Binding site", "Region"
+  type: string;            // e.g. "Active site", "Binding site", "Region", "Domain"
   description: string;
   /** Residue positions (1-indexed, inclusive) */
   start: number;
   end: number;
+  interproId?: string;
 }
 
 export interface UniprotFeaturesResult {
@@ -87,6 +88,7 @@ export interface UniprotFeaturesResult {
   geneName: string;
   subunitComment?: string | null;
   isMultimer?: boolean;
+  sequenceLength?: number;
 }
 
 /** Feature types we care about for clinical/functional/domain annotation */
@@ -143,6 +145,18 @@ export async function fetchUniprotFeatures(
         const geneName: string =
           json?.genes?.[0]?.geneName?.value ?? json?.entryType ?? key;
 
+        // Build InterPro cross-reference map for domain annotation enrichment
+        const interproMap = new Map<string, string>();
+        const rawXrefs = json?.uniProtKBCrossReferences ?? [];
+        for (const xref of rawXrefs) {
+          if (xref?.database === "InterPro" && xref?.id) {
+            const entryName = xref.properties?.find((p: any) => p.key === "EntryName")?.value || "";
+            if (entryName) {
+              interproMap.set(entryName.toLowerCase().trim(), xref.id);
+            }
+          }
+        }
+
         const features: UniprotFeature[] = rawFeatures
           .filter((f: any) => RELEVANT_FEATURE_TYPES.has(f.type))
           .map((f: any) => {
@@ -153,11 +167,44 @@ export async function fetchUniprotFeatures(
             const posVal = f.location?.position?.value;
             const start = f.location?.start?.value ?? posVal ?? 0;
             const end = f.location?.end?.value ?? posVal ?? start;
+
+            let interproId: string | undefined;
+            if (f.type === "Domain") {
+              const descLower = (f.description || "").toLowerCase().trim();
+              if (descLower.length >= 2) {
+                // Pass 1: Exact or direct suffix match
+                for (const [iprName, id] of interproMap.entries()) {
+                  if (
+                    descLower === iprName ||
+                    `${descLower} domain` === iprName ||
+                    descLower === `${iprName} domain`
+                  ) {
+                    interproId = id;
+                    break;
+                  }
+                }
+                // Pass 2: Guarded substring match (minimum 4 chars, not generic "domain")
+                if (!interproId && descLower.length >= 4 && descLower !== "domain") {
+                  for (const [iprName, id] of interproMap.entries()) {
+                    if (
+                      descLower.includes(iprName) ||
+                      iprName.includes(descLower) ||
+                      iprName.startsWith(descLower)
+                    ) {
+                      interproId = id;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+
             return {
               type:        f.type,
               description: desc,
               start,
               end,
+              interproId
             };
           })
           .filter((f) => f.start > 0 && f.end > 0);
@@ -169,7 +216,9 @@ export async function fetchUniprotFeatures(
           ? /homo|hetero|dimer|trimer|tetramer|pentamer|hexamer|heptamer|octamer|oligomer|complex/i.test(subunitComment)
           : false;
 
-        const result: UniprotFeaturesResult = { features, geneName, subunitComment, isMultimer };
+        const sequenceLength = typeof json?.sequence?.length === "number" ? json.sequence.length : undefined;
+
+        const result: UniprotFeaturesResult = { features, geneName, subunitComment, isMultimer, sequenceLength };
         return result;
       } catch (err: any) {
         console.error(`[UniProt Features] Error fetching ${key}:`, err.message);

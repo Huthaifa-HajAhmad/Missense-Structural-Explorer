@@ -35,12 +35,6 @@ function isStaleCachedPayload(payload: any, context?: ParsedVariantContext): boo
     if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
       return true;
     }
-    // Invalidate stale cache if NVIDIA BioNeMo / Evo 2 key is provided but cached payload lacks Evo 2
-    const hasEvo2Token = Boolean(context?.nvidiaApiKey || process.env.NVIDIA_API_KEY || process.env.EVO2_API_KEY);
-    if (hasEvo2Token) {
-      const evoMissing = cons.evo2 === null && (cons.evo2Status === "token_required" || cons.evo2Status === "unavailable" || !cons.evo2Status);
-      if (evoMissing) return true;
-    }
     // Invalidate stale cache if Hugging Face token is provided but cached payload lacks GPN-Star
     const hasGpnToken = Boolean(context?.hfToken || process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY);
     if (hasGpnToken) {

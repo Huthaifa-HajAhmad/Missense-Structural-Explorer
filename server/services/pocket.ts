@@ -14,6 +14,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 let cachedJavaHome: string | null = null;
+let cachedJavaVersion: string | null = null;
 let cachedJavaHomeChecked = false;
 
 async function checkJavaVersion(javaExePath: string): Promise<boolean> {
@@ -27,6 +28,7 @@ async function checkJavaVersion(javaExePath: string): Promise<boolean> {
     if (major === 1 && match[2]) {
       major = parseInt(match[2], 10);
     }
+    cachedJavaVersion = match[1] + (match[2] ? `.${match[2]}` : "");
     // P2Rank 2.6-alpha bytecode (class format 61.0) requires Java 17 or higher
     return major >= 17;
   } catch (err) {
@@ -138,7 +140,55 @@ export async function discoverJavaHome(): Promise<string | null> {
 
 export function _resetJavaHomeCache(): void {
   cachedJavaHome = null;
+  cachedJavaVersion = null;
   cachedJavaHomeChecked = false;
+}
+
+export async function checkP2RankCapability(): Promise<{
+  installed: boolean;
+  path: string | null;
+  javaHome: string | null;
+  javaVersionCompatible: boolean;
+  javaVersion?: string | null;
+  ready: boolean;
+  status: "ready" | "standby" | "unavailable";
+}> {
+  let p2rankCmd: string | null = null;
+  const localP2rankDir = path.join(process.cwd(), "tools", "p2rank");
+  if (fs.existsSync(localP2rankDir)) {
+    try {
+      const files = fs.readdirSync(localP2rankDir);
+      for (const f of files) {
+        const subPath = path.join(localP2rankDir, f);
+        if (fs.statSync(subPath).isDirectory()) {
+          const batFile = path.join(subPath, "prank.bat");
+          const shFile = path.join(subPath, "prank");
+          if (process.platform === "win32" && fs.existsSync(batFile)) {
+            p2rankCmd = batFile;
+            break;
+          } else if (fs.existsSync(shFile)) {
+            p2rankCmd = shFile;
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  const javaHome = await discoverJavaHome();
+  const javaCompatible = javaHome !== null;
+  const ready = Boolean(p2rankCmd && javaCompatible);
+  const status = ready ? "ready" : (p2rankCmd && !javaCompatible ? "unavailable" : "standby");
+
+  return {
+    installed: Boolean(p2rankCmd),
+    path: p2rankCmd,
+    javaHome,
+    javaVersionCompatible: javaCompatible,
+    javaVersion: cachedJavaVersion,
+    ready,
+    status
+  };
 }
 
 export const pocketCache = new LRUCache<string, any>({
@@ -197,7 +247,7 @@ export async function findBindingPocket(
   jobDir: string,
   targetChain?: string,
   signal?: AbortSignal
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null; sasPoints?: number; surfaceAtoms?: number }> {
   const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
   const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}`;
   const cached = pocketCache.get(cacheKey);
@@ -208,7 +258,9 @@ export async function findBindingPocket(
     return cached;
   }
   const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
-  pocketCache.set(cacheKey, result);
+  if (result.status === "success" || result.status === "none_detected" || result.status === "fallback") {
+    pocketCache.set(cacheKey, result);
+  }
   return result;
 }
 
@@ -218,7 +270,7 @@ async function findBindingPocketInternal(
   jobDir: string,
   targetChain?: string,
   signal?: AbortSignal
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null; sasPoints?: number; surfaceAtoms?: number }> {
   const fullPdbPath = path.join(jobDir, "wt.pdb");
   const fullOutDir = path.join(jobDir, "out");
 
@@ -275,6 +327,8 @@ async function findBindingPocketInternal(
   let pocketScore = 0;
   let pocketVolume = 0;
   let likelyCofactor = "None";
+  let sasPoints: number | undefined = undefined;
+  let surfaceAtoms: number | undefined = undefined;
 
   // Try executing P2Rank command-line program
   try {
@@ -372,6 +426,8 @@ async function findBindingPocketInternal(
       if (csvLines.length > 1) {
         const headerCols = csvLines[0].split(",").map(c => c.trim().toLowerCase());
         const volColIdx = headerCols.findIndex(h => h === "volume" || h === "sas_volume" || h === "volume_sas");
+        const sasColIdx = headerCols.findIndex(h => h === "sas_points" || h === "saspoints" || h.includes("sas"));
+        const surfAtomsColIdx = headerCols.findIndex(h => h === "surf_atoms" || h === "surfatoms" || h.includes("surf_atom"));
         const resColIdx = headerCols.findIndex(h => h === "residue_ids" || h === "residues" || h.includes("residue"));
         const finalResColIdx = resColIdx !== -1 ? resColIdx : 9;
 
@@ -382,9 +438,11 @@ async function findBindingPocketInternal(
             const pId = parseInt(cols[0], 10);
             const score = parseFloat(cols[2]);
             const probability = parseFloat(cols[3]);
-            const sasPoints = parseInt(cols[4], 10);
-            const centerRes = cols[finalResColIdx]; // residue ids list e.g., "A_12 A_13"
-            
+            const parsedSas = sasColIdx !== -1 && cols.length > sasColIdx ? parseInt(cols[sasColIdx], 10) : parseInt(cols[4], 10);
+            const sasPoints = !isNaN(parsedSas) ? parsedSas : undefined;
+            const parsedSurfAtoms = surfAtomsColIdx !== -1 && cols.length > surfAtomsColIdx ? parseInt(cols[surfAtomsColIdx], 10) : (cols.length > 5 ? parseInt(cols[5], 10) : undefined);
+            const surfaceAtoms = parsedSurfAtoms !== undefined && !isNaN(parsedSurfAtoms) ? parsedSurfAtoms : undefined;
+            const centerRes = (cols.length > finalResColIdx ? cols[finalResColIdx] : "") || "";
             const residueKeys = centerRes.split(/\s+/).filter(Boolean);
             const residueIndices = residueKeys.map(x => {
               const parts = x.split("_");
@@ -401,6 +459,7 @@ async function findBindingPocketInternal(
               score,
               probability,
               sasPoints,
+              surfaceAtoms,
               residueKeys,
               residueIndices,
               volume
@@ -486,10 +545,16 @@ async function findBindingPocketInternal(
           // Dynamic P2Rank Volume calculation
           if (selectedPocket.volume && !isNaN(selectedPocket.volume)) {
             pocketVolume = Math.round(selectedPocket.volume);
+          } else if (selectedPocket.sasPoints && !isNaN(selectedPocket.sasPoints)) {
+            // Standard P2Rank solvent-accessible surface (SAS) point voxel scaling (approx 10 Å³ per SAS point)
+            pocketVolume = Math.round(selectedPocket.sasPoints * 10);
           } else {
             // In accordance with No Heuristics Policy, do not invent spherical volume approximations
             pocketVolume = 0;
           }
+
+          sasPoints = selectedPocket.sasPoints;
+          surfaceAtoms = selectedPocket.surfaceAtoms;
 
           likelyCofactor = determineLikelyCofactor();
 
@@ -701,6 +766,8 @@ async function findBindingPocketInternal(
     pocketResidues,
     pocketScore,
     pocketVolume,
+    sasPoints,
+    surfaceAtoms,
     likelyCofactor,
     pocketDistance,
     status: p2rankSuccess ? "success" : "fallback"

@@ -1,18 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchEvo2Score, fetchGpnStarScore, clearEvo2Cache, clearGpnCache } from "./evolutionaryscale.ts";
+import {
+  fetchGpnStarScore,
+  fetchGpnStarByCoordinate,
+  clearGpnCache,
+  setGpnTabixInstance
+} from "./gpn.ts";
 
-describe("Frontier Genomic Models Service (Evo 2 & GPN-Star)", () => {
+describe("Frontier Genomic Models Service (GPN-Star)", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     vi.resetModules();
-    clearEvo2Cache();
     clearGpnCache();
+    setGpnTabixInstance(null);
     process.env = { ...originalEnv };
     delete process.env.BIOHUB_API_TOKEN;
-    delete process.env.EVO2_API_KEY;
-    delete process.env.NVIDIA_API_KEY;
-    delete process.env.EVO2_API_URL;
     delete process.env.HF_TOKEN;
     delete process.env.HUGGINGFACE_API_KEY;
     delete process.env.GPN_API_URL;
@@ -20,136 +22,115 @@ describe("Frontier Genomic Models Service (Evo 2 & GPN-Star)", () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    setGpnTabixInstance(null);
     vi.restoreAllMocks();
   });
 
-  it("should return token_required when no token is configured for Evo 2", async () => {
-    const result = await fetchEvo2Score("MVKV", 2, "V", "A", null);
-    expect(result.status).toBe("token_required");
-    expect(result.score).toBeNull();
+  it("should query GPN-Star whole-genome Tabix on-demand when coordinates are provided", async () => {
+    const mockTabix = {
+      getLines: vi.fn(async (_chrom: string, _start: number, _end: number, opts: any) => {
+        // Simulate Tabix lineCallback emitting matching TSV line
+        opts.lineCallback("1\t46019605\tC\tT\t-6.920000");
+      })
+    } as any;
+    setGpnTabixInstance(mockTabix);
+
+    const result = await fetchGpnStarByCoordinate("chr1", 46019605, "C", "T");
+    expect(result.status).toBe("live");
+    expect(result.score).toBe(-6.92);
+    expect(mockTabix.getLines).toHaveBeenCalledWith(
+      "1",
+      46019604,
+      46019606,
+      expect.objectContaining({ lineCallback: expect.any(Function) })
+    );
   });
 
-  it("should parse successful Evo 2 score via NVIDIA BioNeMo NIM when API succeeds", async () => {
+  it("should handle unindexed coordinates in GPN-Star Tabix cleanly", async () => {
+    const mockTabix = {
+      getLines: vi.fn(async (_chrom: string, _start: number, _end: number, opts: any) => {
+        // Line with different alt allele
+        opts.lineCallback("1\t46019605\tC\tG\t-3.500000");
+      })
+    } as any;
+    setGpnTabixInstance(mockTabix);
+
+    const result = await fetchGpnStarByCoordinate("1", 46019605, "C", "A");
+    expect(result.status).toBe("unavailable");
+    expect(result.score).toBeNull();
+    expect(result.message).toContain("Unindexed in GPN-Star");
+  });
+
+  it("should prioritize custom GPN_API_URL sidecar override when configured", async () => {
+    process.env.GPN_API_URL = "http://127.0.0.1:8000/predict/gpn";
+
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ score: -4.85 })
+      json: async () => ({ score: -4.15 })
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    const result = await fetchEvo2Score("MVKV", 2, "V", "E", "test-nvidia-token");
-    expect(result.status).toBe("live");
-    expect(result.score).toBe(-4.85);
+    const res = await fetchGpnStarByCoordinate("1", 46019605, "C", "T");
+    expect(res.status).toBe("live");
+    expect(res.score).toBe(-4.15);
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://integrate.api.nvidia.com/v1/biology/arc/evo2-40b",
+      "http://127.0.0.1:8000/predict/gpn",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ chrom: "1", pos: 46019605, ref: "C", alt: "T" })
+      })
+    );
+  });
+
+  it("should return informative message when fetchGpnStarScore is called with sequence alone", async () => {
+    const result = await fetchGpnStarScore("MVKV", 2, "V", "E", null);
+    expect(result.status).toBe("unavailable");
+    expect(result.score).toBeNull();
+    expect(result.message).toContain("genomic coordinates (GRCh38)");
+  });
+
+  it("should query custom endpoint when fetchGpnStarScore is provided with customEndpoint", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ delta_llr: -2.85 })
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await fetchGpnStarScore(
+      "MVKV",
+      2,
+      "V",
+      "E",
+      "test-token",
+      undefined,
+      "http://127.0.0.1:8000/predict/gpn"
+    );
+    expect(result.status).toBe("live");
+    expect(result.score).toBe(-2.85);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:8000/predict/gpn",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "Bearer test-nvidia-token"
+          Authorization: "Bearer test-token"
         })
       })
     );
   });
 
-  it("should parse successful GPN-Star score via Song Lab Hugging Face inference when API succeeds", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ delta_llr: -2.34 })
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const result = await fetchGpnStarScore("MVKV", 2, "V", "E", "test-hf-token");
-    expect(result.status).toBe("live");
-    expect(result.score).toBe(-2.34);
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://router.huggingface.co/hf-inference/models/songlab/gpn-msa-sapiens",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({
-          Authorization: "Bearer test-hf-token"
-        }),
-        body: expect.stringContaining("songlab/gpn-msa-sapiens")
+  it("should handle Tabix errors or timeouts gracefully without throwing", async () => {
+    const mockTabix = {
+      getLines: vi.fn(async () => {
+        throw new Error("HTTP Range request failed");
       })
-    );
-  });
+    } as any;
+    setGpnTabixInstance(mockTabix);
 
-  it("should support custom EVO2_API_URL and GPN_API_URL sidecar overrides", async () => {
-    process.env.EVO2_API_URL = "http://127.0.0.1:8000/predict/evo2";
-    process.env.GPN_API_URL = "http://127.0.0.1:8000/predict/gpn";
-
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ score: -3.42 })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ score: -1.88 })
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const evoRes = await fetchEvo2Score("MVKV", 2, "V", "E", null);
-    const gpnRes = await fetchGpnStarScore("MVKV", 2, "V", "E", null);
-
-    expect(evoRes.score).toBe(-3.42);
-    expect(gpnRes.score).toBe(-1.88);
-    expect(mockFetch).toHaveBeenNthCalledWith(1, "http://127.0.0.1:8000/predict/evo2", expect.anything());
-    expect(mockFetch).toHaveBeenNthCalledWith(2, "http://127.0.0.1:8000/predict/gpn", expect.anything());
-  });
-
-  it("should avoid cache collisions for distinct sequences of the exact same length", async () => {
-    let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation(async () => {
-      callCount++;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ score: callCount === 1 ? -1.25 : -8.50 })
-      };
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const res1 = await fetchEvo2Score("MVKV", 2, "V", "E", "test-token");
-    const res2 = await fetchEvo2Score("AVKT", 2, "V", "E", "test-token");
-
-    expect(res1.score).toBe(-1.25);
-    expect(res2.score).toBe(-8.50);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("should handle 401/403 authorization error gracefully without poisoning the cache", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized"
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ score: -3.14 })
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const badResult = await fetchEvo2Score("MVKV", 3, "K", "D", "invalid-token");
-    expect(badResult.status).toBe("token_required");
-    expect(badResult.score).toBeNull();
-
-    const goodResult = await fetchEvo2Score("MVKV", 3, "K", "D", "valid-token");
-    expect(goodResult.status).toBe("live");
-    expect(goodResult.score).toBe(-3.14);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("should handle timeouts / 5xx without throwing", async () => {
-    const mockFetch = vi.fn().mockRejectedValue(new Error("fetch failed"));
-    vi.stubGlobal("fetch", mockFetch);
-
-    const result = await fetchEvo2Score("MVKV", 1, "M", "L", "valid-token");
+    const result = await fetchGpnStarByCoordinate("22", 99999999, "A", "C");
     expect(result.status).toBe("unavailable");
     expect(result.score).toBeNull();
+    expect(result.message).toContain("Remote GPN Tabix error");
   });
 });

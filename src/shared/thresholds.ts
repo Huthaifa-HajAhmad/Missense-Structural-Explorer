@@ -141,10 +141,6 @@ export const THRESHOLDS = {
     pathogenic: -2.5,
     benign: 0.0,
   },
-  evo2: {
-    pathogenic: -4.0,
-    benign: -1.0,
-  },
   popEve: {
     /** Severe Pathogenicity Threshold (99.99% likelihood, 15-fold case enrichment): LLR ≤ -5.056 */
     severePathogenic: -5.056,
@@ -225,8 +221,6 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "ESM-2 (Meta FAIR, Lin et al. 2023 Science). Evolutionary scale masked protein language model.",
   gpnStar:
     "GPN-Star (Song Lab, bioRxiv 2025). Phylogeny-aware zero-shot LLR across 100+ vertebrate alignments. Severe evolutionary constraint LLR < -2.5 (Pathogenic Prior); Tolerated LLR ≥ 0.0.",
-  evo2:
-    "Evo 2 Family (Arc Institute / EvolutionaryScale, Nature 2026). Multi-scale 40B genomic foundation model LLR across 1M+ bp context. Negative delta scores indicate functional disruption.",
   metaRnn:
     "MetaRNN (dbNSFP, score ≥ 0.5 deleterious).",
   clinPred:
@@ -308,13 +302,6 @@ export function evaluateGpnStar(score: number | null | undefined): PredictorSign
   if (score === null || score === undefined) return "unavailable";
   if (score <= THRESHOLDS.gpnStar.pathogenic) return "pathogenic";
   if (score >= THRESHOLDS.gpnStar.benign) return "benign";
-  return "vus";
-}
-
-export function evaluateEvo2(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
-  if (score <= THRESHOLDS.evo2.pathogenic) return "pathogenic";
-  if (score >= THRESHOLDS.evo2.benign) return "benign";
   return "vus";
 }
 
@@ -439,7 +426,6 @@ export function countPredictorConcordance(
     saprotLlr?: number | null;
     vesmLlr?: number | null;
     gpnStar?: number | null;
-    evo2?: number | null;
     spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null;
     spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null;
     dbscsnv?: { ada_score: number | null; rf_score: number | null } | null;
@@ -552,13 +538,6 @@ export function countPredictorConcordance(
       name: "GPN-Star",
       signal: evaluateGpnStar(extra?.gpnStar),
       scoreLabel: extra?.gpnStar !== null && extra?.gpnStar !== undefined ? `${extra.gpnStar.toFixed(2)}` : "—",
-      isInformationalOnly: true,
-    },
-    {
-      key: "evo2",
-      name: "Evo 2",
-      signal: evaluateEvo2(extra?.evo2),
-      scoreLabel: extra?.evo2 !== null && extra?.evo2 !== undefined ? `${extra.evo2.toFixed(2)}` : "—",
       isInformationalOnly: true,
     },
   ];

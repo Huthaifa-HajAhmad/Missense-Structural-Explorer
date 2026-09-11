@@ -30,6 +30,8 @@ export interface EvidenceDashboardCardProps {
   metrics?: StructuralMetrics | null;
   onOpenSettings?: () => void;
   onRetryStructural?: (overrides?: { saprotEngine?: string }) => void | Promise<void>;
+  onRetryPocket?: () => void | Promise<void>;
+  onSelectResidue?: (index: number) => void;
 }
 
 export interface TabComponentProps extends EvidenceDashboardCardProps {

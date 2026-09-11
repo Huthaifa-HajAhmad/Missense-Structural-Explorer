@@ -18,6 +18,7 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import { CONFIG } from "../config.ts";
+import { checkP2RankCapability } from "../services/pocket.ts";
 
 export interface EngineCapability {
   id: string;
@@ -107,6 +108,9 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         }
       } catch (_) {}
     }
+
+    // P2Rank Pocket Detection Diagnostic Check
+    const p2rankCap = await checkP2RankCapability();
 
     // 5-7. Python Model Server Sidecar Health Check
     let sidecarReachable = false;
@@ -246,6 +250,18 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
           keyless: true,
           supportedModels: ["esmfold2-fast", "esmfold2", "boltz2", "openfold3"],
           reachable: japanFoldReachable
+        }
+      },
+      {
+        id: "p2rank",
+        name: "P2Rank ML Pocket Detection",
+        category: "biophysical",
+        status: p2rankCap.status,
+        details: {
+          ready: p2rankCap.ready,
+          binaryPath: p2rankCap.path,
+          javaVersionCompatible: p2rankCap.javaVersionCompatible,
+          javaHome: p2rankCap.javaHome
         }
       }
     ];

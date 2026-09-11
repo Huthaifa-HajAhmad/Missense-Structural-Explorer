@@ -136,29 +136,6 @@ export function ConnectionsSection() {
           description="Authorizes structural mutations, AlphaFold proxies, and session creation on this lab server."
         />
         <SecretInput
-          label="Arc Institute Evo 2 (NVIDIA BioNeMo API key)"
-          placeholder="Enter NVIDIA_API_KEY or EVO2_API_KEY…"
-          value={settings.nvidiaApiKey || ""}
-          onChange={(value) => updateSetting("nvidiaApiKey", value)}
-          description="Enables zero-shot 40B genomic foundation likelihood scoring via NVIDIA BioNeMo NIM (integrate.api.nvidia.com) or local sidecar."
-        />
-        <div className="py-2.5 space-y-1">
-          <label htmlFor="evo2-api-url" className="block text-[13px] font-medium text-cs-text-primary">
-            Evo 2 Custom Endpoint URL (optional)
-          </label>
-          <input
-            id="evo2-api-url"
-            type="url"
-            className="cs-input text-[12px] font-mono w-full"
-            placeholder="https://integrate.api.nvidia.com/v1/biology/arc/evo2-40b"
-            value={settings.evo2ApiUrl || ""}
-            onChange={(e) => updateSetting("evo2ApiUrl", e.target.value)}
-          />
-          <p className="text-[11px] text-cs-text-muted">
-            Override NVIDIA BioNeMo NIM host or route to a dedicated self-hosted Evo 2 container.
-          </p>
-        </div>
-        <SecretInput
           label="EvolutionaryScale (Forge) token"
           placeholder="Enter EvolutionaryScale Forge API key…"
           value={settings.biohubApiToken || ""}
@@ -172,21 +149,6 @@ export function ConnectionsSection() {
             run: () => runTest("biohub")
           }}
           status={tests.biohub.status}
-        />
-        <SecretInput
-          label="Tamarind Bio API key"
-          placeholder="Enter Tamarind Bio API key…"
-          value={settings.tamarindApiKey || ""}
-          onChange={(value) => updateSetting("tamarindApiKey", value)}
-          description="Enables remote ThermoMPNN thermodynamic stability calculations via the Tamarind Bio REST API."
-          action={{
-            label: "Test connection",
-            busyLabel: "Testing…",
-            busy: tests.tamarind.testing,
-            disabled: !settings.tamarindApiKey?.trim(),
-            run: () => runTest("tamarind")
-          }}
-          status={tests.tamarind.status}
         />
         <SecretInput
           label="Hugging Face access token"

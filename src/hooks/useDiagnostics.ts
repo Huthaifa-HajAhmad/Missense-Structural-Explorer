@@ -13,6 +13,10 @@ export interface DiagnosticsData {
   geminiReady: boolean;
   geminiModel?: string;
   modelServerReady: boolean;
+  p2rankReady?: boolean;
+  p2rankStatus?: "ready" | "standby" | "unavailable";
+  p2rankJavaCompatible?: boolean;
+  p2rankJavaVersion?: string | null;
   auditLogFailures?: number;
   cacheDiagnostics?: Record<string, CacheDiagnostic>;
 }

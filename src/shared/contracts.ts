@@ -256,7 +256,9 @@ export const pocketFinderResponseSchema = z.object({
   pocketVolume: z.number(),
   likelyCofactor: z.string(),
   status: z.enum(["success", "fallback", "none_detected", "unavailable"]).catch("unavailable"),
-  pocketDistance: z.number().nullable().optional()
+  pocketDistance: z.number().nullable().optional(),
+  sasPoints: z.number().optional(),
+  surfaceAtoms: z.number().optional()
 });
 
 export type PocketFinderRequest = z.infer<typeof pocketFinderRequestSchema>;
@@ -415,9 +417,6 @@ export const conservationDataSchema = z.object({
   gpnStar: z.number().nullable().optional(),
   gpnStarStatus: z.enum(["live", "token_required", "unavailable"]).optional(),
   gpnStarMessage: z.string().nullable().optional(),
-  evo2: z.number().nullable().optional(),
-  evo2Status: z.enum(["live", "token_required", "unavailable"]).optional(),
-  evo2Message: z.string().nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),
@@ -561,11 +560,13 @@ export const analyzeVariantResponseSchema = z.object({
       type: z.string(),
       description: z.string(),
       start: z.number(),
-      end: z.number()
+      end: z.number(),
+      interproId: z.string().optional()
     })),
     geneName: z.string().optional(),
     subunitComment: z.string().nullable().optional(),
-    isMultimer: z.boolean().optional()
+    isMultimer: z.boolean().optional(),
+    sequenceLength: z.number().optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
     missense_z: z.number().nullable(),

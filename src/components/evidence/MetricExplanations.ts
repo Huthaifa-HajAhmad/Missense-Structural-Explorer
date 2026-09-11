@@ -44,29 +44,6 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperUrl: "https://doi.org/10.1101/2024.11.08.622668",
     citation: "Benegas, G., et al. (2025). Phylogeny-aware genomic language models predict variant effects across vertebrate genomes. bioRxiv."
   },
-  evo2: {
-    name: "Evo 2 Family",
-    category: "Multi-scale Genomic Foundation Model",
-    architecture: "1B, 7B & 40B Parameter Causal Foundation Transformer (1M+ bp Context Window)",
-    modality: "DNA, RNA & Protein Sequences (Single-Nucleotide Resolution)",
-    description: "Evo 2 is a frontier genomic world model trained on >9 trillion tokens across all domains of life. Operating at single-nucleotide resolution across mega-base contexts, it models functional constraint across exons, promoters, splice junctions, and non-coding regulatory elements.",
-    interpretation: "Zero-shot Log-Likelihood Ratio (LLR). Large negative delta scores indicate disruption of evolutionary priors and high probability of functional deleteriousness.",
-    strengths: [
-      "Unprecedented 1,000,000+ base-pair context window capturing mega-base long-range genomic interactions.",
-      "Unified multi-scale reasoning spanning DNA, pre-mRNA splicing, 3' UTR regulation, and protein translation.",
-      "No MSA pre-processing required — purely causal zero-shot sequence modeling across 9+ trillion genomic tokens.",
-      "Trained on diverse prokaryotic, eukaryotic, and viral genomes for universal biological priors."
-    ],
-    weaknesses: [
-      "The flagship 40B parameter model requires cloud API inference or multi-GPU high-VRAM infrastructure.",
-      "Lacks 3D stereochemical forcefields and explicit atomic contact distance calculations.",
-      "Sequence-level fitness scores may not distinguish gain-of-function from loss-of-function phenotypes."
-    ],
-    provider: "Arc Institute, Stanford & NVIDIA BioNeMo",
-    paperTitle: "Nguyen et al. Science / bioRxiv (2024)",
-    paperUrl: "https://doi.org/10.1101/2024.02.27.582234",
-    citation: "Nguyen, E., et al. (2024). Sequence modeling and design across DNA, RNA, and proteins with Evo. Science / bioRxiv (Arc Institute)."
-  },
   vesm: {
     name: "VESM++ (Co-distilled Ensemble)",
     category: "Co-distilled Protein Language Model",

@@ -53,12 +53,12 @@ describe("SettingsContext (settings revamp)", () => {
     expect(ctx.settings.biophysicsConditions).toEqual(DEFAULT_USER_SETTINGS.biophysicsConditions);
   });
 
-  it("never persists any credential — including tamarind and hf — to localStorage", () => {
+  it("never persists any credential — including hf and gpnApiUrl — to localStorage", () => {
     let ctx!: ReturnType<typeof useSettings>;
     renderProbe((c) => (ctx = c));
 
     act(() => {
-      ctx.updateSetting("tamarindApiKey", "tam-secret-123");
+      ctx.updateSetting("gpnApiUrl", "https://custom.endpoint/predict");
       ctx.updateSetting("hfToken", "hf_secret_456");
       ctx.updateSetting("appApiToken", "app-secret");
       ctx.updateSetting("geminiApiKey", "gem-secret");
@@ -66,15 +66,15 @@ describe("SettingsContext (settings revamp)", () => {
     });
 
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
-    expect(persisted.tamarindApiKey).toBeUndefined();
+    expect(persisted.gpnApiUrl).toBeUndefined();
     expect(persisted.hfToken).toBeUndefined();
     expect(persisted.appApiToken).toBeUndefined();
     expect(persisted.geminiApiKey).toBeUndefined();
     expect(persisted.biohubApiToken).toBeUndefined();
 
-    // All five survive only in transient sessionStorage.
+    // Survive only in transient sessionStorage.
     const transient = JSON.parse(sessionStorage.getItem("missenseTransientCredentials") || "{}");
-    expect(transient.tamarindApiKey).toBe("tam-secret-123");
+    expect(transient.gpnApiUrl).toBe("https://custom.endpoint/predict");
     expect(transient.hfToken).toBe("hf_secret_456");
     expect(transient.appApiToken).toBe("app-secret");
   });
@@ -82,11 +82,11 @@ describe("SettingsContext (settings revamp)", () => {
   it("scrubs legacy plaintext credentials from localStorage on load", () => {
     localStorage.setItem(
       "missenseUserSettings",
-      JSON.stringify({ tamarindApiKey: "leaked", hfToken: "leaked-too", maxHistoryItems: 10 })
+      JSON.stringify({ gpnApiUrl: "leaked", hfToken: "leaked-too", maxHistoryItems: 10 })
     );
     renderProbe(() => {});
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
-    expect(persisted.tamarindApiKey).toBeUndefined();
+    expect(persisted.gpnApiUrl).toBeUndefined();
     expect(persisted.hfToken).toBeUndefined();
     expect(persisted.maxHistoryItems).toBe(10);
   });
