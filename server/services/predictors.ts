@@ -1034,7 +1034,7 @@ export async function fetchConservationData(
           matchTerm1 = `p.${to1(mutMatch[1])}${mutMatch[2]}${to1(mutMatch[3])}`.toLowerCase();
         }
 
-        let hit = parsedData.hits.find(h => {
+        const matchedHit = parsedData.hits.find(h => {
           const hgvspField = h.dbnsfp?.hgvsp;
           if (!hgvspField) return false;
           const hgvspArray = Array.isArray(hgvspField) ? hgvspField : [hgvspField];
@@ -1043,7 +1043,9 @@ export async function fetchConservationData(
             const hLower = hVal.toLowerCase();
             return hLower.includes(matchTerm3) || (matchTerm1 && hLower.includes(matchTerm1));
           });
-        }) || parsedData.hits[0];
+        });
+        const hit = matchedHit || parsedData.hits[0];
+        const isExactMatch = Boolean(matchedHit);
 
         if (!hit) {
           conservationCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
@@ -1052,22 +1054,22 @@ export async function fetchConservationData(
 
         const dbnsfp = hit.dbnsfp;
         if (dbnsfp) {
-          // Parse REVEL score (handles both object formats with score arrays/values, and direct numeric values)
+          // Parse REVEL score (variant-specific: strictly requires exact substitution match)
           let revel: any = null;
-          if (dbnsfp.revel) {
+          if (isExactMatch && dbnsfp.revel) {
             let rVal = dbnsfp.revel.score !== undefined ? dbnsfp.revel.score : dbnsfp.revel;
             if (Array.isArray(rVal)) rVal = rVal[0];
             revel = safeParseFloat(rVal);
           }
 
-          // Parse GERP score (handles multiple schema keys: gerp++, gerp++_rs, gerp.elements)
+          // Parse GERP score (site-level conservation: valid for codon position)
           let gerp: any = null;
           const gerpObj = dbnsfp["gerp++"] || dbnsfp.gerp || {};
           let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : (gerpObj.elements || gerpObj["gerp++_rs"] || null);
           if (Array.isArray(gerpVal)) gerpVal = gerpVal[0];
           gerp = safeParseFloat(gerpVal);
 
-          // Parse PhyloP score (handles multiple schema keys: 100way_vertebrate, phylop100way_vertebrate, vertebrate)
+          // Parse PhyloP score (site-level conservation: valid for codon position)
           let phylop: any = null;
           if (dbnsfp.phylop) {
             let phylopVal = dbnsfp.phylop["100way_vertebrate"]?.score !== undefined 
@@ -1077,22 +1079,24 @@ export async function fetchConservationData(
             phylop = safeParseFloat(phylopVal);
           }
 
-          // Parse BayesDel score (handles both dbnsfp.bayesdel.no_af.score and dbnsfp.bayesdel_noaf_score formats)
+          // Parse BayesDel score (variant-specific: strictly requires exact match)
           let bayesdel: number | null = null;
-          if (dbnsfp.bayesdel?.no_af?.score !== undefined && dbnsfp.bayesdel?.no_af?.score !== null) {
-            let bVal = dbnsfp.bayesdel.no_af.score;
-            if (Array.isArray(bVal)) bVal = bVal[0];
-            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
-          } else if (dbnsfp.bayesdel_noaf_score !== undefined && dbnsfp.bayesdel_noaf_score !== null) {
-            let bVal = dbnsfp.bayesdel_noaf_score;
-            if (Array.isArray(bVal)) bVal = bVal[0];
-            bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
+          if (isExactMatch) {
+            if (dbnsfp.bayesdel?.no_af?.score !== undefined && dbnsfp.bayesdel?.no_af?.score !== null) {
+              let bVal = dbnsfp.bayesdel.no_af.score;
+              if (Array.isArray(bVal)) bVal = bVal[0];
+              bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
+            } else if (dbnsfp.bayesdel_noaf_score !== undefined && dbnsfp.bayesdel_noaf_score !== null) {
+              let bVal = dbnsfp.bayesdel_noaf_score;
+              if (Array.isArray(bVal)) bVal = bVal[0];
+              bayesdel = bVal !== undefined && bVal !== null && bVal !== "" ? safeParseFloat(bVal) : null;
+            }
           }
 
-          // Parse MetaRNN
+          // Parse MetaRNN (variant-specific)
           let metarnn: number | null = null;
           let metarnnPred: string | null = null;
-          if (dbnsfp.metarnn) {
+          if (isExactMatch && dbnsfp.metarnn) {
             let v = dbnsfp.metarnn.score;
             if (Array.isArray(v)) v = v[0];
             metarnn = v != null ? safeParseFloat(v) : null;
@@ -1101,34 +1105,34 @@ export async function fetchConservationData(
             metarnnPred = typeof p === "string" ? p : null;
           }
 
-          // Parse ClinPred
+          // Parse ClinPred (variant-specific)
           let clinpred: number | null = null;
           let clinpredPred: string | null = null;
-          if (dbnsfp.clinpred) {
+          if (isExactMatch && dbnsfp.clinpred) {
             clinpred = dbnsfp.clinpred.score != null ? safeParseFloat(dbnsfp.clinpred.score) : null;
             clinpredPred = typeof dbnsfp.clinpred.pred === "string" ? dbnsfp.clinpred.pred : null;
           }
 
-          // Parse Eigen
+          // Parse Eigen (variant-specific)
           let eigenPhred: number | null = null;
           let eigenRaw: number | null = null;
-          if (dbnsfp.eigen) {
+          if (isExactMatch && dbnsfp.eigen) {
             eigenPhred = dbnsfp.eigen.phred_coding != null ? safeParseFloat(dbnsfp.eigen.phred_coding) : null;
             eigenRaw = dbnsfp.eigen.raw_coding != null ? safeParseFloat(dbnsfp.eigen.raw_coding) : null;
           }
 
-          // Parse DANN
+          // Parse DANN (variant-specific)
           let dann: number | null = null;
-          if (dbnsfp.dann) {
+          if (isExactMatch && dbnsfp.dann) {
             let d = dbnsfp.dann.score;
             if (Array.isArray(d)) d = d[0];
             dann = d != null ? safeParseFloat(d) : null;
           }
 
-          // Parse ESM-1b
+          // Parse ESM-1b (variant-specific)
           let esm1b: number | null = null;
           let esm1bPred: string | null = null;
-          if (dbnsfp.esm1b) {
+          if (isExactMatch && dbnsfp.esm1b) {
             let s = dbnsfp.esm1b.score;
             if (Array.isArray(s)) s = s[0];
             esm1b = s != null ? safeParseFloat(s) : null;
@@ -1139,7 +1143,7 @@ export async function fetchConservationData(
 
           // Parse EVE / popEVE fallback
           let finalPopEVE = popEVEScore;
-          if (finalPopEVE === null && dbnsfp.eve?.score !== undefined) {
+          if (isExactMatch && finalPopEVE === null && dbnsfp.eve?.score !== undefined) {
             let eVal = dbnsfp.eve.score;
             if (Array.isArray(eVal)) eVal = eVal[0];
             const parsed = safeParseFloat(eVal);
@@ -1149,25 +1153,25 @@ export async function fetchConservationData(
             finalPopEVE = await fetchPopEVEScoreOnline(uniprotId || gene, variant);
           }
 
-          // Parse All of Us counts
+          // Parse All of Us counts (variant-specific)
           let aouAC: number | null = null;
           let aouAN: number | null = null;
           let aouHet: number | null = null;
           let aouHom: number | null = null;
 
-          if (dbnsfp.aou_ac !== undefined) {
+          if (isExactMatch && dbnsfp.aou_ac !== undefined) {
             let val = Array.isArray(dbnsfp.aou_ac) ? dbnsfp.aou_ac[0] : dbnsfp.aou_ac;
             aouAC = safeParseInt(val);
           }
-          if (dbnsfp.aou_an !== undefined) {
+          if (isExactMatch && dbnsfp.aou_an !== undefined) {
             let val = Array.isArray(dbnsfp.aou_an) ? dbnsfp.aou_an[0] : dbnsfp.aou_an;
             aouAN = safeParseInt(val);
           }
-          if (dbnsfp.aou_het !== undefined) {
+          if (isExactMatch && dbnsfp.aou_het !== undefined) {
             let val = Array.isArray(dbnsfp.aou_het) ? dbnsfp.aou_het[0] : dbnsfp.aou_het;
             aouHet = safeParseInt(val);
           }
-          if (dbnsfp.aou_hom !== undefined) {
+          if (isExactMatch && dbnsfp.aou_hom !== undefined) {
             let val = Array.isArray(dbnsfp.aou_hom) ? dbnsfp.aou_hom[0] : dbnsfp.aou_hom;
             aouHom = safeParseInt(val);
           }
@@ -1176,14 +1180,14 @@ export async function fetchConservationData(
 
           const getFirstOrVal = (v: any) => Array.isArray(v) ? v[0] : v;
           const db = dbnsfp as any;
-          const rawAda = getFirstOrVal(db.dbscsnv?.ada_score ?? db.dbscsnv_ada_score ?? db.dbscSNV_ADA_SCORE ?? (db.dbscsnv && db.dbscsnv['ada_score']));
-          const rawRf = getFirstOrVal(db.dbscsnv?.rf_score ?? db.dbscsnv_rf_score ?? db.dbscSNV_RF_SCORE ?? (db.dbscsnv && db.dbscsnv['rf_score']));
+          const rawAda = isExactMatch ? getFirstOrVal(db.dbscsnv?.ada_score ?? db.dbscsnv_ada_score ?? db.dbscSNV_ADA_SCORE ?? (db.dbscsnv && db.dbscsnv['ada_score'])) : undefined;
+          const rawRf = isExactMatch ? getFirstOrVal(db.dbscsnv?.rf_score ?? db.dbscsnv_rf_score ?? db.dbscSNV_RF_SCORE ?? (db.dbscsnv && db.dbscsnv['rf_score'])) : undefined;
           const hasDbscsnv = rawAda !== undefined || rawRf !== undefined;
 
-          const ag = safeParseFloat(getFirstOrVal(db.spliceai?.ds_ag ?? db.spliceai_pred_ds_ag ?? db.SpliceAI_pred_DS_AG ?? db.spliceai_ds_ag ?? (db.spliceai && db.spliceai['ds_ag'])));
-          const al = safeParseFloat(getFirstOrVal(db.spliceai?.ds_al ?? db.spliceai_pred_ds_al ?? db.SpliceAI_pred_DS_AL ?? db.spliceai_ds_al ?? (db.spliceai && db.spliceai['ds_al'])));
-          const dg = safeParseFloat(getFirstOrVal(db.spliceai?.ds_dg ?? db.spliceai_pred_ds_dg ?? db.SpliceAI_pred_DS_DG ?? db.spliceai_ds_dg ?? (db.spliceai && db.spliceai['ds_dg'])));
-          const dl = safeParseFloat(getFirstOrVal(db.spliceai?.ds_dl ?? db.spliceai_pred_ds_dl ?? db.SpliceAI_pred_DS_DL ?? db.spliceai_ds_dl ?? (db.spliceai && db.spliceai['ds_dl'])));
+          const ag = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_ag ?? db.spliceai_pred_ds_ag ?? db.SpliceAI_pred_DS_AG ?? db.spliceai_ds_ag ?? (db.spliceai && db.spliceai['ds_ag']))) : null;
+          const al = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_al ?? db.spliceai_pred_ds_al ?? db.SpliceAI_pred_DS_AL ?? db.spliceai_ds_al ?? (db.spliceai && db.spliceai['ds_al']))) : null;
+          const dg = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_dg ?? db.spliceai_pred_ds_dg ?? db.SpliceAI_pred_DS_DG ?? db.spliceai_ds_dg ?? (db.spliceai && db.spliceai['ds_dg']))) : null;
+          const dl = isExactMatch ? safeParseFloat(getFirstOrVal(db.spliceai?.ds_dl ?? db.spliceai_pred_ds_dl ?? db.SpliceAI_pred_DS_DL ?? db.spliceai_ds_dl ?? (db.spliceai && db.spliceai['ds_dl']))) : null;
           const hasSpliceAI = ag !== null || al !== null || dg !== null || dl !== null;
 
           const resVal: ConservationData = { 
