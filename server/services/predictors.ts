@@ -162,6 +162,7 @@ const myVariantResponseSchema = z.object({
 interface TranscriptMapping {
   refseqId: string | null;
   ensemblId: string | null;
+  isManeSelect?: boolean;
 }
 const transcriptMappingCache = new LRUCache<string, TranscriptMapping>({
   max: 1000,
@@ -180,7 +181,7 @@ async function getTranscriptsForProtein(proteinOrGene: string): Promise<Transcri
 
     const res = await fetchWithRetry(url, { timeout: 10000 });
     if (!res.ok) {
-      const fallback = { refseqId: null, ensemblId: null };
+      const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
       transcriptMappingCache.set(proteinOrGene, fallback);
       return fallback;
     }
@@ -192,6 +193,18 @@ async function getTranscriptsForProtein(proteinOrGene: string): Promise<Transcri
       dbXrefs = data.results[0].uniProtKBCrossReferences || [];
     }
 
+    // 1. MANE Select Priority: check UniProt dedicated MANE-Select database xref
+    const maneXref = dbXrefs.find((x: any) => x.database === "MANE-Select");
+    if (maneXref) {
+      const ensemblId = typeof maneXref.id === "string" ? maneXref.id : null;
+      const refseqProp = maneXref.properties?.find((p: any) => p.key === "RefSeqNucleotideId");
+      const refseqId = refseqProp && typeof refseqProp.value === "string" ? refseqProp.value : null;
+      const result: TranscriptMapping = { refseqId, ensemblId, isManeSelect: true };
+      transcriptMappingCache.set(proteinOrGene, result);
+      return result;
+    }
+
+    // 2. Fallback to RefSeq and Ensembl xrefs if no dedicated MANE-Select entry
     const refseqXrefs = dbXrefs.filter((x: any) => x.database === "RefSeq");
     let refseqId: string | null = null;
     const refseqEntry = refseqXrefs.find((x: any) => {
@@ -211,12 +224,12 @@ async function getTranscriptsForProtein(proteinOrGene: string): Promise<Transcri
     const ensemblId = ensemblXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("ENST"))?.id 
                    || ensemblXrefs[0]?.id || null;
 
-    const result = { refseqId, ensemblId };
+    const result: TranscriptMapping = { refseqId, ensemblId, isManeSelect: false };
     transcriptMappingCache.set(proteinOrGene, result);
     return result;
   } catch (err: any) {
     console.warn(`[VEP Transcript Resolver] Warning resolving transcripts for ${proteinOrGene}: ${err.message}`);
-    const fallback = { refseqId: null, ensemblId: null };
+    const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
     transcriptMappingCache.set(proteinOrGene, fallback);
     return fallback;
   }
@@ -237,12 +250,18 @@ export async function fetchPredictorData(gene: string, variant: string, uniprotI
       if (uniprotId) {
         const transcripts = await getTranscriptsForProtein(uniprotId);
         if (transcripts.refseqId && transcripts.refseqId.startsWith("NM_")) {
+          queryTargets.push(`${transcripts.refseqId}:p.${cleanVar}`);
           const cleanRefseq = transcripts.refseqId.split(".")[0];
-          queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
+          if (cleanRefseq !== transcripts.refseqId) {
+            queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
+          }
         }
         if (transcripts.ensemblId) {
+          queryTargets.push(`${transcripts.ensemblId}:p.${cleanVar}`);
           const cleanEnsembl = transcripts.ensemblId.split(".")[0];
-          queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
+          if (cleanEnsembl !== transcripts.ensemblId) {
+            queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
+          }
         }
       }
       queryTargets.push(`${normGene}:p.${cleanVar}`);
@@ -370,11 +389,13 @@ async function fetchPredictorsFallback(gene: string, variant: string, uniprotId?
   
   let transcriptId: string | undefined = undefined;
   let maneRefSeqId: string | undefined = undefined;
+  let isManeSelect = false;
   if (uniprotId) {
     try {
       const transcripts = await getTranscriptsForProtein(uniprotId);
       if (transcripts.ensemblId) transcriptId = transcripts.ensemblId;
       if (transcripts.refseqId) maneRefSeqId = transcripts.refseqId;
+      if (transcripts.isManeSelect) isManeSelect = true;
     } catch (_) {}
   }
 
@@ -462,6 +483,7 @@ async function fetchPredictorsFallback(gene: string, variant: string, uniprotId?
     gnomadVariantId,
     transcriptId,
     maneRefSeqId,
+    isManeSelect: Boolean(isManeSelect),
     isCanonical: Boolean(transcriptId),
     source: (amPathogenicity !== null || caddPhred !== null) ? "MyVariant.info & dbNSFP (VEP Fallback)" : "UniProt Transcript Fallback"
   };

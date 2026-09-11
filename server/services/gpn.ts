@@ -48,6 +48,22 @@ export function setGpnTabixInstance(instance: TabixIndexedFile | null): void {
   tabixInstance = instance;
 }
 
+const COMPLEMENT_NUC: Record<string, string> = {
+  A: "T",
+  T: "A",
+  C: "G",
+  G: "C"
+};
+
+function getComplement(seq: string): string {
+  if (!seq) return "";
+  return seq
+    .toUpperCase()
+    .split("")
+    .map(c => COMPLEMENT_NUC[c] || c)
+    .join("");
+}
+
 /**
  * Queries Song Lab GPN-Star whole-genome vertebrate MSA predictions on-demand
  * via remote HTTP range Tabix queries against songlab/gpn-msa-hg38-scores (GRCh38).
@@ -104,6 +120,8 @@ export async function fetchGpnStarByCoordinate(
   const cleanChrom = chrom.replace(/^chr/i, "");
   const cleanRef = ref.toUpperCase();
   const cleanAlt = alt.toUpperCase();
+  const compRef = getComplement(cleanRef);
+  const compAlt = getComplement(cleanAlt);
   const cacheKey = `gpn_tabix_${cleanChrom}_${pos}_${cleanRef}_${cleanAlt}`;
 
   return getCachedOrFetch({
@@ -138,10 +156,19 @@ export async function fetchGpnStarByCoordinate(
                 const linePos = parseInt(cols[1], 10);
                 const lineRef = cols[2]?.toUpperCase();
                 const lineAlt = cols[3]?.toUpperCase();
-                if (linePos === pos && lineRef === cleanRef && lineAlt === cleanAlt) {
-                  const parsed = parseFloat(cols[4]);
-                  if (!isNaN(parsed) && Number.isFinite(parsed)) {
-                    matchedScore = parsed;
+                if (linePos === pos) {
+                  const isDirectMatch = lineRef === cleanRef && lineAlt === cleanAlt;
+                  const isCompMatch = lineRef === compRef && lineAlt === compAlt;
+                  if (isDirectMatch) {
+                    const parsed = parseFloat(cols[4]);
+                    if (!isNaN(parsed) && Number.isFinite(parsed)) {
+                      matchedScore = parsed;
+                    }
+                  } else if (isCompMatch && matchedScore === null) {
+                    const parsed = parseFloat(cols[4]);
+                    if (!isNaN(parsed) && Number.isFinite(parsed)) {
+                      matchedScore = parsed;
+                    }
                   }
                 }
               }

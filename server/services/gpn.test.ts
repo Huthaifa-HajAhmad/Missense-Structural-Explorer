@@ -83,4 +83,18 @@ describe("GPN-Star Foundation Model Service", () => {
     expect(res.status).toBe("live");
     expect(res.score).toBe(-2.45);
   });
+
+  it("should match reverse-complement coordinates for minus-strand genes", async () => {
+    // When variant is passed as cDNA C>T (minus strand), genomic forward strand is G>A
+    const mockTabix = {
+      getLines: vi.fn(async (_chrom: string, _start: number, _end: number, opts: any) => {
+        opts.lineCallback("1\t46485279\tG\tA\t-1.880000");
+      })
+    } as any;
+    setGpnTabixInstance(mockTabix);
+
+    const res = await fetchGpnStarByCoordinate("chr1", 46485279, "C", "T");
+    expect(res.status).toBe("live");
+    expect(res.score).toBe(-1.88);
+  });
 });
