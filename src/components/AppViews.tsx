@@ -264,8 +264,10 @@ export function AppViews({
           console.warn("[Alignment Scope Update Error]:", err);
         }
       }
-    } else if (!isEsm && pdbText && mutantPdb && (foldedResidueIndex || selectedResidueIndex)) {
-      const pos = foldedResidueIndex || selectedResidueIndex || 1;
+    } else if (!isEsm && pdbText && mutantPdb) {
+      const posMatch = variant?.match(/\d+/);
+      const variantPos = posMatch ? parseInt(posMatch[0], 10) : 1;
+      const pos = foldedResidueIndex || selectedResidueIndex || variantPos;
       try {
         const alignData = await apiClient.structuralAlign({
           pdb1: pdbText,

@@ -154,10 +154,10 @@ export async function fetchUniprotFeatures(
           s = s.replace(/\bdom\b/g, "domain");
           s = s.replace(/\bsf\b/g, "superfamily");
           s = s.replace(/\bpk\b/g, "protein kinase");
-          s = s.replace(/\bc\b/g, "c terminal");
-          s = s.replace(/\bc term\b/g, "c terminal");
-          s = s.replace(/\bn\b/g, "n terminal");
-          s = s.replace(/\bn term\b/g, "n terminal");
+          s = s.replace(/\bc[- ]?term(inal)?\b/g, "c terminal");
+          s = s.replace(/\bn[- ]?term(inal)?\b/g, "n terminal");
+          s = s.replace(/\s+c$/g, " c terminal");
+          s = s.replace(/\s+n$/g, " n terminal");
           return s.replace(/\s+/g, " ").trim();
         }
 
