@@ -21,7 +21,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   tamarindApiKey: "",
   hfToken: "",
   cameraDuration: 1200,
-  autoZoomOnSelect: true,
+  autoZoomOnSelect: false,
   showAtomInteractions: true,
   acmgWeighting: "standard",
   energyUnit: "kcal/mol",

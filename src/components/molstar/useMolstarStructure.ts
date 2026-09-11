@@ -267,6 +267,7 @@ export function useMolstarStructure({
         structureRef.current = structure;
 
         let targetStructure = structure;
+        const passingPlddtResidues = new Set<number>();
         if (currentSource === "alphafold" && plddtFilter !== "none") {
           const threshold = parseInt(plddtFilter, 10);
           const expression = MS.struct.generator.atomGroups({
@@ -284,6 +285,23 @@ export function useMolstarStructure({
           if (!active) return;
           if (filteredComponent) {
             targetStructure = filteredComponent;
+          }
+
+          if (fetchedPdbText) {
+            const lines = fetchedPdbText.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
+                if (line.length >= 66) {
+                  const bFactor = parseFloat(line.slice(60, 66).trim());
+                  if (!isNaN(bFactor) && bFactor >= threshold) {
+                    const resSeq = parseInt(line.slice(22, 26).trim(), 10);
+                    if (!isNaN(resSeq)) {
+                      passingPlddtResidues.add(resSeq);
+                    }
+                  }
+                }
+              }
+            }
           }
         }
 
@@ -326,7 +344,8 @@ export function useMolstarStructure({
               await localPlugin.builders.structure.representation.addRepresentation(proteinComp, {
                 type: 'cartoon',
                 color: 'uniform',
-                colorParams: { value: Color(0xd3d3d3) }
+                colorParams: { value: Color(0xd3d3d3) },
+                typeParams: { alpha: 0.35 }
               });
               if (!active) return;
             }
@@ -435,6 +454,27 @@ export function useMolstarStructure({
           structure2Ref.current = structure2;
 
           let targetStructure2 = structure2;
+          if (currentSource === "alphafold" && plddtFilter !== "none" && passingPlddtResidues.size > 0) {
+            const threshold = parseInt(plddtFilter, 10);
+            const passingArray = Array.from(passingPlddtResidues);
+            const mutantFilterExpr = MS.struct.generator.atomGroups({
+              'residue-test': MS.core.set.has([
+                MS.set(...passingArray),
+                MS.struct.atomProperty.macromolecular.auth_seq_id()
+              ])
+            });
+            const filteredComponent2 = await localPlugin.builders.structure.tryCreateComponentFromExpression(
+              structure2,
+              mutantFilterExpr,
+              'filtered-mutant-structure',
+              { label: `Mutant pLDDT >= ${threshold}` }
+            );
+            if (!active) return;
+            if (filteredComponent2) {
+              targetStructure2 = filteredComponent2;
+            }
+          }
+
           if (viewerStyle === "displacement") {
             await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
               theme: { globalName: 'backbone-displacement' }
@@ -591,16 +631,16 @@ export function useMolstarStructure({
                 typeParams: {
                   level: 'residue',
                   background: true,
-                  backgroundOpacity: neonHighContrast ? 1.0 : 0.85,
+                  backgroundOpacity: neonHighContrast ? 1.0 : 0.9,
                   backgroundColor: 0x090d16,
-                  borderWidth: 0.2,
-                  residueScale: 1.3,
+                  borderWidth: 0.3,
+                  residueScale: 1.5,
                   offsetX: 2.0,
                   offsetY: 2.0,
                   offsetZ: 1.5,
                   tether: true,
-                  tetherLength: 1.5,
-                  tetherBaseWidth: 0.3,
+                  tetherLength: 1.8,
+                  tetherBaseWidth: 0.35,
                   attachment: 'bottom-left'
                 }
               });

@@ -76,6 +76,15 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
           canvas3d: {
             webgl: {
               preserveDrawingBuffer: true
+            },
+            cameraClipping: {
+              radius: 100,
+              far: false,
+              minNear: 0.1
+            },
+            cameraFog: {
+              name: 'off',
+              params: {}
             }
           }
         };
@@ -115,6 +124,25 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
         }
 
         pluginRef.current = localPlugin;
+
+        // Ensure camera clipping and fog are off by default
+        if (localPlugin.canvas3d) {
+          try {
+            localPlugin.canvas3d.setProps({
+              cameraClipping: {
+                radius: 100,
+                far: false,
+                minNear: 0.1
+              },
+              cameraFog: {
+                name: 'off',
+                params: {}
+              }
+            });
+          } catch (clipErr) {
+            console.warn('[Molstar] Could not set cameraClipping props:', clipErr);
+          }
+        }
 
         // Register custom color themes
         localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomPLDDTColorThemeProvider);
