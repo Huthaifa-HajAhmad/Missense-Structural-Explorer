@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry } from "./structure-fetcher.ts";
 import { pdbCache, afUrlCache } from "./cache.ts";
+import { AnalysisDatabase } from "./analysis-db.ts";
 
 describe("structure-fetcher SingleFlight & PDB Cache", () => {
   beforeEach(() => {
     pdbCache.clear();
     afUrlCache.clear();
+    AnalysisDatabase.resetInstance(":memory:");
     vi.restoreAllMocks();
   });
 
