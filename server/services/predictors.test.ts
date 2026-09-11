@@ -388,5 +388,55 @@ END
         global.fetch = origFetch;
       }
     }, 15000);
+
+    it("should prioritize dedicated MANE-Select database cross-references from UniProt", async () => {
+      const { fetchPredictorData } = await import("./predictors.ts");
+      const { clearAllCaches } = await import("./cache.ts");
+      clearAllCaches(true);
+      const origFetch = global.fetch;
+      global.fetch = vi.fn(async (url: any) => {
+        const urlStr = String(url);
+        if (urlStr.includes("rest.ensembl.org")) {
+          return new Response(JSON.stringify({ error: "Isoform mismatch 400" }), { status: 400 });
+        }
+        if (urlStr.includes("uniprot.org")) {
+          return new Response(JSON.stringify({
+            uniProtKBCrossReferences: [
+              {
+                database: "Ensembl",
+                id: "ENST00000999999.1",
+                properties: [{ key: "ProteinId", value: "ENSP00000999999.1" }]
+              },
+              {
+                database: "RefSeq",
+                id: "NP_999999.1",
+                properties: [{ key: "NucleotideSequenceId", value: "NM_999999.1" }]
+              },
+              {
+                database: "MANE-Select",
+                id: "ENST00000361297.7",
+                properties: [
+                  { key: "RefSeqNucleotideId", value: "NM_015112.3" },
+                  { key: "RefSeqProteinId", value: "NP_055927.2" }
+                ]
+              }
+            ]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (urlStr.includes("myvariant.info")) {
+          return new Response(JSON.stringify({ hits: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("{}", { status: 404 });
+      });
+
+      try {
+        const res = await fetchPredictorData("MAST2", "p.Arg408Cys", "P99999");
+        expect(res.transcriptId).toBe("ENST00000361297.7");
+        expect(res.maneRefSeqId).toBe("NM_015112.3");
+        expect(res.isManeSelect).toBe(true);
+      } finally {
+        global.fetch = origFetch;
+      }
+    }, 15000);
   });
 });

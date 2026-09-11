@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { TabixIndexedFile } from "@gmod/tabix";
 import { getCachedOrFetch } from "./cache.ts";
@@ -9,15 +8,6 @@ export interface ModelInferenceResult {
   status: "live" | "token_required" | "unavailable";
   message?: string;
 }
-
-const isHuggingFaceHost = (urlStr: string): boolean => {
-  try {
-    const parsed = new URL(urlStr);
-    return parsed.hostname.endsWith(".huggingface.co") || parsed.hostname.endsWith(".hf.space");
-  } catch {
-    return false;
-  }
-};
 
 // 30-day LRU cache for Song Lab GPN-Star predictions
 const gpnCache = new LRUCache<string, ModelInferenceResult>({
@@ -129,6 +119,7 @@ export async function fetchGpnStarByCoordinate(
     source: "Song Lab GPN-Star (Whole-Genome MSA Tabix)",
     l1Cache: gpnCache,
     ttlSeconds: 30 * 24 * 60 * 60, // 30 days
+    shouldCache: (res) => res.status === "live" || (res.status === "unavailable" && !res.message?.includes("timed out") && !res.message?.includes("error")),
     fetcher: async () => {
       try {
         const tbi = getGpnTabix();
