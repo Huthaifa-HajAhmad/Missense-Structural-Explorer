@@ -287,7 +287,7 @@ export function useMolstarStructure({
             targetStructure = filteredComponent;
           }
 
-          if (fetchedPdbText) {
+          if (fetchedPdbText && format === "pdb") {
             const lines = fetchedPdbText.split("\n");
             for (const line of lines) {
               if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
@@ -459,7 +459,7 @@ export function useMolstarStructure({
             const passingArray = Array.from(passingPlddtResidues);
             const mutantFilterExpr = MS.struct.generator.atomGroups({
               'residue-test': MS.core.set.has([
-                MS.set(...passingArray),
+                MS.core.type.set(passingArray),
                 MS.struct.atomProperty.macromolecular.auth_seq_id()
               ])
             });
@@ -482,7 +482,7 @@ export function useMolstarStructure({
             if (!active) return;
           } else {
             await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
-              theme: { globalName: templateSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
+              theme: { globalName: currentSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
             });
             if (!active) return;
           }
@@ -533,20 +533,20 @@ export function useMolstarStructure({
       try {
         if (componentRefRef.current) {
           try {
-            await localPlugin.managers.structure.hierarchy.removeComponent([componentRefRef.current]);
+            await localPlugin.managers.structure.hierarchy.remove([componentRefRef.current]);
           } catch (e) {}
           componentRefRef.current = null;
         }
         if (componentRefRef2.current) {
           try {
-            await localPlugin.managers.structure.hierarchy.removeComponent([componentRefRef2.current]);
+            await localPlugin.managers.structure.hierarchy.remove([componentRefRef2.current]);
           } catch (e) {}
           componentRefRef2.current = null;
         }
 
         if (pocketComponentRefRef.current.length > 0) {
           try {
-            await localPlugin.managers.structure.hierarchy.removeComponent(pocketComponentRefRef.current);
+            await localPlugin.managers.structure.hierarchy.remove(pocketComponentRefRef.current);
           } catch (e) {}
           pocketComponentRefRef.current = [];
         }

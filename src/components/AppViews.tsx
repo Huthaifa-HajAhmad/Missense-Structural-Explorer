@@ -194,8 +194,8 @@ export function AppViews({
       setFoldxAlignmentScope(newScope);
     }
     const reqId = ++alignmentRequestIdRef.current;
-    if (isEsm && esmFoldWtPdb && (esmFoldMutPdb || esmFoldAlignedPdb)) {
-      const mutPdbToAlign = esmFoldMutPdb || esmFoldAlignedPdb;
+    if (isEsm && esmFoldWtPdb && esmFoldMutPdb) {
+      const mutPdbToAlign = esmFoldMutPdb;
       const posMatch = variant?.match(/\d+/);
       const pos = posMatch ? parseInt(posMatch[0], 10) : 1;
       try {
@@ -235,7 +235,7 @@ export function AppViews({
         }
       }
     }
-  }, [alignmentScope, isEsm, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, pdbText, mutantPdb, foldedResidueIndex, selectedResidueIndex, variant, apiClient]);
+  }, [alignmentScope, isEsm, esmFoldWtPdb, esmFoldMutPdb, pdbText, mutantPdb, foldedResidueIndex, selectedResidueIndex, variant, apiClient]);
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
   const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
@@ -279,7 +279,8 @@ export function AppViews({
   const handleLiteratureError = useMemo(() => createErrorHandler("Literature View"), [createErrorHandler]);
   const handleConsoleError = useMemo(() => createErrorHandler("Developer Console"), [createErrorHandler]);
 
-  const handleResidueClickMemo = useCallback((idx: number) => {
+  const handleResidueClickMemo = useCallback((idx: number | null) => {
+    if (!idx) return;
     if (viewMode === "mutant") setFoldedResidueIndex(idx);
     else setSelectedResidueIndex(idx);
   }, [viewMode, setFoldedResidueIndex, setSelectedResidueIndex]);
@@ -408,6 +409,7 @@ export function AppViews({
                     }>
                       <MolstarViewerLazy
                         residueIndex={resolvedStructureProps.residueIndex}
+                        onResidueClick={handleResidueClickMemo}
                         variant={variant}
                         heightClass="h-full"
                         active3dModelTab={resolvedStructureProps.active3dModelTab}

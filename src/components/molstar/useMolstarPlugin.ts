@@ -28,6 +28,10 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
   const [captureMenuOpen, setCaptureMenuOpen] = useState<boolean>(false);
   const captureMenuRef = useRef<HTMLDivElement>(null);
   const lastResetTimeRef = useRef<number>(0);
+  const hoverRef = useRef(onResidueHover);
+  hoverRef.current = onResidueHover;
+  const clickRef = useRef(onResidueClick);
+  clickRef.current = onResidueClick;
 
   // Initialize Molstar Plugin UI once on mount
   useEffect(() => {
@@ -157,14 +161,12 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
             const location = StructureElement.Loci.getFirstLocation(current.loci);
             if (location) {
               const resIdx = StructureProperties.residue.auth_seq_id(location);
-              if (resIdx && onResidueHover) {
-                onResidueHover(resIdx);
+              if (resIdx) {
+                hoverRef.current?.(resIdx);
               }
             }
           } else {
-            if (onResidueHover) {
-              onResidueHover(null);
-            }
+            hoverRef.current?.(null);
           }
         });
 
@@ -175,11 +177,11 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
             const location = StructureElement.Loci.getFirstLocation(current.loci);
             if (location) {
               const resIdx = StructureProperties.residue.auth_seq_id(location);
-              if (resIdx && onResidueClick) {
+              if (resIdx) {
                 try {
                   localPlugin.managers.structure.selection.clear();
                 } catch (_) {}
-                onResidueClick(resIdx);
+                clickRef.current?.(resIdx);
               }
             }
           }
