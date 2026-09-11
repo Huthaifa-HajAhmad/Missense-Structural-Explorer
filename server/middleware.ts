@@ -17,9 +17,9 @@ export function requestLogger(req: express.Request, res: express.Response, next:
     try {
       const parsedUrl = new URL(req.originalUrl, "http://localhost");
       let changed = false;
-      const sensitiveKeys = ["tamarindapikey", "api_key", "token", "key", "apikey", "session", "secret"];
+      const SENSITIVE_PARAM_PATTERN = /(key|token|secret|session|auth|password|cred)/i;
       for (const k of Array.from(parsedUrl.searchParams.keys())) {
-        if (sensitiveKeys.includes(k.toLowerCase())) {
+        if (SENSITIVE_PARAM_PATTERN.test(k)) {
           parsedUrl.searchParams.set(k, "[REDACTED]");
           changed = true;
         }

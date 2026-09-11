@@ -2,12 +2,22 @@ import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { TabixIndexedFile } from "@gmod/tabix";
 import { getCachedOrFetch } from "./cache.ts";
+import { sanitizeErrorMessage } from "../utils/security.ts";
 
 export interface ModelInferenceResult {
   score: number | null;
   status: "live" | "token_required" | "unavailable";
   message?: string;
 }
+
+const isHuggingFaceHost = (urlStr: string): boolean => {
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname.endsWith(".huggingface.co") || parsed.hostname.endsWith(".hf.space");
+  } catch {
+    return false;
+  }
+};
 
 // 30-day LRU cache for Song Lab GPN-Star predictions
 const gpnCache = new LRUCache<string, ModelInferenceResult>({
@@ -153,12 +163,13 @@ export async function fetchGpnStarByCoordinate(
         };
       } catch (err: any) {
         const isTimeout = err.name === "TimeoutError" || err.message?.includes("timeout");
+        const safeErr = sanitizeErrorMessage(err);
         return {
           score: null,
           status: "unavailable",
           message: isTimeout
             ? "Remote GPN Tabix query timed out (20s limit)"
-            : `Remote GPN Tabix error: ${err.message || String(err)}`
+            : `Remote GPN Tabix error: ${safeErr}`
         };
       }
     }

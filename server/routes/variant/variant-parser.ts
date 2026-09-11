@@ -27,7 +27,7 @@ export const analyzeVariantSchema = z.object({
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
-const BLOCKED_HOST_REGEX = /^(169\.254\.\d+\.\d+|metadata\.google\.internal|metadata|instance-data|0\.0\.0\.0)$/i;
+const BLOCKED_HOST_REGEX = /^(169\.254\.\d+\.\d+|metadata\.google\.internal|metadata|instance-data|0\.0\.0\.0|localhost|::1|\[::1\]|::|\[::\])$/i;
 
 export const sanitizeToken = (val: unknown): string | null => {
   if (!val) return null;
@@ -58,6 +58,19 @@ export const sanitizeUrl = (val: unknown): string | null => {
     if (BLOCKED_HOST_REGEX.test(hostname)) {
       return null;
     }
+
+    const cleanHost = hostname.replace(/^\[|\]$/g, "");
+    if (
+      cleanHost === "::1" ||
+      cleanHost === "::" ||
+      cleanHost.startsWith("fe80:") ||
+      cleanHost.startsWith("fc00:") ||
+      cleanHost.startsWith("fd00:") ||
+      cleanHost.startsWith("::ffff:127.")
+    ) {
+      return null;
+    }
+
     if (process.env.NODE_ENV === "production") {
       // Disallow localhost and RFC1918 private subnets in production environments
       if (
@@ -209,7 +222,17 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     wt1Letter,
     mut1Letter,
     biohubToken: sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken) || sanitizeToken(process.env.BIOHUB_API_TOKEN),
-    hfToken: sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken) || sanitizeToken(process.env.HF_TOKEN),
+    hfToken: (() => {
+      const userHfToken = sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken);
+      if (userHfToken) return userHfToken;
+      const clientGpnUrl = sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl);
+      const isCustomGpnUrl = Boolean(
+        clientGpnUrl &&
+        !clientGpnUrl.includes(".huggingface.co") &&
+        !clientGpnUrl.includes(".hf.space")
+      );
+      return !isCustomGpnUrl ? sanitizeToken(process.env.HF_TOKEN) : null;
+    })(),
     gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
     saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };
