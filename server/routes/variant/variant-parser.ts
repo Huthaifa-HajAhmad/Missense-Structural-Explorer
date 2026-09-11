@@ -25,8 +25,67 @@ export const analyzeVariantSchema = z.object({
   hfToken: z.string().optional(),
   nvidiaApiKey: z.string().optional(),
   evo2Key: z.string().optional(),
+  evo2ApiUrl: z.string().url().max(512).optional(),
+  gpnApiUrl: z.string().url().max(512).optional(),
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
+
+const BLOCKED_HOST_REGEX = /^(169\.254\.\d+\.\d+|metadata\.google\.internal|metadata|instance-data|0\.0\.0\.0)$/i;
+
+export const sanitizeToken = (val: unknown): string | null => {
+  if (!val) return null;
+  const raw = Array.isArray(val) ? val[0] : val;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  // Enforce reasonable length bound (max 256 chars) and printable ASCII only
+  if (trimmed.length === 0 || trimmed.length > 256 || !/^[\x21-\x7E]+$/.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+};
+
+export const sanitizeUrl = (val: unknown): string | null => {
+  if (!val) return null;
+  const raw = Array.isArray(val) ? val[0] : val;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.length > 512) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (BLOCKED_HOST_REGEX.test(hostname)) {
+      return null;
+    }
+    if (process.env.NODE_ENV === "production") {
+      // Disallow localhost and RFC1918 private subnets in production environments
+      if (
+        hostname === "localhost" ||
+        hostname.startsWith("127.") ||
+        hostname.startsWith("10.") ||
+        hostname.startsWith("192.168.") ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+      ) {
+        return null;
+      }
+    }
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+};
+
+export const getEngine = (val: unknown): string | undefined => {
+  if (!val) return undefined;
+  const raw = Array.isArray(val) ? val[0] : val;
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  return trimmed === "local" || trimmed === "remote" ? trimmed : undefined;
+};
 
 export interface ParsedVariantContext {
   gene: string;
@@ -45,6 +104,8 @@ export interface ParsedVariantContext {
   biohubToken?: string | null;
   hfToken?: string | null;
   nvidiaApiKey?: string | null;
+  evo2ApiUrl?: string | null;
+  gpnApiUrl?: string | null;
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
@@ -138,26 +199,6 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     return null;
   }
 
-  const sanitizeToken = (val: unknown): string | null => {
-    if (!val) return null;
-    const raw = Array.isArray(val) ? val[0] : val;
-    if (typeof raw !== "string") return null;
-    const trimmed = raw.trim();
-    // Enforce reasonable length bound (max 256 chars) and printable ASCII only
-    if (trimmed.length === 0 || trimmed.length > 256 || !/^[\x21-\x7E]+$/.test(trimmed)) {
-      return null;
-    }
-    return trimmed;
-  };
-
-  const getEngine = (val: unknown): string | undefined => {
-    if (!val) return undefined;
-    const raw = Array.isArray(val) ? val[0] : val;
-    if (typeof raw !== "string") return undefined;
-    const trimmed = raw.trim().toLowerCase();
-    return trimmed === "local" || trimmed === "remote" ? trimmed : undefined;
-  };
-
   return {
     gene,
     variant,
@@ -175,6 +216,8 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     biohubToken: sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken) || sanitizeToken(process.env.BIOHUB_API_TOKEN),
     hfToken: sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken) || sanitizeToken(process.env.HF_TOKEN),
     nvidiaApiKey: sanitizeToken(req.headers["x-nvidia-api-key"]) || sanitizeToken(req.headers["x-evo2-key"]) || sanitizeToken(req.body?.nvidiaApiKey) || sanitizeToken(req.body?.evo2Key) || sanitizeToken(process.env.NVIDIA_API_KEY) || sanitizeToken(process.env.EVO2_API_KEY),
+    evo2ApiUrl: sanitizeUrl(req.headers["x-evo2-api-url"]) || sanitizeUrl(req.body?.evo2ApiUrl) || sanitizeUrl(process.env.EVO2_API_URL),
+    gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
     saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };
 }

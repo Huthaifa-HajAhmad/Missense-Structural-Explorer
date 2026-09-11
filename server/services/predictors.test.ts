@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { computeRuleBasedACMG } from "./acmg.ts";
 import { computeConsensusVerdict } from "../../src/shared/thresholds.ts";
 import { 
@@ -325,5 +325,68 @@ END
         global.fetch = origFetch;
       }
     });
+
+    it("should fallback to MyVariant.info when Ensembl VEP 503s and strictly match variant substitution", async () => {
+      const { fetchPredictorData } = await import("./predictors.ts");
+      const { clearAllCaches } = await import("./cache.ts");
+      clearAllCaches(true);
+      const origFetch = global.fetch;
+
+      global.fetch = vi.fn().mockImplementation(async (url: string | URL | Request) => {
+        const urlStr = String(url);
+        if (urlStr.includes("rest.ensembl.org")) {
+          // Simulate Ensembl VEP HTTP 503 Service Unavailable
+          return new Response(JSON.stringify({ error: "Service unavailable" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("rest.uniprot.org")) {
+          return new Response(JSON.stringify({
+            uniProtKBCrossReferences: [
+              { database: "RefSeq", properties: [{ key: "NucleotideSequenceId", value: "NM_013400.3" }] },
+              { database: "Ensembl", id: "ENST00000305885" }
+            ]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (urlStr.includes("myvariant.info")) {
+          return new Response(JSON.stringify({
+            hits: [
+              // Hit 1: Different substitution at same position (p.Arg408Gln) - must be rejected!
+              {
+                dbnsfp: {
+                  hgvsp: ["p.Arg408Gln", "p.R408Q"],
+                  alphamissense: { am_pathogenicity: 0.12, am_class: "likely_benign" },
+                  cadd: { phred: 12.5 }
+                }
+              },
+              // Hit 2: Exact matching substitution (p.Arg408Trp) - must be accepted!
+              {
+                _id: "chr12:g.102844810C>T",
+                dbnsfp: {
+                  hgvsp: ["p.Arg408Trp", "p.R408W"],
+                  alphamissense: { am_pathogenicity: 0.985, am_class: "likely_pathogenic" },
+                  cadd: { phred: 34.0 }
+                }
+              }
+            ]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("{}", { status: 404 });
+      });
+
+      try {
+        const res = await fetchPredictorData("PAH", "p.Arg408Trp", "P00439");
+        expect(res.available).toBe(true);
+        expect(res.source).toBe("MyVariant.info & dbNSFP (VEP Fallback)");
+        expect(res.amPathogenicity).toBeCloseTo(0.985);
+        expect(res.amClass).toBe("likely_pathogenic");
+        expect(res.caddPhred).toBeCloseTo(34.0);
+        expect(res.transcriptId).toBe("ENST00000305885");
+        expect(res.maneRefSeqId).toBe("NM_013400.3");
+      } finally {
+        global.fetch = origFetch;
+      }
+    }, 15000);
   });
 });

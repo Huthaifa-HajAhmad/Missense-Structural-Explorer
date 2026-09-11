@@ -18,8 +18,10 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   appApiToken: "",
   biohubApiToken: "",
   nvidiaApiKey: "",
+  evo2ApiUrl: "",
   tamarindApiKey: "",
   hfToken: "",
+  gpnApiUrl: "",
   cameraDuration: 1200,
   autoZoomOnSelect: false,
   showAtomInteractions: true,
@@ -52,7 +54,9 @@ export const TRANSIENT_SETTING_KEYS = [
   "biohubApiToken",
   "nvidiaApiKey",
   "tamarindApiKey",
-  "hfToken"
+  "hfToken",
+  "evo2ApiUrl",
+  "gpnApiUrl"
 ] as const;
 
 export type TransientSettingKey = (typeof TRANSIENT_SETTING_KEYS)[number];

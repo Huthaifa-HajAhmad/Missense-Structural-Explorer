@@ -391,6 +391,7 @@ export const predictorDataSchema = z.object({
   isManePlusClinical: z.boolean().optional(),
   isCanonical: z.boolean().optional(),
   maneRefSeqId: z.string().optional(),
+  transcriptWarning: z.string().nullable().optional(),
   source: z.string().optional()
 });
 
@@ -413,8 +414,10 @@ export const conservationDataSchema = z.object({
   popeve: z.number().nullable().optional(),
   gpnStar: z.number().nullable().optional(),
   gpnStarStatus: z.enum(["live", "token_required", "unavailable"]).optional(),
+  gpnStarMessage: z.string().nullable().optional(),
   evo2: z.number().nullable().optional(),
   evo2Status: z.enum(["live", "token_required", "unavailable"]).optional(),
+  evo2Message: z.string().nullable().optional(),
   aouFrequency: z.object({
     aouAC: z.number().nullable(),
     aouAN: z.number().nullable(),
@@ -578,12 +581,12 @@ export const analyzeVariantResponseSchema = z.object({
       regionText: z.string().nullable()
     }).nullable().optional()
   }).nullable().optional(),
-  transcriptId: z.string().optional(),
+  transcriptId: z.string().nullable().optional(),
   isManeSelect: z.boolean().optional(),
   isManePlusClinical: z.boolean().optional(),
   isCanonical: z.boolean().optional(),
-  maneRefSeqId: z.string().optional(),
-  transcriptWarning: z.string().optional(),
+  maneRefSeqId: z.string().nullable().optional(),
+  transcriptWarning: z.string().nullable().optional(),
   gnomadFrequency: z.object({
     maxAF: z.number().nullable(),
     groupMaxAF: z.number().nullable().optional(),

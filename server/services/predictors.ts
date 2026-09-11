@@ -261,7 +261,7 @@ export async function fetchPredictorData(gene: string, variant: string, uniprotI
           const res = await fetchWithRetry(url, {
             headers: { "Accept": "application/json" },
             timeout: 8000
-          }, 2);
+          }, 1);
           if (res.ok) {
             const data = await res.json() as any;
             parsedData = vepResponseSchema.parse(data);
@@ -272,6 +272,10 @@ export async function fetchPredictorData(gene: string, variant: string, uniprotI
           } else {
             const errText = await res.text().catch(() => "");
             errorMsg = `Status ${res.status}: ${errText}`;
+            if (res.status === 503 || res.status === 502) {
+              console.warn(`[VEP Fetch] Ensembl REST returned HTTP ${res.status}, failing fast to secondary fallback.`);
+              break;
+            }
           }
         } catch (err: any) {
           errorMsg = err.message || String(err);
@@ -345,15 +349,126 @@ export async function fetchPredictorData(gene: string, variant: string, uniprotI
         console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);
       }
 
-      return {
-        available: false,
-        amPathogenicity: null,
-        amClass: null,
-        caddPhred: null,
-        gnomadVariantId: null
-      };
+      console.log(`[VEP Fallback] Ensembl VEP unavailable or incomplete for ${normGene} ${cleanVar}; falling back to MyVariant & UniProt`);
+      return await fetchPredictorsFallback(gene, variant, uniprotId);
     }
   });
+}
+
+const AA_MAP_3_TO_1: Record<string, string> = {
+  ALA: 'A', ARG: 'R', ASN: 'N', ASP: 'D', CYS: 'C',
+  GLU: 'E', GLN: 'Q', GLY: 'G', HIS: 'H', ILE: 'I',
+  LEU: 'L', LYS: 'K', MET: 'M', PHE: 'F', PRO: 'P',
+  SER: 'S', THR: 'T', TRP: 'W', TYR: 'Y', VAL: 'V'
+};
+
+function toSingleAa(aa: string): string {
+  if (!aa) return "";
+  if (aa.length === 1) return aa.toUpperCase();
+  return AA_MAP_3_TO_1[aa.toUpperCase()] || aa.toUpperCase();
+}
+
+async function fetchPredictorsFallback(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
+  const normGene = normalizeGeneSymbol(gene);
+  const cleanVar = normalizeVariantTo3Letter(variant);
+  
+  let transcriptId: string | undefined = undefined;
+  let maneRefSeqId: string | undefined = undefined;
+  if (uniprotId) {
+    try {
+      const transcripts = await getTranscriptsForProtein(uniprotId);
+      if (transcripts.ensemblId) transcriptId = transcripts.ensemblId;
+      if (transcripts.refseqId) maneRefSeqId = transcripts.refseqId;
+    } catch (_) {}
+  }
+
+  const posMatch = variant.match(/\d+/);
+  const pos = posMatch ? parseInt(posMatch[0], 10) : null;
+
+  let amPathogenicity: number | null = null;
+  let amClass: string | null = null;
+  let caddPhred: number | null = null;
+  let gnomadVariantId: string | null = null;
+
+  // 1. Check local dbNSFP first if available
+  if (pos !== null) {
+    try {
+      const localData = await queryLocalDbnsfpVariant(normGene, pos, null, null, cleanVar);
+      if (localData) {
+        if (localData.alphamissense !== undefined && localData.alphamissense !== null) {
+          amPathogenicity = safeParseFloat(localData.alphamissense);
+          amClass = amPathogenicity !== null ? (amPathogenicity >= 0.564 ? "likely_pathogenic" : amPathogenicity <= 0.34 ? "likely_benign" : "ambiguous") : null;
+        }
+        if (localData.cadd !== undefined && localData.cadd !== null) {
+          caddPhred = safeParseFloat(localData.cadd);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2. Query MyVariant.info for AlphaMissense & CADD
+  if (amPathogenicity === null || caddPhred === null) {
+    try {
+      const cleanVarLower = cleanVar.toLowerCase();
+      const mutMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+      const term1 = mutMatch ? `p.${toSingleAa(mutMatch[1])}${mutMatch[2]}${toSingleAa(mutMatch[3])}`.toLowerCase() : "";
+
+      const queryStr = pos !== null
+        ? `dbnsfp.genename:${normGene} AND (dbnsfp.hgvsp:"p.${cleanVar}" OR dbnsfp.aa.pos:${pos})`
+        : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
+      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd.phred,cadd_phred,dbnsfp.hgvsp,dbnsfp.aa.pos&limit=50`;
+      const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000 }, 1);
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.hits && Array.isArray(data.hits)) {
+          for (const hit of data.hits) {
+            const hgvsp = Array.isArray(hit.dbnsfp?.hgvsp) ? hit.dbnsfp.hgvsp : [hit.dbnsfp?.hgvsp];
+            const matchesVar = hgvsp.some((h: any) => {
+              if (typeof h !== "string") return false;
+              const hl = h.toLowerCase();
+              return hl.includes(cleanVarLower) || (term1 && hl.includes(term1));
+            });
+            
+            // Strict No-Heuristics: ONLY accept data if this hit explicitly matches the requested variant substitution!
+            if (matchesVar) {
+              const amData = hit.dbnsfp?.alphamissense;
+              const caddData = hit.dbnsfp?.cadd || hit.cadd;
+
+              if (amData && amPathogenicity === null) {
+                const rawAm = Array.isArray(amData) ? amData[0] : amData;
+                amPathogenicity = safeParseFloat(rawAm.am_pathogenicity ?? rawAm.score ?? rawAm.pathogenicity);
+                amClass = rawAm.am_class ? String(rawAm.am_class) : (rawAm.pred ? String(rawAm.pred) : null);
+              }
+              if (caddData && caddPhred === null) {
+                const rawCadd = Array.isArray(caddData) ? caddData[0] : caddData;
+                caddPhred = safeParseFloat(rawCadd.phred ?? rawCadd.cadd_phred ?? hit.cadd_phred ?? hit.cadd?.phred);
+              }
+              if (hit._id && typeof hit._id === "string" && hit._id.startsWith("chr")) {
+                const m = hit._id.match(/chr([0-9XYM]+):g\.(\d+)([A-Z]+)>([A-Z]+)/i);
+                if (m) {
+                  gnomadVariantId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
+                }
+              }
+            }
+            if (amPathogenicity !== null && caddPhred !== null) break;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  const hasAnyData = amPathogenicity !== null || caddPhred !== null || Boolean(transcriptId);
+  return {
+    available: hasAnyData,
+    amPathogenicity,
+    amClass,
+    caddPhred,
+    gnomadVariantId,
+    transcriptId,
+    maneRefSeqId,
+    isCanonical: Boolean(transcriptId),
+    source: (amPathogenicity !== null || caddPhred !== null) ? "MyVariant.info & dbNSFP (VEP Fallback)" : "UniProt Transcript Fallback"
+  };
 }
 
 export async function fetchRealConsurfData(pdbId: string, chainId: string, pos: number): Promise<number | null> {
@@ -1135,7 +1250,9 @@ export interface ProgressiveConservationContext {
   genosPromise?: Promise<any>;
   biohubToken?: string | null;
   nvidiaApiKey?: string | null;
+  evo2ApiUrl?: string | null;
   hfToken?: string | null;
+  gpnApiUrl?: string | null;
   sequence?: string | null;
 }
 
@@ -1152,7 +1269,9 @@ export async function fetchConservationDataProgressive(
     genosPromise,
     biohubToken,
     nvidiaApiKey,
+    evo2ApiUrl,
     hfToken,
+    gpnApiUrl,
     sequence
   } = context;
 
@@ -1164,12 +1283,6 @@ export async function fetchConservationDataProgressive(
       })();
 
   const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
-  const toSingleAa = (aa: string) => {
-    if (!aa) return "";
-    if (aa.length === 1) return aa.toUpperCase();
-    const map: Record<string, string> = { ALA:'A', ARG:'R', ASN:'N', ASP:'D', CYS:'C', GLU:'E', GLN:'Q', GLY:'G', HIS:'H', ILE:'I', LEU:'L', LYS:'K', MET:'M', PHE:'F', PRO:'P', SER:'S', THR:'T', TRP:'W', TYR:'Y', VAL:'V' };
-    return map[aa.toUpperCase()] || aa.toUpperCase();
-  };
   const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
   const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
 
@@ -1218,7 +1331,7 @@ export async function fetchConservationDataProgressive(
     new Promise(r => setTimeout(() => r(null), 500))
   ]);
 
-  const baseConservation = await fetchConservationData(
+  const baseConservationPromise = fetchConservationData(
     gene,
     variant,
     null,
@@ -1235,25 +1348,17 @@ export async function fetchConservationDataProgressive(
   const evoToken = nvidiaApiKey || null;
   const gpnToken = hfToken || null;
 
-  const evoTask: Promise<EvolutionaryScaleResult> = (baseConservation.evo2 !== null && baseConservation.evo2 !== undefined)
-    ? Promise.resolve({ score: baseConservation.evo2 ?? null, status: "live" })
-    : (sequence && resolvedPos !== null && wtAa && mutAa)
-      ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, evoToken)
-      : Promise.resolve({ score: null, status: evoToken ? "unavailable" : "token_required" });
+  const evoTask: Promise<EvolutionaryScaleResult> = (sequence && resolvedPos !== null && wtAa && mutAa)
+    ? fetchEvo2Score(sequence, resolvedPos, wtAa, mutAa, evoToken, undefined, evo2ApiUrl)
+    : Promise.resolve({ score: null, status: evoToken ? "unavailable" : "token_required" });
 
-  const gpnTask: Promise<EvolutionaryScaleResult> = (baseConservation.gpnStar !== null && baseConservation.gpnStar !== undefined)
-    ? Promise.resolve({ score: baseConservation.gpnStar ?? null, status: "live" })
-    : (sequence && resolvedPos !== null && wtAa && mutAa)
-      ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, gpnToken)
-      : Promise.resolve({ score: null, status: gpnToken ? "unavailable" : "token_required" });
+  const gpnTask: Promise<EvolutionaryScaleResult> = (sequence && resolvedPos !== null && wtAa && mutAa)
+    ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, gpnToken, undefined, gpnApiUrl)
+    : Promise.resolve({ score: null, status: gpnToken ? "unavailable" : "token_required" });
 
-  // 5. Merge enriched ConSurf, PopEVE, Splice, and EvolutionaryScale data as they resolve
-  const [consurfVal, enrichment, evoRes, gpnRes]: [
-    any,
-    { popEVEScore: number | null; spliceProximity: any },
-    EvolutionaryScaleResult,
-    EvolutionaryScaleResult
-  ] = await Promise.all([
+  // 5. Merge enriched ConSurf, PopEVE, Splice, base conservation, and EvolutionaryScale data as they resolve concurrently
+  const [baseConservation, consurfVal, enrichment, evoRes, gpnRes] = await Promise.all([
+    baseConservationPromise,
     consurfTask,
     predictorEnrichmentTask,
     evoTask,
@@ -1267,7 +1372,9 @@ export async function fetchConservationDataProgressive(
     spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity,
     evo2: evoRes.score ?? baseConservation.evo2,
     evo2Status: evoRes.status ?? baseConservation.evo2Status,
+    evo2Message: evoRes.message ?? null,
     gpnStar: gpnRes.score ?? baseConservation.gpnStar,
-    gpnStarStatus: gpnRes.status ?? baseConservation.gpnStarStatus ?? (gpnRes.score !== null ? "live" : "unavailable")
+    gpnStarStatus: gpnRes.status ?? baseConservation.gpnStarStatus ?? (gpnRes.score !== null ? "live" : "unavailable"),
+    gpnStarMessage: gpnRes.message ?? null
   };
 }

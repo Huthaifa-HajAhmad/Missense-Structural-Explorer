@@ -142,6 +142,22 @@ export function ConnectionsSection() {
           onChange={(value) => updateSetting("nvidiaApiKey", value)}
           description="Enables zero-shot 40B genomic foundation likelihood scoring via NVIDIA BioNeMo NIM (integrate.api.nvidia.com) or local sidecar."
         />
+        <div className="py-2.5 space-y-1">
+          <label htmlFor="evo2-api-url" className="block text-[13px] font-medium text-cs-text-primary">
+            Evo 2 Custom Endpoint URL (optional)
+          </label>
+          <input
+            id="evo2-api-url"
+            type="url"
+            className="cs-input text-[12px] font-mono w-full"
+            placeholder="https://integrate.api.nvidia.com/v1/biology/arc/evo2-40b"
+            value={settings.evo2ApiUrl || ""}
+            onChange={(e) => updateSetting("evo2ApiUrl", e.target.value)}
+          />
+          <p className="text-[11px] text-cs-text-muted">
+            Override NVIDIA BioNeMo NIM host or route to a dedicated self-hosted Evo 2 container.
+          </p>
+        </div>
         <SecretInput
           label="EvolutionaryScale (Forge) token"
           placeholder="Enter EvolutionaryScale Forge API key…"
@@ -187,6 +203,22 @@ export function ConnectionsSection() {
           }}
           status={tests.hf.status}
         />
+        <div className="py-2.5 space-y-1">
+          <label htmlFor="gpn-api-url" className="block text-[13px] font-medium text-cs-text-primary">
+            Song Lab GPN-Star Endpoint URL (optional)
+          </label>
+          <input
+            id="gpn-api-url"
+            type="url"
+            className="cs-input text-[12px] font-mono w-full"
+            placeholder="http://127.0.0.1:8000/predict/gpn or dedicated HF endpoint URL"
+            value={settings.gpnApiUrl || ""}
+            onChange={(e) => updateSetting("gpnApiUrl", e.target.value)}
+          />
+          <p className="text-[11px] text-cs-text-muted">
+            Dedicated Hugging Face Inference Endpoint or local GPN sidecar (songlab/gpn-msa-sapiens is not served on HF serverless router).
+          </p>
+        </div>
       </SettingsSection>
 
       <SettingsSection title="Server services" hint={loading ? "Checking service readiness…" : undefined}>

@@ -55,7 +55,9 @@ export async function fetchCoreVariantData(
     mut1Letter,
     biohubToken,
     hfToken,
-    nvidiaApiKey
+    nvidiaApiKey,
+    evo2ApiUrl,
+    gpnApiUrl
   } = context;
 
   const overallStart = performance.now();
@@ -156,7 +158,9 @@ export async function fetchCoreVariantData(
     genosPromise,
     biohubToken,
     nvidiaApiKey,
+    evo2ApiUrl,
     hfToken,
+    gpnApiUrl,
     sequence
   }).catch(err => {
     console.warn("[Conservation Parallel Run Warning] Failed to fetch conservation:", err);

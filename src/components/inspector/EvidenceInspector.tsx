@@ -1,6 +1,19 @@
 import React from "react";
-import { Database, Dna, ShieldAlert, Scale, ExternalLink, ShieldCheck, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import {
+  Database,
+  Dna,
+  ShieldAlert,
+  Scale,
+  ExternalLink,
+  Activity,
+  CheckCircle2,
+  AlertTriangle,
+  Settings,
+  Info
+} from "lucide-react";
 import { AnalysisResult } from "../../types";
+import { useSettings } from "../../context/SettingsContext";
+import { useDiagnostics } from "../../hooks/useDiagnostics";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -15,6 +28,9 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   onSelectEvidenceTab,
   foldingDdG = null
 }) => {
+  const { settings, setIsSettingsOpen, setSettingsTab, serverGeminiReady } = useSettings();
+  const { diagnostics } = useDiagnostics();
+
   if (!analysisResult) {
     return (
       <div className="text-xs text-cs-text-muted italic p-2">
@@ -23,21 +39,19 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
     );
   }
 
-  const {
-    transcriptId,
-    isManeSelect,
-    isManePlusClinical,
-    isCanonical,
-    maneRefSeqId,
-    transcriptWarning,
-    clinvar,
-    conservationData
-  } = analysisResult;
+  const transcriptId = analysisResult.transcriptId ?? analysisResult.predictorData?.transcriptId ?? null;
+  const isManeSelect = analysisResult.isManeSelect ?? analysisResult.predictorData?.isManeSelect ?? false;
+  const isManePlusClinical = analysisResult.isManePlusClinical ?? analysisResult.predictorData?.isManePlusClinical ?? false;
+  const isCanonical = analysisResult.isCanonical ?? analysisResult.predictorData?.isCanonical ?? false;
+  const maneRefSeqId = analysisResult.maneRefSeqId ?? analysisResult.predictorData?.maneRefSeqId ?? null;
+  const transcriptWarning = analysisResult.transcriptWarning ?? analysisResult.predictorData?.transcriptWarning ?? null;
+  const clinvar = analysisResult.clinvar;
+  const conservationData = analysisResult.conservationData;
 
   const isThresholdsActive = activeEvidenceTab === "thresholds" || activeEvidenceTab === "guidelines";
 
   const clinvarUid = clinvar?.uid;
-  const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : "VCV000013920";
+  const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
 
   // Compute dynamic concordance state for threshold view
   const revel = conservationData?.revel ?? null;
@@ -109,7 +123,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
           <div className="flex justify-between items-center text-[11px]">
             <span className="text-cs-text-secondary">Transcript ID:</span>
-            <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "ENST00000305885"}</span>
+            <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
           </div>
 
           {maneRefSeqId && (
@@ -128,11 +142,19 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
                 : isCanonical
                 ? "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
-                : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                : transcriptId
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
             }`}>
-              {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : "Non-canonical"}
+              {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
             </span>
           </div>
+
+          {!transcriptId && (
+            <div className="text-[10px] text-cs-text-muted pt-1 leading-snug">
+              ℹ️ Canonical transcript mapping unresolved from Ensembl REST.
+            </div>
+          )}
 
           {transcriptWarning && (
             <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 leading-snug">
@@ -162,15 +184,21 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             </div>
             <div className="flex justify-between items-center text-[10.5px] mt-0.5">
               <span className="text-cs-text-secondary">VCV Accession:</span>
-              <a
-                href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${clinvarUid || ""}/`}
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono text-cs-accent-clay hover:underline flex items-center gap-1"
-              >
-                {clinvarVcv}
-                <ExternalLink className="w-2.5 h-2.5" />
-              </a>
+              {clinvarVcv ? (
+                <a
+                  href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${clinvarUid || ""}/`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-cs-accent-clay hover:underline flex items-center gap-1"
+                >
+                  {clinvarVcv}
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              ) : (
+                <span className="font-mono text-[10px] text-cs-text-muted italic">
+                  Unindexed in ClinVar
+                </span>
+              )}
             </div>
             {clinvar?.lastEvaluated && (
               <div className="flex justify-between items-center text-[10px] text-cs-text-muted">
@@ -235,6 +263,175 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             </div>
           );
         })()}
+      </div>
+
+      {/* ── 5. Live Service & Connection Telemetry ── */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Live Service & Connection Telemetry
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsTab("connections");
+              setIsSettingsOpen(true);
+            }}
+            className="text-[9.5px] font-mono text-cs-accent-clay hover:underline flex items-center gap-1"
+          >
+            <Settings className="w-2.5 h-2.5" />
+            Configure
+          </button>
+        </div>
+
+        <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2 text-[10.5px]">
+          {/* Ensembl VEP / Fallback */}
+          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${analysisResult.predictorData?.available ? "bg-emerald-500" : "bg-blue-400"}`} />
+              <span className="font-semibold text-cs-text-primary">Ensembl VEP</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              analysisResult.predictorData?.source?.includes("Fallback")
+                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                : analysisResult.predictorData?.available
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {analysisResult.predictorData?.source?.includes("Fallback")
+                ? "MyVariant / dbNSFP"
+                : analysisResult.predictorData?.available
+                ? "REST Live"
+                : "Unavailable"}
+            </span>
+          </div>
+
+          {/* NCBI ClinVar */}
+          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${clinvarUid ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span className="font-semibold text-cs-text-primary">NCBI ClinVar</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              clinvarUid
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {clinvarUid ? "Indexed" : "Unindexed (Novel)"}
+            </span>
+          </div>
+
+          {/* Gemini AI */}
+          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                serverGeminiReady || (settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0))
+                  ? "bg-emerald-500"
+                  : settings.geminiApiKey
+                  ? "bg-amber-500"
+                  : "bg-slate-400"
+              }`} />
+              <span className="font-semibold text-cs-text-primary">Gemini Clinical AI</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              serverGeminiReady || (settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0))
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : settings.geminiApiKey
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {serverGeminiReady
+                ? "Server Key Active"
+                : settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0)
+                ? "Session Active"
+                : settings.geminiApiKey
+                ? "Key Ready"
+                : "Key Required"}
+            </span>
+          </div>
+
+          {/* Arc Institute Evo 2 */}
+          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                conservationData?.evo2 !== null && conservationData?.evo2 !== undefined
+                  ? "bg-emerald-500"
+                  : conservationData?.evo2Message
+                  ? "bg-amber-500"
+                  : settings.nvidiaApiKey
+                  ? "bg-blue-400"
+                  : "bg-slate-400"
+              }`} />
+              <span className="font-semibold text-cs-text-primary">Arc Evo 2 (40B)</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              conservationData?.evo2 !== null && conservationData?.evo2 !== undefined
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : conservationData?.evo2Message
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                : settings.nvidiaApiKey
+                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {conservationData?.evo2 !== null && conservationData?.evo2 !== undefined
+                ? "Scored"
+                : conservationData?.evo2Message
+                ? "Notice"
+                : settings.nvidiaApiKey
+                ? "Key Linked"
+                : "Unconfigured"}
+            </span>
+          </div>
+
+          {/* Song Lab GPN-Star */}
+          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
+                  ? "bg-emerald-500"
+                  : conservationData?.gpnStarMessage
+                  ? "bg-amber-500"
+                  : settings.hfToken
+                  ? "bg-blue-400"
+                  : "bg-slate-400"
+              }`} />
+              <span className="font-semibold text-cs-text-primary">Song Lab GPN-Star</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : conservationData?.gpnStarMessage
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                : settings.hfToken
+                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
+                ? "Scored"
+                : conservationData?.gpnStarMessage
+                ? "Endpoint Required"
+                : settings.hfToken
+                ? "Token Linked"
+                : "Unconfigured"}
+            </span>
+          </div>
+
+          {/* Biophysical Engine Status */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${diagnostics?.foldxReady ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span className="font-semibold text-cs-text-primary">Biophysical Engines</span>
+            </div>
+            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+              diagnostics?.foldxReady
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
+            }`}>
+              {diagnostics?.foldxReady ? "FoldX Live" : "Local Standby"}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -29,8 +29,10 @@ interface PredictorSpecialistPanelsProps {
     popeve?: number | null;
     gpnStar?: number | null;
     gpnStarStatus?: "live" | "token_required" | "unavailable";
+    gpnStarMessage?: string | null;
     evo2?: number | null;
     evo2Status?: "live" | "token_required" | "unavailable";
+    evo2Message?: string | null;
     source?: string;
   } | null;
   vesmScore?: number | null;
@@ -98,8 +100,10 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const popeve = conservationData?.popeve ?? null;
   const gpnScore = conservationData?.gpnStar ?? null;
   const gpnStatus = conservationData?.gpnStarStatus ?? (gpnScore !== null ? "live" : "token_required");
+  const gpnMessage = conservationData?.gpnStarMessage ?? null;
   const evo2Score = conservationData?.evo2 ?? null;
   const evo2Status = conservationData?.evo2Status ?? (evo2Score !== null ? "live" : "token_required");
+  const evo2Message = conservationData?.evo2Message ?? null;
 
   // Helper to render score bars
   const renderScoreBar = (val: number | null, min: number, max: number, threshLow: number, threshHigh: number, invert = false) => {
@@ -459,6 +463,15 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       getGpnSignal(gpnScore),
                       gpnScore <= -2.5 ? "Conserved (Prior)" : "Tolerated"
                     )
+                  ) : gpnMessage ? (
+                    <span
+                      title={gpnMessage}
+                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20 max-w-36 truncate"
+                    >
+                      {gpnMessage.includes("Endpoint") || gpnMessage.includes("endpoint")
+                        ? "Endpoint Needed"
+                        : "Notice"}
+                    </span>
                   ) : gpnStatus === "token_required" ? (
                     <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20">
                       Token Required
@@ -475,10 +488,26 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 </span>
                 {gpnScore !== null ? (
                   renderScoreBar(gpnScore, -10, 2, -2.5, 0.0, true)
+                ) : gpnMessage ? (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[10px] text-amber-500/90 font-mono leading-tight">
+                      {gpnMessage}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenSettings) onOpenSettings();
+                        else openSettingsTab("connections");
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-colors cursor-pointer"
+                    >
+                      Configure GPN Endpoint
+                    </button>
+                  </div>
                 ) : gpnStatus === "token_required" ? (
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <p className="text-[10px] text-amber-500/90 font-mono">
-                      Song Lab GPN-Star requires HF token or sidecar
+                      Song Lab GPN-Star requires HF token or dedicated endpoint
                     </p>
                     <button
                       type="button"
@@ -526,6 +555,19 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       getEvo2Signal(evo2Score),
                       evo2Score <= -4.0 ? "Disruptive" : "Tolerated"
                     )
+                  ) : evo2Message ? (
+                    <span
+                      title={evo2Message}
+                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20 max-w-36 truncate"
+                    >
+                      {evo2Message.includes("401")
+                        ? "HTTP 401 (Key)"
+                        : evo2Message.includes("404")
+                        ? "HTTP 404 (URL)"
+                        : evo2Message.includes("422")
+                        ? "HTTP 422"
+                        : "Notice"}
+                    </span>
                   ) : evo2Status === "token_required" ? (
                     <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-500/10 text-amber-500 border border-amber-500/20">
                       Key Required
@@ -542,6 +584,22 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 </span>
                 {evo2Score !== null ? (
                   renderScoreBar(evo2Score, -15, 2, -4.0, -1.0, true)
+                ) : evo2Message ? (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[10px] text-amber-500/90 font-mono leading-tight">
+                      {evo2Message}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenSettings) onOpenSettings();
+                        else openSettingsTab("connections");
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded font-medium bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 transition-colors cursor-pointer"
+                    >
+                      Configure Evo 2
+                    </button>
+                  </div>
                 ) : evo2Status === "token_required" ? (
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <p className="text-[10px] text-amber-500/90 font-mono">

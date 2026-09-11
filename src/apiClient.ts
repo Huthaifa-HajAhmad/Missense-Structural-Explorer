@@ -72,7 +72,9 @@ export function useApiClient() {
     biohubApiToken, 
     tamarindApiKey, 
     hfToken,
-    nvidiaApiKey
+    nvidiaApiKey,
+    evo2ApiUrl,
+    gpnApiUrl
   } = settings;
 
   const fetchWithAuth = useCallback(async (
@@ -213,6 +215,12 @@ export function useApiClient() {
         if (nvidiaApiKey) {
           headers["x-nvidia-api-key"] = nvidiaApiKey;
         }
+        if (evo2ApiUrl) {
+          headers["x-evo2-api-url"] = evo2ApiUrl;
+        }
+        if (gpnApiUrl) {
+          headers["x-gpn-api-url"] = gpnApiUrl;
+        }
       }
 
       let response = await fetchWithRetry(url, { ...options, headers, signal });
@@ -268,6 +276,8 @@ export function useApiClient() {
     tamarindApiKey, 
     hfToken, 
     nvidiaApiKey,
+    evo2ApiUrl,
+    gpnApiUrl,
     updateSetting
   ]);
 

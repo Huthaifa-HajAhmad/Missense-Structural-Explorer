@@ -1,3 +1,5 @@
+import path from "path";
+import dotenv from "dotenv";
 import { type Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
@@ -18,6 +20,7 @@ import {
   performGeminiAnalysis,
   GeminiError,
   getConfiguredGeminiModels,
+  isGeminiApiKeyPlaceholder,
 } from "../../services/gemini.ts";
 import { computeRuleBasedACMG } from "../../services/acmg.ts";
 import { type AnalysisResult } from "../../../src/types.ts";
@@ -111,17 +114,24 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       };
       const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
       let customApiKey: string | undefined;
-      console.log(`[Narrative Debug] customSessionId present: ${!!customSessionId}, length: ${customSessionId?.length ?? 0}`);
       if (customSessionId) {
         customApiKey = getApiKeyFromSession(customSessionId);
-        console.log(`[Narrative Debug] getApiKeyFromSession result: ${customApiKey ? `key(len=${customApiKey.length}, prefix=${customApiKey.slice(0,4)})` : "undefined (expired or invalid)"}`);
         if (!customApiKey) {
           sendError(res, 401, "SESSION_EXPIRED", "Gemini API key session has expired. Please re-authenticate in Settings.");
           return;
         }
       }
 
-      const activeApiKey = customApiKey || process.env.GEMINI_API_KEY || "no_key";
+      if (!process.env.GEMINI_API_KEY || isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)) {
+        dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
+      }
+
+      const envKey = process.env.GEMINI_API_KEY && !isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
+        ? process.env.GEMINI_API_KEY
+        : undefined;
+
+      const effectiveKey = customApiKey || envKey;
+      const activeApiKey = effectiveKey || "no_key";
       const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
       const model = getConfiguredGeminiModels()[0];
       const evidenceHash = crypto.createHash("sha256").update(JSON.stringify(evidencePayload)).digest("hex");
@@ -147,7 +157,16 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         );
       }
 
-      const timeoutSignal = AbortSignal.timeout(180000);
+      const clientAbortController = new AbortController();
+      if (typeof req.on === "function") {
+        req.on("close", () => {
+          if (!res.writableEnded) {
+            clientAbortController.abort();
+          }
+        });
+      }
+      const timeoutSignal = AbortSignal.timeout(120000);
+      const combinedSignal = AbortSignal.any([clientAbortController.signal, timeoutSignal]);
       const reqId = req.headers["x-request-id"] as string;
 
       let analysisResult;
@@ -163,7 +182,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           clinvar,
           acmgWeighting,
           customApiKey,
-          timeoutSignal,
+          combinedSignal,
           predictorData,
           conservationData,
           stringInteractions

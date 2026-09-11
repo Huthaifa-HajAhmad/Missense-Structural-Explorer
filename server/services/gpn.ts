@@ -24,7 +24,8 @@ export async function fetchGpnStarScore(
   wt: string,
   mut: string,
   token?: string | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  customEndpoint?: string | null
 ): Promise<ModelInferenceResult> {
   if (!sequence || typeof pos !== "number" || pos < 1 || !wt || !mut) {
     return {
@@ -34,22 +35,24 @@ export async function fetchGpnStarScore(
     };
   }
 
-  const tokenToUse =
-    token ||
-    process.env.HF_TOKEN ||
-    process.env.HUGGINGFACE_API_KEY ||
-    null;
+  const isCustomUrl = Boolean(customEndpoint);
+  // Security Mandate: Never forward server-level environment secrets to client-supplied custom endpoints (prevent SSRF token exfiltration)
+  const tokenToUse = isCustomUrl
+    ? (token || null)
+    : (token || process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || null);
 
-  const endpoint =
+  const rawEndpoint =
+    customEndpoint ||
     process.env.GPN_API_URL ||
     (tokenToUse
       ? "https://router.huggingface.co/hf-inference/models/songlab/gpn-msa-sapiens"
       : null);
+  const endpoint = rawEndpoint ? rawEndpoint.replace(/\/+$/, "") : null;
 
   const wtUpper = wt.toUpperCase();
   const mutUpper = mut.toUpperCase();
   const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
-  const cacheKey = `${seqHash}:${pos}:${wtUpper}:${mutUpper}`;
+  const cacheKey = `${seqHash}:${pos}:${wtUpper}:${mutUpper}:${endpoint || "none"}`;
 
   const cached = gpnCache.get(cacheKey);
   if (cached) return cached;
@@ -58,7 +61,7 @@ export async function fetchGpnStarScore(
     return {
       score: null,
       status: "token_required",
-      message: "Song Lab GPN-Star requires Hugging Face token (songlab/gpn-msa-sapiens) or local GPN sidecar (GPN_API_URL)"
+      message: "Song Lab GPN-Star requires Hugging Face token (songlab/gpn-msa-sapiens) or dedicated endpoint (GPN_API_URL)"
     };
   }
 
@@ -94,7 +97,7 @@ export async function fetchGpnStarScore(
       return {
         score: null,
         status: "token_required",
-        message: "Hugging Face inference token invalid or unauthorized for songlab/gpn-msa-sapiens"
+        message: "Hugging Face inference token invalid or unauthorized (HTTP 401/403)"
       };
     }
 
@@ -102,7 +105,7 @@ export async function fetchGpnStarScore(
       return {
         score: null,
         status: "unavailable",
-        message: "Hugging Face / GPN rate limit reached; please retry shortly"
+        message: "Hugging Face / GPN rate limit reached; please retry shortly (HTTP 429)"
       };
     }
 
@@ -116,10 +119,16 @@ export async function fetchGpnStarScore(
     }
 
     if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      const detail = typeof errBody?.error === "string" ? errBody.error : (errBody?.message || response.statusText);
+      const isDefaultServerless = endpoint.includes("router.huggingface.co") || endpoint.includes("api-inference.huggingface.co");
+      const message = (response.status === 404 || response.status === 400) && isDefaultServerless
+        ? "Song Lab GPN-Star requires a dedicated Hugging Face Inference Endpoint or local sidecar (gpn-msa-sapiens is not hosted on HF serverless). Set GPN_API_URL in Settings."
+        : `Upstream GPN error ${response.status}: ${detail}`;
       return {
         score: null,
         status: "unavailable",
-        message: `Upstream GPN error ${response.status}: ${response.statusText}`
+        message
       };
     }
 

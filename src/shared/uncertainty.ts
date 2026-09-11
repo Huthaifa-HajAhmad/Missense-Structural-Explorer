@@ -22,7 +22,7 @@ export function getResidueContext(
 
   for (const feature of features) {
     const beginVal = feature.start !== undefined ? feature.start : feature.begin;
-    const endVal = feature.end !== undefined ? feature.end : feature.end;
+    const endVal = feature.end !== undefined ? feature.end : (feature.stop ?? feature.last);
     const begin = typeof beginVal === "number" ? beginVal : parseInt(beginVal, 10);
     const end = typeof endVal === "number" ? endVal : parseInt(endVal, 10);
     if (isNaN(begin) || isNaN(end)) continue;
@@ -33,14 +33,21 @@ export function getResidueContext(
       const desc = (feature.description || "").toLowerCase();
 
       // Transmembrane matches
-      if (type === "TRANSMEM" || desc.includes("transmembrane") || desc.includes("membrane spanning")) {
+      if (
+        type === "TRANSMEM" || 
+        type === "TRANSMEMBRANE" || 
+        desc.includes("transmembrane") || 
+        desc.includes("membrane spanning")
+      ) {
         return "transmembrane";
       }
 
       // Intrinsically Disordered Regions matches
       if (
         type === "COMPBIAS" || 
+        type === "COMPOSITIONAL BIAS" || 
         type === "COILED" || 
+        type === "COILED COIL" || 
         desc.includes("disorder") || 
         desc.includes("disordered") ||
         desc.includes("low complexity") ||

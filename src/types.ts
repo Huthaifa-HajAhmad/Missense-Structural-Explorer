@@ -130,6 +130,7 @@ export interface VariantMetadata {
     foldxVersion: string;
     timestamp: string;
   } | null;
+  serviceStatus?: Record<string, string>;
 }
 
 export interface DisruptionPredictorResult {
@@ -213,12 +214,12 @@ export interface BiophysicalModelingData {
 }
 
 export interface TranscriptMetadata {
-  transcriptId?: string;
+  transcriptId?: string | null;
   isManeSelect?: boolean;
   isManePlusClinical?: boolean;
   isCanonical?: boolean;
-  maneRefSeqId?: string;
-  transcriptWarning?: string;
+  maneRefSeqId?: string | null;
+  transcriptWarning?: string | null;
 }
 
 export interface LanguageModelEvaluations {
@@ -247,6 +248,7 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadConstraint?: GnomadConstraintData | null;
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
+  serviceStatus?: Record<string, string>;
 }
 
 export interface PpiBindingData {
@@ -317,8 +319,10 @@ export interface UserSettings {
   appApiToken?: string;
   biohubApiToken?: string;
   nvidiaApiKey?: string;
+  evo2ApiUrl?: string;
   tamarindApiKey?: string;
   hfToken?: string;
+  gpnApiUrl?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;

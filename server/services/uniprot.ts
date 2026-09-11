@@ -25,7 +25,7 @@ export async function resolveGeneToUniprot(gene: string): Promise<string | null>
     ttlSeconds: 30 * 24 * 60 * 60,
     fetcher: async () => {
       try {
-        const searchUrl = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${normGene}+AND+organism_id:9606+AND+reviewed:true&format=json&size=1`;
+        const searchUrl = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(normGene)}+AND+organism_id:9606+AND+reviewed:true&format=json&size=1`;
         console.log(`[UniProt] Resolving gene symbol ${normGene} via search API...`);
         const res = await fetchWithRetry(searchUrl, {
           headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
@@ -89,16 +89,24 @@ export interface UniprotFeaturesResult {
   isMultimer?: boolean;
 }
 
-/** Feature types we care about for clinical/functional annotation */
+/** Feature types we care about for clinical/functional/domain annotation */
 const RELEVANT_FEATURE_TYPES = new Set([
   "Active site",
   "Binding site",
   "Metal binding",
   "Site",
+  "Domain",
   "Region",
   "Motif",
+  "Repeat",
+  "Zinc finger",
+  "DNA binding",
+  "Transmembrane",
+  "Compositional bias",
+  "Coiled coil",
   "Disulfide bond",
   "Modified residue",
+  "Mutagenesis",
 ]);
 
 export async function fetchUniprotFeatures(
@@ -137,12 +145,21 @@ export async function fetchUniprotFeatures(
 
         const features: UniprotFeature[] = rawFeatures
           .filter((f: any) => RELEVANT_FEATURE_TYPES.has(f.type))
-          .map((f: any) => ({
-            type:        f.type,
-            description: f.description ?? "",
-            start:       f.location?.start?.value ?? 0,
-            end:         f.location?.end?.value   ?? 0,
-          }))
+          .map((f: any) => {
+            const ligandInfo = f.ligand?.name ? `Ligand: ${f.ligand.name}` : (f.ligandPart?.name ? `Ligand: ${f.ligandPart.name}` : "");
+            const desc = f.description && ligandInfo && !f.description.includes(f.ligand?.name)
+              ? `${f.description} (${ligandInfo})`
+              : f.description || ligandInfo || "";
+            const posVal = f.location?.position?.value;
+            const start = f.location?.start?.value ?? posVal ?? 0;
+            const end = f.location?.end?.value ?? posVal ?? start;
+            return {
+              type:        f.type,
+              description: desc,
+              start,
+              end,
+            };
+          })
           .filter((f) => f.start > 0 && f.end > 0);
 
         // Extract subunit comment and check isMultimer

@@ -27,7 +27,8 @@ export async function fetchEvo2Score(
   wt: string,
   mut: string,
   token?: string | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  customEndpoint?: string | null
 ): Promise<ModelInferenceResult> {
   if (!sequence || typeof pos !== "number" || pos < 1 || !wt || !mut) {
     return {
@@ -37,26 +38,27 @@ export async function fetchEvo2Score(
     };
   }
 
-  // Strictly isolate NVIDIA BioNeMo / Evo 2 keys from EvolutionaryScale Forge tokens
-  const tokenToUse =
-    token ||
-    process.env.NVIDIA_API_KEY ||
-    process.env.EVO2_API_KEY ||
-    null;
+  const isCustomUrl = Boolean(customEndpoint);
+  // Security Mandate: Never forward server-level environment secrets to client-supplied custom endpoints (prevent SSRF token exfiltration)
+  const tokenToUse = isCustomUrl
+    ? (token || null)
+    : (token || process.env.NVIDIA_API_KEY || process.env.EVO2_API_KEY || null);
 
-  const endpoint =
+  const rawEndpoint =
+    customEndpoint ||
     process.env.EVO2_API_URL ||
     "https://integrate.api.nvidia.com/v1/biology/arc/evo2-40b";
+  const endpoint = rawEndpoint.replace(/\/+$/, "");
 
   const wtUpper = wt.toUpperCase();
   const mutUpper = mut.toUpperCase();
   const seqHash = crypto.createHash("sha256").update(sequence).digest("hex").slice(0, 16);
-  const cacheKey = `${seqHash}:${pos}:${wtUpper}:${mutUpper}`;
+  const cacheKey = `${seqHash}:${pos}:${wtUpper}:${mutUpper}:${endpoint}`;
 
   const cached = evo2Cache.get(cacheKey);
   if (cached) return cached;
 
-  if (!tokenToUse && !process.env.EVO2_API_URL) {
+  if (!tokenToUse && !customEndpoint && !process.env.EVO2_API_URL) {
     return {
       score: null,
       status: "token_required",
@@ -73,11 +75,12 @@ export async function fetchEvo2Score(
     }
 
     const payload = {
-      model: "evo2-40b",
+      model: "arc/evo2-40b",
       sequence,
       position: pos,
       wt: wtUpper,
       mut: mutUpper,
+      sequences: [sequence],
       mutations: [`${wtUpper}${pos}${mutUpper}`]
     };
 
@@ -96,7 +99,7 @@ export async function fetchEvo2Score(
       return {
         score: null,
         status: "token_required",
-        message: "NVIDIA BioNeMo / Evo 2 API key invalid or unauthorized"
+        message: "NVIDIA BioNeMo / Evo 2 API key invalid or unauthorized (HTTP 401/403)"
       };
     }
 
@@ -104,15 +107,17 @@ export async function fetchEvo2Score(
       return {
         score: null,
         status: "unavailable",
-        message: "NVIDIA BioNeMo rate limit reached; please retry shortly"
+        message: "NVIDIA BioNeMo rate limit reached; please retry shortly (HTTP 429)"
       };
     }
 
     if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      const detail = errBody?.detail || errBody?.message || errBody?.error?.message || response.statusText;
       return {
         score: null,
         status: "unavailable",
-        message: `Upstream Evo 2 error ${response.status}: ${response.statusText}`
+        message: `Upstream Evo 2 error ${response.status}: ${detail}`
       };
     }
 
@@ -128,8 +133,8 @@ export async function fetchEvo2Score(
         ? data.log_likelihood_ratio
         : typeof data.llr === "number"
         ? data.llr
-        : Array.isArray(data.predictions) && typeof data.predictions[0]?.score === "number"
-        ? data.predictions[0].score
+        : Array.isArray(data.predictions) && typeof (data.predictions[0]?.delta_llr ?? data.predictions[0]?.score) === "number"
+        ? (data.predictions[0].delta_llr ?? data.predictions[0].score)
         : null;
 
     const scoreVal = rawVal !== null && Number.isFinite(rawVal) ? rawVal : null;

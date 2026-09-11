@@ -20,8 +20,15 @@ async function checkJavaVersion(javaExePath: string): Promise<boolean> {
   try {
     const { stderr, stdout } = await execFileAsync(javaExePath, ["-version"], { timeout: 3000 });
     const versionStr = (stderr || stdout || "").toString();
-    // Check if the version output is NOT Java 8/7/6/5 (meaning it starts with 9+ or similar, and doesn't match 1.[5-8])
-    return !/version\s+"1\.[5-8]\./i.test(versionStr);
+    // Match version patterns: e.g. "17.0.x", "21.0.x", or legacy "1.8.0"
+    const match = versionStr.match(/version\s+"(\d+)(?:\.(\d+))?/i);
+    if (!match) return false;
+    let major = parseInt(match[1], 10);
+    if (major === 1 && match[2]) {
+      major = parseInt(match[2], 10);
+    }
+    // P2Rank 2.6-alpha bytecode (class format 61.0) requires Java 17 or higher
+    return major >= 17;
   } catch (err) {
     return false;
   }
@@ -32,7 +39,18 @@ export async function discoverJavaHome(): Promise<string | null> {
     return cachedJavaHome;
   }
 
-  // 1. Check existing env JAVA_HOME
+  // 1. Explicit override via P2RANK_JAVA_HOME
+  if (process.env.P2RANK_JAVA_HOME) {
+    const candidatePath = path.join(process.env.P2RANK_JAVA_HOME, "bin", process.platform === "win32" ? "java.exe" : "java");
+    if (fs.existsSync(candidatePath) && await checkJavaVersion(candidatePath)) {
+      cachedJavaHome = process.env.P2RANK_JAVA_HOME;
+      cachedJavaHomeChecked = true;
+      console.log(`[Pocket Finder ML] Using explicit P2RANK_JAVA_HOME: ${cachedJavaHome}`);
+      return cachedJavaHome;
+    }
+  }
+
+  // 2. Check existing env JAVA_HOME
   if (process.env.JAVA_HOME) {
     const candidatePath = path.join(process.env.JAVA_HOME, "bin", process.platform === "win32" ? "java.exe" : "java");
     if (fs.existsSync(candidatePath) && await checkJavaVersion(candidatePath)) {
@@ -42,16 +60,15 @@ export async function discoverJavaHome(): Promise<string | null> {
     }
   }
 
-  // 2. Check system default 'java'
+  // 3. Check system default 'java'
   const defaultJavaExe = process.platform === "win32" ? "java.exe" : "java";
   if (await checkJavaVersion(defaultJavaExe)) {
-    // If system default java is already Java 17+, we don't need to override JAVA_HOME
     cachedJavaHome = "";
     cachedJavaHomeChecked = true;
     return cachedJavaHome;
   }
 
-  // 3. Scan user directories and other standard JDK locations
+  // 4. Scan user directories and standard JDK/JRE locations
   const candidates: string[] = [];
   const userProfile = process.env.USERPROFILE || process.env.HOME || "";
 
@@ -78,8 +95,16 @@ export async function discoverJavaHome(): Promise<string | null> {
   }
 
   const standardDirs = [
+    "C:\\Program Files\\Eclipse Adoptium",
     "C:\\Program Files\\Java",
-    "C:\\Program Files\\Android\\Android Studio\\jbr"
+    "C:\\Program Files\\Microsoft",
+    "C:\\Program Files\\Semeru",
+    "C:\\Program Files\\BellSoft",
+    "C:\\Program Files\\Amazon Corretto",
+    "C:\\Program Files\\Android\\Android Studio\\jbr",
+    path.join(process.cwd(), "tools", "jre17"),
+    path.join(process.cwd(), "tools", "jdk17"),
+    path.join(process.cwd(), "tools", "p2rank", "jre")
   ];
   for (const sDir of standardDirs) {
     if (fs.existsSync(sDir)) {
@@ -109,6 +134,11 @@ export async function discoverJavaHome(): Promise<string | null> {
   cachedJavaHome = null;
   cachedJavaHomeChecked = true;
   return null;
+}
+
+export function _resetJavaHomeCache(): void {
+  cachedJavaHome = null;
+  cachedJavaHomeChecked = false;
 }
 
 export const pocketCache = new LRUCache<string, any>({
@@ -287,6 +317,9 @@ async function findBindingPocketInternal(
     if (discoveredJavaHome) {
       env.JAVA_HOME = discoveredJavaHome;
       console.log(`[Pocket Finder ML] Injecting discovered JAVA_HOME: ${discoveredJavaHome}`);
+    } else if (discoveredJavaHome === "") {
+      // System default java on PATH is Java 17+; strip obsolete JAVA_HOME from process.env to prevent launcher script crashes
+      delete env.JAVA_HOME;
     }
     let options: any = { timeout: 25000, cwd: jobDir, signal, env };
 
@@ -484,9 +517,12 @@ async function findBindingPocketInternal(
     try {
       console.log(`[Pocket Finder Fallback] P2Rank failed/offline. Executing fpocket...`);
       let useDocker = false;
+      let hasNativeFpocket = false;
+      const nativeFpocketCmd = process.platform === "win32" ? "fpocket.exe" : "fpocket";
       try {
         // Probe if native fpocket exists
-        await execFileAsync(process.platform === "win32" ? "fpocket.exe" : "fpocket", ["-v"]);
+        await execFileAsync(nativeFpocketCmd, ["-v"]);
+        hasNativeFpocket = true;
       } catch (err: any) {
         if (err.code === "ENOENT") {
           // Fall back to checking if docker is available
@@ -513,8 +549,10 @@ async function findBindingPocketInternal(
           "-f",
           "/workdir/wt.pdb"
         ], { timeout: 30000, signal });
+      } else if (hasNativeFpocket) {
+        await execFileAsync(nativeFpocketCmd, ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal });
       } else {
-        await execFileAsync("fpocket", ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal });
+        console.log(`[Pocket Finder Fallback] Skipping fpocket execution: neither native binary nor Docker engine is accessible.`);
       }
       
       const infoPath = path.join(jobDir, "wt_out", "wt_info.txt");
