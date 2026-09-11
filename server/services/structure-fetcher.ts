@@ -2,6 +2,7 @@ import { validateUniProt } from "../utils.ts";
 import { fetchWithRetry } from "./http-client.ts";
 import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "./cache.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
+import { AnalysisDatabase } from "./analysis-db.ts";
 import type { PdbHomolog } from "../../src/types.ts";
 
 export interface PdbBestStructureMapping {
@@ -373,6 +374,16 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
     } catch (_) {}
   }
 
+  // Check persistent SQLite cache
+  try {
+    const db = AnalysisDatabase.getInstance();
+    const sqliteEntry = await db.getExternalCacheAsync<RawHomologCandidate[]>(cacheKey);
+    if (sqliteEntry && Array.isArray(sqliteEntry.data)) {
+      pdbCache.set(cacheKey, JSON.stringify(sqliteEntry.data));
+      return sqliteEntry.data;
+    }
+  } catch (_) {}
+
   return singleFlight(cacheKey, async () => {
     const cachedAgain = pdbCache.get(cacheKey);
     if (cachedAgain) {
@@ -386,32 +397,40 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
       return [];
     }
 
+    // Bound total RCSB candidate discovery to at most 18 seconds
+    const timeoutSignal = AbortSignal.timeout(18000);
+
     try {
-      const searchRes = await fetchWithRetry("https://search.rcsb.org/rcsbsearch/v2/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: {
-            type: "terminal",
-            service: "sequence",
-            parameters: {
-              evalue_cutoff: 1.0,
-              identity_cutoff: 0.22,
-              sequence_type: "protein",
-              value: sequence
-            }
-          },
-          request_options: {
-            results_content_type: ["experimental"],
-            paginate: {
-              start: 0,
-              rows: 50
-            }
-          },
-          return_type: "polymer_entity"
-        }),
-        timeout: 15000
-      });
+      const searchRes = await fetchWithRetry(
+        "https://search.rcsb.org/rcsbsearch/v2/query",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: {
+              type: "terminal",
+              service: "sequence",
+              parameters: {
+                evalue_cutoff: 1.0,
+                identity_cutoff: 0.22,
+                sequence_type: "protein",
+                value: sequence
+              }
+            },
+            request_options: {
+              results_content_type: ["experimental"],
+              paginate: {
+                start: 0,
+                rows: 50
+              }
+            },
+            return_type: "polymer_entity"
+          }),
+          timeout: 10000,
+          signal: timeoutSignal
+        },
+        1 // 1 attempt total (0 retries) to strictly enforce the 18s timeout guard
+      );
 
       if (!searchRes.ok) {
         const errText = await searchRes.text().catch(() => "");
@@ -466,12 +485,17 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
         }
       `;
 
-      const gqlRes = await fetchWithRetry("https://data.rcsb.org/graphql", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: gqlQuery, variables: { ids: idsArray } }),
-        timeout: 15000
-      });
+      const gqlRes = await fetchWithRetry(
+        "https://data.rcsb.org/graphql",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: gqlQuery, variables: { ids: idsArray } }),
+          timeout: 8000,
+          signal: timeoutSignal
+        },
+        1 // 1 attempt total (0 retries) to strictly enforce the 18s timeout guard
+      );
 
       if (!gqlRes.ok) {
         console.warn(`[RCSB Homolog Search] GraphQL metadata fetch failed: status ${gqlRes.status}`);
@@ -533,9 +557,13 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
       }
 
       pdbCache.set(cacheKey, JSON.stringify(candidates));
+      try {
+        const db = AnalysisDatabase.getInstance();
+        await db.saveExternalCacheAsync(cacheKey, candidates, "RCSB Homologs", 7 * 24 * 60 * 60);
+      } catch (_) {}
       return candidates;
     } catch (err: any) {
-      console.error("[RCSB Homolog Search] Failed to fetch raw candidates:", err.message || err);
+      console.warn("[RCSB Homolog Search] Notice: Failed or timed out fetching raw candidates:", err.message || err);
       return [];
     }
   });
@@ -550,6 +578,16 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       return JSON.parse(cachedData);
     } catch (_) {}
   }
+
+  // Check persistent SQLite cache
+  try {
+    const db = AnalysisDatabase.getInstance();
+    const sqliteEntry = await db.getExternalCacheAsync<PdbHomolog[]>(posCacheKey);
+    if (sqliteEntry && Array.isArray(sqliteEntry.data)) {
+      pdbCache.set(posCacheKey, JSON.stringify(sqliteEntry.data));
+      return sqliteEntry.data;
+    }
+  } catch (_) {}
 
   const rawCandidates = await fetchRawHomologCandidates(validatedUniprot);
   if (!rawCandidates || rawCandidates.length === 0) {
@@ -623,10 +661,14 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
     }
 
     pdbCache.set(posCacheKey, JSON.stringify(homologs));
+    try {
+      const db = AnalysisDatabase.getInstance();
+      await db.saveExternalCacheAsync(posCacheKey, homologs, "RCSB Homologs Filtered", 7 * 24 * 60 * 60);
+    } catch (_) {}
     return homologs;
 
   } catch (err: any) {
-    console.error("[RCSB Homolog Search] Failed to cluster homologs:", err.message || err);
+    console.warn("[RCSB Homolog Search] Notice: Failed to cluster homologs:", err.message || err);
     return [];
   }
 }

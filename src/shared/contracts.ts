@@ -255,7 +255,7 @@ export const pocketFinderResponseSchema = z.object({
   pocketScore: z.number(),
   pocketVolume: z.number(),
   likelyCofactor: z.string(),
-  status: z.enum(["success", "fallback"]),
+  status: z.enum(["success", "fallback", "none_detected", "unavailable"]).catch("unavailable"),
   pocketDistance: z.number().nullable().optional()
 });
 

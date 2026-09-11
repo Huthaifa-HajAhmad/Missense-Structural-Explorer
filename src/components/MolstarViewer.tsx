@@ -304,7 +304,7 @@ export default function MolstarViewer({
             const parsedLength = lengthMatch ? parseInt(lengthMatch[1], 10) : null;
             const detectedAaLength = parsedLength || landscapeLength;
             const isLengthLimit = Boolean(
-              esmFoldingError && /400\s*aa|exceeds.*limit|sequence length/i.test(esmFoldingError)
+              esmFoldingError && /400\s*aa|1024\s*aa|1,024\s*aa|exceeds.*limit|sequence length/i.test(esmFoldingError)
             );
 
             return (
@@ -334,7 +334,9 @@ export default function MolstarViewer({
                             color: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-text-secondary)"
                           }}
                         >
-                          {isLengthLimit ? "ESM Atlas Limit: 400 aa" : "ESMFold Service Notice"}
+                          {isLengthLimit
+                            ? (detectedAaLength && detectedAaLength > 1024 ? "ESMFold-2 Limit: 1,024 aa" : "ESM Atlas Limit: 400 aa")
+                            : "ESMFold Service Notice"}
                         </span>
                         {detectedAaLength && (
                           <span
@@ -363,13 +365,19 @@ export default function MolstarViewer({
 
                       {/* Title */}
                       <h4 className="font-semibold text-base mb-2" style={{ color: "var(--cs-text-primary)" }}>
-                        {isLengthLimit ? "Sequence Exceeds Public ESMFold Limit (400 aa)" : "ESMFold Structure Unavailable"}
+                        {isLengthLimit
+                          ? (detectedAaLength && detectedAaLength > 1024
+                              ? "Sequence Exceeds De Novo ESMFold Limit (1,024 aa)"
+                              : "Sequence Exceeds Public ESMFold Limit (400 aa)")
+                          : "ESMFold Structure Unavailable"}
                       </h4>
 
                       {/* Message Body */}
                       <p className="text-xs leading-relaxed mb-5" style={{ color: "var(--cs-text-secondary)" }}>
                         {esmFoldingError || (isLengthLimit
-                          ? `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ 400 amino acids. This protein has ${detectedAaLength ? `${detectedAaLength} residues` : "more than 400 residues"}.`
+                          ? (detectedAaLength && detectedAaLength > 1024
+                              ? `Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to 1,024 residues, and public ESM Atlas limits folding to 400 residues. This protein has ${detectedAaLength} residues.`
+                              : `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ 400 amino acids. This protein has ${detectedAaLength ? `${detectedAaLength} residues` : "more than 400 residues"}.`)
                           : "The ESMFold de novo structure generation service encountered an error or is offline.")}
                       </p>
 
@@ -417,7 +425,7 @@ export default function MolstarViewer({
                           <span>
                             {isLengthLimit ? (
                               <>
-                                <strong>Public API Restriction:</strong> Sequences longer than 400 aa cannot be folded via the public ESM Atlas endpoint. Switch to <strong>AlphaFold</strong> to inspect full-length coordinates, or configure an <strong>EvolutionaryScale / Biohub API key</strong> in Settings for full-length de novo folding.
+                                <strong>Public API Restriction:</strong> JapanFold ESMFold-2 limits de novo single-sequence folding to 1,024 residues, while the public ESM Atlas endpoint limits folding to 400 residues. Switch to <strong>AlphaFold</strong> to inspect full-length coordinates, or configure an <strong>EvolutionaryScale / Biohub API key</strong> in Settings for full-length de novo folding.
                               </>
                             ) : (
                               <>

@@ -30,11 +30,18 @@ async function foldSequenceInternal(
   sequence: string,
   biohubToken?: string | null
 ): Promise<string> {
+  const seqLen = sequence.length;
+
+  // Fail fast immediately if sequence exceeds max Tier-1 limit (1,024 aa) and no Biohub token exists
+  if (seqLen > 1024 && !biohubToken) {
+    throw new Error(`Sequence length (${seqLen} aa) exceeds the de novo folding limits (1,024 aa for Tier-1 JapanFold ESMFold-2, and 400 aa for public ESM Atlas). De novo folding for proteins > 1,024 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`);
+  }
+
   // 1. Attempt Tier-1: JapanFold ESMFold-2 (Up to 1,024 residues, Tenstorrent hardware)
   try {
     const jfPdb = await queryEsmfold2(sequence);
     if (jfPdb && jfPdb.includes("ATOM")) {
-      console.log(`[ESMFold] Successfully folded ${sequence.length} aa sequence via Tier-1 JapanFold ESMFold-2`);
+      console.log(`[ESMFold] Successfully folded ${seqLen} aa sequence via Tier-1 JapanFold ESMFold-2`);
       return jfPdb;
     }
   } catch (jfErr: any) {
@@ -72,7 +79,11 @@ async function foldSequenceInternal(
     }
   }
 
-  // 2. Free Public ESM Atlas Folding Fallback
+  // 3. Free Public ESM Atlas Folding Fallback (strictly <= 400 aa)
+  if (seqLen > 400) {
+    throw new Error(`Sequence length (${seqLen} aa) exceeds the public ESM Atlas folding limit (400 aa). Tier-1 JapanFold ESMFold-2 was unavailable. De novo folding for proteins > 400 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`);
+  }
+
   try {
     const atlasRes = await fetch("https://api.esmatlas.com/foldSequence/v1/pdb/", {
       method: "POST",
@@ -88,7 +99,7 @@ async function foldSequenceInternal(
       }
     }
     if (atlasRes.status === 413 || atlasRes.status === 422 || sequence.length > 400) {
-      throw new Error(`Sequence length (${sequence.length} aa) exceeds the public ESM Atlas limit of 400 aa. De novo folding for proteins > 400 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`);
+      throw new Error(`Sequence length (${sequence.length} aa) exceeds the de novo folding limits (1,024 aa for Tier-1 JapanFold ESMFold-2, and 400 aa for public ESM Atlas). De novo folding for proteins > 1,024 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`);
     }
     throw new Error(`ESM Atlas returned HTTP ${atlasRes.status}${atlasRes.statusText ? ` (${atlasRes.statusText})` : ""}.`);
   } catch (atlasErr: any) {

@@ -116,7 +116,8 @@ export async function fetchHomologStructures(
       });
     }
     if (!signal?.aborted && err.name !== "AbortError") {
-      console.error("Error fetching homologous structures:", err.message || err);
+      console.warn("[Homologs] Notice: Unable to retrieve homologous structures:", err.message || err);
+      sink.setHomologs([]);
     }
   } finally {
     if (!signal?.aborted) {

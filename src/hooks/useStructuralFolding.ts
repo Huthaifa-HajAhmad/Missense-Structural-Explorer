@@ -93,6 +93,18 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
       return;
     }
 
+    const seqLen = wtSeq?.length || 0;
+    const hasToken = Boolean(apiClient?.settings?.biohubApiToken);
+    if (seqLen > 1024 && !hasToken) {
+      const cleanMessage = `Sequence length (${seqLen} aa) exceeds the de novo folding limits (1,024 aa for Tier-1 JapanFold ESMFold-2, and 400 aa for public ESM Atlas). De novo folding for proteins > 1,024 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`;
+      console.warn("[ESMFold] De novo folding limit notice:", cleanMessage);
+      setEsmFoldingError(cleanMessage);
+      sink?.setEsmFoldingError?.(cleanMessage);
+      setIsEsmFolding(false);
+      sink?.setIsEsmFolding?.(false);
+      return;
+    }
+
     setIsEsmFolding(true);
     setEsmFoldingError(null);
     sink?.setIsEsmFolding?.(true);

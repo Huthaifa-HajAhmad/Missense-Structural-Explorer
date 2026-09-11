@@ -722,9 +722,14 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
               } catch (e) {}
             }
 
-            const errorSummary = parsedError?.error || parsedError?.message || response.statusText;
+            const rawError = parsedError?.error;
+            const errorSummary =
+              (typeof rawError === "string"
+                ? rawError
+                : rawError?.message || parsedError?.message) ||
+              response.statusText;
             const message = `${method} ${url} → ${response.status} ${response.statusText}${errorSummary && errorSummary !== response.statusText ? ` (${errorSummary})` : ""}`;
-            const isCritical = url.includes("/api/v1/variant/analyze") || url.includes("/api/v1/structure/");
+            const isCritical = url.includes("/api/v1/variant/analyze") || (url.includes("/api/v1/structure/") && !url.includes("/homologs"));
             const impact: ErrorImpact = response.status >= 500 && isCritical ? "fatal" : response.status === 429 ? "recoverable" : "degraded";
 
             pushErrorEntry({
@@ -758,10 +763,14 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         const durationMs = Math.round(performance.now() - startTime);
         if (err?.name !== "AbortError" && !isInternalCapturingRef.current) {
+          const isCritical = url.includes("/api/v1/variant/analyze") || (url.includes("/api/v1/structure/") && !url.includes("/homologs"));
+          const isTimeout = err?.name === "TimeoutError" || err?.message?.toLowerCase().includes("timed out");
+          const impact: ErrorImpact = isCritical ? "fatal" : isTimeout ? "degraded" : "recoverable";
+
           pushErrorEntry({
-            level: "error",
+            level: isCritical ? "error" : "warn",
             source: "network",
-            impact: "fatal",
+            impact,
             message: `Fetch failed: ${method} ${url}`,
             detail: err?.stack || String(err),
             httpMeta: { url, method, status: 0, durationMs },

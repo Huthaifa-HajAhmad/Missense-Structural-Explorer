@@ -82,8 +82,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       const homologs = await fetchPdbHomologs(validatedUniprot, pos);
       res.json({ homologs });
     } catch (err: any) {
-      console.warn(`[Homologs] Error fetching homologs for ${validatedUniprot}:`, err.message || err);
-      sendError(res, 500, "HOMOLOG_FETCH_FAILED", `Failed to retrieve homologous PDB models for ${validatedUniprot}.`);
+      console.warn(`[Homologs] Notice: Error or timeout fetching homologs for ${validatedUniprot}:`, err.message || err);
+      // Homologs are optional progressive enhancements; return empty array with 200 OK so UI proceeds smoothly
+      res.json({ homologs: [] });
     }
   });
 
@@ -330,7 +331,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       // Only check sidecar health if the error was not an explicit domain error (such as sequence length limits)
       const isExplicitDomainError = err.message?.includes("Sequence length") || err.message?.includes("No sequence resolved");
 
-      if (!isExplicitDomainError) {
+      if (isExplicitDomainError) {
+        statusCode = 422;
+      } else {
         // Inspect sidecar health status to provide extremely clear researcher feedback
         try {
           const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
@@ -351,7 +354,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         }
       }
 
-      sendError(res, statusCode, statusCode === 503 ? "SERVICE_UNAVAILABLE" : "BAD_GATEWAY", customMessage);
+      sendError(res, statusCode, statusCode === 503 ? "SERVICE_UNAVAILABLE" : isExplicitDomainError ? "UNPROCESSABLE_ENTITY" : "BAD_GATEWAY", customMessage);
     }
   });
 

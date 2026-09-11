@@ -307,4 +307,24 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
     const homologsPos40 = await fetchPdbHomologs("P12345", 40);
     expect(homologsPos40[0].pdbId).toBe("2BBB");
   });
+
+  it("should gracefully return empty array when RCSB query times out or fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string | URL | Request) => {
+      const u = typeof url === "string" ? url : (url as Request).url || url.toString();
+      if (u.includes("uniprotkb")) {
+        return new Response(">sp|P99999|TEST\nMKVLVLGSGGREHALAWKAAQAAPEVVAVHT\n", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" }
+        });
+      }
+      if (u.includes("rcsbsearch")) {
+        return Promise.reject(new Error("TimeoutError: Request timed out after 10000ms"));
+      }
+      return new Response("{}", { status: 200 });
+    }));
+
+    const result = await fetchPdbHomologs("P99999", 15);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(0);
+  });
 });

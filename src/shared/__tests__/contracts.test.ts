@@ -98,6 +98,38 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.status).toBe("success");
   });
 
+  it("should validate pocketFinderResponseSchema with unavailable and none_detected statuses", () => {
+    const unavailablePayload = {
+      pocketResidues: [],
+      pocketScore: 0,
+      pocketVolume: 0,
+      likelyCofactor: "None",
+      status: "unavailable",
+      pocketDistance: null
+    };
+    const parsedUnavailable = pocketFinderResponseSchema.parse(unavailablePayload);
+    expect(parsedUnavailable.status).toBe("unavailable");
+
+    const noneDetectedPayload = {
+      pocketResidues: [],
+      pocketScore: 0,
+      pocketVolume: 0,
+      likelyCofactor: "None",
+      status: "none_detected",
+      pocketDistance: null
+    };
+    const parsedNoneDetected = pocketFinderResponseSchema.parse(noneDetectedPayload);
+    expect(parsedNoneDetected.status).toBe("none_detected");
+
+    // Unexpected status should safely default to "unavailable" via catch
+    const unexpectedPayload = {
+      ...unavailablePayload,
+      status: "unexpected_status_from_future_engine"
+    };
+    const parsedUnexpected = pocketFinderResponseSchema.parse(unexpectedPayload);
+    expect(parsedUnexpected.status).toBe("unavailable");
+  });
+
   it("should validate biophysicalAnalysisResponseSchema successfully", () => {
     const validPayload = {
       analysis: "Test analysis narrative",

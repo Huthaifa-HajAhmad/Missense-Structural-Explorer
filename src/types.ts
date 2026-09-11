@@ -340,6 +340,7 @@ export interface UserSettings {
 
 export interface PocketResidue {
   index: number;
+  chain?: string;
   name: string;
   distance: number;
   score: number;
@@ -353,7 +354,7 @@ export interface PocketResult {
   pocketVolume: number;
   likelyCofactor: string;
   pocketDistance: number | null;
-  status?: string;
+  status?: "success" | "fallback" | "none_detected" | "unavailable" | string;
 }
 
 export interface StructuralMetrics {

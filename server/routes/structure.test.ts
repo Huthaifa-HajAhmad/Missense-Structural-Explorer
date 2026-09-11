@@ -285,6 +285,40 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
     });
   });
 
+  describe("POST /esmfold", () => {
+    const esmfoldRoute: any = apiRouter.stack.find(
+      (s: any) => s.route && (s.route.path === "/esmfold" || (Array.isArray(s.route.path) && s.route.path.includes("/esmfold")))
+    );
+    expect(esmfoldRoute).toBeDefined();
+    const handler = esmfoldRoute.route.stack[esmfoldRoute.route.stack.length - 1].handle;
+
+    it("rejects sequences exceeding 1,024 residues without token with 422 UNPROCESSABLE_ENTITY", async () => {
+      let statusCode = 0;
+      let errorBody: any = null;
+      const longSeq = "M".repeat(1025);
+      const req: any = {
+        body: { sequence: longSeq },
+        headers: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(data: any) {
+          errorBody = data;
+          return this;
+        }
+      };
+
+      await handler(req, res);
+      expect(statusCode).toBe(422);
+      expect(errorBody?.error?.code).toBe("UNPROCESSABLE_ENTITY");
+      expect(errorBody?.error?.message).toContain("1,024 aa");
+      expect(errorBody?.error?.message).toContain("400 aa");
+    });
+  });
+
   describe("POST /structure/multimer", () => {
     it("rejects request with 400 if required fields are invalid or missing", async () => {
       const multimerRoute: any = apiRouter.stack.find(

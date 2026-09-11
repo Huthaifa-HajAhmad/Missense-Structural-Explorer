@@ -167,7 +167,7 @@ export async function findBindingPocket(
   jobDir: string,
   targetChain?: string,
   signal?: AbortSignal
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
   const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
   const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}`;
   const cached = pocketCache.get(cacheKey);
@@ -188,7 +188,7 @@ async function findBindingPocketInternal(
   jobDir: string,
   targetChain?: string,
   signal?: AbortSignal
-): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
+): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null }> {
   const fullPdbPath = path.join(jobDir, "wt.pdb");
   const fullOutDir = path.join(jobDir, "out");
 
@@ -240,6 +240,7 @@ async function findBindingPocketInternal(
   }
 
   let p2rankSuccess = false;
+  let p2rankRanSuccessfully = false;
   let pocketResidues: any[] = [];
   let pocketScore = 0;
   let pocketVolume = 0;
@@ -331,6 +332,7 @@ async function findBindingPocketInternal(
     // Parse predictions file
     const predictionsFile = path.join(fullOutDir, `wt.pdb_predictions.csv`);
     if (fs.existsSync(predictionsFile)) {
+      p2rankRanSuccessfully = true;
       const csvText = await fs.promises.readFile(predictionsFile, "utf8");
       const csvLines = csvText.split("\n").map(l => l.trim()).filter(Boolean);
 
@@ -652,7 +654,7 @@ async function findBindingPocketInternal(
       pocketScore: 0,
       pocketVolume: 0,
       likelyCofactor: "None recorded in curated annotations",
-      status: "unavailable",
+      status: p2rankRanSuccessfully ? "none_detected" : "unavailable",
       pocketDistance: null
     };
   }
@@ -663,7 +665,7 @@ async function findBindingPocketInternal(
     pocketVolume,
     likelyCofactor,
     pocketDistance,
-    status: "success"
+    status: p2rankSuccess ? "success" : "fallback"
   };
 }
 

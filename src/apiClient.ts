@@ -17,6 +17,7 @@ import {
   StructuralAlignResponse,
   StructuralDiffResponse
 } from "./shared/contracts";
+import type { PdbHomolog } from "./types";
 import { fetchWithRetry } from "./shared/fetch-retry";
 
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
@@ -341,10 +342,10 @@ export function useApiClient() {
         return await res.text();
       },
 
-      async getHomologs(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<any[]> {
+      async getHomologs(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<PdbHomolog[]> {
         const query = pos != null ? `?pos=${encodeURIComponent(pos)}` : "";
         const res = await fetchWithAuth(`/api/v1/homologs/${encodeURIComponent(uniprotId)}${query}`, {
-          timeout: 35000,
+          timeout: 20000,
           signal
         });
         if (!res.ok) {
@@ -352,7 +353,7 @@ export function useApiClient() {
           throw new Error(errorMsg);
         }
         const data = await res.json();
-        return z.object({ homologs: z.array(z.any()) }).parse(data).homologs;
+        return z.object({ homologs: z.array(z.any()) }).parse(data).homologs as PdbHomolog[];
       },
 
       async getNearestResidues(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex: number, distanceThreshold: number, targetChain?: string }, signal?: AbortSignal): Promise<NearestResiduesResponse> {
@@ -739,9 +740,11 @@ export function useApiClient() {
           };
         }
         return await res.json();
-      }
+      },
+
+      settings
     };
-  }, [fetchWithAuth]);
+  }, [fetchWithAuth, settings]);
 
   return { fetchWithAuth, apiClient };
 }
