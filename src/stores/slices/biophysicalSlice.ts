@@ -1,5 +1,6 @@
 import { StateCreator } from "zustand";
-import { VariantBiophysicsState, createInitialBiophysicsState } from "../models.ts";
+import { VariantBiophysicsState, createInitialBiophysicsState } from "../models";
+import type { PocketResult, EnergeticsData, StructuralDiffResult } from "../../types";
 
 export interface BiophysicalState {
   // Normalized Sub-State Models
@@ -11,49 +12,79 @@ export interface BiophysicalState {
   compareMode: boolean;
   compareVariant: string;
   comparisonLayout: "split" | "overlay";
-  computedPocket: any | null;
+  computedPocket: PocketResult | null;
   isPocketLoading: boolean;
   pocketError: string | null;
   lastFetchedFold: string;
 
   // Flat Primary Variant Properties (retained for 100% backward compatibility)
+  /** @deprecated Use granular selectors on primaryBiophysics, e.g. s => s.primaryBiophysics.mutantPdb */
   mutantPdb: string | null;
+  /** @deprecated Use primaryBiophysics.foldedResidueIndex */
   foldedResidueIndex: number | null;
+  /** @deprecated Use primaryBiophysics.isFolding */
   isFolding: boolean;
+  /** @deprecated Use primaryBiophysics.foldingError */
   foldingError: string | null;
+  /** @deprecated Use primaryBiophysics.foldingStatus */
   foldingStatus: string | null;
+  /** @deprecated Use primaryBiophysics.foldingDdG */
   foldingDdG: number | null;
-  foldingEnergetics: any | null;
+  /** @deprecated Use primaryBiophysics.foldingEnergetics */
+  foldingEnergetics: EnergeticsData | null;
+  /** @deprecated Use primaryBiophysics.dynamut2Status */
   dynamut2Status: string | null;
+  /** @deprecated Use primaryBiophysics.dynamut2JobId */
   dynamut2JobId: string | null;
+  /** @deprecated Use primaryBiophysics.ddmutStatus */
   ddmutStatus: string | null;
+  /** @deprecated Use primaryBiophysics.ddmutJobId */
   ddmutJobId: string | null;
+  /** @deprecated Use primaryBiophysics.thermompnnStatus */
   thermompnnStatus: string | null;
+  /** @deprecated Use primaryBiophysics.thermompnnError */
   thermompnnError: string | null;
+  /** @deprecated Use primaryBiophysics.thermompnnJobId */
   thermompnnJobId: string | null;
-  structuralDiff: any | null;
+  /** @deprecated Use primaryBiophysics.structuralDiff */
+  structuralDiff: StructuralDiffResult | null;
 
   // Flat Comparison Variant Properties (retained for 100% backward compatibility)
+  /** @deprecated Use compareBiophysics.mutantPdb */
   compareMutantPdb: string | null;
+  /** @deprecated Use compareBiophysics.foldedResidueIndex */
   compareFoldedResidueIndex: number | null;
+  /** @deprecated Use compareBiophysics.isFolding */
   isFoldingCompare: boolean;
+  /** @deprecated Use compareBiophysics.foldingError */
   foldingCompareError: string | null;
+  /** @deprecated Use compareBiophysics.foldingStatus */
   compareFoldingStatus: string | null;
+  /** @deprecated Use compareBiophysics.foldingDdG */
   compareFoldingDdG: number | null;
-  compareFoldingEnergetics: any | null;
+  /** @deprecated Use compareBiophysics.foldingEnergetics */
+  compareFoldingEnergetics: EnergeticsData | null;
+  /** @deprecated Use compareBiophysics.dynamut2Status */
   compareDynamut2Status: string | null;
+  /** @deprecated Use compareBiophysics.dynamut2JobId */
   compareDynamut2JobId: string | null;
+  /** @deprecated Use compareBiophysics.ddmutStatus */
   compareDdmutStatus: string | null;
+  /** @deprecated Use compareBiophysics.ddmutJobId */
   compareDdmutJobId: string | null;
+  /** @deprecated Use compareBiophysics.thermompnnStatus */
   compareThermompnnStatus: string | null;
+  /** @deprecated Use compareBiophysics.thermompnnError */
   compareThermompnnError: string | null;
+  /** @deprecated Use compareBiophysics.thermompnnJobId */
   compareThermompnnJobId: string | null;
-  compareStructuralDiff: any | null;
+  /** @deprecated Use compareBiophysics.structuralDiff */
+  compareStructuralDiff: StructuralDiffResult | null;
 }
 
 export interface BiophysicalActions {
   // Normalized Atomic Actions
-  setVariantBiophysics: (isCompare: boolean, partial: Partial<VariantBiophysicsState>) => void;
+  setVariantBiophysics: (isCompare: boolean, partial: Partial<VariantBiophysicsState>, targetVariant?: string) => void;
   resetBiophysics: (isCompare?: boolean) => void;
 
   // Shared / Global Setters
@@ -61,7 +92,7 @@ export interface BiophysicalActions {
   setCompareMode: (compareMode: boolean) => void;
   setCompareVariant: (compareVariant: string) => void;
   setComparisonLayout: (comparisonLayout: "split" | "overlay") => void;
-  setComputedPocket: (computedPocket: any | null) => void;
+  setComputedPocket: (computedPocket: PocketResult | null) => void;
   setIsPocketLoading: (isPocketLoading: boolean) => void;
   setPocketError: (pocketError: string | null) => void;
   setLastFetchedFold: (lastFetchedFold: string) => void;
@@ -154,7 +185,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   compareStructuralDiff: null,
 
   // Atomic Normalized Actions
-  setVariantBiophysics: (isCompare, partial) => set((state) => {
+  setVariantBiophysics: (isCompare, partial, targetVariant) => set((state: any) => {
+    const activeVariant = isCompare ? state.compareVariant : (state.variant || state.primaryBiophysics?.variant);
+    if (targetVariant && activeVariant && targetVariant !== activeVariant) {
+      return state;
+    }
     if (isCompare) {
       const updated = { ...state.compareBiophysics, ...partial };
       return {

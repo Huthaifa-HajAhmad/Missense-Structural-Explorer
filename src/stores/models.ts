@@ -2,6 +2,8 @@
  * Normalized Domain State Models for Variant Analysis Store
  */
 
+import type { EnergeticsData, StructuralDiffResult } from "../types";
+
 export interface VariantBiophysicsState {
   variant: string;
   mutantPdb: string | null;
@@ -10,8 +12,8 @@ export interface VariantBiophysicsState {
   foldingError: string | null;
   foldingStatus: string | null;
   foldingDdG: number | null;
-  foldingEnergetics: any | null;
-  structuralDiff: any | null;
+  foldingEnergetics: EnergeticsData | null;
+  structuralDiff: StructuralDiffResult | null;
   dynamut2Status: string | null;
   dynamut2JobId: string | null;
   ddmutStatus: string | null;

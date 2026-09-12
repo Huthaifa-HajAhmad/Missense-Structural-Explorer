@@ -35,7 +35,7 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
   isFullscreen,
   handleToggleFullscreen
 }) => {
-  const analysisActions = useVariantAnalysisActions();
+  const { setIsHowToInspectOpen } = useVariantAnalysisActions();
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b z-20 shrink-0 pointer-events-auto shadow-xs" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
       {/* Left: Unified Protein Source Badge, Gene, Residue, Focus Button */}
@@ -265,7 +265,7 @@ export const MolstarToolbar: React.FC<MolstarToolbarProps> = ({
         {/* 3D Inspection Guide Button */}
         <button
           type="button"
-          onClick={() => analysisActions.setIsHowToInspectOpen(true)}
+          onClick={() => setIsHowToInspectOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono border transition-all cursor-pointer select-none hover:bg-[var(--cs-bg-subtle)]"
           style={{
             background: "var(--cs-surface)",

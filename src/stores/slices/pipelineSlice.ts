@@ -27,7 +27,7 @@ export interface PipelineActions {
   setDisruptionPredictor: (updater: DisruptionPredictorResult | null | ((prev: DisruptionPredictorResult | null) => DisruptionPredictorResult | null)) => void;
   setComputedResiduesCache: (cache: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
   setTriageOverride: (triageOverride: boolean) => void;
-  updateAnalysisResultSlice: <K extends keyof AnalysisResult>(key: K, value: AnalysisResult[K]) => void;
+  updateAnalysisResultSlice: <K extends keyof AnalysisResult>(key: K, value: AnalysisResult[K], targetVariant?: string) => void;
   setLoadingStates: (states: Partial<{
     biophysical: boolean;
     structural: boolean;
@@ -81,8 +81,12 @@ export const createPipelineSlice: StateCreator<PipelineSlice, [], [], PipelineSl
 
   setTriageOverride: (triageOverride) => set({ triageOverride }),
 
-  updateAnalysisResultSlice: (key, value) => set((state) => {
+  updateAnalysisResultSlice: (key, value, targetVariant) => set((state: any) => {
     if (!state.analysisState.result) return state;
+    const currentVariant = state.variant || state.analysisState.result.variant;
+    if (targetVariant && currentVariant && targetVariant !== currentVariant) {
+      return state;
+    }
     return {
       analysisState: {
         ...state.analysisState,

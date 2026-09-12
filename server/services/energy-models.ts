@@ -196,7 +196,7 @@ export function closeRaspResources(): void {
 
 /**
  * Runs the local RaSP stability predictor via precomputed human proteome lookup.
- * Sign convention: negative = destabilizing (matching DynaMut2/DDMut).
+ * Sign convention: positive = destabilizing (ΔΔG > 0, matching FoldX standard convention).
  */
 export async function runRaspLocal(
   wtPdbPath: string,

@@ -58,6 +58,12 @@ export function getMutantFromCache(cacheKey: string): any | null {
     }
   } catch (err: any) {
     console.error("[FoldX Cache Read Error]", err.message);
+    try {
+      const filename = getCacheFilename(cacheKey);
+      if (fs.existsSync(filename)) {
+        fs.unlinkSync(filename);
+      }
+    } catch (_) {}
   }
   return null;
 }

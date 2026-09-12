@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import { VariantPreset, SearchHistoryItem } from "../../types";
 import { getCachedVariant } from "../../services/pipeline/variantCache";
+import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
 
 export interface SearchState {
   gene: string;
@@ -95,7 +96,12 @@ const loadInitialHistory = (): SearchHistoryItem[] => {
   }
 };
 
-export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> = (set, get) => ({
+export const createSearchSlice: StateCreator<
+  VariantAnalysisStore,
+  [],
+  [],
+  SearchSlice
+> = (set, get) => ({
   gene: initial.gene,
   variant: initial.variant,
   uniprotId: initial.uniprotId,
@@ -167,6 +173,13 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
     const mutMatch = item.variant.match(/\d+/);
     const resIdx = mutMatch ? parseInt(mutMatch[0], 10) : null;
 
+    // Atomically reset biophysical, structural folding, and pipeline analysis state
+    // before applying new variant parameters, preventing invalid hybrid states.
+    if (options?.resetViewerState) {
+      options.resetViewerState();
+    }
+    get().resetVariantAnalysisState();
+
     set({
       gene: item.gene,
       variant: item.variant,
@@ -176,15 +189,6 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
       customVariant: item.variant,
       selectedResidueIndex: resIdx
     });
-
-    const cached = getCachedVariant(item.gene, item.variant);
-    if (!cached) {
-      if (options?.resetViewerState) {
-        options.resetViewerState();
-      } else if (typeof (get() as any).resetViewerState === "function") {
-        (get() as any).resetViewerState();
-      }
-    }
 
     if (options?.executeAnalysis) {
       options.executeAnalysis(item.gene, item.variant, item.uniprotId);
@@ -197,6 +201,13 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
     const mutMatch = preset.variant.match(/\d+/);
     const resIdx = mutMatch ? parseInt(mutMatch[0], 10) : null;
 
+    // Atomically reset biophysical, structural folding, and pipeline analysis state
+    // before applying new variant parameters, preventing invalid hybrid states.
+    if (options?.resetViewerState) {
+      options.resetViewerState();
+    }
+    get().resetVariantAnalysisState();
+
     set({
       gene: preset.gene,
       variant: preset.variant,
@@ -206,15 +217,6 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
       customVariant: preset.variant,
       selectedResidueIndex: resIdx
     });
-
-    const cached = getCachedVariant(preset.gene, preset.variant);
-    if (!cached) {
-      if (options?.resetViewerState) {
-        options.resetViewerState();
-      } else if (typeof (get() as any).resetViewerState === "function") {
-        (get() as any).resetViewerState();
-      }
-    }
 
     if (options?.executeAnalysis) {
       options.executeAnalysis(preset.gene, preset.variant, preset.uniprotId);
@@ -235,6 +237,11 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
     const classification = result?.clinvar?.classification ?? result?.ruleBasedInsights?.acmgVerdict ?? "";
     const narrative = result?.analysis ?? "";
     const acmgCriteria = (result?.insights?.acmgCriteria ?? result?.ruleBasedInsights?.acmgCriteria ?? []).map((c: any) => c.code);
+
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      console.warn("[Copy Report] Clipboard API unavailable in this environment.");
+      return;
+    }
 
     try {
       await navigator.clipboard.writeText(

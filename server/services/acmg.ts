@@ -524,8 +524,6 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
   // -------------------------------------------------------------------------
   // 3. PP2 — Missense constraint (ACMG-6: live gnomAD constraint preferred)
   // -------------------------------------------------------------------------
-  let pp2Assigned = false;
-
   if (gnomadConstraint?.isPP2Constrained && !skipPathogenicComp) {
     // Live gnomAD evidence — much more specific than the hardcoded list
     const misZ  = gnomadConstraint.missense_z !== null ? gnomadConstraint.missense_z.toFixed(2) : "N/A";

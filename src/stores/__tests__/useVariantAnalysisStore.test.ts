@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from "vitest";
-import { useVariantAnalysisStore, useVariantAnalysisActions } from "../useVariantAnalysisStore";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  useVariantAnalysisStore,
+  useVariantAnalysisActions,
+  getVariantAnalysisActions
+} from "../useVariantAnalysisStore";
 
 describe("useVariantAnalysisStore State Normalization", () => {
   beforeEach(() => {
     const store = useVariantAnalysisStore.getState();
-    store.resetViewerState();
-    store.setLoadingStates({
-      biophysical: false,
-      structural: false,
-      clinical: false,
-      narrative: false,
-      homologs: false
-    });
+    store.resetVariantAnalysisState();
+    store.setGene("PAH");
+    store.setVariant("p.Arg408Trp");
+    store.clearHistory();
+    try {
+      localStorage.clear();
+    } catch (_) {}
   });
 
   it("initializes with normalized primaryBiophysics and compareBiophysics models", () => {
@@ -133,6 +136,90 @@ describe("useVariantAnalysisStore State Normalization", () => {
     expect(state.isHomologsLoading).toBe(false);
   });
 
+  it("atomically resets biophysics, pipeline analysisState, and structural folding on resetVariantAnalysisState", () => {
+    const store = useVariantAnalysisStore.getState();
+
+    // Populate various slices
+    store.setMutantPdb("ATOM SOME PDB");
+    store.setEsmFoldMutPdb("ATOM ESM MUT");
+    store.setAnalysisState({
+      result: { variant: "p.Val600Glu" } as any,
+      isLoading: true,
+      error: "Some error"
+    });
+    store.setHomologs([{
+      pdbId: "1ABC",
+      score: 100,
+      identity: 99,
+      coverage: 0.95,
+      title: "Test",
+      organism: "Homo sapiens",
+      method: "X-ray",
+      resolution: 1.5,
+      isHuman: true
+    }]);
+
+    // Trigger atomic root reset
+    store.resetVariantAnalysisState();
+
+    const updated = useVariantAnalysisStore.getState();
+    expect(updated.mutantPdb).toBeNull();
+    expect(updated.primaryBiophysics.mutantPdb).toBeNull();
+    expect(updated.esmFoldMutPdb).toBeNull();
+    expect(updated.analysisState.result).toBeNull();
+    expect(updated.analysisState.isLoading).toBe(false);
+    expect(updated.analysisState.error).toBeNull();
+    expect(updated.homologs).toEqual([]);
+  });
+
+  it("guards against stale background biophysics updates via targetVariant", () => {
+    const actions = getVariantAnalysisActions();
+    const store = useVariantAnalysisStore.getState();
+    store.setVariant("p.Val600Glu");
+
+    // Stale update from earlier variant calculation (e.g. p.Arg408Trp)
+    actions.setVariantBiophysics(
+      false,
+      { mutantPdb: "STALE PDB", foldingDdG: 9.9 },
+      "p.Arg408Trp"
+    );
+
+    let state = useVariantAnalysisStore.getState();
+    expect(state.mutantPdb).toBeNull();
+    expect(state.primaryBiophysics.foldingDdG).toBeNull();
+
+    // Matching update for current variant
+    actions.setVariantBiophysics(
+      false,
+      { mutantPdb: "VALID PDB", foldingDdG: 1.5 },
+      "p.Val600Glu"
+    );
+
+    state = useVariantAnalysisStore.getState();
+    expect(state.mutantPdb).toBe("VALID PDB");
+    expect(state.primaryBiophysics.foldingDdG).toBe(1.5);
+  });
+
+  it("guards updateAnalysisResultSlice against stale variant overwrites", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setVariant("p.Val600Glu");
+    store.setAnalysisState({
+      result: { variant: "p.Val600Glu", gene: "BRAF" } as any,
+      isLoading: false,
+      error: null
+    });
+
+    // Stale update from another variant
+    store.updateAnalysisResultSlice("analysis", "Stale narrative", "p.Lys123Glu");
+    let state = useVariantAnalysisStore.getState();
+    expect(state.analysisState.result?.analysis).toBeUndefined();
+
+    // Matching update
+    store.updateAnalysisResultSlice("analysis", "Active narrative", "p.Val600Glu");
+    state = useVariantAnalysisStore.getState();
+    expect(state.analysisState.result?.analysis).toBe("Active narrative");
+  });
+
   it("handles preset selection with and without explicit options", () => {
     const actions = useVariantAnalysisActions();
     const preset = {
@@ -143,13 +230,55 @@ describe("useVariantAnalysisStore State Normalization", () => {
       description: "B-Raf proto-oncogene V600E activating mutation"
     };
 
-    // Call without options (autonomous cross-slice coordination)
+    // 1. Call without options (autonomous cross-slice coordination)
     actions.handleSelectPreset(preset);
 
-    const state = useVariantAnalysisStore.getState();
+    let state = useVariantAnalysisStore.getState();
     expect(state.gene).toBe("BRAF");
     expect(state.variant).toBe("p.Val600Glu");
     expect(state.uniprotId).toBe("P15056");
     expect(state.selectedResidueIndex).toBe(600);
+
+    // 2. Call with explicit options callbacks
+    const abortSpy = vi.fn();
+    const resetSpy = vi.fn();
+    const executeSpy = vi.fn();
+
+    actions.handleSelectPreset(
+      { ...preset, variant: "p.Val600Lys" },
+      {
+        abortAllPendingRequests: abortSpy,
+        resetViewerState: resetSpy,
+        executeAnalysis: executeSpy
+      }
+    );
+
+    expect(abortSpy).toHaveBeenCalledTimes(1);
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+    expect(executeSpy).toHaveBeenCalledWith("BRAF", "p.Val600Lys", "P15056");
+
+    state = useVariantAnalysisStore.getState();
+    expect(state.variant).toBe("p.Val600Lys");
+    expect(state.selectedResidueIndex).toBe(600);
+  });
+
+  it("manages history deduplication, truncation, and clearHistory", () => {
+    const store = useVariantAnalysisStore.getState();
+
+    store.addToHistory({ gene: "BRAF", variant: "V600E", uniprotId: "P15056" });
+    store.addToHistory({ gene: "KRAS", variant: "G12D", uniprotId: "P01116" });
+    // Duplicate BRAF V600E should bubble to front
+    store.addToHistory({ gene: "BRAF", variant: "V600E", uniprotId: "P15056" });
+
+    let history = useVariantAnalysisStore.getState().history;
+    expect(history.length).toBe(2);
+    expect(history[0].gene).toBe("BRAF");
+    expect(history[0].variant).toBe("V600E");
+    expect(history[1].gene).toBe("KRAS");
+
+    // Clear history
+    store.clearHistory();
+    history = useVariantAnalysisStore.getState().history;
+    expect(history).toEqual([]);
   });
 });

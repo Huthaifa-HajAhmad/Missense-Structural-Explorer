@@ -37,6 +37,12 @@ export function detectFoldxBinaryAndDir(): { foldxBin: string; foldxDir: string 
       try {
         const files = fs.readdirSync(dir);
         const exeFile = files.find(f => {
+          const fullPath = path.join(dir, f);
+          try {
+            if (!fs.statSync(fullPath).isFile()) return false;
+          } catch (_) {
+            return false;
+          }
           const lower = f.toLowerCase();
           if (process.platform === "win32") {
             return lower.startsWith("foldx") && lower.endsWith(".exe");

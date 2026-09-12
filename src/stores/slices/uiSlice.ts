@@ -26,6 +26,8 @@ export interface UiActions {
 
 export type UiSlice = UiState & UiActions;
 
+const notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   viewMode: "wildtype",
   isHowToInspectOpen: false,
@@ -61,14 +63,23 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
       notifications: [...state.notifications, { id, type, message }]
     }));
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      notificationTimers.delete(id);
       set((state) => ({
         notifications: state.notifications.filter((n) => n.id !== id)
       }));
     }, 6000);
+    notificationTimers.set(id, timer);
   },
 
-  removeNotification: (id) => set((state) => ({
-    notifications: state.notifications.filter((n) => n.id !== id)
-  }))
+  removeNotification: (id) => {
+    const existing = notificationTimers.get(id);
+    if (existing) {
+      clearTimeout(existing);
+      notificationTimers.delete(id);
+    }
+    set((state) => ({
+      notifications: state.notifications.filter((n) => n.id !== id)
+    }));
+  }
 });
