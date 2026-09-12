@@ -125,14 +125,12 @@ export async function generateMutantPdb(
   let promise = inFlightFoldx.get(cacheKey);
   if (!promise) {
     promise = (async () => {
-      await biophysicalSemaphore.acquire();
       try {
         const seed = options?.seed !== undefined ? options.seed : 12345;
         const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, undefined, { ...options, seed });
         writeMutantToCache(cacheKey, result);
         return result;
       } finally {
-        biophysicalSemaphore.release();
         inFlightFoldx.delete(cacheKey);
       }
     })();
