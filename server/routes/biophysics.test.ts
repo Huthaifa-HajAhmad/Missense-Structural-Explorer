@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import { apiRouter } from "../routes.ts";
-import { getNearestResidues } from "../../src/data.ts";
+import { getNearestResidues } from "../../src/shared/nearestResidues.ts";
 import { clearAllCaches } from "../services/cache.ts";
 import { REGISTRY_PATH } from "./shared.ts";
 import { BiophysicalJobQueue } from "../services/biophysical-queue.ts";

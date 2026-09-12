@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import path from "path";
 import { fetchPdbFromRcsb } from "./external.ts";
-import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import { BiophysicalJobQueue } from "./biophysical-queue.ts";
 import { activeBackgroundTasks, inFlightPrewarms } from "../routes/state.ts";
 

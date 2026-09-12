@@ -5,7 +5,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
-import { AMINO_ACID_1_TO_3 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3 } from "../../src/shared/aminoAcids.ts";
 import { validateUniProt, Semaphore } from "../utils.ts";
 import {
   type PdbAtom,

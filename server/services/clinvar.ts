@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CLINVAR_AA_MAP } from "../../src/aminoAcids.ts";
+import { CLINVAR_AA_MAP } from "../../src/shared/aminoAcids.ts";
 import { clinvarCache, getCachedOrFetch } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 import { buildClinvarKey } from "./cache-keys.ts";

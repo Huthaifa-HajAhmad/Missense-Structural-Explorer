@@ -16,7 +16,7 @@ import {
   fetchPdbHomologs,
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
-import type { StructureProvenance } from "../../src/types.ts";
+import type { StructureProvenance } from "../../src/shared/contracts.ts";
 
 export interface ResolvedStructure {
   pdbText: string;

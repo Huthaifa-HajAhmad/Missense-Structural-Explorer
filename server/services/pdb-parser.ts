@@ -9,7 +9,7 @@
  *
  * Zero dependencies on other server/services modules — safe to import anywhere.
  */
-import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 
 export interface PdbResidue {
   resSeq: number;

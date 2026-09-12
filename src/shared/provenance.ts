@@ -6,7 +6,7 @@
  * structure resolution metadata, and service statuses.
  */
 
-import type { AnalysisResult, StructureProvenance, EnergeticsData, UserSettings } from "../types.ts";
+import type { AnalysisResult, StructureProvenance, EnergeticsData } from "./contracts.ts";
 
 export const PROVENANCE_DATA_SOURCES = {
   dbnsfp: "4.4a",
@@ -65,7 +65,7 @@ export function generateProvenanceManifest(
   variant: string,
   uniprotId: string,
   analysisResult: AnalysisResult | null,
-  settings?: UserSettings,
+  settings?: { acmgWeighting?: string },
   foldingEnergetics?: EnergeticsData | null
 ): ProvenanceManifest {
   const meta = (analysisResult as any)?.metadata || {};

@@ -19,7 +19,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import readline from "readline";
 import { LRUCache } from "lru-cache";
-import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import { Readable } from "stream";
 import { finished } from "stream/promises";
 import crypto from "crypto";

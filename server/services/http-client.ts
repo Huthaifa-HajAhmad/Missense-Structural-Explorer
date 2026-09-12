@@ -11,7 +11,7 @@
  * making it safe to import anywhere without circular references.
  */
 import { CircuitBreaker, Semaphore, anySignal } from "../utils.ts";
-import { AMINO_ACID_1_TO_3_TITLE } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3_TITLE } from "../../src/shared/aminoAcids.ts";
 
 export function normalizeGeneSymbol(gene: string): string {
   const g = gene.trim().toUpperCase();

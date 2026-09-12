@@ -19,6 +19,4 @@ export const AMINO_ACID_TYPES = [
   { name: "Ile", prop: "Hydrophobic, Aliphatic", badge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20", role: "Supplies heavy aliphatic packaging inside hydrophobic cores and protein-protein boundaries." }
 ];
 
-export function getNearestResidues(uniprotId: string, variant: string, residueIndexNum: number | null): NearestResidue[] {
-  return [];
-}
+export { getNearestResidues } from "./shared/nearestResidues.ts";

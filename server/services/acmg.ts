@@ -12,7 +12,7 @@
  *  PARTIAL : Tracks and exposes partial evidence (unavailable predictors)
  */
 
-import { CLINVAR_AA_MAP } from "../../src/aminoAcids.ts";
+import { CLINVAR_AA_MAP } from "../../src/shared/aminoAcids.ts";
 import {
   THRESHOLDS,
   countPredictorConcordance,

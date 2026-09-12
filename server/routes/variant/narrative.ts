@@ -23,7 +23,7 @@ import {
   isGeminiApiKeyPlaceholder,
 } from "../../services/gemini.ts";
 import { computeRuleBasedACMG } from "../../services/acmg.ts";
-import { type AnalysisResult } from "../../../src/types.ts";
+import { type AnalysisResult } from "../../../src/shared/contracts.ts";
 import {
   getFromCache,
   writeToCache,

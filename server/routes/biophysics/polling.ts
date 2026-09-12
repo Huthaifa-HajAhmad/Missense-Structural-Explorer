@@ -23,7 +23,7 @@ import {
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
 import { recordJobInRegistry, REGISTRY_PATH, type RegistryJob } from "../shared.ts";
-import { AMINO_ACID_3_TO_1 } from "../../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 
 function parseMutationParam(mutation: string): { wtLetter: string; mutLetter: string; posNum: number; chainParam: string } | null {
   if (!mutation || typeof mutation !== "string" || mutation.length > 50) return null;

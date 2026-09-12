@@ -25,7 +25,7 @@ import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
 import { foldSequence } from "../services/esmfold.ts";
 import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
 import fs from "fs";
-import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import { applyMutation } from "../utils/mutation.ts";
 import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure } from "../services/multimer.ts";

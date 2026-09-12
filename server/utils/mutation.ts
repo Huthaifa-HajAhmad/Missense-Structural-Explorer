@@ -33,7 +33,7 @@ export function applyMutation(wtSequence: string, mutation: Mutation): string {
   return wtSequence.substring(0, position - 1) + mt.toUpperCase() + wtSequence.substring(position);
 }
 
-import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 
 export function parseMutationParam(mutation: string): { wtLetter: string; mutLetter: string; posNum: number; chainParam: string } | null {
   if (!mutation || typeof mutation !== "string" || mutation.length > 80) return null;

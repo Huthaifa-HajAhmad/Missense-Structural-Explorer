@@ -3,7 +3,7 @@ import { fetchWithRetry } from "./http-client.ts";
 import { pdbCache, afUrlCache, bestPdbCache, singleFlight } from "./cache.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
 import { AnalysisDatabase } from "./analysis-db.ts";
-import type { PdbHomolog } from "../../src/types.ts";
+import type { PdbHomolog } from "../../src/shared/contracts.ts";
 
 export interface PdbBestStructureMapping {
   pdbId: string;

@@ -1,53 +1,14 @@
-import type {
-  StructureProvenance,
-  GenerateMutantResponse,
-  AnalyzeVariantResponse
-} from "../shared/contracts.ts";
-
 export type {
   StructureProvenance,
   GenerateMutantResponse,
-  AnalyzeVariantResponse
-};
-
-export type UniprotFeatureType = 
-  | "DOMAIN" | "REGION" | "ACTIVE_SITE" | "BINDING" | "MUTAGEN" | "DISULFID" | "METAL" | "SITE" 
-  | (string & {});
-
-export interface UniprotFeatureItem {
-  type: UniprotFeatureType;
-  description: string;
-  start: number;
-  end: number;
-  interproId?: string;
-}
-
-export interface UniprotFeaturesData {
-  features: UniprotFeatureItem[];
-  geneName?: string;
-  subunitComment?: string | null;
-  isMultimer?: boolean;
-  sequenceLength?: number;
-}
-
-export interface DisruptionPredictorResult {
-  level: "high" | "low" | "unknown";
-  reason: string;
-  plddt: number | null;
-  burialStatus?: "core" | "surface" | "boundary";
-  neighborCount?: number;
-  rsa?: number | null;
-  sasa?: number | null;
-}
-
-export interface NearestResidue {
-  name: string;
-  distance: string;
-  properties: string;
-  role: string;
-  classBadge: string;
-  source?: "curated" | "computed";
-}
+  AnalyzeVariantResponse,
+  PdbHomolog,
+  DisruptionPredictorResult,
+  UniprotFeaturesData,
+  UniprotFeatureItem,
+  UniprotFeatureType,
+  NearestResidue
+} from "../shared/contracts.ts";
 
 export interface PocketResidue {
   index: number;
@@ -105,21 +66,4 @@ export interface StructuralDiffResult {
     mutClashCount: number;
     diff: number;
   };
-}
-
-export interface PdbHomolog {
-  pdbId: string;
-  score: number;
-  identity: number;
-  coverage: number;
-  title: string;
-  organism: string;
-  method: string;
-  resolution: number | null;
-  isHuman: boolean;
-  unpStart?: number;
-  structStart?: number;
-  querySeqFrom?: number;
-  querySeqTo?: number;
-  coversPosition?: boolean;
 }

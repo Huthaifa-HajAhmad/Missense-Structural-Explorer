@@ -1,4 +1,4 @@
-import { AnalysisResult } from "../types";
+import type { AnalysisResult } from "./contracts.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
 

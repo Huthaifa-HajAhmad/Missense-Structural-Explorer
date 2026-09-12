@@ -42,7 +42,7 @@ import { resolveStructure, type ResolvedStructure } from "../../services/structu
 import { type FoldXResult } from "../state.ts";
 import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
-import { AMINO_ACID_1_TO_3 } from "../../../src/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),

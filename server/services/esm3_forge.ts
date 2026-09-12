@@ -1,5 +1,5 @@
 import { LRUCache } from "lru-cache";
-import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import { fetchWithRetry } from "./external.ts";
 import { extractSequenceFromPdb } from "./pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";

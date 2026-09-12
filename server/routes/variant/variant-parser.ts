@@ -11,7 +11,7 @@ import {
   fetchUniprotSequence,
   resolveGeneToUniprot,
 } from "../../services/external.ts";
-import { AMINO_ACID_3_TO_1 } from "../../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
 
 export const analyzeVariantSchema = z.object({

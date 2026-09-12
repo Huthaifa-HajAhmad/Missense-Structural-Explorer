@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getWorkflowStageStatus } from "../workflowStatus.ts";
-import { AnalysisResult } from "../../types.ts";
+import type { AnalysisResult } from "../contracts.ts";
 
 describe("workflowStatus Helper Unit Tests (C-7)", () => {
   it("should return complete status when view is 'search'", () => {

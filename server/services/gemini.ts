@@ -7,7 +7,7 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
 import { PredictorData, ConservationData, StringInteraction, type ClinVarData } from "./external.ts";
-import { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../src/types.ts";
+import type { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../src/shared/contracts.ts";
 import { anySignal } from "../utils.ts";
 import { LRUCache } from "lru-cache";
 

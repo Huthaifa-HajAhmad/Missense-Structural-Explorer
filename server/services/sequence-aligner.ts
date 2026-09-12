@@ -1,4 +1,4 @@
-import { AMINO_ACID_3_TO_1 } from "../../src/aminoAcids.ts";
+import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import { fetchWithRetry } from "./http-client.ts";
 
 // Standard BLOSUM62 substitution matrix for amino acid alignment
