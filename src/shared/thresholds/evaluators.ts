@@ -125,8 +125,8 @@ export function evaluateSplicePredictor(
   dbscsnv?: { ada_score: number | null; rf_score: number | null } | null
 ): PredictorSignal {
   const isNear = spliceProximity?.isNearSpliceSite ?? false;
-  const maxDs = spliceai?.max_ds ?? 0;
-  const isSpliceAIPathogenic = maxDs >= 0.10;
+  const maxDs = spliceai?.max_ds ?? null;
+  const isSpliceAIPathogenic = maxDs !== null && maxDs >= THRESHOLDS.spliceai.pathogenicSupporting;
   const isDbscsnvPathogenic = (dbscsnv?.ada_score != null && dbscsnv.ada_score >= THRESHOLDS.dbscsnv.spliceAltering) ||
                              (dbscsnv?.rf_score != null && dbscsnv.rf_score >= THRESHOLDS.dbscsnv.spliceAltering);
 
@@ -142,7 +142,7 @@ export function evaluateSplicePredictor(
 
   const dist = spliceProximity?.distance ?? Infinity;
   const hasSpliceAI = spliceai?.max_ds != null;
-  const isSpliceAIBenign = hasSpliceAI ? (spliceai!.max_ds! <= 0.02) : null;
+  const isSpliceAIBenign = hasSpliceAI ? (spliceai!.max_ds! <= THRESHOLDS.spliceai.benign) : null;
 
   const hasDbscsnv = dbscsnv?.ada_score != null || dbscsnv?.rf_score != null;
   const isDbscsnvBenign = hasDbscsnv
