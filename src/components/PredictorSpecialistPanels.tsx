@@ -3,6 +3,7 @@ import { Brain, Cpu, Database, HeartHandshake, HelpCircle, Info, Layers, ShieldA
 import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar } from "../shared/thresholds";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 import { useSettings } from "../context/SettingsContext";
+import type { AlphaGenomeAviData } from "../shared/contracts";
 
 interface PredictorSpecialistPanelsProps {
   predictorData?: {
@@ -30,6 +31,7 @@ interface PredictorSpecialistPanelsProps {
     gpnStar?: number | null;
     gpnStarStatus?: "live" | "token_required" | "unavailable";
     gpnStarMessage?: string | null;
+    alphagenome?: AlphaGenomeAviData | null;
     source?: string;
   } | null;
   vesmScore?: number | null;
@@ -39,6 +41,7 @@ interface PredictorSpecialistPanelsProps {
   isLoading?: boolean;
   isStructuralLoading?: boolean;
   onOpenSettings?: () => void;
+  onTabChange?: (tab: string) => void;
 }
 
 type TabType = "lms" | "meta" | "annotations" | "evolution";
@@ -52,7 +55,8 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   saprotEval,
   isLoading = false,
   isStructuralLoading = false,
-  onOpenSettings
+  onOpenSettings,
+  onTabChange
 }) => {
   const { openSettingsTab } = useSettings();
   const renderScoreValue = (val: number | null, decimals = 3) => {
@@ -98,6 +102,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const gpnScore = conservationData?.gpnStar ?? null;
   const gpnStatus = conservationData?.gpnStarStatus ?? (gpnScore !== null ? "live" : "unavailable");
   const gpnMessage = conservationData?.gpnStarMessage ?? null;
+
+  const alphagenome = conservationData?.alphagenome ?? null;
+  const aviPhred = alphagenome?.aviPhred ?? null;
+  const aviStrength = alphagenome?.acmgStrength ?? "indeterminate";
+  const aviTopModality = alphagenome?.topModality ?? null;
+  const aviPercentile = alphagenome?.topPercentile ?? null;
 
   // Helper to render score bars
   const renderScoreBar = (val: number | null, min: number, max: number, threshLow: number, threshHigh: number, invert = false) => {
@@ -293,6 +303,93 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
       <div className="min-h-[220px]">
         {activeTab === "lms" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* AlphaGenome AVI (Whole-Genome Multimodal Foundation Model) */}
+            <div 
+              className="p-4 rounded-xl border flex flex-col justify-between relative overflow-hidden group" 
+              style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} 
+              title={THRESHOLD_NOTES.alphagenome}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-sm flex items-center" style={{ color: "var(--cs-text-primary)" }}>
+                    AlphaGenome AVI
+                    <span className="text-[10px] px-1.5 py-0.5 rounded ml-2 font-normal bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      Multimodal Foundation
+                    </span>
+                  </h4>
+                  <p className="text-xs mt-1" style={{ color: "var(--cs-text-muted)" }}>
+                    9,440 Tracks · 18 Biological Modalities
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setKnowledgeModalKey("alphagenome")}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Model details & literature citation"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                  {aviPhred !== null ? (
+                    renderBadge(
+                      aviStrength.startsWith("PP3") ? "pathogenic" : aviStrength.startsWith("BP4") ? "benign" : "vus",
+                      aviStrength !== "indeterminate" ? aviStrength.replace("_", " ") : "Indeterminate"
+                    )
+                  ) : (
+                    renderBadge("unavailable", isLoading ? "Evaluating..." : "Standby")
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex justify-between items-baseline">
+                  <div>
+                    <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>AVI Phred: </span>
+                    <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
+                      {aviPhred !== null ? `${aviPhred.toFixed(1)}` : (isLoading ? "Evaluating..." : "Standby")}
+                    </span>
+                  </div>
+                  {aviPercentile !== null && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                      Top {aviPercentile < 0.1 ? aviPercentile.toFixed(3) : aviPercentile.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+
+                {aviPhred !== null && renderScoreBar(aviPhred, 0, 60, 8.0, 15.0, false)}
+
+                {/* Driving Modality Pill */}
+                {aviTopModality && (
+                  <div className="mt-2.5 flex items-center justify-between text-[11px] px-2 py-1 rounded border bg-indigo-500/5 border-indigo-500/20">
+                    <span className="text-[10px] uppercase font-mono tracking-wider font-semibold text-indigo-400">
+                      Primary Modality
+                    </span>
+                    <span className="font-bold font-mono text-[10.5px]" style={{ color: "var(--cs-text-primary)" }}>
+                      {aviTopModality}
+                      {alphagenome?.topFeatureImportance != null && (
+                        <span className="ml-1 text-[9.5px] opacity-75">
+                          ({alphagenome.topFeatureImportance > 0 ? "+" : ""}{alphagenome.topFeatureImportance.toFixed(2)})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+
+                {/* Direct Link to AlphaGenome Atlas Tab */}
+                {onTabChange && (
+                  <button
+                    type="button"
+                    onClick={() => onTabChange("alphagenome")}
+                    className="mt-3 w-full py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all duration-150 cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border-amber-500/30"
+                  >
+                    <span>Open Full Genomic Track Studio →</span>
+                  </button>
+                )}
+
+                {renderSourceLabel("Google DeepMind / AlphaGenome Atlas")}
+              </div>
+            </div>
+
             {/* VESM-150M */}
             <div className="p-4 rounded-xl border flex flex-col justify-between" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }} title={THRESHOLD_NOTES.vesm}>
               <div className="flex justify-between items-start">

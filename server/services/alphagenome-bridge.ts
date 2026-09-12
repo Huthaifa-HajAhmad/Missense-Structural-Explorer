@@ -27,7 +27,6 @@ export const alphagenomeCache = new LRUCache<string, NonNullable<AlphaGenomeAviD
 
 // Register with global cache registry for telemetry diagnostics and unified flushes
 defaultCacheRegistry.registerCache("alphagenomeCache", alphagenomeCache, { ttlDesc: "30d" });
-defaultCacheRegistry.onClear(() => alphagenomeCache.clear());
 
 export function clearAlphaGenomeCache(): void {
   alphagenomeCache.clear();
@@ -59,7 +58,7 @@ export function calculateAlphaGenomeAcmgStrength(
 
 /**
  * Fetches AlphaGenome Variant Impact (AVI) scores and biological modality attributions.
- * Protected by an in-memory 30-day LRU cache and a 2.5-second fast deadline.
+ * Protected by an in-memory 30-day LRU cache, singleFlight deduplication, and a 2.5-second fast deadline.
  */
 export async function fetchAlphaGenome(
   chrom: string,
@@ -93,25 +92,52 @@ export async function fetchAlphaGenome(
     return cached;
   }
 
-  const urls = generateAtlasUrls(normChrom, pos, normRef, normAlt);
+  return defaultCacheRegistry.singleFlight(cacheKey, async () => {
+    const doubleChecked = alphagenomeCache.get(cacheKey);
+    if (doubleChecked) {
+      return doubleChecked;
+    }
 
-  // Fast-deadline abort signal: race against 2.5s window
-  const timeoutSignal = AbortSignal.timeout(2500);
-  const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+    const urls = generateAtlasUrls(normChrom, pos, normRef, normAlt);
 
-  // If a test or sidecar provider is injected, use it directly with timeout bounds
-  if (mockProvider) {
-    try {
-      if (combinedSignal.aborted) {
-        throw new Error("Query aborted / timeout");
+    // Fast-deadline abort signal: race against 2.5s window
+    const timeoutSignal = AbortSignal.timeout(2500);
+    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+    // If a test or sidecar provider is injected, use it directly with timeout bounds
+    if (mockProvider) {
+      try {
+        if (combinedSignal.aborted) {
+          throw new Error("Query aborted / timeout");
+        }
+        const res = await mockProvider(normChrom, pos, normRef, normAlt, combinedSignal);
+        if (res && res.status === "live") {
+          alphagenomeCache.set(cacheKey, res);
+        }
+        return res;
+      } catch (err: any) {
+        return {
+          status: "unavailable",
+          aviPhred: null,
+          aviRaw: null,
+          aviQuantile: null,
+          topPercentile: null,
+          topModality: null,
+          topFeatureImportance: null,
+          featureAttributions: null,
+          acmgStrength: "indeterminate",
+          atlasUrl: urls.trackPredictionsUrl,
+          message: err.message || "Provider query failed"
+        };
       }
-      const res = await mockProvider(normChrom, pos, normRef, normAlt, combinedSignal);
-      if (res && res.status === "live") {
-        alphagenomeCache.set(cacheKey, res);
-      }
-      return res;
-    } catch (err: any) {
-      return {
+    }
+
+    const effectiveApiKey = process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
+    const endpoint = process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
+
+    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL) {
+      // Unconfigured environment: clean standby state (Zero synthetic fallback)
+      const standbyResult: AlphaGenomeAviData = {
         status: "unavailable",
         aviPhred: null,
         aviRaw: null,
@@ -122,47 +148,26 @@ export async function fetchAlphaGenome(
         featureAttributions: null,
         acmgStrength: "indeterminate",
         atlasUrl: urls.trackPredictionsUrl,
-        message: err.message || "Provider query failed"
+        message: "AlphaGenome Atlas: Key Required / Standby"
       };
+      return standbyResult;
     }
-  }
 
-  const apiKey = CONFIG.services.alphagenomeApiKey;
-  const endpoint = CONFIG.services.alphagenomeUrl;
-
-  if (!apiKey && (!process.env.ALPHAGENOME_API_URL && !process.env.ALPHAGENOME_API_KEY)) {
-    // Unconfigured environment: clean standby state (Zero synthetic fallback)
-    const standbyResult: AlphaGenomeAviData = {
-      status: "unavailable",
-      aviPhred: null,
-      aviRaw: null,
-      aviQuantile: null,
-      topPercentile: null,
-      topModality: null,
-      topFeatureImportance: null,
-      featureAttributions: null,
-      acmgStrength: "indeterminate",
-      atlasUrl: urls.trackPredictionsUrl,
-      message: "AlphaGenome Atlas: Key Required / Standby"
-    };
-    return standbyResult;
-  }
-
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        chrom: normChrom,
-        pos,
-        ref: normRef,
-        alt: normAlt
-      }),
-      signal: combinedSignal
-    });
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(effectiveApiKey ? { Authorization: `Bearer ${effectiveApiKey}` } : {})
+        },
+        body: JSON.stringify({
+          chrom: normChrom,
+          pos,
+          ref: normRef,
+          alt: normAlt
+        }),
+        signal: combinedSignal
+      });
 
     if (!res.ok) {
       throw new Error(`AlphaGenome API responded with status ${res.status}`);
@@ -215,4 +220,5 @@ export async function fetchAlphaGenome(
       message: err.message || "AlphaGenome query timed out / unavailable"
     };
   }
+  });
 }

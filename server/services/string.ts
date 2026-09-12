@@ -1,6 +1,7 @@
 import type { LRUCache } from "lru-cache";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 import { stringCache, getCachedOrFetch } from "./cache.ts";
+import { buildStringKey } from "./cache-keys.ts";
 
 export interface FetchStringOptions {
   l1Cache?: LRUCache<string, any>;
@@ -17,7 +18,7 @@ export async function fetchStringInteractions(
   options?: FetchStringOptions
 ): Promise<StringInteraction[]> {
   const normGene = normalizeGeneSymbol(gene);
-  const cacheKey = `string_ppi_${normGene}`;
+  const cacheKey = buildStringKey(normGene);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -25,6 +26,7 @@ export async function fetchStringInteractions(
     l1Cache: options?.l1Cache ?? stringCache,
     ttlSeconds: 14 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
+    shouldCache: (result: StringInteraction[]) => Array.isArray(result) && result.length > 0,
     fetcher: async () => {
       const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606`;
       

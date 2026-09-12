@@ -124,13 +124,13 @@ type WeightKey = keyof typeof WEIGHT;
 
 function codeWeight(code: string): number {
   if (code === "PVS1")           return WEIGHT.PVS1;
-  if (code === "PVS1_Strong")    return WEIGHT.PS;
-  if (code === "PVS1_Moderate")  return WEIGHT.PM;
+  if (code === "PVS1_Strong" || code === "PP3_Strong") return WEIGHT.PS;
+  if (code === "PVS1_Moderate" || code === "PP3_Moderate") return WEIGHT.PM;
   if (code.startsWith("PS"))     return WEIGHT.PS;
   if (code.startsWith("PM"))     return WEIGHT.PM;
   if (code.startsWith("PP"))     return WEIGHT.PP;
   if (code === "BA1")            return WEIGHT.BA1;
-  if (code.startsWith("BS"))     return WEIGHT.BS;
+  if (code.startsWith("BS") || code === "BP4_Moderate") return WEIGHT.BS;
   if (code.startsWith("BP"))     return WEIGHT.BP;
   return 0;
 }
@@ -144,11 +144,11 @@ function classifyVariant(criteria: ACMGItem[]): string {
   const benign     = criteria.filter(c => codeWeight(c.code) < 0);
 
   const nPVS = pathogenic.filter(c => c.code === "PVS1").length;
-  const nPS  = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong").length;
-  const nPM  = pathogenic.filter(c => c.code.startsWith("PM") || c.code === "PVS1_Moderate").length;
-  const nPP  = pathogenic.filter(c => c.code.startsWith("PP")).length;
-  const nBS  = benign.filter(c => c.code.startsWith("BS")).length;
-  const nBP  = benign.filter(c => c.code.startsWith("BP")).length;
+  const nPS  = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong" || c.code === "PP3_Strong").length;
+  const nPM  = pathogenic.filter(c => c.code.startsWith("PM") || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate").length;
+  const nPP  = pathogenic.filter(c => c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate").length;
+  const nBS  = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Moderate").length;
+  const nBP  = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Moderate").length;
 
   // ---- Pathogenic ----
   const isPathogenic =
@@ -337,7 +337,8 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
       saprotLlr: saprotEval?.llr,
       spliceProximity: conservationData?.spliceProximity,
       spliceai: conservationData?.spliceai,
-      dbscsnv: conservationData?.dbscsnv
+      dbscsnv: conservationData?.dbscsnv,
+      alphagenome: conservationData?.alphagenome
     }
   );
 
@@ -350,10 +351,17 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
     `AlphaMissense: ${predictorData?.amClass ?? "N/A"}, ` +
     `popEVE: ${signals.popeve ? signals.popeve.toUpperCase() : "N/A"}, ` +
     `BayesDel: ${conservationData?.bayesdel ?? "N/A"}, ` +
+    (conservationData?.alphagenome?.aviPhred !== undefined && conservationData?.alphagenome?.aviPhred !== null
+      ? `AlphaGenome: ${conservationData.alphagenome.aviPhred.toFixed(1)} Phred (${conservationData.alphagenome.topModality ?? "Multimodal"}), `
+      : "") +
     `ESMC LLR: ${esmcEval?.llr !== undefined && esmcEval?.llr !== null ? esmcEval.llr.toFixed(2) : (esm2?.llr !== undefined && esm2?.llr !== null ? esm2.llr.toFixed(2) : "N/A")}, ` +
     `ESM-2 3B LLR: ${esm2Eval?.llr !== undefined && esm2Eval?.llr !== null ? esm2Eval.llr.toFixed(2) : "N/A"}, ` +
     `SaProt LLR: ${saprotEval?.llr !== undefined && saprotEval?.llr !== null ? saprotEval.llr.toFixed(2) : "N/A"}` +
     (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "");
+
+  const aviPhred = conservationData?.alphagenome?.aviPhred;
+  const topModality = conservationData?.alphagenome?.topModality;
+  const modalityNote = topModality ? ` (${topModality} modality)` : "";
 
   if (nPathogenic > nBenign && !skipPathogenicComp) {
     // Determine consensus strength
@@ -365,10 +373,20 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
         ? ` ⚠ Conflicting in-silico signals: ${nBenign} predictor(s) support benign.`
         : "";
 
+    let pp3Code = "PP3";
+    let tierNote = "";
+    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= 35.0) {
+      pp3Code = "PP3_Strong";
+      tierNote = ` [Strong evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
+    } else if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= 25.0) {
+      pp3Code = "PP3_Moderate";
+      tierNote = ` [Moderate evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
+    }
+
     criteria.push({
-      code: "PP3",
+      code: pp3Code,
       reason:
-        `${consensusWord}. (${buildPredictorDetail()})${conflictNote}`,
+        `${consensusWord}${tierNote}. (${buildPredictorDetail()})${conflictNote}`,
     });
   } else if (nBenign > nPathogenic && !skipBenignComp) {
     const consensusWord =
@@ -379,9 +397,16 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
         ? ` ⚠ Conflicting in-silico signals: ${nPathogenic} predictor(s) support pathogenic.`
         : "";
 
+    let bp4Code = "BP4";
+    let tierNote = "";
+    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred <= 5.0 && aviPhred >= 0) {
+      bp4Code = "BP4_Moderate";
+      tierNote = ` [Moderate evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
+    }
+
     criteria.push({
-      code: "BP4",
-      reason: `${consensusWord}. (${buildPredictorDetail()})${conflictNote}`,
+      code: bp4Code,
+      reason: `${consensusWord}${tierNote}. (${buildPredictorDetail()})${conflictNote}`,
     });
   }
 

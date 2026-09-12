@@ -233,6 +233,25 @@ function VariantHeader({
           </span>
         )}
 
+        {/* AlphaGenome AVI score */}
+        {conservation?.alphagenome?.aviPhred !== null && conservation?.alphagenome?.aviPhred !== undefined && (
+          <span
+            className={
+              conservation.alphagenome.aviPhred >= 25.0
+                ? "cs-badge cs-badge-path"
+                : conservation.alphagenome.aviPhred <= 8.0
+                ? "cs-badge cs-badge-ben"
+                : "cs-badge cs-badge-vus"
+            }
+            title={`AlphaGenome AVI: ${conservation.alphagenome.aviPhred.toFixed(1)} Phred (${(conservation.alphagenome.acmgStrength ?? "indeterminate").replace(/_/g, " ")}${conservation.alphagenome.topModality ? `, Top modality: ${conservation.alphagenome.topModality}` : ""})`}
+          >
+            <span style={{ opacity: 0.65, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              AVI
+            </span>{" "}
+            {conservation.alphagenome.aviPhred.toFixed(1)}
+          </span>
+        )}
+
         {/* Genomic Coordinates — neutral identifier, no clinical valence */}
         {predictorData?.gnomadVariantId && (
           <span className="cs-badge cs-badge-muted" title={`Genomic: ${predictorData.gnomadVariantId}`}>

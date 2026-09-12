@@ -73,6 +73,7 @@ export async function fetchClinVarData(
     l1Cache: options.l1Cache ?? clinvarCache,
     ttlSeconds: 7 * 24 * 60 * 60,
     bypassSqlite: options.bypassSqlite,
+    shouldCache: (result: ClinVarData) => result.uid !== null && result.classification !== "Not found in ClinVar",
     fetcher: async () => {
       const defaultRes: ClinVarData = {
         classification: "Not found in ClinVar",
@@ -109,7 +110,7 @@ export async function fetchClinVarData(
   const searchData = clinvarSearchResponseSchema.parse(searchJson);
   const idList = searchData.esearchresult?.idlist || [];
   if (idList.length === 0) {
-    clinvarCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
+    (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
     return defaultRes;
   }
   

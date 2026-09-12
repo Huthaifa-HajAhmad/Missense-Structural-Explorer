@@ -11,7 +11,7 @@ import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 import { fetchRealConsurfData } from "./consurf-resolver.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../alphagenome-bridge.ts";
-import { type ConservationData, parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
+import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
 
 export const myVariantResponseSchema = z.object({
   hits: z.array(z.object({
@@ -629,7 +629,7 @@ export async function fetchConservationDataProgressive(
       let popEVEScore: number | null = null;
       let spliceProximity: any = null;
       let gpnStarResult: EvolutionaryScaleResult | null = null;
-      let alphagenomeResult: any = null;
+      let alphagenomeResult: AlphaGenomeAviData | null = null;
 
       const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId);
       if (parsedCoord) {

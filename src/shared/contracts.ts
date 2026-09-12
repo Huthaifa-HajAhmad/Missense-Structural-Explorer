@@ -433,7 +433,7 @@ export interface AtlasUrls {
  */
 export function parseGenomicCoordinateString(rawId?: string | null): { chrom: string; pos: number; ref: string; alt: string } | null {
   if (!rawId || typeof rawId !== "string") return null;
-  const parts = rawId.replace(/[:>]/g, "-").split("-");
+  const parts = rawId.trim().replace(/[:>/_]/g, "-").split("-");
   if (parts.length >= 4) {
     const chrom = parts[0];
     const pos = parseInt(parts[1], 10);

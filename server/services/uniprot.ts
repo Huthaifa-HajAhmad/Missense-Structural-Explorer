@@ -21,8 +21,10 @@ export async function resolveGeneToUniprot(gene: string, options?: UniprotCacheO
   const cache = options?.l1Cache ?? uniprotCache;
 
   if (geneToUniprotStatic[normGene]) {
-    cache.set(normGene, geneToUniprotStatic[normGene]);
-    return geneToUniprotStatic[normGene];
+    const staticId = geneToUniprotStatic[normGene];
+    cache.set(normGene, staticId);
+    cache.set(buildUniprotIdKey(normGene), staticId);
+    return staticId;
   }
 
   return getCachedOrFetch({

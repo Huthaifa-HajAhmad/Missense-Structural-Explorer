@@ -9,6 +9,7 @@ import {
   evaluateEsm1b,
   evaluateGpnStar,
   evaluateSplicePredictor,
+  evaluateAlphaGenomeAvi,
   countPredictorConcordance,
   computeConsensusVerdict,
   computeCalibratedConsensus,
@@ -100,6 +101,18 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateSplicePredictor(null, null)).toBe("unavailable");
       expect(evaluateSplicePredictor(undefined, undefined)).toBe("unavailable");
     });
+
+    it("should evaluate AlphaGenome AVI scores correctly across ClinGen-calibrated tiers", () => {
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 38.5, acmgStrength: "PP3_Strong" })).toBe("pathogenic");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 26.0, acmgStrength: "PP3_Moderate" })).toBe("pathogenic");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 16.5, acmgStrength: "PP3_Supporting" })).toBe("pathogenic");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 12.0, acmgStrength: "indeterminate" })).toBe("vus");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 7.5, acmgStrength: "BP4_Supporting" })).toBe("benign");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 3.2, acmgStrength: "BP4_Moderate" })).toBe("benign");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: -1.0 })).toBe("unavailable");
+      expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
+      expect(evaluateAlphaGenomeAvi(undefined)).toBe("unavailable");
+    });
   });
 
   describe("Predictor Concordance Counts", () => {
@@ -173,6 +186,47 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.nPathogenic).toBe(0);
       expect(res.nBenign).toBe(0);
       expect(res.nVus).toBe(0);
+    });
+
+    it("should include AlphaGenome AVI as an active consensus voting predictor", () => {
+      const res = countPredictorConcordance(
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        {
+          alphagenome: {
+            status: "live",
+            aviPhred: 36.2,
+            acmgStrength: "PP3_Strong",
+            topModality: "RNA-seq"
+          }
+        }
+      );
+
+      expect(res.nPathogenic).toBe(1);
+      expect(res.nBenign).toBe(0);
+      expect(res.signals.alphagenome).toBe("pathogenic");
+      expect(res.available).toContain("ALPHAGENOME");
+      expect(res.pathogenicTools.some(t => t.key === "alphagenome" && !t.isInformationalOnly)).toBe(true);
+
+      const resBenign = countPredictorConcordance(
+        null, null, null, null, null, null,
+        {
+          alphagenome: {
+            status: "live",
+            aviPhred: 4.8,
+            acmgStrength: "BP4_Moderate",
+            topModality: "Hi-C"
+          }
+        }
+      );
+
+      expect(resBenign.nBenign).toBe(1);
+      expect(resBenign.signals.alphagenome).toBe("benign");
+      expect(resBenign.benignTools.some(t => t.key === "alphagenome" && !t.isInformationalOnly)).toBe(true);
     });
   });
 

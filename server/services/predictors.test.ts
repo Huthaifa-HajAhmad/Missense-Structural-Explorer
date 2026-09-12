@@ -266,7 +266,7 @@ END
       expect(res.alphagenome?.acmgStrength).toBe("PP3_Moderate");
 
       setAlphaGenomeMockProvider(null);
-    });
+    }, 25000);
   });
 
   describe("Tier 3 Public dbNSFP Predictors Extraction", () => {

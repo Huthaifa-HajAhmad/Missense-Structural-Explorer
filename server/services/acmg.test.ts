@@ -468,4 +468,87 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     // Sequence is only 15 AA, so pos 120 is out of bounds, meaning isIndelInRepeatRegion returns false -> PM4
     expect(res.acmgCriteria.some(c => c.code === "PM4")).toBe(true);
   });
+
+  it("should calibrate PP3_Strong when AlphaGenome Phred >= 35.0 and cite driving modality", () => {
+    const input = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.9, amClass: "pathogenic", caddPhred: 28 },
+      conservationData: {
+        available: true,
+        revel: 0.85,
+        alphagenome: {
+          status: "live" as const,
+          aviPhred: 38.2,
+          acmgStrength: "PP3_Strong" as const,
+          topModality: "RNA-seq"
+        }
+      },
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      acmgWeighting: "standard" as const
+    };
+
+    const res = computeRuleBasedACMG(input);
+    const pp3Strong = res.acmgCriteria.find(c => c.code === "PP3_Strong");
+    expect(pp3Strong).toBeDefined();
+    expect(pp3Strong?.reason).toContain("[Strong evidence, AlphaGenome Phred 38.2 (RNA-seq modality)]");
+    expect(pp3Strong?.reason).toContain("AlphaGenome: 38.2 Phred (RNA-seq)");
+  });
+
+  it("should calibrate PP3_Moderate when AlphaGenome Phred >= 25.0", () => {
+    const input = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.9, amClass: "pathogenic", caddPhred: 28 },
+      conservationData: {
+        available: true,
+        revel: 0.85,
+        alphagenome: {
+          status: "live" as const,
+          aviPhred: 27.5,
+          acmgStrength: "PP3_Moderate" as const,
+          topModality: "CAGE"
+        }
+      },
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      acmgWeighting: "standard" as const
+    };
+
+    const res = computeRuleBasedACMG(input);
+    const pp3Mod = res.acmgCriteria.find(c => c.code === "PP3_Moderate");
+    expect(pp3Mod).toBeDefined();
+    expect(pp3Mod?.reason).toContain("[Moderate evidence, AlphaGenome Phred 27.5 (CAGE modality)]");
+  });
+
+  it("should calibrate BP4_Moderate when AlphaGenome Phred <= 5.0 in benign concordance", () => {
+    const input = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.05, amClass: "benign", caddPhred: 5 },
+      conservationData: {
+        available: true,
+        revel: 0.1,
+        alphagenome: {
+          status: "live" as const,
+          aviPhred: 3.5,
+          acmgStrength: "BP4_Moderate" as const,
+          topModality: "DNase"
+        }
+      },
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      acmgWeighting: "standard" as const
+    };
+
+    const res = computeRuleBasedACMG(input);
+    const bp4Mod = res.acmgCriteria.find(c => c.code === "BP4_Moderate");
+    expect(bp4Mod).toBeDefined();
+    expect(bp4Mod?.reason).toContain("[Moderate evidence, AlphaGenome Phred 3.5 (DNase modality)]");
+    expect(bp4Mod?.reason).toContain("AlphaGenome: 3.5 Phred (DNase)");
+  });
 });

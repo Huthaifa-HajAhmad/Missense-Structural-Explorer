@@ -4,7 +4,7 @@ import { countPredictorConcordance } from "../../shared/thresholds";
 import { PredictorSpecialistPanels } from "../PredictorSpecialistPanels";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
-export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSettings }: TabComponentProps) {
+export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSettings, onTabChange }: TabComponentProps) {
   const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const result = analysisState.result;
   if (!result) return null;
@@ -37,7 +37,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           gpnStar: result.conservationData?.gpnStar ?? null,
           spliceProximity: result.conservationData?.spliceProximity,
           spliceai: result.conservationData?.spliceai,
-          dbscsnv: result.conservationData?.dbscsnv
+          dbscsnv: result.conservationData?.dbscsnv,
+          alphagenome: result.conservationData?.alphagenome
         });
         const total = concordance.available.length;
         if (total === 0) return null;
@@ -198,6 +199,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
         isLoading={analysisState.isLoading || isBiophysicalLoading}
         isStructuralLoading={isStructuralLoading}
         onOpenSettings={onOpenSettings}
+        onTabChange={onTabChange}
       />
     </div>
   );

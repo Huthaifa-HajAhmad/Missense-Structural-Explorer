@@ -1,5 +1,6 @@
 import stackingConfig from "./stacking_config.json" with { type: "json" };
 import { getResidueContext, getCalibration } from "./uncertainty.ts";
+import type { AlphaGenomeAviData } from "./contracts.ts";
 
 /**
  * THRESHOLDS_METADATA — Audit and citation metadata for predictor cut-points (P3-2).
@@ -12,7 +13,8 @@ export const THRESHOLDS_METADATA = {
     cadd: "Rentzsch et al. Nucleic Acids Res (2019) & ACMG/AMP SVI Guidance",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005)",
     popEVE: "Frazer et al. Nature (2021)",
-    dbscsnv: "Jian et al. Hum Mutat (2014)"
+    dbscsnv: "Jian et al. Hum Mutat (2014)",
+    alphagenome: "Google DeepMind (2024) & ClinGen SVI Bayesian Recommendation (Pejaver et al. 2022)"
   }
 };
 
@@ -176,6 +178,15 @@ export const THRESHOLDS = {
     highRiskProbability: 0.42,
     moderateRiskProbability: 0.20,
   },
+  alphagenome: {
+    /** ClinGen SVI-calibrated AVI Phred cut-points (DeepMind 2024 / Tavtigian 2018) */
+    pathogenicStrong: 35.0,
+    pathogenicModerate: 25.0,
+    pathogenicSupporting: 15.0,
+    pathogenic: 15.0,
+    benign: 8.0,
+    benignModerate: 5.0,
+  },
 } as const;
 
 export const LOCAL_STRUCTURAL_WINDOW = 5;
@@ -237,9 +248,27 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "gnomAD Missense Z-score (positive = depletion of missense variants; strong constraint ≥ 3.09, supporting ≥ 2.0).",
   loeuf:
     "gnomAD LOEUF (observed/expected loss-of-function ratio; severe intolerance < 0.35, moderate < 0.60).",
+  alphagenome:
+    "AlphaGenome Variant Impact (Google DeepMind 2024). Whole-genome multimodal foundation model. " +
+    "ClinGen SVI-calibrated cutoffs: PP3 strong Phred ≥ 35.0, moderate ≥ 25.0, supporting ≥ 15.0; " +
+    "BP4 supporting Phred ≤ 8.0, moderate ≤ 5.0.",
 };
 
 export type PredictorSignal = "pathogenic" | "benign" | "vus" | "unavailable";
+
+export function evaluateAlphaGenomeAvi(
+  alphagenome?: {
+    aviPhred?: number | null;
+    acmgStrength?: string | null;
+  } | null
+): PredictorSignal {
+  if (!alphagenome) return "unavailable";
+  const phred = alphagenome.aviPhred;
+  if (phred === null || phred === undefined || isNaN(phred) || phred < 0) return "unavailable";
+  if (phred >= THRESHOLDS.alphagenome.pathogenicSupporting) return "pathogenic";
+  if (phred <= THRESHOLDS.alphagenome.benign) return "benign";
+  return "vus";
+}
 
 export function evaluateRevel(score: number | null | undefined): PredictorSignal {
   if (score === null || score === undefined) return "unavailable";
@@ -429,6 +458,7 @@ export function countPredictorConcordance(
     spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null;
     spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null;
     dbscsnv?: { ada_score: number | null; rf_score: number | null } | null;
+    alphagenome?: AlphaGenomeAviData | null;
   }
 ): PredictorConcordance {
   const toolDefs: PredictorToolDetails[] = [
@@ -504,6 +534,15 @@ export function countPredictorConcordance(
         }
         return parts.length > 0 ? parts.join(" ") : "—";
       })()
+    },
+    {
+      key: "alphagenome",
+      name: "AlphaGenome",
+      signal: evaluateAlphaGenomeAvi(extra?.alphagenome),
+      scoreLabel: extra?.alphagenome?.aviPhred !== null && extra?.alphagenome?.aviPhred !== undefined
+        ? `${extra.alphagenome.aviPhred.toFixed(1)} Phred`
+        : "—",
+      isInformationalOnly: false,
     },
     {
       key: "esm",

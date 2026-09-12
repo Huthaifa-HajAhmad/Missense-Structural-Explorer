@@ -301,5 +301,28 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Su et al. bioRxiv / ICLR (2024)",
     paperUrl: "https://doi.org/10.1101/2023.10.01.560349",
     citation: "Su, J., et al. (2024). SaProt: Protein Language Modeling with Structure-aware Vocabulary. bioRxiv / ICLR."
+  },
+  alphagenome: {
+    name: "AlphaGenome AVI",
+    category: "Whole-Genome Multimodal Foundation Model",
+    architecture: "Multimodal Deep Genomic Transformer (9,440 functional tracks, 18 biological modalities)",
+    modality: "Whole-Genome DNA Sequence + Epigenomics + Transcriptomics + Chromatin Architecture",
+    description: "AlphaGenome Variant Impact (AVI) is Google DeepMind's foundation model for whole-genome variant effect prediction. Trained across 9,440 functional genomic tracks spanning 18 biological modalities, AlphaGenome unifies non-coding regulatory, transcriptional, and coding protein impacts into a single continuous Phred-scaled score with single-base resolution.",
+    interpretation: "AlphaGenome Variant Impact (AVI) Phred score (0–60 scale, where Phred = -10 * log10(1 - percentile/100)). Calibrated tiers: Phred ≥ 35.0 (Top 0.03%, PP3 Strong), Phred ≥ 25.0 (Top 0.316%, PP3 Moderate), Phred ≥ 15.0 (Top 3.16%, PP3 Supporting); Phred ≤ 8.0 (Bottom 84%, BP4 Supporting), Phred ≤ 5.0 (Bottom 68%, BP4 Moderate).",
+    strengths: [
+      "Truly multimodal foundation architecture predicting 9,440 functional tracks simultaneously across 18 modalities (CAGE, RNA-seq, DNase, ATAC, ChIP-seq, Hi-C, polyA).",
+      "Unified single-nucleotide resolution across both coding missense variants and non-coding regulatory elements.",
+      "Calibrated across 3 billion base pairs of the human reference genome (GRCh38).",
+      "Provides granular SHAP/integrated gradients attribution pointing to the exact driving biological mechanism."
+    ],
+    weaknesses: [
+      "Statistical epigenetic and functional genomic priors do not substitute for explicit 3D atomic forcefield energetics (FoldX/ThermoMPNN) or rotamer clash modeling.",
+      "Requires valid genomic coordinates (chromosome, position, ref/alt alleles); cannot score protein-only annotations without genomic mapping.",
+      "Cloud-based sovereign foundation model requiring network connectivity or local cache availability."
+    ],
+    provider: "Google DeepMind",
+    paperTitle: "DeepMind AlphaGenome Team (2024)",
+    paperUrl: "https://deepmind.google.com/science/alphagenome/atlas",
+    citation: "Google DeepMind AlphaGenome Team (2024). AlphaGenome: A Multimodal Foundation Model for Genomic Biology and Variant Interpretation."
   }
 };

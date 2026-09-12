@@ -90,3 +90,8 @@ export function buildConservationKey(
   const cleanVar = normalizeVariantTo3Letter(variant);
   return `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos ?? ""}_${gnomadVariantId || ""}_schema:${CACHE_SCHEMA_VERSION}`;
 }
+
+export function buildStringKey(gene: string): string {
+  const normGene = normalizeGeneSymbol(gene);
+  return `string_ppi_${normGene}_schema:${CACHE_SCHEMA_VERSION}`;
+}
