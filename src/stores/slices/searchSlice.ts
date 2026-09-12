@@ -40,20 +40,20 @@ export interface SearchActions {
   clearHistory: () => void;
   handleSelectHistoryItem: (
     item: { gene: string; variant: string; uniprotId: string },
-    options: {
-      abortAllPendingRequests: () => void;
-      resetViewerState: () => void;
-      executeAnalysis: (g: string, v: string, u?: string, signal?: AbortSignal) => void;
-      setAnalysisState: (updater: any) => void;
+    options?: {
+      abortAllPendingRequests?: () => void;
+      resetViewerState?: () => void;
+      executeAnalysis?: (g: string, v: string, u?: string, signal?: AbortSignal) => void;
+      setAnalysisState?: (updater: any) => void;
     }
   ) => void;
   handleSelectPreset: (
     preset: VariantPreset,
-    options: {
-      abortAllPendingRequests: () => void;
-      resetViewerState: () => void;
-      executeAnalysis: (g: string, v: string, u?: string, signal?: AbortSignal) => void;
-      setAnalysisState: (updater: any) => void;
+    options?: {
+      abortAllPendingRequests?: () => void;
+      resetViewerState?: () => void;
+      executeAnalysis?: (g: string, v: string, u?: string, signal?: AbortSignal) => void;
+      setAnalysisState?: (updater: any) => void;
     }
   ) => void;
   handleSearchSubmit: (
@@ -113,7 +113,10 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
   history: loadInitialHistory(),
 
   setGene: (gene) => set({ gene }),
-  setVariant: (variant) => set({ variant }),
+  setVariant: (variant) => set((state: any) => ({
+    variant,
+    ...(state.primaryBiophysics ? { primaryBiophysics: { ...state.primaryBiophysics, variant } } : {})
+  })),
   setUniprotId: (uniprotId) => set({ uniprotId }),
   setSelectedResidueIndex: (selectedResidueIndex) => set({ selectedResidueIndex }),
   setHoveredResidueIndex: (hoveredResidueIndex) => set({ hoveredResidueIndex }),
@@ -159,7 +162,7 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
   },
 
   handleSelectHistoryItem: (item, options) => {
-    options.abortAllPendingRequests();
+    options?.abortAllPendingRequests?.();
 
     const mutMatch = item.variant.match(/\d+/);
     const resIdx = mutMatch ? parseInt(mutMatch[0], 10) : null;
@@ -176,14 +179,20 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
 
     const cached = getCachedVariant(item.gene, item.variant);
     if (!cached) {
-      options.resetViewerState();
+      if (options?.resetViewerState) {
+        options.resetViewerState();
+      } else if (typeof (get() as any).resetViewerState === "function") {
+        (get() as any).resetViewerState();
+      }
     }
 
-    options.executeAnalysis(item.gene, item.variant, item.uniprotId);
+    if (options?.executeAnalysis) {
+      options.executeAnalysis(item.gene, item.variant, item.uniprotId);
+    }
   },
 
   handleSelectPreset: (preset, options) => {
-    options.abortAllPendingRequests();
+    options?.abortAllPendingRequests?.();
 
     const mutMatch = preset.variant.match(/\d+/);
     const resIdx = mutMatch ? parseInt(mutMatch[0], 10) : null;
@@ -200,10 +209,16 @@ export const createSearchSlice: StateCreator<SearchSlice, [], [], SearchSlice> =
 
     const cached = getCachedVariant(preset.gene, preset.variant);
     if (!cached) {
-      options.resetViewerState();
+      if (options?.resetViewerState) {
+        options.resetViewerState();
+      } else if (typeof (get() as any).resetViewerState === "function") {
+        (get() as any).resetViewerState();
+      }
     }
 
-    options.executeAnalysis(preset.gene, preset.variant, preset.uniprotId);
+    if (options?.executeAnalysis) {
+      options.executeAnalysis(preset.gene, preset.variant, preset.uniprotId);
+    }
   },
 
   handleSearchSubmit: (e, executeFn) => {

@@ -51,6 +51,9 @@ export async function fetchStringInteractions(
             const parsed = Array.from(partnersMap.entries()).map(([partner, score]) => ({ partner, score }));
             parsed.sort((a, b) => b.score - a.score);
             const sliced = parsed.slice(0, 5);
+            if (sliced.length === 0) {
+              (options?.l1Cache ?? stringCache).set(cacheKey, [], { ttl: 5 * 60 * 1000 });
+            }
             return sliced;
           }
         }
@@ -58,6 +61,7 @@ export async function fetchStringInteractions(
         console.warn(`[STRING Network Fetch Error] Failed to fetch STRING network: ${err.message}`);
       }
 
+      (options?.l1Cache ?? stringCache).set(cacheKey, [], { ttl: 5 * 60 * 1000 });
       return [];
     }
   });

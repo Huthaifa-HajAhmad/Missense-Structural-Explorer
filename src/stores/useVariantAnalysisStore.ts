@@ -4,6 +4,9 @@ import { PipelineSlice, createPipelineSlice } from "./slices/pipelineSlice";
 import { BiophysicalSlice, createBiophysicalSlice } from "./slices/biophysicalSlice";
 import { StructuralFoldingSlice, createStructuralFoldingSlice } from "./slices/structuralFoldingSlice";
 import { UiSlice, createUiSlice } from "./slices/uiSlice";
+import type { VariantBiophysicsState } from "./models.ts";
+
+export type { VariantBiophysicsState };
 
 export type VariantAnalysisStore = SearchSlice &
   PipelineSlice &

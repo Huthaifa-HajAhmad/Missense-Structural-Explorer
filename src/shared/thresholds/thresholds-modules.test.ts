@@ -1,0 +1,77 @@
+import { describe, it, expect } from "vitest";
+import {
+  THRESHOLDS,
+  evaluateAlphaGenomeAvi,
+  evaluateRevel,
+  evaluateCadd,
+  countPredictorConcordance,
+  normalizeDestabilizationMagnitude,
+  calibrateRawScore,
+  computeCalibratedConsensus
+} from "./index.ts";
+
+describe("Thresholds Modular Sub-Domain Tests", () => {
+  describe("constants.ts", () => {
+    it("exports valid cut-points", () => {
+      expect(THRESHOLDS.revel.pathogenicStrong).toBe(0.75);
+      expect(THRESHOLDS.alphagenome.pathogenicStrong).toBe(35.0);
+      expect(THRESHOLDS.foldxDdG.destabilizingStrong).toBe(1.5);
+    });
+  });
+
+  describe("evaluators.ts", () => {
+    it("evaluates AlphaGenome AVI scores", () => {
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 36.0 })).toBe("pathogenic");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 16.0 })).toBe("pathogenic");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 5.0 })).toBe("benign");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 10.0 })).toBe("vus");
+      expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
+    });
+
+    it("evaluates REVEL and CADD scores", () => {
+      expect(evaluateRevel(0.85)).toBe("pathogenic");
+      expect(evaluateRevel(0.10)).toBe("benign");
+      expect(evaluateRevel(0.35)).toBe("vus");
+
+      expect(evaluateCadd(28)).toBe("pathogenic");
+      expect(evaluateCadd(8)).toBe("benign");
+      expect(evaluateCadd(15)).toBe("vus");
+    });
+  });
+
+  describe("concordance.ts", () => {
+    it("counts predictor concordance correctly", () => {
+      const conc = countPredictorConcordance(28, 0.85, 0.99, "pathogenic", 0.35, -8.0);
+      expect(conc.nPathogenic).toBeGreaterThanOrEqual(3);
+      expect(conc.signals.cadd).toBe("pathogenic");
+      expect(conc.signals.revel).toBe("pathogenic");
+      expect(conc.signals.am).toBe("pathogenic");
+    });
+  });
+
+  describe("consensus.ts", () => {
+    it("normalizes destabilization magnitudes", () => {
+      const fx = normalizeDestabilizationMagnitude("foldx", 2.5);
+      expect(fx.magnitude).toBe(2.5);
+      expect(fx.isDestabilizing).toBe(true);
+
+      const dm = normalizeDestabilizationMagnitude("dynamut2", -1.5);
+      expect(dm.magnitude).toBe(1.5);
+      expect(dm.isDestabilizing).toBe(true);
+    });
+
+    it("calibrates raw scores and calculates consensus", () => {
+      const cal = calibrateRawScore("foldx", 2.0);
+      expect(cal).not.toBeNull();
+      expect(cal?.p).toBeGreaterThan(0);
+
+      const consensus = computeCalibratedConsensus({
+        foldxMean: 2.5,
+        dynamut2: -1.5,
+        rasp: 1.8
+      });
+      expect(consensus.consensusProbability).not.toBeNull();
+      expect(consensus.consensusVerdict).toContain("Misfolding Risk");
+    });
+  });
+});

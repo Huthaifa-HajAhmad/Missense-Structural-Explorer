@@ -28,6 +28,13 @@ export interface PipelineActions {
   setComputedResiduesCache: (cache: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => void;
   setTriageOverride: (triageOverride: boolean) => void;
   updateAnalysisResultSlice: <K extends keyof AnalysisResult>(key: K, value: AnalysisResult[K]) => void;
+  setLoadingStates: (states: Partial<{
+    biophysical: boolean;
+    structural: boolean;
+    clinical: boolean;
+    narrative: boolean;
+    homologs: boolean;
+  }>) => void;
 }
 
 export type PipelineSlice = PipelineState & PipelineActions;
@@ -85,5 +92,13 @@ export const createPipelineSlice: StateCreator<PipelineSlice, [], [], PipelineSl
         }
       }
     };
-  })
+  }),
+
+  setLoadingStates: (states) => set((state) => ({
+    ...(states.biophysical !== undefined ? { isBiophysicalLoading: states.biophysical } : {}),
+    ...(states.structural !== undefined ? { isStructuralLoading: states.structural } : {}),
+    ...(states.clinical !== undefined ? { isClinicalLoading: states.clinical } : {}),
+    ...(states.narrative !== undefined ? { isNarrativeLoading: states.narrative } : {}),
+    ...(states.homologs !== undefined ? { isHomologsLoading: states.homologs } : {})
+  }))
 });

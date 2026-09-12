@@ -342,8 +342,9 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
     }
   );
 
-  const { nPathogenic, nBenign, available, unavailable, signals } = concordance;
-  const nAvailable = available.length;
+  const { nPathogenic, nBenign, nVus, available, unavailable, signals } = concordance;
+  const nActiveAvailable = nPathogenic + nBenign + nVus;
+  const nAvailable = nActiveAvailable > 0 ? nActiveAvailable : available.length;
 
   const buildPredictorDetail = () =>
     `CADD: ${predictorData?.caddPhred ?? "N/A"}, ` +
@@ -375,10 +376,10 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
 
     let pp3Code = "PP3";
     let tierNote = "";
-    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= 35.0) {
+    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= THRESHOLDS.alphagenome.pathogenicStrong) {
       pp3Code = "PP3_Strong";
       tierNote = ` [Strong evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
-    } else if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= 25.0) {
+    } else if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= THRESHOLDS.alphagenome.pathogenicModerate) {
       pp3Code = "PP3_Moderate";
       tierNote = ` [Moderate evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
     }
@@ -399,7 +400,7 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
 
     let bp4Code = "BP4";
     let tierNote = "";
-    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred <= 5.0 && aviPhred >= 0) {
+    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred <= THRESHOLDS.alphagenome.benignModerate && aviPhred >= 0) {
       bp4Code = "BP4_Moderate";
       tierNote = ` [Moderate evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
     }

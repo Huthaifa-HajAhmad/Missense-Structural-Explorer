@@ -6,6 +6,8 @@ import {
   generateAtlasUrls
 } from "../../src/shared/contracts.ts";
 import { defaultCacheRegistry } from "./cache-registry.ts";
+import { buildAlphaGenomeKey } from "./cache-keys.ts";
+import { THRESHOLDS } from "../../src/shared/thresholds.ts";
 import { CONFIG } from "../config.ts";
 
 export type { AtlasUrls };
@@ -48,11 +50,11 @@ export function calculateAlphaGenomeAcmgStrength(
   if (phred === null || phred === undefined || isNaN(phred) || phred < 0) {
     return "indeterminate";
   }
-  if (phred >= 35.0) return "PP3_Strong";
-  if (phred >= 25.0) return "PP3_Moderate";
-  if (phred >= 15.0) return "PP3_Supporting";
-  if (phred <= 5.0) return "BP4_Moderate";
-  if (phred <= 8.0) return "BP4_Supporting";
+  if (phred >= THRESHOLDS.alphagenome.pathogenicStrong) return "PP3_Strong";
+  if (phred >= THRESHOLDS.alphagenome.pathogenicModerate) return "PP3_Moderate";
+  if (phred >= THRESHOLDS.alphagenome.pathogenicSupporting) return "PP3_Supporting";
+  if (phred <= THRESHOLDS.alphagenome.benignModerate) return "BP4_Moderate";
+  if (phred <= THRESHOLDS.alphagenome.benign) return "BP4_Supporting";
   return "indeterminate";
 }
 
@@ -85,7 +87,7 @@ export async function fetchAlphaGenome(
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom : `chr${chrom}`;
   const normRef = ref.toUpperCase();
   const normAlt = alt.toUpperCase();
-  const cacheKey = `${normChrom}:${pos}:${normRef}>${normAlt}`;
+  const cacheKey = buildAlphaGenomeKey(normChrom, pos, normRef, normAlt);
 
   const cached = alphagenomeCache.get(cacheKey);
   if (cached) {
@@ -199,14 +201,30 @@ export async function fetchAlphaGenome(
     };
 
     const validated = alphagenomeAviSchema.safeParse(candidateData);
-    const data = validated.success ? validated.data : candidateData;
-
-    if (data) {
-      alphagenomeCache.set(cacheKey, data);
+    if (!validated.success) {
+      console.warn(`[AlphaGenome Bridge] Schema validation failed for ${cacheKey}:`, validated.error.format());
+      const failData: AlphaGenomeAviData = {
+        status: "unavailable",
+        aviPhred: null,
+        aviRaw: null,
+        aviQuantile: null,
+        topPercentile: null,
+        topModality: null,
+        topFeatureImportance: null,
+        featureAttributions: null,
+        acmgStrength: "indeterminate",
+        atlasUrl: urls.trackPredictionsUrl,
+        message: "Upstream AlphaGenome payload failed schema validation"
+      };
+      alphagenomeCache.set(cacheKey, failData, { ttl: 300_000 });
+      return failData;
     }
+
+    const data = validated.data!;
+    alphagenomeCache.set(cacheKey, data);
     return data;
   } catch (err: any) {
-    return {
+    const errorResult: AlphaGenomeAviData = {
       status: "unavailable",
       aviPhred: null,
       aviRaw: null,
@@ -219,6 +237,8 @@ export async function fetchAlphaGenome(
       atlasUrl: urls.trackPredictionsUrl,
       message: err.message || "AlphaGenome query timed out / unavailable"
     };
+    alphagenomeCache.set(cacheKey, errorResult, { ttl: 300_000 });
+    return errorResult;
   }
   });
 }

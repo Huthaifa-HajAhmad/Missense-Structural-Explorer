@@ -95,3 +95,8 @@ export function buildStringKey(gene: string): string {
   const normGene = normalizeGeneSymbol(gene);
   return `string_ppi_${normGene}_schema:${CACHE_SCHEMA_VERSION}`;
 }
+
+export function buildAlphaGenomeKey(chrom: string, pos: number, ref: string, alt: string): string {
+  const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom.toLowerCase() : `chr${chrom.toLowerCase()}`;
+  return `alphagenome_${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
