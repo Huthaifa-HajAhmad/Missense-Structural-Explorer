@@ -144,6 +144,50 @@ export function setCachedVariant(
   }
 }
 
+export function isFallbackNarrative(analysis?: string | null, isFallback?: boolean): boolean {
+  if (isFallback === true) return true;
+  if (!analysis || typeof analysis !== "string") return false;
+  return (
+    analysis.includes("Gemini API Key Not Configured") ||
+    analysis.includes("AI Explanation Service Offline") ||
+    analysis.includes("Fallback Report Loaded") ||
+    analysis.includes("Key Config Required") ||
+    analysis.includes("Narrative Generation Failed")
+  );
+}
+
+export function purgeFallbackNarratives(): void {
+  const keysToPurge: string[] = [];
+  for (const [key, entry] of memoryVariantCache.entries()) {
+    if (isFallbackNarrative(entry.analysisResult?.analysis, entry.analysisResult?.isFallback)) {
+      keysToPurge.push(key);
+    }
+  }
+  for (const key of keysToPurge) {
+    memoryVariantCache.delete(key);
+  }
+
+  // Also purge unhydrated fallback entries directly from sessionStorage
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      const storageKeysToRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (k && k.startsWith(CACHE_PREFIX)) {
+          const raw = sessionStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (isFallbackNarrative(parsed?.analysisResult?.analysis, parsed?.analysisResult?.isFallback)) {
+              storageKeysToRemove.push(k);
+            }
+          }
+        }
+      }
+      storageKeysToRemove.forEach(k => sessionStorage.removeItem(k));
+    } catch (_) {}
+  }
+}
+
 export function clearClientVariantCache(): void {
   memoryVariantCache.clear();
   try {
@@ -157,3 +201,4 @@ export function clearClientVariantCache(): void {
     keysToRemove.forEach(k => sessionStorage.removeItem(k));
   } catch (_) {}
 }
+

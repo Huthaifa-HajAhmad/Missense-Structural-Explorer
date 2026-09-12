@@ -432,10 +432,21 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                   <FileText className="w-3.5 h-3.5" />
                   <span>Clinical Narrative</span>
                 </div>
-                <div className="pl-5 space-y-3 text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-primary)" }}>
-                  {analysisState.result.analysis.split("\\n\\n").map((paragraph: string, index: number) => (
-                    <p key={index} className="whitespace-pre-wrap">{paragraph}</p>
-                  ))}
+                <div className="pl-5 text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-primary)" }}>
+                  <Markdown
+                    components={{
+                      h1: ({ children }) => <h1 className="text-sm font-bold mt-2 mb-1">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-xs font-bold mt-2 mb-1">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-xs font-semibold mt-2 mb-1 text-indigo-300">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>{children}</strong>
+                    }}
+                  >
+                    {analysisState.result.analysis}
+                  </Markdown>
                 </div>
               </div>
             )}

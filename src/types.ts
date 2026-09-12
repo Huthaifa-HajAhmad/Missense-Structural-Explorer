@@ -234,6 +234,8 @@ export interface LanguageModelEvaluations {
 
 export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetadata, LanguageModelEvaluations {
   analysis?: string | null;
+  isFallback?: boolean;
+  fallbackReason?: string;
   insights?: ClinicalInsight | null;
   ruleBasedInsights?: RuleBasedInsights | null;
   clinvar?: ClinVarData | null;

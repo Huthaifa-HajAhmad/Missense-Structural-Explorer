@@ -487,6 +487,8 @@ export type GenerateMutantResponse = z.infer<typeof generateMutantResponseSchema
 
 export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
+  isFallback: z.boolean().optional(),
+  fallbackReason: z.string().optional(),
   insights: z.object({
     biochemicalShift: z.string(),
     structuralImpact: z.string(),

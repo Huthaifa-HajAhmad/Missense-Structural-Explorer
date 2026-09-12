@@ -632,7 +632,7 @@ export function useApiClient() {
         return await res.json();
       },
 
-      async getNarrative(params: any, signal?: AbortSignal): Promise<{ analysis: string; insights?: any }> {
+      async getNarrative(params: any, signal?: AbortSignal): Promise<{ analysis: string; isFallback?: boolean; fallbackReason?: string; insights?: any }> {
         const res = await fetchWithAuth("/api/v1/analyze-variant-narrative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -647,6 +647,8 @@ export function useApiClient() {
         const data = await res.json();
         return z.object({
           analysis: z.string(),
+          isFallback: z.boolean().optional(),
+          fallbackReason: z.string().optional(),
           insights: z.any().optional()
         }).parse(data);
       },

@@ -171,6 +171,8 @@ export function handleNarrativeResponse(
 
   res.json({
     analysis: analysisResult.analysis,
+    isFallback: Boolean(analysisResult.isFallback),
+    fallbackReason: analysisResult.fallbackReason || undefined,
     insights: {
       ...analysisResult.insights,
       acmgCriteria: mergedCriteria,

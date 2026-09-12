@@ -87,6 +87,8 @@ export async function generateClinicalNarrative(
       const updatedResult = {
         ...prev.result,
         analysis: narrativeData.analysis,
+        isFallback: narrativeData.isFallback ?? false,
+        fallbackReason: narrativeData.fallbackReason,
         insights: {
           ...prevInsights,
           biochemicalShift: narrativeData.insights?.biochemicalShift || prevInsights.biochemicalShift || "",
@@ -109,12 +111,16 @@ export async function generateClinicalNarrative(
       console.error("[NarrativeService Error] Narrative generation failed:", narrativeErr);
       analysisSink.setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
+        const errorResult = {
+          ...prev.result,
+          analysis: `### ❌ Narrative Generation Failed\n\nAn error occurred while generating the clinical narrative: **${narrativeErr.message || narrativeErr}**.\n\nPlease check your network connection or API key settings and try again.`,
+          isFallback: true,
+          fallbackReason: "SERVICE_UNAVAILABLE"
+        };
+        setCachedVariant(gene, variant, uniprotId, { analysisResult: errorResult });
         return {
           ...prev,
-          result: {
-            ...prev.result,
-            analysis: `### ❌ Narrative Generation Failed\n\nAn error occurred while generating the clinical narrative: **${narrativeErr.message || narrativeErr}**.\n\nPlease check your network connection or API key settings and try again.`
-          }
+          result: errorResult
         };
       });
     }

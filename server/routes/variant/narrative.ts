@@ -260,6 +260,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
 
         analysisResult = {
           analysis: fallbackText,
+          isFallback: true,
+          fallbackReason: isKeyMissing ? "API_KEY_MISSING" : "SERVICE_UNAVAILABLE",
           insights: {
             biochemicalShift: biochemicalShiftText,
             structuralImpact: structuralImpactText,

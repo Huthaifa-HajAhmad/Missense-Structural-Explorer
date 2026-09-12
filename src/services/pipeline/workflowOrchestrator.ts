@@ -24,7 +24,7 @@ import {
   createDemoFallbackAnalysisState,
   PipelineStateBaseParams
 } from "./pipelineStateFactory";
-import { getCachedVariant, setCachedVariant } from "./variantCache";
+import { getCachedVariant, setCachedVariant, isFallbackNarrative } from "./variantCache";
 
 export interface WorkflowOrchestratorParams {
   targetGeneArg: string;
@@ -148,11 +148,23 @@ export async function executeFullAnalysisWorkflow({
         structureSink.setDisruptionPredictor(cached.disruptionPredictor);
       }
 
+      // Check if previous cached narrative was a fallback placeholder but we now have active Gemini credentials
+      const isFallback = isFallbackNarrative(
+        cached.analysisResult?.analysis,
+        cached.analysisResult?.isFallback
+      );
+      const hasActiveGemini = Boolean(
+        (settings?.geminiSessionId && settings?.geminiSessionExpiresAt && settings.geminiSessionExpiresAt > Date.now()) ||
+        settings?.geminiApiKey
+      );
+      const needsNarrativeBackfill = isFallback && hasActiveGemini;
+
       // If cached bundle contains a complete analysis and no custom user instructions were requested,
-      // short-circuit downstream re-fetches to prevent overwriting completed results or triggering progress restarts.
+      // and does not require a narrative backfill/upgrade, short-circuit downstream re-fetches.
       const hasCompleteAnalysis = Boolean(
         cached.analysisResult?.analysis &&
         !cached.analysisResult.analysis.includes("in progress") &&
+        !needsNarrativeBackfill &&
         (cached.analysisResult.predictorData || cached.analysisResult.insights)
       );
 

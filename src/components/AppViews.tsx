@@ -552,7 +552,12 @@ export function AppViews({
                 name="Clinical Report"
                 onError={handleReportError}
               >
-                <ClinicalReportBar analysisState={analysisState} isDark={isDark} fullPage />
+                <ClinicalReportBar 
+                  analysisState={analysisState} 
+                  isDark={isDark} 
+                  isNarrativeLoading={isNarrativeLoading}
+                  fullPage 
+                />
               </ErrorBoundary>
             )}
 

@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import type { ValidationStatus } from "../components/settings/ui/SecretInput";
+import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 
 type TestId = "biohub" | "hf";
 
@@ -140,6 +141,7 @@ export function useApiConnections() {
           "geminiSessionExpiresAt",
           responseData.expiresAt || Date.now() + 15 * 60 * 1000
         );
+        purgeFallbackNarratives();
       } else {
         throw new Error("No session ID returned from server.");
       }
