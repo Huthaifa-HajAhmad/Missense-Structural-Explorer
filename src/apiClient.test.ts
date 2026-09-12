@@ -138,3 +138,75 @@ describe("useApiClient getSidecarHealth", () => {
     expect(health.error).toBe("Health check failed with HTTP 503");
   });
 });
+
+describe("useApiClient Domain Methods & Delegation", () => {
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(SettingsProvider, null, children);
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("findPocket delegates targetIndex and mutIndex parameters to detectPocket", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({
+        pocketResidues: [],
+        pocketScore: 0.88,
+        pocketVolume: 450,
+        likelyCofactor: "HEME",
+        pocketDistance: 3.5,
+        status: "success"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const pocket = await result.current.apiClient.findPocket({
+      pdbText: "ATOM...",
+      mutIndex: 42,
+      targetChain: "A"
+    });
+
+    expect(pocket.status).toBe("success");
+    expect(pocket.pocketScore).toBe(0.88);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/pocket-detect",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"targetIndex":42')
+      })
+    );
+  });
+
+  it("fetchWithAuth attaches and removes signal abort listeners cleanly without leaking", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const controller = new AbortController();
+    const addSpy = vi.spyOn(controller.signal, "addEventListener");
+    const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+
+    await result.current.fetchWithAuth("/api/v1/test-signal", {
+      timeout: 5000,
+      signal: controller.signal
+    });
+
+    expect(addSpy).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("does not attach internal auth tokens to protocol-relative URLs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    await result.current.fetchWithAuth("//attacker.com/api/probe");
+
+    const calledHeaders = fetchMock.mock.calls[0][1]?.headers || {};
+    expect(calledHeaders["Authorization"]).toBeUndefined();
+    expect(calledHeaders["X-Gemini-Session-ID"]).toBeUndefined();
+  });
+});
