@@ -234,7 +234,39 @@ END
 
       expect(result).toBeDefined();
       expect(result.available).toBe(true);
+      expect("alphagenome" in result).toBe(true);
     }, 25000);
+
+    it("should enrich alphagenome from predictor promise with colon or Ensembl coordinates", async () => {
+      const { fetchConservationDataProgressive } = await import("./predictors.ts");
+      const { setAlphaGenomeMockProvider } = await import("./alphagenome-bridge.ts");
+
+      setAlphaGenomeMockProvider(async () => ({
+        status: "live",
+        aviPhred: 32.5,
+        acmgStrength: "PP3_Moderate",
+        topModality: "Splicing"
+      }));
+
+      const mockPredictor = Promise.resolve({
+        gnomadVariantId: "chr17:7673802:C>T", // colon notation with >
+        transcriptId: "ENST00000269305"
+      });
+
+      const res = await fetchConservationDataProgressive({
+        gene: "TP53",
+        variant: "p.R273H",
+        pos: 273,
+        predictorPromise: mockPredictor
+      });
+
+      expect(res.alphagenome).toBeDefined();
+      expect(res.alphagenome?.status).toBe("live");
+      expect(res.alphagenome?.aviPhred).toBe(32.5);
+      expect(res.alphagenome?.acmgStrength).toBe("PP3_Moderate");
+
+      setAlphaGenomeMockProvider(null);
+    });
   });
 
   describe("Tier 3 Public dbNSFP Predictors Extraction", () => {

@@ -52,6 +52,8 @@ export const CONFIG = {
     sidecarBaseUrl: (process.env.SIDECAR_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""),
     japanfoldBaseUrl: (process.env.JAPANFOLD_URL || "https://api.japanfold.aiand.com").replace(/\/+$/, ""),
     japanfoldApiKey: process.env.JAPANFOLD_API_KEY || null,
+    alphagenomeUrl: process.env.ALPHAGENOME_API_URL || "https://api.japanfold.aiand.com/v1/alphagenome",
+    alphagenomeApiKey: process.env.ALPHAGENOME_API_KEY || null,
   }
 } as const;
 

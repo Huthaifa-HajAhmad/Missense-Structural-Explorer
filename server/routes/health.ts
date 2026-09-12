@@ -3,29 +3,11 @@ import { type Router } from "express";
 import fs from "fs";
 import path from "path";
 import { AuditLogger } from "../utils.ts";
-import {
-  clearAllCaches,
-  pdbCache,
-  uniprotCache,
-  clinvarCache,
-  afUrlCache,
-  predictorCache,
-  conservationCache,
-  stringCache,
-  popEVECache,
-  popEveOnlineCache,
-  refseqCache,
-  gnomadFreqCache,
-  gnomadConstraintCache,
-  uniprotFeaturesCache,
-  landscapeCache
-} from "../services/cache.ts";
-import { mutantCache } from "../services/foldx.ts";
-import { geminiCache } from "./shared.ts";
+import { clearAllCaches, defaultCacheRegistry } from "../services/cache.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
 import { adapterRegistry } from "../services/adapters/service-adapters.ts";
 import { CONFIG } from "../config.ts";
-import { pocketCache, checkP2RankCapability } from "../services/pocket.ts";
+import { checkP2RankCapability } from "../services/pocket.ts";
 
 export function registerHealthRoutes(apiRouter: Router): void {
   apiRouter.get("/health", (req, res) => {
@@ -93,25 +75,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
       modelServerReady = false;
     }
 
-    const cacheDiagnostics = {
-      pdbCache: { size: pdbCache.size, max: pdbCache.max, ttl: "none" },
-      uniprotCache: { size: uniprotCache.size, max: uniprotCache.max, ttl: "none" },
-      clinvarCache: { size: clinvarCache.size, max: clinvarCache.max, ttl: "1h" },
-      afUrlCache: { size: afUrlCache.size, max: afUrlCache.max, ttl: "24h" },
-      predictorCache: { size: predictorCache.size, max: predictorCache.max, ttl: "1h" },
-      conservationCache: { size: conservationCache.size, max: conservationCache.max, ttl: "1h" },
-      stringCache: { size: stringCache.size, max: stringCache.max, ttl: "1h" },
-      popEVECache: { size: popEVECache.size, max: popEVECache.max, ttl: "1h" },
-      popEveOnlineCache: { size: popEveOnlineCache.size, max: popEveOnlineCache.max, ttl: "24h" },
-      refseqCache: { size: refseqCache.size, max: refseqCache.max, ttl: "7d" },
-      gnomadFreqCache: { size: gnomadFreqCache.size, max: gnomadFreqCache.max, ttl: "24h" },
-      gnomadConstraintCache: { size: gnomadConstraintCache.size, max: gnomadConstraintCache.max, ttl: "7d" },
-      uniprotFeaturesCache: { size: uniprotFeaturesCache.size, max: uniprotFeaturesCache.max, ttl: "3d" },
-      landscapeCache: { size: landscapeCache.size, max: landscapeCache.max, ttl: "24h" },
-      mutantCache: { size: mutantCache.size, max: mutantCache.max, ttl: "24h" },
-      pocketCache: { size: pocketCache.size, max: pocketCache.max, ttl: "7d" },
-      geminiCache: { size: geminiCache.size, max: 200, ttl: "24h" }
-    };
+    const cacheDiagnostics = defaultCacheRegistry.getDiagnostics();
 
     const p2rankCap = await checkP2RankCapability();
     const serviceHealth = await adapterRegistry.checkAllHealth();
@@ -135,11 +99,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
 
   apiRouter.post("/debug/clear-caches", (req, res) => {
     try {
-      // 1. Clear in-memory and persistent SQLite caches
+      // 1. Clear in-memory and persistent SQLite caches across all registered services
       clearAllCaches(true);
-      mutantCache.clear();
-      pocketCache.clear();
-      geminiCache.clear();
 
       // 2. Delete FoldX disk cache files (.json files in logs/foldx_cache)
       const foldxCacheDir = path.join(process.cwd(), "logs", "foldx_cache");

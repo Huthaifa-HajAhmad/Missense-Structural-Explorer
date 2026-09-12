@@ -27,12 +27,14 @@ import { anySignal } from "../utils.ts";
 import { DatabaseSync } from "node:sqlite";
 import { computeCalibratedConsensus } from "../../src/shared/thresholds.ts";
 import { CONFIG } from "../config.ts";
+import { defaultCacheRegistry } from "./cache-registry.ts";
 
 // ---------------------------------------------------------------------------
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
 // ---------------------------------------------------------------------------
 
 const raspCache = new LRUCache<string, { score: number | null; reason?: string }>({ max: 200 });
+defaultCacheRegistry.registerCache("raspCache", raspCache, { ttlDesc: "none" });
 
 const RASP_SQLITE_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
 const RASP_CSV_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
@@ -232,6 +234,7 @@ export async function runRaspLocal(
 // ---------------------------------------------------------------------------
 
 export const thermompnnCache = new LRUCache<string, { prediction: number | null; jobId?: string; status: "pending" | "running" | "done" | "error" }>({ max: 200 });
+defaultCacheRegistry.registerCache("thermompnnCache", thermompnnCache, { ttlDesc: "none" });
 
 export function clearEnergyModelCaches(): void {
   thermompnnCache.clear();

@@ -1,6 +1,7 @@
 import { LRUCache } from "lru-cache";
 import { TabixIndexedFile } from "@gmod/tabix";
 import { getCachedOrFetch } from "./cache.ts";
+import { defaultCacheRegistry } from "./cache-registry.ts";
 import { sanitizeErrorMessage } from "../utils/security.ts";
 
 export interface ModelInferenceResult {
@@ -14,6 +15,7 @@ const gpnCache = new LRUCache<string, ModelInferenceResult>({
   max: 2000,
   ttl: 1000 * 60 * 60 * 24 * 30 // 30 days
 });
+defaultCacheRegistry.registerCache("gpnCache", gpnCache, { ttlDesc: "30d" });
 
 export function clearGpnCache(): void {
   gpnCache.clear();
@@ -66,7 +68,8 @@ export async function fetchGpnStarByCoordinate(
   ref: string,
   alt: string,
   signal?: AbortSignal,
-  customEndpoint?: string | null
+  customEndpoint?: string | null,
+  options?: { l1Cache?: LRUCache<string, any>; bypassSqlite?: boolean }
 ): Promise<ModelInferenceResult> {
   if (!chrom || typeof pos !== "number" || pos < 1 || !ref || !alt) {
     return {
@@ -117,8 +120,9 @@ export async function fetchGpnStarByCoordinate(
   return getCachedOrFetch({
     key: cacheKey,
     source: "Song Lab GPN-Star (Whole-Genome MSA Tabix)",
-    l1Cache: gpnCache,
+    l1Cache: options?.l1Cache ?? gpnCache,
     ttlSeconds: 30 * 24 * 60 * 60, // 30 days
+    bypassSqlite: options?.bypassSqlite,
     shouldCache: (res) => res.status === "live" || (res.status === "unavailable" && !res.message?.includes("timed out") && !res.message?.includes("error")),
     fetcher: async () => {
       try {

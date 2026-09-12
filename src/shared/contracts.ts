@@ -397,6 +397,81 @@ export const predictorDataSchema = z.object({
   source: z.string().optional()
 });
 
+export const alphagenomeAviSchema = z.object({
+  status: z.enum(["live", "unavailable", "pending"]).default("unavailable"),
+  aviPhred: z.number().nullable().optional(),
+  aviRaw: z.number().nullable().optional(),
+  aviQuantile: z.number().nullable().optional(),
+  topPercentile: z.number().nullable().optional(),
+  topModality: z.string().nullable().optional(),
+  topFeatureImportance: z.number().nullable().optional(),
+  featureAttributions: z.record(z.string(), z.number()).nullable().optional(),
+  acmgStrength: z.enum([
+    "PP3_Strong",
+    "PP3_Moderate",
+    "PP3_Supporting",
+    "BP4_Supporting",
+    "BP4_Moderate",
+    "indeterminate"
+  ]).default("indeterminate"),
+  atlasUrl: z.string().optional(),
+  message: z.string().nullable().optional()
+}).nullable();
+
+export type AlphaGenomeAviData = z.infer<typeof alphagenomeAviSchema>;
+
+export interface AtlasUrls {
+  variantUrl: string;
+  trackPredictionsUrl: string;
+  locusUrl: string;
+  variantStr: string;
+}
+
+/**
+ * Robustly parses genomic coordinate strings in hyphen, colon, or Ensembl notation:
+ * e.g., "chr9:128225994:G>A", "9-128225994-G-A", "chr11:5225488:A-T".
+ */
+export function parseGenomicCoordinateString(rawId?: string | null): { chrom: string; pos: number; ref: string; alt: string } | null {
+  if (!rawId || typeof rawId !== "string") return null;
+  const parts = rawId.replace(/[:>]/g, "-").split("-");
+  if (parts.length >= 4) {
+    const chrom = parts[0];
+    const pos = parseInt(parts[1], 10);
+    const ref = parts[2].toUpperCase();
+    const alt = parts[3].toUpperCase();
+    if (!isNaN(pos) && pos > 0 && ref && alt) {
+      return { chrom, pos, ref, alt };
+    }
+  }
+  return null;
+}
+
+/**
+ * Constructs validated deep-link URLs to the Google DeepMind AlphaGenome Atlas with RFC 3986 encoding.
+ */
+export function generateAtlasUrls(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  flankBp = 20000
+): AtlasUrls {
+  const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom : `chr${chrom}`;
+  const variantStr = `${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}`;
+  const encodedVariant = variantStr.replace(/>/g, "%3E");
+
+  const startCoord = Math.max(1, pos - flankBp);
+  const endCoord = pos + flankBp;
+  const intervalStr = `${normChrom}:${startCoord}-${endCoord}`;
+
+  return {
+    variantUrl: `https://deepmind.google.com/science/alphagenome/atlas/variant/${encodedVariant}`,
+    trackPredictionsUrl: `https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=${encodedVariant}`,
+    locusUrl: `https://deepmind.google.com/science/alphagenome/atlas/locus?interval=${intervalStr}`,
+    variantStr
+  };
+}
+
 export const conservationDataSchema = z.object({
   available: z.boolean().optional(),
   revel: z.number().nullable(),
@@ -456,6 +531,7 @@ export const conservationDataSchema = z.object({
     ada_score: z.number().nullable(),
     rf_score: z.number().nullable()
   }).nullable().optional(),
+  alphagenome: alphagenomeAviSchema.optional(),
   source: z.string().optional()
 });
 

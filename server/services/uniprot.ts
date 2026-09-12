@@ -1,9 +1,14 @@
 import { LRUCache } from "lru-cache";
-import { uniprotCache, uniprotFeaturesCache, getCachedOrFetch } from "./cache.ts";
+import { uniprotCache, uniprotFeaturesCache, getCachedOrFetch, defaultCacheRegistry } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 import { buildUniprotFeaturesKey, buildUniprotSequenceKey, buildUniprotIdKey } from "./cache-keys.ts";
 
-export async function resolveGeneToUniprot(gene: string): Promise<string | null> {
+export interface UniprotCacheOptions {
+  l1Cache?: LRUCache<string, any>;
+  bypassSqlite?: boolean;
+}
+
+export async function resolveGeneToUniprot(gene: string, options?: UniprotCacheOptions): Promise<string | null> {
   const normGene = normalizeGeneSymbol(gene).toUpperCase();
 
   const geneToUniprotStatic: Record<string, string> = {
@@ -13,16 +18,19 @@ export async function resolveGeneToUniprot(gene: string): Promise<string | null>
     NAE1: "Q13564",
   };
   
+  const cache = options?.l1Cache ?? uniprotCache;
+
   if (geneToUniprotStatic[normGene]) {
-    uniprotCache.set(normGene, geneToUniprotStatic[normGene]);
+    cache.set(normGene, geneToUniprotStatic[normGene]);
     return geneToUniprotStatic[normGene];
   }
 
   return getCachedOrFetch({
     key: buildUniprotIdKey(normGene),
     source: "UniProt Search API",
-    l1Cache: uniprotCache,
+    l1Cache: cache,
     ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
     fetcher: async () => {
       try {
         const searchUrl = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(normGene)}+AND+organism_id:9606+AND+reviewed:true&format=json&size=1`;
@@ -49,15 +57,18 @@ export async function resolveGeneToUniprot(gene: string): Promise<string | null>
 }
 
 export const uniprotSeqCache = new LRUCache<string, string>({ max: 500 });
+defaultCacheRegistry.registerCache("uniprotSeqCache", uniprotSeqCache, { ttlDesc: "30d" });
 
-export async function fetchUniprotSequence(uniprotId: string): Promise<string> {
+export async function fetchUniprotSequence(uniprotId: string, options?: UniprotCacheOptions): Promise<string> {
   const key = uniprotId.toUpperCase();
+  const cache = options?.l1Cache ?? uniprotSeqCache;
 
   return getCachedOrFetch({
     key: buildUniprotSequenceKey(key),
     source: "UniProt FASTA",
-    l1Cache: uniprotSeqCache,
+    l1Cache: cache,
     ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
     fetcher: async () => {
       const url = `https://rest.uniprot.org/uniprotkb/${key}.fasta`;
       const response = await fetchWithRetry(url, { timeout: 15000 });
@@ -112,15 +123,18 @@ const RELEVANT_FEATURE_TYPES = new Set([
 ]);
 
 export async function fetchUniprotFeatures(
-  uniprotId: string
+  uniprotId: string,
+  options?: UniprotCacheOptions
 ): Promise<UniprotFeaturesResult | null> {
   const key = uniprotId.toUpperCase();
+  const cache = options?.l1Cache ?? uniprotFeaturesCache;
 
   return getCachedOrFetch({
     key: buildUniprotFeaturesKey(key),
     source: "UniProt Features API",
-    l1Cache: uniprotFeaturesCache,
+    l1Cache: cache,
     ttlSeconds: 14 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
     fetcher: async () => {
       try {
         const resp = await fetchWithRetry(

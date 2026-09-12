@@ -15,7 +15,7 @@ import {
 import { calculateLocalSidechainRmsd } from "./structural-diff.ts";
 import { runRaspLocal, submitThermoMpnnJob } from "./energy-models.ts";
 import { runStabilityOracleAnalysis } from "./stabilityoracle.ts";
-
+import { defaultCacheRegistry } from "./cache-registry.ts";
 
 export const mutantCache = new LRUCache<string, any>({
   max: 100,
@@ -23,6 +23,7 @@ export const mutantCache = new LRUCache<string, any>({
   sizeCalculation: (value) => (value && typeof value.pdb === "string" ? value.pdb.length : 1000),
   ttl: 24 * 60 * 60 * 1000 // 24 hours in-memory TTL
 });
+defaultCacheRegistry.registerCache("mutantCache", mutantCache, { ttlDesc: "24h" });
 
 const FOLDX_CACHE_DIR = path.join(process.cwd(), "logs", "foldx_cache");
 if (!fs.existsSync(FOLDX_CACHE_DIR)) {

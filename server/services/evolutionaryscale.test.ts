@@ -35,7 +35,7 @@ describe("Frontier Genomic Models Service (GPN-Star)", () => {
     } as any;
     setGpnTabixInstance(mockTabix);
 
-    const result = await fetchGpnStarByCoordinate("chr1", 46019605, "C", "T");
+    const result = await fetchGpnStarByCoordinate("chr1", 46019605, "C", "T", undefined, null, { bypassSqlite: true });
     expect(result.status).toBe("live");
     expect(result.score).toBe(-6.92);
     expect(mockTabix.getLines).toHaveBeenCalledWith(
@@ -55,7 +55,7 @@ describe("Frontier Genomic Models Service (GPN-Star)", () => {
     } as any;
     setGpnTabixInstance(mockTabix);
 
-    const result = await fetchGpnStarByCoordinate("1", 46019605, "C", "A");
+    const result = await fetchGpnStarByCoordinate("1", 46019605, "C", "A", undefined, null, { bypassSqlite: true });
     expect(result.status).toBe("unavailable");
     expect(result.score).toBeNull();
     expect(result.message).toContain("Unindexed in GPN-Star");
@@ -71,7 +71,7 @@ describe("Frontier Genomic Models Service (GPN-Star)", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    const res = await fetchGpnStarByCoordinate("1", 46019605, "C", "T");
+    const res = await fetchGpnStarByCoordinate("1", 46019605, "C", "T", undefined, null, { bypassSqlite: true });
     expect(res.status).toBe("live");
     expect(res.score).toBe(-4.15);
     expect(mockFetch).toHaveBeenCalledWith(

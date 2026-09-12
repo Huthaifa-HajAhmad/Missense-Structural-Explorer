@@ -10,6 +10,7 @@ import { PerturbationTab } from "./evidence/PerturbationTab";
 import { MultimersTab } from "./evidence/MultimersTab";
 import { FunctionTab, InteractionsTab } from "./evidence/FunctionInteractionsTabs";
 import { GuidelinesTab } from "./evidence/GuidelinesTab";
+import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
 
 function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
@@ -146,6 +147,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
       <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
         {activeTab === "predictors" && <PredictorsTab {...tabProps} />}
+        {activeTab === "alphagenome" && <AlphaGenomeTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}
         {activeTab === "perturbation" && <PerturbationTab {...tabProps} />}
         {activeTab === "multimers" && <MultimersTab {...tabProps} />}

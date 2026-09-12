@@ -1,8 +1,15 @@
 import { z } from "zod";
 import { CLINVAR_AA_MAP } from "../../src/shared/aminoAcids.ts";
+import { LRUCache } from "lru-cache";
 import { clinvarCache, getCachedOrFetch } from "./cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 import { buildClinvarKey } from "./cache-keys.ts";
+
+export interface FetchClinVarOptions {
+  originalNotation?: string;
+  l1Cache?: LRUCache<string, any>;
+  bypassSqlite?: boolean;
+}
 
 export interface ClinVarData {
   classification: string;
@@ -47,16 +54,25 @@ function getCodingNotation(title: string): string | null {
   return match ? match[1].toLowerCase() : null;
 }
 
-export async function fetchClinVarData(gene: string, variant: string, originalNotation?: string): Promise<ClinVarData> {
+export async function fetchClinVarData(
+  gene: string,
+  variant: string,
+  optionsOrNotation?: string | FetchClinVarOptions
+): Promise<ClinVarData> {
+  const options: FetchClinVarOptions = typeof optionsOrNotation === "string"
+    ? { originalNotation: optionsOrNotation }
+    : (optionsOrNotation || {});
+
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = variant.replace(/^p\./i, "").trim();
-  const cacheKey = buildClinvarKey(gene, variant, originalNotation);
+  const cacheKey = buildClinvarKey(gene, variant, options.originalNotation);
 
   return getCachedOrFetch({
     key: cacheKey,
     source: "NCBI ClinVar API",
-    l1Cache: clinvarCache,
+    l1Cache: options.l1Cache ?? clinvarCache,
     ttlSeconds: 7 * 24 * 60 * 60,
+    bypassSqlite: options.bypassSqlite,
     fetcher: async () => {
       const defaultRes: ClinVarData = {
         classification: "Not found in ClinVar",
@@ -177,14 +193,14 @@ export async function fetchClinVarData(gene: string, variant: string, originalNo
   }
 
   if (matchingEntries.length === 0) {
-    clinvarCache.set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
+    (options.l1Cache ?? clinvarCache).set(cacheKey, defaultRes, { ttl: 5 * 60 * 1000 });
     return defaultRes;
   }
 
   // Find user's specific matched entry
   let matchedIdx = 0;
-  if (originalNotation) {
-    const cleanNotation = originalNotation.trim().toLowerCase();
+  if (options.originalNotation) {
+    const cleanNotation = options.originalNotation.trim().toLowerCase();
     const idx = matchingEntries.findIndex(m => m.cleanTitle.includes(cleanNotation));
     if (idx !== -1) {
       matchedIdx = idx;

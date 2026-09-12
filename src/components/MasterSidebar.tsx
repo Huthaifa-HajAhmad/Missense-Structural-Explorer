@@ -96,6 +96,7 @@ const NAV_ZONES: NavZone[] = [
 const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population Frequencies" },
   { id: "predictors",   label: "In-Silico Predictors"   },
+  { id: "alphagenome",  label: "AlphaGenome Atlas"      },
   { id: "splicing",     label: "RNA Splicing"            },
   { id: "structure",    label: "Residue Shifts"          },
   { id: "perturbation", label: "Structural Perturbation" },
@@ -477,7 +478,9 @@ function MasterSidebar({
                             </span>
                             {(() => {
                               const isSubLoading =
-                                sub.id === "splicing"
+                                sub.id === "alphagenome"
+                                  ? (isBiophysicalLoading && !analysisResult?.conservationData?.alphagenome)
+                                  : sub.id === "splicing"
                                   ? (isBiophysicalLoading && !analysisResult?.conservationData?.spliceai)
                                   : sub.id === "predictors"
                                   ? (isBiophysicalLoading && !analysisResult?.conservationData?.revel)

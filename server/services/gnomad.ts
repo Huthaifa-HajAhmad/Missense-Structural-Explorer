@@ -1,6 +1,17 @@
+import type { LRUCache } from "lru-cache";
 import { normalizeGeneSymbol, fetchWithRetry } from "./http-client.ts";
 import { gnomadFreqCache, gnomadConstraintCache, getCachedOrFetch } from "./cache.ts";
 import { buildGnomadFreqKey, buildGnomadConstraintKey } from "./cache-keys.ts";
+
+export interface FetchGnomadFrequencyOptions {
+  l1Cache?: LRUCache<string, any>;
+  bypassSqlite?: boolean;
+}
+
+export interface FetchGnomadConstraintOptions {
+  l1Cache?: LRUCache<string, any>;
+  bypassSqlite?: boolean;
+}
 
 export interface GnomadVariantFrequency {
   /** Max allele frequency across gnomAD v4 sub-populations */
@@ -32,17 +43,20 @@ export interface GnomadVariantFrequency {
  *
  * @param variantId  gnomAD variant ID in the form "CHR-POS-REF-ALT" (GRCh38).
  *                   If not known, pass null and the function returns null.
+ * @param options    Optional cache and persistence overrides.
  */
 export async function fetchGnomadVariantFrequency(
-  variantId: string | null
+  variantId: string | null,
+  options?: FetchGnomadFrequencyOptions
 ): Promise<GnomadVariantFrequency | null> {
   if (!variantId) return null;
 
   return getCachedOrFetch({
     key: buildGnomadFreqKey(variantId),
     source: "gnomAD GraphQL API",
-    l1Cache: gnomadFreqCache,
+    l1Cache: options?.l1Cache ?? gnomadFreqCache,
     ttlSeconds: 14 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
     fetcher: async () => {
       const query = `
     query VariantFrequency($variantId: String!) {
@@ -203,15 +217,17 @@ export interface GnomadGeneConstraint {
 
 export async function fetchGnomadGeneConstraint(
   geneSymbol: string,
-  aaPos?: number | null
+  aaPos?: number | null,
+  options?: FetchGnomadConstraintOptions
 ): Promise<GnomadGeneConstraint | null> {
   const normGene = normalizeGeneSymbol(geneSymbol).toUpperCase();
 
   const cached = await getCachedOrFetch<GnomadGeneConstraint | null>({
     key: buildGnomadConstraintKey(geneSymbol),
     source: "gnomAD Constraint API",
-    l1Cache: gnomadConstraintCache,
+    l1Cache: options?.l1Cache ?? gnomadConstraintCache,
     ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
     fetcher: async () => {
       const query = `
         query GeneConstraintAndRMC($gene: String!) {

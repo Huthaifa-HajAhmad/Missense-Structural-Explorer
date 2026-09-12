@@ -10,7 +10,8 @@ import { safeParseFloat, safeParseInt, toSingleAa, getFirstOrVal } from "./norma
 import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 import { fetchRealConsurfData } from "./consurf-resolver.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
-import type { ConservationData } from "../../../src/shared/contracts.ts";
+import { fetchAlphaGenome } from "../alphagenome-bridge.ts";
+import { type ConservationData, parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
 
 export const myVariantResponseSchema = z.object({
   hits: z.array(z.object({
@@ -123,7 +124,8 @@ export async function fetchConservationData(
         aouFrequency: null,
         spliceProximity,
         spliceai: null,
-        dbscsnv: null
+        dbscsnv: null,
+        alphagenome: null
       };
 
       // 1. Try local SQLite dbNSFP if present
@@ -131,43 +133,24 @@ export async function fetchConservationData(
         try {
           const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant);
           if (rec) {
-            const popEVEPromise = gnomadVariantId
-              ? (async () => {
-                  const parts = gnomadVariantId.split("-");
-                  if (parts.length >= 4) {
-                    const chrom = parts[0];
-                    const posVal = parseInt(parts[1], 10);
-                    const ref = parts[2];
-                    const alt = parts[3];
-                    if (!isNaN(posVal)) {
-                      return fetchPopEVEScore(chrom, posVal, ref, alt);
-                    }
-                  }
-                  return null;
-                })()
+            const parsedGnomad = parseGenomicCoordinateString(gnomadVariantId);
+            const popEVEPromise = parsedGnomad
+              ? fetchPopEVEScore(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt).catch(() => null)
               : Promise.resolve(null);
 
             const consurfPromise = (pdbId && chainId && resolvedPos !== null)
               ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
               : Promise.resolve(null);
 
-            const gpnTabixPromise = gnomadVariantId
-              ? (async () => {
-                  const parts = gnomadVariantId.split("-");
-                  if (parts.length >= 4) {
-                    const chrom = parts[0];
-                    const posVal = parseInt(parts[1], 10);
-                    const ref = parts[2];
-                    const alt = parts[3];
-                    if (!isNaN(posVal)) {
-                      return fetchGpnStarByCoordinate(chrom, posVal, ref, alt);
-                    }
-                  }
-                  return null;
-                })()
+            const gpnTabixPromise = parsedGnomad
+              ? fetchGpnStarByCoordinate(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt).catch(() => null)
               : Promise.resolve(null);
 
-            const [popEVEScore, consurfVal, gpnTabixRes] = await Promise.all([popEVEPromise, consurfPromise, gpnTabixPromise]);
+            const alphaPromise = parsedGnomad
+              ? fetchAlphaGenome(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt).catch(() => null)
+              : Promise.resolve(null);
+
+            const [popEVEScore, consurfVal, gpnTabixRes, alphaRes] = await Promise.all([popEVEPromise, consurfPromise, gpnTabixPromise, alphaPromise]);
 
             let popEVEVal = rec.popeve ?? popEVEScore;
             if (popEVEVal === null) {
@@ -224,6 +207,7 @@ export async function fetchConservationData(
                 ada_score: safeParseFloat((rec as any).dbscSNV_ADA_SCORE ?? (rec as any).dbscsnv_ada_score),
                 rf_score: safeParseFloat((rec as any).dbscSNV_RF_SCORE ?? (rec as any).dbscsnv_rf_score)
               } : null,
+              alphagenome: alphaRes ?? null,
               source: "local dbNSFP"
             };
             return resVal;
@@ -639,39 +623,32 @@ export async function fetchConservationDataProgressive(
     })
     .catch(() => null);
 
-  // 2. Asynchronously compute PopEVE, GPN-Star Tabix, and splice proximity when predictor resolves
+  // 2. Asynchronously compute PopEVE, GPN-Star Tabix, splice proximity, and AlphaGenome AVI when predictor resolves
   const predictorEnrichmentTask = (predictorPromise || Promise.resolve(null))
     .then(async (pred) => {
       let popEVEScore: number | null = null;
       let spliceProximity: any = null;
       let gpnStarResult: EvolutionaryScaleResult | null = null;
+      let alphagenomeResult: any = null;
 
-      if (pred?.gnomadVariantId) {
-        const parts = pred.gnomadVariantId.split("-");
-        if (parts.length >= 4) {
-          const chrom = parts[0];
-          const posVal = parseInt(parts[1], 10);
-          const ref = parts[2];
-          const alt = parts[3];
-          if (!isNaN(posVal)) {
-            const [popRes, gpnRes] = await Promise.all([
-              fetchPopEVEScore(chrom, posVal, ref, alt).catch(() => null),
-              fetchGpnStarByCoordinate(chrom, posVal, ref, alt).catch(() => null)
-            ]);
-            popEVEScore = popRes;
-            gpnStarResult = gpnRes;
-          }
-        }
-        if (pred?.transcriptId && parts.length >= 2) {
-          const genomicPos = parseInt(parts[1], 10);
-          if (!isNaN(genomicPos)) {
-            spliceProximity = await resolveSpliceProximity(pred.transcriptId, genomicPos).catch(() => null);
-          }
+      const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId);
+      if (parsedCoord) {
+        const [popRes, gpnRes, alphaRes] = await Promise.all([
+          fetchPopEVEScore(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
+          fetchGpnStarByCoordinate(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
+          fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null)
+        ]);
+        popEVEScore = popRes;
+        gpnStarResult = gpnRes;
+        alphagenomeResult = alphaRes;
+
+        if (pred?.transcriptId) {
+          spliceProximity = await resolveSpliceProximity(pred.transcriptId, parsedCoord.pos).catch(() => null);
         }
       }
-      return { popEVEScore, spliceProximity, gpnStarResult };
+      return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult };
     })
-    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null }));
+    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null }));
 
   // 3. Immediately kick off base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant)
   const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
@@ -725,6 +702,7 @@ export async function fetchConservationDataProgressive(
     spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity,
     gpnStar: finalGpnScore,
     gpnStarStatus: finalGpnStatus,
-    gpnStarMessage: finalGpnMessage
+    gpnStarMessage: finalGpnMessage,
+    alphagenome: enrichment.alphagenomeResult ?? baseConservation.alphagenome ?? null
   };
 }

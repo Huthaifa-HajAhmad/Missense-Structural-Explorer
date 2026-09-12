@@ -10,6 +10,7 @@ import {
   parseResiduesFromPdbMaybeAsync,
   parseAtomsFromPdb
 } from "./pdb-parser.ts";
+import { defaultCacheRegistry } from "./cache-registry.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -200,6 +201,7 @@ export const pocketCache = new LRUCache<string, any>({
     return Math.max(1, residueCount * 50);
   }
 });
+defaultCacheRegistry.registerCache("pocketCache", pocketCache, { ttlDesc: "7d" });
 
 /**
  * Returns empirical amino acid propensities for protein-ligand binding pockets.
@@ -246,11 +248,13 @@ export async function findBindingPocket(
   targetIndex: number,
   jobDir: string,
   targetChain?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { l1Cache?: LRUCache<string, any> }
 ): Promise<{ pocketResidues: any[]; pocketScore: number; pocketVolume: number; likelyCofactor: string; status: "success" | "fallback" | "none_detected" | "unavailable"; pocketDistance?: number | null; sasPoints?: number; surfaceAtoms?: number }> {
   const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
   const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}`;
-  const cached = pocketCache.get(cacheKey);
+  const cache = options?.l1Cache ?? pocketCache;
+  const cached = cache.get(cacheKey);
   if (cached) {
     if (process.env.NODE_ENV !== "production") {
       console.log(`[Biophysical Caching] Cache Hit for binding pocket at residue: ${targetIndex}`);
@@ -259,7 +263,7 @@ export async function findBindingPocket(
   }
   const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
   if (result.status === "success" || result.status === "none_detected" || result.status === "fallback") {
-    pocketCache.set(cacheKey, result);
+    cache.set(cacheKey, result);
   }
   return result;
 }
