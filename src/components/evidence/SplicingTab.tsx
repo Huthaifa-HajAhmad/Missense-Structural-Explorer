@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useId } from "react";
 import {
   Scissors,
   AlertTriangle,
@@ -19,7 +19,7 @@ import {
 import { TabComponentProps } from "./types";
 import { evaluateSplicePredictor, THRESHOLDS } from "../../shared/thresholds";
 
-export function SplicingTab({
+function SplicingTabComponent({
   analysisState,
   isBiophysicalLoading,
   foldingDdG,
@@ -34,8 +34,11 @@ export function SplicingTab({
   const spliceProximity = result.conservationData?.spliceProximity || null;
   const alphagenome = result.conservationData?.alphagenome || null;
 
-  // Protein misfolding evidence
-  const foldxVal = foldingDdG ?? result.foldingEnergetics?.foldx ?? null;
+  // Biophysical & protein misfolding evidence (including ensemble mean and repair failure checks)
+  const isFoldxFailed = Boolean(result.foldingEnergetics?.foldxRepairFailed || result.foldingEnergetics?.foldxBinaryMissing);
+  const foldxVal = isFoldxFailed
+    ? null
+    : (foldingDdG ?? result.foldingEnergetics?.foldxMean ?? result.foldingEnergetics?.foldx ?? null);
   const alphamissenseScore = result.predictorData?.amPathogenicity ?? null;
   const revelScore = result.conservationData?.revel ?? null;
 
@@ -49,7 +52,7 @@ export function SplicingTab({
   const exonLength = spliceProximity?.exonLength ?? null;
   const exonStart = spliceProximity?.exonStart ?? null;
   const exonEnd = spliceProximity?.exonEnd ?? null;
-  const intronNum = spliceProximity?.intronNumber ?? spliceProximity?.adjacentIntronNumber ?? (exonNum ? exonNum : null);
+  const intronNum = spliceProximity?.intronNumber ?? spliceProximity?.adjacentIntronNumber ?? null;
   const rawJunctionType = spliceProximity?.junctionType ?? null;
   const isAcceptor = rawJunctionType === "acceptor";
   const isDonor = rawJunctionType === "donor" || (!isAcceptor && distance !== null);
@@ -58,7 +61,7 @@ export function SplicingTab({
     : isAcceptor
     ? "3' Splice Acceptor (AG)"
     : "Splice Junction";
-  const strand = spliceProximity?.strand ?? "+";
+  const strand = spliceProximity?.strand ?? null;
   const transcriptId = spliceProximity?.transcriptId ?? result.transcriptId ?? null;
   const regionType = spliceProximity?.regionType ?? (distance !== null ? "exonic" : null);
 
@@ -131,13 +134,16 @@ export function SplicingTab({
   const isSplicingDisrupted =
     (maxDs !== null && maxDs >= THRESHOLDS.spliceai.pathogenicModerate) ||
     isDbscAltering ||
-    (distance !== null && distance <= 2) ||
+    isNear ||
+    (distance !== null && distance <= 5) ||
     isAlphaGenomeSplicingDominant;
 
+  const isBiophysicalConsensusDestabilizing = result.foldingEnergetics?.consensusVerdict === "destabilizing";
   const isProteinDestabilized =
     (foldxVal !== null && foldxVal >= THRESHOLDS.foldxDdG.destabilizingStrong) ||
     (alphamissenseScore !== null && alphamissenseScore >= THRESHOLDS.alphaMissense.pathogenicSupporting) ||
-    (revelScore !== null && revelScore >= THRESHOLDS.revel.pathogenicSupporting);
+    (revelScore !== null && revelScore >= THRESHOLDS.revel.pathogenicSupporting) ||
+    isBiophysicalConsensusDestabilizing;
 
   const etiologyVerdict = useMemo(() => {
     if (isSpliceAiLoading) {
@@ -275,7 +281,9 @@ export function SplicingTab({
   // ---------------------------------------------------------------------------
   const isExonicVariant = regionType === "exonic" || (distance !== null && regionType !== "intronic");
   const isOffScale = distance !== null && distance > 60;
-  const clampedDistance = distance !== null ? Math.min(distance, 60) : null;
+  const clampedDistance = typeof distance === "number" && Number.isFinite(distance) && distance >= 0
+    ? Math.min(distance, 60)
+    : null;
 
   let pinX = 480;
   if (clampedDistance !== null) {
@@ -288,13 +296,32 @@ export function SplicingTab({
     }
   }
 
+  // Dynamic tick mark anchors for 5' Donor vs 3' Acceptor geometry
+  const leftTickY1 = isDonor ? 132 : 113;
+  const leftTickY2 = isDonor ? 144 : 125;
+  const rightTickY1 = isDonor ? 113 : 132;
+  const rightTickY2 = isDonor ? 125 : 144;
+
+  // Spatial axis sign: Left (<480) is negative (-), Right (>480) is positive (+)
+  const chipSignLabel = isDonor
+    ? (isExonicVariant ? `-${distance} bp (Exonic)` : `+${distance} bp (Intronic)`)
+    : (isExonicVariant ? `+${distance} bp (Exonic)` : `-${distance} bp (Intronic)`);
+
   // Strictly neutral zero-synthetic labels
   const displayExonLabel = exonNum !== null
     ? `Exon ${exonNum}${totalExons ? ` of ${totalExons}` : ""}`
     : "Exon unmapped";
-  const displayIntronLabel = intronNum !== null
+  const displayIntronLabel = totalExons === 1
+    ? "Single-exon (no introns)"
+    : intronNum !== null
     ? `Intron ${intronNum}`
     : "Intron unmapped";
+  const strandLabel = strand ? (strand === "+" ? "Forward (+)" : "Reverse (-)") : "Strand unmapped";
+
+  // Unique gradient IDs to prevent collisions in multi-card/split views
+  const gradIdSuffix = useId().replace(/:/g, "_");
+  const exonGradId = `exonGradSplicing_${gradIdSuffix}`;
+  const criticalZoneGradId = `criticalZoneGradSplicing_${gradIdSuffix}`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -524,14 +551,16 @@ export function SplicingTab({
               Deep learning sequence models evaluate whole-transcript splicing contexts alongside tertiary force-field energetic calculations.
             </span>
           </p>
-          <button
-            type="button"
-            onClick={() => onTabChange?.("alphagenome")}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono bg-cs-surface hover:bg-[var(--cs-bg-subtle)] text-cs-text-primary border border-cs-border transition-all cursor-pointer shadow-xs"
-          >
-            <span>Explore Epigenomics & Tracks in AlphaGenome Tab</span>
-            <ArrowRight className="w-3.5 h-3.5 text-cs-accent-clay" />
-          </button>
+          {onTabChange && (
+            <button
+              type="button"
+              onClick={() => onTabChange("alphagenome")}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono bg-cs-surface hover:bg-[var(--cs-bg-subtle)] text-cs-text-primary border border-cs-border transition-all cursor-pointer shadow-xs"
+            >
+              <span>Explore Epigenomics & Tracks in AlphaGenome Tab</span>
+              <ArrowRight className="w-3.5 h-3.5 text-cs-accent-clay" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -548,7 +577,7 @@ export function SplicingTab({
           </div>
           <div className="flex items-center gap-2 text-[11px] font-mono text-cs-text-secondary">
             <span className="px-2.5 py-1 rounded bg-cs-surface-2 border border-cs-border-subtle">
-              {transcriptId ? `${transcriptId} (${strand})` : "Transcript unmapped"}
+              {transcriptId ? `${transcriptId} (${strandLabel})` : "Transcript unmapped"}
             </span>
             <span className="px-2.5 py-1 rounded bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20 font-semibold">
               {displayExonLabel}
@@ -567,11 +596,11 @@ export function SplicingTab({
             aria-label="Splice junction biological architecture"
           >
             <defs>
-              <linearGradient id="exonGradSplicing" x1="0%" y1="0%" x2="100%" y2="0%">
+              <linearGradient id={exonGradId} x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="var(--cs-accent-clay)" stopOpacity="0.10" />
                 <stop offset="100%" stopColor="var(--cs-accent-clay)" stopOpacity="0.25" />
               </linearGradient>
-              <linearGradient id="criticalZoneGradSplicing" x1="0%" y1="0%" x2="100%" y2="0%">
+              <linearGradient id={criticalZoneGradId} x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="var(--cs-danger)" stopOpacity="0.16" />
                 <stop offset="100%" stopColor="var(--cs-danger)" stopOpacity="0.16" />
               </linearGradient>
@@ -583,7 +612,7 @@ export function SplicingTab({
               // -----------------------------------------------------------------
               <g>
                 {/* Exon Box (Left: X=40 to 480, Width=440, Height=74) */}
-                <rect x="40" y="58" width="440" height="74" rx="8" fill="url(#exonGradSplicing)" stroke="var(--cs-accent-clay)" strokeWidth="2.2" />
+                <rect x="40" y="58" width="440" height="74" rx="8" fill={`url(#${exonGradId})`} stroke="var(--cs-accent-clay)" strokeWidth="2.2" />
                 <text x="260" y="92" fill="var(--cs-accent-clay)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[15px] font-bold uppercase tracking-wider" textAnchor="middle">
                   {displayExonLabel}
                 </text>
@@ -625,7 +654,7 @@ export function SplicingTab({
                 <line x1="40" y1="95" x2="480" y2="95" stroke="var(--cs-text-muted)" strokeWidth="2.5" strokeDasharray="8 5" />
 
                 {/* Exon Box (Right: X=480 to 920, Width=440, Height=74) */}
-                <rect x="480" y="58" width="440" height="74" rx="8" fill="url(#exonGradSplicing)" stroke="var(--cs-accent-clay)" strokeWidth="2.2" />
+                <rect x="480" y="58" width="440" height="74" rx="8" fill={`url(#${exonGradId})`} stroke="var(--cs-accent-clay)" strokeWidth="2.2" />
                 <text x="700" y="92" fill="var(--cs-accent-clay)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[15px] font-bold uppercase tracking-wider" textAnchor="middle">
                   {displayExonLabel}
                 </text>
@@ -644,7 +673,7 @@ export function SplicingTab({
             )}
 
             {/* Critical Consensus Zone (±5 bp Highlight around 480) */}
-            <rect x="446" y="50" width="68" height="90" rx="5" fill="url(#criticalZoneGradSplicing)" stroke="var(--cs-danger)" strokeWidth="1.5" strokeDasharray="3 2" />
+            <rect x="446" y="50" width="68" height="90" rx="5" fill={`url(#${criticalZoneGradId})`} stroke="var(--cs-danger)" strokeWidth="1.5" strokeDasharray="3 2" />
             <text x="480" y="42" fill="var(--cs-text-danger)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[11px] font-bold" textAnchor="middle">
               ±5 bp Consensus Zone
             </text>
@@ -652,8 +681,8 @@ export function SplicingTab({
             {/* Splice Junction 0bp Boundary Line */}
             <line x1="480" y1="48" x2="480" y2="148" stroke="var(--cs-text-primary)" strokeWidth="3" />
 
-            {/* Scale Ticks (-25bp, 0bp, +25bp) */}
-            <line x1="290" y1="132" x2="290" y2="144" stroke="var(--cs-text-muted)" strokeWidth="1.5" />
+            {/* Scale Ticks (-25bp, 0bp, +25bp) with Dynamic Geometry Anchoring */}
+            <line x1="290" y1={leftTickY1} x2="290" y2={leftTickY2} stroke="var(--cs-text-muted)" strokeWidth="1.5" />
             <text x="290" y="184" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">-25 bp</text>
 
             <line x1="480" y1="148" x2="480" y2="160" stroke="var(--cs-text-primary)" strokeWidth="2" />
@@ -661,7 +690,7 @@ export function SplicingTab({
               0 bp ({isDonor ? "GT Donor" : isAcceptor ? "AG Acceptor" : "Junction"})
             </text>
 
-            <line x1="670" y1="113" x2="670" y2="125" stroke="var(--cs-text-muted)" strokeWidth="1.5" />
+            <line x1="670" y1={rightTickY1} x2="670" y2={rightTickY2} stroke="var(--cs-text-muted)" strokeWidth="1.5" />
             <text x="670" y="184" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">+25 bp</text>
 
             {/* Off-scale break symbol if distance > 60 bp */}
@@ -713,10 +742,8 @@ export function SplicingTab({
                   textAnchor="middle"
                 >
                   {isOffScale
-                    ? `>${distance} bp (Deep)`
-                    : isExonicVariant
-                    ? `-${distance} bp (Exonic)`
-                    : `+${distance} bp (Intronic)`}
+                    ? `${distance} bp (>60 bp scale)`
+                    : chipSignLabel}
                 </text>
               </g>
             ) : (
@@ -731,7 +758,7 @@ export function SplicingTab({
 
           <div className="w-full flex justify-between items-center text-[12px] font-mono text-cs-text-muted px-3 border-t border-cs-border-subtle pt-3 mt-2">
             <span className="font-semibold text-cs-text-primary">{junctionType}</span>
-            <span>Strand: {strand === "+" ? "Forward (+)" : "Reverse (-)"}</span>
+            <span>Strand: {strandLabel}</span>
           </div>
         </div>
 
@@ -821,7 +848,7 @@ export function SplicingTab({
             </span>
           ) : (
             <span className="font-semibold text-cs-text-primary">
-              Max Delta Score: {maxDs !== null ? maxDs.toFixed(3) : "0.000 (Preserved)"}
+              Max Delta Score: {maxDs !== null ? maxDs.toFixed(3) : "—"}
             </span>
           )}
         </div>
@@ -863,13 +890,23 @@ export function SplicingTab({
             {renderSpliceAiBar("Donor Gain (ds_dg)", spliceai.ds_dg)}
             {renderSpliceAiBar("Donor Loss (ds_dl)", spliceai.ds_dl)}
           </div>
-        ) : (
+        ) : spliceai !== null ? (
           <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed animate-fade-in">
             <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
             <div>
               <p className="font-medium text-cs-text-primary">No aberrant splicing predicted within sequence window</p>
               <p className="text-cs-text-muted mt-0.5">
                 SpliceAI evaluated all four splice altering mechanisms (Acceptor Gain, Acceptor Loss, Donor Gain, Donor Loss). All predicted delta scores remain below the basal detection threshold (&Delta;Score &lt; 0.02).
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed animate-fade-in">
+            <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-cs-text-primary">SpliceAI Deep Learning Data Unavailable</p>
+              <p className="text-cs-text-muted mt-0.5">
+                No precomputed or runtime SpliceAI delta scores are available for this genomic position. Splicing evaluation relies on distance proximity and dbscSNV consensus models.
               </p>
             </div>
           </div>
@@ -900,9 +937,9 @@ export function SplicingTab({
           <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed">
             <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-cs-text-primary">Outside &plusmn;12 bp Splice Consensus Zone</p>
+              <p className="font-medium text-cs-text-primary">Variant Outside dbscSNV Canonical Flank</p>
               <p className="text-cs-text-muted mt-0.5">
-                Variant coordinate is located {distance !== null ? `${distance} bp` : "deep"} into {displayExonLabel}. dbscSNV only evaluates variants within donor (-3 to +8 bp) and acceptor (-12 to +2 bp) consensus motifs.
+                dbscSNV ensemble annotations are restricted to &plusmn;12 bp surrounding exon-intron boundaries.
               </p>
             </div>
           </div>
@@ -963,3 +1000,4 @@ export function SplicingTab({
   );
 }
 
+export const SplicingTab = React.memo(SplicingTabComponent);

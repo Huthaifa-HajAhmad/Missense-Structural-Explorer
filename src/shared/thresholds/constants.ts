@@ -24,6 +24,8 @@ export const THRESHOLDS = {
     pathogenicSupporting: 0.20,
     /** SpliceAI ΔScore ≤ 0.02: minimal / negligible splice alteration risk (BP4) */
     benign: 0.02,
+    /** Standard consensus splice flank interval: ±12 bp (donor -3..+8, acceptor -12..+2) */
+    consensusFlankDistance: 12,
   },
   dbscsnv: {
     /** dbscSNV ADA/RF score ≥ 0.60 → high probability of altering splicing */
@@ -255,7 +257,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "gnomAD LOEUF (observed/expected loss-of-function ratio; severe intolerance < 0.35, moderate < 0.60).",
   spliceai:
     "SpliceAI (Jaganathan 2019). ΔScore ≥ 0.50 high disruption risk, ≥ 0.20 moderate (PP3 supporting); " +
-    "≤ 0.02 benign (BP4). Source: ClinGen SVI Recommendation (2019).",
+    "≤ 0.02 benign (BP4). Consensus splice region flank: ±12 bp. Source: ClinGen SVI Recommendation (2019).",
   dbscsnv:
     "dbscSNV (Jian 2014). ADA/RF ensemble probability ≥ 0.60 indicates splice altering candidate.",
   alphagenome:

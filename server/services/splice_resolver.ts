@@ -221,7 +221,12 @@ export async function resolveSpliceProximity(
 
   return {
     distance: minDistance,
-    isNearSpliceSite: minDistance <= 5,
+    isNearSpliceSite: Boolean(
+      totalExons !== null &&
+      totalExons > 1 &&
+      (junctionType === "donor" || junctionType === "acceptor") &&
+      minDistance <= 5
+    ),
     exonNumber,
     totalExons,
     exonId,

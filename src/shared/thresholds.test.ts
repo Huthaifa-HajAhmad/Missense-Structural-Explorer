@@ -87,6 +87,19 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       // Far and low SpliceAI -> benign
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
 
+      // Boundary distance tests (consensusFlankDistance = 12 bp)
+      // Distance 5 bp with isNearSpliceSite -> pathogenic
+      expect(evaluateSplicePredictor({ distance: 5, isNearSpliceSite: true }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("pathogenic");
+
+      // Distance 10 bp (inside consensus flank <= 12 bp) even with benign SpliceAI -> vus
+      expect(evaluateSplicePredictor({ distance: 10, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("vus");
+
+      // Distance 12 bp (exact consensus flank boundary) with benign SpliceAI -> vus
+      expect(evaluateSplicePredictor({ distance: 12, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("vus");
+
+      // Distance 13 bp (outside consensus flank > 12 bp) with benign SpliceAI -> benign
+      expect(evaluateSplicePredictor({ distance: 13, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
+
       // Far but missing both predictors -> unavailable (Zero-Heuristics SCI-002)
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, null)).toBe("unavailable");
       expect(evaluateSplicePredictor({ distance: 25, isNearSpliceSite: false }, undefined, undefined)).toBe("unavailable");

@@ -83,5 +83,67 @@ describe("Splice Resolver and Distance Calculator Tests", () => {
       expect(resFar!.regionType).toBe("intronic");
       expect(resFar!.intronNumber).toBe(1);
     });
+
+    it("should correctly handle reverse-strand transcripts (strand: -1)", async () => {
+      const mockReverseResponse = {
+        object_type: "Transcript",
+        id: "ENST00000400000",
+        strand: -1,
+        Exon: [
+          { id: "EXON_REV_2", start: 1000, end: 1200 }, // in reverse strand, this is Exon 2 (3' end of transcript)
+          { id: "EXON_REV_1", start: 2000, end: 2200 }  // in reverse strand, this is Exon 1 (5' start of transcript)
+        ]
+      };
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockReverseResponse
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Variant is at 2004 (4bp from 2000, which is the 5' donor of Exon 1 on reverse strand)
+      const resDonor = await resolveSpliceProximity("ENST00000400000", 2004);
+      expect(resDonor).toBeDefined();
+      expect(resDonor!.distance).toBe(4);
+      expect(resDonor!.isNearSpliceSite).toBe(true);
+      expect(resDonor!.exonNumber).toBe(1);
+      expect(resDonor!.totalExons).toBe(2);
+      expect(resDonor!.junctionType).toBe("donor");
+      expect(resDonor!.adjacentIntronNumber).toBe(1);
+      expect(resDonor!.strand).toBe("-");
+
+      // Variant at 2198 (2bp from 2200, which is the transcription start site / 5' terminal boundary)
+      const resTSS = await resolveSpliceProximity("ENST00000400000", 2198);
+      expect(resTSS).toBeDefined();
+      expect(resTSS!.distance).toBe(2);
+      expect(resTSS!.junctionType).toBe("terminal");
+      expect(resTSS!.isNearSpliceSite).toBe(false); // Terminal boundary must never trigger splice proximity
+    });
+
+    it("should never flag single-exon genes as near splice site", async () => {
+      const mockSingleExonResponse = {
+        object_type: "Transcript",
+        id: "ENST00000500000",
+        strand: 1,
+        Exon: [
+          { id: "EXON_SINGLE", start: 1000, end: 2000 }
+        ]
+      };
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockSingleExonResponse
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Variant at 1002 (2bp from transcript start)
+      const res = await resolveSpliceProximity("ENST00000500000", 1002);
+      expect(res).toBeDefined();
+      expect(res!.distance).toBe(2);
+      expect(res!.totalExons).toBe(1);
+      expect(res!.junctionType).toBe("terminal");
+      expect(res!.isNearSpliceSite).toBe(false); // No splicing occurs in single-exon transcripts
+      expect(res!.adjacentIntronNumber).toBeNull();
+    });
   });
 });

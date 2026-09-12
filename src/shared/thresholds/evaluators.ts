@@ -149,7 +149,8 @@ export function evaluateSplicePredictor(
     ? ((dbscsnv?.ada_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering && (dbscsnv?.rf_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering)
     : null;
 
-  if (dist > 10 && isSpliceAIBenign !== false && isDbscsnvBenign !== false
+  const consensusFlank = THRESHOLDS.spliceai?.consensusFlankDistance ?? 12;
+  if (dist > consensusFlank && isSpliceAIBenign !== false && isDbscsnvBenign !== false
       && (isSpliceAIBenign === true || isDbscsnvBenign === true)) {
     return "benign";
   }
