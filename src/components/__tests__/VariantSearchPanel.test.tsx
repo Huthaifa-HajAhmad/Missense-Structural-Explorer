@@ -256,5 +256,30 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     fireEvent.keyDown(structureCard, { key: " " });
     expect(mockOnViewChange).toHaveBeenCalledWith("structure");
   });
+
+  it("does not render excessive pills (Pre-flight Ready, Pipeline Ready, v1.0.0-dev) or card settings icon pills in idle state", async () => {
+    renderPanel();
+
+    // Verify excessive pills are absent
+    expect(screen.queryByText("Pre-flight Ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pipeline Ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("v1.0.0-dev")).not.toBeInTheDocument();
+
+    // Verify service cards do not render redundant inline settings pills
+    expect(screen.queryByTitle(/Configure FoldX Engine settings/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Configure Gemini Clinical AI settings/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Configure P2Rank Pocket Engine settings/i)).not.toBeInTheDocument();
+  });
+
+  it("displays Key Ready for AlphaGenome Atlas when configured in client settings", async () => {
+    sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ alphagenomeApiKey: "ag-secret-key-xyz" }));
+
+    renderPanel();
+
+    expect(screen.getByText("AlphaGenome Atlas")).toBeInTheDocument();
+    expect(await screen.findByText(/key ready/i)).toBeInTheDocument();
+
+    sessionStorage.removeItem("missenseTransientCredentials");
+  });
 });
 

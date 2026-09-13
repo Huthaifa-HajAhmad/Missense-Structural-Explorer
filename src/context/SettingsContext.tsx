@@ -186,6 +186,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         appApiToken: transient.appApiToken || "",
         biohubApiToken: transient.biohubApiToken || "",
         hfToken: transient.hfToken || "",
+        gpnApiUrl: transient.gpnApiUrl || "",
+        alphagenomeApiKey: transient.alphagenomeApiKey || "",
+        alphagenomeApiUrl: transient.alphagenomeApiUrl || "",
         show3DLabels: parsed.show3DLabels !== undefined ? !!parsed.show3DLabels : true,
         reducedMotion: parsed.reducedMotion !== undefined ? !!parsed.reducedMotion : prefersReducedMotion(),
         biophysicsConditions: {

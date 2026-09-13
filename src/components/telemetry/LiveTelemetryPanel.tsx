@@ -57,14 +57,18 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
   // 2. AlphaGenome Atlas
   const alphagenomeHealth = diagnostics?.serviceHealth?.alphagenome;
-  const alphagenomeReady = Boolean(alphagenomeHealth?.healthy);
+  const hasClientAlphaGenome = Boolean(
+    (settings.alphagenomeApiKey && settings.alphagenomeApiKey.trim().length > 0) ||
+    (settings.alphagenomeApiUrl && settings.alphagenomeApiUrl.trim().length > 0)
+  );
+  const alphagenomeReady = Boolean(alphagenomeHealth?.healthy || hasClientAlphaGenome);
   const alphagenomeLatency = alphagenomeHealth?.latencyMs;
   const alphagenomeStatusText = !isLoaded && loading
     ? "Connecting…"
-    : alphagenomeReady
+    : alphagenomeHealth?.healthy
     ? "Bridge Active"
-    : alphagenomeHealth
-    ? "Standby"
+    : hasClientAlphaGenome
+    ? "Key Ready"
     : "Standby";
 
   // 3. MyVariant.info & dbNSFP
@@ -186,7 +190,8 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "DeepMind multimodal variant impact",
       statusText: alphagenomeStatusText,
       isReady: alphagenomeReady,
-      latency: formatLatency(alphagenomeLatency)
+      latency: formatLatency(alphagenomeLatency),
+      onAction: () => handleConfigure("connections")
     },
     {
       id: "myvariant",
@@ -400,14 +405,6 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                 >
                   {svc.statusText}
                 </span>
-                {isClickable && (
-                  <span
-                    className="p-1 rounded bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] hover:text-[var(--cs-accent-clay)] border border-[var(--cs-border-subtle)] transition-colors"
-                    title={`Configure ${svc.name} settings`}
-                  >
-                    <Settings className="w-2.5 h-2.5" />
-                  </span>
-                )}
               </div>
             </div>
           );
