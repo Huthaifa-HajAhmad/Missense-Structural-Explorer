@@ -2,6 +2,10 @@ import { LRUCache } from "lru-cache";
 import {
   type AlphaGenomeAviData,
   alphagenomeAviSchema,
+  type AlphaGenomeRegionSaturationRequest,
+  type AlphaGenomeRegionSaturationResponse,
+  alphaGenomeRegionSaturationRequestSchema,
+  alphaGenomeRegionSaturationResponseSchema,
   type AtlasUrls,
   generateAtlasUrls
 } from "../../src/shared/contracts.ts";
@@ -21,23 +25,41 @@ export type AlphaGenomeProvider = (
   signal?: AbortSignal
 ) => Promise<AlphaGenomeAviData>;
 
+export type AlphaGenomeRegionProvider = (
+  params: AlphaGenomeRegionSaturationRequest,
+  signal?: AbortSignal
+) => Promise<AlphaGenomeRegionSaturationResponse>;
+
 // In-memory 30-day LRU cache for AlphaGenome predictions
 export const alphagenomeCache = new LRUCache<string, NonNullable<AlphaGenomeAviData>>({
   max: 1000,
   ttl: 1000 * 60 * 60 * 24 * 30 // 30 days
 });
 
+// In-memory 30-day LRU cache for AlphaGenome region saturation predictions
+export const alphagenomeRegionCache = new LRUCache<string, NonNullable<AlphaGenomeRegionSaturationResponse>>({
+  max: 500,
+  ttl: 1000 * 60 * 60 * 24 * 30 // 30 days
+});
+
 // Register with global cache registry for telemetry diagnostics and unified flushes
 defaultCacheRegistry.registerCache("alphagenomeCache", alphagenomeCache, { ttlDesc: "30d" });
+defaultCacheRegistry.registerCache("alphagenomeRegionCache", alphagenomeRegionCache, { ttlDesc: "30d" });
 
 export function clearAlphaGenomeCache(): void {
   alphagenomeCache.clear();
+  alphagenomeRegionCache.clear();
 }
 
 let mockProvider: AlphaGenomeProvider | null = null;
+let mockRegionProvider: AlphaGenomeRegionProvider | null = null;
 
 export function setAlphaGenomeMockProvider(provider: AlphaGenomeProvider | null): void {
   mockProvider = provider;
+}
+
+export function setAlphaGenomeRegionMockProvider(provider: AlphaGenomeRegionProvider | null): void {
+  mockRegionProvider = provider;
 }
 
 /**
@@ -240,5 +262,243 @@ export async function fetchAlphaGenome(
     alphagenomeCache.set(cacheKey, errorResult, { ttl: 300_000 });
     return errorResult;
   }
+  });
+}
+
+/**
+ * Fetches AlphaGenome saturation mutagenesis and 1D intolerance profile across a genomic region.
+ * Protected by an in-memory 30-day LRU cache, singleFlight deduplication, and a 3.5-second fast deadline.
+ */
+export async function fetchAlphaGenomeRegionSaturation(
+  params: AlphaGenomeRegionSaturationRequest,
+  signal?: AbortSignal
+): Promise<AlphaGenomeRegionSaturationResponse> {
+  const parsed = alphaGenomeRegionSaturationRequestSchema.safeParse(params);
+  if (!parsed.success) {
+    const errorDetail = parsed.error.issues?.[0]?.message;
+    return {
+      status: "unavailable",
+      chrom: params?.chrom || "unknown",
+      start: params?.start || 0,
+      end: params?.end || 0,
+      strand: params?.strand || null,
+      transcriptId: params?.transcriptId || null,
+      exonNumber: params?.exonNumber || null,
+      exonStart: params?.exonStart || null,
+      exonEnd: params?.exonEnd || null,
+      positions: [],
+      message: errorDetail
+        ? `Invalid region parameters: ${errorDetail}`
+        : "Invalid region parameters for AlphaGenome saturation request"
+    };
+  }
+
+  const { chrom, start, end, strand, transcriptId, exonNumber, exonStart, exonEnd } = parsed.data;
+  const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom : `chr${chrom}`;
+  const exonKey = exonNumber !== undefined || exonStart !== undefined || exonEnd !== undefined
+    ? `:ex:${exonNumber ?? ""}_${exonStart ?? ""}-${exonEnd ?? ""}`
+    : "";
+  const cacheKey = `alphagenome:region:${normChrom}:${start}-${end}:${transcriptId || "all"}${exonKey}`;
+
+  const cached = alphagenomeRegionCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  return defaultCacheRegistry.singleFlight(cacheKey, async () => {
+    const doubleChecked = alphagenomeRegionCache.get(cacheKey);
+    if (doubleChecked) {
+      return doubleChecked;
+    }
+
+    const locusUrl = `https://deepmind.google.com/science/alphagenome/atlas/locus?interval=${encodeURIComponent(normChrom)}%3A${start}-${end}`;
+
+    // Fast-deadline abort signal: 3.5s window
+    const timeoutSignal = AbortSignal.timeout(3500);
+    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+    if (mockRegionProvider) {
+      try {
+        if (combinedSignal.aborted) {
+          throw new Error("Query aborted / timeout");
+        }
+        const res = await mockRegionProvider(parsed.data, combinedSignal);
+        if (res && res.status === "live") {
+          alphagenomeRegionCache.set(cacheKey, res);
+        }
+        return res;
+      } catch (err: any) {
+        return {
+          status: "unavailable",
+          chrom: normChrom,
+          start,
+          end,
+          strand: strand || null,
+          transcriptId: transcriptId || null,
+          exonNumber: exonNumber || null,
+          exonStart: exonStart || null,
+          exonEnd: exonEnd || null,
+          positions: [],
+          atlasLocusUrl: locusUrl,
+          message: err.message || "Mock provider query failed"
+        };
+      }
+    }
+
+    const effectiveApiKey = process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
+    const baseEndpoint = process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
+
+    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL) {
+      // Unconfigured environment: clean standby state (Zero synthetic fallback)
+      const standbyResult: AlphaGenomeRegionSaturationResponse = {
+        status: "unavailable",
+        chrom: normChrom,
+        start,
+        end,
+        strand: strand || null,
+        transcriptId: transcriptId || null,
+        exonNumber: exonNumber || null,
+        exonStart: exonStart || null,
+        exonEnd: exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "AlphaGenome Atlas: Key Required / Standby"
+      };
+      return standbyResult;
+    }
+
+    try {
+      const url = `${baseEndpoint.replace(/\/+$/, "")}/region-saturation`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(effectiveApiKey ? { Authorization: `Bearer ${effectiveApiKey}` } : {})
+        },
+        body: JSON.stringify({
+          chrom: normChrom,
+          start,
+          end,
+          strand,
+          transcriptId,
+          exonNumber,
+          exonStart,
+          exonEnd
+        }),
+        signal: combinedSignal
+      });
+
+      if (!res.ok) {
+        throw new Error(`AlphaGenome API responded with status ${res.status}`);
+      }
+
+      const json = (await res.json()) as any;
+      const rawPositions: any[] = Array.isArray(json.positions) ? json.positions : [];
+      
+      const positions = rawPositions.map((p) => {
+        const variantsMap: Record<string, any> = {};
+        const rawVars = p.variants || {};
+        let phredSum = 0;
+        let phredCount = 0;
+        let maxPhred: number | null = null;
+        let dominantModality: string | null = null;
+
+        for (const base of ["A", "C", "G", "T"] as const) {
+          if (base === p.ref) continue;
+          const v = rawVars[base];
+          if (v) {
+            const phred = typeof v.phred === "number" ? v.phred : typeof v.avi_phred === "number" ? v.avi_phred : null;
+            const acmgStrength = v.acmgStrength || calculateAlphaGenomeAcmgStrength(phred);
+            const topModality = v.topModality || v.top_modality || null;
+            variantsMap[base] = {
+              alt: base,
+              phred,
+              raw: typeof v.raw === "number" ? v.raw : null,
+              acmgStrength,
+              topModality
+            };
+            if (phred !== null && !isNaN(phred) && phred >= 0) {
+              phredSum += phred;
+              phredCount++;
+              if (maxPhred === null || phred > maxPhred) {
+                maxPhred = phred;
+                dominantModality = topModality;
+              }
+            }
+          }
+        }
+
+        const meanPhred = phredCount > 0 ? phredSum / phredCount : null;
+
+        return {
+          pos: p.pos,
+          ref: p.ref,
+          isExonic: Boolean(p.isExonic ?? (exonStart && exonEnd ? p.pos >= exonStart && p.pos <= exonEnd : true)),
+          codonIndex: typeof p.codonIndex === "number" ? p.codonIndex : null,
+          codonPosition: typeof p.codonPosition === "number" ? p.codonPosition : null,
+          variants: variantsMap,
+          meanPhred: typeof p.meanPhred === "number" ? p.meanPhred : meanPhred,
+          maxPhred: typeof p.maxPhred === "number" ? p.maxPhred : maxPhred,
+          topModality: p.topModality || dominantModality
+        };
+      });
+
+      const candidateData: AlphaGenomeRegionSaturationResponse = {
+        status: "live",
+        chrom: normChrom,
+        start,
+        end,
+        strand: strand || null,
+        transcriptId: transcriptId || null,
+        exonNumber: exonNumber || null,
+        exonStart: exonStart || null,
+        exonEnd: exonEnd || null,
+        positions,
+        atlasLocusUrl: locusUrl,
+        message: null
+      };
+
+      const validated = alphaGenomeRegionSaturationResponseSchema.safeParse(candidateData);
+      if (!validated.success) {
+        console.warn(`[AlphaGenome Bridge] Schema validation failed for region ${cacheKey}:`, validated.error.format());
+        const failData: AlphaGenomeRegionSaturationResponse = {
+          status: "unavailable",
+          chrom: normChrom,
+          start,
+          end,
+          strand: strand || null,
+          transcriptId: transcriptId || null,
+          exonNumber: exonNumber || null,
+          exonStart: exonStart || null,
+          exonEnd: exonEnd || null,
+          positions: [],
+          atlasLocusUrl: locusUrl,
+          message: "Upstream AlphaGenome payload failed schema validation"
+        };
+        alphagenomeRegionCache.set(cacheKey, failData, { ttl: 300_000 });
+        return failData;
+      }
+
+      const data = validated.data;
+      alphagenomeRegionCache.set(cacheKey, data);
+      return data;
+    } catch (err: any) {
+      const errorResult: AlphaGenomeRegionSaturationResponse = {
+        status: "unavailable",
+        chrom: normChrom,
+        start,
+        end,
+        strand: strand || null,
+        transcriptId: transcriptId || null,
+        exonNumber: exonNumber || null,
+        exonStart: exonStart || null,
+        exonEnd: exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: err.message || "AlphaGenome region query timed out / unavailable"
+      };
+      alphagenomeRegionCache.set(cacheKey, errorResult, { ttl: 300_000 });
+      return errorResult;
+    }
   });
 }

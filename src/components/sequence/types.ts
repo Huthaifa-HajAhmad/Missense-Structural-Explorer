@@ -41,5 +41,4 @@ export interface ResidueDetailTooltipProps {
   getGerpScore: (pos: number) => number | null;
   getPhyloPScore: (pos: number) => number | null;
   getBiophysicalConsequence: (symbol: string, pos: number) => string;
-  getSubstitutionalConsequences: (symbol: string, pos: number) => any[];
 }

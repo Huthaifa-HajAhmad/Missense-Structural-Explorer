@@ -24,6 +24,7 @@ function renderPanel() {
 describe("VariantSearchPanel Input & Paste Tests", () => {
   beforeEach(() => {
     act(() => {
+      useVariantAnalysisStore.getState().resetVariantAnalysisState();
       useVariantAnalysisStore.setState({
         customGene: "",
         customVariant: "",
@@ -33,6 +34,11 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
         variant: "",
         uniprotId: "",
         history: [],
+        isFolding: false,
+        isBiophysicalLoading: false,
+        isClinicalLoading: false,
+        isNarrativeLoading: false,
+        isPocketLoading: false,
         analysisState: { isLoading: false, error: null, result: null } as any
       });
     });
@@ -98,4 +104,65 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       configurable: true
     });
   });
+
+  it("renders Service Telemetry by default when idle and allows toggling to Workflow Pipeline", async () => {
+    renderPanel();
+
+    // Verify Telemetry is active by default
+    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Ensembl VEP")).toBeInTheDocument();
+    expect(screen.getByText("FoldX Engine")).toBeInTheDocument();
+    expect(screen.getByText("P2Rank Pocket Engine")).toBeInTheDocument();
+
+    // Click on Workflow Pipeline tab
+    const pipelineTabBtn = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    await act(async () => {
+      fireEvent.click(pipelineTabBtn);
+    });
+
+    // Verify Workflow Pipeline view is now active
+    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+    expect(screen.getByText("3D Structure")).toBeInTheDocument();
+
+    // Click back to Service Telemetry
+    const telemetryTabBtn = screen.getByRole("tab", { name: /Service Telemetry/i });
+    await act(async () => {
+      fireEvent.click(telemetryTabBtn);
+    });
+    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+  });
+
+  it("auto-switches to Workflow Pipeline tab when isPipelineActive becomes true", async () => {
+    renderPanel();
+
+    // Starts in Telemetry
+    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+
+    // Trigger pipeline active state in store
+    await act(async () => {
+      useVariantAnalysisStore.setState({ isBiophysicalLoading: true });
+    });
+
+    // Verify it automatically switched to Workflow Pipeline
+    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+  });
+
+  it("auto-switches to Workflow Pipeline tab when search form is submitted", async () => {
+    renderPanel();
+
+    // Starts in Telemetry
+    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+
+    const geneInput = screen.getByPlaceholderText("e.g. CNNM2");
+    const form = geneInput.closest("form");
+    expect(form).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.submit(form!);
+    });
+
+    // Verify submit triggers switch to Workflow Pipeline
+    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+  });
 });
+

@@ -1,6 +1,8 @@
 import React from "react";
-import { Sliders, Map, Compass, Bookmark } from "lucide-react";
+import { Sliders, Map, Compass, Bookmark, Atom, Sparkles, Activity, Dna } from "lucide-react";
 import { AnalysisResult, UniprotFeatureItem } from "../../types";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { getNearestResidues } from "../../data";
 import LandscapeMinimap from "../LandscapeMinimap";
 
 interface LandscapeInspectorProps {
@@ -10,6 +12,8 @@ interface LandscapeInspectorProps {
   windowSize?: number;
   setWindowSize?: (size: number) => void;
   onSelectResidueIndex?: (idx: number) => void;
+  selectedResidueIndex?: number | null;
+  selectedGenomicVariant?: any | null;
 }
 
 export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
@@ -18,14 +22,157 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   setMetricMode,
   windowSize = 31,
   setWindowSize,
-  onSelectResidueIndex
+  onSelectResidueIndex,
+  selectedResidueIndex: selectedResidueProp,
+  selectedGenomicVariant: selectedGenomicVariantProp
 }) => {
+  const storeSelectedRes = useVariantAnalysisStore((s) => s.selectedResidueIndex);
+  const storeHoveredRes = useVariantAnalysisStore((s) => s.hoveredResidueIndex);
+  const storeGenomicVariant = useVariantAnalysisStore((s) => s.selectedGenomicVariant);
+  const uniprotId = useVariantAnalysisStore((s) => s.uniprotId);
+  const variant = useVariantAnalysisStore((s) => s.variant);
+  const activeResIndex = selectedResidueProp ?? storeSelectedRes ?? storeHoveredRes;
+  const selectedGenomicVariant = selectedGenomicVariantProp ?? storeGenomicVariant;
+
   const domains: UniprotFeatureItem[] = (analysisResult?.uniprotFeatures?.features || []).filter(
     (f: any) => f.type === "DOMAIN" || f.type === "REGION"
   );
 
+  const activeResidueMatch = React.useMemo(() => {
+    if (!activeResIndex || !analysisResult?.landscapeData) return null;
+    return analysisResult.landscapeData.find((d: any) => d.residx === activeResIndex) || null;
+  }, [activeResIndex, analysisResult?.landscapeData]);
+
+  const nearestSpatialNeighbors = React.useMemo(() => {
+    if (!activeResIndex || !uniprotId || !variant) return [];
+    return getNearestResidues(uniprotId, variant, activeResIndex);
+  }, [activeResIndex, uniprotId, variant]);
+
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
+      {/* ── Active Selection Telemetry HUD ── */}
+      {(selectedGenomicVariant || activeResIndex) && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Active Position Telemetry
+          </span>
+
+          <div className="p-3 rounded-lg border border-cs-accent-clay/30 bg-cs-surface-2 space-y-2.5 animate-fade-in shadow-xs">
+            {/* Genomic SNV Telemetry (if nucleotide selected) */}
+            {selectedGenomicVariant && (
+              <div className="space-y-1.5 pb-2 border-b border-cs-border-subtle">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-xs text-cs-text-primary">
+                    chr{selectedGenomicVariant.chrom}:{selectedGenomicVariant.pos} {selectedGenomicVariant.ref}&gt;{selectedGenomicVariant.alt}
+                  </span>
+                  <span className={`font-mono text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                    selectedGenomicVariant.acmgStrength === "PP3_Strong"
+                      ? "bg-rose-700 text-white"
+                      : selectedGenomicVariant.acmgStrength === "PP3_Moderate"
+                        ? "bg-rose-500 text-white"
+                        : selectedGenomicVariant.acmgStrength === "PP3_Supporting"
+                          ? "bg-amber-500 text-white"
+                          : selectedGenomicVariant.acmgStrength?.startsWith("BP4")
+                            ? "bg-emerald-600 text-white"
+                            : "bg-cs-surface border border-cs-border text-cs-text-muted"
+                  }`}>
+                    {selectedGenomicVariant.acmgStrength}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10.5px] font-mono pt-1">
+                  <div className="flex flex-col">
+                    <span className="text-[8.5px] text-cs-text-muted uppercase">AlphaGenome Phred</span>
+                    <span className="font-bold text-cs-accent-clay">
+                      {selectedGenomicVariant.phred !== null && selectedGenomicVariant.phred !== undefined
+                        ? Number(selectedGenomicVariant.phred).toFixed(2)
+                        : "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[8.5px] text-cs-text-muted uppercase">Codon Location</span>
+                    <span className="text-cs-text-secondary">
+                      {selectedGenomicVariant.codonIndex ? `Res #${selectedGenomicVariant.codonIndex} (Pos ${selectedGenomicVariant.codonPosition}/3)` : "Splice Flank"}
+                    </span>
+                  </div>
+                </div>
+
+                {selectedGenomicVariant.topModality && (
+                  <div className="text-[9.5px] font-mono text-cs-text-muted bg-cs-surface p-1.5 rounded border border-cs-border-subtle">
+                    <span className="text-cs-accent-clay font-semibold">Top Disrupted Modality: </span>
+                    <span>{selectedGenomicVariant.topModality}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Protein Residue Telemetry */}
+            {activeResIndex && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold text-cs-accent-clay uppercase tracking-wider">
+                    Protein Residue #{activeResIndex}
+                  </span>
+                  {activeResidueMatch && (
+                    <span className="text-[8.5px] font-mono text-cs-text-muted">
+                      {activeResidueMatch.revelCount || activeResidueMatch.amCount || 0} evaluated variants
+                    </span>
+                  )}
+                </div>
+
+                {activeResidueMatch ? (
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-cs-surface p-2 rounded border border-cs-border-subtle">
+                    <div>
+                      <span className="text-cs-accent-clay font-bold block">REVEL</span>
+                      <span className="text-cs-text-primary">
+                        Mean: {activeResidueMatch.revelMean?.toFixed(3) ?? "N/A"}
+                      </span>
+                      <span className="text-cs-text-muted block text-[8.5px]">
+                        Peak: {activeResidueMatch.revelMax?.toFixed(2) ?? "N/A"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-cs-accent-clay font-bold block">AlphaMissense</span>
+                      <span className="text-cs-text-primary">
+                        Mean: {activeResidueMatch.amMean?.toFixed(3) ?? "N/A"}
+                      </span>
+                      <span className="text-cs-text-muted block text-[8.5px]">
+                        Peak: {activeResidueMatch.amMax?.toFixed(2) ?? "N/A"}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[10px] italic text-cs-text-muted">
+                    No positional landscape scores available for residue #{activeResIndex}.
+                  </div>
+                )}
+
+                {/* 3D Spatial Neighbors */}
+                {nearestSpatialNeighbors.length > 0 && (
+                  <div className="pt-1">
+                    <span className="text-[9px] font-mono uppercase tracking-wider text-cs-text-muted flex items-center gap-1 mb-1">
+                      <Atom className="w-3 h-3 text-cs-accent-clay" />
+                      Spatial Neighbors (≤5Å)
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {nearestSpatialNeighbors.slice(0, 5).map((n, i) => (
+                        <span
+                          key={i}
+                          className="px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-[9px] font-mono text-cs-text-secondary"
+                          title={`${n.name}: ${n.properties} (${n.role})`}
+                        >
+                          {n.name} ({n.distance})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {/* ── 1. Sequence Visualizer Display Controls ── */}
       <div className="flex flex-col gap-2">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">

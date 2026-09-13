@@ -4,16 +4,9 @@ import {
   Dna,
   ShieldAlert,
   Scale,
-  ExternalLink,
-  Activity,
-  CheckCircle2,
-  AlertTriangle,
-  Settings,
-  Info
+  ExternalLink
 } from "lucide-react";
 import { AnalysisResult } from "../../types";
-import { useSettings } from "../../context/SettingsContext";
-import { useDiagnostics } from "../../hooks/useDiagnostics";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -28,8 +21,6 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   onSelectEvidenceTab,
   foldingDdG = null
 }) => {
-  const { settings, setIsSettingsOpen, setSettingsTab, serverGeminiReady } = useSettings();
-  const { diagnostics } = useDiagnostics();
 
   if (!analysisResult) {
     return (
@@ -56,7 +47,6 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   // Compute dynamic concordance state for threshold view
   const revel = conservationData?.revel ?? null;
   const ddG = foldingDdG;
-  let statusStyle = { color: "var(--cs-text-primary)", backgroundColor: "var(--cs-surface-2)", borderColor: "var(--cs-border)" };
   let statusBadgeStyle = "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
   let statusText = "Concordance Uncertain";
   let statusDesc = "The scores and stability changes fall into intermediate ranges or present conflicting evidence, requiring further functional validation.";
@@ -264,159 +254,9 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
           );
         })()}
       </div>
-
-      {/* ── 5. Live Service & Connection Telemetry ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <div className="flex justify-between items-center">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Live Service & Connection Telemetry
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setSettingsTab("connections");
-              setIsSettingsOpen(true);
-            }}
-            className="text-[9.5px] font-mono text-cs-accent-clay hover:underline flex items-center gap-1"
-          >
-            <Settings className="w-2.5 h-2.5" />
-            Configure
-          </button>
-        </div>
-
-        <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2 text-[10.5px]">
-          {/* Ensembl VEP / Fallback */}
-          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${analysisResult.predictorData?.available ? "bg-emerald-500" : "bg-blue-400"}`} />
-              <span className="font-semibold text-cs-text-primary">Ensembl VEP</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              analysisResult.predictorData?.source?.includes("Fallback")
-                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                : analysisResult.predictorData?.available
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-            }`}>
-              {analysisResult.predictorData?.source?.includes("Fallback")
-                ? "MyVariant / dbNSFP"
-                : analysisResult.predictorData?.available
-                ? "REST Live"
-                : "Unavailable"}
-            </span>
-          </div>
-
-          {/* NCBI ClinVar */}
-          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${clinvarUid ? "bg-emerald-500" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">NCBI ClinVar</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              clinvarUid
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-            }`}>
-              {clinvarUid ? "Indexed" : "Unindexed (Novel)"}
-            </span>
-          </div>
-
-          {/* Gemini AI */}
-          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                serverGeminiReady || (settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0))
-                  ? "bg-emerald-500"
-                  : settings.geminiApiKey
-                  ? "bg-amber-500"
-                  : "bg-slate-400"
-              }`} />
-              <span className="font-semibold text-cs-text-primary">Gemini Clinical AI</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              serverGeminiReady || (settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0))
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : settings.geminiApiKey
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-            }`}>
-              {serverGeminiReady
-                ? "Server Key Active"
-                : settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0)
-                ? "Session Active"
-                : settings.geminiApiKey
-                ? "Key Ready"
-                : "Key Required"}
-            </span>
-          </div>
-
-          {/* Song Lab GPN-Star */}
-          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
-                  ? "bg-emerald-500"
-                  : "bg-blue-400"
-              }`} />
-              <span className="font-semibold text-cs-text-primary">Song Lab GPN-Star</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-            }`}>
-              {conservationData?.gpnStar !== null && conservationData?.gpnStar !== undefined
-                ? "Scored (Tabix)"
-                : "Remote Tabix"}
-            </span>
-          </div>
-
-          {/* Biophysical Engine Status */}
-          <div className="flex justify-between items-center pb-1.5 border-b border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${diagnostics?.foldxReady ? "bg-emerald-500" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">Biophysical Engines</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              diagnostics?.foldxReady
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-            }`}>
-              {diagnostics?.foldxReady ? "FoldX Live" : "Local Standby"}
-            </span>
-          </div>
-
-          {/* P2Rank ML Pocket Engine */}
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-1.5">
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                diagnostics?.p2rankReady
-                  ? "bg-emerald-500"
-                  : diagnostics?.p2rankStatus === "unavailable"
-                  ? "bg-rose-400"
-                  : "bg-slate-400"
-              }`} />
-              <span className="font-semibold text-cs-text-primary">P2Rank Pocket Engine</span>
-            </div>
-            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-              diagnostics?.p2rankReady
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : diagnostics?.p2rankStatus === "unavailable"
-                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-            }`}>
-              {diagnostics?.p2rankReady
-                ? (diagnostics.p2rankJavaVersion ? `P2Rank Live (Java ${diagnostics.p2rankJavaVersion.split(".")[0]})` : "P2Rank Live")
-                : diagnostics?.p2rankStatus === "unavailable"
-                ? "Java 17+ Missing"
-                : "Local Standby"}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
 
 export default React.memo(EvidenceInspector);
+

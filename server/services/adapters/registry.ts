@@ -27,27 +27,46 @@ export class AdapterRegistry {
     return Array.from(this.adapters.values());
   }
 
-  public async checkAllHealth(signal?: AbortSignal): Promise<Record<string, HealthStatus>> {
-    const results: Record<string, HealthStatus> = {};
-    const adapters = this.getAll();
+  private cachedHealth: { results: Record<string, HealthStatus>; timestamp: number } | null = null;
+  private inFlightCheck: Promise<Record<string, HealthStatus>> | null = null;
 
-    await Promise.all(
-      adapters.map(async (adapter) => {
-        const start = performance.now();
-        try {
-          results[adapter.id] = await adapter.healthCheck(signal);
-        } catch (err: any) {
-          results[adapter.id] = {
-            healthy: false,
-            latencyMs: Math.round(performance.now() - start),
-            message: err.message || "Health check failed",
-            timestamp: new Date().toISOString()
-          };
-        }
-      })
-    );
+  public async checkAllHealth(signal?: AbortSignal, force = false): Promise<Record<string, HealthStatus>> {
+    const now = Date.now();
+    if (!force && this.cachedHealth && now - this.cachedHealth.timestamp < 15_000) {
+      return this.cachedHealth.results;
+    }
 
-    return results;
+    if (this.inFlightCheck) {
+      return this.inFlightCheck;
+    }
+
+    this.inFlightCheck = (async () => {
+      const results: Record<string, HealthStatus> = {};
+      const adapters = this.getAll();
+
+      await Promise.all(
+        adapters.map(async (adapter) => {
+          const start = performance.now();
+          try {
+            results[adapter.id] = await adapter.healthCheck(signal);
+          } catch (err: any) {
+            results[adapter.id] = {
+              healthy: false,
+              latencyMs: Math.round(performance.now() - start),
+              message: err.message || "Health check failed",
+              timestamp: new Date().toISOString()
+            };
+          }
+        })
+      );
+
+      this.cachedHealth = { results, timestamp: Date.now() };
+      return results;
+    })().finally(() => {
+      this.inFlightCheck = null;
+    });
+
+    return this.inFlightCheck;
   }
 }
 

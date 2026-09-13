@@ -11,6 +11,7 @@ import { registerNarrativeRoutes } from "./variant/narrative.ts";
 import { registerTranslationRoutes } from "./variant/translation.ts";
 import { registerGeneRoutes } from "./variant/gene.ts";
 import { registerLiteratureRoutes } from "./variant/literature.ts";
+import { registerAlphaGenomeRoutes } from "./variant/alphagenome.ts";
 
 export function registerVariantRoutes(apiRouter: Router, jsonParserRegular: any): void {
   registerAnalysisRoutes(apiRouter, jsonParserRegular);
@@ -18,4 +19,5 @@ export function registerVariantRoutes(apiRouter: Router, jsonParserRegular: any)
   registerTranslationRoutes(apiRouter, jsonParserRegular);
   registerGeneRoutes(apiRouter, jsonParserRegular);
   registerLiteratureRoutes(apiRouter);
+  registerAlphaGenomeRoutes(apiRouter, jsonParserRegular);
 }

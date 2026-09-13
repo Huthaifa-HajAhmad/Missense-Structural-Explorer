@@ -420,6 +420,66 @@ export const alphagenomeAviSchema = z.object({
 
 export type AlphaGenomeAviData = z.infer<typeof alphagenomeAviSchema>;
 
+export const alphaGenomeRegionSaturationRequestSchema = z.object({
+  chrom: z.string(),
+  start: z.number().int().positive(),
+  end: z.number().int().positive(),
+  transcriptId: z.string().optional(),
+  strand: z.enum(["+", "-"]).optional(),
+  exonNumber: z.number().int().optional(),
+  exonStart: z.number().int().optional(),
+  exonEnd: z.number().int().optional()
+}).refine((data) => data.start <= data.end, {
+  message: "start must be less than or equal to end",
+  path: ["end"]
+});
+export type AlphaGenomeRegionSaturationRequest = z.infer<typeof alphaGenomeRegionSaturationRequestSchema>;
+
+export const alphaGenomeSaturationVariantSchema = z.object({
+  alt: z.enum(["A", "C", "G", "T"]),
+  phred: z.number().nullable(),
+  raw: z.number().nullable().optional(),
+  acmgStrength: z.enum([
+    "PP3_Strong",
+    "PP3_Moderate",
+    "PP3_Supporting",
+    "BP4_Supporting",
+    "BP4_Moderate",
+    "indeterminate"
+  ]),
+  topModality: z.string().nullable().optional()
+});
+export type AlphaGenomeSaturationVariant = z.infer<typeof alphaGenomeSaturationVariantSchema>;
+
+export const alphaGenomeSaturationPositionSchema = z.object({
+  pos: z.number().int().positive(),
+  ref: z.enum(["A", "C", "G", "T"]),
+  isExonic: z.boolean(),
+  codonIndex: z.number().int().nullable().optional(),
+  codonPosition: z.number().int().min(1).max(3).nullable().optional(),
+  variants: z.record(z.string(), alphaGenomeSaturationVariantSchema),
+  meanPhred: z.number().nullable(),
+  maxPhred: z.number().nullable(),
+  topModality: z.string().nullable().optional()
+});
+export type AlphaGenomeSaturationPosition = z.infer<typeof alphaGenomeSaturationPositionSchema>;
+
+export const alphaGenomeRegionSaturationResponseSchema = z.object({
+  status: z.enum(["live", "unavailable", "pending"]),
+  chrom: z.string(),
+  start: z.number(),
+  end: z.number(),
+  strand: z.enum(["+", "-"]).nullable().optional(),
+  transcriptId: z.string().nullable().optional(),
+  exonNumber: z.number().nullable().optional(),
+  exonStart: z.number().nullable().optional(),
+  exonEnd: z.number().nullable().optional(),
+  positions: z.array(alphaGenomeSaturationPositionSchema),
+  atlasLocusUrl: z.string().optional(),
+  message: z.string().nullable().optional()
+});
+export type AlphaGenomeRegionSaturationResponse = z.infer<typeof alphaGenomeRegionSaturationResponseSchema>;
+
 export interface AtlasUrls {
   variantUrl: string;
   trackPredictionsUrl: string;

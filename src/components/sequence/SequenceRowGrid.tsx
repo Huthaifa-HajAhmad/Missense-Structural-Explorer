@@ -33,7 +33,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
             const showLabel = absolutePos % 5 === 0 || isMutationPos;
             
             return (
-              <div key={i} className="w-[28px] shrink-0 text-center flex flex-col items-center justify-end">
+              <div key={i} className="w-[30px] shrink-0 text-center flex flex-col items-center justify-end">
                 {showLabel && (
                   <span className={`transition-colors font-semibold ${isMutationPos ? "text-cs-warn font-bold" : "text-cs-text-muted"}`}>
                     {absolutePos}
@@ -68,7 +68,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
                   onMouseEnter={() => setHoveredResidue && setHoveredResidue({ symbol: residue, pos: absolutePos, type: isTarget ? "wild" : "normal" })}
                   onMouseLeave={() => setHoveredResidue && setHoveredResidue(null)}
-                  className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all cursor-pointer ${colorClass} ${
+                  className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all cursor-pointer ${colorClass} ${
                     isTarget
                       ? "ring-2 ring-cs-good scale-105 z-10 font-black animate-pulse"
                       : isSelected
@@ -112,7 +112,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
                   onMouseEnter={() => setHoveredResidue && setHoveredResidue({ symbol: displayRes, pos: absolutePos, type: isTarget ? "mutant" : "normal" })}
                   onMouseLeave={() => setHoveredResidue && setHoveredResidue(null)}
-                  className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all cursor-pointer ${colorClass} ${
+                  className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all cursor-pointer ${colorClass} ${
                     isTarget
                       ? "ring-2 ring-cs-danger scale-105 z-10 font-black animate-pulse"
                       : isSelected
@@ -168,7 +168,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                 <button
                   key={i}
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
-                  className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
+                  className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
                     isTarget
                       ? "ring-2 ring-cs-accent-clay scale-105 z-10 font-black animate-pulse"
                       : isSelected
@@ -223,7 +223,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                 <button
                   key={i}
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
-                  className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
+                  className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
                     isTarget
                       ? "ring-2 ring-cs-accent-clay scale-105 z-10 font-black animate-pulse"
                       : isSelected
@@ -271,7 +271,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                 <button
                   key={i}
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
-                  className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
+                  className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
                     isTarget
                       ? "ring-2 ring-cs-good scale-105 z-10 font-black"
                       : isSelected
@@ -316,7 +316,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                 <button
                   key={i}
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
-                  className={`w-[28px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
+                  className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
                     isTarget
                       ? "ring-2 ring-cs-good scale-105 z-10 font-black"
                       : isSelected

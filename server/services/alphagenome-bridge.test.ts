@@ -3,9 +3,12 @@ import {
   calculateAlphaGenomeAcmgStrength,
   generateAtlasUrls,
   fetchAlphaGenome,
+  fetchAlphaGenomeRegionSaturation,
   clearAlphaGenomeCache,
   setAlphaGenomeMockProvider,
-  alphagenomeCache
+  setAlphaGenomeRegionMockProvider,
+  alphagenomeCache,
+  alphagenomeRegionCache
 } from "./alphagenome-bridge.ts";
 import { defaultCacheRegistry } from "./cache-registry.ts";
 
@@ -13,6 +16,7 @@ describe("AlphaGenome Bridge Service Tests", () => {
   beforeEach(() => {
     clearAlphaGenomeCache();
     setAlphaGenomeMockProvider(null);
+    setAlphaGenomeRegionMockProvider(null);
     vi.restoreAllMocks();
   });
 
@@ -226,6 +230,161 @@ describe("AlphaGenome Bridge Service Tests", () => {
           delete process.env.ALPHAGENOME_API_KEY;
         }
       }
+    });
+  });
+
+  describe("fetchAlphaGenomeRegionSaturation", () => {
+    it("should return unavailable status when coordinates are invalid", async () => {
+      const res = await fetchAlphaGenomeRegionSaturation({
+        chrom: "",
+        start: 0,
+        end: -10
+      });
+      expect(res.status).toBe("unavailable");
+      expect(res.positions).toEqual([]);
+      expect(res.message).toMatch(/invalid/i);
+    });
+
+    it("should return clean standby state when unconfigured without API key", async () => {
+      const originalKey = process.env.ALPHAGENOME_API_KEY;
+      const originalUrl = process.env.ALPHAGENOME_API_URL;
+      delete process.env.ALPHAGENOME_API_KEY;
+      delete process.env.ALPHAGENOME_API_URL;
+
+      try {
+        const res = await fetchAlphaGenomeRegionSaturation({
+          chrom: "chr9",
+          start: 128225895,
+          end: 128226050,
+          exonNumber: 4,
+          exonStart: 128225910,
+          exonEnd: 128226035,
+          strand: "+"
+        });
+        expect(res.status).toBe("unavailable");
+        expect(res.atlasLocusUrl).toContain("chr9");
+        expect(res.atlasLocusUrl).toContain("128225895-128226050");
+        expect(res.message).toContain("Key Required / Standby");
+        expect(res.positions).toEqual([]);
+      } finally {
+        if (originalKey) process.env.ALPHAGENOME_API_KEY = originalKey;
+        if (originalUrl) process.env.ALPHAGENOME_API_URL = originalUrl;
+      }
+    });
+
+    it("should return mock provider response and cache in alphagenomeRegionCache", async () => {
+      setAlphaGenomeRegionMockProvider(async (params) => {
+        return {
+          status: "live",
+          chrom: params.chrom,
+          start: params.start,
+          end: params.end,
+          positions: [
+            {
+              pos: 100,
+              ref: "A",
+              isExonic: true,
+              codonIndex: 1,
+              codonPosition: 1,
+              variants: {
+                A: { alt: "A", phred: null, acmgStrength: "indeterminate" },
+                C: { alt: "C", phred: 25.0, acmgStrength: "PP3_Moderate", topModality: "fi_MERGED_SPLICING" },
+                G: { alt: "G", phred: 18.0, acmgStrength: "PP3_Supporting", topModality: "fi_CHIP_TF" },
+                T: { alt: "T", phred: 5.0, acmgStrength: "BP4_Moderate", topModality: null }
+              },
+              meanPhred: 16.0,
+              maxPhred: 25.0,
+              topModality: "fi_MERGED_SPLICING"
+            }
+          ]
+        };
+      });
+
+      const res = await fetchAlphaGenomeRegionSaturation({
+        chrom: "chr1",
+        start: 100,
+        end: 100
+      });
+
+      expect(res.status).toBe("live");
+      expect(res.positions.length).toBe(1);
+      expect(res.positions[0].maxPhred).toBe(25.0);
+      expect(alphagenomeRegionCache.size).toBe(1);
+
+      // Verify cached hit
+      const cached = await fetchAlphaGenomeRegionSaturation({
+        chrom: "chr1",
+        start: 100,
+        end: 100
+      });
+      expect(cached.status).toBe("live");
+    });
+
+    it("should clear alphagenomeRegionCache when clearAlphaGenomeCache is called", async () => {
+      setAlphaGenomeRegionMockProvider(async (params) => {
+        return {
+          status: "live",
+          chrom: params.chrom,
+          start: params.start,
+          end: params.end,
+          positions: []
+        };
+      });
+
+      await fetchAlphaGenomeRegionSaturation({ chrom: "chr5", start: 200, end: 250 });
+      expect(alphagenomeRegionCache.size).toBe(1);
+
+      clearAlphaGenomeCache();
+      expect(alphagenomeRegionCache.size).toBe(0);
+    });
+
+    it("should return unavailable status when start is greater than end", async () => {
+      const res = await fetchAlphaGenomeRegionSaturation({
+        chrom: "chr1",
+        start: 500,
+        end: 400
+      });
+
+      expect(res.status).toBe("unavailable");
+      expect(res.message).toMatch(/start must be less than or equal to end/i);
+    });
+
+    it("should separate cache entries when different exon boundaries are provided for the same interval", async () => {
+      let callCount = 0;
+      setAlphaGenomeRegionMockProvider(async (params) => {
+        callCount++;
+        return {
+          status: "live",
+          chrom: params.chrom,
+          start: params.start,
+          end: params.end,
+          positions: []
+        };
+      });
+
+      // First query with exon 1 bounds
+      await fetchAlphaGenomeRegionSaturation({
+        chrom: "chr7",
+        start: 1000,
+        end: 1100,
+        exonNumber: 1,
+        exonStart: 1000,
+        exonEnd: 1050
+      });
+
+      // Second query with exon 2 bounds for the same genomic window
+      await fetchAlphaGenomeRegionSaturation({
+        chrom: "chr7",
+        start: 1000,
+        end: 1100,
+        exonNumber: 2,
+        exonStart: 1051,
+        exonEnd: 1100
+      });
+
+      // Both should have generated distinct cache keys and called the provider twice
+      expect(callCount).toBe(2);
+      expect(alphagenomeRegionCache.size).toBe(2);
     });
   });
 });

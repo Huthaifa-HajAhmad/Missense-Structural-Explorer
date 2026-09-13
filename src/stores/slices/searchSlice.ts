@@ -9,6 +9,7 @@ export interface SearchState {
   uniprotId: string;
   selectedResidueIndex: number | null;
   hoveredResidueIndex: number | null;
+  selectedGenomicVariant: any | null;
   searchVal: string;
   customGene: string;
   customVariant: string;
@@ -27,6 +28,7 @@ export interface SearchActions {
   setUniprotId: (uniprotId: string) => void;
   setSelectedResidueIndex: (index: number | null) => void;
   setHoveredResidueIndex: (index: number | null) => void;
+  setSelectedGenomicVariant: (variant: any | null) => void;
   setSearchVal: (val: string) => void;
   setCustomGene: (gene: string) => void;
   setCustomVariant: (variant: string) => void;
@@ -107,6 +109,7 @@ export const createSearchSlice: StateCreator<
   uniprotId: initial.uniprotId,
   selectedResidueIndex: initialResidueIndex,
   hoveredResidueIndex: null,
+  selectedGenomicVariant: null,
   searchVal: initial.gene && initial.variant ? `${initial.gene} ${initial.variant}` : "",
   customGene: initial.gene,
   customVariant: initial.variant,
@@ -126,6 +129,7 @@ export const createSearchSlice: StateCreator<
   setUniprotId: (uniprotId) => set({ uniprotId }),
   setSelectedResidueIndex: (selectedResidueIndex) => set({ selectedResidueIndex }),
   setHoveredResidueIndex: (hoveredResidueIndex) => set({ hoveredResidueIndex }),
+  setSelectedGenomicVariant: (selectedGenomicVariant) => set({ selectedGenomicVariant }),
   setSearchVal: (searchVal) => set({ searchVal }),
   setCustomGene: (customGene) => set({ customGene }),
   setCustomVariant: (customVariant) => set({ customVariant }),
@@ -187,7 +191,9 @@ export const createSearchSlice: StateCreator<
       searchVal: `${item.gene} ${item.variant}`,
       customGene: item.gene,
       customVariant: item.variant,
-      selectedResidueIndex: resIdx
+      selectedResidueIndex: resIdx,
+      selectedGenomicVariant: null,
+      hoveredResidueIndex: null
     });
 
     if (options?.executeAnalysis) {
@@ -215,7 +221,9 @@ export const createSearchSlice: StateCreator<
       searchVal: `${preset.gene} ${preset.variant}`,
       customGene: preset.gene,
       customVariant: preset.variant,
-      selectedResidueIndex: resIdx
+      selectedResidueIndex: resIdx,
+      selectedGenomicVariant: null,
+      hoveredResidueIndex: null
     });
 
     if (options?.executeAnalysis) {

@@ -1,6 +1,6 @@
 import React from "react";
 import { Atom } from "lucide-react";
-import { AMINO_ACID_MAP_FULL, getSubstitutionGroup } from "./sequenceConstants";
+import { AMINO_ACID_MAP_FULL } from "./sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { getNearestResidues } from "../../data";
 import { ResidueDetailTooltipProps } from "./types";
@@ -20,8 +20,7 @@ export const ResidueDetailTooltip: React.FC<ResidueDetailTooltipProps> = ({
   computedResiduesCache,
   getGerpScore,
   getPhyloPScore,
-  getBiophysicalConsequence,
-  getSubstitutionalConsequences
+  getBiophysicalConsequence
 }) => {
   const activeResOpt = hoveredResidue 
     ? { symbol: hoveredResidue.symbol, pos: hoveredResidue.pos, type: hoveredResidue.type }
@@ -246,53 +245,6 @@ export const ResidueDetailTooltip: React.FC<ResidueDetailTooltipProps> = ({
                   </div>
                 );
               })()}
-
-              <div className="mt-4 pt-3 border-t border-cs-border-subtle">
-                <span className="text-[10px] font-bold font-mono text-cs-accent-clay uppercase tracking-wider block mb-3">
-                  Substitutional Class Impact Profiles
-                </span>
-                <div className="flex flex-col gap-2 w-full">
-                  {getSubstitutionalConsequences(activeResOpt.symbol, activeResOpt.pos).map((g, idx) => {
-                    const isTestedClass = activeResOpt.pos === mutationIndex && g.name.startsWith(getSubstitutionGroup(mutation.mut));
-                    const borderClass = isTestedClass 
-                     ? "border-cs-accent-clay bg-cs-accent-clay/10 shadow-inner" 
-                     : "border-cs-border-subtle bg-cs-surface-2";
-
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`p-3 rounded-lg border text-[11px] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition-all ${borderClass}`}
-                      >
-                        <div className="flex flex-col gap-1 min-w-[150px] flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs tracking-wide">
-                              {g.name.replace(/\(([^)]+)\)/, (match: string, p1: string) => {
-                                const titleCodes = p1.split(",").map((s: string) => AMINO_ACID_1_TO_3_TITLE[s.trim()] || s.trim());
-                                return `(${titleCodes.join(", ")})`;
-                              })}
-                            </span>
-                            <span className={`font-mono text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                              g.severity === "high" ? "bg-cs-danger-soft text-cs-danger border border-cs-danger/20" :
-                              g.severity === "medium" ? "bg-cs-warn-soft text-cs-warn border border-cs-warn/20" :
-                              "bg-cs-good-soft text-cs-good border border-cs-good/20"
-                            }`}>
-                              {g.severity}
-                            </span>
-                            {isTestedClass && (
-                              <span className="text-[8px] font-mono font-bold bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20 px-1.5 py-0.5 rounded shadow-sm animate-pulse">
-                                Tested Swap
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[10.5px] leading-snug mt-0.5 text-cs-text-muted">
-                            {g.consequence}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
           ) : (
             <p className="text-xs text-cs-text-secondary">

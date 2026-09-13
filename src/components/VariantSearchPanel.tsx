@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Search, 
   Dna, 
@@ -31,6 +31,7 @@ import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
+import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
 interface VariantSearchPanelProps {
   isDark: boolean;
@@ -169,6 +170,19 @@ function VariantSearchPanel({
     isPocketLoading
   );
 
+  const [activeRightTab, setActiveRightTab] = useState<"pipeline" | "telemetry">(result ? "pipeline" : "telemetry");
+
+  useEffect(() => {
+    if (isPipelineActive) {
+      setActiveRightTab("pipeline");
+    }
+  }, [isPipelineActive]);
+
+  const onFormSubmit = (e: React.FormEvent) => {
+    setActiveRightTab("pipeline");
+    handleSearchSubmit(e);
+  };
+
   const isGenomicVariant = (customVariant && (
     /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
     /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
@@ -279,7 +293,7 @@ function VariantSearchPanel({
                 </h2>
               </div>
 
-              <form onSubmit={handleSearchSubmit} className="flex flex-col gap-4">
+              <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
                 {/* Row 1: Gene + Variant */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
@@ -499,107 +513,157 @@ function VariantSearchPanel({
             </div>
           </div>
 
-          {/* ── RIGHT COLUMN: Live & Interactive Workflow Pipeline Rail (col-span-5) ── */}
+          {/* ── RIGHT COLUMN: Segmented Workflow Pipeline & Telemetry Rail (col-span-5) ── */}
           <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] border-t lg:border-t-0 lg:border-l border-[var(--cs-border)] flex flex-col justify-between gap-4">
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--cs-border-subtle)] shrink-0">
-                <h2 className="text-[14px] font-semibold flex items-center gap-2" style={{ color: "var(--cs-text-primary)" }}>
-                  <Layers className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-                  Workflow Pipeline
-                </h2>
-                <span className={!isPipelineActive && result ? "text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1.5" : "badge-data-source flex items-center gap-1.5"}>
-                  <Activity className={`w-3 h-3 ${!isPipelineActive && result ? "text-emerald-500" : "text-[var(--cs-accent-clay)] animate-pulse"}`} />
-                  {isPipelineActive ? "Live Execution" : result ? "Result Loaded" : "Est. ~30 sec"}
-                </span>
+            <div className="flex items-center justify-between mb-2 pb-2 border-b border-[var(--cs-border-subtle)] shrink-0">
+              {/* Segmented Switcher */}
+              <div 
+                role="tablist" 
+                aria-label="Analysis sidebar view switcher"
+                className="flex items-center gap-1 p-0.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] shadow-xs"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-telemetry"
+                  aria-selected={activeRightTab === "telemetry"}
+                  aria-controls="panel-telemetry"
+                  onClick={() => setActiveRightTab("telemetry")}
+                  className={`px-2.5 py-1 rounded-md text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeRightTab === "telemetry"
+                      ? "bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] shadow-xs"
+                      : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+                  }`}
+                >
+                  <Activity className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                  <span>Service Telemetry</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  id="tab-pipeline"
+                  aria-selected={activeRightTab === "pipeline"}
+                  aria-controls="panel-pipeline"
+                  onClick={() => setActiveRightTab("pipeline")}
+                  className={`px-2.5 py-1 rounded-md text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeRightTab === "pipeline"
+                      ? "bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] shadow-xs"
+                      : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                  <span>Workflow Pipeline</span>
+                  {isPipelineActive ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  ) : result ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  ) : null}
+                </button>
               </div>
 
-              {/* Workflow Live Stages List — Evenly Distributed without Dead Space */}
-              <div className="flex-1 flex flex-col justify-between gap-2 my-1">
-                {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
-                  const info = getStageInfo(key as any);
-                  const isClickable = !!result && !!onViewChange;
-                  const isRunning = info.status === "In Progress" || info.status === "Computing";
-                  const isDone = info.status === "Complete";
-                  const isDegraded = info.status === "Degraded" || info.status === "degraded";
-                  const isErr = info.status === "Error" || info.status === "error";
-
-                  return (
-                    <div 
-                      key={key}
-                      onClick={() => isClickable && onViewChange?.(targetView)}
-                      className={`p-2.5 px-3 rounded-lg border transition-all flex-1 min-h-[50px] flex items-center justify-between gap-3 select-none ${
-                        isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:shadow-xs" : ""
-                      } ${
-                        isDone 
-                          ? "border-[var(--cs-border)] bg-[var(--cs-surface)] shadow-xs" 
-                          : isRunning 
-                          ? "border-[var(--cs-accent-clay)]/50 bg-[var(--cs-surface)] shadow-xs" 
-                          : isDegraded || isErr
-                          ? "border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10 shadow-xs"
-                          : "border-[var(--cs-border-subtle)] bg-[var(--cs-surface)]/80"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        {isRunning ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-[var(--cs-accent-clay)] shrink-0" />
-                        ) : isDone ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                        ) : isDegraded || isErr ? (
-                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                        ) : (
-                          <Circle className="w-4 h-4 text-[var(--cs-text-muted)] shrink-0" />
-                        )}
-                        
-                        <div className="flex flex-col min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <Icon className="w-3.5 h-3.5 text-[var(--cs-text-muted)] shrink-0" />
-                            <span className="text-[12px] font-semibold text-cs-text-primary truncate">
-                              {title}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-cs-text-secondary truncate mt-0.5 font-sans leading-tight">
-                            {info.desc}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Right Action / Status Badge */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={
-                          isDone 
-                            ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" 
-                            : isRunning 
-                            ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" 
-                            : isDegraded || isErr
-                            ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                            : "badge-data-source text-[9.5px]"
-                        }>
-                          {info.status}
-                        </span>
-
-                        {isClickable && (
-                          <span className="p-0.5 rounded text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-colors">
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Pipeline Live Status Footer */}
-            <div className="p-3.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11px] leading-relaxed flex items-center gap-2.5 shadow-xs" style={{ color: "var(--cs-text-secondary)" }}>
-              <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
-              <span>
-                {isPipelineActive 
-                  ? loadingStep || "Processing pipeline analysis…" 
-                  : result 
-                    ? "Analysis complete! Click on any pipeline step card above to navigate and explore the results." 
-                    : "Parallel biophysical computation engine"}
+              <span className={!isPipelineActive && result ? "text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1.5" : "badge-data-source flex items-center gap-1.5"}>
+                <Activity className={`w-3 h-3 ${!isPipelineActive && result ? "text-emerald-500" : "text-[var(--cs-accent-clay)] animate-pulse"}`} />
+                {isPipelineActive ? "Live Execution" : result ? "Result Loaded" : "Pre-flight Ready"}
               </span>
             </div>
+
+            {activeRightTab === "telemetry" ? (
+              <div id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex-1 flex flex-col">
+                <LiveTelemetryPanel className="flex-1" />
+              </div>
+            ) : (
+              <div id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 flex flex-col justify-between gap-4">
+                <div className="flex-1 flex flex-col min-h-0">
+                  {/* Workflow Live Stages List — Evenly Distributed without Dead Space */}
+                  <div className="flex-1 flex flex-col justify-between gap-2 my-1">
+                    {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
+                      const info = getStageInfo(key as any);
+                      const isClickable = !!result && !!onViewChange;
+                      const isRunning = info.status === "In Progress" || info.status === "Computing";
+                      const isDone = info.status === "Complete";
+                      const isDegraded = info.status === "Degraded" || info.status === "degraded";
+                      const isErr = info.status === "Error" || info.status === "error";
+
+                      return (
+                        <div 
+                          key={key}
+                          onClick={() => isClickable && onViewChange?.(targetView)}
+                          className={`p-2.5 px-3 rounded-lg border transition-all flex-1 min-h-[50px] flex items-center justify-between gap-3 select-none ${
+                            isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:shadow-xs" : ""
+                          } ${
+                            isDone 
+                              ? "border-[var(--cs-border)] bg-[var(--cs-surface)] shadow-xs" 
+                              : isRunning 
+                              ? "border-[var(--cs-accent-clay)]/50 bg-[var(--cs-surface)] shadow-xs" 
+                              : isDegraded || isErr
+                              ? "border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10 shadow-xs"
+                              : "border-[var(--cs-border-subtle)] bg-[var(--cs-surface)]/80"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {isRunning ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-[var(--cs-accent-clay)] shrink-0" />
+                            ) : isDone ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                            ) : isDegraded || isErr ? (
+                              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-[var(--cs-text-muted)] shrink-0" />
+                            )}
+                            
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <Icon className="w-3.5 h-3.5 text-[var(--cs-text-muted)] shrink-0" />
+                                <span className="text-[12px] font-semibold text-cs-text-primary truncate">
+                                  {title}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-cs-text-secondary truncate mt-0.5 font-sans leading-tight">
+                                {info.desc}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Right Action / Status Badge */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={
+                              isDone 
+                                ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" 
+                                : isRunning 
+                                ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" 
+                                : isDegraded || isErr
+                                ? "text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                                : "badge-data-source text-[9.5px]"
+                            }>
+                              {info.status}
+                            </span>
+
+                            {isClickable && (
+                              <span className="p-0.5 rounded text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-colors">
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Pipeline Live Status Footer */}
+                <div className="p-3.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11px] leading-relaxed flex items-center gap-2.5 shadow-xs" style={{ color: "var(--cs-text-secondary)" }}>
+                  <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
+                  <span>
+                    {isPipelineActive 
+                      ? loadingStep || "Processing pipeline analysis…" 
+                      : result 
+                        ? "Analysis complete! Click on any pipeline step card above to navigate and explore the results." 
+                        : "Parallel biophysical computation engine"}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

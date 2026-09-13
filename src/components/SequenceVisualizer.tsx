@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, memo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings, ChevronDown, ChevronUp, Atom } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
@@ -16,6 +16,7 @@ interface SequenceVisualizerProps {
   gene: string;
   theme?: "dark" | "light";
   onResidueClick?: (index: number) => void;
+  onSelectGenomicVariant?: (variant: any) => void;
   seqColorScheme?: "chemical" | "hydrophobic" | "minimal";
   seqScrollStep?: number;
   predictorData?: any;
@@ -28,9 +29,10 @@ interface SequenceVisualizerProps {
   windowSize?: number;
 }
 
-import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1, getSubstitutionGroup } from "./sequence/sequenceConstants";
+import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
 import { SequenceRowGrid } from "./sequence/SequenceRowGrid";
 import { ResidueDetailTooltip } from "./sequence/ResidueDetailTooltip";
+import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
 import { HoveredResidueInfo } from "./sequence/types";
 
 
@@ -42,6 +44,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   gene, 
   theme,
   onResidueClick,
+  onSelectGenomicVariant,
   seqColorScheme: seqColorSchemeProp,
   seqScrollStep: seqScrollStepProp,
   predictorData,
@@ -258,6 +261,13 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSelectGenomicVariant = useCallback((v: any) => {
+    if (onSelectGenomicVariant) {
+      onSelectGenomicVariant(v);
+    }
+    useVariantAnalysisStore.getState().setSelectedGenomicVariant(v);
+  }, [onSelectGenomicVariant]);
+
   const getRevelScore = (pos: number) => {
     if (pos === mutationIndex && conservationData?.revel !== undefined && conservationData?.revel !== null) {
       const parsed = parseFloat(String(conservationData.revel));
@@ -328,162 +338,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     return `Boundary/Surface residue: Solvent-exposed residues are generally tolerant of missense changes unless they overlap with active sites or binding interfaces.`;
   };
 
-  interface SubstitutionGroup {
-    name: string;
-    residues: string[];
-    badgeColor: string;
-    consequence: string;
-    severity: "high" | "medium" | "low";
-  }
-
-  const getSubstitutionalConsequences = (symbol: string, pos: number): SubstitutionGroup[] => {
-    const wtProp = AMINO_ACID_MAP_FULL[symbol]?.property || "Neutral";
-    
-    // Check if we have UniProt features for this position
-    const localFeatures = uniprotFeatures?.filter((f: any) => pos >= f.start && pos <= f.end) || [];
-    const isActiveSite = localFeatures.some((f: any) => f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("binding") || f.type.toLowerCase().includes("metal"));
-    const isInterface = localFeatures.some((f: any) => f.type.toLowerCase().includes("region") || f.type.toLowerCase().includes("site") || f.type.toLowerCase().includes("dimer") || f.type.toLowerCase().includes("interface"));
-    
-    let burial: "core" | "surface" | "boundary" = "boundary";
-    if (pos === mutationIndex && disruptionPredictor?.burialStatus) {
-      burial = disruptionPredictor.burialStatus;
-    } else if (wtProp.includes("Hydrophobic")) {
-      burial = "core";
-    } else {
-      burial = "surface";
-    }
-
-    if (isActiveSite) {
-      return [
-        {
-          name: "Charged (D, E, K, R, H)",
-          residues: ["D", "E", "K", "R", "H"],
-          badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-          consequence: "Severe catalytic disruption. Alters pocket electrostatics directly.",
-          severity: "high"
-        },
-        {
-          name: "Polar (S, T, N, Q, C)",
-          residues: ["S", "T", "N", "Q", "C"],
-          badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-          consequence: "Disrupts hydrogen bonding network in catalytic cleft.",
-          severity: "high"
-        },
-        {
-          name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
-          residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
-          badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-          consequence: "Steric pocket occlusion. Blocks ligand entry / binding.",
-          severity: "high"
-        },
-        {
-          name: "Conformational (P, G)",
-          residues: ["P", "G"],
-          badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-          consequence: "Collapses pocket geometry. Completely inactivates function.",
-          severity: "high"
-        }
-      ];
-    }
-
-    if (isInterface) {
-      return [
-        {
-          name: "Charged (D, E, K, R, H)",
-          residues: ["D", "E", "K", "R", "H"],
-          badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-          consequence: "Introduces charge repulsion, blocking complex assembly.",
-          severity: "high"
-        },
-        {
-          name: "Polar (S, T, N, Q, C)",
-          residues: ["S", "T", "N", "Q", "C"],
-          badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-          consequence: "Alters hydrogen bonding contacts with binding partner.",
-          severity: "medium"
-        },
-        {
-          name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
-          residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
-          badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-          consequence: "Disrupts hydrophobic interface packing or causes steric overlap.",
-          severity: "medium"
-        },
-        {
-          name: "Conformational (P, G)",
-          residues: ["P", "G"],
-          badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-          consequence: "Disrupts local secondary structure essential for docking.",
-          severity: "high"
-        }
-      ];
-    }
-
-    if (burial === "core") {
-      return [
-        {
-          name: "Charged (D, E, K, R, H)",
-          residues: ["D", "E", "K", "R", "H"],
-          badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-          consequence: "Severe packing crash. Introducing charges in the core causes misfolding.",
-          severity: "high"
-        },
-        {
-          name: "Polar (S, T, N, Q, C)",
-          residues: ["S", "T", "N", "Q", "C"],
-          badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-          consequence: "Unsatisfied hydrogen bonds in core. Moderately destabilizing.",
-          severity: "medium"
-        },
-        {
-          name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
-          residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
-          badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-          consequence: "Conservative changes. Minor volume shifts are generally well-packed.",
-          severity: "low"
-        },
-        {
-          name: "Conformational (P, G)",
-          residues: ["P", "G"],
-          badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-          consequence: "Backbone conformation breach. High risk of local sheet/helix collapse.",
-          severity: "high"
-        }
-      ];
-    }
-
-    return [
-      {
-        name: "Charged (D, E, K, R, H)",
-        residues: ["D", "E", "K", "R", "H"],
-        badgeColor: "bg-red-500/10 text-red-400 border-red-500/20",
-        consequence: "Highly tolerated on solvent-exposed protein surfaces.",
-        severity: "low"
-      },
-      {
-        name: "Polar (S, T, N, Q, C)",
-        residues: ["S", "T", "N", "Q", "C"],
-        badgeColor: "bg-sky-500/10 text-sky-400 border-sky-500/20",
-        consequence: "Highly tolerated. Maintains polar solvent interactions.",
-        severity: "low"
-      },
-      {
-        name: "Hydrophobic (A, V, I, L, M, F, Y, W)",
-        residues: ["A", "V", "I", "L", "M", "F", "Y", "W"],
-        badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-        consequence: "Surface hydrophobicity increase; may prompt aggregation.",
-        severity: "low"
-      },
-      {
-        name: "Conformational (P, G)",
-        residues: ["P", "G"],
-        badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-        consequence: "Proline can disrupt loops. Glycine can introduce excessive flexibility.",
-        severity: "medium"
-      }
-    ];
-  };
-
   return (
     <div 
       id="sequence-alignment-visualizer" 
@@ -543,6 +397,22 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             setHoveredResidue={setHoveredResidue}
           />
 
+          {/* Tier 3: AlphaGenome Genomic Saturation Mutagenesis Heatmap & 1D Intolerance Track */}
+          <GenomicSaturationHeatmap
+            chrom={conservationData?.spliceProximity?.chrom || predictorData?.gnomadVariantId?.split("-")?.[0] || (variant.startsWith("chr") ? variant.split(":")?.[0] : null)}
+            genomicPos={conservationData?.spliceProximity?.genomicPos || (predictorData?.gnomadVariantId ? parseInt(predictorData.gnomadVariantId.split("-")[1], 10) : null)}
+            spliceProximity={conservationData?.spliceProximity}
+            wildWindow={wildWindow}
+            relativeStartIndex={relativeStartIndex}
+            mutationIndex={mutationIndex}
+            mutation={mutation}
+            residueIndex={residueIndex}
+            hoveredResidueIndex={hoveredResidueIndex}
+            onResidueClick={onResidueClick}
+            onSelectGenomicVariant={handleSelectGenomicVariant}
+            metricMode={metricMode}
+          />
+
           {/* Data Provenance Info Notes */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-t pt-2 border-cs-border-subtle mt-1 mb-2 px-1">
             <span className="text-[9px] font-sans italic text-cs-text-muted">
@@ -553,7 +423,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             </span>
           </div>
 
-          {/* Interactive Residue Details & Substitutional Class Tooltip */}
+          {/* Interactive Residue Details */}
           <ResidueDetailTooltip
             hoveredResidue={hoveredResidue}
             hoveredResidueIndex={hoveredResidueIndex}
@@ -570,7 +440,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             getGerpScore={getGerpScore}
             getPhyloPScore={getPhyloPScore}
             getBiophysicalConsequence={getBiophysicalConsequence}
-            getSubstitutionalConsequences={getSubstitutionalConsequences}
           />
 
           {/* Note explaining metric calculation logic */}
