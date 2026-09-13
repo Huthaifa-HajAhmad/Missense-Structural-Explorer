@@ -55,7 +55,9 @@ export async function fetchCoreVariantData(
     mut1Letter,
     biohubToken,
     hfToken,
-    gpnApiUrl
+    gpnApiUrl,
+    alphagenomeApiKey,
+    alphagenomeApiUrl
   } = context;
 
   const overallStart = performance.now();
@@ -157,6 +159,8 @@ export async function fetchCoreVariantData(
     biohubToken,
     hfToken,
     gpnApiUrl,
+    alphagenomeApiKey,
+    alphagenomeApiUrl,
     sequence
   }).catch(err => {
     console.warn("[Conservation Parallel Run Warning] Failed to fetch conservation:", err);

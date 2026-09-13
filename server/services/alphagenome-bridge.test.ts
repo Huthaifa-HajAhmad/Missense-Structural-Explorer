@@ -209,7 +209,9 @@ describe("AlphaGenome Bridge Service Tests", () => {
 
     it("should handle HTTP 500 errors gracefully", async () => {
       const originalKey = process.env.ALPHAGENOME_API_KEY;
+      const originalUrl = process.env.ALPHAGENOME_API_URL;
       process.env.ALPHAGENOME_API_KEY = "test_key_abc";
+      process.env.ALPHAGENOME_API_URL = "https://mock.alphagenome.test/v1";
 
       const originalFetch = global.fetch;
       global.fetch = vi.fn().mockResolvedValue({
@@ -228,6 +230,11 @@ describe("AlphaGenome Bridge Service Tests", () => {
           process.env.ALPHAGENOME_API_KEY = originalKey;
         } else {
           delete process.env.ALPHAGENOME_API_KEY;
+        }
+        if (originalUrl) {
+          process.env.ALPHAGENOME_API_URL = originalUrl;
+        } else {
+          delete process.env.ALPHAGENOME_API_URL;
         }
       }
     });

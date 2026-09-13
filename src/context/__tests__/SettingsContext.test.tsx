@@ -63,6 +63,8 @@ describe("SettingsContext (settings revamp)", () => {
       ctx.updateSetting("appApiToken", "app-secret");
       ctx.updateSetting("geminiApiKey", "gem-secret");
       ctx.updateSetting("biohubApiToken", "bio-secret");
+      ctx.updateSetting("alphagenomeApiKey", "ag-secret-123");
+      ctx.updateSetting("alphagenomeApiUrl", "https://custom.alphagenome/v1");
     });
 
     const persisted = JSON.parse(localStorage.getItem("missenseUserSettings") || "{}");
@@ -71,12 +73,16 @@ describe("SettingsContext (settings revamp)", () => {
     expect(persisted.appApiToken).toBeUndefined();
     expect(persisted.geminiApiKey).toBeUndefined();
     expect(persisted.biohubApiToken).toBeUndefined();
+    expect(persisted.alphagenomeApiKey).toBeUndefined();
+    expect(persisted.alphagenomeApiUrl).toBeUndefined();
 
     // Survive only in transient sessionStorage.
     const transient = JSON.parse(sessionStorage.getItem("missenseTransientCredentials") || "{}");
     expect(transient.gpnApiUrl).toBe("https://custom.endpoint/predict");
     expect(transient.hfToken).toBe("hf_secret_456");
     expect(transient.appApiToken).toBe("app-secret");
+    expect(transient.alphagenomeApiKey).toBe("ag-secret-123");
+    expect(transient.alphagenomeApiUrl).toBe("https://custom.alphagenome/v1");
   });
 
   it("scrubs legacy plaintext credentials from localStorage on load", () => {

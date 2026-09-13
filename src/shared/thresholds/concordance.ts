@@ -175,7 +175,7 @@ export function countPredictorConcordance(
       // do not penalize the in-silico missense consensus report with false partial evidence warnings.
       const isUnconfiguredStandby =
         tool.key === "alphagenome" &&
-        (!extra?.alphagenome || extra.alphagenome.status === "unavailable" || extra.alphagenome.aviPhred === null);
+        (!extra?.alphagenome || extra.alphagenome.status !== "live" || extra.alphagenome.aviPhred == null);
 
       if (!isUnconfiguredStandby) {
         unavailable.push(tool.name.toUpperCase());

@@ -583,6 +583,8 @@ export interface ProgressiveConservationContext {
   biohubToken?: string | null;
   hfToken?: string | null;
   gpnApiUrl?: string | null;
+  alphagenomeApiKey?: string | null;
+  alphagenomeApiUrl?: string | null;
   sequence?: string | null;
 }
 
@@ -599,6 +601,8 @@ export async function fetchConservationDataProgressive(
     genosPromise,
     hfToken,
     gpnApiUrl,
+    alphagenomeApiKey,
+    alphagenomeApiUrl,
     sequence
   } = context;
 
@@ -636,7 +640,10 @@ export async function fetchConservationDataProgressive(
         const [popRes, gpnRes, alphaRes] = await Promise.all([
           fetchPopEVEScore(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
           fetchGpnStarByCoordinate(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
-          fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null)
+          fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, {
+            apiKey: alphagenomeApiKey,
+            apiUrl: alphagenomeApiUrl
+          }).catch(() => null)
         ]);
         popEVEScore = popRes;
         gpnStarResult = gpnRes;

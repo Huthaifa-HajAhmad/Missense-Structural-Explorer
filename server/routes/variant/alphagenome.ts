@@ -6,17 +6,19 @@ import {
   fetchAlphaGenomeRegionSaturation
 } from "../../services/alphagenome-bridge.ts";
 import { sendError, formatZodError } from "../../utils.ts";
+import { sanitizeToken, sanitizeUrl } from "./variant-parser.ts";
+import { analyzeVariantLimiter } from "../../middleware.ts";
 
 export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: any): void {
-  apiRouter.post("/alphagenome/region-saturation", jsonParserRegular, async (req, res) => {
+  apiRouter.post("/alphagenome/region-saturation", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
     const parseResult = alphaGenomeRegionSaturationRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
       sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
       return;
     }
 
-    const userApiKey = (req.headers["x-alphagenome-key"] as string) || process.env.ALPHAGENOME_API_KEY || null;
-    const userApiUrl = (req.headers["x-alphagenome-url"] as string) || process.env.ALPHAGENOME_API_URL || null;
+    const userApiKey = sanitizeToken(req.headers["x-alphagenome-key"]) || sanitizeToken((req.body as any)?.alphagenomeApiKey) || sanitizeToken(process.env.ALPHAGENOME_API_KEY);
+    const userApiUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl((req.body as any)?.alphagenomeApiUrl) || sanitizeUrl(process.env.ALPHAGENOME_API_URL);
 
     try {
       const data = await fetchAlphaGenomeRegionSaturation(parseResult.data, {

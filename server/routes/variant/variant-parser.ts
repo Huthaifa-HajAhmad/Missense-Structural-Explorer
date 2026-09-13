@@ -24,6 +24,8 @@ export const analyzeVariantSchema = z.object({
   biohubToken: z.string().optional(),
   hfToken: z.string().optional(),
   gpnApiUrl: z.string().url().max(512).optional(),
+  alphagenomeApiKey: z.string().optional(),
+  alphagenomeApiUrl: z.string().url().max(512).optional(),
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
@@ -66,7 +68,8 @@ export const sanitizeUrl = (val: unknown): string | null => {
       cleanHost.startsWith("fe80:") ||
       cleanHost.startsWith("fc00:") ||
       cleanHost.startsWith("fd00:") ||
-      cleanHost.startsWith("::ffff:127.")
+      cleanHost.startsWith("::ffff:127.") ||
+      cleanHost.startsWith("::ffff:169.254.")
     ) {
       return null;
     }
@@ -78,7 +81,10 @@ export const sanitizeUrl = (val: unknown): string | null => {
         hostname.startsWith("127.") ||
         hostname.startsWith("10.") ||
         hostname.startsWith("192.168.") ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+        cleanHost.startsWith("::ffff:10.") ||
+        cleanHost.startsWith("::ffff:192.168.") ||
+        /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(cleanHost)
       ) {
         return null;
       }

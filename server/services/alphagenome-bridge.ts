@@ -167,10 +167,10 @@ export async function fetchAlphaGenome(
     }
 
     const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-    const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
+    const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
 
-    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL && !apiUrl) {
-      // Unconfigured environment: clean standby state (Zero synthetic fallback)
+    if (!endpoint) {
+      // Unconfigured environment or endpoint: clean standby state (Zero synthetic fallback)
       const standbyResult: AlphaGenomeAviData = {
         status: "unavailable",
         aviPhred: null,
@@ -360,10 +360,10 @@ export async function fetchAlphaGenomeRegionSaturation(
     }
 
     const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-    const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
+    const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
 
-    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL && !apiUrl) {
-      // Unconfigured environment: clean standby state (Zero synthetic fallback)
+    if (!baseEndpoint) {
+      // Unconfigured environment or endpoint: clean standby state (Zero synthetic fallback)
       const standbyResult: AlphaGenomeRegionSaturationResponse = {
         status: "unavailable",
         chrom: normChrom,
