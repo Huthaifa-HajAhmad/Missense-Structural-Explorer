@@ -114,6 +114,8 @@ export interface ParsedVariantContext {
   biohubToken?: string | null;
   hfToken?: string | null;
   gpnApiUrl?: string | null;
+  alphagenomeApiKey?: string | null;
+  alphagenomeApiUrl?: string | null;
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
@@ -234,6 +236,8 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
       return !isCustomGpnUrl ? sanitizeToken(process.env.HF_TOKEN) : null;
     })(),
     gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
+    alphagenomeApiKey: sanitizeToken(req.headers["x-alphagenome-key"]) || sanitizeToken(req.body?.alphagenomeApiKey) || sanitizeToken(process.env.ALPHAGENOME_API_KEY),
+    alphagenomeApiUrl: sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl) || sanitizeUrl(process.env.ALPHAGENOME_API_URL),
     saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };
 }

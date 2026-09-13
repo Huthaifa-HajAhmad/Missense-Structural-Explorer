@@ -165,6 +165,46 @@ export function ConnectionsSection() {
           }}
           status={tests.hf.status}
         />
+        <SecretInput
+          label="AlphaGenome Atlas API key"
+          placeholder="Enter ALPHAGENOME_API_KEY…"
+          value={settings.alphagenomeApiKey || ""}
+          onChange={(value) => updateSetting("alphagenomeApiKey", value)}
+          description="Enables multimodal variant impact (AVI) scoring, 18-modality SHAP feature attributions, and Atlas track predictions from Google DeepMind."
+        />
+        <details className="cs-sub-card px-3 py-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-cs-text-secondary select-none">
+            How to obtain a Google DeepMind AlphaGenome Atlas key
+          </summary>
+          <p className="mt-2 text-[11px] leading-relaxed text-cs-text-secondary">
+            Visit the{" "}
+            <a
+              href="https://deepmind.google.com/science/alphagenome/atlas"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-medium text-cs-accent-clay hover:opacity-80"
+            >
+              AlphaGenome Atlas Portal
+            </a>{" "}
+            to request research access and generate an API key.
+          </p>
+        </details>
+        <div className="py-2.5 space-y-1">
+          <label htmlFor="alphagenome-api-url" className="block text-[13px] font-medium text-cs-text-primary">
+            AlphaGenome Endpoint URL (optional)
+          </label>
+          <input
+            id="alphagenome-api-url"
+            type="url"
+            className="cs-input text-[12px] font-mono w-full"
+            placeholder="http://127.0.0.1:8000/predict/alphagenome or custom gateway URL"
+            value={settings.alphagenomeApiUrl || ""}
+            onChange={(e) => updateSetting("alphagenomeApiUrl", e.target.value)}
+          />
+          <p className="text-[11px] text-cs-text-muted">
+            Custom AlphaGenome proxy or self-hosted gRPC/REST gateway URL (overrides default DeepMind Atlas endpoint).
+          </p>
+        </div>
         <div className="py-2.5 space-y-1">
           <label htmlFor="gpn-api-url" className="block text-[13px] font-medium text-cs-text-primary">
             Song Lab GPN-Star Endpoint URL (optional)

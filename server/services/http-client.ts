@@ -40,6 +40,34 @@ function getHostSemaphore(hostname: string): Semaphore {
   return sem;
 }
 
+/**
+ * Executes an async operation with per-host concurrency limiting (Semaphore)
+ * and failure protection (CircuitBreaker). Useful for non-fetch requests (e.g. native node:https).
+ */
+export async function withHostLock<T>(
+  hostname: string,
+  fn: () => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  const sem = getHostSemaphore(hostname);
+  await sem.acquire(120000, signal);
+  const breaker = getHostBreaker(hostname);
+  if (!breaker.canExecute()) {
+    sem.release();
+    throw new Error(`Upstream service ${hostname} is temporarily unavailable (circuit breaker open).`);
+  }
+  try {
+    const result = await fn();
+    breaker.recordSuccess();
+    return result;
+  } catch (err) {
+    breaker.recordFailure();
+    throw err;
+  } finally {
+    sem.release();
+  }
+}
+
 export async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
   let hostname = "unknown";
   try {

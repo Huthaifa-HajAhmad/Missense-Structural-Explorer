@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { computeRuleBasedACMG } from "./acmg.ts";
 import { Semaphore } from "../utils.ts";
-import { countPredictorConcordance } from "../../src/shared/thresholds.ts";
+import { countPredictorConcordance, evaluateSplicePredictor } from "../../src/shared/thresholds.ts";
 
 describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   it("should correctly classify standard evidence combinations (1 Very Strong + 1 Moderate -> Likely Pathogenic)", () => {
@@ -194,45 +194,32 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(resVus.signals.am).toBe("vus");
   });
 
-  it("should respect splice-site adjacent and SpliceAI signals in PP3/BP4 concordance calculations", () => {
-    // 1. Splice-site adjacent should vote pathogenic and trigger PP3
-    const resSpliceAdjacent = computeRuleBasedACMG({
-      gene: "GBA1",
-      variant: "p.Asn370Ser",
-      clinvar: null,
-      predictorData: {
-        available: true,
-        amPathogenicity: 0.1,
-        amClass: "benign",
-        caddPhred: 10,
-      },
-      conservationData: {
-        available: true,
-        revel: 0.05,
-        spliceProximity: { distance: 2, isNearSpliceSite: true },
-        spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
-      }
-    });
-    // Revel/AM/Cadd say benign, but splicing proximity says pathogenic. This results in conflicting signals.
-    const concAdj = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
-      spliceProximity: { distance: 2, isNearSpliceSite: true },
-      spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
-    });
-    expect(concAdj.signals.splice).toBe("pathogenic");
+  it("should evaluate splicing signals via evaluateSplicePredictor without polluting predictor concordance", () => {
+    // 1. Splice-site adjacent should evaluate to pathogenic in evaluateSplicePredictor
+    const spliceSignalAdj = evaluateSplicePredictor(
+      { distance: 2, isNearSpliceSite: true },
+      { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
+    );
+    expect(spliceSignalAdj).toBe("pathogenic");
 
-    // 2. High SpliceAI score should vote pathogenic and trigger PP3
-    const concSpliceAI = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
-      spliceProximity: { distance: 15, isNearSpliceSite: false },
-      spliceai: { ds_ag: 0.25, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.25 }
-    });
-    expect(concSpliceAI.signals.splice).toBe("pathogenic");
+    // 2. High SpliceAI score should evaluate to pathogenic in evaluateSplicePredictor
+    const spliceSignalHigh = evaluateSplicePredictor(
+      { distance: 15, isNearSpliceSite: false },
+      { ds_ag: 0.25, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.25 }
+    );
+    expect(spliceSignalHigh).toBe("pathogenic");
 
-    // 3. Far distance and low SpliceAI should vote benign
-    const concBenign = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null, {
-      spliceProximity: { distance: 15, isNearSpliceSite: false },
-      spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
-    });
-    expect(concBenign.signals.splice).toBe("benign");
+    // 3. Far distance and low SpliceAI should evaluate to benign in evaluateSplicePredictor
+    const spliceSignalBenign = evaluateSplicePredictor(
+      { distance: 15, isNearSpliceSite: false },
+      { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
+    );
+    expect(spliceSignalBenign).toBe("benign");
+
+    // 4. In-silico missense predictor concordance must NOT include splice in signals or voting tallies
+    const conc = countPredictorConcordance(10, 0.05, 0.1, "benign", null, null);
+    expect((conc.signals as any).splice).toBeUndefined();
+    expect(conc.available).not.toContain("SPLICING");
   });
 
   it("should throttle concurrent operations using ConcurrencySemaphore", async () => {

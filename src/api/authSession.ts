@@ -58,7 +58,9 @@ export function useAuthSession() {
     appApiToken, 
     biohubApiToken, 
     hfToken, 
-    gpnApiUrl
+    gpnApiUrl,
+    alphagenomeApiKey,
+    alphagenomeApiUrl
   } = settings;
 
   const fetchWithAuth: FetchWithAuth = useCallback(async (
@@ -198,6 +200,12 @@ export function useAuthSession() {
         if (gpnApiUrl) {
           headers["x-gpn-api-url"] = gpnApiUrl;
         }
+        if (alphagenomeApiKey) {
+          headers["x-alphagenome-key"] = alphagenomeApiKey;
+        }
+        if (alphagenomeApiUrl) {
+          headers["x-alphagenome-url"] = alphagenomeApiUrl;
+        }
       }
 
       let response = await fetchWithRetry(url, { ...options, headers, signal });
@@ -213,28 +221,25 @@ export function useAuthSession() {
             method: "POST",
             headers: reauthHeaders,
             body: JSON.stringify({ apiKey: geminiApiKey }),
-            signal: signal
+            signal
           });
           if (sessionRes.ok) {
-            invalidApiKeys.delete(geminiApiKey);
-            const sessionData = await sessionRes.json();
-            if (sessionData.sessionId) {
-              updateSetting("geminiSessionId", sessionData.sessionId);
-              updateSetting("geminiSessionExpiresAt", sessionData.expiresAt || (Date.now() + 15 * 60 * 1000));
-
-              const retryHeaders = {
-                ...headers
-              };
-              if (isRelativeOrSameOrigin && sessionData.sessionId) {
-                retryHeaders["X-Gemini-Session-ID"] = sessionData.sessionId;
-              }
-              response = await fetchWithRetry(url, { ...options, headers: retryHeaders, signal });
+            const data = await sessionRes.json();
+            const newSessionId = data.sessionId;
+            const newExpiresAt = data.expiresAt;
+            if (newSessionId) {
+              updateSetting("geminiSessionId", newSessionId);
+              updateSetting("geminiSessionExpiresAt", newExpiresAt);
+              headers["X-Gemini-Session-ID"] = newSessionId;
+              response = await fetchWithRetry(url, { ...options, headers, signal });
             }
           } else if (sessionRes.status === 400 || sessionRes.status === 403) {
             invalidApiKeys.add(geminiApiKey);
+            updateSetting("geminiSessionId", "");
+            updateSetting("geminiSessionExpiresAt", 0);
           }
-        } catch (reauthErr) {
-          console.error("Transparent re-authentication failed:", reauthErr);
+        } catch {
+          // If re-auth fetch fails (e.g. network), return original 401 response
         }
       }
 
@@ -255,6 +260,8 @@ export function useAuthSession() {
     biohubApiToken, 
     hfToken, 
     gpnApiUrl,
+    alphagenomeApiKey,
+    alphagenomeApiUrl,
     updateSetting
   ]);
 

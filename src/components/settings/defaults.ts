@@ -19,6 +19,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   biohubApiToken: "",
   hfToken: "",
   gpnApiUrl: "",
+  alphagenomeApiKey: "",
+  alphagenomeApiUrl: "",
   cameraDuration: 1200,
   autoZoomOnSelect: false,
   showAtomInteractions: true,
@@ -50,7 +52,9 @@ export const TRANSIENT_SETTING_KEYS = [
   "appApiToken",
   "biohubApiToken",
   "hfToken",
-  "gpnApiUrl"
+  "gpnApiUrl",
+  "alphagenomeApiKey",
+  "alphagenomeApiUrl"
 ] as const;
 
 export type TransientSettingKey = (typeof TRANSIENT_SETTING_KEYS)[number];

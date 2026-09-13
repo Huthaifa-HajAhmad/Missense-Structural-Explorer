@@ -21,28 +21,51 @@ const targetModel = process.env.OCR_MODEL || "gemini-2.5-flash";
 
 const isPlaceholder = (key?: string) => !key || key.startsWith("YOUR_") || key.includes("example") || key.trim() === "";
 
-let activeProvider = process.env.OCR_PROVIDER || "google";
-
+// Export all valid configured API keys so any provider / fallback has access
 if (geminiKey && !isPlaceholder(geminiKey)) {
-  activeProvider = process.env.OCR_PROVIDER || "google";
   env.GOOGLE_API_KEY = geminiKey;
   env.GEMINI_API_KEY = geminiKey;
-} else if (openaiKey && !isPlaceholder(openaiKey)) {
-  activeProvider = "openai";
+}
+if (openaiKey && !isPlaceholder(openaiKey)) {
   env.OPENAI_API_KEY = openaiKey;
-} else if (anthropicKey && !isPlaceholder(anthropicKey)) {
-  activeProvider = "anthropic";
+}
+if (anthropicKey && !isPlaceholder(anthropicKey)) {
   env.ANTHROPIC_API_KEY = anthropicKey;
-} else {
-  console.warn("⚠️ [OCR Review] GEMINI_API_KEY / OCR_API_KEY in .env is unset or contains a placeholder.");
-  console.warn("   Paste your Gemini API key from Google AI Studio into .env to enable live AI review.\n");
 }
 
 // Pass CLI arguments (defaulting to `review` if none provided)
 const rawArgs = process.argv.slice(2);
-const hasProvider = rawArgs.includes("--provider");
-const hasModel = rawArgs.includes("--model");
-const hasConcurrency = rawArgs.includes("--concurrency");
+const providerArgIndex = rawArgs.indexOf("--provider");
+const cliProvider = providerArgIndex !== -1 && rawArgs[providerArgIndex + 1] ? rawArgs[providerArgIndex + 1] : undefined;
+
+let activeProvider = cliProvider || process.env.OCR_PROVIDER;
+if (!activeProvider) {
+  if (geminiKey && !isPlaceholder(geminiKey)) {
+    activeProvider = "google";
+  } else if (openaiKey && !isPlaceholder(openaiKey)) {
+    activeProvider = "openai";
+  } else if (anthropicKey && !isPlaceholder(anthropicKey)) {
+    activeProvider = "anthropic";
+  } else {
+    activeProvider = "google";
+    console.warn("⚠️ [OCR Review] GEMINI_API_KEY / OCR_API_KEY in .env is unset or contains a placeholder.");
+    console.warn("   Paste your Gemini API key from Google AI Studio into .env to enable live AI review.\n");
+  }
+}
+
+const subcommands = ["review", "scan", "suggest"];
+let commandArgs: string[] = [];
+if (rawArgs.length === 0) {
+  commandArgs = ["review"];
+} else if (subcommands.includes(rawArgs[0])) {
+  commandArgs = [...rawArgs];
+} else {
+  commandArgs = ["review", ...rawArgs];
+}
+
+const hasProvider = commandArgs.includes("--provider");
+const hasModel = commandArgs.includes("--model");
+const hasConcurrency = commandArgs.includes("--concurrency");
 
 const chosenModel = (activeProvider === "google" || activeProvider === "gemini")
   ? targetModel
@@ -62,15 +85,16 @@ if (!hasConcurrency) {
   extraFlags.push("--concurrency", "1");
 }
 
-const args = rawArgs.length > 0 ? rawArgs : ["review"];
-const finalArgs = ["ocr", ...args, ...extraFlags];
+const finalArgs = ["ocr", ...commandArgs, ...extraFlags];
 
 console.log(`🔍 [Open Code Review] Running AI Code Review (${activeProvider} / ${chosenModel}) on current git changes...\n`);
 
-const child = spawn("npx", finalArgs, {
+const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+
+const child = spawn(npxCmd, finalArgs, {
   env,
   stdio: "inherit",
-  shell: true
+  shell: false
 });
 
 child.on("exit", (code) => {

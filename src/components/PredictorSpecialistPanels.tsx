@@ -356,6 +356,12 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   )}
                 </div>
 
+                {aviPhred === null && !isLoading && (
+                  <p className="text-[10.5px] text-cs-text-muted mt-1.5 leading-tight">
+                    Frontier foundation model in standby. Configure an API key in Settings &rarr; Connections or explore directly in the Atlas tab.
+                  </p>
+                )}
+
                 {aviPhred !== null && renderScoreBar(aviPhred, 0, 60, 8.0, 15.0, false)}
 
                 {/* Driving Modality Pill */}

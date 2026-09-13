@@ -10,7 +10,6 @@ import {
   evaluateEigen,
   evaluateDann,
   evaluatePopEve,
-  evaluateSplicePredictor,
   evaluateAlphaGenomeAvi,
   evaluateEsm1b,
   evaluateEsm,
@@ -44,8 +43,8 @@ export function countPredictorConcordance(
   revel:     number | null | undefined,
   amScore:   number | null | undefined,
   amClass:   string | null | undefined,
-  bayesdel?:  number | null | undefined,
-  esmLlr?:    number | null | undefined,
+  bayesdel?: number | null | undefined,
+  esmLlr?:   number | null | undefined,
   extra?: {
     metarnn?: number | null;
     clinpred?: number | null;
@@ -56,9 +55,6 @@ export function countPredictorConcordance(
     saprotLlr?: number | null;
     vesmLlr?: number | null;
     gpnStar?: number | null;
-    spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null;
-    spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null;
-    dbscsnv?: { ada_score: number | null; rf_score: number | null } | null;
     alphagenome?: AlphaGenomeAviData | null;
   }
 ): PredictorConcordance {
@@ -118,25 +114,6 @@ export function countPredictorConcordance(
       scoreLabel: extra?.popeve !== null && extra?.popeve !== undefined ? `${extra.popeve.toFixed(3)}` : "—",
     },
     {
-      key: "splice",
-      name: "Splicing",
-      signal: evaluateSplicePredictor(extra?.spliceProximity, extra?.spliceai, extra?.dbscsnv),
-      scoreLabel: (() => {
-        const prox = extra?.spliceProximity;
-        const sai = extra?.spliceai;
-        const dbsc = extra?.dbscsnv;
-        if (!prox && !sai && !dbsc) return "—";
-        let parts: string[] = [];
-        if (prox) parts.push(`${prox.distance} bp`);
-        if (sai && sai.max_ds !== null) parts.push(`SpliceAI: ${sai.max_ds.toFixed(2)}`);
-        if (dbsc && (dbsc.ada_score != null || dbsc.rf_score != null)) {
-          const maxDbsc = Math.max(dbsc.ada_score ?? 0, dbsc.rf_score ?? 0);
-          parts.push(`dbscSNV: ${maxDbsc.toFixed(2)}`);
-        }
-        return parts.length > 0 ? parts.join(" ") : "—";
-      })()
-    },
-    {
       key: "alphagenome",
       name: "AlphaGenome",
       signal: evaluateAlphaGenomeAvi(extra?.alphagenome),
@@ -194,7 +171,15 @@ export function countPredictorConcordance(
   for (const tool of toolDefs) {
     signals[tool.key] = tool.signal;
     if (tool.signal === "unavailable") {
-      unavailable.push(tool.name.toUpperCase());
+      // Unconfigured frontier models in clean Standby (e.g. AlphaGenome without API key/endpoint)
+      // do not penalize the in-silico missense consensus report with false partial evidence warnings.
+      const isUnconfiguredStandby =
+        tool.key === "alphagenome" &&
+        (!extra?.alphagenome || extra.alphagenome.status === "unavailable" || extra.alphagenome.aviPhred === null);
+
+      if (!isUnconfiguredStandby) {
+        unavailable.push(tool.name.toUpperCase());
+      }
     } else {
       available.push(tool.name.toUpperCase());
       if (tool.signal === "pathogenic") {

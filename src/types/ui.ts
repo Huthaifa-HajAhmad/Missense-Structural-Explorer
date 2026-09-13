@@ -37,6 +37,8 @@ export interface UserSettings {
   biohubApiToken?: string;
   hfToken?: string;
   gpnApiUrl?: string;
+  alphagenomeApiKey?: string;
+  alphagenomeApiUrl?: string;
   cameraDuration: number; // e.g., 1200
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;

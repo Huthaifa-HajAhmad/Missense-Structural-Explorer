@@ -35,9 +35,6 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           saprotLlr: result.saprotEval?.llr ?? null,
           vesmLlr: result.esmcEval?.llr ?? null,
           gpnStar: result.conservationData?.gpnStar ?? null,
-          spliceProximity: result.conservationData?.spliceProximity,
-          spliceai: result.conservationData?.spliceai,
-          dbscsnv: result.conservationData?.dbscsnv,
           alphagenome: result.conservationData?.alphagenome
         });
         const total = concordance.available.length;

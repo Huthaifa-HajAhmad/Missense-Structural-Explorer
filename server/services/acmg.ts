@@ -335,9 +335,6 @@ export function computeRuleBasedACMG(input: ACMGEvidenceInput): RuleBasedInsight
       popeve: conservationData?.popeve,
       esm2Llr: esm2Eval?.llr,
       saprotLlr: saprotEval?.llr,
-      spliceProximity: conservationData?.spliceProximity,
-      spliceai: conservationData?.spliceai,
-      dbscsnv: conservationData?.dbscsnv,
       alphagenome: conservationData?.alphagenome
     }
   );

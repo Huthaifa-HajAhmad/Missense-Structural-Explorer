@@ -80,6 +80,12 @@ export function calculateAlphaGenomeAcmgStrength(
   return "indeterminate";
 }
 
+export interface FetchAlphaGenomeOptions {
+  signal?: AbortSignal;
+  apiKey?: string | null;
+  apiUrl?: string | null;
+}
+
 /**
  * Fetches AlphaGenome Variant Impact (AVI) scores and biological modality attributions.
  * Protected by an in-memory 30-day LRU cache, singleFlight deduplication, and a 2.5-second fast deadline.
@@ -89,8 +95,12 @@ export async function fetchAlphaGenome(
   pos: number,
   ref: string,
   alt: string,
-  signal?: AbortSignal
+  signalOrOptions?: AbortSignal | FetchAlphaGenomeOptions
 ): Promise<AlphaGenomeAviData> {
+  const signal = signalOrOptions instanceof AbortSignal ? signalOrOptions : signalOrOptions?.signal;
+  const apiKey = !(signalOrOptions instanceof AbortSignal) ? signalOrOptions?.apiKey : undefined;
+  const apiUrl = !(signalOrOptions instanceof AbortSignal) ? signalOrOptions?.apiUrl : undefined;
+
   if (!chrom || typeof pos !== "number" || pos < 1 || !ref || !alt) {
     return {
       status: "unavailable",
@@ -156,10 +166,10 @@ export async function fetchAlphaGenome(
       }
     }
 
-    const effectiveApiKey = process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-    const endpoint = process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
+    const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
+    const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
 
-    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL) {
+    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL && !apiUrl) {
       // Unconfigured environment: clean standby state (Zero synthetic fallback)
       const standbyResult: AlphaGenomeAviData = {
         status: "unavailable",
@@ -271,8 +281,12 @@ export async function fetchAlphaGenome(
  */
 export async function fetchAlphaGenomeRegionSaturation(
   params: AlphaGenomeRegionSaturationRequest,
-  signal?: AbortSignal
+  signalOrOptions?: AbortSignal | FetchAlphaGenomeOptions
 ): Promise<AlphaGenomeRegionSaturationResponse> {
+  const signal = signalOrOptions instanceof AbortSignal ? signalOrOptions : signalOrOptions?.signal;
+  const apiKey = !(signalOrOptions instanceof AbortSignal) ? signalOrOptions?.apiKey : undefined;
+  const apiUrl = !(signalOrOptions instanceof AbortSignal) ? signalOrOptions?.apiUrl : undefined;
+
   const parsed = alphaGenomeRegionSaturationRequestSchema.safeParse(params);
   if (!parsed.success) {
     const errorDetail = parsed.error.issues?.[0]?.message;
@@ -345,10 +359,10 @@ export async function fetchAlphaGenomeRegionSaturation(
       }
     }
 
-    const effectiveApiKey = process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-    const baseEndpoint = process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
+    const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
+    const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || "https://api.japanfold.aiand.com/v1/alphagenome";
 
-    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL) {
+    if (!effectiveApiKey && !process.env.ALPHAGENOME_API_URL && !apiUrl) {
       // Unconfigured environment: clean standby state (Zero synthetic fallback)
       const standbyResult: AlphaGenomeRegionSaturationResponse = {
         status: "unavailable",

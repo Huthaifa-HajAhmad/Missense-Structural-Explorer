@@ -1,114 +1,190 @@
-import { describe, it, expect, vi } from "vitest";
-import { submitDynaMut2Job, pollDynaMut2Job, submitDdmutJob, pollDdmutJob } from "./dynamut.ts";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { pollBioSigJob, httpGetWithBody } from "./dynamut.ts";
+import https from "node:https";
+import { EventEmitter } from "node:events";
 
-describe("DynaMut & DDMut Service Unit Tests", () => {
-  it("should handle submitDynaMut2Job success and failure", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ job_id: "12345" })
-    } as any);
-
-    const jobId = await submitDynaMut2Job("DUMMY_PDB", "A", 10, "R", "W");
-    expect(jobId).toBe("12345");
-
-    fetchSpy.mockRestore();
+describe("BioSig Polling Engine (server/services/dynamut.ts)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("should handle pollDynaMut2Job DONE status", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ prediction: "-0.426" })
-    } as any);
+  it("handles DDMut RUNNING status correctly via GET body protocol", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
 
-    const res = await pollDynaMut2Job("12345");
-    expect(res?.status).toBe("DONE");
-    expect(res?.prediction).toBe(-0.426);
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      expect(options.method).toBe("GET");
+      expect(options.headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
 
-    fetchSpy.mockRestore();
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.setEncoding = vi.fn();
+
+      process.nextTick(() => {
+        callback(mockRes);
+        mockRes.emit("data", JSON.stringify({ job_id: "17893192007005534", status: "RUNNING" }));
+        mockRes.emit("end");
+      });
+
+      return mockReq;
+    });
+
+    const result = await pollBioSigJob("ddmut", "17893192007005534");
+    expect(result).toEqual({
+      status: "RUNNING",
+      prediction: null
+    });
+    expect(mockReq.write).toHaveBeenCalledWith("job_id=17893192007005534");
   });
 
-  it("should handle submitDdmutJob success", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ job_id: "67890" })
-    } as any);
+  it("handles DDMut DONE status with completed prediction", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
 
-    const jobId = await submitDdmutJob("DUMMY_PDB", "A", 10, "R", "W");
-    expect(jobId).toBe("67890");
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.setEncoding = vi.fn();
 
-    fetchSpy.mockRestore();
+      process.nextTick(() => {
+        callback(mockRes);
+        mockRes.emit("data", JSON.stringify({
+          job_id: "17893192007005534",
+          prediction: "-0.45",
+          chain: "A",
+          mutant: "CYS",
+          wild_type: "SER"
+        }));
+        mockRes.emit("end");
+      });
+
+      return mockReq;
+    });
+
+    const result = await pollBioSigJob("ddmut", "17893192007005534");
+    expect(result).toEqual({
+      status: "DONE",
+      prediction: -0.45
+    });
   });
 
-  it("should handle pollDdmutJob DONE status with numeric prediction", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ prediction: "-1.67", chain: "A", res_number: 461 })
-    } as any);
+  it("throws rate limit error when upstream returns HTTP 429", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
 
-    const res = await pollDdmutJob("67890");
-    expect(res?.status).toBe("DONE");
-    expect(res?.prediction).toBe(-1.67);
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 429;
+      mockRes.setEncoding = vi.fn();
 
-    fetchSpy.mockRestore();
+      process.nextTick(() => {
+        callback(mockRes);
+        mockRes.emit("data", "Rate limit exceeded");
+        mockRes.emit("end");
+      });
+
+      return mockReq;
+    });
+
+    await expect(pollBioSigJob("ddmut", "17893192007005534")).rejects.toThrow("DDMut upstream rate limit reached");
   });
 
-  it("should handle pollDdmutJob RUNNING status", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValueOnce({
+  it("handles DynaMut2 DONE status via query string polling with URL encoding", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ message: "RUNNING" })
+      status: 200,
+      text: async () => JSON.stringify({
+        status: "DONE",
+        job_id: 178931919574,
+        prediction: -0.387,
+        wild_type: "SER",
+        mutant: "CYS"
+      })
     } as any);
 
-    const res = await pollDdmutJob("67890");
-    expect(res?.status).toBe("RUNNING");
-    expect(res?.prediction).toBeNull();
-
-    fetchSpy.mockRestore();
+    try {
+      const result = await pollBioSigJob("dynamut2", "178931919574");
+      expect(result).toEqual({
+        status: "DONE",
+        prediction: -0.387
+      });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single?job_id=178931919574"),
+        expect.anything()
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
-  it("should handle pollDdmutJob QUEUED / PENDING status", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ status: "QUEUED" })
-    } as any);
+  it("rejects when response stream emits an error mid-stream", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
 
-    const res = await pollDdmutJob("67890");
-    expect(res?.status).toBe("RUNNING");
-    expect(res?.prediction).toBeNull();
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.setEncoding = vi.fn();
 
-    fetchSpy.mockRestore();
+      process.nextTick(() => {
+        callback(mockRes);
+        mockRes.emit("data", "partial-data");
+        mockRes.emit("error", new Error("ECONNRESET"));
+      });
+
+      return mockReq;
+    });
+
+    await expect(httpGetWithBody("https://biosig.lab.uq.edu.au/test", "a=1", {}, 5000))
+      .rejects.toThrow("ECONNRESET");
+    expect(mockReq.destroy).toHaveBeenCalled();
   });
 
-  it("should handle pollDdmutJob 429 upstream rate limiting", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValue({
-      ok: false,
-      status: 429,
-      headers: new Headers()
-    } as any);
+  it("rejects and destroys request when payload exceeds 5MB size limit", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
 
-    await expect(pollDdmutJob("67890")).rejects.toThrow();
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.setEncoding = vi.fn();
 
-    fetchSpy.mockRestore();
-  }, 15000);
+      process.nextTick(() => {
+        callback(mockRes);
+        mockRes.emit("data", "x".repeat(6 * 1024 * 1024));
+      });
 
-  it("should handle pollDdmutJob upstream error status", async () => {
-    const fetchSpy = vi.spyOn(global, "fetch");
-    fetchSpy.mockResolvedValue({
-      ok: false,
-      status: 500,
-      headers: new Headers()
-    } as any);
+      return mockReq;
+    });
 
-    const res = await pollDdmutJob("67890");
-    expect(res?.status).toBe("ERROR");
-    expect(res?.prediction).toBeNull();
+    await expect(httpGetWithBody("https://biosig.lab.uq.edu.au/test", "a=1", {}, 5000))
+      .rejects.toThrow("BioSig response exceeded maximum allowed payload size (5MB)");
+    expect(mockReq.destroy).toHaveBeenCalled();
+  });
 
-    fetchSpy.mockRestore();
-  }, 15000);
+  it("rejects when request exceeds overall timeout deadline", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
+
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      return mockReq;
+    });
+
+    await expect(httpGetWithBody("https://biosig.lab.uq.edu.au/test", "a=1", {}, 50))
+      .rejects.toThrow("BioSig request timed out after 50ms");
+    expect(mockReq.destroy).toHaveBeenCalled();
+  });
 });
