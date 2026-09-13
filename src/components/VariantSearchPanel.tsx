@@ -6,7 +6,6 @@ import {
   History, 
   Trash2, 
   ChevronDown, 
-  ChevronUp, 
   Loader2, 
   Clipboard, 
   ShieldAlert,
@@ -23,8 +22,7 @@ import {
   BookOpen,
   FileText,
   AlertTriangle,
-  KeyRound,
-  Settings
+  KeyRound
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
@@ -32,6 +30,19 @@ import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/V
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
+
+const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
+  <button
+    type="button"
+    tabIndex={-1}
+    title="Paste from clipboard"
+    aria-label="Paste from clipboard"
+    onClick={() => pasteFromClipboard(setter)}
+    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity cursor-pointer text-cs-text-muted hover:text-cs-accent-clay active:scale-95 z-10"
+  >
+    <Clipboard className="w-3.5 h-3.5" />
+  </button>
+);
 
 interface VariantSearchPanelProps {
   isDark: boolean;
@@ -105,8 +116,6 @@ function VariantSearchPanel({
   handleSelectHistoryItem: propsHandleSelectHistoryItem,
   onViewChange,
 }: VariantSearchPanelProps) {
-  const [historyOpen, setHistoryOpen] = useState(true);
-
   // Directly subscribe to Zustand store slices to guarantee instant re-renders on keystroke and paste
   const storeCustomGene = useVariantAnalysisStore(s => s.customGene ?? "");
   const storeCustomVariant = useVariantAnalysisStore(s => s.customVariant ?? "");
@@ -153,6 +162,8 @@ function VariantSearchPanel({
     actions.setUniprotId(item.uniprotId);
     actions.setCustomGene(item.gene);
     actions.setCustomVariant(item.variant);
+    actions.setCustomUniprot(item.uniprotId ?? "");
+    actions.setCustomGenomic("");
   });
   const handleSearchSubmit = propsHandleSearchSubmit ?? ((e: React.FormEvent) => {
     e.preventDefault();
@@ -192,18 +203,6 @@ function VariantSearchPanel({
   const isVariantRequired = !customGenomic.trim();
 
   const inputBase = `w-full rounded-lg px-3 py-2 text-[13px] outline-none border transition-all font-medium select-text ${classInput}`;
-
-  const PasteBtn = ({ setter }: { setter: (v: string) => void }) => (
-    <button
-      type="button"
-      tabIndex={-1}
-      title="Paste from clipboard"
-      onClick={() => pasteFromClipboard(setter)}
-      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity cursor-pointer text-cs-text-muted hover:text-cs-accent-clay active:scale-95 z-10"
-    >
-      <Clipboard className="w-3.5 h-3.5" />
-    </button>
-  );
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "literature" | "report") => {
@@ -510,11 +509,80 @@ function VariantSearchPanel({
                   </div>
                 </div>
               </div>
+
+              {/* ── Recent Analyses / Zero-History Placeholder Tray ── */}
+              <div className="mt-4 pt-3 border-t border-[var(--cs-border-subtle)]">
+                {history.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--cs-text-secondary)" }}>
+                        <History className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                        <span>Recent Analyses ({history.length})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearHistory}
+                        className="text-[10.5px] font-medium flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors cursor-pointer hover:bg-rose-500/10 text-[var(--cs-text-muted)] hover:text-rose-500"
+                        title="Clear search history"
+                        aria-label="Clear search history"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Clear
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {history.slice(0, 8).map((item, idx) => (
+                        <button
+                          key={`${item.gene}_${item.variant}_${idx}`}
+                          type="button"
+                          onClick={() => handleSelectHistoryItem(item)}
+                          aria-pressed={gene === item.gene && variant === item.variant}
+                          className="px-2.5 py-1 rounded-md text-[11px] cursor-pointer flex items-center gap-1.5 transition-all hover:scale-[1.01] active:scale-[0.98] shadow-xs"
+                          style={{
+                            background: gene === item.gene && variant === item.variant
+                              ? "var(--cs-accent-mag-soft)" : "var(--cs-surface)",
+                            border: gene === item.gene && variant === item.variant
+                              ? "1px solid var(--cs-accent-clay)" : "1px solid var(--cs-border-subtle)",
+                          }}
+                          title={`Reload ${item.gene} ${item.variant}`}
+                          aria-label={`Select recent search ${item.gene} ${item.variant}`}
+                        >
+                          <span className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>
+                            {item.gene}
+                          </span>
+                          <span className="font-mono text-[10.5px]" style={{ color: "var(--cs-text-secondary)" }}>
+                            {item.variant}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  /* Zero-History Empty State Placeholder */
+                  <div className="p-4 rounded-xl border border-dashed border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)]/40 flex flex-col items-center justify-center text-center gap-2 select-none">
+                    <div className="w-8 h-8 rounded-full bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] flex items-center justify-center text-[var(--cs-accent-clay)] shadow-xs">
+                      <History className="w-4 h-4" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-[12px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
+                        No Recent Variant Analyses
+                      </p>
+                      <p className="text-[11px] max-w-sm leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
+                        Analyzed variants in this session will appear here for instant 1-click re-querying and review.
+                      </p>
+                    </div>
+                    <div className="pt-0.5 flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
+                      <span>💡 Paste HGVS, cDNA, or genomic coordinates to start</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* ── RIGHT COLUMN: Segmented Workflow Pipeline & Telemetry Rail (col-span-5) ── */}
-          <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] border-t lg:border-t-0 lg:border-l border-[var(--cs-border)] flex flex-col justify-between gap-4">
+          <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] flex flex-col justify-between gap-4">
             <div className="flex items-center justify-between mb-2 pb-2 border-b border-[var(--cs-border-subtle)] shrink-0">
               {/* Segmented Switcher */}
               <div 
@@ -569,11 +637,11 @@ function VariantSearchPanel({
             </div>
 
             {activeRightTab === "telemetry" ? (
-              <div id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex-1 flex flex-col">
+              <div key="telemetry" id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex-1 flex flex-col cs-tab-transition">
                 <LiveTelemetryPanel className="flex-1" />
               </div>
             ) : (
-              <div id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 flex flex-col justify-between gap-4">
+              <div key="pipeline" id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 flex flex-col justify-between gap-4 cs-tab-transition">
                 <div className="flex-1 flex flex-col min-h-0">
                   {/* Workflow Live Stages List — Evenly Distributed without Dead Space */}
                   <div className="flex-1 flex flex-col justify-between gap-2 my-1">
@@ -589,8 +657,17 @@ function VariantSearchPanel({
                         <div 
                           key={key}
                           onClick={() => isClickable && onViewChange?.(targetView)}
+                          role={isClickable ? "button" : undefined}
+                          tabIndex={isClickable ? 0 : undefined}
+                          aria-label={isClickable ? `Navigate to ${title} view` : title}
+                          onKeyDown={e => {
+                            if (isClickable && (e.key === "Enter" || e.key === " ")) {
+                              e.preventDefault();
+                              onViewChange?.(targetView);
+                            }
+                          }}
                           className={`p-2.5 px-3 rounded-lg border transition-all flex-1 min-h-[50px] flex items-center justify-between gap-3 select-none ${
-                            isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:shadow-xs" : ""
+                            isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]" : ""
                           } ${
                             isDone 
                               ? "border-[var(--cs-border)] bg-[var(--cs-surface)] shadow-xs" 
@@ -667,66 +744,6 @@ function VariantSearchPanel({
           </div>
         </div>
       </div>
-
-      {/* ── LOWER SECTION: Recent Searches ── */}
-      {history.length > 0 && (
-        <div className={`p-4 rounded-xl border border-[var(--cs-border)] bg-[var(--cs-surface)] shadow-none ${classBorderSec}`}>
-          <div className="flex items-center justify-between mb-3">
-            <button
-              type="button"
-              onClick={() => setHistoryOpen(p => !p)}
-              className="flex items-center gap-2 cursor-pointer select-none group"
-            >
-              <span className="p-1 rounded bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] group-hover:bg-[var(--cs-bg-subtle)] transition-colors">
-                <History className="w-3.5 h-3.5" />
-              </span>
-              <span className="text-[12px] font-semibold tracking-wide uppercase" style={{ color: "var(--cs-text-secondary)" }}>
-                Recent Searches ({history.length})
-              </span>
-              {historyOpen ? (
-                <ChevronUp className="w-3.5 h-3.5 text-[var(--cs-text-muted)]" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-[var(--cs-text-muted)]" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={clearHistory}
-              className="text-[11px] font-medium flex items-center gap-1 px-2 py-1 rounded transition-colors cursor-pointer hover:bg-rose-500/10 text-[var(--cs-text-muted)] hover:text-rose-500"
-              title="Clear search history"
-            >
-              <Trash2 className="w-3 h-3" />
-              Clear
-            </button>
-          </div>
-
-          {historyOpen && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {history.map((item, idx) => (
-                <button
-                  key={`${item.gene}_${item.variant}_${idx}`}
-                  onClick={() => handleSelectHistoryItem(item)}
-                  className="px-3 py-1.5 rounded-lg text-[12px] cursor-pointer flex items-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.98]"
-                  style={{
-                    background: gene === item.gene && variant === item.variant
-                      ? "var(--cs-accent-mag-soft)" : "var(--cs-surface-2)",
-                    border: gene === item.gene && variant === item.variant
-                      ? "1px solid var(--cs-accent-clay)" : "1px solid var(--cs-border)",
-                  }}
-                >
-                  <span className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-                    {item.gene}
-                  </span>
-                  <span className="font-mono text-[11px]" style={{ color: "var(--cs-text-secondary)" }}>
-                    {item.variant}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -19,7 +19,10 @@
     "review:preview": "tsx scripts/review.ts review --preview",
     "review:scan": "tsx scripts/review.ts scan",
     "migrate:rasp": "tsx scripts/build-rasp-sqlite.ts",
-    "graft": "node tools/graft/cli.cjs"
+    "graft": "node tools/graft/cli.cjs",
+    "search": "zg query",
+    "search:index": "zg index --embedding local/potion-code-16m-v2",
+    "search:status": "zg status"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
@@ -70,6 +73,7 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitest/coverage-v8": "^4.1.10",
+    "@zvec/zvec-grep": "^0.2.2",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "jsdom": "^30.0.1",

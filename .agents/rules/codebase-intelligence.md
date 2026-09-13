@@ -9,6 +9,7 @@ When answering questions about architecture, tracing execution paths, discoverin
 
 ## 1. Decision Routing
 
+* **Conceptual & Semantic Code Search**: Use **zvec-grep** (`npm run search -- "<query>"` or `npx zg query "<query>"`). Fuses BM25 full-text + local vector embeddings (`potion-code-16m-v2`). **Agents MUST NOT blind-grep or crawl directories when wording or file locations are unknown.**
 * **API Surfaces & Skeletons (Token-Efficient)**: Use **Graft** (`graft_file_api` MCP or `npm run graft -- skeleton <file>`). Saves ~90% tokens when checking signatures/types.
 * **Transitive Callers & Blast Radius**: Use **Graft** (`graft_trace_calls` MCP or `npm run graft -- callers <symbol> -d <N>`).
 * **Symbol Relationships & Function Call Paths**: Use **Graphify** (`graphify path "<A>" "<B>"` or `query_graph` MCP).
@@ -19,6 +20,19 @@ When answering questions about architecture, tracing execution paths, discoverin
 
 ## 2. Command Reference (Windows & Cross-Platform Safe)
 
+### Conceptual & Semantic Search (zvec-grep)
+```bash
+# Natural language / conceptual query across workspace
+npm run search -- "consensus stability score calibration"
+
+# Hybrid query with BM25 keyword boost and glob filter
+npm run search -- "foldx box64" --fts "box64" -g "server/**"
+
+# Re-index workspace using local 16M code model
+npm run search:index
+```
+
+### Knowledge Graph & AST Paths (Graphify)
 When CLI commands are executed in Windows environments, invoke via `python -m uv tool run --from graphifyy graphify`:
 
 ```bash
@@ -36,4 +50,5 @@ python -m uv tool run --from graphifyy graphify extract . --code-only
 ```
 
 ## 3. Maintenance Mandate
-After modifying or adding files in a development session, run `python -m uv tool run --from graphifyy graphify extract . --code-only` to keep `graphify-out/graph.json` fresh.
+* After modifying or adding files in a development session, run `python -m uv tool run --from graphifyy graphify extract . --code-only` to keep `graphify-out/graph.json` fresh.
+* After adding substantial new modules, routes, or documentation, run `npm run search:index` to update the local `.zvec-grep/` vector and BM25 index.

@@ -67,6 +67,9 @@ graphify-out/
 /graft/
 .ignore
 
+# zvec-grep index and local embedding models
+.zvec-grep/
+
 # Local secrets
 .sidecar_secret
 

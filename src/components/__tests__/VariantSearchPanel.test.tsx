@@ -164,5 +164,97 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     // Verify submit triggers switch to Workflow Pipeline
     expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
   });
+
+  it("renders zero-history placeholder when search history is empty", () => {
+    renderPanel();
+
+    expect(screen.getByText("No Recent Variant Analyses")).toBeInTheDocument();
+    expect(screen.getByText(/Analyzed variants in this session will appear here/i)).toBeInTheDocument();
+  });
+
+  it("renders recent search pills when history is populated and selects item on click", async () => {
+    await act(async () => {
+      useVariantAnalysisStore.setState({
+        customGenomic: "chr7-140753336-A-T",
+        history: [
+          { gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }
+        ]
+      });
+    });
+
+    renderPanel();
+
+    // Verify recent analyses tray rendered
+    expect(screen.getByText("Recent Analyses (1)")).toBeInTheDocument();
+    expect(screen.getByText("BRAF")).toBeInTheDocument();
+    expect(screen.getByText("p.V600E")).toBeInTheDocument();
+
+    // Click the recent search pill
+    const pill = screen.getByRole("button", { name: /Select recent search BRAF p\.V600E/i });
+    await act(async () => {
+      fireEvent.click(pill);
+    });
+
+    // Check store updated and stale inputs cleared
+    expect(useVariantAnalysisStore.getState().customGene).toBe("BRAF");
+    expect(useVariantAnalysisStore.getState().customVariant).toBe("p.V600E");
+    expect(useVariantAnalysisStore.getState().customUniprot).toBe("P15056");
+    expect(useVariantAnalysisStore.getState().customGenomic).toBe("");
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+
+    // Click Clear button
+    const clearBtn = screen.getByRole("button", { name: /Clear search history/i });
+    await act(async () => {
+      fireEvent.click(clearBtn);
+    });
+
+    // Verify history cleared and placeholder appears
+    expect(screen.getByText("No Recent Variant Analyses")).toBeInTheDocument();
+  });
+
+  it("applies cs-tab-transition animation to tab panels", async () => {
+    renderPanel();
+
+    const telemetryPanel = screen.getByRole("tabpanel");
+    expect(telemetryPanel.className).toContain("cs-tab-transition");
+
+    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    await act(async () => {
+      fireEvent.click(pipelineTab);
+    });
+
+    const pipelinePanel = screen.getByRole("tabpanel");
+    expect(pipelinePanel.className).toContain("cs-tab-transition");
+  });
+
+  it("enables keyboard navigation on workflow stage cards when analysis result is present", async () => {
+    const mockOnViewChange = vi.fn();
+    render(
+      <SettingsProvider>
+        <VariantSearchPanel
+          isDark={false}
+          onViewChange={mockOnViewChange}
+          analysisState={{ isLoading: false, error: null, result: { gene: "BRAF", variant: "p.V600E" } as any }}
+        />
+      </SettingsProvider>
+    );
+
+    // Switch to Workflow Pipeline tab
+    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    await act(async () => {
+      fireEvent.click(pipelineTab);
+    });
+
+    const structureCard = screen.getByRole("button", { name: /Navigate to 3D Structure view/i });
+    expect(structureCard).toBeInTheDocument();
+
+    // Trigger Enter key press
+    fireEvent.keyDown(structureCard, { key: "Enter" });
+    expect(mockOnViewChange).toHaveBeenCalledWith("structure");
+
+    // Trigger Space key press
+    fireEvent.keyDown(structureCard, { key: " " });
+    expect(mockOnViewChange).toHaveBeenCalledWith("structure");
+  });
 });
 

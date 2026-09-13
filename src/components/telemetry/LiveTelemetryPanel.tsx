@@ -3,9 +3,7 @@ import {
   Activity,
   RefreshCw,
   Settings,
-  ShieldCheck,
-  Clock,
-  ExternalLink
+  Clock
 } from "lucide-react";
 import { useDiagnostics } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
@@ -153,10 +151,13 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     : isJapanFoldReady
     ? "JapanFold Sovereign"
     : "Standby / Cloud";
+  const formatLatency = (ms?: number | null) => {
+    if (typeof ms !== "number" || isNaN(ms) || ms < 0) return null;
+    return ms < 1 ? "< 1ms" : `${Math.round(ms)}ms`;
+  };
+
   const sidecarLatencyVal = sidecarHealth?.latencyMs ?? capabilities?.system?.sidecarLatencyMs;
-  const sidecarLatency = typeof sidecarLatencyVal === "number" && sidecarLatencyVal > 0
-    ? `${sidecarLatencyVal}ms`
-    : null;
+  const sidecarLatency = formatLatency(sidecarLatencyVal);
 
   // 10. PubMed & Europe PMC
   const europePmcHealth = diagnostics?.serviceHealth?.europepmc;
@@ -176,7 +177,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Transcript & consequence mapping",
       statusText: ensemblStatusText,
       isReady: ensemblReady,
-      latency: typeof ensemblLatency === "number" && ensemblLatency > 0 ? `${ensemblLatency}ms` : null
+      latency: formatLatency(ensemblLatency)
     },
     {
       id: "alphagenome",
@@ -185,7 +186,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "DeepMind multimodal variant impact",
       statusText: alphagenomeStatusText,
       isReady: alphagenomeReady,
-      latency: typeof alphagenomeLatency === "number" && alphagenomeLatency > 0 ? `${alphagenomeLatency}ms` : null
+      latency: formatLatency(alphagenomeLatency)
     },
     {
       id: "myvariant",
@@ -194,7 +195,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "REVEL, CADD, AlphaMissense, MetaRNN",
       statusText: myvariantStatusText,
       isReady: myvariantReady,
-      latency: typeof myvariantLatency === "number" && myvariantLatency > 0 ? `${myvariantLatency}ms` : null
+      latency: formatLatency(myvariantLatency)
     },
     {
       id: "clinvar",
@@ -203,7 +204,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Pathogenicity & VCV classifications",
       statusText: clinvarStatusText,
       isReady: clinvarReady,
-      latency: typeof clinvarLatency === "number" && clinvarLatency > 0 ? `${clinvarLatency}ms` : null
+      latency: formatLatency(clinvarLatency)
     },
     {
       id: "europepmc",
@@ -212,7 +213,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Biomedical literature mining & citations",
       statusText: europePmcStatusText,
       isReady: europePmcReady,
-      latency: typeof europePmcLatency === "number" && europePmcLatency > 0 ? `${europePmcLatency}ms` : null
+      latency: formatLatency(europePmcLatency)
     },
     {
       id: "gemini",
@@ -260,7 +261,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Functional domains & catalytic residues",
       statusText: uniprotStatusText,
       isReady: uniprotReady,
-      latency: typeof uniprotLatency === "number" && uniprotLatency > 0 ? `${uniprotLatency}ms` : null
+      latency: formatLatency(uniprotLatency)
     }
   ];
 
@@ -345,10 +346,10 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   svc.onAction?.();
                 }
               }}
-              className={`p-2 px-2.5 rounded-lg border transition-all flex items-center justify-between gap-2.5 select-none ${
+              className={`p-2 px-2.5 rounded-lg border transition-all flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
                 isClickable
-                  ? "cursor-pointer hover:border-[var(--cs-accent-clay)] hover:bg-[var(--cs-surface)] shadow-xs"
-                  : "bg-[var(--cs-surface)]/70 border-[var(--cs-border-subtle)]"
+                  ? "border-[var(--cs-border-subtle)] cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+                  : "border-[var(--cs-border-subtle)] hover:border-[var(--cs-border)]"
               }`}
             >
               {/* Left: Indicator Dot + Name + Subtitle */}
@@ -369,7 +370,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       {svc.name}
                     </span>
                     {svc.tag && (
-                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">
+                      <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">
                         {svc.tag}
                       </span>
                     )}
@@ -400,35 +401,17 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   {svc.statusText}
                 </span>
                 {isClickable && (
-                  <span className="text-cs-text-muted hover:text-cs-accent-clay">
-                    <Settings className="w-3 h-3" />
+                  <span
+                    className="p-1 rounded bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] hover:text-[var(--cs-accent-clay)] border border-[var(--cs-border-subtle)] transition-colors"
+                    title={`Configure ${svc.name} settings`}
+                  >
+                    <Settings className="w-2.5 h-2.5" />
                   </span>
                 )}
               </div>
             </div>
           );
         })}
-      </div>
-
-      {/* ── Footer Info Strip ── */}
-      <div
-        className="p-2.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[10.5px] leading-relaxed flex items-center justify-between gap-2 shadow-xs shrink-0"
-        style={{ color: "var(--cs-text-secondary)" }}
-      >
-        <div className="flex items-center gap-2 truncate">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          <span className="truncate">
-            Pre-flight diagnostics active across 10 engine & data pipelines
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => handleConfigure("connections")}
-          className="text-[10px] font-mono text-cs-accent-clay hover:underline shrink-0 flex items-center gap-1 cursor-pointer"
-        >
-          Details
-          <ExternalLink className="w-2.5 h-2.5" />
-        </button>
       </div>
     </div>
   );

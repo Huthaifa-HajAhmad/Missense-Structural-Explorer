@@ -62,3 +62,18 @@
   height: 12px;
   border-width: 1.5px;
 }
+
+/* Tab Panel Transition */
+@keyframes cs-tab-transition {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.cs-tab-transition {
+  animation: cs-tab-transition 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
