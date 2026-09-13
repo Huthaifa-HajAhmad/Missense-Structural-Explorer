@@ -349,6 +349,17 @@ describe("AlphaGenome Bridge Service Tests", () => {
       expect(res.message).toMatch(/start must be less than or equal to end/i);
     });
 
+    it("should return unavailable status when interval exceeds 5,000 bp", async () => {
+      const res = await fetchAlphaGenomeRegionSaturation({
+        chrom: "chr1",
+        start: 1000,
+        end: 7000
+      });
+
+      expect(res.status).toBe("unavailable");
+      expect(res.message).toMatch(/cannot exceed 5,000 bp/i);
+    });
+
     it("should separate cache entries when different exon boundaries are provided for the same interval", async () => {
       let callCount = 0;
       setAlphaGenomeRegionMockProvider(async (params) => {

@@ -50,13 +50,11 @@ export const PUBLIC_ENDPOINTS = [
   "/health",
   "/version",
   "/diagnostics",
-  "/debug/clear-caches",
   "/openapi.json",
   "/docs",
   "/api/v1/health",
   "/api/v1/version",
   "/api/v1/diagnostics",
-  "/api/v1/debug/clear-caches",
   "/api/v1/openapi.json",
   "/api/docs",
   "/sidecar-health",
@@ -133,6 +131,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/structure/multimer",
   "/ppi/binding-affinity",
   "/api/v1/ppi/binding-affinity",
+  "/alphagenome/region-saturation",
+  "/api/v1/alphagenome/region-saturation",
 ];
 
 // Initialize optional Redis Client
@@ -251,7 +251,13 @@ class SqliteInFlightPrewarms {
       return !!row;
     } catch (err: any) {
       console.error("[SharedState] Error querying SQLite state:", err.message);
-      return this.inMemorySet.has(key);
+      const exp = this.inMemoryExpirations.get(key);
+      if (exp && exp > now) {
+        return true;
+      }
+      this.inMemorySet.delete(key);
+      this.inMemoryExpirations.delete(key);
+      return false;
     }
   }
 
@@ -260,6 +266,7 @@ class SqliteInFlightPrewarms {
     const expiresAt = now + this.TTL;
 
     if (!this.db) {
+      if (this.has(key)) return false;
       this.inMemorySet.add(key);
       this.inMemoryExpirations.set(key, expiresAt);
       return true;
@@ -273,6 +280,7 @@ class SqliteInFlightPrewarms {
       return (result.changes ?? 0) > 0;
     } catch (err: any) {
       console.error("[SharedState] Error inserting into SQLite state:", err.message);
+      if (this.has(key)) return false;
       this.inMemorySet.add(key);
       this.inMemoryExpirations.set(key, expiresAt);
       return true;

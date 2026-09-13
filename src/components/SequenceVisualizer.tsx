@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { Dna, HelpCircle, Check, Copy, ChevronLeft, ChevronRight, Settings, ChevronDown, ChevronUp, Atom } from "lucide-react";
+import { Dna, Atom } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
@@ -7,6 +7,7 @@ import { AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
 import { NearestResidue } from "../types";
 import { getNearestResidues } from "../data";
 import { THRESHOLDS } from "../shared/thresholds";
+import { parseGenomicCoordinateString } from "../shared/contracts";
 
 interface SequenceVisualizerProps {
   uniprotId: string;
@@ -31,7 +32,6 @@ interface SequenceVisualizerProps {
 
 import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
 import { SequenceRowGrid } from "./sequence/SequenceRowGrid";
-import { ResidueDetailTooltip } from "./sequence/ResidueDetailTooltip";
 import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
 import { HoveredResidueInfo } from "./sequence/types";
 
@@ -65,7 +65,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const [sequence, setSequence] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<boolean>(false);
   const [hoveredResidue, setHoveredResidue] = useState<HoveredResidueInfo | null>(null);
 
   const landscapeMap = useMemo(() => {
@@ -211,13 +210,13 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     };
   };
 
-  const mutation = parseClinicalMutation();
+  const mutation = useMemo(() => parseClinicalMutation(), [variant, residueIndex]);
   const mutationIndex = mutation.pos; // 1-based index of residue
 
   // If we don't have a loaded sequence, or if mutation position is out of bounds,
   // we dynamically align using a mock/synthesized region centered perfectly
-  const getAlignmentData = () => {
-    if (!sequence) return { wildWindow: [], mutWindow: [], relativeStartIndex: 1 };
+  const { wildWindow, mutWindow, relativeStartIndex, targetOffset } = useMemo(() => {
+    if (!sequence) return { wildWindow: [], mutWindow: [], relativeStartIndex: 1, targetOffset: 0 };
 
     const seqLen = sequence.length;
     const half = Math.floor(windowSize / 2);
@@ -247,19 +246,12 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       relativeStartIndex: startIdx + 1,
       targetOffset
     };
-  };
+  }, [sequence, mutationIndex, mutation.mut, windowSize]);
 
-  const { wildWindow, mutWindow, relativeStartIndex, targetOffset } = getAlignmentData();
-
-  const handleCopyFasta = () => {
-    if (!sequence) return;
-    const fastaText = `>Wildtype_${uniprotId}_${gene}\n${sequence}\n>Mutant_${uniprotId}_${gene}_${variant}\n${
-      sequence.substring(0, mutationIndex - 1) + mutation.mut + sequence.substring(mutationIndex)
-    }`;
-    navigator.clipboard.writeText(fastaText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const parsedGenomic = useMemo(
+    () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
+    [predictorData?.gnomadVariantId, variant]
+  );
 
   const handleSelectGenomicVariant = useCallback((v: any) => {
     if (onSelectGenomicVariant) {
@@ -310,32 +302,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     }
     const match = landscapeMap.get(pos);
     return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
-  };
-
-  const getBiophysicalConsequence = (symbol: string, pos: number) => {
-    const wtProp = AMINO_ACID_MAP_FULL[symbol]?.property || "Neutral";
-    const isTarget = pos === mutationIndex;
-    
-    // Parse local features from uniprotFeatures prop
-    const localFeatures = uniprotFeatures?.filter((f: any) => pos >= f.start && pos <= f.end) || [];
-    const activeSite = localFeatures.find((f: any) => f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("binding") || f.type.toLowerCase().includes("metal"));
-    const interfaceSite = localFeatures.find((f: any) => f.type.toLowerCase().includes("region") || f.type.toLowerCase().includes("site") || f.type.toLowerCase().includes("dimer") || f.type.toLowerCase().includes("interface"));
-
-    if (isTarget) {
-      const wt3 = AMINO_ACID_1_TO_3_TITLE[mutation.wt] || mutation.wt;
-      const mut3 = AMINO_ACID_1_TO_3_TITLE[mutation.mut] || mutation.mut;
-      return `Queried mutation site: Swapping wild-type ${wt3} (${wtProp}) with mutant ${mut3} changes the local microenvironment, potentially disrupting critical tertiary packing or pocket contacts.`;
-    }
-    if (activeSite) {
-      return `Curated Site: Mutating this residue is highly likely to disrupt functional catalysis or ligand docking (annotated as ${activeSite.type}: ${activeSite.description}).`;
-    }
-    if (interfaceSite) {
-      return `Curated Interface: This residue lies in a binding interface region (${interfaceSite.description}). Substitutions here present a high-risk of disrupting macromolecular assembly.`;
-    }
-    if (wtProp.includes("Hydrophobic")) {
-      return `Buried Core: Hydrophobic residues at this position contribute to the packing of the protein core. Polar or charged mutations here will break packing and cause misfolding.`;
-    }
-    return `Boundary/Surface residue: Solvent-exposed residues are generally tolerant of missense changes unless they overlap with active sites or binding interfaces.`;
   };
 
   return (
@@ -399,8 +365,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
 
           {/* Tier 3: AlphaGenome Genomic Saturation Mutagenesis Heatmap & 1D Intolerance Track */}
           <GenomicSaturationHeatmap
-            chrom={conservationData?.spliceProximity?.chrom || predictorData?.gnomadVariantId?.split("-")?.[0] || (variant.startsWith("chr") ? variant.split(":")?.[0] : null)}
-            genomicPos={conservationData?.spliceProximity?.genomicPos || (predictorData?.gnomadVariantId ? parseInt(predictorData.gnomadVariantId.split("-")[1], 10) : null)}
+            chrom={parsedGenomic?.chrom || conservationData?.spliceProximity?.chrom || null}
+            genomicPos={parsedGenomic?.pos || conservationData?.spliceProximity?.genomicPos || null}
+            genomicAlt={parsedGenomic?.alt || null}
             spliceProximity={conservationData?.spliceProximity}
             wildWindow={wildWindow}
             relativeStartIndex={relativeStartIndex}
@@ -413,41 +380,19 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             metricMode={metricMode}
           />
 
-          {/* Data Provenance Info Notes */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-t pt-2 border-cs-border-subtle mt-1 mb-2 px-1">
-            <span className="text-[9px] font-sans italic text-cs-text-muted">
-              * Note: For GERP++ and PhyloP, high conservation scores indicate high vulnerability to missense disruption.
-            </span>
-            <span className="text-[9px] font-mono tracking-wide text-cs-text-muted">
-              Scores sourced from dbNSFP v4.4a via MyVariant.info REST API.
-            </span>
-          </div>
-
-          {/* Interactive Residue Details */}
-          <ResidueDetailTooltip
-            hoveredResidue={hoveredResidue}
-            hoveredResidueIndex={hoveredResidueIndex}
-            residueIndex={residueIndex}
-            mutationIndex={mutationIndex}
-            sequence={sequence}
-            mutation={mutation}
-            uniprotId={uniprotId}
-            variant={variant}
-            landscapeMap={landscapeMap}
-            conservationData={conservationData}
-            predictorData={predictorData}
-            computedResiduesCache={computedResiduesCache}
-            getGerpScore={getGerpScore}
-            getPhyloPScore={getPhyloPScore}
-            getBiophysicalConsequence={getBiophysicalConsequence}
-          />
-
-          {/* Note explaining metric calculation logic */}
-          <div className="flex items-center gap-1.5 mt-2 px-1 text-[9.5px] font-sans text-cs-text-muted leading-tight">
-            <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay animate-pulse shrink-0" />
-            <span>
-              * <strong>Note</strong>: The queried variant residue position displays the direct variant score, whereas neighboring residues display positional aggregate metrics (Mean Intolerance or Peak Constraint).
-            </span>
+          {/* Data Provenance & Methodology Notes Footer */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t pt-2.5 border-cs-border-subtle/80 mt-1 px-1">
+            <div className="flex items-center gap-1.5 text-[9.5px] font-sans text-cs-text-muted leading-tight">
+              <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay shrink-0" />
+              <span>
+                Target mutation displays direct variant scores; neighboring residues display aggregate metrics ({metricMode === "mean" ? "Mean Intolerance" : "Peak Intolerance"}).
+              </span>
+            </div>
+            <div className="flex items-center gap-2.5 text-[9px] font-mono text-cs-text-muted">
+              <span>* High GERP++ &amp; PhyloP = High Vulnerability</span>
+              <span>•</span>
+              <span>dbNSFP v4.4a</span>
+            </div>
           </div>
 
         </div>

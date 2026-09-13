@@ -6,5 +6,5 @@ description: Automated code review rule — use Open Code Review (npm run review
 # Automated AI Code Review Rule
 
 Before completing complex refactors or multi-file features:
-- Run `npm run review` (or `npm run review:preview` to inspect target diffs) to evaluate changes for potential regressions, security vulnerabilities (NPE, injection, unhandled promise rejections), and logical flaws using Gemini 3.5 Flash.
+- Run `npm run review` (or `npm run review:preview` to inspect target diffs) to evaluate changes for potential regressions, security vulnerabilities (NPE, injection, unhandled promise rejections), and logical flaws using Gemini 2.5 Flash.
 - Address any high-severity findings flagged by the review engine.

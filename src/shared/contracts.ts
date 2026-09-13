@@ -432,6 +432,9 @@ export const alphaGenomeRegionSaturationRequestSchema = z.object({
 }).refine((data) => data.start <= data.end, {
   message: "start must be less than or equal to end",
   path: ["end"]
+}).refine((data) => (data.end - data.start) <= 5000, {
+  message: "Genomic window size cannot exceed 5,000 bp",
+  path: ["end"]
 });
 export type AlphaGenomeRegionSaturationRequest = z.infer<typeof alphaGenomeRegionSaturationRequestSchema>;
 

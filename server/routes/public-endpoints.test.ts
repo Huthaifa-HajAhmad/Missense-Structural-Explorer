@@ -158,6 +158,10 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/structure/multimer");
       expect(PUBLIC_ENDPOINTS).toContain("/ppi/binding-affinity");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/ppi/binding-affinity");
+      expect(PUBLIC_ENDPOINTS).toContain("/alphagenome/region-saturation");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/alphagenome/region-saturation");
+      expect(PUBLIC_ENDPOINTS).not.toContain("/debug/clear-caches");
+      expect(PUBLIC_ENDPOINTS).not.toContain("/api/v1/debug/clear-caches");
     });
 
     it("POST /api/v1/structure/multimer should bypass authCheck without token", async () => {
@@ -174,6 +178,18 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
 
     it("POST /api/v1/ppi/binding-affinity should bypass authCheck without token", async () => {
       const res = await fetch(`${baseUrl}/api/v1/ppi/binding-affinity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      // Bypasses 401 Unauthorized; reaches validation and returns 400 Bad Request
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe("BAD_REQUEST");
+    });
+
+    it("POST /api/v1/alphagenome/region-saturation should bypass authCheck without token", async () => {
+      const res = await fetch(`${baseUrl}/api/v1/alphagenome/region-saturation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({})

@@ -172,35 +172,52 @@ describe("Full Pipeline Integration Test (C-7)", () => {
       expect(jsonVal.version).toBe("1.0.0");
     });
 
-    it("should allow /debug/clear-caches through authCheck without API token and execute purge", async () => {
+    it("should enforce authorization on /debug/clear-caches when APP_API_TOKEN is configured", async () => {
       const { authCheck } = await import("../middleware.ts");
-      let nextCalled = false;
-      const req: any = { path: "/debug/clear-caches", headers: {} };
-      const res: any = {
-        status(code: number) { this.statusCode = code; return this; },
-        json(body: any) { this.body = body; return this; }
-      };
+      const originalToken = process.env.APP_API_TOKEN;
+      process.env.APP_API_TOKEN = "test-secret-token";
 
-      authCheck(req, res, () => {
-        nextCalled = true;
-      });
+      try {
+        let nextCalled = false;
+        let statusCode: number | null = null;
+        const unauthReq: any = { path: "/debug/clear-caches", headers: {} };
+        const unauthRes: any = {
+          status(code: number) { statusCode = code; return this; },
+          json() { return this; }
+        };
 
-      expect(nextCalled).toBe(true);
+        authCheck(unauthReq, unauthRes, () => {
+          nextCalled = true;
+        });
 
-      const route = apiRouter.stack.find(s => s.route && s.route.path === "/debug/clear-caches");
-      expect(route).toBeDefined();
-      if (!route || !route.route) throw new Error("Route /debug/clear-caches not found");
-      const handler = route.route.stack[0].handle;
+        // Unauthenticated request must be blocked
+        expect(nextCalled).toBe(false);
+        expect(statusCode).toBe(401);
 
-      let purgeJson: any = null;
-      const purgeRes: any = {
-        json(body: any) { purgeJson = body; return this; },
-        status(code: number) { this.statusCode = code; return this; }
-      };
+        // Authenticated request with Bearer token must pass
+        nextCalled = false;
+        const authReq: any = { path: "/debug/clear-caches", headers: { authorization: "Bearer test-secret-token" } };
+        authCheck(authReq, unauthRes, () => {
+          nextCalled = true;
+        });
+        expect(nextCalled).toBe(true);
 
-      await handler(req, purgeRes, () => {});
-      expect(purgeJson.status).toBe("success");
-      expect(purgeJson.cleared).toBeDefined();
+        const route = apiRouter.stack.find(s => s.route && s.route.path === "/debug/clear-caches");
+        expect(route).toBeDefined();
+        if (!route || !route.route) throw new Error("Route /debug/clear-caches not found");
+        const handler = route.route.stack[0].handle;
+
+        let purgeJson: any = null;
+        const purgeRes: any = {
+          json(body: any) { purgeJson = body; return this; },
+          status(code: number) { this.statusCode = code; return this; }
+        };
+
+        await handler(authReq, purgeRes, () => {});
+        expect(purgeJson.status).toBe("success");
+      } finally {
+        process.env.APP_API_TOKEN = originalToken;
+      }
     });
   });
 });

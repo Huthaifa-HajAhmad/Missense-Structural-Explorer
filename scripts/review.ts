@@ -17,14 +17,14 @@ const openaiKey = process.env.OPENAI_API_KEY;
 const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
 const env: NodeJS.ProcessEnv = { ...process.env, OCR_NO_UPDATE: "1" };
-const targetModel = process.env.OCR_MODEL || process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const targetModel = process.env.OCR_MODEL || "gemini-2.5-flash";
 
 const isPlaceholder = (key?: string) => !key || key.startsWith("YOUR_") || key.includes("example") || key.trim() === "";
 
-let activeProvider = "gemini";
+let activeProvider = process.env.OCR_PROVIDER || "google";
 
 if (geminiKey && !isPlaceholder(geminiKey)) {
-  activeProvider = "gemini";
+  activeProvider = process.env.OCR_PROVIDER || "google";
   env.GOOGLE_API_KEY = geminiKey;
   env.GEMINI_API_KEY = geminiKey;
 } else if (openaiKey && !isPlaceholder(openaiKey)) {
@@ -44,7 +44,7 @@ const hasProvider = rawArgs.includes("--provider");
 const hasModel = rawArgs.includes("--model");
 const hasConcurrency = rawArgs.includes("--concurrency");
 
-const chosenModel = activeProvider === "gemini"
+const chosenModel = (activeProvider === "google" || activeProvider === "gemini")
   ? targetModel
   : activeProvider === "openai"
   ? (process.env.OPENAI_MODEL || "gpt-4o")

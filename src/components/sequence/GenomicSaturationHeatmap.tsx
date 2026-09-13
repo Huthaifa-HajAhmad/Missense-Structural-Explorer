@@ -11,6 +11,7 @@ import { THRESHOLDS } from "../../shared/thresholds";
 export interface GenomicSaturationHeatmapProps {
   chrom?: string | null;
   genomicPos?: number | null;
+  genomicAlt?: string | null;
   spliceProximity?: any;
   wildWindow: string[];
   relativeStartIndex: number;
@@ -28,6 +29,7 @@ const NUCLEOTIDES: Array<"A" | "C" | "G" | "T"> = ["A", "C", "G", "T"];
 export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   chrom,
   genomicPos,
+  genomicAlt,
   spliceProximity,
   wildWindow,
   relativeStartIndex,
@@ -44,6 +46,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   const [data, setData] = useState<AlphaGenomeRegionSaturationResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState<number>(0);
   const [hoveredCell, setHoveredCell] = useState<{
     pos: number;
     ref: string;
@@ -68,7 +71,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     let start = 0;
     let end = 0;
 
-    if (exonStart && exonEnd && exonEnd > exonStart) {
+    if (exonStart && exonEnd && exonEnd >= exonStart) {
       start = Math.max(1, exonStart - 15);
       end = exonEnd + 15;
     } else if (genomicPos && genomicPos > 0) {
@@ -132,7 +135,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     return () => {
       active = false;
     };
-  }, [regionParams, fetchWithAuth]);
+  }, [regionParams, fetchWithAuth, reloadKey]);
 
   // Map ClinGen ACMG strength or continuous Phred to color classes
   const getCellColor = (phred: number | null | undefined, isRef: boolean): string => {
@@ -226,7 +229,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
       return Math.max(0, val);
     });
 
-    const maxVal = Math.max(45, ...values);
+    const maxVal = values.reduce((max, v) => Math.max(max, v), 45);
     const height = 36;
     const colWidth = 10; // 10px per base column
     const totalWidth = n * colWidth;
@@ -306,6 +309,34 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
               <div className="w-5 h-5 border-2 border-cs-accent-clay border-t-transparent rounded-full animate-spin"></div>
               <span>Querying AlphaGenome saturation mutagenesis & 1D intolerance profile...</span>
             </div>
+          ) : error ? (
+            /* Network / Server Error State */
+            <div className="p-4 rounded-lg border border-rose-500/30 bg-rose-500/5 text-center flex flex-col items-center justify-center gap-2">
+              <div className="text-xs font-semibold text-rose-500">
+                AlphaGenome Regional Saturation Unavailable
+              </div>
+              <p className="text-[11px] text-cs-text-muted max-w-md">
+                {error}
+              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setReloadKey(k => k + 1)}
+                  className="px-2.5 py-1 rounded bg-cs-surface border border-cs-border hover:bg-cs-surface-2 text-cs-text-primary text-[11px] font-mono transition cursor-pointer"
+                >
+                  Retry Query
+                </button>
+                <a
+                  href={atlasUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] font-mono text-cs-accent-clay hover:underline px-2.5 py-1 rounded bg-cs-surface border border-cs-border transition"
+                >
+                  <span>Open in DeepMind Atlas</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
           ) : !hasPositions ? (
             /* Standby State */
             <div className="p-4 rounded-lg border border-dashed border-cs-border-subtle bg-cs-surface text-center flex flex-col items-center justify-center gap-2">
@@ -314,7 +345,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                 AlphaGenome Regional Saturation Standby
               </div>
               <p className="text-[11px] text-cs-text-muted max-w-md">
-                Direct in-browser API queries require an active AlphaGenome service connection. Under our strict no-heuristics protocol, synthetic scores are never fabricated. You can inspect the live DeepMind Atlas locus viewer for this exon:
+                {data?.message || "Direct in-browser API queries require an active AlphaGenome service connection. Under our strict no-heuristics protocol, synthetic scores are never fabricated. You can inspect the live DeepMind Atlas locus viewer for this exon:"}
               </p>
               <a
                 href={atlasUrl}
@@ -388,8 +419,8 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                     CODON
                   </div>
                   <div className="flex">
-                    {orderedPositions.map((p, idx) => {
-                      const isFirstInCodon = p.codonPosition === 1 || (idx % 3 === 0 && !p.codonPosition);
+                    {orderedPositions.map((p) => {
+                      const isFirstInCodon = p.isExonic ? p.codonPosition === 1 : false;
                       const isTargetCodon = p.codonIndex === mutationIndex;
                       const isHoveredCodon = p.codonIndex === hoveredResidueIndex || (hoveredCell && hoveredCell.codonIndex === p.codonIndex);
                       const isSelectedCodon = p.codonIndex === residueIndex;
@@ -431,7 +462,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                         const variant = isRef ? null : posData.variants[base] || null;
                         const phred = variant?.phred ?? null;
                         const isTargetPos = genomicPos !== null && genomicPos !== undefined && posData.pos === genomicPos;
-                        const isQueryVariant = isTargetPos && mutation.mut && base === mutation.mut;
+                        const isQueryVariant = isTargetPos && Boolean(genomicAlt && base === genomicAlt.toUpperCase());
                         const colorClass = getCellColor(phred, isRef);
 
                         return (

@@ -2,7 +2,7 @@
 import { type Router } from "express";
 import fs from "fs";
 import path from "path";
-import { AuditLogger } from "../utils.ts";
+import { AuditLogger, sendError } from "../utils.ts";
 import { clearAllCaches, defaultCacheRegistry } from "../services/cache.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
 import { adapterRegistry } from "../services/adapters/service-adapters.ts";
@@ -98,6 +98,11 @@ export function registerHealthRoutes(apiRouter: Router): void {
   });
 
   apiRouter.post("/debug/clear-caches", (req, res) => {
+    if (process.env.NODE_ENV === "production" && !req.headers.authorization && !req.headers["x-gemini-session-id"]) {
+      sendError(res, 403, "FORBIDDEN", "Administrative cache clearance requires authorization.");
+      return;
+    }
+
     try {
       // 1. Clear in-memory and persistent SQLite caches across all registered services
       clearAllCaches(true);
