@@ -1,4 +1,5 @@
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult, StructuralMetrics } from "../../types";
+import { MasterView } from "../MasterSidebar";
 
 export type TabType = "clinical" | "predictors" | "structure" | "multimers" | "perturbation" | "function" | "interactions" | "guidelines" | "splicing" | "alphagenome";
 
@@ -32,6 +33,7 @@ export interface EvidenceDashboardCardProps {
   onRetryStructural?: (overrides?: { saprotEngine?: string }) => void | Promise<void>;
   onRetryPocket?: () => void | Promise<void>;
   onSelectResidue?: (index: number) => void;
+  onNavigateToView?: (view: MasterView) => void;
 }
 
 export interface TabComponentProps extends EvidenceDashboardCardProps {

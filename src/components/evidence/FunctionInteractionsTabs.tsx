@@ -1,14 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   ShieldAlert,
   Layers,
-  Target,
-  Compass,
   ExternalLink,
   RotateCw,
   ArrowLeft,
   ArrowRight,
-  Dna
+  Dna,
+  Box
 } from "lucide-react";
 import { TabComponentProps } from "./types";
 
@@ -40,9 +39,40 @@ export function FunctionTab({
   computedPocket,
   isPocketLoading,
   pocketError,
+  active3dModelTab,
   onRetryPocket,
-  onSelectResidue
+  onSelectResidue,
+  onNavigateToView
 }: TabComponentProps) {
+  const [selectedFeature, setSelectedFeature] = useState<{
+    type: "domain" | "site" | "flank" | "pocket";
+    name: string;
+    start: number;
+    end: number;
+    category?: string;
+    description?: string;
+    interproId?: string;
+    distanceFromVariant?: number;
+    isEnclosing?: boolean;
+  } | null>(null);
+
+  const handleFeatureSelect = (feat: {
+    type: "domain" | "site" | "flank" | "pocket";
+    name: string;
+    start: number;
+    end: number;
+    category?: string;
+    description?: string;
+    interproId?: string;
+    distanceFromVariant?: number;
+    isEnclosing?: boolean;
+  }) => {
+    setSelectedFeature(prev => (prev?.start === feat.start && prev?.name === feat.name ? null : feat));
+    if (feat.start) {
+      onSelectResidue?.(feat.start);
+    }
+  };
+
   const result = analysisState.result;
   if (!result) return null;
 
@@ -176,9 +206,9 @@ export function FunctionTab({
                     Pocket Lining Residues (Top {Math.min(8, computedPocket.pocketResidues.length)})
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
-                    {computedPocket.pocketResidues.slice(0, 8).map((res: any, idx: number) => (
+                    {computedPocket.pocketResidues.slice(0, 8).map((res: any) => (
                       <button
-                        key={idx}
+                        key={`${res.name}-${res.index}`}
                         type="button"
                         onClick={() => onSelectResidue?.(res.index)}
                         className="p-2 px-3 rounded-lg flex justify-between items-center transition-all border border-[var(--cs-border)] bg-[var(--cs-bg-subtle)] hover:border-[var(--cs-accent-clay)] hover:bg-[var(--cs-surface-2)] text-left cursor-pointer group"
@@ -228,7 +258,7 @@ export function FunctionTab({
             }
 
             // Group features by category
-            const domains = features.filter((f) => f.type === "Domain");
+            const domains = features.filter((f) => f.type?.toLowerCase() === "domain");
             const activeDomain = domains.find((d) => pos >= d.start && pos <= d.end);
 
             const activeSites = features.filter(f => f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("catalytic"));
@@ -238,7 +268,7 @@ export function FunctionTab({
             const transmembranes = features.filter(f => f.type.toLowerCase().includes("transmembrane") || f.type.toLowerCase().includes("membrane"));
 
             const functionalSites = features.filter(
-              (f) => f.type !== "Domain" && f.type !== "Chain" && f.type !== "Region"
+              (f) => f.type?.toLowerCase() !== "domain" && f.type !== "Chain" && f.type !== "Region"
             );
 
             // Compute length of sequence
@@ -274,10 +304,11 @@ export function FunctionTab({
               }
             }
 
-            // Direct point matches at residue pos (excluding high-level whole-chain and structural domains)
-            const matchingFeatures = features.filter(
-              (f) => pos >= f.start && pos <= f.end && f.type !== "Chain" && f.type !== "Domain"
-            );
+            // Direct point matches at residue pos (excluding high-level whole-chain, regions, and structural domains)
+            const matchingFeatures = features.filter((f) => {
+              const t = f.type?.toLowerCase() || "";
+              return pos >= f.start && pos <= f.end && t !== "chain" && t !== "domain" && t !== "region";
+            });
 
             return (
               <div className="space-y-4 pt-3 border-t" style={{ borderColor: "var(--cs-border-subtle)" }}>
@@ -416,11 +447,22 @@ export function FunctionTab({
                         const x2 = getTrackX(d.end);
                         const w = Math.max(x2 - x1, 6);
                         const isTargetInside = pos >= d.start && pos <= d.end;
+                        const isSelected = selectedFeature?.type === "domain" && selectedFeature.start === d.start && selectedFeature.end === d.end;
+
                         return (
                           <g
                             key={idx}
                             className="cursor-pointer group"
-                            onClick={() => onSelectResidue?.(d.start)}
+                            onClick={() => handleFeatureSelect({
+                              type: "domain",
+                              name: d.description || "Domain",
+                              start: d.start,
+                              end: d.end,
+                              description: d.description,
+                              interproId: d.interproId,
+                              isEnclosing: isTargetInside,
+                              distanceFromVariant: pos < d.start ? d.start - pos : pos > d.end ? pos - d.end : 0
+                            })}
                           >
                             <rect
                               x={x1}
@@ -429,12 +471,28 @@ export function FunctionTab({
                               height="28"
                               rx="6"
                               fill={isTargetInside ? "url(#activeDomainGrad)" : "url(#domainGrad)"}
-                              className={`stroke-1 transition-all ${
-                                isTargetInside
-                                  ? "stroke-emerald-400"
-                                  : "stroke-emerald-500/70 hover:stroke-emerald-300"
+                              className={`transition-all ${
+                                isSelected
+                                  ? "stroke-amber-400 stroke-2"
+                                  : isTargetInside
+                                    ? "stroke-emerald-400 stroke-1 group-hover:stroke-emerald-300"
+                                    : "stroke-emerald-500/70 stroke-1 hover:stroke-emerald-300"
                               }`}
                             />
+                            {isSelected && (
+                              <rect
+                                x={x1 - 2}
+                                y="31"
+                                width={w + 4}
+                                height="32"
+                                rx="8"
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth="1.5"
+                                strokeDasharray="3 2"
+                                className="pointer-events-none animate-pulse"
+                              />
+                            )}
                             {w > 38 && (
                               <text
                                 x={x1 + w / 2}
@@ -469,23 +527,80 @@ export function FunctionTab({
                         const isAmber = s.type.toLowerCase().includes("disulfide") || s.type.toLowerCase().includes("cysteine");
                         const isCyan = s.type.toLowerCase().includes("transmembrane") || s.type.toLowerCase().includes("membrane");
                         const pinColor = isRose ? "#f43f5e" : isPurple ? "#a855f7" : isSky ? "#0ea5e9" : isAmber ? "#f59e0b" : isCyan ? "#06b6d4" : "#64748b";
+                        const isSelected = selectedFeature?.type === "site" && selectedFeature.start === s.start && selectedFeature.name === s.type;
+
+                        const siteEnd = s.end || s.start;
+                        const isEnclosing = pos >= s.start && pos <= siteEnd;
+                        const distance = isEnclosing ? 0 : (pos < s.start ? s.start - pos : pos - siteEnd);
+
                         return (
-                          <g key={idx} className="cursor-pointer group" onClick={() => onSelectResidue?.(s.start)}>
+                          <g
+                            key={idx}
+                            className="cursor-pointer group"
+                            onClick={() => handleFeatureSelect({
+                              type: "site",
+                              name: s.type,
+                              start: s.start,
+                              end: siteEnd,
+                              category: s.type,
+                              description: s.description,
+                              isEnclosing,
+                              distanceFromVariant: distance
+                            })}
+                          >
+                            {/* Broad transparent hitbox for rock-solid hover & clicks */}
+                            <circle
+                              cx={cx}
+                              cy="78"
+                              r="11"
+                              fill="transparent"
+                              className="cursor-pointer"
+                            />
+                            <line
+                              x1={cx}
+                              y1="61"
+                              x2={cx}
+                              y2="78"
+                              stroke="transparent"
+                              strokeWidth="14"
+                              className="cursor-pointer"
+                            />
+
                             {/* Lollipop stem */}
                             <line
                               x1={cx}
                               y1="61"
                               x2={cx}
                               y2="78"
-                              className="stroke-slate-300 dark:stroke-slate-700 stroke-[0.75] opacity-60 group-hover:opacity-100 group-hover:stroke-slate-400"
+                              className={`transition-colors pointer-events-none ${
+                                isSelected
+                                  ? "stroke-amber-400 stroke-[2]"
+                                  : "stroke-slate-300 dark:stroke-slate-700 stroke-[1] opacity-70 group-hover:opacity-100 group-hover:stroke-slate-400"
+                              }`}
                             />
-                            {/* Site circle pin */}
+
+                            {/* Active selection glow ring */}
+                            {isSelected && (
+                              <circle
+                                cx={cx}
+                                cy="78"
+                                r="8"
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth="1.5"
+                                className="animate-pulse pointer-events-none"
+                              />
+                            )}
+
+                            {/* Site circle pin: stable radius transition; NO scale transform flicker */}
                             <circle
                               cx={cx}
                               cy="78"
-                              r="3.5"
-                              fill={pinColor}
-                              className="stroke-white dark:stroke-slate-900 stroke-[1] transition-transform group-hover:scale-125"
+                              r={isSelected ? 5.5 : 3.5}
+                              fill={isSelected ? "#f59e0b" : pinColor}
+                              className={`stroke-white dark:stroke-slate-900 stroke-[1.5] transition-all duration-150 pointer-events-none group-hover:r-[5px] ${
+                                isSelected ? "stroke-amber-300" : ""
+                              }`}
                             />
                             <title>{`${s.type}: ${s.description || ""} (${s.start}${s.end !== s.start ? `–${s.end}` : ""})`}</title>
                           </g>
@@ -512,33 +627,136 @@ export function FunctionTab({
                     </svg>
                   </div>
 
+                  {/* Interactive Selected Feature Inspector Bar */}
+                  {selectedFeature && (
+                    <div className="p-3 rounded-xl border bg-cs-surface border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                            Targeted {selectedFeature.type === "domain" ? "Domain" : "Curated Site"}
+                          </span>
+                          <span className="font-bold text-xs text-cs-text-primary truncate">
+                            {selectedFeature.name}
+                          </span>
+                          <span className="text-[10px] font-mono text-cs-text-muted">
+                            Residues {selectedFeature.start}{selectedFeature.end !== selectedFeature.start ? `–${selectedFeature.end}` : ""} ({selectedFeature.end - selectedFeature.start + 1} aa)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-cs-text-secondary leading-snug">
+                          {selectedFeature.description || "Curated functional site annotation."}
+                          {selectedFeature.isEnclosing ? (
+                            <strong className="ml-1 text-emerald-600 dark:text-emerald-400">
+                              — Variant {wt}{pos}{mut ? `→${mut}` : ""} resides within this {selectedFeature.type === "domain" ? "domain" : "feature"}.
+                            </strong>
+                          ) : selectedFeature.distanceFromVariant !== undefined && selectedFeature.distanceFromVariant > 0 ? (
+                            <span className="ml-1 text-cs-text-muted font-mono text-[10.5px]">
+                              — {selectedFeature.distanceFromVariant} aa from variant site {pos}.
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {selectedFeature.interproId && (
+                          <a
+                            href={`https://www.ebi.ac.uk/interpro/entry/InterPro/${encodeURIComponent(selectedFeature.interproId)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1.5 rounded-lg border text-[10.5px] font-mono font-semibold flex items-center gap-1 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20"
+                          >
+                            <span>{selectedFeature.interproId}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                        {onNavigateToView && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectResidue?.(selectedFeature.start);
+                              onNavigateToView(active3dModelTab === "esm3" ? "structure_esmfold" : "structure_alphafold");
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-[10.5px] font-mono font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                          >
+                            <Box className="w-3.5 h-3.5" />
+                            <span>Focus in 3D Structure Viewer &rarr;</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFeature(null)}
+                          className="px-2 py-1.5 rounded-lg text-[10px] font-mono text-cs-text-muted hover:text-cs-text-primary border border-cs-border hover:bg-cs-surface-2 cursor-pointer transition-all"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* InterPro Domain Cards List */}
                   {domains.length > 0 && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-cs-border-subtle">
                       {domains.map((d: any, idx: number) => {
                         const isInside = pos >= d.start && pos <= d.end;
+                        const isSelected = selectedFeature?.type === "domain" && selectedFeature.start === d.start && selectedFeature.end === d.end;
+
                         return (
                           <div
                             key={idx}
-                            className={`p-2.5 rounded-lg border transition-all ${
-                              isInside
-                                ? "bg-emerald-500/10 border-emerald-500/40"
-                                : "bg-cs-surface border-cs-border hover:border-cs-border-subtle"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleFeatureSelect({
+                              type: "domain",
+                              name: d.description || "Domain",
+                              start: d.start,
+                              end: d.end,
+                              description: d.description,
+                              interproId: d.interproId,
+                              isEnclosing: isInside,
+                              distanceFromVariant: pos < d.start ? d.start - pos : pos > d.end ? pos - d.end : 0
+                            })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleFeatureSelect({
+                                  type: "domain",
+                                  name: d.description || "Domain",
+                                  start: d.start,
+                                  end: d.end,
+                                  description: d.description,
+                                  interproId: d.interproId,
+                                  isEnclosing: isInside,
+                                  distanceFromVariant: pos < d.start ? d.start - pos : pos > d.end ? pos - d.end : 0
+                                });
+                              }
+                            }}
+                            className={`p-2.5 rounded-lg border transition-all text-left cursor-pointer group ${
+                              isSelected
+                                ? "bg-amber-500/15 border-amber-500/60 ring-2 ring-amber-500/30 shadow-sm"
+                                : isInside
+                                  ? "bg-emerald-500/10 border-emerald-500/40 hover:border-emerald-500/60"
+                                  : "bg-cs-surface border-cs-border hover:border-cs-accent-clay"
                             }`}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="font-semibold text-[11.5px] text-cs-text-primary">
+                              <span className="font-semibold text-[11.5px] text-cs-text-primary group-hover:text-cs-accent-clay">
                                 {d.description || "Domain"}
                               </span>
-                              {isInside ? (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                                  Inside ({pos - d.start + 1}/{d.end - d.start + 1} aa)
-                                </span>
-                              ) : (
-                                <span className="text-[9px] font-mono text-cs-text-muted">
-                                  {pos < d.start ? `${d.start - pos} aa downstream` : `${pos - d.end} aa upstream`}
-                                </span>
-                              )}
+                              <div className="flex items-center gap-1.5">
+                                {isSelected && (
+                                  <span className="text-[8.5px] px-1.5 py-0.5 rounded font-mono font-bold uppercase bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                    Selected
+                                  </span>
+                                )}
+                                {isInside ? (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                    Inside ({pos - d.start + 1}/{d.end - d.start + 1} aa)
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-mono text-cs-text-muted">
+                                    {pos < d.start ? `${d.start - pos} aa downstream` : `${pos - d.end} aa upstream`}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className="flex items-center justify-between mt-1.5">
                               <span className="text-[10px] font-mono text-cs-text-muted">
@@ -549,6 +767,7 @@ export function FunctionTab({
                                   href={`https://www.ebi.ac.uk/interpro/entry/InterPro/${encodeURIComponent(d.interproId)}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
                                   className="inline-flex items-center gap-1 text-[9.5px] font-mono font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
                                 >
                                   <span>{d.interproId}</span>
@@ -581,9 +800,40 @@ export function FunctionTab({
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 items-stretch">
                     {/* Upstream Vector */}
-                    <div className="p-2.5 rounded-lg border bg-cs-surface border-cs-border-subtle flex flex-col justify-between">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (nearestUpstream) {
+                          handleFeatureSelect({
+                            type: "flank",
+                            name: nearestUpstream.feature.description || nearestUpstream.feature.type,
+                            start: nearestUpstream.boundaryRes,
+                            end: nearestUpstream.boundaryRes,
+                            category: nearestUpstream.feature.type,
+                            description: nearestUpstream.feature.description,
+                            distanceFromVariant: nearestUpstream.distance
+                          });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if ((e.key === "Enter" || e.key === " ") && nearestUpstream) {
+                          e.preventDefault();
+                          handleFeatureSelect({
+                            type: "flank",
+                            name: nearestUpstream.feature.description || nearestUpstream.feature.type,
+                            start: nearestUpstream.boundaryRes,
+                            end: nearestUpstream.boundaryRes,
+                            category: nearestUpstream.feature.type,
+                            description: nearestUpstream.feature.description,
+                            distanceFromVariant: nearestUpstream.distance
+                          });
+                        }
+                      }}
+                      className="p-2.5 rounded-lg border bg-cs-surface border-cs-border-subtle hover:border-cs-accent-clay cursor-pointer transition-all flex flex-col justify-between group text-left"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono font-bold text-sky-600 dark:text-sky-400">
+                        <span className="text-[10px] font-mono font-bold text-sky-600 dark:text-sky-400 group-hover:underline">
                           {nearestUpstream ? `← -${nearestUpstream.distance} aa` : "← N-terminus"}
                         </span>
                         {nearestUpstream && (
@@ -592,11 +842,11 @@ export function FunctionTab({
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] font-semibold text-cs-text-primary mt-1">
+                      <span className="text-[11px] font-semibold text-cs-text-primary mt-1 group-hover:text-cs-accent-clay">
                         {nearestUpstream ? (nearestUpstream.feature.description || nearestUpstream.feature.type) : "Residue 1 (Start)"}
                       </span>
                       <span className="text-[9.5px] font-mono text-cs-text-muted mt-0.5">
-                        {nearestUpstream ? `Residue ${nearestUpstream.boundaryRes}` : "Sequence start"}
+                        {nearestUpstream ? `Residue ${nearestUpstream.boundaryRes} (Click to target)` : "Sequence start"}
                       </span>
                     </div>
 
@@ -614,22 +864,53 @@ export function FunctionTab({
                     </div>
 
                     {/* Downstream Vector */}
-                    <div className="p-2.5 rounded-lg border bg-cs-surface border-cs-border-subtle flex flex-col justify-between text-right">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (nearestDownstream) {
+                          handleFeatureSelect({
+                            type: "flank",
+                            name: nearestDownstream.feature.description || nearestDownstream.feature.type,
+                            start: nearestDownstream.boundaryRes,
+                            end: nearestDownstream.boundaryRes,
+                            category: nearestDownstream.feature.type,
+                            description: nearestDownstream.feature.description,
+                            distanceFromVariant: nearestDownstream.distance
+                          });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if ((e.key === "Enter" || e.key === " ") && nearestDownstream) {
+                          e.preventDefault();
+                          handleFeatureSelect({
+                            type: "flank",
+                            name: nearestDownstream.feature.description || nearestDownstream.feature.type,
+                            start: nearestDownstream.boundaryRes,
+                            end: nearestDownstream.boundaryRes,
+                            category: nearestDownstream.feature.type,
+                            description: nearestDownstream.feature.description,
+                            distanceFromVariant: nearestDownstream.distance
+                          });
+                        }
+                      }}
+                      className="p-2.5 rounded-lg border bg-cs-surface border-cs-border-subtle hover:border-cs-accent-clay cursor-pointer transition-all flex flex-col justify-between text-right group"
+                    >
                       <div className="flex items-center justify-between">
                         {nearestDownstream && (
                           <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-bold uppercase border ${getFeatureBadgeStyle(nearestDownstream.feature.type)}`}>
                             {nearestDownstream.feature.type}
                           </span>
                         )}
-                        <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 ml-auto">
+                        <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 ml-auto group-hover:underline">
                           {nearestDownstream ? `+${nearestDownstream.distance} aa →` : `C-terminus →`}
                         </span>
                       </div>
-                      <span className="text-[11px] font-semibold text-cs-text-primary mt-1">
+                      <span className="text-[11px] font-semibold text-cs-text-primary mt-1 group-hover:text-cs-accent-clay">
                         {nearestDownstream ? (nearestDownstream.feature.description || nearestDownstream.feature.type) : `Residue ${seqLength} (End)`}
                       </span>
                       <span className="text-[9.5px] font-mono text-cs-text-muted mt-0.5">
-                        {nearestDownstream ? `Residue ${nearestDownstream.boundaryRes}` : "Sequence terminus"}
+                        {nearestDownstream ? `Residue ${nearestDownstream.boundaryRes} (Click to target)` : "Sequence terminus"}
                       </span>
                     </div>
                   </div>

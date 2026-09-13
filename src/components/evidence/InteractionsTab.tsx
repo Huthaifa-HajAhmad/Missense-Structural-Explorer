@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ShieldCheck, AlertTriangle, RefreshCw, Zap } from "lucide-react";
+import { ShieldCheck, AlertTriangle, RefreshCw, Zap, Box, ExternalLink, HelpCircle, Info } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { PpiBindingData } from "../../types";
 import { useApiClient, extractErrorMessage } from "../../apiClient";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
-export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: TabComponentProps) {
+export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onTabChange }: TabComponentProps) {
   const result = analysisState.result;
   const gene = result?.metadata?.gene;
   const variant = result?.metadata?.variant;
@@ -33,7 +33,9 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
           variant,
           uniprotId,
           wtPdb: complexPdb || null,
-          mutPdb: complexPdb || null,
+          // Zero synthetic fallbacks protocol: never pass identical WT coordinates as mutant.
+          // Live interface energy calculation requires a genuinely modeled mutant multimer complex.
+          mutPdb: null,
           chainA,
           chainB
         }),
@@ -89,6 +91,20 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
   const stringPartners = ppiData?.stringPartners || result.stringInteractions || [];
   const bindingShift = ppiData?.bindingShift;
   const interfaceResidues = ppiData?.interfaceResidues || [];
+
+  // Multimer & Quaternary Assembly context
+  const multimerData = result?.multimerData;
+  const multimerContacts = multimerData?.interfaceContacts || [];
+  const oligomericState = multimerData?.oligomericState;
+  const subunitComment = multimerData?.subunitComment || result?.uniprotFeatures?.subunitComment;
+  const variantPos = result?.metadata?.residueIndex || 0;
+
+  // Multi-tier interface contact determination (guard variantPos > 0 to prevent false-positive contact matches at residue 0)
+  const hasDirectComplexContact = variantPos > 0 && multimerContacts.some(
+    c => Math.abs(c.resA - variantPos) <= 4 || Math.abs(c.resB - variantPos) <= 4
+  );
+  const hasCuratedInterface = interfaceResidues.some(r => r.isVariantPosition);
+  const hasCuratedInterfaceAny = interfaceResidues.length > 0;
 
   const getClassificationBadge = (cls?: string) => {
     switch (cls) {
@@ -165,7 +181,7 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
             <span className="metric-card-label">Interface Classification</span>
             <div className="mt-1">
               <span className={`text-[11px] px-2 py-0.5 rounded border font-mono font-bold uppercase ${getClassificationBadge(bindingShift?.classification)}`}>
-                {bindingShift?.classification || "MONOMER / UNBOUND"}
+                {bindingShift?.classification || (multimerData?.status === "monomeric" ? "PHYSIOLOGICAL MONOMER" : "MONOMER / UNBOUND")}
               </span>
             </div>
             <span className="metric-card-desc">Impact on complex stability</span>
@@ -174,32 +190,80 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
           <div className="metric-card">
             <span className="metric-card-label">Interface Contact Status</span>
             <div className="mt-1 flex items-center gap-1.5">
-              {interfaceResidues.some(r => r.isVariantPosition) ? (
+              {hasDirectComplexContact ? (
+                <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                  Direct Complex Contact (&lt; 5 Å)
+                </span>
+              ) : hasCuratedInterface ? (
                 <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
                   <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
                   Direct Interface Residue
                 </span>
-              ) : (
+              ) : hasCuratedInterfaceAny ? (
                 <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  Distal / Non-Interface
+                  Distal from Curated Site
+                </span>
+              ) : multimerContacts.length > 0 ? (
+                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  Distal Complex Residue (&gt; 5 Å)
+                </span>
+              ) : multimerData?.status === "monomeric" ? (
+                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  Physiological Monomer
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                  <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                  Uncharacterized (No Complex)
                 </span>
               )}
             </div>
-            <span className="metric-card-desc">UniProt curated interface proximity</span>
+            <span className="metric-card-desc">
+              {hasDirectComplexContact || multimerContacts.length > 0
+                ? "3D quaternary contact mapping"
+                : hasCuratedInterfaceAny
+                  ? "UniProt curated interface proximity"
+                  : "Awaiting quaternary assembly"}
+            </span>
           </div>
         </div>
 
-        {/* Informational Banner */}
-        <p className="text-[11px] leading-relaxed pt-1" style={{ color: "var(--cs-text-muted)" }}>
-          {Number.isFinite(bindingShift?.ddgBind)
-            ? `OpenBind-0 predicted an interface binding shift of ${formatDdGValue(bindingShift!.ddgBind!, energyUnit)}. Positive shifts (ΔΔG > 0) denote diminished complex affinity or disrupted subunit docking.`
-            : "Interface binding affinity calculation requires a multi-chain complex. Generate a quaternary assembly in the Multimers tab to evaluate live OpenBind-0 interface shifts."}
-        </p>
+        {/* Actionable Informational Banner */}
+        {Number.isFinite(bindingShift?.ddgBind) ? (
+          <p className="text-[11px] leading-relaxed pt-1" style={{ color: "var(--cs-text-muted)" }}>
+            OpenBind-0 predicted an interface binding shift of {formatDdGValue(bindingShift!.ddgBind!, energyUnit)}. Positive shifts (ΔΔG &gt; 0) denote diminished complex affinity or disrupted subunit docking.
+          </p>
+        ) : (
+          <div className="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-500/10 border-indigo-500/30">
+            <div className="space-y-0.5">
+              <span className="font-bold text-xs text-indigo-400 block">
+                Quaternary Complex Required for Live Interface Energy
+              </span>
+              <p className="text-[11px] text-cs-text-secondary leading-relaxed">
+                OpenBind-0 binding affinity calculations (ΔΔG_bind) evaluate inter-chain free energy shifts in multi-chain complexes.
+                {oligomericState ? ` Curated quaternary state: ${oligomericState}.` : ""}
+              </p>
+            </div>
+            {onTabChange && (
+              <button
+                type="button"
+                onClick={() => onTabChange("multimers")}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shrink-0 shadow-sm transition-all cursor-pointer"
+              >
+                <Box className="w-3.5 h-3.5" />
+                <span>Open Multimers Tab &rarr;</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Section 2: UniProt Curated Interface Residues */}
-      {interfaceResidues.length > 0 && (
+      {interfaceResidues.length > 0 ? (
         <div className="p-4 rounded-xl border space-y-2.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
           <h3 className="text-[11px] font-bold uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
             UniProt Curated Interface &amp; Subunit Binding Sites
@@ -229,15 +293,33 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
             ))}
           </div>
         </div>
+      ) : (
+        <div className="p-3.5 rounded-xl border space-y-1.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+          <div className="flex items-center justify-between">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
+              UniProt Curated Interface &amp; Subunit Binding Sites
+            </h3>
+            <span className="badge-data-source">UniProtKB</span>
+          </div>
+          <p className="text-xs text-cs-text-muted leading-relaxed">
+            No direct residue-level interface annotations are recorded in Swiss-Prot for <strong>{gene}</strong>.
+            {subunitComment ? ` Curated SUBUNIT annotation: "${subunitComment}"` : ""}
+          </p>
+        </div>
       )}
 
       {/* Section 3: STRING-db Functional Partner Network */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--cs-text-primary)" }}>
-            STRING-db Functional Interaction Partners
-          </h3>
-          <span className="text-[10px] font-mono text-[var(--cs-text-muted)]">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--cs-text-primary)" }}>
+              STRING-db Functional Interaction Partners
+            </h3>
+            <span className="text-[10px] text-[var(--cs-text-muted)]">
+              Proteome-wide functional co-expression, shared pathways, and physical interaction evidence.
+            </span>
+          </div>
+          <span className="text-[10px] font-mono text-[var(--cs-text-muted)] shrink-0">
             Species: Homo sapiens (TaxID 9606)
           </span>
         </div>
@@ -248,8 +330,8 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
               <table className="w-full font-sans border-collapse">
                 <thead>
                   <tr className="table-header-row border-b border-[var(--cs-border)]" style={{ background: "var(--cs-surface-2)" }}>
-                    <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Associated Partner</th>
-                    <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>STRING Score</th>
+                    <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left w-2/5 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Associated Partner</th>
+                    <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>STRING Score</th>
                     <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-1/3" style={{ color: "var(--cs-text-secondary)" }}>Confidence Level</th>
                   </tr>
                 </thead>
@@ -257,24 +339,38 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
                   {stringPartners.map((partner, pIdx) => {
                     const isScoreFinite = Number.isFinite(partner.score);
                     const pct = isScoreFinite ? (partner.score * 100).toFixed(0) : "—";
+                    const isHighest = isScoreFinite && partner.score >= 0.9;
                     const isHigh = isScoreFinite && partner.score >= 0.7;
+                    const stringUrl = `https://string-db.org/network/9606.${encodeURIComponent(partner.partner)}`;
+
                     return (
-                      <tr key={pIdx} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: pIdx < stringPartners.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
-                        <td className="p-3 px-4 text-[12px] font-semibold text-left w-1/3 border-r border-[var(--cs-border-subtle)]">
-                          <span style={{ color: "var(--cs-text-primary)" }}>{partner.partner}</span>
+                      <tr key={partner.partner || pIdx} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: pIdx < stringPartners.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
+                        <td className="p-3 px-4 text-[12px] font-semibold text-left w-2/5 border-r border-[var(--cs-border-subtle)]">
+                          <a
+                            href={stringUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 font-mono text-cs-text-primary hover:text-cs-accent-clay group"
+                            title={`Inspect ${partner.partner} interaction network on STRING-db`}
+                          >
+                            <span>{partner.partner}</span>
+                            <ExternalLink className="w-3 h-3 opacity-40 group-hover:opacity-100 transition-opacity" />
+                          </a>
                         </td>
-                        <td className="p-3 px-4 text-center font-mono text-[12px] w-1/3 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
+                        <td className="p-3 px-4 text-center font-mono text-[12px] w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>
                           {isScoreFinite ? partner.score.toFixed(3) : "—"}
                         </td>
                         <td className="p-3 px-4 text-center w-1/3">
                           <div className="inline-flex items-center justify-center gap-2 w-full">
                             <span className="font-mono text-xs" style={{ color: "var(--cs-text-secondary)" }}>{pct}%</span>
                             <span className={`px-2 py-0.5 text-[10px] rounded font-bold uppercase font-mono ${
-                              isHigh
-                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                : "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                              isHighest
+                                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                                : isHigh
+                                  ? "bg-teal-500/10 text-teal-400 border border-teal-500/20"
+                                  : "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
                             }`}>
-                              {isHigh ? "High" : "Medium"}
+                              {isHighest ? "Highest" : isHigh ? "High" : "Medium"}
                             </span>
                           </div>
                         </td>
@@ -290,6 +386,18 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit }: T
             No STRING-db interaction partners found for {gene || "this gene"}.
           </div>
         )}
+
+        {/* Informational Callout: Functional Network vs Structural Binding */}
+        <div className="p-3.5 rounded-xl border bg-cs-surface-2 border-cs-border space-y-1 text-xs">
+          <div className="flex items-center gap-1.5 font-bold text-cs-text-primary text-[11px]">
+            <Info className="w-3.5 h-3.5 text-cs-accent-clay" />
+            <span>Interpreting PPI Evidence: Functional Networks vs. Physical Interface Energetics</span>
+          </div>
+          <p className="text-[11px] text-cs-text-secondary leading-relaxed">
+            <strong>STRING-db</strong> scores measure proteome-wide functional associations inferred from co-expression, shared pathways, and literature citations.
+            In contrast, <strong>OpenBind-0</strong> and <strong>Boltz-2</strong> calculate direct atomistic steric clash, electrostatic shifts, and binding free energy changes (&Delta;&Delta;G_bind) across the physical 3D subunit interface.
+          </p>
+        </div>
       </div>
     </div>
   );

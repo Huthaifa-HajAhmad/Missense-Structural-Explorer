@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Database } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { EvidenceDashboardCardProps, TabType } from "./evidence/types";
@@ -12,6 +12,14 @@ import { FunctionTab, InteractionsTab } from "./evidence/FunctionInteractionsTab
 import { GuidelinesTab } from "./evidence/GuidelinesTab";
 import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
+
+function formatDdGValue(val: number | null | undefined, unit: "kcal/mol" | "kJ/mol"): string {
+  if (val === null || val === undefined) return "N/A";
+  if (unit === "kJ/mol") {
+    return `${(val * 4.184).toFixed(2)} kJ/mol`;
+  }
+  return `${val.toFixed(2)} kcal/mol`;
+}
 
 function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
   const {
@@ -29,20 +37,18 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
 
   const [localActiveTab, setLocalActiveTab] = useState<TabType>("clinical");
   const activeTab = (activeTabProp as TabType) || localActiveTab;
-  const setActiveTab = (onTabChange as any) || setLocalActiveTab;
+  const setActiveTab = useCallback((tab: string) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setLocalActiveTab(tab as TabType);
+    }
+  }, [onTabChange]);
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const { settings } = useSettings();
   const energyUnit = settings.energyUnit;
 
   const result = analysisState.result;
-
-  const formatDdGValue = (val: number | null, unit: "kcal/mol" | "kJ/mol") => {
-    if (val === null || val === undefined) return "N/A";
-    if (unit === "kJ/mol") {
-      return `${(val * 4.184).toFixed(2)} kJ/mol`;
-    }
-    return `${val.toFixed(2)} kcal/mol`;
-  };
 
   if (!result) {
     if (analysisState.isLoading) {
@@ -123,12 +129,13 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     );
   }
 
-  const tabProps = {
+  const tabProps = useMemo(() => ({
     ...props,
+    onTabChange: setActiveTab,
     energyUnit,
     formatDdGValue,
     setSelectedMetric
-  };
+  }), [props, setActiveTab, energyUnit, setSelectedMetric]);
 
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">
@@ -154,7 +161,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "function" && <FunctionTab {...tabProps} />}
         {activeTab === "interactions" && <InteractionsTab {...tabProps} />}
         {activeTab === "splicing" && <SplicingTab {...tabProps} />}
-        {activeTab === "guidelines" && <GuidelinesTab {...tabProps} />}
+        {(activeTab === "guidelines" || (activeTab as string) === "thresholds") && <GuidelinesTab {...tabProps} />}
 
         <MetricExplanationModal 
           selectedMetric={selectedMetric} 

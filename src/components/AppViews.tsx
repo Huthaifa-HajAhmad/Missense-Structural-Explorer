@@ -246,7 +246,7 @@ export function AppViews({
     if (isEsm && esmFoldWtPdb && esmFoldMutPdb) {
       const mutPdbToAlign = esmFoldMutPdb;
       const posMatch = variant?.match(/\d+/);
-      const pos = posMatch ? parseInt(posMatch[0], 10) : 1;
+      const pos = analysisState.result?.metadata?.residueIndex || foldedResidueIndex || selectedResidueIndex || (posMatch ? parseInt(posMatch[0], 10) : 1);
       try {
         const alignData = await apiClient.structuralAlign({
           pdb1: esmFoldWtPdb,
@@ -267,7 +267,7 @@ export function AppViews({
     } else if (!isEsm && pdbText && mutantPdb) {
       const posMatch = variant?.match(/\d+/);
       const variantPos = posMatch ? parseInt(posMatch[0], 10) : 1;
-      const pos = foldedResidueIndex || selectedResidueIndex || variantPos;
+      const pos = analysisState.result?.metadata?.residueIndex || foldedResidueIndex || selectedResidueIndex || variantPos;
       try {
         const alignData = await apiClient.structuralAlign({
           pdb1: pdbText,
@@ -332,8 +332,10 @@ export function AppViews({
 
   const handleResidueClickMemo = useCallback((idx: number | null) => {
     if (!idx) return;
-    if (viewMode === "mutant") setFoldedResidueIndex(idx);
-    else setSelectedResidueIndex(idx);
+    setSelectedResidueIndex(idx);
+    if (viewMode === "mutant" || viewMode === "superimposed") {
+      setFoldedResidueIndex(idx);
+    }
   }, [viewMode, setFoldedResidueIndex, setSelectedResidueIndex]);
 
   return (
@@ -416,7 +418,8 @@ export function AppViews({
                       actions.fetchPocketInfo(pdbText, targetChain, resIdx, targetUniprot);
                     }
                   }}
-                  onSelectResidue={setSelectedResidueIndex}
+                  onSelectResidue={handleResidueClickMemo}
+                  onNavigateToView={setMasterView}
                 />
               </ErrorBoundary>
             )}
