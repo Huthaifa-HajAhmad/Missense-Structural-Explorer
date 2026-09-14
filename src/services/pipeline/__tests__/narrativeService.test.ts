@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { generateClinicalNarrative } from "../narrativeService";
+import { setCachedVariant, getCachedVariant, purgeFallbackNarratives } from "../variantCache";
 
 describe("narrativeService", () => {
   beforeEach(() => {
@@ -114,6 +115,38 @@ describe("narrativeService", () => {
     // Must NOT persist degraded fallback result into long-term sessionStorage
     const storageKeys = Object.keys(sessionStorage).filter(k => k.includes("PAH_p.arg408trp"));
     expect(storageKeys.length).toBe(0);
+  });
+
+  it("purgeFallbackNarratives clears fallback analysisResult while preserving biophysical structures and FoldX energetics", () => {
+    // Seed variant bundle with biophysical calculations and a fallback narrative
+    setCachedVariant("GZF1", "p.Arg591Trp", "Q9H116", {
+      pdbText: "ATOM 1 CA ALA 1 10.0 10.0 10.0",
+      mutantPdb: "ATOM 1 CA TRP 1 10.0 10.0 10.0",
+      foldingDdG: 2.85,
+      foldingStatus: "completed",
+      computedPocket: { pocketScore: 0.92, drugScore: 0.81 },
+      analysisResult: {
+        analysis: "### ⚠️ BIOCHEMICAL SHIFT NARRATIVE: Unavailable (AI Service Offline)",
+        isFallback: true
+      }
+    });
+
+    const beforePurge = getCachedVariant("GZF1", "p.Arg591Trp");
+    expect(beforePurge?.pdbText).toBe("ATOM 1 CA ALA 1 10.0 10.0 10.0");
+    expect(beforePurge?.foldingDdG).toBe(2.85);
+    expect(beforePurge?.analysisResult?.isFallback).toBe(true);
+
+    purgeFallbackNarratives();
+
+    const afterPurge = getCachedVariant("GZF1", "p.Arg591Trp");
+    expect(afterPurge).toBeDefined();
+    expect(afterPurge?.analysisResult).toBeUndefined();
+    // Critical biophysical computations MUST remain intact:
+    expect(afterPurge?.pdbText).toBe("ATOM 1 CA ALA 1 10.0 10.0 10.0");
+    expect(afterPurge?.mutantPdb).toBe("ATOM 1 CA TRP 1 10.0 10.0 10.0");
+    expect(afterPurge?.foldingDdG).toBe(2.85);
+    expect(afterPurge?.foldingStatus).toBe("completed");
+    expect(afterPurge?.computedPocket?.pocketScore).toBe(0.92);
   });
 });
 

@@ -57,6 +57,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
       fetchWithAuth: options.fetchWithAuth,
       apiClient: options.apiClient,
       settings: options.settings,
+      serverGeminiReady: options.serverGeminiReady,
       userDirections: options.userDirections,
       sinks: options.sinks
     };
@@ -67,6 +68,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
     fetchWithAuth: flat.fetchWithAuth,
     apiClient: flat.apiClient,
     settings: flat.settings,
+    serverGeminiReady: flat.serverGeminiReady,
     userDirections: flat.userDirections || "",
     sinks: {
       search: {

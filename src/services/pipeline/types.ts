@@ -100,6 +100,7 @@ export interface StructuredPipelineOptions {
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
   apiClient: any;
   settings: any;
+  serverGeminiReady?: boolean;
   userDirections: string;
   sinks: PipelineStateSinks;
 }
@@ -110,6 +111,7 @@ export type UseAnalysisPipelineOptions =
       fetchWithAuth: (url: string, options?: any) => Promise<Response>;
       apiClient: any;
       settings: any;
+      serverGeminiReady?: boolean;
       userDirections: string;
       sinks?: PipelineStateSinks;
     });

@@ -4,6 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { extractErrorMessage, useApiClient } from "./apiClient";
 import { SettingsProvider } from "./context/SettingsContext";
+import { clearInvalidApiKey } from "./api/authSession";
 
 describe("extractErrorMessage Unit Tests", () => {
   it("extracts nested error.message from standardized backend JSON error", async () => {
@@ -91,6 +92,8 @@ describe("useApiClient getSidecarHealth", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    sessionStorage.clear();
+    clearInvalidApiKey();
   });
 
   it("calls /api/v1/sidecar-health and parses successful response", async () => {
@@ -265,6 +268,166 @@ describe("useApiClient Domain Methods & Delegation", () => {
     expect(narrativeCall).toBeDefined();
     const narrativeHeaders = narrativeCall?.[1]?.headers || {};
     expect(narrativeHeaders["X-Gemini-Session-ID"]).toBe("fresh-renewed-session-token");
+  });
+
+  it("deduplicates concurrent proactive refresh calls within 60s of token expiry", async () => {
+    const expiresSoon = Date.now() + 30000; // 30s to expiry (< 60s)
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyTestKey123",
+        geminiSessionId: "expiring-session-token",
+        geminiSessionExpiresAt: expiresSoon
+      })
+    );
+
+    let refreshCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/v1/session/refresh") {
+        refreshCallCount++;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sessionId: "deduped-refreshed-token",
+              expiresAt: Date.now() + 15 * 60 * 1000
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ analysis: "Analysis OK", insights: {} }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+
+    // Fire 3 concurrent requests while token is near expiry
+    await Promise.all([
+      result.current.fetchWithAuth("/api/v1/analyze-variant-narrative"),
+      result.current.fetchWithAuth("/api/v1/analyze-variant-narrative"),
+      result.current.fetchWithAuth("/api/v1/analyze-variant-narrative")
+    ]);
+
+    // Proactive refresh must only be called ONCE despite 3 concurrent requests
+    expect(refreshCallCount).toBe(1);
+  });
+
+  it("clearInvalidApiKey unblocks auto-authentication after a 403 rejection", async () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "RejectedKey123",
+        geminiSessionId: "",
+        geminiSessionExpiresAt: 0
+      })
+    );
+
+    let sessionCalls = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/v1/session/keys") {
+        sessionCalls++;
+        if (sessionCalls === 1) {
+          return Promise.resolve(new Response(JSON.stringify({ error: "Invalid key" }), { status: 403 }));
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ sessionId: "unblocked-session", expiresAt: Date.now() + 900000 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+
+    // First request triggers 403 and blacklists key
+    await result.current.fetchWithAuth("/api/v1/analyze-variant-narrative");
+    expect(sessionCalls).toBe(1);
+
+    // Second request skipped because key is in invalidApiKeys
+    await result.current.fetchWithAuth("/api/v1/analyze-variant-narrative");
+    expect(sessionCalls).toBe(1);
+
+    // User edits or relinks key, which clears blacklist
+    clearInvalidApiKey("RejectedKey123");
+
+    // Third request can now re-authenticate
+    await result.current.fetchWithAuth("/api/v1/analyze-variant-narrative");
+    expect(sessionCalls).toBe(2);
+  });
+
+  it("re-authenticates and retries on 401 for relative endpoints when appApiToken is unset", async () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyKey401",
+        geminiSessionId: "expired-on-server",
+        geminiSessionExpiresAt: Date.now() + 600000
+      })
+    );
+
+    let attempt = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/v1/session/keys") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ sessionId: "recovered-session", expiresAt: Date.now() + 900000 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      if (url === "/api/v1/custom-endpoint") {
+        attempt++;
+        if (attempt === 1) {
+          return Promise.resolve(new Response("Unauthorized", { status: 401 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ success: true }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const res = await result.current.fetchWithAuth("/api/v1/custom-endpoint");
+    expect(res.status).toBe(200);
+    expect(attempt).toBe(2);
+  });
+
+  it("normalizes options.headers when passed as a Headers instance", async () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyKeyHeader",
+        geminiSessionId: "valid-session",
+        geminiSessionExpiresAt: Date.now() + 600000
+      })
+    );
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const customHeaders = new Headers();
+    customHeaders.set("X-Custom-Client", "UnitTester");
+
+    await result.current.fetchWithAuth("/api/v1/analyze-variant-narrative", {
+      headers: customHeaders
+    });
+
+    const narrativeCall = fetchMock.mock.calls.find((call: any[]) =>
+      call[0] === "/api/v1/analyze-variant-narrative"
+    );
+    expect(narrativeCall).toBeDefined();
+    const calledHeaders = narrativeCall?.[1]?.headers || {};
+    expect(calledHeaders["x-custom-client"]).toBe("UnitTester");
+    expect(calledHeaders["X-Gemini-Session-ID"]).toBe("valid-session");
   });
 });
 

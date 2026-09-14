@@ -4,6 +4,7 @@ import { useApiConnections } from "../../../hooks/useApiConnections";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
 import { SecretInput } from "../ui/SecretInput";
 import { SettingsSection } from "../ui/Section";
+import { clearInvalidApiKey } from "../../../api/authSession";
 
 function ServicePill({ name, ready, detail }: { name: string; ready: boolean | undefined; detail?: string }) {
   return (
@@ -48,6 +49,7 @@ export function ConnectionsSection() {
     if (value.trim() !== previous) {
       updateSetting("geminiSessionId", "");
       updateSetting("geminiSessionExpiresAt", 0);
+      clearInvalidApiKey(value.trim());
     }
     clearLinkError();
   };

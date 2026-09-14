@@ -121,7 +121,25 @@ export function setCachedVariant(
 
   if (isFallback) {
     try {
-      sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
+      const hasBiophysicalData = Boolean(
+        updated.pdbText ||
+        updated.mutantPdb ||
+        updated.foldingDdG !== undefined ||
+        updated.foldingEnergetics ||
+        updated.computedPocket
+      );
+      if (hasBiophysicalData) {
+        const storageCopy = { ...updated, analysisResult: undefined };
+        if (storageCopy.pdbText && storageCopy.pdbText.length > 2 * 1024 * 1024) {
+          delete storageCopy.pdbText;
+        }
+        if (storageCopy.mutantPdb && storageCopy.mutantPdb.length > 2 * 1024 * 1024) {
+          delete storageCopy.mutantPdb;
+        }
+        sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(storageCopy));
+      } else {
+        sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
+      }
     } catch (_) {}
     return;
   }
@@ -173,20 +191,15 @@ export function isFallbackNarrative(analysis?: string | null, isFallback?: boole
 }
 
 export function purgeFallbackNarratives(): void {
-  const keysToPurge: string[] = [];
-  for (const [key, entry] of memoryVariantCache.entries()) {
+  for (const [, entry] of memoryVariantCache.entries()) {
     if (isFallbackNarrative(entry.analysisResult?.analysis, entry.analysisResult?.isFallback)) {
-      keysToPurge.push(key);
+      entry.analysisResult = undefined;
     }
   }
-  for (const key of keysToPurge) {
-    memoryVariantCache.delete(key);
-  }
 
-  // Also purge unhydrated fallback entries directly from sessionStorage
+  // Also purge fallback narrative payload directly from sessionStorage, preserving biophysical data
   if (typeof window !== "undefined" && window.sessionStorage) {
     try {
-      const storageKeysToRemove: string[] = [];
       for (let i = 0; i < sessionStorage.length; i++) {
         const k = sessionStorage.key(i);
         if (k && k.startsWith(CACHE_PREFIX)) {
@@ -194,12 +207,12 @@ export function purgeFallbackNarratives(): void {
           if (raw) {
             const parsed = JSON.parse(raw);
             if (isFallbackNarrative(parsed?.analysisResult?.analysis, parsed?.analysisResult?.isFallback)) {
-              storageKeysToRemove.push(k);
+              parsed.analysisResult = undefined;
+              sessionStorage.setItem(k, JSON.stringify(parsed));
             }
           }
         }
       }
-      storageKeysToRemove.forEach(k => sessionStorage.removeItem(k));
     } catch (_) {}
   }
 }

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
+import { clearInvalidApiKey } from "../api/authSession";
 
 type TestId = "biohub" | "hf" | "alphagenome";
 
@@ -131,6 +132,7 @@ export function useApiConnections() {
     const apiKey = settings.geminiApiKey?.trim() || "";
     if (!apiKey) return;
 
+    clearInvalidApiKey(apiKey);
     setLinking(true);
     setLinkError(null);
 

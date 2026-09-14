@@ -22,6 +22,7 @@ export default function useVariantAnalysis() {
     setTheme,
     toggleTheme,
     settings,
+    serverGeminiReady,
     setSettings,
     updateSetting,
     resetSettingsToDefault,
@@ -72,7 +73,11 @@ export default function useVariantAnalysis() {
       return pipeline.executeAnalysis(targetGene, targetVariant, targetUniprot, providedSignal, {
         fetchWithAuth,
         apiClient,
-        settings,
+        settings: {
+          ...settings,
+          serverGeminiReady
+        },
+        serverGeminiReady,
         userDirections: currentStore.userDirections,
         sinks: {
           search: {
@@ -93,7 +98,11 @@ export default function useVariantAnalysis() {
             setIsBiophysicalLoading: currentStore.setIsBiophysicalLoading,
             setIsStructuralLoading: currentStore.setIsStructuralLoading,
             setIsClinicalLoading: currentStore.setIsClinicalLoading,
-            setIsNarrativeLoading: currentStore.setIsNarrativeLoading
+            setIsNarrativeLoading: currentStore.setIsNarrativeLoading,
+            setAcmgLoading: currentStore.setAcmgLoading,
+            setAcmgEvidence: currentStore.setAcmgEvidence,
+            setCalculatedScore: currentStore.setCalculatedScore,
+            setSelectedPreset: currentStore.setSelectedPreset
           },
           biophysical: {
             setIsFolding: currentStore.setIsFolding,
@@ -128,7 +137,7 @@ export default function useVariantAnalysis() {
         }
       });
     },
-    [pipeline, fetchWithAuth, apiClient, settings, biophysical, resetViewerState]
+    [pipeline, fetchWithAuth, apiClient, settings, serverGeminiReady, biophysical, resetViewerState]
   );
 
   const handleSelectHistoryItem = useCallback(
