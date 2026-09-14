@@ -1,52 +1,32 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { PdbHomolog, NearestResidue } from "../types";
-import { parseMutationResidues } from "../variantAnalysisUtils";
-import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../data";
-import { useDevConsole } from "../context/DevConsoleContext";
+import { useCallback } from "react";
 import {
   toFoldxMutation,
   isGenomicOrCdnaNotation,
   translateVariantNotation as translateVariantNotationService
-} from "../services/pipeline/notationService";
+} from "../services/pipeline/notationService.ts";
 import {
-  fetchPdbCoordinates,
   fetchHomologStructures,
   fetchBindingPocket,
   fetchNearestResidues as fetchNearestResiduesService
-} from "../services/pipeline/structureService";
-import { executeFoldxPipeline } from "../services/pipeline/foldxService";
+} from "../services/pipeline/structureService.ts";
+import { executeFullAnalysisWorkflow } from "../services/pipeline/workflowOrchestrator.ts";
+import { getCachedVariant } from "../services/pipeline/variantCache.ts";
 import {
-  fetchBiophysicalAnalysis,
-  fetchProgressiveLandscape,
-  fetchProgressiveStructuralAssessments
-} from "../services/pipeline/biophysicalService";
-import { generateClinicalNarrative } from "../services/pipeline/narrativeService";
-import { executeFullAnalysisWorkflow } from "../services/pipeline/workflowOrchestrator";
-import { getCachedVariant } from "../services/pipeline/variantCache";
-import {
-  TraceContext,
-  PipelineStateSinks,
-  PipelineBiophysicalSink,
-  PipelineSearchSink,
   PipelineAnalysisSink,
   PipelineStructureSink,
   StructuredPipelineOptions,
   UseAnalysisPipelineOptions
-} from "../services/pipeline/types";
+} from "../services/pipeline/types.ts";
 import {
-  createAnalysisVersion,
-  createPlaceholderAnalysisState,
-  createCompletedAnalysisState,
-  createBiophysicalErrorAnalysisState,
-  createTopLevelErrorAnalysisState,
-  createDemoFallbackAnalysisState,
-  PipelineStateBaseParams
-} from "../services/pipeline/pipelineStateFactory";
+  createAnalysisVersion
+} from "../services/pipeline/pipelineStateFactory.ts";
+import { usePipelineAbortController } from "./pipeline/usePipelineAbortController.ts";
+import { useStructuralInspectors } from "./pipeline/useStructuralInspectors.ts";
+import { usePipelineTelemetry } from "./pipeline/usePipelineTelemetry.ts";
 
 // Re-export utility functions and types for backward compatibility
 export { toFoldxMutation, isGenomicOrCdnaNotation, createAnalysisVersion };
 export type { StructuredPipelineOptions, UseAnalysisPipelineOptions };
-
 
 /**
  * Normalizes flat or structured options into a uniform StructuredPipelineOptions object.
@@ -128,71 +108,38 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
   };
 }
 
+/**
+ * High-level orchestration hook for variant analysis pipeline.
+ * Composes specialized lifecycle, inspector, and telemetry sub-hooks.
+ */
 export function useAnalysisPipeline() {
-  const { dispatch, startTraceRun, addTraceSpan, updateTraceSpan, finishTraceRun } = useDevConsole();
-  const analysisAbortRef = useRef<AbortController | null>(null);
-  const mutantFoldAbortRef = useRef<AbortController | null>(null);
-  const compareFoldAbortRef = useRef<AbortController | null>(null);
-  const pendingResiduesRef = useRef<Set<string>>(new Set());
-  const activeRequestIdRef = useRef<number>(0);
-  const activeTraceIdRef = useRef<string | null>(null);
-  const traceStartRef = useRef<number>(0);
+  const {
+    activeTraceIdRef,
+    traceStartRef,
+    getTraceContext,
+    startPipelineTrace,
+    finishPipelineTrace
+  } = usePipelineTelemetry();
 
-  const [homologs, setHomologs] = useState<PdbHomolog[]>([]);
-  const [isHomologsLoading, setIsHomologsLoading] = useState(false);
-  const [computedResiduesCache, setComputedResiduesCache] = useState<Record<string, NearestResidue[]>>({});
-  const [disruptionPredictor, setDisruptionPredictor] = useState<{ level: "high" | "low" | "unknown"; reason: string; plddt: number | null } | null>(null);
+  const {
+    analysisAbortRef,
+    mutantFoldAbortRef,
+    compareFoldAbortRef,
+    activeRequestIdRef,
+    abortAllPendingRequests
+  } = usePipelineAbortController();
 
-  const abortAllPendingRequests = useCallback((
-    clearDynaMutPoll?: () => void,
-    clearDynaMutComparePoll?: () => void,
-    clearDdmutPoll?: () => void,
-    clearDdmutComparePoll?: () => void,
-    clearThermoMpnnPoll?: () => void,
-    clearThermoMpnnComparePoll?: () => void
-  ) => {
-    activeRequestIdRef.current += 1;
-    if (clearDynaMutPoll) clearDynaMutPoll();
-    if (clearDynaMutComparePoll) clearDynaMutComparePoll();
-    if (clearDdmutPoll) clearDdmutPoll();
-    if (clearDdmutComparePoll) clearDdmutComparePoll();
-    if (clearThermoMpnnPoll) clearThermoMpnnPoll();
-    if (clearThermoMpnnComparePoll) clearThermoMpnnComparePoll();
-    if (analysisAbortRef.current) {
-      try {
-        analysisAbortRef.current.abort();
-      } catch (e) {
-        console.error("Failed to abort analysis request", e);
-      }
-    }
-    if (mutantFoldAbortRef.current) {
-      try {
-        mutantFoldAbortRef.current.abort();
-      } catch (e) {
-        console.error("Failed to abort mutant fold request", e);
-      }
-    }
-    if (compareFoldAbortRef.current) {
-      try {
-        compareFoldAbortRef.current.abort();
-      } catch (e) {
-        console.error("Failed to abort compare fold request", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      abortAllPendingRequests();
-    };
-  }, [abortAllPendingRequests]);
-
-  const getTraceContext = useCallback((): TraceContext => ({
-    activeTraceId: activeTraceIdRef.current,
-    traceStart: traceStartRef.current,
-    addTraceSpan,
-    finishTraceRun
-  }), [addTraceSpan, finishTraceRun]);
+  const {
+    homologs,
+    setHomologs,
+    isHomologsLoading,
+    setIsHomologsLoading,
+    computedResiduesCache,
+    setComputedResiduesCache,
+    disruptionPredictor,
+    setDisruptionPredictor,
+    pendingResiduesRef
+  } = useStructuralInspectors();
 
   const translateVariantNotation = useCallback(async (
     notation: string,
@@ -243,7 +190,7 @@ export function useAnalysisPipeline() {
       signal,
       getTraceContext()
     );
-  }, [getTraceContext]);
+  }, [getTraceContext, setHomologs, setIsHomologsLoading]);
 
   const fetchNearestResidues = useCallback(async (
     targetUniprot: string,
@@ -271,7 +218,7 @@ export function useAnalysisPipeline() {
       pendingResiduesRef.current,
       signal
     );
-  }, [computedResiduesCache]);
+  }, [computedResiduesCache, setComputedResiduesCache, pendingResiduesRef]);
 
   const fetchPocketData = useCallback(async (
     targetUniprot: string,
@@ -308,10 +255,10 @@ export function useAnalysisPipeline() {
     abortAllPendingRequests(
       structureSink.clearDynaMutPoll,
       structureSink.clearDynaMutComparePoll,
-      (structureSink as any).clearDdmutPoll,
-      (structureSink as any).clearDdmutComparePoll,
-      (structureSink as any).clearThermoMpnnPoll,
-      (structureSink as any).clearThermoMpnnComparePoll
+      structureSink.clearDdmutPoll,
+      structureSink.clearDdmutComparePoll,
+      structureSink.clearThermoMpnnPoll,
+      structureSink.clearThermoMpnnComparePoll
     );
     const requestId = ++activeRequestIdRef.current;
 
@@ -340,9 +287,7 @@ export function useAnalysisPipeline() {
     }
 
     const traceQuery = `${targetGeneArg} ${targetVariantArg}`.trim();
-    const traceId = startTraceRun(traceQuery || "Variant Analysis");
-    activeTraceIdRef.current = traceId;
-    traceStartRef.current = performance.now();
+    startPipelineTrace(traceQuery);
 
     try {
       await executeFullAnalysisWorkflow({
@@ -359,11 +304,11 @@ export function useAnalysisPipeline() {
         mutantFoldAbortRef
       });
       if (activeTraceIdRef.current && activeRequestIdRef.current === requestId) {
-        finishTraceRun(activeTraceIdRef.current, "completed");
+        finishPipelineTrace("completed");
       }
     } catch (err: any) {
       if (activeTraceIdRef.current && activeRequestIdRef.current === requestId) {
-        finishTraceRun(activeTraceIdRef.current, "failed");
+        finishPipelineTrace("failed");
       }
     }
   };

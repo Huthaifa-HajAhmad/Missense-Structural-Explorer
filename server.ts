@@ -17,6 +17,7 @@ import {
 } from "./server/services/biophysics.ts";
 import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
 import { shutdownPool } from "./server/services/biophysics-pool.ts";
+import { shutdownDbPool } from "./server/services/infra/analysis-db-pool.ts";
 import { startSidecarSupervisor } from "./server/sidecar-supervisor.ts";
 import { createExpressApp } from "./server/express-config.ts";
 import { registerGracefulShutdown } from "./server/graceful-shutdown.ts";
@@ -229,6 +230,7 @@ async function startServer(): Promise<void> {
     { name: "Route Background Tasks", fn: abortActiveBackgroundTasks },
     { name: "Biophysical Job Queue", fn: () => BiophysicalJobQueue.getInstance().shutdown() },
     { name: "Biophysics Worker Pool", fn: shutdownPool },
+    { name: "Analysis DB Worker Pool", fn: shutdownDbPool },
     { name: "Temp Jobs Cleanup", fn: cleanupTempJobsRoot }
   ]);
 }

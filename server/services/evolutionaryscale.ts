@@ -1,15 +1,4 @@
-import {
-  fetchGpnStarScore,
-  fetchGpnStarByCoordinate,
-  clearGpnCache,
-  type ModelInferenceResult
-} from "./gpn.ts";
-
-export type EvolutionaryScaleResult = ModelInferenceResult;
-
-export {
-  fetchGpnStarScore,
-  fetchGpnStarByCoordinate,
-  clearGpnCache
-};
-
+/**
+ * Backward-compatibility facade for server/services/external-api/evolutionaryscale.ts
+ */
+export * from "./external-api/evolutionaryscale.ts";
