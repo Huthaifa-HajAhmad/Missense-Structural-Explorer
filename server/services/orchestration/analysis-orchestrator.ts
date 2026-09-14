@@ -1,4 +1,5 @@
-import { fetchClinVarData, fetchPredictorData } from "../external.ts";
+import { fetchClinVarData } from "../external-api/clinvar.ts";
+import { fetchPredictorData } from "../prediction/index.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";

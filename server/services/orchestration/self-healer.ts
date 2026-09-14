@@ -1,6 +1,6 @@
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
-import type { ClinVarData } from "../external.ts";
+import type { ClinVarData } from "../external-api/clinvar.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { persistVariantAnalysisPayload } from "./payload-assembler.ts";
 import {

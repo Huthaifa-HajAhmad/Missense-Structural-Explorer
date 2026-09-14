@@ -1,23 +1,24 @@
+import { fetchClinVarData, type ClinVarData } from "./clinvar.ts";
 import {
-  fetchClinVarData,
   fetchAlphafoldPdb,
   fetchBestPdbStructure,
   fetchPdbFromRcsb,
+  type PdbBestStructureMapping
+} from "../structure/structure-fetcher.ts";
+import {
   fetchPredictorData,
   fetchConservationData,
-  fetchConservationDataProgressive,
-  fetchStringInteractions,
+  fetchConservationDataProgressive
+} from "../prediction/index.ts";
+import { fetchStringInteractions, type StringInteraction } from "./string.ts";
+import {
   fetchGnomadGeneConstraint,
   fetchGnomadVariantFrequency,
-  fetchUniprotFeatures,
-  fetchLocalPopulationFrequencies,
-  type PdbBestStructureMapping,
-  type ClinVarData,
-  type StringInteraction,
   type GnomadVariantFrequency,
-  type GnomadGeneConstraint,
-  type UniprotFeaturesResult
-} from "../external.ts";
+  type GnomadGeneConstraint
+} from "./gnomad.ts";
+import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
+import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
 import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
@@ -129,14 +130,14 @@ export async function fetchCoreVariantData(
   }));
 
   const localFreqsPromise = timeTask("localFreqs", (isLocalDbnsfpAvailable() && pos !== null)
-    ? fetchLocalPopulationFrequencies(gene, pos, variant).catch(err => {
+    ? fetchLocalPopulationFrequencies(gene, pos, variant).catch((err: any) => {
         console.warn("[Local dbNSFP Freq Warning] Error querying local frequencies:", err);
         return null;
       })
     : Promise.resolve(null));
 
   let gnomadFreqHasError = false;
-  const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then(localFreqs => {
+  const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then((localFreqs: any) => {
     if (localFreqs && localFreqs.gnomad) return localFreqs.gnomad;
     return predictorPromise.then(pred => {
       return fetchGnomadVariantFrequency(pred?.gnomadVariantId || null);

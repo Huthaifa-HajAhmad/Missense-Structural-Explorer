@@ -346,8 +346,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // 3. PP2 — Missense constraint (ACMG-6: live gnomAD constraint preferred)
   // -------------------------------------------------------------------------
   if (gnomadConstraint?.isPP2Constrained && !skipPathogenicComp) {
-    const misZ  = gnomadConstraint.missense_z !== null ? gnomadConstraint.missense_z.toFixed(2) : "N/A";
-    const oeMis = gnomadConstraint.oe_mis     !== null ? gnomadConstraint.oe_mis.toFixed(3)     : "N/A";
+    const misZ  = typeof gnomadConstraint.missense_z === "number" ? gnomadConstraint.missense_z.toFixed(2) : "N/A";
+    const oeMis = typeof gnomadConstraint.oe_mis === "number"     ? gnomadConstraint.oe_mis.toFixed(3)     : "N/A";
     criteria.push({
       code: "PP2",
       reason:
