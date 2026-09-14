@@ -4,7 +4,7 @@ import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { clearInvalidApiKey } from "../api/authSession";
 
-type TestId = "biohub" | "hf" | "alphagenome";
+type TestId = "biohub" | "hf" | "alphagenome" | "tamarind";
 
 interface TestState {
   testing: boolean;
@@ -34,6 +34,11 @@ const ENDPOINTS: Record<TestId, EndpointSpec> = {
     endpoint: "/api/v1/alphagenome/verify-connection",
     payload: (token) => ({ apiKey: token }),
     emptyMessage: "No AlphaGenome Atlas API key entered."
+  },
+  tamarind: {
+    endpoint: "/api/v1/test-tamarind-connection",
+    payload: (token) => ({ tamarindApiKey: token }),
+    emptyMessage: "No Tamarind Bio API key entered."
   }
 };
 
@@ -51,7 +56,8 @@ export function useApiConnections() {
   const [tests, setTests] = useState<Record<TestId, TestState>>({
     biohub: IDLE_TEST,
     hf: IDLE_TEST,
-    alphagenome: IDLE_TEST
+    alphagenome: IDLE_TEST,
+    tamarind: IDLE_TEST
   });
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -68,7 +74,9 @@ export function useApiConnections() {
           ? settings.biohubApiToken
           : id === "hf"
             ? settings.hfToken
-            : settings.alphagenomeApiKey;
+            : id === "tamarind"
+              ? settings.tamarindApiKey
+              : settings.alphagenomeApiKey;
 
       if (!token && !(id === "alphagenome" && settings.alphagenomeApiUrl)) {
         patchTest(id, { status: { valid: false, message: spec.emptyMessage } });
@@ -125,7 +133,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.biohubApiToken, settings.hfToken, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
+    [settings.biohubApiToken, settings.hfToken, settings.tamarindApiKey, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {

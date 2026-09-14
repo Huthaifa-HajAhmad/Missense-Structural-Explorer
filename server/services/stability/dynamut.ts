@@ -98,6 +98,54 @@ export function httpGetWithBody(
 }
 
 /**
+ * Crops a PDB coordinate stream to a localized contiguous window of residues
+ * centered around targetPos on the specified chain, preserving original residue numbering.
+ * Used for BioSig API (DynaMut2/DDMut) when whole protein exceeds 1500 residues.
+ */
+export function cropPdbWindowAroundMutation(
+  pdbText: string,
+  chain: string,
+  targetPos: number,
+  windowSize = 750
+): string {
+  const lines = pdbText.split(/\r?\n/);
+  const targetChainUpper = (chain?.trim() || "A").toUpperCase();
+  const halfWindow = Math.floor(windowSize / 2);
+  const minRes = targetPos - halfWindow;
+  const maxRes = targetPos + halfWindow;
+
+  const croppedLines: string[] = [];
+  let foundTarget = false;
+
+  for (const line of lines) {
+    if (line.startsWith("ATOM  ") || line.startsWith("HETATM")) {
+      const lineChain = (line[21]?.trim() || "A").toUpperCase();
+      const resSeqStr = line.slice(22, 26).trim();
+      const resSeq = parseInt(resSeqStr, 10);
+
+      if (!isNaN(resSeq)) {
+        if (lineChain === targetChainUpper && resSeq === targetPos) {
+          foundTarget = true;
+        }
+        if (lineChain === targetChainUpper && resSeq >= minRes && resSeq <= maxRes) {
+          croppedLines.push(line);
+        }
+      }
+    } else if (line.startsWith("CRYST1") || line.startsWith("HEADER") || line.startsWith("TITLE") || line.startsWith("SCALE")) {
+      croppedLines.push(line);
+    }
+  }
+
+  if (!foundTarget || croppedLines.length === 0) {
+    return pdbText; // Return original if target residue not found in window
+  }
+
+  croppedLines.push("TER");
+  croppedLines.push("END");
+  return croppedLines.join("\n");
+}
+
+/**
  * Generic submission handler for BioSig single point mutation prediction jobs (DynaMut2 / DDMut).
  */
 export async function submitBioSigJob(
@@ -114,10 +162,18 @@ export async function submitBioSigJob(
   const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
 
   // Pre-flight check: Safeguard against extreme unphysical structures (>1500 residues)
-  const residueCount = (pdbText.match(/^ATOM\s+.*?CA\s+/gm) || []).length;
+  let effectivePdb = pdbText;
+  let residueCount = (pdbText.match(/^ATOM\s+.*?CA\s+/gm) || []).length;
+
   if (residueCount > 1500) {
-    console.log(`[${toolName} API] Structure contains ${residueCount} residues (>1500 safeguard limit). Skipping remote BioSig submission.`);
-    return null;
+    console.log(`[${toolName} API] Structure contains ${residueCount} residues (>1500 limit). Windowing contiguous 750-residue region around pos ${pos}...`);
+    effectivePdb = cropPdbWindowAroundMutation(pdbText, chain, pos, 750);
+    residueCount = (effectivePdb.match(/^ATOM\s+.*?CA\s+/gm) || []).length;
+    console.log(`[${toolName} API] Cropped structure prepared: ${residueCount} residues for remote submission.`);
+    if (residueCount > 1500) {
+      console.warn(`[${toolName} API] Cropped structure still exceeds 1500 residues (${residueCount}). Skipping remote BioSig submission.`);
+      return null;
+    }
   }
 
   console.log(`[${toolName} API] Preparing to submit single mutation job for ${mutationCode} on chain ${chain}...`);
@@ -126,7 +182,7 @@ export async function submitBioSigJob(
     const formData = new FormData();
     formData.append("mutation", mutationCode);
     formData.append("chain", chain || "A");
-    formData.append("pdb_file", new Blob([pdbText], { type: "text/plain" }), "wt.pdb");
+    formData.append("pdb_file", new Blob([effectivePdb], { type: "text/plain" }), "wt.pdb");
 
     const response = await fetchWithRetry(url, {
       method: "POST",

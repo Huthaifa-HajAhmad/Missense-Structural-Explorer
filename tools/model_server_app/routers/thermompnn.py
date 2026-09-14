@@ -65,7 +65,13 @@ def parse_pdb_coordinates_for_thermompnn(
                         chain_candidates.append(ch)
                     if target_str is not None:
                         resn_val = line[22:27].strip()
-                        if resn_val == target_str or resn_val.startswith(target_str):
+                        is_exact = (resn_val == target_str)
+                        is_insertion_code = (
+                            len(resn_val) > len(target_str) and
+                            resn_val.startswith(target_str) and
+                            resn_val[len(target_str):].isalpha()
+                        )
+                        if is_exact or is_insertion_code:
                             chain_with_target = ch
                             break
 
@@ -387,10 +393,13 @@ def predict_thermompnn_sync(req: ThermoMpnnRequest):
             }
         }
 
+        effective_wt = parsed_wt if (parsed_wt and parsed_wt in ALPHABET) else (wt if (wt and wt in ALPHABET) else 'A')
+        effective_mut = mut if (mut and mut in ALPHABET) else 'A'
+
         mutation_obj = Mutation(
             position=target_seq_idx,
-            wildtype=parsed_wt if parsed_wt in ALPHABET else wt,
-            mutation=mut,
+            wildtype=effective_wt,
+            mutation=effective_mut,
             ddG=None,
             pdb='query_struct'
         )

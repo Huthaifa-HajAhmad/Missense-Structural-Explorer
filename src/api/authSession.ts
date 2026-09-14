@@ -69,6 +69,7 @@ export function useAuthSession() {
     appApiToken, 
     biohubApiToken, 
     hfToken, 
+    tamarindApiKey,
     gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl
@@ -263,6 +264,9 @@ export function useAuthSession() {
         if (hfToken) {
           headers["x-hf-token"] = hfToken;
         }
+        if (tamarindApiKey) {
+          headers["x-tamarind-api-key"] = tamarindApiKey;
+        }
         if (gpnApiUrl) {
           headers["x-gpn-api-url"] = gpnApiUrl;
         }
@@ -335,6 +339,7 @@ export function useAuthSession() {
     appApiToken, 
     biohubApiToken, 
     hfToken, 
+    tamarindApiKey,
     gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,

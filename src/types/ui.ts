@@ -36,6 +36,7 @@ export interface UserSettings {
   appApiToken?: string;
   biohubApiToken?: string;
   hfToken?: string;
+  tamarindApiKey?: string;
   gpnApiUrl?: string;
   alphagenomeApiKey?: string;
   alphagenomeApiUrl?: string;

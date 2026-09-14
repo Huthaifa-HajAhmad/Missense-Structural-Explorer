@@ -186,6 +186,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         appApiToken: transient.appApiToken || "",
         biohubApiToken: transient.biohubApiToken || "",
         hfToken: transient.hfToken || "",
+        tamarindApiKey: transient.tamarindApiKey || "",
         gpnApiUrl: transient.gpnApiUrl || "",
         alphagenomeApiKey: transient.alphagenomeApiKey || "",
         alphagenomeApiUrl: transient.alphagenomeApiUrl || "",

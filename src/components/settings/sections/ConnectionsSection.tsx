@@ -182,55 +182,38 @@ export function ConnectionsSection() {
           }}
           status={tests.alphagenome.status}
         />
+        <SecretInput
+          label="Tamarind Bio API key"
+          placeholder="Enter TAMARIND_API_KEY…"
+          value={settings.tamarindApiKey || ""}
+          onChange={(value) => updateSetting("tamarindApiKey", value)}
+          description="Enables remote cloud execution and fallback for ThermoMPNN biophysical ΔΔG stability predictions on app.tamarind.bio."
+          action={{
+            label: "Test connection",
+            busyLabel: "Testing…",
+            busy: tests.tamarind.testing,
+            disabled: !settings.tamarindApiKey?.trim(),
+            run: () => runTest("tamarind")
+          }}
+          status={tests.tamarind.status}
+        />
         <details className="cs-sub-card px-3 py-2">
           <summary className="cursor-pointer text-[11px] font-medium text-cs-text-secondary select-none">
-            How to obtain a Google DeepMind AlphaGenome Atlas key
+            How to obtain a Tamarind Bio API key
           </summary>
           <p className="mt-2 text-[11px] leading-relaxed text-cs-text-secondary">
-            Visit the{" "}
+            Visit{" "}
             <a
-              href="https://deepmind.google.com/science/alphagenome/atlas"
+              href="https://app.tamarind.bio/settings/api"
               target="_blank"
               rel="noopener noreferrer"
               className="underline font-medium text-cs-accent-clay hover:opacity-80"
             >
-              AlphaGenome Atlas Portal
+              app.tamarind.bio/settings/api
             </a>{" "}
-            to request research access and generate an API key.
+            to create an account and generate an API key for remote biophysical prediction jobs.
           </p>
         </details>
-        <div className="py-2.5 space-y-1">
-          <label htmlFor="alphagenome-api-url" className="block text-[13px] font-medium text-cs-text-primary">
-            AlphaGenome Endpoint URL (optional)
-          </label>
-          <input
-            id="alphagenome-api-url"
-            type="url"
-            className="cs-input text-[12px] font-mono w-full"
-            placeholder="http://127.0.0.1:8000/predict/alphagenome or custom gateway URL"
-            value={settings.alphagenomeApiUrl || ""}
-            onChange={(e) => updateSetting("alphagenomeApiUrl", e.target.value)}
-          />
-          <p className="text-[11px] text-cs-text-muted">
-            Custom AlphaGenome proxy or self-hosted gRPC/REST gateway URL (overrides default DeepMind Atlas endpoint).
-          </p>
-        </div>
-        <div className="py-2.5 space-y-1">
-          <label htmlFor="gpn-api-url" className="block text-[13px] font-medium text-cs-text-primary">
-            Song Lab GPN-Star Endpoint URL (optional)
-          </label>
-          <input
-            id="gpn-api-url"
-            type="url"
-            className="cs-input text-[12px] font-mono w-full"
-            placeholder="http://127.0.0.1:8000/predict/gpn or dedicated HF endpoint URL"
-            value={settings.gpnApiUrl || ""}
-            onChange={(e) => updateSetting("gpnApiUrl", e.target.value)}
-          />
-          <p className="text-[11px] text-cs-text-muted">
-            Dedicated Hugging Face Inference Endpoint or local GPN sidecar (songlab/gpn-msa-sapiens is not served on HF serverless router).
-          </p>
-        </div>
       </SettingsSection>
 
       <SettingsSection title="Server services" hint={loading ? "Checking service readiness…" : undefined}>

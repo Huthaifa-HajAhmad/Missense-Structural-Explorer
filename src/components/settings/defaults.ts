@@ -18,6 +18,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   appApiToken: "",
   biohubApiToken: "",
   hfToken: "",
+  tamarindApiKey: "",
   gpnApiUrl: "",
   alphagenomeApiKey: "",
   alphagenomeApiUrl: "",
@@ -52,6 +53,7 @@ export const TRANSIENT_SETTING_KEYS = [
   "appApiToken",
   "biohubApiToken",
   "hfToken",
+  "tamarindApiKey",
   "gpnApiUrl",
   "alphagenomeApiKey",
   "alphagenomeApiUrl"

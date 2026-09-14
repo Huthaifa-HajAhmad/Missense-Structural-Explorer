@@ -408,15 +408,37 @@ export async function queryAlphaGenomeVariantGrpc(
   });
 }
 
+export const ALPHAGENOME_INTERVAL_CHUNK_SIZE = 32;
+
+export const ALPHAGENOME_LIST_DENSE_FIELD_MASKS = [
+  "interval",
+  "next_page_token",
+  "variant_scores.variant",
+  "variant_scores.scores.variant_scorer",
+  "variant_scores.scores.metadata.gene_scorers",
+  "variant_scores.scores.shape",
+  "variant_scores.scores.scores",
+  "variant_scores.scores.calibrated_scores"
+].join(",");
+
+export function resolveStrandEnum(strand?: string | null): "STRAND_POSITIVE" | "STRAND_NEGATIVE" | "STRAND_UNSTRANDED" {
+  if (strand === "+") return "STRAND_POSITIVE";
+  if (strand === "-") return "STRAND_NEGATIVE";
+  return "STRAND_UNSTRANDED";
+}
+
 /**
  * Queries AlphaGenome Atlas ListDenseVariantScores across a genomic interval.
+ * Automatically partitions the genomic window into <= 32-bp sub-intervals matching DeepMind server constraints,
+ * maps strand enums, attaches field masks, handles pagination, and executes over multiplexed HTTP/2 streams.
  */
 export async function queryAlphaGenomeRegionGrpc(
   params: AlphaGenomeRegionSaturationRequest,
   apiKey: string,
   options?: GrpcQueryOptions
 ): Promise<AlphaGenomeRegionSaturationResponse> {
-  const normChrom = params.chrom.toLowerCase().startsWith("chr") ? params.chrom : `chr${params.chrom}`;
+  const rawChrom = (params.chrom || "").trim().toLowerCase();
+  const normChrom = rawChrom.startsWith("chr") ? rawChrom : `chr${rawChrom}`;
   const locusUrl = `https://deepmind.google.com/science/alphagenome/atlas/locus?interval=${encodeURIComponent(normChrom)}%3A${params.start}-${params.end}`;
 
   if (options?.signal?.aborted) {
@@ -439,193 +461,342 @@ export async function queryAlphaGenomeRegionGrpc(
   const client = getAtlasGrpcClient();
   const metadata = new grpc.Metadata();
   metadata.set("x-goog-api-key", apiKey);
+  metadata.set("x-goog-fieldmask", ALPHAGENOME_LIST_DENSE_FIELD_MASKS);
 
-  const request = {
-    interval: {
-      chromosome: normChrom,
-      start: params.start - 1, // 0-based start
-      end: params.end          // 0-based exclusive end
-    },
-    organism: "ORGANISM_HOMO_SAPIENS",
-    filter: 'scores.variant_scorer.name = "AVI_SCORE" OR scores.variant_scorer.name = "AVI_SCORE_FEATURE_IMPORTANCE"'
-  };
+  const strandEnum = resolveStrandEnum(params.strand);
+  const start0 = Math.max(0, params.start - 1);
+  const end0 = params.end;
+  const totalWidth = end0 - start0;
+
+  if (totalWidth <= 0) {
+    return {
+      status: "unavailable",
+      chrom: normChrom,
+      start: params.start,
+      end: params.end,
+      strand: params.strand || null,
+      transcriptId: params.transcriptId || null,
+      exonNumber: params.exonNumber || null,
+      exonStart: params.exonStart || null,
+      exonEnd: params.exonEnd || null,
+      positions: [],
+      atlasLocusUrl: locusUrl,
+      message: "Invalid genomic interval coordinates: start must be <= end"
+    };
+  }
+
+  // Partition into <= 32-bp sub-intervals (DeepMind Atlas RPC chunk limit)
+  const subIntervals: Array<{ start: number; end: number }> = [];
+  for (let offset = 0; offset < totalWidth; offset += ALPHAGENOME_INTERVAL_CHUNK_SIZE) {
+    subIntervals.push({
+      start: start0 + offset,
+      end: Math.min(start0 + offset + ALPHAGENOME_INTERVAL_CHUNK_SIZE, end0)
+    });
+  }
 
   const timeoutMs = options?.timeoutMs ?? 10000;
   const deadline = new Date(Date.now() + timeoutMs);
 
-  return new Promise<AlphaGenomeRegionSaturationResponse>((resolve, reject) => {
-    let aborted = false;
+  const fetchSubInterval = async (sub: { start: number; end: number }): Promise<any[]> => {
+    const subScores: any[] = [];
+    let pageToken: string | undefined = undefined;
 
-    const call = client.ListDenseVariantScores(
-      request,
-      metadata,
-      { deadline },
-      (err: any, response: any) => {
-        if (aborted) return;
+    while (true) {
+      if (options?.signal?.aborted) {
+        throw new Error("AlphaGenome query was cancelled.");
+      }
 
-        if (err) {
-          const errMsg = err.details || err.message || "Unknown gRPC error";
-          return resolve({
-            status: "unavailable",
-            chrom: normChrom,
-            start: params.start,
-            end: params.end,
-            strand: params.strand || null,
-            transcriptId: params.transcriptId || null,
-            exonNumber: params.exonNumber || null,
-            exonStart: params.exonStart || null,
-            exonEnd: params.exonEnd || null,
-            positions: [],
-            atlasLocusUrl: locusUrl,
-            message: `AlphaGenome interval query failed: ${errMsg}`
-          });
-        }
+      const request: any = {
+        interval: {
+          chromosome: normChrom,
+          start: sub.start,
+          end: sub.end,
+          strand: strandEnum
+        },
+        organism: "ORGANISM_HOMO_SAPIENS",
+        filter: 'scores.variant_scorer.name = "AVI_SCORE" OR scores.variant_scorer.name = "AVI_SCORE_FEATURE_IMPORTANCE"'
+      };
+      if (pageToken) {
+        request.page_token = pageToken;
+      }
 
-        try {
-          const variantScoresList: any[] = response?.variant_scores || [];
-          const positionMap = new Map<number, {
-            ref: "A" | "C" | "G" | "T";
-            variants: Record<string, AlphaGenomeSaturationVariant>;
-          }>();
+      const res: any = await new Promise((resResolve, resReject) => {
+        let callFinished = false;
+        let onAbort: (() => void) | null = null;
 
-          for (const item of variantScoresList) {
-            const v = item?.variant;
-            if (!v || (typeof v.position !== "number" && typeof v.position !== "string")) continue;
+        const cleanupListener = () => {
+          if (onAbort && options?.signal) {
+            options.signal.removeEventListener("abort", onAbort);
+            onAbort = null;
+          }
+        };
 
-            const pos = Number(v.position);
-            if (isNaN(pos) || pos <= 0) continue;
+        const call = client.ListDenseVariantScores(
+          request,
+          metadata,
+          { deadline },
+          (err: any, response: any) => {
+            callFinished = true;
+            cleanupListener();
+            if (err) return resReject(err);
+            resResolve(response);
+          }
+        );
 
-            const refBase = (v.reference_bases || "").toUpperCase() as "A" | "C" | "G" | "T";
-            const altBase = (v.alternate_bases || "").toUpperCase() as "A" | "C" | "G" | "T";
-
-            if (!["A", "C", "G", "T"].includes(refBase) || !["A", "C", "G", "T"].includes(altBase)) {
-              continue;
+        if (options?.signal) {
+          onAbort = () => {
+            if (!callFinished) {
+              try { call.cancel(); } catch {}
+              resReject(new Error("AlphaGenome query was cancelled."));
             }
+          };
+          options.signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
 
-            let phred: number | null = null;
-            let raw: number | null = null;
-            let topModality: string | null = null;
+      const list = res?.variant_scores || [];
+      subScores.push(...list);
 
-            for (const score of item.scores || []) {
-              const scorerName = score?.variant_scorer?.name;
-              if (scorerName === "AVI_SCORE") {
-                if (score.scores?.length >= 4) {
-                  const r = readFloat32Array(score.scores);
-                  if (r.length > 0 && !isNaN(r[0])) raw = Number(r[0].toFixed(4));
-                }
-                if (score.calibrated_scores?.length >= 4) {
-                  const c = readFloat32Array(score.calibrated_scores);
-                  if (c.length > 0 && !isNaN(c[0])) {
-                    const { phred: p } = cdfToPhred(c[0]);
-                    phred = Number(p.toFixed(3));
-                  }
-                }
-              } else if (scorerName === "AVI_SCORE_FEATURE_IMPORTANCE") {
-                if (score.scores?.length >= 4) {
-                  const fiFloats = readFloat32Array(score.scores);
-                  let maxAbs = -1;
-                  for (let i = 0; i < fiFloats.length; i++) {
-                    const abs = Math.abs(fiFloats[i]);
-                    if (abs > maxAbs) {
-                      maxAbs = abs;
-                      const rawKey = AVI_FEATURE_KEYS[i] || `MODALITY_${i + 1}`;
-                      topModality = AVI_FEATURE_DISPLAY_MAP[rawKey] || rawKey;
-                    }
-                  }
-                }
+      if (!res?.next_page_token) {
+        break;
+      }
+      pageToken = res.next_page_token;
+    }
+
+    return subScores;
+  };
+
+  try {
+    const allVariantScores: any[] = [];
+    const MAX_WORKERS = 10;
+    const queue = [...subIntervals];
+    const workers: Promise<void>[] = [];
+
+    for (let i = 0; i < Math.min(MAX_WORKERS, queue.length); i++) {
+      workers.push(
+        (async () => {
+          while (queue.length > 0) {
+            const nextSub = queue.shift();
+            if (!nextSub) break;
+            const scores = await fetchSubInterval(nextSub);
+            allVariantScores.push(...scores);
+          }
+        })()
+      );
+    }
+
+    await Promise.all(workers);
+
+    const positionMap = new Map<number, {
+      ref: "A" | "C" | "G" | "T";
+      variants: Record<string, AlphaGenomeSaturationVariant>;
+    }>();
+
+    for (const item of allVariantScores) {
+      const v = item?.variant;
+      if (!v || (typeof v.position !== "number" && typeof v.position !== "string")) continue;
+
+      const pos = Number(v.position);
+      if (isNaN(pos) || pos <= 0) continue;
+
+      const refBase = (v.reference_bases || "").toUpperCase() as "A" | "C" | "G" | "T";
+      const altBase = (v.alternate_bases || "").toUpperCase() as "A" | "C" | "G" | "T";
+
+      if (!["A", "C", "G", "T"].includes(refBase) || !["A", "C", "G", "T"].includes(altBase)) {
+        continue;
+      }
+
+      let phred: number | null = null;
+      let raw: number | null = null;
+      let topModality: string | null = null;
+
+      for (const score of item.scores || []) {
+        const scorerName = score?.variant_scorer?.name;
+        if (scorerName === "AVI_SCORE") {
+          if (score.scores?.length >= 4) {
+            const r = readFloat32Array(score.scores);
+            if (r.length > 0 && !isNaN(r[0])) raw = Number(r[0].toFixed(4));
+          }
+          if (score.calibrated_scores?.length >= 4) {
+            const c = readFloat32Array(score.calibrated_scores);
+            if (c.length > 0 && !isNaN(c[0])) {
+              const { phred: p } = cdfToPhred(c[0]);
+              phred = Number(p.toFixed(3));
+            }
+          }
+        } else if (scorerName === "AVI_SCORE_FEATURE_IMPORTANCE") {
+          if (score.scores?.length >= 4) {
+            const fiFloats = readFloat32Array(score.scores);
+            let maxAbs = -1;
+            for (let i = 0; i < fiFloats.length; i++) {
+              const abs = Math.abs(fiFloats[i]);
+              if (abs > maxAbs) {
+                maxAbs = abs;
+                const rawKey = AVI_FEATURE_KEYS[i] || `MODALITY_${i + 1}`;
+                topModality = AVI_FEATURE_DISPLAY_MAP[rawKey] || rawKey;
               }
             }
-
-            if (!positionMap.has(pos)) {
-              positionMap.set(pos, { ref: refBase, variants: {} });
-            }
-
-            const acmgStrength = calculateAlphaGenomeAcmgStrength(phred);
-            positionMap.get(pos)!.variants[altBase] = {
-              alt: altBase,
-              phred,
-              raw,
-              acmgStrength,
-              topModality
-            };
           }
-
-          const positions: AlphaGenomeSaturationPosition[] = [];
-          for (const [pos, data] of Array.from(positionMap.entries()).sort((a, b) => a[0] - b[0])) {
-            const variantValues = Object.values(data.variants);
-            const phreds = variantValues.map((v) => v.phred).filter((p): p is number => p !== null && !isNaN(p));
-            const meanPhred = phreds.length > 0 ? Number((phreds.reduce((a, b) => a + b, 0) / phreds.length).toFixed(3)) : null;
-            const maxPhred = phreds.length > 0 ? Number(Math.max(...phreds).toFixed(3)) : null;
-
-            // Pick the topModality corresponding to the variant with maxPhred
-            let dominantModality: string | null = null;
-            if (maxPhred !== null) {
-              const dominantVariant = variantValues.find((v) => v.phred === maxPhred && v.topModality);
-              dominantModality = dominantVariant?.topModality || variantValues.find((v) => v.topModality)?.topModality || null;
-            }
-
-            const isExonic = Boolean(
-              params.exonStart && params.exonEnd
-                ? pos >= params.exonStart && pos <= params.exonEnd
-                : true
-            );
-
-            positions.push({
-              pos,
-              ref: data.ref,
-              isExonic,
-              variants: data.variants,
-              meanPhred,
-              maxPhred,
-              topModality: dominantModality
-            });
-          }
-
-          resolve({
-            status: "live",
-            chrom: normChrom,
-            start: params.start,
-            end: params.end,
-            strand: params.strand || null,
-            transcriptId: params.transcriptId || null,
-            exonNumber: params.exonNumber || null,
-            exonStart: params.exonStart || null,
-            exonEnd: params.exonEnd || null,
-            positions,
-            atlasLocusUrl: locusUrl,
-            message: null
-          });
-        } catch (parseErr: any) {
-          reject(new Error(`Failed to parse AlphaGenome region response: ${parseErr.message}`));
         }
       }
-    );
 
-    if (options?.signal) {
-      options.signal.addEventListener("abort", () => {
-        aborted = true;
-        try {
-          call.cancel();
-        } catch {
-          // ignore
-        }
-        resolve({
-          status: "unavailable",
-          chrom: normChrom,
-          start: params.start,
-          end: params.end,
-          strand: params.strand || null,
-          transcriptId: params.transcriptId || null,
-          exonNumber: params.exonNumber || null,
-          exonStart: params.exonStart || null,
-          exonEnd: params.exonEnd || null,
-          positions: [],
-          atlasLocusUrl: locusUrl,
-          message: "AlphaGenome interval query was cancelled."
-        });
-      }, { once: true });
+      if (!positionMap.has(pos)) {
+        positionMap.set(pos, { ref: refBase, variants: {} });
+      }
+
+      const acmgStrength = calculateAlphaGenomeAcmgStrength(phred);
+      positionMap.get(pos)!.variants[altBase] = {
+        alt: altBase,
+        phred,
+        raw,
+        acmgStrength,
+        topModality
+      };
     }
-  });
+
+    const positions: AlphaGenomeSaturationPosition[] = [];
+    for (const [pos, data] of Array.from(positionMap.entries()).sort((a, b) => a[0] - b[0])) {
+      const variantValues = Object.values(data.variants);
+      const phreds = variantValues
+        .map((v) => v.phred)
+        .filter((p): p is number => p !== null && !isNaN(p) && p >= 0);
+      const meanPhred = phreds.length > 0 ? Number((phreds.reduce((a, b) => a + b, 0) / phreds.length).toFixed(3)) : null;
+      const maxPhred = phreds.length > 0 ? Number(Math.max(...phreds).toFixed(3)) : null;
+
+      let dominantModality: string | null = null;
+      if (maxPhred !== null) {
+        const dominantVariant = variantValues.find((v) => v.phred === maxPhred && v.topModality);
+        dominantModality = dominantVariant?.topModality || variantValues.find((v) => v.topModality)?.topModality || null;
+      }
+
+      const isExonic = Boolean(
+        params.exonStart && params.exonEnd
+          ? pos >= params.exonStart && pos <= params.exonEnd
+          : true
+      );
+
+      positions.push({
+        pos,
+        ref: data.ref,
+        isExonic,
+        variants: data.variants,
+        meanPhred,
+        maxPhred,
+        topModality: dominantModality
+      });
+    }
+
+    return {
+      status: "live",
+      chrom: normChrom,
+      start: params.start,
+      end: params.end,
+      strand: params.strand || null,
+      transcriptId: params.transcriptId || null,
+      exonNumber: params.exonNumber || null,
+      exonStart: params.exonStart || null,
+      exonEnd: params.exonEnd || null,
+      positions,
+      atlasLocusUrl: locusUrl,
+      message: null
+    };
+  } catch (err: any) {
+    const errMsg = err.details || err.message || "Unknown gRPC error";
+    if (errMsg.includes("cancelled") || options?.signal?.aborted) {
+      return {
+        status: "unavailable",
+        chrom: normChrom,
+        start: params.start,
+        end: params.end,
+        strand: params.strand || null,
+        transcriptId: params.transcriptId || null,
+        exonNumber: params.exonNumber || null,
+        exonStart: params.exonStart || null,
+        exonEnd: params.exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "AlphaGenome query was cancelled."
+      };
+    }
+    if (err.code === grpc.status.UNAUTHENTICATED) {
+      return {
+        status: "unavailable",
+        chrom: normChrom,
+        start: params.start,
+        end: params.end,
+        strand: params.strand || null,
+        transcriptId: params.transcriptId || null,
+        exonNumber: params.exonNumber || null,
+        exonStart: params.exonStart || null,
+        exonEnd: params.exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "AlphaGenome API Key is invalid or expired."
+      };
+    }
+    if (err.code === grpc.status.PERMISSION_DENIED) {
+      return {
+        status: "unavailable",
+        chrom: normChrom,
+        start: params.start,
+        end: params.end,
+        strand: params.strand || null,
+        transcriptId: params.transcriptId || null,
+        exonNumber: params.exonNumber || null,
+        exonStart: params.exonStart || null,
+        exonEnd: params.exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "AlphaGenome API Key lacks permission to query Atlas."
+      };
+    }
+    if (err.code === grpc.status.DEADLINE_EXCEEDED) {
+      return {
+        status: "unavailable",
+        chrom: normChrom,
+        start: params.start,
+        end: params.end,
+        strand: params.strand || null,
+        transcriptId: params.transcriptId || null,
+        exonNumber: params.exonNumber || null,
+        exonStart: params.exonStart || null,
+        exonEnd: params.exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "AlphaGenome Atlas query timed out."
+      };
+    }
+    if (err.code === grpc.status.NOT_FOUND) {
+      return {
+        status: "unavailable",
+        chrom: normChrom,
+        start: params.start,
+        end: params.end,
+        strand: params.strand || null,
+        transcriptId: params.transcriptId || null,
+        exonNumber: params.exonNumber || null,
+        exonStart: params.exonStart || null,
+        exonEnd: params.exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "Region not indexed in AlphaGenome Atlas."
+      };
+    }
+    return {
+      status: "unavailable",
+      chrom: normChrom,
+      start: params.start,
+      end: params.end,
+      strand: params.strand || null,
+      transcriptId: params.transcriptId || null,
+      exonNumber: params.exonNumber || null,
+      exonStart: params.exonStart || null,
+      exonEnd: params.exonEnd || null,
+      positions: [],
+      atlasLocusUrl: locusUrl,
+      message: `AlphaGenome interval query failed: ${errMsg}`
+    };
+  }
 }
 
 /**

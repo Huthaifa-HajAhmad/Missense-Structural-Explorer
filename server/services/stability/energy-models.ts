@@ -250,7 +250,8 @@ export async function testTamarindConnection(apiKey?: string): Promise<{ valid: 
     const res = await fetch("https://app.tamarind.bio/api/tools", {
       headers: {
         "x-api-key": keyToUse
-      }
+      },
+      signal: AbortSignal.timeout(10000)
     });
     if (res.ok) {
       return { valid: true, message: "Connection to Tamarind Bio API verified successfully." };
@@ -279,8 +280,11 @@ export async function submitThermoMpnnJob(
   }
 
   let chain = "A";
+  const colonMatch = mutation.match(/^([a-zA-Z]):([a-zA-Z])\d+[a-zA-Z]$/);
   const fourPartMatch = mutation.match(/^[a-zA-Z]([a-zA-Z])\d+[a-zA-Z]$/);
-  if (fourPartMatch) {
+  if (colonMatch) {
+    chain = colonMatch[1].toUpperCase();
+  } else if (fourPartMatch) {
     chain = fourPartMatch[1].toUpperCase();
   }
 
@@ -325,12 +329,14 @@ export async function submitThermoMpnnJob(
         if (!keyToUse) {
           return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN in standby: ${detail}` };
         }
+        console.log(`[ThermoMPNN] Local sidecar in standby (${detail}). Attempting remote Tamarind Bio cloud fallback...`);
       }
     } catch (localErr: any) {
       console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
       if (!keyToUse) {
         return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN sidecar in standby: ${localErr.message}` };
       }
+      console.log(`[ThermoMPNN] Local sidecar unavailable (${localErr.message}). Attempting remote Tamarind Bio cloud fallback...`);
     }
   }
 
@@ -422,7 +428,7 @@ export async function pollThermoMpnnJob(
   }
 
   try {
-    const response = await fetch(`https://app.tamarind.bio/api/jobs?jobName=${jobId}`, {
+    const response = await fetch(`https://app.tamarind.bio/api/jobs?jobName=${encodeURIComponent(jobId)}`, {
       headers: {
         "x-api-key": keyToUse
       },

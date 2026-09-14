@@ -213,7 +213,7 @@ describe("AlphaGenome Native gRPC Client Tests", () => {
   });
 
   describe("queryAlphaGenomeRegionGrpc", () => {
-    it("should parse string positions, calculate isExonic bounds, and pick dominant modality", async () => {
+    it("should partition intervals into 32-bp chunks, attach field masks, map strand, and assemble positions", async () => {
       // Create raw float32 buffer for calibrated score (0.999 => phred 30.0)
       const calBuf = Buffer.alloc(4);
       calBuf.writeFloatLE(0.999, 0);
@@ -223,44 +223,61 @@ describe("AlphaGenome Native gRPC Client Tests", () => {
       fiBuf.writeFloatLE(0.1, 0); // MERGED_SPLICING
       fiBuf.writeFloatLE(0.98, 10 * 4); // ALPHAMISSENSE (index 10 in AVI_FEATURE_KEYS)
 
-      const mockResponse = {
-        variant_scores: [
-          {
-            variant: {
-              position: "100", // String from protobuf int64
-              reference_bases: "A",
-              alternate_bases: "T"
-            },
-            scores: [
-              {
-                variant_scorer: { name: "AVI_SCORE" },
-                calibrated_scores: calBuf
-              },
-              {
-                variant_scorer: { name: "AVI_SCORE_FEATURE_IMPORTANCE" },
-                scores: fiBuf
-              }
-            ]
-          },
-          {
-            variant: {
-              position: "150", // Outside exonStart (100) - exonEnd (120)
-              reference_bases: "C",
-              alternate_bases: "G"
-            },
-            scores: [
-              {
-                variant_scorer: { name: "AVI_SCORE" },
-                calibrated_scores: calBuf
-              }
-            ]
-          }
-        ]
-      };
+      const capturedRequests: any[] = [];
+      const capturedMetadata: any[] = [];
 
       const mockClient = {
         ListDenseVariantScores: vi.fn((req, md, opts, callback) => {
-          callback(null, mockResponse);
+          capturedRequests.push(req);
+          capturedMetadata.push(md);
+
+          // Return pos 100 in the first chunk, pos 150 in the second chunk
+          const isFirstChunk = req.interval.start === 89;
+          const isSecondChunk = req.interval.start === 121;
+
+          if (isFirstChunk) {
+            callback(null, {
+              variant_scores: [
+                {
+                  variant: {
+                    position: "100",
+                    reference_bases: "A",
+                    alternate_bases: "T"
+                  },
+                  scores: [
+                    {
+                      variant_scorer: { name: "AVI_SCORE" },
+                      calibrated_scores: calBuf
+                    },
+                    {
+                      variant_scorer: { name: "AVI_SCORE_FEATURE_IMPORTANCE" },
+                      scores: fiBuf
+                    }
+                  ]
+                }
+              ]
+            });
+          } else if (isSecondChunk) {
+            callback(null, {
+              variant_scores: [
+                {
+                  variant: {
+                    position: "150",
+                    reference_bases: "C",
+                    alternate_bases: "G"
+                  },
+                  scores: [
+                    {
+                      variant_scorer: { name: "AVI_SCORE" },
+                      calibrated_scores: calBuf
+                    }
+                  ]
+                }
+              ]
+            });
+          } else {
+            callback(null, { variant_scores: [] });
+          }
         })
       };
 
@@ -270,14 +287,26 @@ describe("AlphaGenome Native gRPC Client Tests", () => {
         {
           chrom: "chr1",
           start: 90,
-          end: 160,
+          end: 160, // 160 - 89 = 71 bp -> 3 chunks: [89..121), [121..153), [153..160)
+          strand: "+",
           exonStart: 100,
           exonEnd: 120
         },
         "test-key"
       );
 
-      expect(mockClient.ListDenseVariantScores).toHaveBeenCalledOnce();
+      // Verify 32-bp chunking (71 bp / 32 = 3 calls)
+      expect(mockClient.ListDenseVariantScores).toHaveBeenCalledTimes(3);
+      expect(capturedRequests[0].interval.start).toBe(89);
+      expect(capturedRequests[0].interval.end).toBe(121);
+      expect(capturedRequests[0].interval.strand).toBe("STRAND_POSITIVE");
+      expect(capturedRequests[0].organism).toBe("ORGANISM_HOMO_SAPIENS");
+
+      // Verify field mask header
+      const md = capturedMetadata[0];
+      expect(md.get("x-goog-api-key")).toEqual(["test-key"]);
+      expect(md.get("x-goog-fieldmask")[0]).toContain("variant_scores.scores.calibrated_scores");
+
       expect(res.status).toBe("live");
       expect(res.positions.length).toBe(2);
 
@@ -292,6 +321,51 @@ describe("AlphaGenome Native gRPC Client Tests", () => {
       const pos150 = res.positions.find((p) => p.pos === 150);
       expect(pos150).toBeDefined();
       expect(pos150?.isExonic).toBe(false);
+    });
+
+    it("should handle pagination with next_page_token", async () => {
+      let callCount = 0;
+      const mockClient = {
+        ListDenseVariantScores: vi.fn((req, md, opts, callback) => {
+          callCount++;
+          if (callCount === 1) {
+            callback(null, {
+              next_page_token: "page_token_2",
+              variant_scores: [
+                {
+                  variant: { position: "100", reference_bases: "A", alternate_bases: "T" },
+                  scores: []
+                }
+              ]
+            });
+          } else {
+            callback(null, {
+              next_page_token: null,
+              variant_scores: [
+                {
+                  variant: { position: "101", reference_bases: "G", alternate_bases: "C" },
+                  scores: []
+                }
+              ]
+            });
+          }
+        })
+      };
+
+      setAtlasGrpcClientFactory(() => mockClient);
+
+      const res = await queryAlphaGenomeRegionGrpc(
+        {
+          chrom: "chr1",
+          start: 100,
+          end: 110
+        },
+        "test-key"
+      );
+
+      expect(mockClient.ListDenseVariantScores).toHaveBeenCalledTimes(2);
+      expect(res.status).toBe("live");
+      expect(res.positions.length).toBe(2);
     });
 
     it("should immediately return unavailable when signal is pre-aborted", async () => {
@@ -310,6 +384,88 @@ describe("AlphaGenome Native gRPC Client Tests", () => {
 
       expect(res.status).toBe("unavailable");
       expect(res.message).toContain("cancelled");
+    });
+
+    it("should return unavailable for inverted coordinates (start > end)", async () => {
+      const res = await queryAlphaGenomeRegionGrpc(
+        {
+          chrom: "chr1",
+          start: 200,
+          end: 100
+        },
+        "test-key"
+      );
+
+      expect(res.status).toBe("unavailable");
+      expect(res.message).toContain("start must be <= end");
+      expect(res.positions).toEqual([]);
+    });
+
+    it("should correctly resolve negative strand and unstranded enums", async () => {
+      const capturedRequests: any[] = [];
+      const mockClient = {
+        ListDenseVariantScores: vi.fn((req, md, opts, callback) => {
+          capturedRequests.push(req);
+          callback(null, { variant_scores: [] });
+        })
+      };
+      setAtlasGrpcClientFactory(() => mockClient);
+
+      // Negative strand
+      await queryAlphaGenomeRegionGrpc(
+        { chrom: "chr1", start: 100, end: 110, strand: "-" },
+        "test-key"
+      );
+      expect(capturedRequests[0].interval.strand).toBe("STRAND_NEGATIVE");
+
+      // Unstranded
+      await queryAlphaGenomeRegionGrpc(
+        { chrom: "chr1", start: 100, end: 110 },
+        "test-key"
+      );
+      expect(capturedRequests[1].interval.strand).toBe("STRAND_UNSTRANDED");
+    });
+
+    it("should handle gRPC status codes gracefully (UNAUTHENTICATED, PERMISSION_DENIED, DEADLINE_EXCEEDED, NOT_FOUND)", async () => {
+      // UNAUTHENTICATED
+      setAtlasGrpcClientFactory(() => ({
+        ListDenseVariantScores: vi.fn((req, md, opts, cb) => {
+          cb({ code: grpc.status.UNAUTHENTICATED, message: "Unauthenticated" });
+        })
+      }));
+      const resUnauth = await queryAlphaGenomeRegionGrpc({ chrom: "chr1", start: 100, end: 110 }, "test-key");
+      expect(resUnauth.status).toBe("unavailable");
+      expect(resUnauth.message).toContain("invalid or expired");
+
+      // PERMISSION_DENIED
+      setAtlasGrpcClientFactory(() => ({
+        ListDenseVariantScores: vi.fn((req, md, opts, cb) => {
+          cb({ code: grpc.status.PERMISSION_DENIED, message: "Permission denied" });
+        })
+      }));
+      const resPerm = await queryAlphaGenomeRegionGrpc({ chrom: "chr1", start: 100, end: 110 }, "test-key");
+      expect(resPerm.status).toBe("unavailable");
+      expect(resPerm.message).toContain("lacks permission");
+
+      // DEADLINE_EXCEEDED
+      setAtlasGrpcClientFactory(() => ({
+        ListDenseVariantScores: vi.fn((req, md, opts, cb) => {
+          cb({ code: grpc.status.DEADLINE_EXCEEDED, message: "Deadline exceeded" });
+        })
+      }));
+      const resTimeout = await queryAlphaGenomeRegionGrpc({ chrom: "chr1", start: 100, end: 110 }, "test-key");
+      expect(resTimeout.status).toBe("unavailable");
+      expect(resTimeout.message).toContain("timed out");
+
+      // NOT_FOUND
+      setAtlasGrpcClientFactory(() => ({
+        ListDenseVariantScores: vi.fn((req, md, opts, cb) => {
+          cb({ code: grpc.status.NOT_FOUND, message: "Not found" });
+        })
+      }));
+      const resNotFound = await queryAlphaGenomeRegionGrpc({ chrom: "chr1", start: 100, end: 110 }, "test-key");
+      expect(resNotFound.status).toBe("unavailable");
+      expect(resNotFound.message).toContain("not indexed");
     });
   });
 });

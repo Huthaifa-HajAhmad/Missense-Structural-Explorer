@@ -187,4 +187,52 @@ describe("BioSig Polling Engine (server/services/dynamut.ts)", () => {
       .rejects.toThrow("BioSig request timed out after 50ms");
     expect(mockReq.destroy).toHaveBeenCalled();
   });
+
+  it("cropPdbWindowAroundMutation crops large structures around target residue and keeps residue numbering", async () => {
+    const { cropPdbWindowAroundMutation } = await import("./dynamut.ts");
+    // Generate a synthetic PDB with 1600 residues
+    const lines: string[] = ["HEADER    TEST"];
+    for (let i = 1; i <= 1600; i++) {
+      const resSeqStr = String(i).padStart(4, " ");
+      lines.push(`ATOM   ${String(i).padStart(4, " ")}  CA  ALA A${resSeqStr}       1.000   1.000   1.000  1.00 20.00           C`);
+    }
+    lines.push("END");
+    const syntheticPdb = lines.join("\n");
+
+    const cropped = cropPdbWindowAroundMutation(syntheticPdb, "A", 408, 750);
+    const caLines = cropped.match(/^ATOM\s+.*?CA\s+/gm) || [];
+    expect(caLines.length).toBeLessThanOrEqual(751);
+    expect(caLines.length).toBeGreaterThanOrEqual(700);
+
+    // Verify target residue 408 is present in the cropped output
+    expect(cropped).toContain("ALA A 408");
+    expect(cropped).toContain("TER");
+    expect(cropped).toContain("END");
+  });
+
+  it("cropPdbWindowAroundMutation handles blank chain whitespace in PDB line", async () => {
+    const { cropPdbWindowAroundMutation } = await import("./dynamut.ts");
+    const lines: string[] = ["HEADER    TEST_BLANK_CHAIN"];
+    for (let i = 1; i <= 1600; i++) {
+      const resSeqStr = String(i).padStart(4, " ");
+      // Blank chain in column 22 (index 21)
+      lines.push(`ATOM   ${String(i).padStart(4, " ")}  CA  ALA  ${resSeqStr}       1.000   1.000   1.000  1.00 20.00           C`);
+    }
+    lines.push("END");
+    const syntheticPdb = lines.join("\n");
+
+    const cropped = cropPdbWindowAroundMutation(syntheticPdb, "A", 408, 750);
+    expect(cropped).toContain("ALA   408");
+    const caLines = cropped.match(/^ATOM\s+.*?CA\s+/gm) || [];
+    expect(caLines.length).toBeLessThanOrEqual(751);
+    expect(caLines.length).toBeGreaterThanOrEqual(700);
+  });
+
+  it("cropPdbWindowAroundMutation returns original PDB if target residue is not found", async () => {
+    const { cropPdbWindowAroundMutation } = await import("./dynamut.ts");
+    const syntheticPdb = "HEADER TEST\nATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND";
+    const cropped = cropPdbWindowAroundMutation(syntheticPdb, "A", 999, 750);
+    expect(cropped).toBe(syntheticPdb);
+  });
 });
+
