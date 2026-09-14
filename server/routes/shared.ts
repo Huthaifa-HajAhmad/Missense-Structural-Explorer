@@ -80,11 +80,17 @@ export interface RegistryJob {
   type: "dynamut2" | "ddmut" | "thermompnn";
   mutation: string;
   timestamp: string;
+  foldxCacheKey?: string;
 }
 
 export const REGISTRY_PATH = path.join(process.cwd(), "temp_jobs", "job_registry.json");
 
-export async function recordJobInRegistry(jobId: string, type: "dynamut2" | "ddmut" | "thermompnn", mutation: string) {
+export async function recordJobInRegistry(
+  jobId: string,
+  type: "dynamut2" | "ddmut" | "thermompnn",
+  mutation: string,
+  foldxCacheKey?: string
+) {
   try {
     let registry: RegistryJob[] = [];
     if (fs.existsSync(REGISTRY_PATH)) {
@@ -97,6 +103,7 @@ export async function recordJobInRegistry(jobId: string, type: "dynamut2" | "ddm
       jobId,
       type,
       mutation,
+      foldxCacheKey,
       timestamp: new Date().toISOString()
     });
     if (registry.length > 1000) {

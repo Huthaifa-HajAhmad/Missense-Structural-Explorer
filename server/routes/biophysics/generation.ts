@@ -53,7 +53,18 @@ const generateMutantSchema = z.object({
   ionicStrength: z.union([z.number(), z.string()]).optional()
 });
 
-const activeFoldxJobs = new Map<string, string>();
+export const activeFoldxJobs = new Map<string, string>();
+
+export interface InFlightSubmissions {
+  dynamut2Promise?: Promise<string | null>;
+  ddmutPromise?: Promise<string | null>;
+}
+export const inFlightRemoteSubmissions = new Map<string, InFlightSubmissions>();
+
+export function clearInFlightRemoteSubmissions(): void {
+  inFlightRemoteSubmissions.clear();
+  activeFoldxJobs.clear();
+}
 
 export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any): void {
 
@@ -436,16 +447,61 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let tmPromise = Promise.resolve();
         let stabilityOraclePromise = Promise.resolve();
 
-        if (!cachedFoldx && !isExistingActiveJob) {
-          const backgroundRemoteSignal = AbortSignal.timeout(180000);
-          const cleanedRemotePdb = cleanPdbForFoldX(effectiveWtPdb);
+        const existingDynamut2 = cachedFoldx?.energetics?.dynamut2;
+        const needDynamut2 = !isExistingActiveJob && (typeof existingDynamut2 !== "number");
 
-          d2Promise = submitDynaMut2Job(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
+        const existingDdmut = cachedFoldx?.energetics?.ddmut;
+        const needDdmut = !isExistingActiveJob && (typeof existingDdmut !== "number");
+
+        const existingThermompnn = cachedFoldx?.energetics?.thermompnn;
+        const needThermompnn = !isExistingActiveJob && (typeof existingThermompnn !== "number");
+
+        const existingStabilityoracle = cachedFoldx?.energetics?.stabilityoracle;
+        const needStabilityoracle = !isExistingActiveJob && (typeof existingStabilityoracle !== "number");
+
+        if (typeof existingDynamut2 === "number") {
+          dynamut2Status = "done";
+        }
+        if (typeof existingDdmut === "number") {
+          ddmutStatus = "done";
+        }
+        if (typeof existingThermompnn === "number") {
+          thermompnnVal = existingThermompnn;
+          thermompnnStatus = "done";
+        }
+        if (typeof existingStabilityoracle === "number") {
+          stabilityoracleVal = existingStabilityoracle;
+        }
+
+        const backgroundRemoteSignal = AbortSignal.timeout(180000);
+        const cleanedRemotePdb = cleanPdbForFoldX(effectiveWtPdb);
+
+        if (needDynamut2) {
+          dynamut2Status = "pending";
+          let inFlight = inFlightRemoteSubmissions.get(foldxCacheKey);
+          if (!inFlight) {
+            inFlight = {};
+            inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
+          }
+          if (!inFlight.dynamut2Promise) {
+            inFlight.dynamut2Promise = submitDynaMut2Job(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal)
+              .finally(() => {
+                setTimeout(() => {
+                  const current = inFlightRemoteSubmissions.get(foldxCacheKey);
+                  if (current) delete current.dynamut2Promise;
+                  if (current && !current.dynamut2Promise && !current.ddmutPromise) {
+                    inFlightRemoteSubmissions.delete(foldxCacheKey);
+                  }
+                }, 60000);
+              });
+          }
+
+          d2Promise = inFlight.dynamut2Promise
             .then(async (id) => {
               if (id) {
                 dynamut2JobId = id;
                 dynamut2Status = "pending";
-                await recordJobInRegistry(id, "dynamut2", actualMutation);
+                await recordJobInRegistry(id, "dynamut2", actualMutation, foldxCacheKey);
               } else {
                 dynamut2Status = "unavailable";
               }
@@ -456,17 +512,37 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               dynamut2Status = "unavailable";
               await updateQueueJobRemoteData({ dynamut2Status });
             });
+        }
 
-          // Stagger DDMut submission slightly (350ms) to avoid instantaneous host lock / rate limit collision on biosig.lab.uq.edu.au
-          ddmutPromise = (async () => {
-            await new Promise(r => setTimeout(r, 350));
-            return submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal);
-          })()
+        if (needDdmut) {
+          ddmutStatus = "pending";
+          let inFlight = inFlightRemoteSubmissions.get(foldxCacheKey);
+          if (!inFlight) {
+            inFlight = {};
+            inFlightRemoteSubmissions.set(foldxCacheKey, inFlight);
+          }
+          if (!inFlight.ddmutPromise) {
+            // Stagger DDMut submission slightly (350ms) to avoid instantaneous host lock / rate limit collision on biosig.lab.uq.edu.au
+            inFlight.ddmutPromise = (async () => {
+              await new Promise(r => setTimeout(r, 350));
+              return submitDdmutJob(cleanedRemotePdb, resolvedChainUpper, posNum, wtLetter, mutLetter, backgroundRemoteSignal);
+            })().finally(() => {
+              setTimeout(() => {
+                const current = inFlightRemoteSubmissions.get(foldxCacheKey);
+                if (current) delete current.ddmutPromise;
+                if (current && !current.dynamut2Promise && !current.ddmutPromise) {
+                  inFlightRemoteSubmissions.delete(foldxCacheKey);
+                }
+              }, 60000);
+            });
+          }
+
+          ddmutPromise = inFlight.ddmutPromise
             .then(async (id) => {
               if (id) {
                 ddmutJobId = id;
                 ddmutStatus = "pending";
-                await recordJobInRegistry(id, "ddmut", actualMutation);
+                await recordJobInRegistry(id, "ddmut", actualMutation, foldxCacheKey);
               } else {
                 ddmutStatus = "unavailable";
               }
@@ -477,7 +553,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               ddmutStatus = "unavailable";
               await updateQueueJobRemoteData({ ddmutStatus });
             });
+        }
 
+        if (needThermompnn) {
+          thermompnnStatus = "pending";
           tmPromise = submitThermoMpnnJob(cleanedRemotePdb, actualMutation, tamarindApiKey, backgroundRemoteSignal)
             .then(async (resObj) => {
               if (resObj.status === "done" && resObj.prediction !== null) {
@@ -486,7 +565,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               } else if (resObj.jobId && resObj.status === "pending") {
                 thermompnnJobId = resObj.jobId;
                 thermompnnStatus = "pending";
-                await recordJobInRegistry(resObj.jobId, "thermompnn", actualMutation);
+                await recordJobInRegistry(resObj.jobId, "thermompnn", actualMutation, foldxCacheKey);
               } else if (resObj.status === "error") {
                 thermompnnStatus = "error";
                 thermompnnError = resObj.error || "ThermoMPNN API submission error";
@@ -509,15 +588,19 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 thermompnnError
               });
             });
+        }
 
-          const sequence = await fetchUniprotSequence(uniprotId).catch(() => "");
-          stabilityOraclePromise = runStabilityOracleAnalysis(
-            "UNKNOWN",
-            `${wtLetter}${posNum}${mutLetter}`,
-            uniprotId,
-            sequence,
-            effectiveWtPdb
-          )
+        if (needStabilityoracle) {
+          stabilityOraclePromise = (async () => {
+            const sequence = await fetchUniprotSequence(uniprotId).catch(() => "");
+            return runStabilityOracleAnalysis(
+              "UNKNOWN",
+              `${wtLetter}${posNum}${mutLetter}`,
+              uniprotId,
+              sequence,
+              effectiveWtPdb
+            );
+          })()
             .then(async (resObj) => {
               if (resObj) {
                 stabilityoracleVal = resObj.ddG;
@@ -584,11 +667,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             }
           }
 
+          let finalDynamut2Val = typeof existingDynamut2 === "number" ? existingDynamut2 : null;
+          let finalDdmutVal = typeof existingDdmut === "number" ? existingDdmut : null;
+
           const enriched = enrichBiophysicalResult(cachedFoldx, {
             dynamut2JobId,
             dynamut2Status,
+            dynamut2Val: finalDynamut2Val,
             ddmutJobId,
             ddmutStatus,
+            ddmutVal: finalDdmutVal,
             thermompnnJobId,
             thermompnnStatus,
             thermompnnError,

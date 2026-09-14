@@ -6,10 +6,12 @@ import { getNearestResidues } from "../../src/shared/nearestResidues.ts";
 import { clearAllCaches } from "../services/cache.ts";
 import { REGISTRY_PATH } from "./shared.ts";
 import { BiophysicalJobQueue } from "../services/biophysical-queue.ts";
+import { clearInFlightRemoteSubmissions } from "./biophysics/generation.ts";
 
 describe("Biophysics Route Endpoints & Helper Unit Tests", () => {
   beforeEach(() => {
     clearAllCaches();
+    clearInFlightRemoteSubmissions();
     try {
       BiophysicalJobQueue.initialize(2, async () => ({}));
     } catch (_) {}
@@ -404,6 +406,393 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
       expect(jsonVal.pocketJobId).toBeDefined();
 
       afSpy.mockRestore();
+    });
+  });
+
+  describe("/generate-mutant cache-hit remote dispatch", () => {
+    it("should trigger DynaMut2 and DDMut submissions when FoldX has a cache hit but remote jobs are missing", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("178940463982");
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("1789404644525461");
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const mockCachedResult = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          vdw: 0.5,
+          electrostatics: 0.1,
+          rasp: -0.2,
+          thermompnn: 0.8,
+          stabilityoracle: 0.4,
+          dynamut2: null,
+          ddmut: null
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
+
+      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
+      let jsonVal: any = null;
+      let statusCode = 200;
+      const req: any = {
+        body: {
+          wtPdb: mockPdbText,
+          mutation: "SA489C",
+          uniprotId: "Q9H116"
+        },
+        headers: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal).toBeDefined();
+      expect(d2Spy).toHaveBeenCalled();
+      expect(ddmutSpy).toHaveBeenCalled();
+      expect(jsonVal.dynamut2JobId).toBe("178940463982");
+      expect(jsonVal.dynamut2Status).toBe("pending");
+      expect(jsonVal.ddmutJobId).toBe("1789404644525461");
+      expect(jsonVal.ddmutStatus).toBe("pending");
+      expect(jsonVal.energetics.foldx).toBe(1.25);
+
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    });
+
+    it("should preserve completed DynaMut2 and DDMut values from cache without resubmitting", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job");
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob");
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const mockCachedResult = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          vdw: 0.5,
+          electrostatics: 0.1,
+          rasp: -0.2,
+          thermompnn: 0.8,
+          stabilityoracle: 0.4,
+          dynamut2: -0.387,
+          ddmut: 0.12
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
+
+      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
+      let jsonVal: any = null;
+      let statusCode = 200;
+      const req: any = {
+        body: {
+          wtPdb: mockPdbText,
+          mutation: "SA489C",
+          uniprotId: "Q9H116"
+        },
+        headers: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal).toBeDefined();
+      expect(d2Spy).not.toHaveBeenCalled();
+      expect(ddmutSpy).not.toHaveBeenCalled();
+      expect(jsonVal.dynamut2Status).toBe("done");
+      expect(jsonVal.ddmutStatus).toBe("done");
+      expect(jsonVal.energetics.dynamut2).toBe(-0.387);
+      expect(jsonVal.energetics.ddmut).toBe(0.12);
+
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    });
+
+    it("should handle slow remote submissions (>1.5s) by returning pending status and preliminary consensus", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      // Simulate slow submission taking 3s
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve("178940463982"), 3000))
+      );
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("1789404644525461");
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const mockCachedResult = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          vdw: 0.5,
+          electrostatics: 0.1,
+          rasp: -0.2,
+          thermompnn: 0.8,
+          stabilityoracle: 0.4,
+          dynamut2: null,
+          ddmut: null
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
+
+      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
+      let jsonVal: any = null;
+      let statusCode = 200;
+      const req: any = {
+        body: {
+          wtPdb: mockPdbText,
+          mutation: "SA489C",
+          uniprotId: "Q9H116"
+        },
+        headers: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal).toBeDefined();
+      expect(jsonVal.dynamut2Status).toBe("pending");
+      expect(jsonVal.energetics.pendingTools).toContain("DynaMut2");
+      expect(jsonVal.energetics.consensusVerdict).toContain("Preliminary - pending");
+
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    });
+
+    it("should gracefully handle external submission failures without crashing", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockRejectedValue(new Error("BioSig server down"));
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue(null);
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const mockCachedResult = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          dynamut2: null,
+          ddmut: null
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
+
+      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
+      let jsonVal: any = null;
+      let statusCode = 200;
+      const req: any = {
+        body: {
+          wtPdb: mockPdbText,
+          mutation: "SA489C",
+          uniprotId: "Q9H116"
+        },
+        headers: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal).toBeDefined();
+      expect(jsonVal.dynamut2Status).toBe("unavailable");
+      expect(jsonVal.ddmutStatus).toBe("unavailable");
+
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    });
+
+    it("should handle mixed cache state: preserving existing prediction while submitting missing one", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job");
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("1789404644525461");
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const mockCachedResult = {
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: {
+          foldx: 1.25,
+          foldxMean: 1.25,
+          dynamut2: -0.387,
+          ddmut: null
+        }
+      };
+
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(mockCachedResult as any);
+
+      const mockPdbText = "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND";
+      let jsonVal: any = null;
+      let statusCode = 200;
+      const req: any = {
+        body: {
+          wtPdb: mockPdbText,
+          mutation: "SA489C",
+          uniprotId: "Q9H116"
+        },
+        headers: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal).toBeDefined();
+      expect(d2Spy).not.toHaveBeenCalled();
+      expect(ddmutSpy).toHaveBeenCalled();
+      expect(jsonVal.dynamut2Status).toBe("done");
+      expect(jsonVal.energetics.dynamut2).toBe(-0.387);
+      expect(jsonVal.ddmutStatus).toBe("pending");
+      expect(jsonVal.ddmutJobId).toBe("1789404644525461");
+
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    });
+  });
+
+  describe("BioSig Polling Cache Backfill", () => {
+    it("should backfill completed DynaMut2 prediction into FoldX cache upon DONE status", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
+      expect(route).toBeDefined();
+      if (!route || !route.route) throw new Error("Route /dynamut2-job/:jobId not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const { recordJobInRegistry } = await import("./shared.ts");
+      await recordJobInRegistry("178940463982", "dynamut2", "SA489C", "test_cache_key_489");
+
+      const externalServices = await import("../services/external.ts");
+      const pollSpy = vi.spyOn(externalServices, "pollDynaMut2Job").mockResolvedValue({
+        status: "DONE",
+        prediction: -0.387
+      });
+
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const cachedMock = {
+        pdb: "ATOM...",
+        ddG: 1.0,
+        energetics: { foldx: 1.0, dynamut2: null }
+      };
+      const getCacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue(cachedMock as any);
+      const writeCacheSpy = vi.spyOn(biophysicsModule, "writeMutantToCache").mockImplementation(() => {});
+
+      let jsonVal: any = null;
+      let statusCode = 200;
+      const req: any = {
+        params: { jobId: "178940463982" },
+        headers: {},
+        query: {}
+      };
+      const res: any = {
+        status(code: number) {
+          statusCode = code;
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(200);
+      expect(jsonVal.status).toBe("DONE");
+      expect(jsonVal.prediction).toBe(-0.387);
+      expect(writeCacheSpy).toHaveBeenCalledWith("test_cache_key_489", expect.objectContaining({
+        energetics: expect.objectContaining({ dynamut2: -0.387 })
+      }));
+
+      pollSpy.mockRestore();
+      getCacheSpy.mockRestore();
+      writeCacheSpy.mockRestore();
     });
   });
 });

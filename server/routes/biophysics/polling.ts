@@ -305,6 +305,35 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     return false;
   }
 
+  async function backfillRemotePredictionToCache(jobId: string, tool: "dynamut2" | "ddmut", prediction: number): Promise<void> {
+    try {
+      if (fs.existsSync(REGISTRY_PATH)) {
+        const registryContent = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+        const registry: RegistryJob[] = JSON.parse(registryContent);
+        const entry = registry.find(j => j.jobId === jobId && j.type === tool);
+        if (entry && entry.foldxCacheKey) {
+          const { getMutantFromCache, writeMutantToCache } = await import("../../services/biophysics.ts");
+          const cached = await getMutantFromCache(entry.foldxCacheKey);
+          if (cached && cached.energetics) {
+            let updated = false;
+            if (tool === "dynamut2" && cached.energetics.dynamut2 !== prediction) {
+              cached.energetics.dynamut2 = prediction;
+              updated = true;
+            } else if (tool === "ddmut" && cached.energetics.ddmut !== prediction) {
+              cached.energetics.ddmut = prediction;
+              updated = true;
+            }
+            if (updated) {
+              writeMutantToCache(entry.foldxCacheKey, cached);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[BioSig Cache Backfill Warning] Failed to backfill ${tool} for ${jobId}:`, err.message);
+    }
+  }
+
   apiRouter.get("/dynamut2-job/:jobId", async (req, res) => {
     const { jobId } = req.params;
     const reqId = (req.headers["x-request-id"] || crypto.randomUUID()) as string;
@@ -339,6 +368,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
       if (result.status === "DONE") {
         broadcastJobUpdate({ jobId, tool: "dynamut2", status: "DONE", prediction: result.prediction });
+        if (result.prediction !== null) {
+          await backfillRemotePredictionToCache(jobId, "dynamut2", result.prediction);
+        }
       }
 
       const calResult = result.status === "DONE" && result.prediction !== null
@@ -395,6 +427,9 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
       if (result.status === "DONE") {
         broadcastJobUpdate({ jobId, tool: "ddmut", status: "DONE", prediction: result.prediction });
+        if (result.prediction !== null) {
+          await backfillRemotePredictionToCache(jobId, "ddmut", result.prediction);
+        }
       }
 
       const calResult = result.status === "DONE" && result.prediction !== null

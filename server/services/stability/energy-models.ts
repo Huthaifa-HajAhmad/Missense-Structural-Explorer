@@ -477,11 +477,13 @@ export function enrichBiophysicalResult(
   foldxRawResult: any,
   remoteJobs?: Partial<{
     dynamut2JobId: string | null;
-    dynamut2Status: string | null;
+    dynamut2Status: "pending" | "done" | "unavailable" | "error" | string | null;
+    dynamut2Val: number | null;
     ddmutJobId: string | null;
-    ddmutStatus: string | null;
+    ddmutStatus: "pending" | "done" | "unavailable" | "error" | string | null;
+    ddmutVal: number | null;
     thermompnnJobId: string | null;
-    thermompnnStatus: string | null;
+    thermompnnStatus: "pending" | "done" | "unavailable" | "error" | string | null;
     thermompnnError: string | null;
     thermompnnVal: number | null;
     stabilityoracleVal: number | null;
@@ -506,10 +508,12 @@ export function enrichBiophysicalResult(
   const raspReason = foldxRawResult?.energetics?.raspReason ?? undefined;
   const stabilityoracleVal = jobs.stabilityoracleVal ?? foldxRawResult?.energetics?.stabilityoracle ?? null;
   const thermompnnVal = jobs.thermompnnVal ?? foldxRawResult?.energetics?.thermompnn ?? null;
+  const dynamut2Val = jobs.dynamut2Val ?? foldxRawResult?.energetics?.dynamut2 ?? null;
+  const ddmutVal = jobs.ddmutVal ?? foldxRawResult?.energetics?.ddmut ?? null;
 
   const pendingTools: string[] = [];
-  if (jobs.dynamut2Status === "pending") pendingTools.push("DynaMut2");
-  if (jobs.ddmutStatus === "pending") pendingTools.push("DDMut");
+  if (jobs.dynamut2Status === "pending" && dynamut2Val === null) pendingTools.push("DynaMut2");
+  if (jobs.ddmutStatus === "pending" && ddmutVal === null) pendingTools.push("DDMut");
   if (jobs.thermompnnStatus === "pending" && thermompnnVal === null) pendingTools.push("ThermoMPNN");
 
   const evidenceComplete = pendingTools.length === 0;
@@ -520,6 +524,8 @@ export function enrichBiophysicalResult(
     rasp,
     thermompnn: thermompnnVal,
     stabilityoracle: stabilityoracleVal,
+    dynamut2: dynamut2Val,
+    ddmut: ddmutVal,
     foldxRepairFailed,
     foldxBinaryMissing
   });
@@ -553,8 +559,8 @@ export function enrichBiophysicalResult(
       foldxRepairFailed,
       foldxBinaryMissing: foldxRawResult?.energetics?.foldxBinaryMissing ?? false,
       foldxError: foldxRawResult?.energetics?.foldxError ?? foldxRawResult?.error ?? null,
-      dynamut2: null,
-      ddmut: null,
+      dynamut2: dynamut2Val,
+      ddmut: ddmutVal,
       rasp,
       raspReason,
       thermompnn: thermompnnVal,
