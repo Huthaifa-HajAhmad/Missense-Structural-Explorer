@@ -197,4 +197,67 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
     expect(fetchCoreVariantData).toHaveBeenCalled();
   });
+
+  it("should invalidate stale cache when AlphaGenome API key is provided and cached payload lacks live AlphaGenome score", async () => {
+    const cachedPayloadLackingAlpha = {
+      metadata: { gene: "CNNM2", variant: "p.Ser489Cys" },
+      clinvar: { classification: "Uncertain Significance" },
+      conservationData: {
+        available: true,
+        dann: 0.9,
+        bayesdel: 0.5,
+        clinpred: 0.8,
+        eigenPhred: 12.0,
+        alphagenome: null
+      }
+    };
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayloadLackingAlpha, id: "2" });
+
+    const contextWithAlphaKey: ParsedVariantContext = {
+      ...baseContext,
+      gene: "CNNM2",
+      variant: "p.Ser489Cys",
+      alphagenomeApiKey: "ag_secret_key_123"
+    };
+
+    const result = await runCoreAnalysis(contextWithAlphaKey);
+
+    expect(result).toBeDefined();
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    expect(fetchCoreVariantData).toHaveBeenCalled();
+  });
+
+  it("should NOT invalidate cache for an already-queried unindexed variant", async () => {
+    const cachedPayloadUnindexed = {
+      metadata: { gene: "CNNM2", variant: "p.Ser489Cys" },
+      clinvar: { classification: "Uncertain Significance" },
+      conservationData: {
+        available: true,
+        dann: 0.9,
+        bayesdel: 0.5,
+        clinpred: 0.8,
+        eigenPhred: 12.0,
+        alphagenome: {
+          status: "unavailable",
+          aviPhred: null,
+          message: "Variant not indexed in AlphaGenome Atlas."
+        }
+      }
+    };
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayloadUnindexed, id: "3" });
+
+    const contextWithAlphaKey: ParsedVariantContext = {
+      ...baseContext,
+      gene: "CNNM2",
+      variant: "p.Ser489Cys",
+      alphagenomeApiKey: "ag_secret_key_123"
+    };
+
+    const result = await runCoreAnalysis(contextWithAlphaKey);
+
+    expect(result).toBeDefined();
+    // Cache was NOT invalidated -> returned cached payload
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    expect(fetchCoreVariantData).not.toHaveBeenCalled();
+  });
 });

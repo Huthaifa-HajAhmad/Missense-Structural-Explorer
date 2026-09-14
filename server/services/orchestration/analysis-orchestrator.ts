@@ -48,6 +48,18 @@ function isStaleCachedPayload(payload: any, context?: ParsedVariantContext): boo
       const esm3Missing = payload.structuralModels.esm3?.score === null && (payload.structuralModels.esm3?.status === "token_required" || !payload.structuralModels.esm3?.status);
       if (esm3Missing) return true;
     }
+    // Invalidate stale cache if AlphaGenome key or endpoint is configured but cached payload lacks live AlphaGenome AVI score
+    const hasAlphaGenomeKey = Boolean(
+      context?.alphagenomeApiKey ||
+      context?.alphagenomeApiUrl ||
+      process.env.ALPHAGENOME_API_KEY ||
+      CONFIG.services.alphagenomeApiKey
+    );
+    if (hasAlphaGenomeKey) {
+      const isAlreadyQueriedUnindexed = Boolean(cons.alphagenome?.message?.includes("not indexed"));
+      const alphaMissing = !cons.alphagenome || (!isAlreadyQueriedUnindexed && (cons.alphagenome.status !== "live" || cons.alphagenome.aviPhred === null));
+      if (alphaMissing) return true;
+    }
   }
   return false;
 }

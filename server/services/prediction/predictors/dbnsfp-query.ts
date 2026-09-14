@@ -1,6 +1,6 @@
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { safeParseFloat } from "./normalizer.ts";
-import type { ConservationData } from "../../../../src/shared/contracts.ts";
+import { type ConservationData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
 
 /**
  * Fast Tier 1 baseline querying the public, unauthenticated query.dbnsfp.org API (~900ms).
@@ -14,9 +14,9 @@ export async function queryDbnsfpOrg(
   const cleanVar = normalizeVariantTo3Letter(variant);
   let variantQuery = '';
   if (gnomadVariantId) {
-    const parts = gnomadVariantId.split('-');
-    if (parts.length >= 4) {
-      variantQuery = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}`;
+    const parsed = parseGenomicCoordinateString(gnomadVariantId);
+    if (parsed) {
+      variantQuery = `${parsed.chrom}-${parsed.pos}-${parsed.ref}-${parsed.alt}`;
     }
   }
   if (!variantQuery) {

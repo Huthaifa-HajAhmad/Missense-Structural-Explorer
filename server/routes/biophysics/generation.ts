@@ -229,10 +229,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let foldxError: any = null;
 
         let dynamut2JobId: string | null = null;
-        let dynamut2Status: "pending" | "unavailable" | null = null;
+        let dynamut2Status: "pending" | "done" | "unavailable" | null = null;
 
         let ddmutJobId: string | null = null;
-        let ddmutStatus: "pending" | "unavailable" | null = null;
+        let ddmutStatus: "pending" | "done" | "unavailable" | null = null;
         let thermompnnJobId: string | null = null;
         let thermompnnStatus: "pending" | "done" | "unavailable" | "error" | null = null;
         let thermompnnError: string | null = null;

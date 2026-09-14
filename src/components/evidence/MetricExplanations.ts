@@ -324,5 +324,39 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "DeepMind AlphaGenome Team (2024)",
     paperUrl: "https://deepmind.google.com/science/alphagenome/atlas",
     citation: "Google DeepMind AlphaGenome Team (2024). AlphaGenome: A Multimodal Foundation Model for Genomic Biology and Variant Interpretation."
+  },
+  burial_status: {
+    name: "Solvent Accessibility & Burial Status (RSA)",
+    category: "Surface Topology & Hydrophobic Core",
+    architecture: "Shrake-Rupley / Lee-Richards Rolling Sphere SASA Algorithm",
+    modality: "3D Macromolecular Coordinates",
+    description: "Calculates the Relative Solvent Accessibility (RSA) of the wild-type residue in the 3D model relative to an extended Gly-X-Gly tripeptide reference conformation using a 1.4Å water probe sphere.",
+    interpretation: "Core residues have RSA < 15% (deeply buried within the hydrophobic core, where polar substitutions disrupt thermodynamic stability). Surface residues have RSA > 35% (accessible to solvent and ligand interactions). Boundary residues range from 15% to 35%.",
+    strengths: [
+      "Gold standard biophysical descriptor for identifying hydrophobic core integrity.",
+      "Directly correlates with evolutionary conservation and tolerance to charge alterations."
+    ],
+    weaknesses: [
+      "Sensitive to coordinate resolution, crystal packing artifacts, or flexible loop conformational changes."
+    ],
+    paperTitle: "Tien et al. PLoS ONE (2013)",
+    paperUrl: "https://doi.org/10.1371/journal.pone.0080635"
+  },
+  p2rank: {
+    name: "P2Rank Ligand-Binding Pocket Predictor",
+    category: "Machine Learning Cavity Detection",
+    architecture: "Random Forest Classifier on Connolly Surface Points",
+    modality: "3D Macromolecular Coordinates",
+    description: "P2Rank is a template-free machine learning algorithm that identifies and ranks ligand-binding pockets directly from 3D protein structures. It maps chemical and geometric features onto molecular surface points and groups high-probability points into pocket cavities.",
+    interpretation: "Distance < 8.0 Å denotes active-site or pocket proximity (ACTIVE_SITE_PROXIMATE). Pocket Score reflects the predicted ligand-binding affinity probability (0–100%). Pocket volume in Å³ denotes the solvent-accessible cavity volume.",
+    strengths: [
+      "Fast, template-free ligand pocket detection directly from coordinate files.",
+      "Predicts specific pocket lining residues and distances to cavity centroids."
+    ],
+    weaknesses: [
+      "Depends on accurate 3D apo or holo conformations; large induced-fit motions may alter cavity geometry."
+    ],
+    paperTitle: "Krivak & Hoksza. J Cheminform (2018)",
+    paperUrl: "https://doi.org/10.1186/s13321-018-0285-8"
   }
 };

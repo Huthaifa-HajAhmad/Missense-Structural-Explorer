@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   ExternalLink,
   Activity,
@@ -350,7 +350,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
   const geneName = result.metadata?.gene || "";
   const variantNotation = result.metadata?.variant || "";
 
-  // Robust coordinate resolution across predictorData, variant, and splice metadata
+  // Robust coordinate resolution across predictorData and variant notation
   const parsedCoords = useMemo(() => {
     const fromPredictor = parseGenomicCoordinateString(result.predictorData?.gnomadVariantId);
     if (fromPredictor) return fromPredictor;
@@ -358,18 +358,8 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
     const fromVariant = parseGenomicCoordinateString(variantNotation);
     if (fromVariant) return fromVariant;
 
-    const splicePos = result.conservationData?.spliceProximity?.genomicPos;
-    if (splicePos && splicePos > 0) {
-      return {
-        chrom: "",
-        pos: splicePos,
-        ref: "",
-        alt: ""
-      };
-    }
-
     return null;
-  }, [result.predictorData?.gnomadVariantId, variantNotation, result.conservationData?.spliceProximity?.genomicPos]);
+  }, [result.predictorData?.gnomadVariantId, variantNotation]);
 
   const atlasUrls: AtlasUrls | null = useMemo(() => {
     if (parsedCoords && parsedCoords.chrom && parsedCoords.pos && parsedCoords.ref && parsedCoords.alt) {
@@ -382,24 +372,20 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
     return `https://deepmind.google.com/science/alphagenome/atlas/variant?q=${encodeURIComponent(geneName)}`;
   }, [geneName]);
 
-  const handleCopyVariant = (varStr: string) => {
+  const handleCopyVariant = useCallback((varStr: string) => {
     navigator.clipboard.writeText(varStr).then(() => {
       setCopiedVariant(true);
       setTimeout(() => setCopiedVariant(false), 2000);
     });
-  };
+  }, []);
 
-  const handleTestConnection = async () => {
+  const handleTestConnection = useCallback(async () => {
     setIsTestingConnection(true);
     setConnectionTestResult(null);
     try {
       const res = await fetchWithAuth("/api/v1/alphagenome/verify-connection", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: settings.alphagenomeApiKey || undefined,
-          apiUrl: settings.alphagenomeApiUrl || undefined
-        })
+        headers: { "Content-Type": "application/json" }
       });
       const data = await res.json();
       const rawError = data?.error;
@@ -428,9 +414,9 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
     } finally {
       setIsTestingConnection(false);
     }
-  };
+  }, [fetchWithAuth]);
 
-  const handleReevaluate = async () => {
+  const handleReevaluate = useCallback(async () => {
     setIsReevaluating(true);
     setReevalError(null);
     try {
@@ -440,8 +426,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         body: JSON.stringify({
           gene: geneName,
           variant: variantNotation,
-          alphagenomeApiKey: settings.alphagenomeApiKey || undefined,
-          alphagenomeApiUrl: settings.alphagenomeApiUrl || undefined
+          uniprotId: result.metadata?.uniprotId || undefined
         })
       });
       if (!res.ok) {
@@ -451,19 +436,15 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
       if (data?.conservationData) {
         useVariantAnalysisStore.getState().updateAnalysisResultSlice(
           "conservationData",
-          data.conservationData
-        );
-      }
-      if (data?.inSilicoConcordance) {
-        useVariantAnalysisStore.getState().updateAnalysisResultSlice(
-          "inSilicoConcordance",
-          data.inSilicoConcordance
+          data.conservationData,
+          variantNotation
         );
       }
       if (data?.ruleBasedInsights) {
         useVariantAnalysisStore.getState().updateAnalysisResultSlice(
           "ruleBasedInsights",
-          data.ruleBasedInsights
+          data.ruleBasedInsights,
+          variantNotation
         );
       }
     } catch (err: any) {
@@ -471,7 +452,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
     } finally {
       setIsReevaluating(false);
     }
-  };
+  }, [fetchWithAuth, geneName, variantNotation, result.metadata?.uniprotId]);
 
   // Values from live backend or standby state
   const aviPhred = alphagenome?.aviPhred ?? null;

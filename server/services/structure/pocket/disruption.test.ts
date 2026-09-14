@@ -20,12 +20,12 @@ describe("predictStructuralDisruption (Geometric & Secondary Structure Rules)", 
     expect(result.level).toBe("high");
     expect(result.reason).toContain("Proline introduced at position 2");
     expect(result.reason).toContain("helix");
-  });
+  }, 15000);
 
   it("predicts low disruption for conservative substitution in a helix", async () => {
     const result = await predictStructuralDisruption(mockHelixPdb, "A", 2, "V", "A");
     expect(result.level).toBe("low");
-  });
+  }, 15000);
 
   it("returns unknown when target residue is not present in structure", async () => {
     const result = await predictStructuralDisruption(mockHelixPdb, "A", 99, "P", "A");

@@ -125,6 +125,50 @@ describe("AlphaGenome Native gRPC Client Tests", () => {
       expect(result?.status).toBe("unavailable");
       expect(result?.message).toContain("API Key is invalid or expired");
     });
+
+    it("should handle gRPC NOT_FOUND error mapping cleanly to unindexed message", async () => {
+      const mockClient = {
+        GetDenseVariantScores: vi.fn((req, md, opts, callback) => {
+          const err: any = new Error("Variant not in Atlas");
+          err.code = grpc.status.NOT_FOUND;
+          callback(err, null);
+        })
+      };
+
+      setAtlasGrpcClientFactory(() => mockClient);
+
+      const result = await queryAlphaGenomeVariantGrpc("chr20", 23369727, "C", "T", "valid-key");
+      expect(result).not.toBeNull();
+      expect(result?.status).toBe("unavailable");
+      expect(result?.message).toBe("Variant not indexed in AlphaGenome Atlas.");
+      expect(result?.aviPhred).toBeNull();
+    });
+
+    it("should handle gRPC PERMISSION_DENIED and DEADLINE_EXCEEDED error mappings", async () => {
+      const mockClientDenied = {
+        GetDenseVariantScores: vi.fn((req, md, opts, callback) => {
+          const err: any = new Error("No permission");
+          err.code = grpc.status.PERMISSION_DENIED;
+          callback(err, null);
+        })
+      };
+
+      setAtlasGrpcClientFactory(() => mockClientDenied);
+      const resDenied = await queryAlphaGenomeVariantGrpc("chr20", 23369727, "C", "T", "key");
+      expect(resDenied?.message).toContain("lacks permission");
+
+      const mockClientTimeout = {
+        GetDenseVariantScores: vi.fn((req, md, opts, callback) => {
+          const err: any = new Error("Deadline");
+          err.code = grpc.status.DEADLINE_EXCEEDED;
+          callback(err, null);
+        })
+      };
+
+      setAtlasGrpcClientFactory(() => mockClientTimeout);
+      const resTimeout = await queryAlphaGenomeVariantGrpc("chr20", 23369727, "C", "T", "key");
+      expect(resTimeout?.message).toContain("timed out");
+    });
   });
 
   describe("verifyAlphaGenomeConnection", () => {

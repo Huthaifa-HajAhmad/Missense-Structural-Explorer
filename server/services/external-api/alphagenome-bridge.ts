@@ -109,16 +109,21 @@ export async function fetchAlphaGenome(
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom : `chr${chrom}`;
   const normRef = ref.toUpperCase();
   const normAlt = alt.toUpperCase();
+  const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
+  const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
+  const hasCredentials = Boolean(effectiveApiKey || endpoint);
   const cacheKey = buildAlphaGenomeKey(normChrom, pos, normRef, normAlt);
 
   const cached = alphagenomeCache.get(cacheKey);
-  if (cached) {
+  const isNegativeCached = Boolean(cached?.message?.includes("not indexed"));
+  if (cached && (!hasCredentials || cached.status === "live" || isNegativeCached)) {
     return cached;
   }
 
   return defaultCacheRegistry.singleFlight(cacheKey, async () => {
     const doubleChecked = alphagenomeCache.get(cacheKey);
-    if (doubleChecked) {
+    const isDoubleNegative = Boolean(doubleChecked?.message?.includes("not indexed"));
+    if (doubleChecked && (!hasCredentials || doubleChecked.status === "live" || isDoubleNegative)) {
       return doubleChecked;
     }
 
@@ -135,7 +140,7 @@ export async function fetchAlphaGenome(
           throw new Error("Query aborted / timeout");
         }
         const res = await mockProvider(normChrom, pos, normRef, normAlt, combinedSignal);
-        if (res && res.status === "live") {
+        if (res && (res.status === "live" || res.message?.includes("not indexed"))) {
           alphagenomeCache.set(cacheKey, res);
         }
         return res;
@@ -155,9 +160,6 @@ export async function fetchAlphaGenome(
         };
       }
     }
-
-    const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-    const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
 
     if (!endpoint && !effectiveApiKey) {
       // Unconfigured environment (neither endpoint nor API key provided): clean standby state (Zero synthetic fallback)
@@ -352,14 +354,20 @@ export async function fetchAlphaGenomeRegionSaturation(
     : "";
   const cacheKey = `alphagenome:region:${normChrom}:${start}-${end}:${transcriptId || "all"}${exonKey}`;
 
+  const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
+  const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
+  const hasCredentials = Boolean(effectiveApiKey || baseEndpoint);
+
   const cached = alphagenomeRegionCache.get(cacheKey);
-  if (cached) {
+  const isNegativeCached = Boolean(cached?.message?.includes("not indexed"));
+  if (cached && (!hasCredentials || cached.status === "live" || isNegativeCached)) {
     return cached;
   }
 
   return defaultCacheRegistry.singleFlight(cacheKey, async () => {
     const doubleChecked = alphagenomeRegionCache.get(cacheKey);
-    if (doubleChecked) {
+    const isDoubleNegative = Boolean(doubleChecked?.message?.includes("not indexed"));
+    if (doubleChecked && (!hasCredentials || doubleChecked.status === "live" || isDoubleNegative)) {
       return doubleChecked;
     }
 
@@ -375,7 +383,7 @@ export async function fetchAlphaGenomeRegionSaturation(
           throw new Error("Query aborted / timeout");
         }
         const res = await mockRegionProvider(parsed.data, combinedSignal);
-        if (res && res.status === "live") {
+        if (res && (res.status === "live" || res.message?.includes("not indexed"))) {
           alphagenomeRegionCache.set(cacheKey, res);
         }
         return res;
@@ -396,9 +404,6 @@ export async function fetchAlphaGenomeRegionSaturation(
         };
       }
     }
-
-    const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-    const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
 
     if (!baseEndpoint && !effectiveApiKey) {
       // Unconfigured environment (neither endpoint nor API key provided): clean standby state (Zero synthetic fallback)
@@ -427,7 +432,7 @@ export async function fetchAlphaGenomeRegionSaturation(
           effectiveApiKey,
           { signal: combinedSignal, timeoutMs: 3500 }
         );
-        if (grpcResult && grpcResult.status === "live") {
+        if (grpcResult && (grpcResult.status === "live" || grpcResult.message?.includes("not indexed"))) {
           alphagenomeRegionCache.set(cacheKey, grpcResult);
         }
         return grpcResult;

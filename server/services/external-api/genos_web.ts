@@ -10,6 +10,7 @@ try {
 }
 
 import { normalizeGeneSymbol, normalizeVariantTo3Letter } from '../external.ts';
+import { parseGenomicCoordinateString } from '../../../src/shared/contracts.ts';
 import { getCachedOrFetch, clearAllCaches } from '../infra/cache.ts';
 import { buildGenosKey } from '../infra/cache-keys.ts';
 
@@ -169,9 +170,9 @@ export async function queryGenosWebservice(
         // Format variant query:
         let variantQuery = '';
         if (gnomadVariantId) {
-          const parts = gnomadVariantId.split('-');
-          if (parts.length >= 4) {
-            variantQuery = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}`;
+          const parsed = parseGenomicCoordinateString(gnomadVariantId);
+          if (parsed) {
+            variantQuery = `${parsed.chrom}-${parsed.pos}-${parsed.ref}-${parsed.alt}`;
           }
         }
 

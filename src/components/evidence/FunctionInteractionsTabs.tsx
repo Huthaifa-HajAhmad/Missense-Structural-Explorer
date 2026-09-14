@@ -1,9 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
-  ShieldAlert,
   Layers,
   ExternalLink,
-  RotateCw,
   ArrowLeft,
   ArrowRight,
   Dna,
@@ -11,8 +9,41 @@ import {
 } from "lucide-react";
 import { TabComponentProps } from "./types";
 
-function getFeatureBadgeStyle(type: string): string {
-  const t = type.toLowerCase();
+function getType(f?: { type?: string } | null): string {
+  return f?.type?.toLowerCase() || "";
+}
+
+function isDomainFeature(f?: { type?: string } | null): boolean {
+  return getType(f) === "domain";
+}
+
+function isActiveSite(f?: { type?: string } | null): boolean {
+  const t = getType(f);
+  return t.includes("active") || t.includes("catalytic");
+}
+
+function isBindingSite(f?: { type?: string } | null): boolean {
+  const t = getType(f);
+  return t.includes("binding") || t.includes("metal");
+}
+
+function isPtmSite(f?: { type?: string } | null): boolean {
+  const t = getType(f);
+  return t.includes("modified") || t.includes("phospho") || t.includes("methyl") || t.includes("acetyl");
+}
+
+function isDisulfideSite(f?: { type?: string } | null): boolean {
+  const t = getType(f);
+  return t.includes("disulfide") || t.includes("cysteine");
+}
+
+function isTransmembraneSite(f?: { type?: string } | null): boolean {
+  const t = getType(f);
+  return t.includes("transmembrane") || t.includes("membrane");
+}
+
+function getFeatureBadgeStyle(type?: string): string {
+  const t = (type || "").toLowerCase();
   if (t.includes("active") || t.includes("catalytic")) {
     return "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30";
   }
@@ -36,16 +67,13 @@ function getFeatureBadgeStyle(type: string): string {
 
 export function FunctionTab({
   analysisState,
-  computedPocket,
-  isPocketLoading,
-  pocketError,
   active3dModelTab,
-  onRetryPocket,
   onSelectResidue,
   onNavigateToView
 }: TabComponentProps) {
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<{
-    type: "domain" | "site" | "flank" | "pocket";
+    type: "domain" | "site" | "flank";
     name: string;
     start: number;
     end: number;
@@ -57,7 +85,7 @@ export function FunctionTab({
   } | null>(null);
 
   const handleFeatureSelect = (feat: {
-    type: "domain" | "site" | "flank" | "pocket";
+    type: "domain" | "site" | "flank";
     name: string;
     start: number;
     end: number;
@@ -79,281 +107,204 @@ export function FunctionTab({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="screen-title">Function &amp; Domain Architecture</h1>
+        <h1 className="screen-title">Functional Domains</h1>
         <p className="screen-tab-description">
-          Ligand-binding pocket proximity (P2Rank Machine Learning) and dual-source functional site annotations (UniProtKB &amp; InterPro).
+          Full-length sequence domain architecture, curated functional sites, and flanking proximity vectors (UniProtKB &amp; InterPro).
         </p>
       </div>
-      {isPocketLoading ? (
-        <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed rounded-xl" style={{ borderColor: "var(--cs-border)" }}>
-          <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mb-2" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
-          <span className="text-[11px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
-            Calculating ligand-binding pockets via P2Rank ML...
-          </span>
-        </div>
-      ) : pocketError ? (
-        <div className="p-3 text-center text-rose-500 border border-dashed border-rose-500/20 bg-rose-500/5 rounded-lg space-y-2">
-          <ShieldAlert className="w-5 h-5 mx-auto text-rose-500" />
-          <span className="text-xs block">Failed to calculate pockets: {pocketError}</span>
-          {onRetryPocket && (
-            <button
-              type="button"
-              onClick={() => onRetryPocket()}
-              className="px-3 py-1 rounded text-[10.5px] font-mono font-semibold bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-600 dark:text-rose-400 inline-flex items-center gap-1.5"
-            >
-              <RotateCw className="w-3 h-3" />
-              Retry Pocket Detection
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {computedPocket ? (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
-                  P2Rank Ligand-Binding Pocket Distance
-                </h4>
+
+      {/* UniProt & InterPro Curated Features & Architecture */}
+      {(() => {
+        const features = result.uniprotFeatures?.features ?? [];
+        const pos = result.metadata?.residueIndex;
+        const wt = result.metadata?.wildType || "";
+        const mut = result.metadata?.mutant || "";
+        const serviceStatus = result.serviceStatus?.uniprotFeatures || result.metadata?.serviceStatus?.uniprotFeatures;
+        if (pos === null || pos === undefined) return null;
+
+        const hasServiceNotice = serviceStatus === "timeout" || serviceStatus === "error" || serviceStatus === "failed" || serviceStatus === "offline";
+
+        // Group features by category using defensive type helpers
+        const domains = features.filter(isDomainFeature);
+        const activeDomain = domains.find((d) => pos >= d.start && pos <= d.end);
+
+        const activeSites = features.filter(isActiveSite);
+        const bindingSites = features.filter(isBindingSite);
+        const ptms = features.filter(isPtmSite);
+        const disulfides = features.filter(isDisulfideSite);
+        const transmembranes = features.filter(isTransmembraneSite);
+
+        const functionalSites = features.filter(
+          (f) => {
+            const t = getType(f);
+            return t !== "domain" && t !== "chain" && t !== "region";
+          }
+        );
+
+        // Compute length of sequence
+        const seqLength = result.uniprotFeatures?.sequenceLength ||
+          (features.length > 0 ? features.reduce((max, f) => Math.max(max, f.end), pos || 1) : (pos ? pos + 50 : 500));
+
+        const getTrackX = (res: number) => {
+          const clamped = Math.max(1, Math.min(res, seqLength));
+          return 32 + ((clamped - 1) / Math.max(seqLength - 1, 1)) * 736;
+        };
+
+        // Flanking proximity calculations
+        let nearestUpstream: { feature: typeof features[0]; distance: number; boundaryRes: number } | null = null;
+        let nearestDownstream: { feature: typeof features[0]; distance: number; boundaryRes: number } | null = null;
+
+        let minUpstreamDist = Infinity;
+        let minDownstreamDist = Infinity;
+
+        for (const f of features) {
+          const t = getType(f);
+          if (t === "chain" || t === "region") continue;
+          if (pos > f.end) {
+            const dist = pos - f.end;
+            if (dist < minUpstreamDist) {
+              minUpstreamDist = dist;
+              nearestUpstream = { feature: f, distance: dist, boundaryRes: f.end };
+            }
+          } else if (pos < f.start) {
+            const dist = f.start - pos;
+            if (dist < minDownstreamDist) {
+              minDownstreamDist = dist;
+              nearestDownstream = { feature: f, distance: dist, boundaryRes: f.start };
+            }
+          }
+        }
+
+        // Direct point matches at residue pos (including enclosing domain when filtering by domain)
+        const matchingFeatures = features.filter((f) => {
+          const t = getType(f);
+          if (t === "chain" || t === "region") return false;
+          if (selectedCategory === "domain") return t === "domain" && pos >= f.start && pos <= f.end;
+          return pos >= f.start && pos <= f.end && t !== "domain";
+        });
+
+        const displayedMatchingFeatures = selectedCategory
+          ? matchingFeatures.filter(f => {
+              if (selectedCategory === "domain") return isDomainFeature(f);
+              if (selectedCategory === "active") return isActiveSite(f);
+              if (selectedCategory === "binding") return isBindingSite(f);
+              if (selectedCategory === "ptm") return isPtmSite(f);
+              if (selectedCategory === "disulfide") return isDisulfideSite(f);
+              if (selectedCategory === "transmembrane") return isTransmembraneSite(f);
+              return true;
+            })
+          : matchingFeatures;
+
+        return (
+          <div className="space-y-4">
+            {hasServiceNotice && (
+              <div className="p-3 rounded-lg border text-xs leading-relaxed" style={{ background: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)", color: "var(--cs-text-warning)" }}>
+                <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider">Service Notice</span>
+                {serviceStatus === "timeout"
+                  ? "UniProt KB query timed out. Curated functional annotations and domain definitions could not be retrieved in time."
+                  : "UniProt KB service was unreachable or returned an error. Curated functional annotations are temporarily unavailable."}
+              </div>
+            )}
+
+            {/* Section Header with dual sources */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans flex items-center gap-1.5" style={{ color: "var(--cs-accent-clay)" }}>
+                <Layers className="w-3.5 h-3.5" />
+                Full-Length Domain Architecture &amp; Curated Sites
+              </h4>
+              <div className="flex items-center gap-2">
+                <span className="text-[9.5px] font-mono px-2 py-0.5 rounded border bg-cs-surface-2 border-cs-border text-cs-text-muted">
+                  Length: <strong className="text-cs-text-primary">{seqLength} aa</strong>
+                </span>
                 <span className="badge-data-source">
-                  {computedPocket.status === "success"
-                    ? "P2Rank ML"
-                    : computedPocket.status === "none_detected"
-                      ? "No Pocket Detected"
-                      : "Model Offline"}
+                  UniProtKB &amp; InterPro
                 </span>
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="metric-card">
-                  <span className="metric-card-label">Pocket Distance</span>
-                  <span className={`metric-card-value ${
-                    computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance < 10
-                      ? "text-[var(--cs-text-danger)]"
-                      : ""
-                  }`}>
-                    {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
-                      ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
-                      : "N/A"}
-                  </span>
-                  <span className="metric-card-desc">Distance to pocket centroid</span>
-                </div>
-
-                <div className="metric-card">
-                  <span className="metric-card-label">Binding Probability</span>
-                  <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
-                    {computedPocket.status === "success" ? `${computedPocket.pocketScore}%` : "N/A"}
-                  </span>
-                  <span className="metric-card-desc">P2Rank affinity index</span>
-                </div>
-
-                <div className="metric-card">
-                  <span className="metric-card-label">Pocket Volume</span>
-                  <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
-                    {computedPocket.pocketVolume ? `${computedPocket.pocketVolume} Å³` : "N/A"}
-                  </span>
-                  <span className="metric-card-desc">
-                    {computedPocket.sasPoints
-                      ? `${computedPocket.sasPoints} SAS points${computedPocket.surfaceAtoms ? ` · ${computedPocket.surfaceAtoms} surf atoms` : ""}`
-                      : "Spatial cavity volume"}
-                  </span>
-                </div>
-              </div>
-
-              {computedPocket.status !== "success" && (
-                <div className="p-3.5 rounded-xl border text-[11px] leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100">
-                  <div className="space-y-0.5">
-                    <span className="font-bold block uppercase text-[9.5px] tracking-wider text-amber-800 dark:text-amber-400">
-                      {computedPocket.status === "none_detected" ? "No Pocket Detected:" : "ML Model Offline / Standby:"}
-                    </span>
-                    <span className="text-[11.5px] leading-tight block text-cs-text-secondary">
-                      {computedPocket.status === "none_detected"
-                        ? "No ligand-binding pocket cavity was detected within proximity of this residue by P2Rank."
-                        : "P2Rank machine learning service was unavailable during initial scan. If Java 17 has been initialized or runtime is now ready, retry detection."}
-                    </span>
-                  </div>
-                  {onRetryPocket && (
-                    <button
-                      type="button"
-                      onClick={() => onRetryPocket()}
-                      disabled={isPocketLoading}
-                      className="px-3.5 py-1.5 rounded-lg font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all bg-amber-600 hover:bg-amber-500 active:scale-95 text-white border border-amber-600 shadow-sm shrink-0 cursor-pointer disabled:opacity-50"
-                    >
-                      <RotateCw className={`w-3.5 h-3.5 ${isPocketLoading ? "animate-spin" : ""}`} />
-                      Retry Pocket Detection
-                    </button>
-                  )}
-                </div>
+            {/* 1. Curated Feature Category Breakdown Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 py-1">
+              <span className="text-[10px] font-mono uppercase text-cs-text-muted mr-1 font-semibold">Inventory:</span>
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(prev => prev === "domain" ? null : "domain")}
+                className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold border transition-all cursor-pointer ${
+                  selectedCategory === "domain"
+                    ? "bg-emerald-500 text-white border-emerald-600 shadow-sm"
+                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                }`}
+              >
+                {domains.length} Domains
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(prev => prev === "active" ? null : "active")}
+                className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold border transition-all cursor-pointer ${
+                  selectedCategory === "active"
+                    ? "bg-rose-500 text-white border-rose-600 shadow-sm"
+                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
+                }`}
+              >
+                {activeSites.length} Active Sites
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(prev => prev === "binding" ? null : "binding")}
+                className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold border transition-all cursor-pointer ${
+                  selectedCategory === "binding"
+                    ? "bg-purple-500 text-white border-purple-600 shadow-sm"
+                    : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20"
+                }`}
+              >
+                {bindingSites.length} Binding Sites
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(prev => prev === "ptm" ? null : "ptm")}
+                className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold border transition-all cursor-pointer ${
+                  selectedCategory === "ptm"
+                    ? "bg-sky-500 text-white border-sky-600 shadow-sm"
+                    : "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20 hover:bg-sky-500/20"
+                }`}
+              >
+                {ptms.length} PTMs
+              </button>
+              {disulfides.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory(prev => prev === "disulfide" ? null : "disulfide")}
+                  className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold border transition-all cursor-pointer ${
+                    selectedCategory === "disulfide"
+                      ? "bg-amber-500 text-white border-amber-600 shadow-sm"
+                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
+                  }`}
+                >
+                  {disulfides.length} Disulfides
+                </button>
               )}
-
-              <div className="p-3.5 rounded-xl border space-y-2.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Likely Co-Factor / Target Ligand:</span>
-                  <span className="font-semibold font-mono text-[12px]" style={{ color: "var(--cs-text-primary)" }}>{computedPocket.likelyCofactor}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Spatial Classification:</span>
-                  <span className="badge-data-source">
-                    {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance <= 8.0
-                      ? "ACTIVE_SITE_PROXIMATE"
-                      : "DISTAL_SURFACE"}
-                  </span>
-                </div>
-              </div>
-
-              {computedPocket.pocketResidues && computedPocket.pocketResidues.length > 0 && (
-                <div className="space-y-2 mt-3.5">
-                  <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
-                    Pocket Lining Residues (Top {Math.min(8, computedPocket.pocketResidues.length)})
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
-                    {computedPocket.pocketResidues.slice(0, 8).map((res: any) => (
-                      <button
-                        key={`${res.name}-${res.index}`}
-                        type="button"
-                        onClick={() => onSelectResidue?.(res.index)}
-                        className="p-2 px-3 rounded-lg flex justify-between items-center transition-all border border-[var(--cs-border)] bg-[var(--cs-bg-subtle)] hover:border-[var(--cs-accent-clay)] hover:bg-[var(--cs-surface-2)] text-left cursor-pointer group"
-                      >
-                        <span className="font-mono font-semibold text-[11px] text-cs-text-primary group-hover:text-cs-accent-clay">
-                          {res.name}{res.index}
-                        </span>
-                        <span className="text-[9.5px] font-mono text-cs-text-muted">
-                          {res.distance} Å
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              {transmembranes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory(prev => prev === "transmembrane" ? null : "transmembrane")}
+                  className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold border transition-all cursor-pointer ${
+                    selectedCategory === "transmembrane"
+                      ? "bg-cyan-500 text-white border-cyan-600 shadow-sm"
+                      : "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20"
+                  }`}
+                >
+                  {transmembranes.length} Transmembrane
+                </button>
+              )}
+              {selectedCategory && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory(null)}
+                  className="text-[9.5px] font-mono text-cs-text-muted hover:text-cs-text-primary underline ml-1 cursor-pointer"
+                >
+                  Reset filter
+                </button>
               )}
             </div>
-          ) : (
-            <div className="empty-state-box">
-              No active pocket computations found. Click 3D coordinates on the model to trigger solver.
-            </div>
-          )}
-
-          {/* UniProt & InterPro Curated Features & Architecture */}
-          {(() => {
-            const features = result.uniprotFeatures?.features ?? [];
-            const pos = result.metadata?.residueIndex;
-            const wt = result.metadata?.wildType || "";
-            const mut = result.metadata?.mutant || "";
-            const serviceStatus = result.serviceStatus?.uniprotFeatures || result.metadata?.serviceStatus?.uniprotFeatures;
-            if (pos === null || pos === undefined) return null;
-
-            if (serviceStatus === "timeout" || serviceStatus === "error" || serviceStatus === "failed" || serviceStatus === "offline") {
-              return (
-                <div className="space-y-3 pt-3 border-t" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                  <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans flex items-center gap-1.5" style={{ color: "var(--cs-accent-clay)" }}>
-                    <Layers className="w-3.5 h-3.5" />
-                    UniProt &amp; InterPro Curated Architecture
-                  </h4>
-                  <div className="p-3 rounded-lg border text-xs leading-relaxed" style={{ background: "var(--cs-bg-warning)", borderColor: "var(--cs-text-warning)", color: "var(--cs-text-warning)" }}>
-                    <span className="font-bold block uppercase text-[9px] mb-1 tracking-wider">Service Notice</span>
-                    {serviceStatus === "timeout"
-                      ? "UniProt KB query timed out. Curated functional annotations and domain definitions could not be retrieved in time."
-                      : "UniProt KB service was unreachable or returned an error. Curated functional annotations are temporarily unavailable."}
-                  </div>
-                </div>
-              );
-            }
-
-            // Group features by category
-            const domains = features.filter((f) => f.type?.toLowerCase() === "domain");
-            const activeDomain = domains.find((d) => pos >= d.start && pos <= d.end);
-
-            const activeSites = features.filter(f => f.type.toLowerCase().includes("active") || f.type.toLowerCase().includes("catalytic"));
-            const bindingSites = features.filter(f => f.type.toLowerCase().includes("binding") || f.type.toLowerCase().includes("metal"));
-            const ptms = features.filter(f => f.type.toLowerCase().includes("modified") || f.type.toLowerCase().includes("phospho") || f.type.toLowerCase().includes("acetyl") || f.type.toLowerCase().includes("methyl"));
-            const disulfides = features.filter(f => f.type.toLowerCase().includes("disulfide") || f.type.toLowerCase().includes("cysteine"));
-            const transmembranes = features.filter(f => f.type.toLowerCase().includes("transmembrane") || f.type.toLowerCase().includes("membrane"));
-
-            const functionalSites = features.filter(
-              (f) => f.type?.toLowerCase() !== "domain" && f.type !== "Chain" && f.type !== "Region"
-            );
-
-            // Compute length of sequence
-            const seqLength = result.uniprotFeatures?.sequenceLength ||
-              (features.length > 0 ? features.reduce((max, f) => Math.max(max, f.end), pos || 1) : (pos ? pos + 50 : 500));
-
-            const getTrackX = (res: number) => {
-              const clamped = Math.max(1, Math.min(res, seqLength));
-              return 32 + ((clamped - 1) / Math.max(seqLength - 1, 1)) * 736;
-            };
-
-            // Flanking proximity calculations
-            let nearestUpstream: { feature: typeof features[0]; distance: number; boundaryRes: number } | null = null;
-            let nearestDownstream: { feature: typeof features[0]; distance: number; boundaryRes: number } | null = null;
-
-            let minUpstreamDist = Infinity;
-            let minDownstreamDist = Infinity;
-
-            for (const f of features) {
-              if (f.type === "Chain" || f.type === "Region") continue;
-              if (pos > f.end) {
-                const dist = pos - f.end;
-                if (dist < minUpstreamDist) {
-                  minUpstreamDist = dist;
-                  nearestUpstream = { feature: f, distance: dist, boundaryRes: f.end };
-                }
-              } else if (pos < f.start) {
-                const dist = f.start - pos;
-                if (dist < minDownstreamDist) {
-                  minDownstreamDist = dist;
-                  nearestDownstream = { feature: f, distance: dist, boundaryRes: f.start };
-                }
-              }
-            }
-
-            // Direct point matches at residue pos (excluding high-level whole-chain, regions, and structural domains)
-            const matchingFeatures = features.filter((f) => {
-              const t = f.type?.toLowerCase() || "";
-              return pos >= f.start && pos <= f.end && t !== "chain" && t !== "domain" && t !== "region";
-            });
-
-            return (
-              <div className="space-y-4 pt-3 border-t" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                {/* Section Header with dual sources */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans flex items-center gap-1.5" style={{ color: "var(--cs-accent-clay)" }}>
-                    <Layers className="w-3.5 h-3.5" />
-                    Full-Length Domain Architecture &amp; Curated Sites
-                  </h4>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9.5px] font-mono px-2 py-0.5 rounded border bg-cs-surface-2 border-cs-border text-cs-text-muted">
-                      Length: <strong className="text-cs-text-primary">{seqLength} aa</strong>
-                    </span>
-                    <span className="badge-data-source">
-                      UniProtKB &amp; InterPro
-                    </span>
-                  </div>
-                </div>
-
-                {/* 1. Curated Feature Category Breakdown Pills */}
-                <div className="flex flex-wrap items-center gap-1.5 py-1">
-                  <span className="text-[10px] font-mono uppercase text-cs-text-muted mr-1 font-semibold">Inventory:</span>
-                  <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    {domains.length} Domains
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                    {activeSites.length} Active Sites
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                    {bindingSites.length} Binding Sites
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-                    {ptms.length} PTMs
-                  </span>
-                  {disulfides.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                      {disulfides.length} Disulfides
-                    </span>
-                  )}
-                  {transmembranes.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
-                      {transmembranes.length} Transmembrane
-                    </span>
-                  )}
-                </div>
 
                 {/* 2. Interactive Multi-Tiered Full-Length Protein Architecture SVG Track */}
                 <div className="p-3.5 rounded-xl border bg-cs-surface-2 border-cs-border space-y-2">
@@ -382,7 +333,7 @@ export function FunctionTab({
                       </defs>
 
                       {/* Tier 1: Variant Indicator Pin & Callout Pill */}
-                      {pos && (() => {
+                      {typeof pos === "number" && pos > 0 && (() => {
                         const varX = getTrackX(pos);
                         const pillWidth = 96;
                         const clampedPillX = Math.max(32, Math.min(varX - pillWidth / 2, 768 - pillWidth));
@@ -448,11 +399,16 @@ export function FunctionTab({
                         const w = Math.max(x2 - x1, 6);
                         const isTargetInside = pos >= d.start && pos <= d.end;
                         const isSelected = selectedFeature?.type === "domain" && selectedFeature.start === d.start && selectedFeature.end === d.end;
+                        const isDimmed = selectedCategory && selectedCategory !== "domain";
 
                         return (
                           <g
                             key={idx}
-                            className="cursor-pointer group"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Domain: ${d.description || "Domain"}, residues ${d.start} to ${d.end}`}
+                            className="cursor-pointer group focus-visible:outline-none"
+                            style={{ opacity: isDimmed ? 0.35 : 1, transition: "opacity 0.2s" }}
                             onClick={() => handleFeatureSelect({
                               type: "domain",
                               name: d.description || "Domain",
@@ -463,6 +419,21 @@ export function FunctionTab({
                               isEnclosing: isTargetInside,
                               distanceFromVariant: pos < d.start ? d.start - pos : pos > d.end ? pos - d.end : 0
                             })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleFeatureSelect({
+                                  type: "domain",
+                                  name: d.description || "Domain",
+                                  start: d.start,
+                                  end: d.end,
+                                  description: d.description,
+                                  interproId: d.interproId,
+                                  isEnclosing: isTargetInside,
+                                  distanceFromVariant: pos < d.start ? d.start - pos : pos > d.end ? pos - d.end : 0
+                                });
+                              }
+                            }}
                           >
                             <rect
                               x={x1}
@@ -521,32 +492,52 @@ export function FunctionTab({
                       />
                       {functionalSites.map((s: any, idx: number) => {
                         const cx = getTrackX(s.start);
-                        const isRose = s.type.toLowerCase().includes("active") || s.type.toLowerCase().includes("catalytic");
-                        const isPurple = s.type.toLowerCase().includes("binding") || s.type.toLowerCase().includes("metal");
-                        const isSky = s.type.toLowerCase().includes("modified") || s.type.toLowerCase().includes("phospho") || s.type.toLowerCase().includes("acetyl");
-                        const isAmber = s.type.toLowerCase().includes("disulfide") || s.type.toLowerCase().includes("cysteine");
-                        const isCyan = s.type.toLowerCase().includes("transmembrane") || s.type.toLowerCase().includes("membrane");
+                        const isRose = isActiveSite(s);
+                        const isPurple = isBindingSite(s);
+                        const isSky = isPtmSite(s);
+                        const isAmber = isDisulfideSite(s);
+                        const isCyan = isTransmembraneSite(s);
                         const pinColor = isRose ? "#f43f5e" : isPurple ? "#a855f7" : isSky ? "#0ea5e9" : isAmber ? "#f59e0b" : isCyan ? "#06b6d4" : "#64748b";
                         const isSelected = selectedFeature?.type === "site" && selectedFeature.start === s.start && selectedFeature.name === s.type;
+
+                        const matchesCategory = !selectedCategory || (
+                          (selectedCategory === "active" && isRose) ||
+                          (selectedCategory === "binding" && isPurple) ||
+                          (selectedCategory === "ptm" && isSky) ||
+                          (selectedCategory === "disulfide" && isAmber) ||
+                          (selectedCategory === "transmembrane" && isCyan)
+                        );
 
                         const siteEnd = s.end || s.start;
                         const isEnclosing = pos >= s.start && pos <= siteEnd;
                         const distance = isEnclosing ? 0 : (pos < s.start ? s.start - pos : pos - siteEnd);
 
+                        const selectSite = () => handleFeatureSelect({
+                          type: "site",
+                          name: s.type,
+                          start: s.start,
+                          end: siteEnd,
+                          category: s.type,
+                          description: s.description,
+                          isEnclosing,
+                          distanceFromVariant: distance
+                        });
+
                         return (
                           <g
                             key={idx}
-                            className="cursor-pointer group"
-                            onClick={() => handleFeatureSelect({
-                              type: "site",
-                              name: s.type,
-                              start: s.start,
-                              end: siteEnd,
-                              category: s.type,
-                              description: s.description,
-                              isEnclosing,
-                              distanceFromVariant: distance
-                            })}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Functional site: ${s.type || "Site"} at residue ${s.start}${siteEnd !== s.start ? `–${siteEnd}` : ""}${s.description ? `, ${s.description}` : ""}`}
+                            className="cursor-pointer group focus-visible:outline-none"
+                            style={{ opacity: matchesCategory ? 1 : 0.2, transition: "opacity 0.2s" }}
+                            onClick={selectSite}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                selectSite();
+                              }
+                            }}
                           >
                             {/* Broad transparent hitbox for rock-solid hover & clicks */}
                             <circle
@@ -917,12 +908,19 @@ export function FunctionTab({
                 </div>
 
                 {/* 4. Direct Curated Feature Site Matches at Residue pos */}
-                {matchingFeatures.length > 0 ? (
+                {displayedMatchingFeatures.length > 0 ? (
                   <div className="space-y-2">
-                    <span className="text-[10.5px] font-mono font-bold uppercase text-cs-text-muted block">
-                      Direct Site Annotations at Position {pos}:
-                    </span>
-                    {matchingFeatures.map((f, idx) => {
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-mono font-bold uppercase text-cs-text-muted block">
+                        Direct Site Annotations at Position {pos}:
+                      </span>
+                      {selectedCategory && (
+                        <span className="text-[9.5px] font-mono text-cs-accent-clay">
+                          Filtered by {selectedCategory} ({displayedMatchingFeatures.length} match{displayedMatchingFeatures.length === 1 ? "" : "es"})
+                        </span>
+                      )}
+                    </div>
+                    {displayedMatchingFeatures.map((f, idx) => {
                       const badgeClass = getFeatureBadgeStyle(f.type);
                       return (
                         <div
@@ -947,14 +945,14 @@ export function FunctionTab({
                   </div>
                 ) : (
                   <div className="empty-state-box">
-                    No catalytic active site, binding pocket, or metal coordination recorded directly at residue {pos}.
+                    {selectedCategory
+                      ? `No ${selectedCategory} annotations recorded directly at residue ${pos}.`
+                      : `No catalytic active site, binding pocket, or metal coordination recorded directly at residue ${pos}.`}
                   </div>
                 )}
               </div>
             );
           })()}
-        </div>
-      )}
     </div>
   );
 }

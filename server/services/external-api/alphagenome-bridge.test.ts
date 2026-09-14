@@ -238,6 +238,57 @@ describe("AlphaGenome Bridge Service Tests", () => {
         }
       }
     });
+
+    it("should bypass uncredentialed standby cache when called subsequently with an API key", async () => {
+      const originalKey = process.env.ALPHAGENOME_API_KEY;
+      delete process.env.ALPHAGENOME_API_KEY;
+
+      try {
+        // 1. Initial query without API key returns Standby
+        const standbyRes = await fetchAlphaGenome("chr19", 45000000, "A", "G");
+        expect(standbyRes?.status).toBe("unavailable");
+        expect(standbyRes?.message).toContain("Standby");
+
+        // 2. Mock provider or gRPC response for subsequent credentialed call
+        setAlphaGenomeMockProvider(async () => ({
+          status: "live",
+          aviPhred: 32.1,
+          acmgStrength: "PP3_Moderate"
+        }));
+
+        // 3. Second query with apiKey bypasses standby cache
+        const liveRes = await fetchAlphaGenome("chr19", 45000000, "A", "G", {
+          apiKey: "valid_secret_key"
+        });
+        expect(liveRes?.status).toBe("live");
+        expect(liveRes?.aviPhred).toBe(32.1);
+      } finally {
+        if (originalKey) process.env.ALPHAGENOME_API_KEY = originalKey;
+      }
+    });
+
+    it("should cache negative unindexed responses and return them without repeating network queries", async () => {
+      let callCount = 0;
+      setAlphaGenomeMockProvider(async () => {
+        callCount++;
+        return {
+          status: "unavailable",
+          aviPhred: null,
+          acmgStrength: "indeterminate",
+          message: "Variant not indexed in AlphaGenome Atlas."
+        };
+      });
+
+      const first = await fetchAlphaGenome("chr8", 12345678, "C", "T", { apiKey: "key_abc" });
+      expect(callCount).toBe(1);
+      expect(first?.status).toBe("unavailable");
+      expect(first?.message).toContain("not indexed");
+
+      const second = await fetchAlphaGenome("chr8", 12345678, "C", "T", { apiKey: "key_abc" });
+      expect(callCount).toBe(1); // Cached negative hit
+      expect(second?.status).toBe("unavailable");
+      expect(second?.message).toContain("not indexed");
+    });
   });
 
   describe("fetchAlphaGenomeRegionSaturation", () => {

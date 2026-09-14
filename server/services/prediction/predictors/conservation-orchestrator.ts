@@ -345,15 +345,9 @@ export async function fetchConservationData(
 
         const popEVEPromise = gnomadVariantId
           ? (async () => {
-              const parts = gnomadVariantId.split("-");
-              if (parts.length >= 4) {
-                const chrom = parts[0];
-                const posVal = parseInt(parts[1], 10);
-                const ref = parts[2];
-                const alt = parts[3];
-                if (!isNaN(posVal)) {
-                  return fetchPopEVEScore(chrom, posVal, ref, alt);
-                }
+              const parsed = parseGenomicCoordinateString(gnomadVariantId);
+              if (parsed) {
+                return fetchPopEVEScore(parsed.chrom, parsed.pos, parsed.ref, parsed.alt);
               }
               return null;
             })()
@@ -635,7 +629,7 @@ export async function fetchConservationDataProgressive(
       let gpnStarResult: EvolutionaryScaleResult | null = null;
       let alphagenomeResult: AlphaGenomeAviData | null = null;
 
-      const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId);
+      const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
       if (parsedCoord) {
         const [popRes, gpnRes, alphaRes] = await Promise.all([
           fetchPopEVEScore(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
