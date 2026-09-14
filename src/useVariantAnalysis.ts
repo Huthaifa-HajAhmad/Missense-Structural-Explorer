@@ -98,11 +98,7 @@ export default function useVariantAnalysis() {
             setIsBiophysicalLoading: currentStore.setIsBiophysicalLoading,
             setIsStructuralLoading: currentStore.setIsStructuralLoading,
             setIsClinicalLoading: currentStore.setIsClinicalLoading,
-            setIsNarrativeLoading: currentStore.setIsNarrativeLoading,
-            setAcmgLoading: currentStore.setAcmgLoading,
-            setAcmgEvidence: currentStore.setAcmgEvidence,
-            setCalculatedScore: currentStore.setCalculatedScore,
-            setSelectedPreset: currentStore.setSelectedPreset
+            setIsNarrativeLoading: currentStore.setIsNarrativeLoading
           },
           biophysical: {
             setIsFolding: currentStore.setIsFolding,
