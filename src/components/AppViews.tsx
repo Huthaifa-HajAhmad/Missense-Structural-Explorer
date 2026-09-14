@@ -13,8 +13,9 @@ import LiteratureView from "./LiteratureView";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
+import { lazyWithRetry } from "../lib/utils";
 
-const MolstarViewerLazy = lazy(() => import("./MolstarViewer"));
+const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "MolstarViewer");
 
 interface AppViewsProps {
   masterView: MasterView;

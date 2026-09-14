@@ -119,7 +119,20 @@ export async function createExpressApp(): Promise<express.Express> {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    app.use("/assets", express.static(path.join(distPath, "assets"), {
+      immutable: true,
+      maxAge: "1y"
+    }));
     app.use(express.static(distPath));
+
+    // Never return index.html for missing /assets/* or /api/* endpoints
+    app.all("/assets/*", (_req, res) => {
+      res.status(404).type("text/plain").send("Asset not found");
+    });
+    app.all("/api/*", (_req, res) => {
+      res.status(404).json({ error: "API endpoint not found" });
+    });
+
     app.get("*", async (req, res) => {
       try {
         const htmlPath = path.join(distPath, "index.html");

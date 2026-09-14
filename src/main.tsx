@@ -10,6 +10,14 @@ import { SettingsProvider } from './context/SettingsContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { DevConsoleProvider } from './context/DevConsoleContext.tsx';
 
+// Auto-recover if dynamic code-split chunk hashes change across production deployments
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', (event) => {
+    console.warn('[Vite Preload] Outdated dynamic chunk detected after deployment. Auto-reloading...', event);
+    window.location.reload();
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <DevConsoleProvider>
