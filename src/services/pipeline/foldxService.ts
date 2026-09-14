@@ -76,6 +76,15 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
     if (signal.aborted || getActiveRequestId() !== requestId) return;
 
+    // Propagate remote job IDs and statuses immediately from initial /generate-mutant response
+    if (data.dynamut2JobId != null) sink.setDynamut2JobId(data.dynamut2JobId);
+    if (data.dynamut2Status != null) sink.setDynamut2Status(data.dynamut2Status as any);
+    if (data.ddmutJobId != null) sink.setDdmutJobId(data.ddmutJobId);
+    if (data.ddmutStatus != null) sink.setDdmutStatus(data.ddmutStatus as any);
+    if (data.thermompnnJobId != null) sink.setThermompnnJobId(data.thermompnnJobId);
+    if (data.thermompnnStatus != null) sink.setThermompnnStatus(data.thermompnnStatus as any);
+    if (data.thermompnnError != null) sink.setThermompnnError(data.thermompnnError);
+
     // Helper to update energetics with structure provenance
     const applyEnergetics = (energeticsData: any, prov: any) => {
       if (!energeticsData) return;
@@ -130,7 +139,14 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
         foldingEnergetics: data.energetics ?? null,
-        foldingStatus: effectiveFoldingStatus
+        foldingStatus: effectiveFoldingStatus,
+        dynamut2JobId: data.dynamut2JobId ?? null,
+        dynamut2Status: data.dynamut2Status ?? null,
+        ddmutJobId: data.ddmutJobId ?? null,
+        ddmutStatus: data.ddmutStatus ?? null,
+        thermompnnJobId: data.thermompnnJobId ?? null,
+        thermompnnStatus: data.thermompnnStatus ?? null,
+        thermompnnError: data.thermompnnError ?? null
       });
     } else if (data.status === "queued" || data.status === "running") {
       const jobId = data.foldxJobId;
@@ -223,7 +239,14 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
                 foldingDdG: resResult.ddG ?? null,
                 foldingEnergetics: resResult.energetics ?? null,
-                foldingStatus: effectiveFoldingStatus
+                foldingStatus: effectiveFoldingStatus,
+                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
+                dynamut2Status: pollData.dynamut2Status ?? data.dynamut2Status ?? null,
+                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
+                ddmutStatus: pollData.ddmutStatus ?? data.ddmutStatus ?? null,
+                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null,
+                thermompnnStatus: pollData.thermompnnStatus ?? data.thermompnnStatus ?? null,
+                thermompnnError: pollData.thermompnnError ?? data.thermompnnError ?? null
               });
             } else {
               // Failed status
@@ -259,14 +282,6 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         }
       }
     }
-
-    if (data.dynamut2JobId != null) sink.setDynamut2JobId(data.dynamut2JobId);
-    if (data.dynamut2Status != null) sink.setDynamut2Status(data.dynamut2Status as any);
-    if (data.ddmutJobId != null) sink.setDdmutJobId(data.ddmutJobId);
-    if (data.ddmutStatus != null) sink.setDdmutStatus(data.ddmutStatus as any);
-    if (data.thermompnnJobId != null) sink.setThermompnnJobId(data.thermompnnJobId);
-    if (data.thermompnnStatus != null) sink.setThermompnnStatus(data.thermompnnStatus as any);
-    if (data.thermompnnError != null) sink.setThermompnnError(data.thermompnnError);
 
   } catch (err: any) {
     if (signal.aborted || err.name === "AbortError" || getActiveRequestId() !== requestId) return;

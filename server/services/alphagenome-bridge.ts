@@ -62,23 +62,13 @@ export function setAlphaGenomeRegionMockProvider(provider: AlphaGenomeRegionProv
   mockRegionProvider = provider;
 }
 
-/**
- * Maps calibrated continuous AVI Phred scores to ClinGen SVI Bayesian pathogenicity tiers.
- * Strictly guards against negative numbers (sentinels or calculation errors).
- */
-export function calculateAlphaGenomeAcmgStrength(
-  phred: number | null | undefined
-): "PP3_Strong" | "PP3_Moderate" | "PP3_Supporting" | "BP4_Supporting" | "BP4_Moderate" | "indeterminate" {
-  if (phred === null || phred === undefined || isNaN(phred) || phred < 0) {
-    return "indeterminate";
-  }
-  if (phred >= THRESHOLDS.alphagenome.pathogenicStrong) return "PP3_Strong";
-  if (phred >= THRESHOLDS.alphagenome.pathogenicModerate) return "PP3_Moderate";
-  if (phred >= THRESHOLDS.alphagenome.pathogenicSupporting) return "PP3_Supporting";
-  if (phred <= THRESHOLDS.alphagenome.benignModerate) return "BP4_Moderate";
-  if (phred <= THRESHOLDS.alphagenome.benign) return "BP4_Supporting";
-  return "indeterminate";
-}
+import {
+  calculateAlphaGenomeAcmgStrength,
+  queryAlphaGenomeVariantGrpc,
+  queryAlphaGenomeRegionGrpc
+} from "./alphagenome-client.ts";
+
+export { calculateAlphaGenomeAcmgStrength };
 
 export interface FetchAlphaGenomeOptions {
   signal?: AbortSignal;
@@ -169,8 +159,8 @@ export async function fetchAlphaGenome(
     const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
     const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
 
-    if (!endpoint) {
-      // Unconfigured environment or endpoint: clean standby state (Zero synthetic fallback)
+    if (!endpoint && !effectiveApiKey) {
+      // Unconfigured environment (neither endpoint nor API key provided): clean standby state (Zero synthetic fallback)
       const standbyResult: AlphaGenomeAviData = {
         status: "unavailable",
         aviPhred: null,
@@ -185,6 +175,54 @@ export async function fetchAlphaGenome(
         message: "AlphaGenome Atlas: Key Required / Standby"
       };
       return standbyResult;
+    }
+
+    // Direct native gRPC connection to DeepMind when an API key is provided and no custom REST proxy is specified
+    if (effectiveApiKey && !endpoint) {
+      try {
+        const grpcResult = await queryAlphaGenomeVariantGrpc(
+          normChrom,
+          pos,
+          normRef,
+          normAlt,
+          effectiveApiKey,
+          { signal: combinedSignal, timeoutMs: 2500 }
+        );
+        if (grpcResult && (grpcResult.status === "live" || grpcResult.message?.includes("not indexed"))) {
+          alphagenomeCache.set(cacheKey, grpcResult);
+        }
+        return grpcResult;
+      } catch (grpcErr: any) {
+        return {
+          status: "unavailable",
+          aviPhred: null,
+          aviRaw: null,
+          aviQuantile: null,
+          topPercentile: null,
+          topModality: null,
+          topFeatureImportance: null,
+          featureAttributions: null,
+          acmgStrength: "indeterminate",
+          atlasUrl: urls.trackPredictionsUrl,
+          message: grpcErr.message || "AlphaGenome Atlas query failed"
+        };
+      }
+    }
+
+    if (!endpoint) {
+      return {
+        status: "unavailable",
+        aviPhred: null,
+        aviRaw: null,
+        aviQuantile: null,
+        topPercentile: null,
+        topModality: null,
+        topFeatureImportance: null,
+        featureAttributions: null,
+        acmgStrength: "indeterminate",
+        atlasUrl: urls.trackPredictionsUrl,
+        message: "AlphaGenome endpoint not configured"
+      };
     }
 
     try {
@@ -362,8 +400,8 @@ export async function fetchAlphaGenomeRegionSaturation(
     const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
     const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
 
-    if (!baseEndpoint) {
-      // Unconfigured environment or endpoint: clean standby state (Zero synthetic fallback)
+    if (!baseEndpoint && !effectiveApiKey) {
+      // Unconfigured environment (neither endpoint nor API key provided): clean standby state (Zero synthetic fallback)
       const standbyResult: AlphaGenomeRegionSaturationResponse = {
         status: "unavailable",
         chrom: normChrom,
@@ -379,6 +417,53 @@ export async function fetchAlphaGenomeRegionSaturation(
         message: "AlphaGenome Atlas: Key Required / Standby"
       };
       return standbyResult;
+    }
+
+    // Direct native gRPC connection to DeepMind when an API key is provided and no custom REST proxy is specified
+    if (effectiveApiKey && !baseEndpoint) {
+      try {
+        const grpcResult = await queryAlphaGenomeRegionGrpc(
+          parsed.data,
+          effectiveApiKey,
+          { signal: combinedSignal, timeoutMs: 3500 }
+        );
+        if (grpcResult && grpcResult.status === "live") {
+          alphagenomeRegionCache.set(cacheKey, grpcResult);
+        }
+        return grpcResult;
+      } catch (grpcErr: any) {
+        return {
+          status: "unavailable",
+          chrom: normChrom,
+          start,
+          end,
+          strand: strand || null,
+          transcriptId: transcriptId || null,
+          exonNumber: exonNumber || null,
+          exonStart: exonStart || null,
+          exonEnd: exonEnd || null,
+          positions: [],
+          atlasLocusUrl: locusUrl,
+          message: grpcErr.message || "AlphaGenome Atlas region query failed"
+        };
+      }
+    }
+
+    if (!baseEndpoint) {
+      return {
+        status: "unavailable",
+        chrom: normChrom,
+        start,
+        end,
+        strand: strand || null,
+        transcriptId: transcriptId || null,
+        exonNumber: exonNumber || null,
+        exonStart: exonStart || null,
+        exonEnd: exonEnd || null,
+        positions: [],
+        atlasLocusUrl: locusUrl,
+        message: "AlphaGenome endpoint not configured"
+      };
     }
 
     try {

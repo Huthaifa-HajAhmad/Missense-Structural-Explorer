@@ -435,7 +435,11 @@ const EnergeticsView = memo(function EnergeticsView({
 
                   return items.map((item, idx) => {
                     let scoreText = "N/A";
-                    let badge = { label: "N/A", category: "N/A", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
+                    let badge: { label: string; category: string; style: string; tooltip?: string } = {
+                      label: "N/A",
+                      category: "N/A",
+                      style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold"
+                    };
 
                     if (item.val !== null && item.val !== undefined) {
                       if (item.name.includes("FoldX") && energetics.foldxSd !== null && energetics.foldxSd !== undefined) {
@@ -477,14 +481,16 @@ const EnergeticsView = memo(function EnergeticsView({
                       badge = { 
                         label: "In Progress", 
                         category: "In Progress", 
-                        style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold" 
+                        style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold",
+                        tooltip: `${item.name} prediction is currently running.`
                       };
                     } else if (skippedSlowPredictors && (item.key === "dynamut2" || item.key === "ddmut")) {
                       scoreText = "Skipped";
                       badge = { 
                         label: "Skipped by User", 
                         category: "Skipped", 
-                        style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
+                        style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
+                        tooltip: "Slow predictors skipped by user."
                       };
                     } else {
                       scoreText = "—";
@@ -492,26 +498,37 @@ const EnergeticsView = memo(function EnergeticsView({
                         badge = {
                           label: "Standby",
                           category: "Standby",
-                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold"
+                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold",
+                          tooltip: "FoldX binary not configured for this system environment."
                         };
                       } else if (item.key === "foldx" && (foldingStatus === "failed" || (energetics as any)?.foldxError || energetics.foldxRepairFailed)) {
                         scoreText = "Failed";
                         badge = {
                           label: "Simulation Failed",
                           category: "Simulation Failed",
-                          style: "bg-rose-500/10 text-rose-500 border border-rose-500/20 font-semibold"
+                          style: "bg-rose-500/10 text-rose-500 border border-rose-500/20 font-semibold",
+                          tooltip: "FoldX atomic force field minimization failed."
                         };
                       } else if (item.key === "rasp") {
                         badge = { 
                           label: "Not in Zenodo DB", 
                           category: "Not in Zenodo DB", 
-                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" 
+                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold",
+                          tooltip: "Precomputed RaSP saturation mutagenesis profile not found in local Zenodo snapshot for this protein."
                         };
-                      } else if ((item.key === "dynamut2" || item.key === "ddmut") && (dynamut2Status === "unavailable" || ddmutStatus === "unavailable")) {
+                      } else if (item.key === "dynamut2" && dynamut2Status === "unavailable") {
                         badge = { 
                           label: "Upstream Congested", 
                           category: "Upstream Congested", 
-                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold" 
+                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold",
+                          tooltip: "BioSig DynaMut2 server queue is currently congested (>5m timeout). Multi-method consensus automatically calibrates using remaining active engines."
+                        };
+                      } else if (item.key === "ddmut" && ddmutStatus === "unavailable") {
+                        badge = { 
+                          label: "Upstream Congested", 
+                          category: "Upstream Congested", 
+                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold",
+                          tooltip: "BioSig DDMut GPU worker queue at Univ. of Queensland is currently congested (>5m timeout). Multi-method consensus automatically calibrates using remaining active engines."
                         };
                       } else if (item.key === "thermompnn") {
                         if (thermompnnStatus === "error") {
@@ -520,20 +537,23 @@ const EnergeticsView = memo(function EnergeticsView({
                             badge = { 
                               label: "Initializing", 
                               category: "Initializing", 
-                              style: "bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold animate-pulse" 
+                              style: "bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold animate-pulse",
+                              tooltip: "Local VESM-150M neural sidecar model weights are warming up."
                             };
                           } else {
                             badge = { 
                               label: "Standby", 
                               category: "Standby", 
-                              style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
+                              style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
+                              tooltip: thermompnnError || "ThermoMPNN neural sidecar is in standby."
                             };
                           }
                         } else if (thermompnnStatus === "unavailable") {
                           badge = { 
                             label: "Standby", 
                             category: "Standby", 
-                            style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold" 
+                            style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
+                            tooltip: "ThermoMPNN service is currently unavailable."
                           };
                         } else {
                           badge = { label: "Standby", category: "Standby", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
@@ -567,7 +587,10 @@ const EnergeticsView = memo(function EnergeticsView({
                         <td className="p-3 px-4 text-center font-mono text-[12px] w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>{scoreText}</td>
                         <td className="p-3 px-4 text-center w-[15%]">
                           <div className="flex justify-center">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-lg border ${badge.style}`}>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-lg border ${badge.style}`}
+                              title={badge.tooltip}
+                            >
                               {badge.category}
                             </span>
                           </div>

@@ -502,7 +502,9 @@ export function parseGenomicCoordinateString(rawId?: string | null): { chrom: st
     const pos = parseInt(parts[1], 10);
     const ref = parts[2].toUpperCase();
     const alt = parts[3].toUpperCase();
-    if (!isNaN(pos) && pos > 0 && ref && alt) {
+    const validChrom = /^(chr)?([1-9]|1\d|2[0-2]|X|Y|M|MT)$/i.test(chrom);
+    const validBases = /^[ACGTN]+$/.test(ref) && /^[ACGTN]+$/.test(alt);
+    if (validChrom && !isNaN(pos) && pos > 0 && validBases) {
       return { chrom, pos, ref, alt };
     }
   }
@@ -1057,5 +1059,6 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
   serviceStatus?: Record<string, string>;
+  inSilicoConcordance?: any | null;
 }
 

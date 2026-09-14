@@ -133,6 +133,8 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/ppi/binding-affinity",
   "/alphagenome/region-saturation",
   "/api/v1/alphagenome/region-saturation",
+  "/alphagenome/verify-connection",
+  "/api/v1/alphagenome/verify-connection",
 ];
 
 // Initialize optional Redis Client

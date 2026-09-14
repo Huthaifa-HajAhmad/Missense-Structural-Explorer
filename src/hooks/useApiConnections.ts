@@ -3,7 +3,7 @@ import { useSettings } from "../context/SettingsContext";
 import type { ValidationStatus } from "../components/settings/ui/SecretInput";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 
-type TestId = "biohub" | "hf";
+type TestId = "biohub" | "hf" | "alphagenome";
 
 interface TestState {
   testing: boolean;
@@ -28,6 +28,11 @@ const ENDPOINTS: Record<TestId, EndpointSpec> = {
     endpoint: "/api/v1/test-hf-connection",
     payload: (token) => ({ hfToken: token }),
     emptyMessage: "No Hugging Face token entered."
+  },
+  alphagenome: {
+    endpoint: "/api/v1/alphagenome/verify-connection",
+    payload: (token) => ({ apiKey: token }),
+    emptyMessage: "No AlphaGenome Atlas API key entered."
   }
 };
 
@@ -44,7 +49,8 @@ export function useApiConnections() {
   const { settings, updateSetting } = useSettings();
   const [tests, setTests] = useState<Record<TestId, TestState>>({
     biohub: IDLE_TEST,
-    hf: IDLE_TEST
+    hf: IDLE_TEST,
+    alphagenome: IDLE_TEST
   });
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -59,9 +65,11 @@ export function useApiConnections() {
       const token =
         id === "biohub"
           ? settings.biohubApiToken
-          : settings.hfToken;
+          : id === "hf"
+            ? settings.hfToken
+            : settings.alphagenomeApiKey;
 
-      if (!token) {
+      if (!token && !(id === "alphagenome" && settings.alphagenomeApiUrl)) {
         patchTest(id, { status: { valid: false, message: spec.emptyMessage } });
         return;
       }
@@ -72,26 +80,41 @@ export function useApiConnections() {
         if (settings.appApiToken) {
           headers["Authorization"] = `Bearer ${settings.appApiToken}`;
         }
+        const payloadBody =
+          id === "alphagenome"
+            ? { apiKey: token || undefined, apiUrl: settings.alphagenomeApiUrl || undefined }
+            : spec.payload(token || "");
+
         const res = await fetch(spec.endpoint, {
           method: "POST",
           headers,
-          body: JSON.stringify(spec.payload(token))
+          body: JSON.stringify(payloadBody)
         });
         const text = await res.text();
-        let data: { valid?: boolean; message?: string; error?: { message?: string } | string } = {};
+        let data: { valid?: boolean; ok?: boolean; latencyMs?: number; message?: string; error?: { message?: string } | string } = {};
         try {
           data = JSON.parse(text);
         } catch {
           throw new Error(`Invalid server response (HTTP ${res.status})`);
         }
-        if (res.status === 401 || data.error) {
+        const isValid = data.valid ?? data.ok ?? false;
+        const successMessage =
+          data.message ||
+          (data.ok
+            ? `Connected to DeepMind Atlas (${data.latencyMs ?? 0}ms)`
+            : "") ||
+          "";
+
+        if (res.status === 401 || data.error || !isValid) {
           const message =
             (typeof data.error === "object" && data.error?.message) ||
             (typeof data.error === "string" && data.error) ||
-            "App authorization failed. Please check your App API Token.";
+            (res.status === 401
+              ? "App authorization failed. Please check your App API Token."
+              : "Connection test failed.");
           patchTest(id, { status: { valid: false, message } });
         } else {
-          patchTest(id, { status: { valid: !!data.valid, message: data.message || "" } });
+          patchTest(id, { status: { valid: true, message: successMessage } });
         }
       } catch (err) {
         patchTest(id, {
@@ -101,7 +124,7 @@ export function useApiConnections() {
         patchTest(id, { testing: false });
       }
     },
-    [settings.biohubApiToken, settings.hfToken, settings.appApiToken]
+    [settings.biohubApiToken, settings.hfToken, settings.alphagenomeApiKey, settings.alphagenomeApiUrl, settings.appApiToken]
   );
 
   const linkGeminiKey = useCallback(async () => {

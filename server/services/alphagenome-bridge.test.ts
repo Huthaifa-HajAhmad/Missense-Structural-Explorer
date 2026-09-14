@@ -404,5 +404,51 @@ describe("AlphaGenome Bridge Service Tests", () => {
       expect(callCount).toBe(2);
       expect(alphagenomeRegionCache.size).toBe(2);
     });
+
+    it("should query native gRPC client when apiKey is provided without apiUrl", async () => {
+      const mockScoreBuf = Buffer.alloc(4);
+      mockScoreBuf.writeFloatLE(0.72, 0);
+
+      const mockCalibratedBuf = Buffer.alloc(4);
+      mockCalibratedBuf.writeFloatLE(0.999, 0);
+
+      const mockFiBuf = Buffer.alloc(18 * 4);
+      mockFiBuf.writeFloatLE(0.88, 10 * 4); // ALPHAMISSENSE
+
+      const mockClient = {
+        GetDenseVariantScores: vi.fn((req, md, opts, callback) => {
+          callback(null, {
+            scores: [
+              {
+                variant_scorer: { name: "AVI_SCORE" },
+                scores: mockScoreBuf,
+                calibrated_scores: mockCalibratedBuf
+              },
+              {
+                variant_scorer: { name: "AVI_SCORE_FEATURE_IMPORTANCE" },
+                scores: mockFiBuf
+              }
+            ]
+          });
+        })
+      };
+
+      const { setAtlasGrpcClientFactory } = await import("./alphagenome-client.ts");
+      setAtlasGrpcClientFactory(() => mockClient);
+
+      try {
+        const res = await fetchAlphaGenome("chr20", 23369727, "C", "T", {
+          apiKey: "test-user-api-key"
+        });
+
+        expect(mockClient.GetDenseVariantScores).toHaveBeenCalledOnce();
+        expect(res).not.toBeNull();
+        expect(res?.status).toBe("live");
+        expect(res?.aviPhred).toBeCloseTo(30.0, 1);
+        expect(res?.topModality).toBe("AlphaMissense");
+      } finally {
+        setAtlasGrpcClientFactory(null);
+      }
+    });
   });
 });

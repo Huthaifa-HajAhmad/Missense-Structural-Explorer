@@ -20,6 +20,13 @@ export interface CachedVariantBundle {
   foldingDdG?: number | null;
   foldingEnergetics?: any | null;
   foldingStatus?: string | null;
+  dynamut2JobId?: string | null;
+  dynamut2Status?: string | null;
+  ddmutJobId?: string | null;
+  ddmutStatus?: string | null;
+  thermompnnJobId?: string | null;
+  thermompnnStatus?: string | null;
+  thermompnnError?: string | null;
   computedPocket?: any | null;
   homologs?: any[] | null;
   disruptionPredictor?: any | null;

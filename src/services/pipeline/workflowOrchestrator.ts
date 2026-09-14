@@ -133,11 +133,18 @@ export async function executeFullAnalysisWorkflow({
       }
       if (cached.mutantPdb) {
         biophysicalSink.setMutantPdb(cached.mutantPdb);
-        if (cached.foldedResidueIndex != null) biophysicalSink.setFoldedResidueIndex(cached.foldedResidueIndex);
-        if (cached.foldingDdG != null) biophysicalSink.setFoldingDdG(cached.foldingDdG);
-        if (cached.foldingEnergetics) biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
-        if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);
       }
+      if (cached.foldedResidueIndex != null) biophysicalSink.setFoldedResidueIndex(cached.foldedResidueIndex);
+      if (cached.foldingDdG != null) biophysicalSink.setFoldingDdG(cached.foldingDdG);
+      if (cached.foldingEnergetics) biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
+      if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);
+      if (cached.dynamut2JobId != null) biophysicalSink.setDynamut2JobId(cached.dynamut2JobId);
+      if (cached.dynamut2Status != null) biophysicalSink.setDynamut2Status(cached.dynamut2Status as any);
+      if (cached.ddmutJobId != null) biophysicalSink.setDdmutJobId(cached.ddmutJobId);
+      if (cached.ddmutStatus != null) biophysicalSink.setDdmutStatus(cached.ddmutStatus as any);
+      if (cached.thermompnnJobId != null) biophysicalSink.setThermompnnJobId(cached.thermompnnJobId);
+      if (cached.thermompnnStatus != null) biophysicalSink.setThermompnnStatus(cached.thermompnnStatus as any);
+      if (cached.thermompnnError != null) biophysicalSink.setThermompnnError(cached.thermompnnError);
       if (cached.computedPocket) {
         structureSink.setComputedPocket(cached.computedPocket);
       }

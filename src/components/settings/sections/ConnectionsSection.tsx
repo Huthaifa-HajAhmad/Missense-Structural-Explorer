@@ -171,6 +171,14 @@ export function ConnectionsSection() {
           value={settings.alphagenomeApiKey || ""}
           onChange={(value) => updateSetting("alphagenomeApiKey", value)}
           description="Enables multimodal variant impact (AVI) scoring, 18-modality SHAP feature attributions, and Atlas track predictions from Google DeepMind."
+          action={{
+            label: "Test connection",
+            busyLabel: "Testing…",
+            busy: tests.alphagenome.testing,
+            disabled: !settings.alphagenomeApiKey?.trim(),
+            run: () => runTest("alphagenome")
+          }}
+          status={tests.alphagenome.status}
         />
         <details className="cs-sub-card px-3 py-2">
           <summary className="cursor-pointer text-[11px] font-medium text-cs-text-secondary select-none">

@@ -1,23 +1,22 @@
 import React, { useState, useMemo } from "react";
 import {
-  Dna,
   ExternalLink,
-  Layers,
   Activity,
   CheckCircle2,
   AlertCircle,
   Sparkles,
-  Cpu,
   HelpCircle,
-  Filter,
   Copy,
   Check,
   Search,
   ChevronDown,
   ChevronUp,
-  Sliders,
   Compass,
-  FileText
+  Key,
+  RefreshCw,
+  Zap,
+  ShieldCheck,
+  SplitSquareVertical
 } from "lucide-react";
 import { TabComponentProps } from "./types";
 import {
@@ -26,122 +25,194 @@ import {
   parseGenomicCoordinateString,
   AtlasUrls
 } from "../../shared/contracts";
+import { useSettings } from "../../context/SettingsContext";
+import { useApiClient } from "../../apiClient";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 
-interface ModalityDefinition {
+export interface ModalityDefinition {
   id: string;
   name: string;
-  tier: "TF Binding" | "Chromatin" | "Splicing" | "Structure" | "Conservation" | "Epigenetics";
+  tier: "Splicing" | "Coding Impact" | "Transcription" | "Chromatin" | "Epigenetics" | "Conservation" | "Structural Variant";
   description: string;
   assay: string;
   color: string;
+  aliases: string[];
 }
 
-const MODALITY_DEFINITIONS: ModalityDefinition[] = [
+export const MODALITY_DEFINITIONS: ModalityDefinition[] = [
   {
-    id: "fi_CHIP_TF",
-    name: "ChIP-seq TF Binding",
-    tier: "TF Binding",
-    description: "Perturbation of transcription factor binding motifs and peak intensities across genome-wide ChIP-seq assays.",
-    assay: "ENCODE / TF ChIP-seq",
-    color: "#6366f1" // indigo
-  },
-  {
-    id: "fi_DNASE",
-    name: "DNase-seq / ATAC Accessibility",
-    tier: "Chromatin",
-    description: "Disruption of open chromatin hypersensitivity and accessible regulatory DNA regions.",
-    assay: "DNase-seq / ATAC-seq",
-    color: "#06b6d4" // cyan
-  },
-  {
-    id: "fi_MERGED_SPLICING",
-    name: "RNA Pre-mRNA Splicing",
+    id: "MERGED_SPLICING",
+    name: "Splicing",
     tier: "Splicing",
     description: "Disruption of splice donor/acceptor canonical sites, branchpoints, and exonic splicing enhancers/silencers.",
     assay: "Deep Learning Pre-mRNA Splicing",
-    color: "#ec4899" // pink
+    color: "#ec4899", // pink
+    aliases: ["fi_MERGED_SPLICING", "Splicing", "SPLICE_SITES", "SPLICE_JUNCTIONS"]
   },
   {
-    id: "fi_ALPHAMISSENSE",
-    name: "AlphaMissense 3D Embedding",
-    tier: "Structure",
+    id: "ALPHAMISSENSE",
+    name: "AlphaMissense",
+    tier: "Coding Impact",
     description: "Protein-level structural perturbation and amino acid missense substitution pathogenicity embeddings.",
     assay: "DeepMind AlphaFold Structural Model",
-    color: "#c46849" // cs-accent-clay
+    color: "#c46849", // accent clay
+    aliases: ["fi_ALPHAMISSENSE", "AlphaMissense"]
   },
   {
-    id: "fi_CACTUS_241_WAY",
-    name: "241-Way Mammalian Conservation",
+    id: "MAX_ABS_RNA_SEQ",
+    name: "RNA-seq",
+    tier: "Transcription",
+    description: "Predicted quantitative transcript abundance divergence across 9,440 human cellular biosamples.",
+    assay: "PolyA+ / Total RNA-seq",
+    color: "#8b5cf6", // violet
+    aliases: ["fi_MAX_ABS_RNA_SEQ", "RNA-seq", "RNA_SEQ"]
+  },
+  {
+    id: "MAX_ABS_ATAC",
+    name: "ATAC-seq",
+    tier: "Chromatin",
+    description: "Disruption of open chromatin accessibility in regulatory DNA regions across cellular types.",
+    assay: "ATAC-seq",
+    color: "#06b6d4", // cyan
+    aliases: ["fi_MAX_ABS_ATAC", "ATAC-seq", "ATAC"]
+  },
+  {
+    id: "MAX_ABS_DNASE",
+    name: "DNase-seq",
+    tier: "Chromatin",
+    description: "DNase I hypersensitive site signal alteration reflecting local chromatin decompaction.",
+    assay: "DNase-seq",
+    color: "#0284c7", // sky blue
+    aliases: ["fi_DNASE", "fi_MAX_ABS_DNASE", "DNase-seq", "DNASE-seq", "DNASE"]
+  },
+  {
+    id: "MAX_ABS_CHIP_TF",
+    name: "ChIP-TF",
+    tier: "Chromatin",
+    description: "Perturbation of transcription factor binding motifs and peak intensities across genome-wide ChIP-seq assays.",
+    assay: "ENCODE / TF ChIP-seq",
+    color: "#6366f1", // indigo
+    aliases: ["fi_CHIP_TF", "fi_MAX_ABS_CHIP_TF", "ChIP-TF", "CHIP_TF"]
+  },
+  {
+    id: "MAX_ABS_CHIP_HISTONE",
+    name: "ChIP-Histone",
+    tier: "Epigenetics",
+    description: "Chromatin modification changes across activating and repressive histone tail marks.",
+    assay: "Histone ChIP-seq",
+    color: "#3b82f6", // blue
+    aliases: ["fi_MAX_ABS_CHIP_HISTONE", "ChIP-Histone", "CHIP_HISTONE"]
+  },
+  {
+    id: "MAX_ABS_CAGE",
+    name: "CAGE",
+    tier: "Transcription",
+    description: "Transcription initiation rate and 5' TSS promoter activity alterations.",
+    assay: "Cap Analysis Gene Expression (FANTOM5)",
+    color: "#f59e0b", // amber
+    aliases: ["fi_CAGE", "fi_MAX_ABS_CAGE", "CAGE"]
+  },
+  {
+    id: "MAX_ABS_PROCAP",
+    name: "PRO-cap",
+    tier: "Transcription",
+    description: "Precision nuclear run-on transcription elongation and nascent RNA synthesis dynamics.",
+    assay: "Precision Run-On Capped RNA-seq",
+    color: "#d97706", // dark amber
+    aliases: ["fi_PROCAP", "fi_MAX_ABS_PROCAP", "PRO-cap", "PROCAP"]
+  },
+  {
+    id: "MAX_ABS_POLYADENYLATION",
+    name: "Polyadenylation",
+    tier: "Transcription",
+    description: "Alternative polyadenylation (APA) signal site selection and 3' UTR cleavage perturbation.",
+    assay: "3' End-seq / PolyA-seq",
+    color: "#e11d48", // rose
+    aliases: ["fi_POLYADENYLATION", "fi_MAX_ABS_POLYADENYLATION", "Polyadenylation", "POLYADENYLATION"]
+  },
+  {
+    id: "MAX_ABS_CONTACT_MAPS",
+    name: "3D Genome Contacts",
+    tier: "Chromatin",
+    description: "Long-range chromatin folding, topological associating domain (TAD) boundaries, and enhancer-promoter loops.",
+    assay: "Hi-C / Micro-C",
+    color: "#14b8a6", // teal
+    aliases: ["fi_CONTACT_MAPS", "fi_MAX_ABS_CONTACT_MAPS", "3D Genome Contacts", "CONTACT_MAPS"]
+  },
+  {
+    id: "CACTUS_241_WAY",
+    name: "Cactus (241-way)",
     tier: "Conservation",
     description: "Cross-species evolutionary constraint across 241 placental mammals (Zoonomia alignment).",
     assay: "Progressive Cactus Whole-Genome Alignment",
-    color: "#10b981" // emerald
+    color: "#10b981", // emerald
+    aliases: ["fi_CACTUS_241_WAY", "Cactus", "Cactus (241-way)"]
   },
   {
-    id: "fi_MAX_ABS_RNA_SEQ",
-    name: "Continuous RNA-seq Expression",
-    tier: "Epigenetics",
-    description: "Predicted quantitative transcript abundance divergence across 9,440 human cellular biosamples.",
-    assay: "PolyA+ / Total RNA-seq",
-    color: "#8b5cf6" // violet
+    id: "PHASTCONS_470_WAY",
+    name: "PhastCons 470",
+    tier: "Conservation",
+    description: "Multi-vertebrate phylogenetic hidden Markov model conservation across 470 species.",
+    assay: "UCSC PhastCons 470-way",
+    color: "#059669", // dark emerald
+    aliases: ["fi_PHASTCONS_470_WAY", "PhastCons 470", "PHASTCONS_470_WAY"]
   },
   {
-    id: "fi_CAGE",
-    name: "CAGE Transcription Start Site",
-    tier: "Epigenetics",
-    description: "Transcription initiation rate and 5' TSS promoter activity alterations.",
-    assay: "Cap Analysis Gene Expression (FANTOM5)",
-    color: "#f59e0b" // amber
+    id: "PROTEIN_TERMINATION",
+    name: "Protein Termination",
+    tier: "Coding Impact",
+    description: "Creation of premature stop codons (nonsense mutation) causing truncated protein or NMD.",
+    assay: "Coding Sequence Translation",
+    color: "#dc2626", // strong red
+    aliases: ["fi_PROTEIN_TERMINATION", "Protein Termination", "PROTEIN_TERMINATION"]
   },
   {
-    id: "fi_HISTONE_H3K4ME3",
-    name: "H3K4me3 Active Promoter Mark",
-    tier: "Epigenetics",
-    description: "Deposition or loss of trimethylated histone H3 lysine 4 at active gene promoter domains.",
-    assay: "Histone ChIP-seq (H3K4me3)",
-    color: "#3b82f6" // blue
+    id: "START_LOST",
+    name: "Start Lost",
+    tier: "Coding Impact",
+    description: "Ablation of canonical translation initiation codon (ATG).",
+    assay: "Coding Sequence Translation",
+    color: "#ea580c", // orange
+    aliases: ["fi_START_LOST", "Start Lost", "START_LOST"]
   },
   {
-    id: "fi_HISTONE_H3K27AC",
-    name: "H3K27ac Active Enhancer Mark",
-    tier: "Epigenetics",
-    description: "Acetylated histone H3 lysine 27 signal marking transcriptionally active enhancers and super-enhancers.",
-    assay: "Histone ChIP-seq (H3K27ac)",
-    color: "#14b8a6" // teal
+    id: "STOP_LOST",
+    name: "Stop Lost",
+    tier: "Coding Impact",
+    description: "Disruption of translation termination codon resulting in C-terminal extension.",
+    assay: "Coding Sequence Translation",
+    color: "#ca8a04", // mustard
+    aliases: ["fi_STOP_LOST", "Stop Lost", "STOP_LOST"]
   },
   {
-    id: "fi_HISTONE_H3K4ME1",
-    name: "H3K4me1 Primed Enhancer Mark",
-    tier: "Epigenetics",
-    description: "Monomethylated H3K4 marking primed or poised regulatory elements.",
-    assay: "Histone ChIP-seq (H3K4me1)",
-    color: "#a855f7" // purple
+    id: "IS_INSERTION",
+    name: "Insertion",
+    tier: "Structural Variant",
+    description: "Inframe or frameshift nucleotide insertion effect on reading frame.",
+    assay: "Sequence Topology",
+    color: "#475569", // slate
+    aliases: ["fi_IS_INSERTION", "Insertion", "IS_INSERTION"]
   },
   {
-    id: "fi_HISTONE_H3K36ME3",
-    name: "H3K36me3 Transcriptional Elongation",
-    tier: "Epigenetics",
-    description: "Histone modification associated with active Pol II transcription elongation through gene bodies.",
-    assay: "Histone ChIP-seq (H3K36me3)",
-    color: "#eab308" // yellow
-  },
-  {
-    id: "fi_HISTONE_H3K27ME3",
-    name: "H3K27me3 Polycomb Repression",
-    tier: "Epigenetics",
-    description: "Polycomb repressive complex 2 (PRC2) mediated facultative heterochromatin silencing.",
-    assay: "Histone ChIP-seq (H3K27me3)",
-    color: "#ef4444" // red
-  },
-  {
-    id: "fi_HISTONE_H3K9ME3",
-    name: "H3K9me3 Heterochromatin Silencing",
-    tier: "Epigenetics",
-    description: "Constitutive heterochromatin silencing and telomeric/centromeric repression.",
-    assay: "Histone ChIP-seq (H3K9me3)",
-    color: "#64748b" // slate
+    id: "IS_DELETION",
+    name: "Deletion",
+    tier: "Structural Variant",
+    description: "Inframe or frameshift nucleotide deletion effect on reading frame.",
+    assay: "Sequence Topology",
+    color: "#334155", // dark slate
+    aliases: ["fi_IS_DELETION", "Deletion", "IS_DELETION"]
   }
 ];
+
+function extractModalityShap(def: ModalityDefinition, featureAttributions: Record<string, number> | null): number {
+  if (!featureAttributions) return 0;
+  for (const alias of [def.id, def.name, ...def.aliases]) {
+    if (alias in featureAttributions && typeof featureAttributions[alias] === "number") {
+      return featureAttributions[alias];
+    }
+  }
+  return 0;
+}
 
 interface ReferenceAssayTrack {
   id: string;
@@ -246,32 +317,47 @@ const REFERENCE_ASSAY_SCHEMA: ReferenceAssayTrack[] = [
   }
 ];
 
-function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
+function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
   const [selectedTissue, setSelectedTissue] = useState<string>("All");
   const [trackSearch, setTrackSearch] = useState<string>("");
   const [modalitySort, setModalitySort] = useState<"tier" | "impact">("impact");
   const [showEduExplainer, setShowEduExplainer] = useState<boolean>(false);
   const [copiedVariant, setCopiedVariant] = useState<boolean>(false);
 
+  // Connection testing state
+  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{
+    ok: boolean;
+    latencyMs: number;
+    scorersCount?: number;
+    error?: string;
+    mode?: string;
+  } | null>(null);
+
+  // In-situ re-evaluation state
+  const [isReevaluating, setIsReevaluating] = useState<boolean>(false);
+  const [reevalError, setReevalError] = useState<string | null>(null);
+
+  const { settings, openSettingsTab } = useSettings();
+  const { fetchWithAuth } = useApiClient();
+
   const result = analysisState.result;
   if (!result) return null;
 
   const alphagenome: AlphaGenomeAviData | null = result.conservationData?.alphagenome || null;
   const isLive = alphagenome?.status === "live";
+  const hasConfiguredKey = Boolean(settings.alphagenomeApiKey?.trim() || settings.alphagenomeApiUrl?.trim());
   const geneName = result.metadata?.gene || "";
   const variantNotation = result.metadata?.variant || "";
 
   // Robust coordinate resolution across predictorData, variant, and splice metadata
   const parsedCoords = useMemo(() => {
-    // 1. Primary: predictorData.gnomadVariantId
     const fromPredictor = parseGenomicCoordinateString(result.predictorData?.gnomadVariantId);
     if (fromPredictor) return fromPredictor;
 
-    // 2. Secondary: direct variant string if formatted in genomic notation
     const fromVariant = parseGenomicCoordinateString(variantNotation);
     if (fromVariant) return fromVariant;
 
-    // 3. Tertiary: splice proximity coordinate fallback with gene symbol
     const splicePos = result.conservationData?.spliceProximity?.genomicPos;
     if (splicePos && splicePos > 0) {
       return {
@@ -301,6 +387,90 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
       setCopiedVariant(true);
       setTimeout(() => setCopiedVariant(false), 2000);
     });
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    try {
+      const res = await fetchWithAuth("/api/v1/alphagenome/verify-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: settings.alphagenomeApiKey || undefined,
+          apiUrl: settings.alphagenomeApiUrl || undefined
+        })
+      });
+      const data = await res.json();
+      const rawError = data?.error;
+      const errorMsg =
+        typeof rawError === "object"
+          ? rawError?.message || JSON.stringify(rawError)
+          : typeof rawError === "string"
+            ? rawError
+            : !res.ok
+              ? `HTTP ${res.status}`
+              : undefined;
+
+      setConnectionTestResult({
+        ok: Boolean(data?.ok),
+        latencyMs: data?.latencyMs ?? 0,
+        scorersCount: data?.scorersCount,
+        mode: data?.mode,
+        error: errorMsg
+      });
+    } catch (err: any) {
+      setConnectionTestResult({
+        ok: false,
+        latencyMs: 0,
+        error: err.message || "Network error testing connection"
+      });
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handleReevaluate = async () => {
+    setIsReevaluating(true);
+    setReevalError(null);
+    try {
+      const res = await fetchWithAuth("/api/v1/analyze-variant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gene: geneName,
+          variant: variantNotation,
+          alphagenomeApiKey: settings.alphagenomeApiKey || undefined,
+          alphagenomeApiUrl: settings.alphagenomeApiUrl || undefined
+        })
+      });
+      if (!res.ok) {
+        throw new Error(`Re-evaluation returned HTTP status ${res.status}`);
+      }
+      const data = await res.json();
+      if (data?.conservationData) {
+        useVariantAnalysisStore.getState().updateAnalysisResultSlice(
+          "conservationData",
+          data.conservationData
+        );
+      }
+      if (data?.inSilicoConcordance) {
+        useVariantAnalysisStore.getState().updateAnalysisResultSlice(
+          "inSilicoConcordance",
+          data.inSilicoConcordance
+        );
+      }
+      if (data?.ruleBasedInsights) {
+        useVariantAnalysisStore.getState().updateAnalysisResultSlice(
+          "ruleBasedInsights",
+          data.ruleBasedInsights
+        );
+      }
+    } catch (err: any) {
+      setReevalError(err.message || "Failed to re-evaluate variant");
+    } finally {
+      setIsReevaluating(false);
+    }
   };
 
   // Values from live backend or standby state
@@ -356,7 +526,7 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
         };
       default:
         return {
-          label: "Indeterminate / Uncalibrated",
+          label: "Indeterminate / Standby",
           odds: "Non-discriminatory continuous score",
           badgeClass: "bg-slate-500/10 text-slate-400 border-slate-500/30"
         };
@@ -368,7 +538,7 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
   // Filtered modalities with scores
   const renderedModalities = useMemo(() => {
     const list = MODALITY_DEFINITIONS.map((def) => {
-      const shap = featureAttributions ? (featureAttributions[def.id] ?? 0) : 0;
+      const shap = extractModalityShap(def, featureAttributions);
       return {
         ...def,
         shap
@@ -380,6 +550,17 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
     }
     return list;
   }, [featureAttributions, modalitySort]);
+
+  // Dual-mechanism detection (Splicing vs Coding)
+  const splicingShap = useMemo(() => {
+    const spliceDef = MODALITY_DEFINITIONS.find((m) => m.id === "MERGED_SPLICING")!;
+    return extractModalityShap(spliceDef, featureAttributions);
+  }, [featureAttributions]);
+
+  const alphaMissenseShap = useMemo(() => {
+    const amDef = MODALITY_DEFINITIONS.find((m) => m.id === "ALPHAMISSENSE")!;
+    return extractModalityShap(amDef, featureAttributions);
+  }, [featureAttributions]);
 
   // Filtered reference assay tracks
   const filteredTracks = useMemo(() => {
@@ -396,20 +577,25 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
 
   return (
     <div className="space-y-6 animate-fade-in text-cs-text-primary pb-12">
-      {/* Header Banner */}
+      {/* ── CONNECTION & STATUS DIAGNOSTIC BAR ── */}
       <div
-        className="p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden"
+        className="p-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden"
         style={{
-          background: "linear-gradient(135deg, rgba(99,102,241,0.07) 0%, rgba(196,104,73,0.06) 100%)",
-          borderColor: "var(--cs-border)"
+          background: isLive
+            ? "linear-gradient(135deg, rgba(16,185,129,0.06) 0%, rgba(99,102,241,0.06) 100%)"
+            : "linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(99,102,241,0.06) 100%)",
+          borderColor: isLive ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"
         }}
       >
         <div className="flex items-start gap-3.5 z-10">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
-            style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)" }}
+            style={{
+              background: isLive ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)",
+              border: `1px solid ${isLive ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"}`
+            }}
           >
-            <Compass className="w-5 h-5 text-indigo-500" />
+            <Compass className={`w-5 h-5 ${isLive ? "text-emerald-500" : "text-amber-500"}`} />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -421,33 +607,107 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
               </span>
               {isLive ? (
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Live Inference
+                  <CheckCircle2 className="w-3 h-3" /> Live gRPC Channel
                 </span>
               ) : (
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> Standby / Direct Atlas Mode
+                  <AlertCircle className="w-3 h-3" /> Standby (Direct Atlas Mode)
+                </span>
+              )}
+              {connectionTestResult?.ok && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 flex items-center gap-1">
+                  <Zap className="w-2.5 h-2.5" /> {connectionTestResult.latencyMs}ms ({connectionTestResult.scorersCount ?? 0} Scorers)
                 </span>
               )}
             </div>
             <p className="text-xs text-cs-text-muted mt-1 max-w-3xl leading-relaxed">
-              Unified foundation model predicting 9,440 functional epigenetic and transcriptomic assays from raw DNA sequence.
-              Evaluates genome-wide variant impact (AVI) across 18 modalities without synthetic heuristics.
+              Native gRPC client connected directly to <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">gdmscience.googleapis.com:443</code> over TLS.
+              Continuous calibrated AVI scores and 18-modality biological SHAP weights.
             </p>
+            {/* Locus Coordinate Chip with Copy action */}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 border border-cs-border text-cs-text-secondary">
+                {parsedCoords ? `${parsedCoords.chrom}:${parsedCoords.pos} (${parsedCoords.ref}>${parsedCoords.alt})` : variantNotation}
+              </span>
+              <button
+                onClick={() => handleCopyVariant(parsedCoords ? `${parsedCoords.chrom}:${parsedCoords.pos}:${parsedCoords.ref}:${parsedCoords.alt}` : variantNotation)}
+                className="text-[11px] text-cs-text-muted hover:text-cs-text-primary flex items-center gap-1 font-mono transition-colors"
+                title="Copy coordinates"
+              >
+                {copiedVariant ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedVariant ? "Copied" : "Copy"}</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 z-10 flex-shrink-0">
+        <div className="flex items-center gap-2 z-10 flex-wrap">
+          <button
+            onClick={handleTestConnection}
+            disabled={isTestingConnection}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-cs-text-primary border transition-all disabled:opacity-50"
+            style={{ borderColor: "var(--cs-border)" }}
+            title="Ping AlphaGenome Atlas API and verify credentials"
+          >
+            <Activity className={`w-3.5 h-3.5 text-indigo-400 ${isTestingConnection ? "animate-spin" : ""}`} />
+            <span>{isTestingConnection ? "Testing..." : "Test Connection"}</span>
+          </button>
+
+          <button
+            onClick={handleReevaluate}
+            disabled={isReevaluating}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 transition-all disabled:opacity-50"
+            title="Re-run variant analysis with active AlphaGenome credentials"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isReevaluating ? "animate-spin" : ""}`} />
+            <span>{isReevaluating ? "Evaluating..." : "Re-evaluate Variant"}</span>
+          </button>
+
+          <button
+            onClick={() => openSettingsTab("connections")}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-cs-text-primary border transition-all"
+            style={{ borderColor: "var(--cs-border)" }}
+            title="Open Connections Settings"
+          >
+            <Key className="w-3.5 h-3.5 text-indigo-400" />
+            <span>{hasConfiguredKey ? "Key Configured" : "Configure Key"}</span>
+          </button>
+
           <a
             href={atlasUrls ? atlasUrls.trackPredictionsUrl : fallbackGeneSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-sm hover:shadow"
           >
-            <span>Open in DeepMind Atlas</span>
+            <span>DeepMind Atlas</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
       </div>
+
+      {/* Connection Test Error Banner */}
+      {connectionTestResult && !connectionTestResult.ok && (
+        <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span><strong>Connection Verification Failed:</strong> {String(connectionTestResult.error || "Unknown error")}</span>
+          </div>
+          <button
+            onClick={() => openSettingsTab("connections")}
+            className="underline font-semibold hover:text-rose-300 flex-shrink-0"
+          >
+            Review Key in Settings
+          </button>
+        </div>
+      )}
+
+      {/* Re-evaluation Error Banner */}
+      {reevalError && (
+        <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span><strong>Re-evaluation Error:</strong> {reevalError}</span>
+        </div>
+      )}
 
       {/* ── SECTION 1: EXECUTIVE KPI BANNER (4 HERO CARDS) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -476,7 +736,7 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
               <span className="text-xs font-mono text-cs-text-muted">/ 50.0</span>
             </div>
 
-            {/* Phred Gauge with calibrated thresholds and theme-aware tick marks */}
+            {/* Phred Gauge with calibrated thresholds */}
             <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden mt-2 relative">
               <div
                 className="h-full rounded-full transition-all duration-500"
@@ -492,7 +752,6 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
                       : "#10b981"
                 }}
               />
-              {/* High-contrast tick marks visible in both light and dark themes */}
               <div className="absolute top-0 bottom-0 left-[16%] w-0.5 bg-slate-400 dark:bg-white/40" title="BP4 Threshold (8.0)" />
               <div className="absolute top-0 bottom-0 left-[30%] w-0.5 bg-slate-400 dark:bg-white/40" title="PP3 Supporting (15.0)" />
               <div className="absolute top-0 bottom-0 left-[50%] w-0.5 bg-slate-400 dark:bg-white/40" title="PP3 Moderate (25.0)" />
@@ -533,7 +792,7 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
             <p className="text-xs font-mono text-cs-text-muted mt-1">
               {topPercentile !== null
                 ? `1 in ${Math.round(100 / Math.max(topPercentile, 0.00001)).toLocaleString()} human SNVs`
-                : "Awaiting API token for exact rank"}
+                : "Awaiting API key for exact rank"}
             </p>
           </div>
 
@@ -602,7 +861,58 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
         </div>
       </div>
 
-      {/* ── SECTION 2: 18-MODALITY BIOLOGICAL FEATURE ATTRIBUTION SPECTRUM ── */}
+      {/* ── SECTION 2: DUAL-MECHANISM RESOLVER (CODING VS SPLICING) ── */}
+      <div
+        className="p-5 rounded-2xl border"
+        style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <SplitSquareVertical className="w-4 h-4 text-indigo-400" />
+            <h4 className="text-xs font-bold tracking-tight text-cs-text-primary uppercase">
+              Dual-Mechanism Resolution: Coding Missense vs Pre-mRNA Splicing
+            </h4>
+          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded font-mono font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            Biophysical Isolation Rule
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-3.5 rounded-xl border bg-cs-surface-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold text-xs text-cs-text-primary">Protein Structural Impact (AlphaMissense)</span>
+              <span className="font-mono text-xs font-bold text-amber-500">
+                {alphaMissenseShap !== 0 ? `${alphaMissenseShap >= 0 ? "+" : ""}${alphaMissenseShap.toFixed(3)} SHAP` : "Standby"}
+              </span>
+            </div>
+            <p className="text-[11px] text-cs-text-muted leading-relaxed">
+              Reflects perturbation of 3D amino acid fold, hydrophobic packing, and local steric contacts in the translated polypeptide.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl border bg-cs-surface-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold text-xs text-cs-text-primary">Pre-mRNA Splicing Disruption (Splice Sites/Junctions)</span>
+              <span className="font-mono text-xs font-bold text-pink-500">
+                {splicingShap !== 0 ? `${splicingShap >= 0 ? "+" : ""}${splicingShap.toFixed(3)} SHAP` : "Standby"}
+              </span>
+            </div>
+            <p className="text-[11px] text-cs-text-muted leading-relaxed">
+              Reflects nuclear pre-mRNA processing disruption (donor/acceptor sites or cryptic splicing) independent of amino acid translation.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3.5 p-2.5 rounded-lg border bg-slate-50 dark:bg-slate-900/40 text-[11px] text-cs-text-muted flex items-start gap-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+          <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+          <span>
+            <strong>Protocol Safety Mandate:</strong> In adherence with ClinGen SVI and biophysical engine standards, AlphaGenome pre-mRNA splicing predictions are strictly isolated from the missense consensus vote. Missense consensus voting reflects translated protein stability ($\Delta\Delta G$ / structural impact), ensuring splicing and coding mechanisms are evaluated independently without double-counting.
+          </span>
+        </div>
+      </div>
+
+      {/* ── SECTION 3: 18-MODALITY BIOLOGICAL FEATURE ATTRIBUTION SPECTRUM ── */}
       <div
         className="p-6 rounded-2xl border"
         style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
@@ -685,10 +995,10 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
         )}
 
         {/* Modality Spectrum Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {renderedModalities.map((mod) => {
-            const hasScore = featureAttributions && featureAttributions[mod.id] !== undefined;
             const shapValue = mod.shap;
+            const hasScore = isLive && shapValue !== 0;
             const barWidth = Math.min(100, Math.max(4, Math.abs(shapValue) * 200));
 
             return (
@@ -738,7 +1048,7 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
                   </div>
                   <div className="flex justify-between items-center text-[9px] font-mono text-cs-text-muted mt-1">
                     <span>{mod.assay}</span>
-                    <span>{hasScore ? `${(shapValue * 100).toFixed(1)}% Relative` : "—"}</span>
+                    <span>{hasScore ? `${(shapValue * 100).toFixed(1)}% Rel` : "—"}</span>
                   </div>
                 </div>
               </div>
@@ -747,171 +1057,139 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
         </div>
       </div>
 
-      {/* ── SECTION 3: 9,440-TRACK ASSAY ARCHITECTURE & REFERENCE PROFILES ── */}
+      {/* ── SECTION 4: 9,440-TRACK ASSAY ARCHITECTURE & REFERENCE PROFILES ── */}
       <div
         className="p-6 rounded-2xl border"
         style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b" style={{ borderColor: "var(--cs-border-subtle)" }}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-sm font-bold tracking-tight text-cs-text-primary">
-                AlphaGenome 9,440-Track Assay Architecture &amp; Target Profiles
+                Multi-Tissue Epigenomic & Splicing Track Predictions
               </h4>
               <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
-                Assay Profiling Schema
+                9,440 Assays
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold">
+                Reference Schema (Illustrative)
               </span>
             </div>
             <p className="text-xs text-cs-text-muted mt-0.5">
-              Multi-system regulatory mapping modeled across 5 human physiological tissue classes.
+              Profiles across primary human tissues, ENCODE cell lines, and Roadmap Epigenomics biosamples.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-cs-text-muted" />
               <input
                 type="text"
                 value={trackSearch}
                 onChange={(e) => setTrackSearch(e.target.value)}
-                placeholder="Search tracks, targets, assays..."
+                placeholder="Filter biosample or assay..."
                 className="pl-8 pr-3 py-1 text-xs rounded-lg border bg-transparent text-cs-text-primary placeholder:text-cs-text-muted focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 style={{ borderColor: "var(--cs-border)" }}
               />
             </div>
-          </div>
-        </div>
 
-        {/* Scientific Provenance & Benchmark Disclaimer Banner */}
-        <div
-          className="p-3.5 rounded-xl border mb-5 flex items-start gap-3"
-          style={{
-            background: "rgba(196,104,73,0.08)",
-            borderColor: "rgba(196,104,73,0.25)",
-            color: "var(--cs-text-primary)"
-          }}
-        >
-          <AlertCircle className="w-4 h-4 text-cs-accent-clay flex-shrink-0 mt-0.5" />
-          <div className="text-xs leading-relaxed">
-            <span className="font-bold text-cs-accent-clay">Illustrative Benchmark Reference Schema:</span> The physiological assay signals below illustrate the 9,440-track continuous coverage schema modeled by AlphaGenome.
-            To inspect live, locus-specific BigWig track predictions computed specifically for {atlasUrls ? atlasUrls.variantStr : (variantNotation || "this variant")}, use the DeepMind Atlas launchpads below.
-          </div>
-        </div>
-
-        {/* Tissue Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-3 mb-4 text-xs font-mono">
-          {["All", "Liver", "Brain", "Cardiac", "Immune / Blood", "Epithelial"].map((t) => (
-            <button
-              key={t}
-              onClick={() => setSelectedTissue(t)}
-              className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
-                selectedTissue === t
-                  ? "bg-indigo-600 text-white font-semibold shadow-sm"
-                  : "bg-cs-surface-2 text-cs-text-muted hover:text-cs-text-primary border border-cs-border-subtle"
-              }`}
-            >
-              {t} {t !== "All" && `(${REFERENCE_ASSAY_SCHEMA.filter((s) => s.tissue === t).length})`}
-            </button>
-          ))}
-        </div>
-
-        {/* Comparative Track Table */}
-        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--cs-border)" }}>
-          <table className="w-full text-left border-collapse text-xs font-mono">
-            <thead>
-              <tr className="border-b" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-                <th className="p-3 font-semibold text-cs-text-muted">Biosample / Tissue</th>
-                <th className="p-3 font-semibold text-cs-text-muted">Assay Type</th>
-                <th className="p-3 font-semibold text-cs-text-muted">Target / Feature</th>
-                <th className="p-3 font-semibold text-cs-text-muted">Assay Signal Profile (Reference Benchmark)</th>
-                <th className="p-3 font-semibold text-cs-text-muted">Classification</th>
-                <th className="p-3 font-semibold text-cs-text-muted text-right">Interactive Track</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              {filteredTracks.map((trk) => (
-                <tr key={trk.id} className="hover:bg-indigo-500/5 transition-colors">
-                  <td className="p-3">
-                    <span className="font-bold text-cs-text-primary block">{trk.biosample}</span>
-                    <span className="text-[10px] text-cs-text-muted">{trk.tissue}</span>
-                  </td>
-                  <td className="p-3 text-cs-text-muted">{trk.assay}</td>
-                  <td className="p-3 font-semibold text-cs-accent-clay">{trk.target}</td>
-                  <td className="p-3">
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">{trk.referenceEffect}</span>
-                    <span className="block text-[9px] text-cs-text-muted">DeepMind Benchmark Spec</span>
-                  </td>
-                  <td className="p-3">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
-                      {trk.significanceCategory}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right">
-                    <a
-                      href={atlasUrls ? atlasUrls.trackPredictionsUrl : fallbackGeneSearchUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-400 font-semibold"
-                    >
-                      <span>View in Atlas</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </td>
-                </tr>
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 max-w-full">
+              {["All", "Liver", "Brain", "Cardiac", "Immune / Blood", "Epithelial"].map((tissue) => (
+                <button
+                  key={tissue}
+                  onClick={() => setSelectedTissue(tissue)}
+                  className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all whitespace-nowrap font-medium ${
+                    selectedTissue === tissue
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                      : "border-cs-border text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-surface-2"
+                  }`}
+                  style={{ borderColor: selectedTissue === tissue ? undefined : "var(--cs-border)" }}
+                >
+                  {tissue}
+                </button>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Protocol Disclaimer & Direct DeepMind Launcher Notice */}
+        <div className="mb-4 p-3 rounded-xl border border-cs-border bg-cs-surface-2 text-xs text-cs-text-muted flex items-start gap-2.5">
+          <ShieldCheck className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            <strong>Assay Reference Architecture:</strong> The tracks below illustrate DeepMind AlphaGenome&apos;s multimodal output schema across 10 key biological categories. In accordance with the project&apos;s Strict No-Heuristics Policy, variant-specific continuous signal tracks across all 9,440 tissue assays are viewed directly in the Sovereign{" "}
+            <a
+              href={atlasUrls ? atlasUrls.trackPredictionsUrl : fallbackGeneSearchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-400 underline font-semibold hover:text-indigo-300 inline-flex items-center gap-1"
+            >
+              DeepMind Atlas 9,440 Track Viewer <ExternalLink className="w-3 h-3" />
+            </a>.
+          </p>
+        </div>
+
+        {/* Tracks Table */}
+        <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--cs-border)" }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead
+                className="border-b text-cs-text-muted font-mono uppercase text-[10px] tracking-wider"
+                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
+              >
+                <tr>
+                  <th className="py-2.5 px-3.5">Assay Category</th>
+                  <th className="py-2.5 px-3.5">Biosample / Tissue</th>
+                  <th className="py-2.5 px-3.5">Molecular Target</th>
+                  <th className="py-2.5 px-3.5">Significance Class</th>
+                  <th className="py-2.5 px-3.5 text-right">Reference Effect Size</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y font-mono text-[11px]" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                {filteredTracks.map((trk) => (
+                  <tr key={trk.id} className="hover:bg-indigo-500/5 transition-colors">
+                    <td className="py-2.5 px-3.5 font-sans font-medium text-cs-text-primary">
+                      {trk.assay}
+                    </td>
+                    <td className="py-2.5 px-3.5 text-cs-text-muted">
+                      {trk.biosample} ({trk.tissue})
+                    </td>
+                    <td className="py-2.5 px-3.5 text-indigo-400">
+                      {trk.target}
+                    </td>
+                    <td className="py-2.5 px-3.5">
+                      <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cs-surface border border-cs-border text-cs-text-muted">
+                        {trk.significanceCategory}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3.5 text-right font-semibold text-cs-text-primary">
+                      {trk.referenceEffect}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      {/* ── SECTION 4: ALPHAGENOME ATLAS DEEP-LINK STUDIO ── */}
+      {/* ── SECTION 5: EXTERNAL PORTALS & ATLAS WORKSPACE LAUNCHERS ── */}
       <div
-        className="p-6 rounded-2xl border relative overflow-hidden"
-        style={{
-          background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(16,185,129,0.04) 100%)",
-          borderColor: "var(--cs-border)"
-        }}
+        className="p-6 rounded-2xl border"
+        style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
       >
-        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-500/15 border border-indigo-500/30">
-              <ExternalLink className="w-4 h-4 text-indigo-400" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold tracking-tight text-cs-text-primary">
-                AlphaGenome Atlas Deep-Link Studio
-              </h4>
-              <p className="text-xs text-cs-text-muted">
-                Pre-configured parameter launchpads opening DeepMind's official Atlas viewer with active variant coordinates.
-              </p>
-            </div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <ExternalLink className="w-4 h-4 text-indigo-400" />
+            <h4 className="text-xs font-bold tracking-tight text-cs-text-primary uppercase">
+              DeepMind AlphaGenome Workspace Launchers
+            </h4>
           </div>
-
-          {atlasUrls ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono px-2.5 py-1 rounded bg-slate-100 dark:bg-black/30 border border-cs-border-subtle text-indigo-700 dark:text-indigo-300 font-semibold">
-                {atlasUrls.variantStr}
-              </span>
-              <button
-                onClick={() => handleCopyVariant(atlasUrls.variantStr)}
-                className="p-1.5 rounded border text-cs-text-muted hover:text-cs-text-primary transition-all"
-                style={{ borderColor: "var(--cs-border)" }}
-                title="Copy variant coordinate string"
-              >
-                {copiedVariant ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono px-2.5 py-1 rounded bg-slate-100 dark:bg-black/30 border border-cs-border-subtle text-cs-text-muted">
-                Gene: {geneName || "Locus Search"}
-              </span>
-            </div>
-          )}
+          <span className="text-[10px] font-mono text-cs-text-muted">
+            Authenticated URL Generation
+          </span>
         </div>
 
-        {/* Launchpad Action Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <a
             href={atlasUrls ? atlasUrls.trackPredictionsUrl : fallbackGeneSearchUrl}
             target="_blank"
@@ -922,16 +1200,16 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-cs-text-primary group-hover:text-indigo-400 transition-colors">
-                  Paired Splicing + RNA-seq
+                  9,440 Track Viewer
                 </span>
                 <ExternalLink className="w-3.5 h-3.5 text-cs-text-muted group-hover:text-indigo-400 transition-colors" />
               </div>
               <p className="text-[11px] text-cs-text-muted mt-1.5 leading-relaxed">
-                Launch comparative pre-mRNA splice junction read alterations and polyA+ transcript level changes in Atlas.
+                Inspect raw continuous signal tracks across RNA-seq, CAGE, ChIP-TF, DNase-seq, and splicing assays.
               </p>
             </div>
             <div className="mt-3 pt-2 border-t flex items-center justify-between text-[10px] font-mono text-indigo-500 dark:text-indigo-400 font-semibold" style={{ borderColor: "var(--cs-border-subtle)" }}>
-              <span>Track Predictions View</span>
+              <span>Track Predictions</span>
               <span>Launch ↗</span>
             </div>
           </a>
@@ -946,7 +1224,7 @@ function AlphaGenomeTabComponent({ analysisState, isDark }: TabComponentProps) {
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-cs-text-primary group-hover:text-indigo-400 transition-colors">
-                  ChIP-TF Binding Disruption
+                  Variant Impact Overview
                 </span>
                 <ExternalLink className="w-3.5 h-3.5 text-cs-text-muted group-hover:text-indigo-400 transition-colors" />
               </div>

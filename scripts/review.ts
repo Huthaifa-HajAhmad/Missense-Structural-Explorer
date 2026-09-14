@@ -94,7 +94,7 @@ const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
 const child = spawn(npxCmd, finalArgs, {
   env,
   stdio: "inherit",
-  shell: false
+  shell: process.platform === "win32"
 });
 
 child.on("exit", (code) => {
