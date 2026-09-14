@@ -419,9 +419,18 @@ const EnergeticsView = memo(function EnergeticsView({
               <tbody>
                 {(() => {
                   const isFoldxPending = isFolding && energetics.foldxMean === null;
-                  const isDynamutPending = !skippedSlowPredictors && (dynamut2Status === "pending" || (isFolding && energetics.dynamut2 === null));
-                  const isDdmutPending = !skippedSlowPredictors && (ddmutStatus === "pending" || (isFolding && energetics.ddmut === null));
-                  const isThermompnnPending = (thermompnnStatus === "pending" || (isFolding && energetics.thermompnn === null));
+                  const isDynamutPending = !skippedSlowPredictors && (
+                    dynamut2Status === "pending" || 
+                    (isFolding && energetics.dynamut2 === null && dynamut2Status !== "unavailable")
+                  );
+                  const isDdmutPending = !skippedSlowPredictors && (
+                    ddmutStatus === "pending" || 
+                    (isFolding && energetics.ddmut === null && ddmutStatus !== "unavailable")
+                  );
+                  const isThermompnnPending = (
+                    thermompnnStatus === "pending" || 
+                    (isFolding && energetics.thermompnn === null && thermompnnStatus !== "unavailable" && thermompnnStatus !== "error")
+                  );
                   const isStabilityOraclePending = isFolding && energetics.stabilityoracle === null;
 
                   const items = [
@@ -545,7 +554,7 @@ const EnergeticsView = memo(function EnergeticsView({
                               label: "Standby", 
                               category: "Standby", 
                               style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
-                              tooltip: thermompnnError || "ThermoMPNN neural sidecar is in standby."
+                              tooltip: typeof thermompnnError === "string" ? thermompnnError.slice(0, 150) : "ThermoMPNN neural sidecar is in standby."
                             };
                           }
                         } else if (thermompnnStatus === "unavailable") {
@@ -650,8 +659,10 @@ const EnergeticsView = memo(function EnergeticsView({
               }
 
               const pendingTools: string[] = [];
-              if (dynamut2Status === "pending") pendingTools.push("DynaMut2");
-              if (ddmutStatus === "pending") pendingTools.push("DDMut");
+              if (!skippedSlowPredictors) {
+                if (dynamut2Status === "pending") pendingTools.push("DynaMut2");
+                if (ddmutStatus === "pending") pendingTools.push("DDMut");
+              }
               if (thermompnnStatus === "pending") pendingTools.push("ThermoMPNN");
 
               return (

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PredictorConcordance } from "./thresholds/concordance";
 
 // ============================================================================
 // Numeric Validation Primitives
@@ -1059,6 +1060,6 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
   serviceStatus?: Record<string, string>;
-  inSilicoConcordance?: any | null;
+  inSilicoConcordance?: PredictorConcordance | null;
 }
 

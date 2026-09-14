@@ -36,6 +36,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     return;
   }
 
+  if (signal.aborted || getActiveRequestId() !== requestId) {
+    sink.setIsFolding(false);
+    return;
+  }
+
   sink.setIsFolding(true);
   sink.setFoldingError(null);
   sink.setFoldingStatus(null);
@@ -203,13 +208,21 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         consecutiveErrors = 0;
         const pollData = await pollRes.json();
 
-        // Update remote job IDs and statuses dynamically
+        // Update remote job IDs dynamically if newly resolved
         if (pollData.dynamut2JobId != null) sink.setDynamut2JobId(pollData.dynamut2JobId);
-        if (pollData.dynamut2Status != null) sink.setDynamut2Status(pollData.dynamut2Status as any);
         if (pollData.ddmutJobId != null) sink.setDdmutJobId(pollData.ddmutJobId);
-        if (pollData.ddmutStatus != null) sink.setDdmutStatus(pollData.ddmutStatus as any);
         if (pollData.thermompnnJobId != null) sink.setThermompnnJobId(pollData.thermompnnJobId);
-        if (pollData.thermompnnStatus != null) sink.setThermompnnStatus(pollData.thermompnnStatus as any);
+
+        // Only propagate terminal failures/errors from backend snapshot; never clobber client's terminal status back to pending
+        if (pollData.dynamut2Status === "unavailable" || pollData.dynamut2Status === "error") {
+          sink.setDynamut2Status(pollData.dynamut2Status as any);
+        }
+        if (pollData.ddmutStatus === "unavailable" || pollData.ddmutStatus === "error") {
+          sink.setDdmutStatus(pollData.ddmutStatus as any);
+        }
+        if (pollData.thermompnnStatus === "unavailable" || pollData.thermompnnStatus === "error") {
+          sink.setThermompnnStatus(pollData.thermompnnStatus as any);
+        }
         if (pollData.thermompnnError != null) sink.setThermompnnError(pollData.thermompnnError);
 
         if (pollData.status === "completed" || pollData.status === "failed") {
@@ -234,6 +247,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               if (resResult.energetics) {
                 applyEnergetics(resResult.energetics, resResult.provenance);
               }
+
+              const d2Status = resResult.energetics?.dynamut2 != null ? "done" : (pollData.dynamut2Status ?? data.dynamut2Status ?? null);
+              const ddmStatus = resResult.energetics?.ddmut != null ? "done" : (pollData.ddmutStatus ?? data.ddmutStatus ?? null);
+              const tmStatus = resResult.energetics?.thermompnn != null ? "done" : (pollData.thermompnnStatus ?? data.thermompnnStatus ?? null);
+
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
                 mutantPdb: resResult.pdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
@@ -241,11 +259,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
                 foldingEnergetics: resResult.energetics ?? null,
                 foldingStatus: effectiveFoldingStatus,
                 dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
-                dynamut2Status: pollData.dynamut2Status ?? data.dynamut2Status ?? null,
+                dynamut2Status: d2Status,
                 ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
-                ddmutStatus: pollData.ddmutStatus ?? data.ddmutStatus ?? null,
+                ddmutStatus: ddmStatus,
                 thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null,
-                thermompnnStatus: pollData.thermompnnStatus ?? data.thermompnnStatus ?? null,
+                thermompnnStatus: tmStatus,
                 thermompnnError: pollData.thermompnnError ?? data.thermompnnError ?? null
               });
             } else {
@@ -256,24 +274,8 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
             }
           }
 
-          // Check if any remote jobs are still pending without a jobId
-          const d2PendingNoId = pollData.dynamut2Status === "pending" && pollData.dynamut2JobId == null;
-          const ddmutPendingNoId = pollData.ddmutStatus === "pending" && pollData.ddmutJobId == null;
-          const tmPendingNoId = pollData.thermompnnStatus === "pending" && pollData.thermompnnJobId == null;
-          const hasUnresolvedRemoteIds = d2PendingNoId || ddmutPendingNoId || tmPendingNoId;
-          const elapsed = Date.now() - pollStart;
-
-          // Keep polling up to 25s if remote jobs are pending and have no ID yet
-          if (hasUnresolvedRemoteIds && elapsed < 25000 && pollData.status !== "failed") {
-            continue;
-          }
-
-          // If timeout expired and remote IDs are still null, mark pending jobs unavailable so UI doesn't stall
-          if (hasUnresolvedRemoteIds) {
-            if (d2PendingNoId) sink.setDynamut2Status("unavailable");
-            if (ddmutPendingNoId) sink.setDdmutStatus("unavailable");
-            if (tmPendingNoId) sink.setThermompnnStatus("unavailable");
-          }
+          // Release UI folding state immediately
+          sink.setIsFolding(false);
 
           if (pollData.status === "failed") {
             throw new Error(pollData.error || "Background FoldX execution failed.");

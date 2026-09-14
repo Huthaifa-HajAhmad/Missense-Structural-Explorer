@@ -69,6 +69,10 @@ export interface PipelineStructureSink {
   resetViewerState: () => void;
   clearDynaMutPoll: () => void;
   clearDynaMutComparePoll: () => void;
+  clearDdmutPoll?: () => void;
+  clearDdmutComparePoll?: () => void;
+  clearThermoMpnnPoll?: () => void;
+  clearThermoMpnnComparePoll?: () => void;
 }
 
 export interface PipelineStateSinks {

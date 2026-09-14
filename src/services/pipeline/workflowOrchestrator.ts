@@ -138,13 +138,20 @@ export async function executeFullAnalysisWorkflow({
       if (cached.foldingDdG != null) biophysicalSink.setFoldingDdG(cached.foldingDdG);
       if (cached.foldingEnergetics) biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
       if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);
-      if (cached.dynamut2JobId != null) biophysicalSink.setDynamut2JobId(cached.dynamut2JobId);
-      if (cached.dynamut2Status != null) biophysicalSink.setDynamut2Status(cached.dynamut2Status as any);
-      if (cached.ddmutJobId != null) biophysicalSink.setDdmutJobId(cached.ddmutJobId);
-      if (cached.ddmutStatus != null) biophysicalSink.setDdmutStatus(cached.ddmutStatus as any);
-      if (cached.thermompnnJobId != null) biophysicalSink.setThermompnnJobId(cached.thermompnnJobId);
-      if (cached.thermompnnStatus != null) biophysicalSink.setThermompnnStatus(cached.thermompnnStatus as any);
-      if (cached.thermompnnError != null) biophysicalSink.setThermompnnError(cached.thermompnnError);
+      const isStale = (Date.now() - (cached.timestamp || 0)) > 300000;
+      const resolveRestoredStatus = (status: string | null | undefined, score: number | null | undefined) => {
+        if (score != null) return "done";
+        if (status === "pending" && isStale) return "unavailable";
+        return status ?? null;
+      };
+
+      biophysicalSink.setDynamut2JobId(cached.dynamut2JobId ?? null);
+      biophysicalSink.setDynamut2Status(resolveRestoredStatus(cached.dynamut2Status, cached.foldingEnergetics?.dynamut2) as any);
+      biophysicalSink.setDdmutJobId(cached.ddmutJobId ?? null);
+      biophysicalSink.setDdmutStatus(resolveRestoredStatus(cached.ddmutStatus, cached.foldingEnergetics?.ddmut) as any);
+      biophysicalSink.setThermompnnJobId(cached.thermompnnJobId ?? null);
+      biophysicalSink.setThermompnnStatus(resolveRestoredStatus(cached.thermompnnStatus, cached.foldingEnergetics?.thermompnn) as any);
+      biophysicalSink.setThermompnnError(cached.thermompnnError ?? null);
       if (cached.computedPocket) {
         structureSink.setComputedPocket(cached.computedPocket);
       }

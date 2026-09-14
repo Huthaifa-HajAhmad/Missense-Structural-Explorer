@@ -136,7 +136,14 @@ export default function useVariantAnalysis() {
       const currentStore = useVariantAnalysisStore.getState();
       currentStore.handleSelectHistoryItem(item, {
         abortAllPendingRequests: () =>
-          pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
+          pipeline.abortAllPendingRequests(
+            biophysical.clearDynaMutPoll,
+            biophysical.clearDynaMutComparePoll,
+            (biophysical as any).clearDdmutPoll,
+            (biophysical as any).clearDdmutComparePoll,
+            (biophysical as any).clearThermoMpnnPoll,
+            (biophysical as any).clearThermoMpnnComparePoll
+          ),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
         setAnalysisState: currentStore.setAnalysisState
@@ -150,7 +157,14 @@ export default function useVariantAnalysis() {
       const currentStore = useVariantAnalysisStore.getState();
       currentStore.handleSelectPreset(preset, {
         abortAllPendingRequests: () =>
-          pipeline.abortAllPendingRequests(biophysical.clearDynaMutPoll, biophysical.clearDynaMutComparePoll),
+          pipeline.abortAllPendingRequests(
+            biophysical.clearDynaMutPoll,
+            biophysical.clearDynaMutComparePoll,
+            (biophysical as any).clearDdmutPoll,
+            (biophysical as any).clearDdmutComparePoll,
+            (biophysical as any).clearThermoMpnnPoll,
+            (biophysical as any).clearThermoMpnnComparePoll
+          ),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
         setAnalysisState: currentStore.setAnalysisState

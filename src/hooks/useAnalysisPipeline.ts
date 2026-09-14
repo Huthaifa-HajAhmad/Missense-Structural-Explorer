@@ -116,7 +116,11 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setDisruptionPredictor: flat.setDisruptionPredictor || (() => {}),
         resetViewerState: flat.resetViewerState || (() => {}),
         clearDynaMutPoll: flat.clearDynaMutPoll || (() => {}),
-        clearDynaMutComparePoll: flat.clearDynaMutComparePoll || (() => {})
+        clearDynaMutComparePoll: flat.clearDynaMutComparePoll || (() => {}),
+        clearDdmutPoll: flat.clearDdmutPoll || (() => {}),
+        clearDdmutComparePoll: flat.clearDdmutComparePoll || (() => {}),
+        clearThermoMpnnPoll: flat.clearThermoMpnnPoll || (() => {}),
+        clearThermoMpnnComparePoll: flat.clearThermoMpnnComparePoll || (() => {})
       }
     }
   };
@@ -137,10 +141,21 @@ export function useAnalysisPipeline() {
   const [computedResiduesCache, setComputedResiduesCache] = useState<Record<string, NearestResidue[]>>({});
   const [disruptionPredictor, setDisruptionPredictor] = useState<{ level: "high" | "low" | "unknown"; reason: string; plddt: number | null } | null>(null);
 
-  const abortAllPendingRequests = useCallback((clearDynaMutPoll?: () => void, clearDynaMutComparePoll?: () => void) => {
+  const abortAllPendingRequests = useCallback((
+    clearDynaMutPoll?: () => void,
+    clearDynaMutComparePoll?: () => void,
+    clearDdmutPoll?: () => void,
+    clearDdmutComparePoll?: () => void,
+    clearThermoMpnnPoll?: () => void,
+    clearThermoMpnnComparePoll?: () => void
+  ) => {
     activeRequestIdRef.current += 1;
     if (clearDynaMutPoll) clearDynaMutPoll();
     if (clearDynaMutComparePoll) clearDynaMutComparePoll();
+    if (clearDdmutPoll) clearDdmutPoll();
+    if (clearDdmutComparePoll) clearDdmutComparePoll();
+    if (clearThermoMpnnPoll) clearThermoMpnnPoll();
+    if (clearThermoMpnnComparePoll) clearThermoMpnnComparePoll();
     if (analysisAbortRef.current) {
       try {
         analysisAbortRef.current.abort();
@@ -288,7 +303,14 @@ export function useAnalysisPipeline() {
     const normalizedOptions = normalizePipelineOptions(options);
     const { structure: structureSink, analysis: analysisSink } = normalizedOptions.sinks;
 
-    abortAllPendingRequests(structureSink.clearDynaMutPoll, structureSink.clearDynaMutComparePoll);
+    abortAllPendingRequests(
+      structureSink.clearDynaMutPoll,
+      structureSink.clearDynaMutComparePoll,
+      (structureSink as any).clearDdmutPoll,
+      (structureSink as any).clearDdmutComparePoll,
+      (structureSink as any).clearThermoMpnnPoll,
+      (structureSink as any).clearThermoMpnnComparePoll
+    );
     const requestId = ++activeRequestIdRef.current;
 
     const controller = new AbortController();

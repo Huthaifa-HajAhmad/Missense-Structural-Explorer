@@ -217,4 +217,60 @@ describe("foldxService", () => {
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
     expect(sink.setIsFolding).toHaveBeenCalledWith(false);
   });
+
+  it("handles HTTP error on /generate-mutant gracefully", async () => {
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "Internal cluster error" })
+    });
+
+    const sink: any = {
+      setIsFolding: vi.fn(),
+      setFoldingError: vi.fn(),
+      setFoldingStatus: vi.fn()
+    };
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    expect(sink.setFoldingError).toHaveBeenCalledWith("Internal cluster error");
+    expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
+    expect(sink.setIsFolding).toHaveBeenLastCalledWith(false);
+  });
+
+  it("exits early without mutation if abort signal is already triggered", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const mockFetchWithAuth = vi.fn();
+    const sink: any = {
+      setIsFolding: vi.fn(),
+      setFoldingError: vi.fn(),
+      setFoldingStatus: vi.fn()
+    };
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: controller.signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    expect(mockFetchWithAuth).not.toHaveBeenCalled();
+    expect(sink.setIsFolding).toHaveBeenCalledWith(false);
+    expect(sink.setFoldingStatus).not.toHaveBeenCalled();
+  });
 });
