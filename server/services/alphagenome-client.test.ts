@@ -9,7 +9,7 @@ import {
   queryAlphaGenomeRegionGrpc,
   verifyAlphaGenomeConnection
 } from "./alphagenome-client.ts";
-import grpc from "@grpc/grpc-js";
+import * as grpc from "@grpc/grpc-js";
 
 describe("AlphaGenome Native gRPC Client Tests", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
-import grpc from "@grpc/grpc-js";
+import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 import {
   type AlphaGenomeAviData,
   type AlphaGenomeRegionSaturationRequest,
@@ -30,21 +30,12 @@ export function calculateAlphaGenomeAcmgStrength(
   return "indeterminate";
 }
 
-import fs from "node:fs";
-
 function resolveProtoDir(): string {
   let currentDir = "";
-  try {
-    if (typeof __dirname !== "undefined" && __dirname) {
-      currentDir = __dirname;
-    } else if (typeof import.meta !== "undefined" && import.meta?.url) {
-      currentDir = path.dirname(fileURLToPath(import.meta.url));
-    }
-  } catch {
-    // fallback
-  }
-  if (!currentDir) {
-    currentDir = process.cwd();
+  if (typeof __dirname !== "undefined" && __dirname) {
+    currentDir = __dirname;
+  } else {
+    currentDir = path.resolve(process.cwd(), "server/services");
   }
 
   const candidateDirs = [
