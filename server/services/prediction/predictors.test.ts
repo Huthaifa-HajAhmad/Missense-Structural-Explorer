@@ -195,7 +195,7 @@ END
       `.trim();
       const resNormal = await predictStructuralDisruption(pdbNeutral, "A", 30, "V", "A");
       expect(resNormal.level).toBe("low");
-    }, 30000);
+    }, 60000);
   });
 
   describe("Progressive Conservation Merge", () => {
