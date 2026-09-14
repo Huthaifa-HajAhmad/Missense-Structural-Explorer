@@ -1,7 +1,27 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { pdbCache, bestPdbCache, uniprotCache, clinvarCache, clearAllCaches, getCachedOrFetch, singleFlight } from "./cache.ts";
+import { AnalysisDatabase } from "./analysis-db.ts";
 
 describe("LRU Cache", () => {
+  const mockL2Store = new Map<string, { data: any; source: string; fetchedAt: string; etag: string | null }>();
+
+  beforeEach(() => {
+    mockL2Store.clear();
+    vi.spyOn(AnalysisDatabase, "getInstance").mockReturnValue({
+      getExternalCacheAsync: vi.fn(async (key: string) => {
+        return mockL2Store.get(key) ?? null;
+      }),
+      saveExternalCacheAsync: vi.fn(async (key: string, data: any, source: string) => {
+        mockL2Store.set(key, { data, source, fetchedAt: new Date().toISOString(), etag: null });
+      }),
+      getExternalCache: vi.fn((key: string) => {
+        return mockL2Store.get(key) ?? null;
+      }),
+      saveExternalCache: vi.fn((key: string, data: any, source: string) => {
+        mockL2Store.set(key, { data, source, fetchedAt: new Date().toISOString(), etag: null });
+      }),
+    } as any);
+  });
   it("should allow setting and getting cached PDB structures", () => {
     pdbCache.set("P00439", "MOCK_PDB_CONTENT");
     expect(pdbCache.get("P00439")).toBe("MOCK_PDB_CONTENT");
