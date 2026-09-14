@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { generateClinicalNarrative } from "../narrativeService";
 
 describe("narrativeService", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
   it("generates narrative and updates analysis state insights", async () => {
     const mockApiClient = {
       getNarrative: vi.fn().mockResolvedValue({
@@ -106,5 +110,10 @@ describe("narrativeService", () => {
 
     expect(state.result.analysis).toContain("Narrative Generation Failed");
     expect(state.result.analysis).toContain("Rate limit exceeded");
+
+    // Must NOT persist degraded fallback result into long-term sessionStorage
+    const storageKeys = Object.keys(sessionStorage).filter(k => k.includes("PAH_p.arg408trp"));
+    expect(storageKeys.length).toBe(0);
   });
 });
+

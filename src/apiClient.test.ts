@@ -209,4 +209,62 @@ describe("useApiClient Domain Methods & Delegation", () => {
     expect(calledHeaders["Authorization"]).toBeUndefined();
     expect(calledHeaders["X-Gemini-Session-ID"]).toBeUndefined();
   });
+
+  it("auto-renews expired session and immediately attaches X-Gemini-Session-ID to outgoing request", async () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyTestKey123",
+        geminiSessionId: "old-expired-token",
+        geminiSessionExpiresAt: Date.now() - 60000 // expired 1 minute ago
+      })
+    );
+
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/v1/session/keys") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sessionId: "fresh-renewed-session-token",
+              expiresAt: Date.now() + 15 * 60 * 1000
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ analysis: "Valid analysis", insights: {} }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+
+    await result.current.fetchWithAuth("/api/v1/analyze-variant-narrative", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gene: "GZF1", variant: "p.Arg591Trp" })
+    });
+
+    // Should call /api/v1/session/keys to renew
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/session/keys",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ apiKey: "AIzaSyTestKey123" })
+      })
+    );
+
+    // The actual narrative request MUST contain the fresh session token
+    const narrativeCall = fetchMock.mock.calls.find((call: any[]) =>
+      call[0] === "/api/v1/analyze-variant-narrative"
+    );
+    expect(narrativeCall).toBeDefined();
+    const narrativeHeaders = narrativeCall?.[1]?.headers || {};
+    expect(narrativeHeaders["X-Gemini-Session-ID"]).toBe("fresh-renewed-session-token");
+  });
 });
+

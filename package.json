@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/workers/structural-diff-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/structural-diff-worker.cjs && esbuild server/workers/analysis-db-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/analysis-db-worker.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/workers/structural-diff-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/structural-diff-worker.cjs && esbuild server/workers/analysis-db-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/analysis-db-worker.cjs && node -e \"const fs=require('fs');fs.mkdirSync('dist/alphagenome/protos',{recursive:true});fs.cpSync('server/services/alphagenome/protos','dist/alphagenome/protos',{recursive:true});\"",
     "start": "node dist/server.cjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsx scripts/check-boundaries.ts && tsc --noEmit",

@@ -56,6 +56,7 @@ RUN npm ci --omit=dev
 
 # Copy built code from builder stage
 COPY --from=node-builder /app/dist ./dist
+COPY --from=node-builder /app/server/services/alphagenome/protos ./server/services/alphagenome/protos
 # Copy raw assets and sidecar scripts
 COPY tools/ ./tools/
 # Copy python virtual environment from builder stage

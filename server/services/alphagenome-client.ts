@@ -30,26 +30,60 @@ export function calculateAlphaGenomeAcmgStrength(
   return "indeterminate";
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import fs from "node:fs";
 
-const PROTO_DIR = path.resolve(__dirname, "alphagenome/protos");
-const ATLAS_PROTO_PATH = path.join(PROTO_DIR, "atlas_service.proto");
+function resolveProtoDir(): string {
+  let currentDir = "";
+  try {
+    if (typeof __dirname !== "undefined" && __dirname) {
+      currentDir = __dirname;
+    } else if (typeof import.meta !== "undefined" && import.meta?.url) {
+      currentDir = path.dirname(fileURLToPath(import.meta.url));
+    }
+  } catch {
+    // fallback
+  }
+  if (!currentDir) {
+    currentDir = process.cwd();
+  }
+
+  const candidateDirs = [
+    path.resolve(currentDir, "alphagenome/protos"),
+    path.resolve(currentDir, "../server/services/alphagenome/protos"),
+    path.resolve(process.cwd(), "server/services/alphagenome/protos"),
+    path.resolve(process.cwd(), "dist/alphagenome/protos")
+  ];
+
+  for (const candidate of candidateDirs) {
+    if (fs.existsSync(path.join(candidate, "atlas_service.proto"))) {
+      return candidate;
+    }
+  }
+
+  return candidateDirs[0];
+}
 
 let _AtlasService: any = null;
 
 function getAtlasService(): any {
   if (_AtlasService) return _AtlasService;
 
-  const packageDefinition = protoLoader.loadSync(ATLAS_PROTO_PATH, {
+  const protoDir = resolveProtoDir();
+  const atlasProtoPath = path.join(protoDir, "atlas_service.proto");
+
+  if (!fs.existsSync(atlasProtoPath)) {
+    throw new Error(`AlphaGenome proto definition not found at: ${atlasProtoPath}`);
+  }
+
+  const packageDefinition = protoLoader.loadSync(atlasProtoPath, {
     keepCase: true,
     longs: String,
     enums: String,
     defaults: true,
     oneofs: true,
     includeDirs: [
-      PROTO_DIR,
-      path.resolve(PROTO_DIR, "..")
+      protoDir,
+      path.resolve(protoDir, "..")
     ]
   });
 

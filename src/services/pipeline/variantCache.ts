@@ -114,9 +114,17 @@ export function setCachedVariant(
 
   memoryVariantCache.set(key, updated);
 
-  // Do not persist preliminary or failed/errored variant evaluations into long-term sessionStorage
+  // Do not persist preliminary, failed/errored, or fallback narrative evaluations into long-term sessionStorage
   const isPreliminary = updated.foldingEnergetics?.evidenceComplete === false ||
     Boolean(updated.foldingEnergetics?.pendingTools && updated.foldingEnergetics.pendingTools.length > 0);
+  const isFallback = isFallbackNarrative(updated.analysisResult?.analysis, updated.analysisResult?.isFallback);
+
+  if (isFallback) {
+    try {
+      sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
+    } catch (_) {}
+    return;
+  }
 
   if (updated.foldingStatus === "failed" || (updated.foldingEnergetics as any)?.foldxError || isPreliminary) {
     return;
@@ -157,6 +165,7 @@ export function isFallbackNarrative(analysis?: string | null, isFallback?: boole
   return (
     analysis.includes("Gemini API Key Not Configured") ||
     analysis.includes("AI Explanation Service Offline") ||
+    analysis.includes("AI Service Offline") ||
     analysis.includes("Fallback Report Loaded") ||
     analysis.includes("Key Config Required") ||
     analysis.includes("Narrative Generation Failed")

@@ -169,7 +169,8 @@ export async function executeFullAnalysisWorkflow({
       );
       const hasActiveGemini = Boolean(
         (settings?.geminiSessionId && settings?.geminiSessionExpiresAt && settings.geminiSessionExpiresAt > Date.now()) ||
-        settings?.geminiApiKey
+        settings?.geminiApiKey ||
+        settings?.serverGeminiReady
       );
       const needsNarrativeBackfill = isFallback && hasActiveGemini;
 

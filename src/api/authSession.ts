@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useSettings } from "../context/SettingsContext";
 import { fetchWithRetry } from "../shared/fetch-retry";
+import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
 const invalidApiKeys = new Set<string>();
@@ -68,8 +69,8 @@ export function useAuthSession() {
     options: RequestInit & { timeout?: number } = {}
   ): Promise<Response> => {
     let currentSessionId = geminiSessionId;
-    const expiresAt = geminiSessionExpiresAt || 0;
-    const isExpired = !expiresAt || Date.now() >= expiresAt;
+    let currentExpiresAt = geminiSessionExpiresAt || 0;
+    let isExpired = !currentExpiresAt || Date.now() >= currentExpiresAt;
 
     // Never use or forward an expired session token
     if (isExpired && currentSessionId) {
@@ -103,7 +104,7 @@ export function useAuthSession() {
 
       if (shouldCheckSession && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
         // Proactively refresh session ID if near expiry (< 60s) but not yet expired
-        if (currentSessionId && Date.now() < expiresAt && Date.now() >= (expiresAt - 60000)) {
+        if (currentSessionId && Date.now() < currentExpiresAt && Date.now() >= (currentExpiresAt - 60000)) {
           try {
             const refreshHeaders: Record<string, string> = {
               "Content-Type": "application/json",
@@ -121,8 +122,11 @@ export function useAuthSession() {
               const refreshData = await refreshRes.json();
               if (refreshData.sessionId) {
                 currentSessionId = refreshData.sessionId;
+                currentExpiresAt = refreshData.expiresAt || (Date.now() + 15 * 60 * 1000);
+                isExpired = false;
                 updateSetting("geminiSessionId", refreshData.sessionId);
-                updateSetting("geminiSessionExpiresAt", refreshData.expiresAt || (Date.now() + 15 * 60 * 1000));
+                updateSetting("geminiSessionExpiresAt", currentExpiresAt);
+                purgeFallbackNarratives();
               }
             }
           } catch (_) {
@@ -171,10 +175,15 @@ export function useAuthSession() {
             const reauthResult = await sessionReauthPromise;
             if (reauthResult) {
               currentSessionId = reauthResult.sessionId;
+              currentExpiresAt = reauthResult.expiresAt;
+              isExpired = false;
               updateSetting("geminiSessionId", reauthResult.sessionId);
               updateSetting("geminiSessionExpiresAt", reauthResult.expiresAt);
+              purgeFallbackNarratives();
             } else {
               currentSessionId = "";
+              currentExpiresAt = 0;
+              isExpired = true;
               updateSetting("geminiSessionId", "");
               updateSetting("geminiSessionExpiresAt", 0);
             }
@@ -185,7 +194,8 @@ export function useAuthSession() {
       const headers = { ...(options.headers as Record<string, string> || {}) };
       if (isRelativeOrSameOrigin) {
         // Only attach X-Gemini-Session-ID if valid, non-expired, and relevant
-        if (currentSessionId && !isExpired && (targetRequiresGemini || !appApiToken)) {
+        const hasActiveSession = Boolean(currentSessionId) && !isExpired && Date.now() < currentExpiresAt;
+        if (hasActiveSession && currentSessionId && (targetRequiresGemini || !appApiToken)) {
           headers["X-Gemini-Session-ID"] = currentSessionId;
         }
         if (appApiToken) {
@@ -230,6 +240,7 @@ export function useAuthSession() {
             if (newSessionId) {
               updateSetting("geminiSessionId", newSessionId);
               updateSetting("geminiSessionExpiresAt", newExpiresAt);
+              purgeFallbackNarratives();
               headers["X-Gemini-Session-ID"] = newSessionId;
               response = await fetchWithRetry(url, { ...options, headers, signal });
             }
