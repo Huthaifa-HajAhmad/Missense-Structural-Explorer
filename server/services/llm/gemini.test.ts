@@ -104,7 +104,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       await geminiService.performGeminiAnalysis(
         "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
       );
-      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.5-flash");
+      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.7-flash");
     } finally {
       if (oldModel === undefined) delete process.env.GEMINI_MODEL;
       else process.env.GEMINI_MODEL = oldModel;
@@ -135,7 +135,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
         expect.any(AbortSignal)
       );
       expect(mockGenerateContent.mock.calls[0][0].config.abortSignal).toBeInstanceOf(AbortSignal);
-      expect(mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout).toBe(30000);
+      expect(mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout).toBe(60000);
     } finally {
       if (oldModel === undefined) delete process.env.GEMINI_MODEL;
       else process.env.GEMINI_MODEL = oldModel;
@@ -158,7 +158,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       await geminiService.performGeminiAnalysis(
         "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
       );
-      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.5-flash");
+      expect(mockGenerateContent.mock.calls[0][0].model).toBe("gemini-3.7-flash");
     } finally {
       if (oldModel === undefined) delete process.env.GEMINI_MODEL;
       else process.env.GEMINI_MODEL = oldModel;

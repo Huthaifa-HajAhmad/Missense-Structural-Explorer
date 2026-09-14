@@ -162,7 +162,11 @@ export async function findBindingPocketInternal(
     } else if (discoveredJavaHome === "") {
       delete env.JAVA_HOME;
     }
-    let options: any = { timeout: 25000, cwd: jobDir, signal, env };
+    const p2rankTimeoutMs = process.env.P2RANK_TIMEOUT_S
+      ? parseInt(process.env.P2RANK_TIMEOUT_S, 10) * 1000
+      : 120000;
+    const effectiveTimeoutMs = Math.max(90000, isNaN(p2rankTimeoutMs) ? 120000 : p2rankTimeoutMs);
+    let options: any = { timeout: effectiveTimeoutMs, cwd: jobDir, signal, env };
 
     const runP2Rank = async (cmd: string, args: string[], opt: any) => {
       let resolvedCmd = cmd;

@@ -122,7 +122,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
-        timeout: 30000,
+        timeout: 60000,
         signal
       });
       if (!res.ok) {

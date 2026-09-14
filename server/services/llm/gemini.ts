@@ -16,21 +16,21 @@ const geminiClientCache = new LRUCache<string, GoogleGenAI>({
   ttl: 15 * 60 * 1000 // 15-minute TTL matching session token lifespan
 });
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
 export const DEFAULT_GEMINI_FALLBACK_MODELS = [
+  "gemini-3.8-flash",
   "gemini-2.5-flash",
-  "gemini-3.6-flash",
+  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
 ] as const;
 const RETIRED_GEMINI_MODELS = new Set([
   "gemini-1.5-flash",
   "gemini-1.5-pro",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-2.5-flash-lite", // 404 for new users
-  "gemini-3.1-pro",        // 404 for new accounts — use gemini-3.1-flash-lite instead
-  "gemini-2.5-pro",        // 404: no longer available to new users
 ]);
 
 export function isGeminiApiKeyPlaceholder(value: string | undefined): boolean {
@@ -498,7 +498,7 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
               temperature: 0.0,
               responseMimeType: "application/json",
               abortSignal: signal,
-              httpOptions: { timeout: 30000 },
+              httpOptions: { timeout: 60000 },
               responseSchema: {
                 type: Type.OBJECT,
                 properties: {
@@ -534,7 +534,7 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
               }
             }
           }),
-          30000,
+          60000,
           "Google GenAI SDK request timed out",
           timeoutSignal,
           () => attemptController.abort()
@@ -771,7 +771,7 @@ Generate a JSON object with:
               temperature: 0.0,
               responseMimeType: "application/json",
               abortSignal: signal,
-              httpOptions: { timeout: 30000 },
+              httpOptions: { timeout: 60000 },
               responseSchema: {
                 type: Type.OBJECT,
                 properties: {
@@ -788,7 +788,7 @@ Generate a JSON object with:
               }
             }
           }),
-          30000,
+          60000,
           "Gemini request timed out",
           timeoutSignal,
           () => attemptController.abort()
