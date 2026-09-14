@@ -24,7 +24,7 @@ export function getCacheFilename(cacheKey: string): string {
   return path.join(FOLDX_CACHE_DIR, `${hash}.json`);
 }
 
-export function getMutantFromCache(cacheKey: string): any | null {
+export async function getMutantFromCache(cacheKey: string): Promise<any | null> {
   const memCached = mutantCache.get(cacheKey);
   if (memCached) {
     if (memCached?.status === "failed") {
@@ -36,33 +36,33 @@ export function getMutantFromCache(cacheKey: string): any | null {
 
   try {
     const filename = getCacheFilename(cacheKey);
-    if (fs.existsSync(filename)) {
-      const raw = fs.readFileSync(filename, "utf-8");
-      const parsed = JSON.parse(raw);
-      const cachedAt = parsed.cachedAt || 0;
-      const cacheAge = Date.now() - cachedAt;
-      const ttlMs = 24 * 60 * 60 * 1000;
-      if (cacheAge < ttlMs) {
-        const { cachedAt: _, ...originalResult } = parsed;
-        if (originalResult?.status === "failed") {
-          try { fs.unlinkSync(filename); } catch (_) {}
-          return null;
-        }
-        mutantCache.set(cacheKey, originalResult);
-        return originalResult;
-      } else {
-        try {
-          fs.unlinkSync(filename);
-        } catch (_) {}
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(filename, "utf-8");
+    } catch {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    const cachedAt = parsed.cachedAt || 0;
+    const cacheAge = Date.now() - cachedAt;
+    const ttlMs = 24 * 60 * 60 * 1000;
+    if (cacheAge < ttlMs) {
+      const { cachedAt: _, ...originalResult } = parsed;
+      if (originalResult?.status === "failed") {
+        fs.promises.unlink(filename).catch(() => {});
+        return null;
       }
+      mutantCache.set(cacheKey, originalResult);
+      return originalResult;
+    } else {
+      fs.promises.unlink(filename).catch(() => {});
     }
   } catch (err: any) {
     console.error("[FoldX Cache Read Error]", err.message);
     try {
       const filename = getCacheFilename(cacheKey);
-      if (fs.existsSync(filename)) {
-        fs.unlinkSync(filename);
-      }
+      fs.promises.unlink(filename).catch(() => {});
     } catch (_) {}
   }
   return null;
@@ -82,14 +82,14 @@ export function writeMutantToCache(cacheKey: string, result: any) {
       cachedAt: Date.now()
     };
     const filename = getCacheFilename(cacheKey);
-    const tmpFilename = `${filename}.tmp.${process.pid}.${Date.now()}`;
+    const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
     fs.promises.mkdir(FOLDX_CACHE_DIR, { recursive: true })
       .then(async () => {
         await fs.promises.writeFile(tmpFilename, JSON.stringify(entry), "utf-8");
         await fs.promises.rename(tmpFilename, filename);
       })
       .catch(err => {
-        try { fs.unlinkSync(tmpFilename); } catch (_) {}
+        fs.promises.unlink(tmpFilename).catch(() => {});
         console.error("[FoldX Cache Write Error]", err.message);
       });
   } catch (err: any) {

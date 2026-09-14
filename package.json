@@ -6,7 +6,11 @@
   "packageManager": "npm@10.8.2",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/workers/structural-diff-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/structural-diff-worker.cjs && esbuild server/workers/analysis-db-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/analysis-db-worker.cjs && node -e \"require('fs').cpSync('server/services/alphagenome/protos','dist/alphagenome/protos',{recursive:true})\"",
+    "build:client": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:workers": "esbuild server/workers/structural-diff-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/structural-diff-worker.cjs && esbuild server/workers/analysis-db-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/analysis-db-worker.cjs",
+    "build:protos": "node -e \"require('fs').cpSync('server/services/alphagenome/protos','dist/alphagenome/protos',{recursive:true})\"",
+    "build": "npm run build:client && npm run build:server && npm run build:workers && npm run build:protos",
     "start": "node dist/server.cjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsx scripts/check-boundaries.ts && tsc --noEmit",

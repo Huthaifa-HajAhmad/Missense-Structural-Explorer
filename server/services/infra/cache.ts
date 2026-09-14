@@ -11,11 +11,12 @@ import {
   createCacheRegistry,
   defaultCacheRegistry,
   type CachedFetchOptions,
-  type CacheDescriptor
+  type CacheDescriptor,
+  type CacheMemoryReport
 } from "./cache-registry.ts";
 
 export { CacheRegistry, createCacheRegistry, defaultCacheRegistry };
-export type { CachedFetchOptions, CacheDescriptor };
+export type { CachedFetchOptions, CacheDescriptor, CacheMemoryReport };
 
 // ---------------------------------------------------------------------------
 // Canonical L1 Memory Caches (Delegated to defaultCacheRegistry)
@@ -63,4 +64,11 @@ export async function getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promi
  */
 export function clearAllCaches(includeSqlite = false): void {
   defaultCacheRegistry.clearAll(includeSqlite);
+}
+
+/**
+ * Returns comprehensive memory usage telemetry across all registered caches.
+ */
+export function getCacheMemoryReport(): CacheMemoryReport {
+  return defaultCacheRegistry.getMemoryReport();
 }

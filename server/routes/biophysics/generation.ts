@@ -341,7 +341,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         const pdbHash = crypto.createHash("sha256").update(normalizedPdb).digest("hex");
         const foldxCacheKey = getFoldxCacheKey(pdbHash, actualMutation, foldxOptions);
 
-        const cachedFoldx = getMutantFromCache(foldxCacheKey);
+        const cachedFoldx = await getMutantFromCache(foldxCacheKey);
 
         let queueJobId: string | null = null;
         isExistingActiveJob = false;

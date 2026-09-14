@@ -37,15 +37,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# Copy Node dependency definitions & install
+# Copy Node dependency definitions & install with BuildKit npm cache
 COPY package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
-# Copy Python dependency lockfiles & build venv
+# Copy Python dependency lockfiles & build venv with BuildKit uv cache
 COPY tools/pyproject.toml tools/uv.lock ./tools/
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
-RUN uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
 
 # Copy source tree
 COPY . .
@@ -90,7 +92,8 @@ ENV PATH="/app/tools/.venv/bin:$PATH"
 
 # 1. Install production Node dependencies (cached unless package.json changes)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
 
 # 2. Copy heavy Python tools and virtual environment BEFORE app code (cached unless tools change)
 COPY tools/ ./tools/

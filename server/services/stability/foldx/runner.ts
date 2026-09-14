@@ -112,7 +112,7 @@ export async function generateMutantPdb(
   const pdbHash = crypto.createHash("sha256").update(normalizedPdb).digest("hex");
   const cacheKey = getFoldxCacheKey(pdbHash, validatedMutation, options);
   
-  const cached = getMutantFromCache(cacheKey);
+  const cached = await getMutantFromCache(cacheKey);
   if (cached) {
     if (process.env.NODE_ENV !== "production") {
       console.log(`[Biophysical Caching] Cache Hit for mutant mutation: ${validatedMutation}`);

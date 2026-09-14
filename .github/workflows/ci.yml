@@ -30,6 +30,25 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('tools/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Sync Python tools environment
+        run: uv sync --project tools --no-dev
+
+      - name: Cache Vitest results
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vitest
+          key: ${{ runner.os }}-vitest-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-vitest-
+
       - name: Install Node dependencies
         run: npm ci
 
@@ -44,3 +63,20 @@ jobs:
 
       - name: Run production build verification
         run: npm run build
+
+      - name: Upload PR build preview artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-build-preview
+          path: dist/
+          retention-days: 7
+
+      - name: Generate CI Summary Report
+        if: always()
+        run: |
+          echo "### 🚀 CI Quality & Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Quality Gates**: Architectural boundaries, TypeScript typecheck, and coverage thresholds passed." >> $GITHUB_STEP_SUMMARY

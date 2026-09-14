@@ -168,7 +168,7 @@ wt_3.pdb	12.50	3.04	9.00	2.10	2.20
       expect(mutantCache.get(testKey)).toBeUndefined();
       
       // Fetch using getMutantFromCache (should hit disk and restore to memory)
-      const cached = getMutantFromCache(testKey);
+      const cached = await getMutantFromCache(testKey);
       expect(cached).toEqual(mockResult);
       expect(mutantCache.get(testKey)).toEqual(mockResult);
       

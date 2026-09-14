@@ -97,6 +97,15 @@ export function registerHealthRoutes(apiRouter: Router): void {
     });
   });
 
+  apiRouter.get(["/debug/cache-stats", "/api/v1/debug/cache-stats"], (req, res) => {
+    const memoryReport = defaultCacheRegistry.getMemoryReport();
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      ...memoryReport
+    });
+  });
+
   apiRouter.post("/debug/clear-caches", (req, res) => {
     if (process.env.NODE_ENV === "production" && !req.headers.authorization && !req.headers["x-gemini-session-id"]) {
       sendError(res, 403, "FORBIDDEN", "Administrative cache clearance requires authorization.");

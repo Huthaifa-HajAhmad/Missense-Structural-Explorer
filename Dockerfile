@@ -14,11 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 COPY package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 # Copy tools configuration and sync python environment for tests
 COPY tools/pyproject.toml tools/uv.lock ./tools/
-RUN uv sync --project tools --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --project tools --no-dev
 
 COPY . .
 
@@ -52,7 +54,8 @@ ENV TORCH_NUM_THREADS=2
 
 # Copy package files
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
 
 # Copy built code from builder stage
 COPY --from=node-builder /app/dist ./dist

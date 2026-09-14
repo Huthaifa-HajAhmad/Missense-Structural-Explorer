@@ -18,6 +18,16 @@ export interface CacheDescriptor {
   size: number;
   max?: number;
   ttl: string;
+  calculatedSizeBytes?: number;
+  estimatedEntryBytes?: number;
+}
+
+export interface CacheMemoryReport {
+  caches: Record<string, CacheDescriptor>;
+  totalEntries: number;
+  totalEstimatedBytes: number;
+  budgetWarning: boolean;
+  budgetLimitBytes: number;
 }
 
 export interface CustomCacheMetadata {
@@ -218,38 +228,84 @@ export class CacheRegistry {
   }
 
   /**
+   * Generates a comprehensive memory report with byte estimations and budget telemetry.
+   */
+  public getMemoryReport(): CacheMemoryReport {
+    const BUDGET_LIMIT_BYTES = 512 * 1024 * 1024; // 512 MB memory budget
+    const cacheMap: Array<{ name: string; cache: LRUCache<any, any>; ttl: string }> = [
+      { name: "pdbCache", cache: this.pdbCache, ttl: "none" },
+      { name: "bestPdbCache", cache: this.bestPdbCache, ttl: "24h" },
+      { name: "uniprotCache", cache: this.uniprotCache, ttl: "none" },
+      { name: "clinvarCache", cache: this.clinvarCache, ttl: "1h" },
+      { name: "afUrlCache", cache: this.afUrlCache, ttl: "24h" },
+      { name: "predictorCache", cache: this.predictorCache, ttl: "1h" },
+      { name: "conservationCache", cache: this.conservationCache, ttl: "1h" },
+      { name: "stringCache", cache: this.stringCache, ttl: "1h" },
+      { name: "popEVECache", cache: this.popEVECache, ttl: "1h" },
+      { name: "popEveOnlineCache", cache: this.popEveOnlineCache, ttl: "24h" },
+      { name: "refseqCache", cache: this.refseqCache, ttl: "7d" },
+      { name: "gnomadFreqCache", cache: this.gnomadFreqCache, ttl: "24h" },
+      { name: "gnomadConstraintCache", cache: this.gnomadConstraintCache, ttl: "7d" },
+      { name: "uniprotFeaturesCache", cache: this.uniprotFeaturesCache, ttl: "3d" },
+      { name: "landscapeCache", cache: this.landscapeCache, ttl: "24h" },
+      { name: "narrativeCache", cache: this.narrativeCache, ttl: "24h" }
+    ];
+
+    const caches: Record<string, CacheDescriptor> = {};
+    let totalEntries = 0;
+    let totalEstimatedBytes = 0;
+
+    for (const item of cacheMap) {
+      const hasCalc = typeof (item.cache as any).maxSize === "number" && (item.cache as any).maxSize > 0;
+      const calcSize = hasCalc ? (item.cache as any).calculatedSize ?? 0 : undefined;
+      const estimatedBytes = calcSize !== undefined ? calcSize : item.cache.size * 1024;
+
+      caches[item.name] = {
+        size: item.cache.size,
+        max: item.cache.max,
+        ttl: item.ttl,
+        calculatedSizeBytes: calcSize,
+        estimatedEntryBytes: estimatedBytes
+      };
+
+      totalEntries += item.cache.size;
+      totalEstimatedBytes += estimatedBytes;
+    }
+
+    // geminiCache alias for backward compatibility
+    caches.geminiCache = { ...caches.narrativeCache };
+
+    for (const [name, meta] of this.customCaches.entries()) {
+      const hasCalc = typeof (meta.cache as any).maxSize === "number" && (meta.cache as any).maxSize > 0;
+      const calcSize = hasCalc ? (meta.cache as any).calculatedSize ?? 0 : undefined;
+      const estimatedBytes = calcSize !== undefined ? calcSize : meta.cache.size * 1024;
+
+      caches[name] = {
+        size: meta.cache.size,
+        max: meta.cache.max,
+        ttl: meta.ttlDesc,
+        calculatedSizeBytes: calcSize,
+        estimatedEntryBytes: estimatedBytes
+      };
+
+      totalEntries += meta.cache.size;
+      totalEstimatedBytes += estimatedBytes;
+    }
+
+    return {
+      caches,
+      totalEntries,
+      totalEstimatedBytes,
+      budgetWarning: totalEstimatedBytes > BUDGET_LIMIT_BYTES,
+      budgetLimitBytes: BUDGET_LIMIT_BYTES
+    };
+  }
+
+  /**
    * Generates live telemetry diagnostics across all core and dynamically registered caches.
    */
   public getDiagnostics(): Record<string, CacheDescriptor> {
-    const diagnostics: Record<string, CacheDescriptor> = {
-      pdbCache: { size: this.pdbCache.size, max: this.pdbCache.max, ttl: "none" },
-      bestPdbCache: { size: this.bestPdbCache.size, max: this.bestPdbCache.max, ttl: "24h" },
-      uniprotCache: { size: this.uniprotCache.size, max: this.uniprotCache.max, ttl: "none" },
-      clinvarCache: { size: this.clinvarCache.size, max: this.clinvarCache.max, ttl: "1h" },
-      afUrlCache: { size: this.afUrlCache.size, max: this.afUrlCache.max, ttl: "24h" },
-      predictorCache: { size: this.predictorCache.size, max: this.predictorCache.max, ttl: "1h" },
-      conservationCache: { size: this.conservationCache.size, max: this.conservationCache.max, ttl: "1h" },
-      stringCache: { size: this.stringCache.size, max: this.stringCache.max, ttl: "1h" },
-      popEVECache: { size: this.popEVECache.size, max: this.popEVECache.max, ttl: "1h" },
-      popEveOnlineCache: { size: this.popEveOnlineCache.size, max: this.popEveOnlineCache.max, ttl: "24h" },
-      refseqCache: { size: this.refseqCache.size, max: this.refseqCache.max, ttl: "7d" },
-      gnomadFreqCache: { size: this.gnomadFreqCache.size, max: this.gnomadFreqCache.max, ttl: "24h" },
-      gnomadConstraintCache: { size: this.gnomadConstraintCache.size, max: this.gnomadConstraintCache.max, ttl: "7d" },
-      uniprotFeaturesCache: { size: this.uniprotFeaturesCache.size, max: this.uniprotFeaturesCache.max, ttl: "3d" },
-      landscapeCache: { size: this.landscapeCache.size, max: this.landscapeCache.max, ttl: "24h" },
-      narrativeCache: { size: this.narrativeCache.size, max: this.narrativeCache.max, ttl: "24h" },
-      geminiCache: { size: this.narrativeCache.size, max: this.narrativeCache.max, ttl: "24h" }
-    };
-
-    for (const [name, meta] of this.customCaches.entries()) {
-      diagnostics[name] = {
-        size: meta.cache.size,
-        max: meta.cache.max,
-        ttl: meta.ttlDesc
-      };
-    }
-
-    return diagnostics;
+    return this.getMemoryReport().caches;
   }
 
   /**

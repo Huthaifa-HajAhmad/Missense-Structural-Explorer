@@ -93,6 +93,29 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       const json = await res.json();
       expect(json.reachable).toBeDefined();
     });
+
+    it("GET /api/v1/debug/cache-stats should return 200 OK with memory report telemetry", async () => {
+      const res = await fetch(`${baseUrl}/api/v1/debug/cache-stats`);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.status).toBe("ok");
+      expect(typeof json.totalEntries).toBe("number");
+      expect(typeof json.totalEstimatedBytes).toBe("number");
+      expect(typeof json.budgetWarning).toBe("boolean");
+      expect(json.caches).toBeDefined();
+      expect(json.caches.pdbCache).toBeDefined();
+    });
+
+    it("GET /debug/cache-stats should return 200 OK with memory report telemetry", async () => {
+      const res = await fetch(`${baseUrl}/debug/cache-stats`);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.status).toBe("ok");
+      expect(typeof json.totalEntries).toBe("number");
+      expect(typeof json.totalEstimatedBytes).toBe("number");
+      expect(typeof json.budgetWarning).toBe("boolean");
+      expect(json.caches).toBeDefined();
+    });
   });
 
   describe("Protected Endpoints Security Enforcement", () => {
@@ -152,6 +175,10 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/capabilities");
       expect(PUBLIC_ENDPOINTS).toContain("/health");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/health");
+      expect(PUBLIC_ENDPOINTS).toContain("/diagnostics");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/diagnostics");
+      expect(PUBLIC_ENDPOINTS).toContain("/debug/cache-stats");
+      expect(PUBLIC_ENDPOINTS).toContain("/api/v1/debug/cache-stats");
       expect(PUBLIC_ENDPOINTS).toContain("/sidecar-health");
       expect(PUBLIC_ENDPOINTS).toContain("/api/v1/sidecar-health");
       expect(PUBLIC_ENDPOINTS).toContain("/structure/multimer");

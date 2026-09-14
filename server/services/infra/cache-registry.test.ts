@@ -137,4 +137,38 @@ describe("CacheRegistry & Dependency Injection Isolation", () => {
     // Global defaultCacheRegistry was NOT contaminated by this call
     expect(defaultCacheRegistry.uniprotCache.get("PAH")).toBeUndefined();
   });
+
+  it("calculates memory metrics, byte estimates, and budget warnings in getMemoryReport()", () => {
+    const registry = createCacheRegistry();
+    const pdbContent = "ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00 20.00           N";
+    registry.pdbCache.set("1ABC", pdbContent);
+    registry.clinvarCache.set("VAR1", { clinvarId: "100" });
+    registry.afUrlCache.set("P00439", "https://alphafold.ebi.ac.uk/files/AF-P00439-F1-model_v4.pdb");
+
+    const report = registry.getMemoryReport();
+
+    expect(report.totalEntries).toBe(3);
+    expect(report.caches.pdbCache.calculatedSizeBytes).toBe(pdbContent.length);
+    expect(report.caches.clinvarCache.estimatedEntryBytes).toBe(1024);
+    expect(report.caches.afUrlCache.estimatedEntryBytes).toBe(1024);
+    expect(report.totalEstimatedBytes).toBe(pdbContent.length + 1024 + 1024);
+    expect(report.budgetLimitBytes).toBe(512 * 1024 * 1024);
+    expect(report.budgetWarning).toBe(false);
+  });
+
+  it("triggers budgetWarning when total cache size exceeds 512MB limit", () => {
+    const registry = createCacheRegistry();
+    const hugeCustomCache = new LRUCache<string, string>({
+      max: 10,
+      maxSize: 600 * 1024 * 1024,
+      sizeCalculation: () => 550 * 1024 * 1024
+    });
+
+    registry.registerCache("hugeCache", hugeCustomCache, { ttlDesc: "none" });
+    hugeCustomCache.set("HUGE_KEY", "mock");
+
+    const report = registry.getMemoryReport();
+    expect(report.caches.hugeCache.calculatedSizeBytes).toBe(550 * 1024 * 1024);
+    expect(report.budgetWarning).toBe(true);
+  });
 });
