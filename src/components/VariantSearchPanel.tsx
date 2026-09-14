@@ -573,13 +573,13 @@ function VariantSearchPanel({
           </div>
 
           {/* ── RIGHT COLUMN: Segmented Workflow Pipeline & Telemetry Rail (col-span-5) ── */}
-          <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] flex flex-col justify-between gap-4 min-h-[580px]">
-            <div className="flex items-center justify-between mb-2 pb-2 border-b border-[var(--cs-border-subtle)] shrink-0">
+          <div className="lg:col-span-5 p-6 lg:p-7 bg-[var(--cs-surface-2)] flex flex-col justify-between gap-4 min-h-[690px]">
+            <div className="flex items-center justify-between mb-2 pb-2.5 border-b border-[var(--cs-border-subtle)] shrink-0">
               {/* Segmented Switcher */}
               <div 
                 role="tablist" 
                 aria-label="Analysis sidebar view switcher"
-                className="flex items-center gap-1 p-0.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] shadow-xs"
+                className="flex items-center gap-1 p-1 rounded-lg bg-[var(--cs-bg-subtle)] border border-[var(--cs-border)] shadow-xs"
               >
                 <button
                   type="button"
@@ -588,13 +588,13 @@ function VariantSearchPanel({
                   aria-selected={activeRightTab === "telemetry"}
                   aria-controls="panel-telemetry"
                   onClick={() => setActiveRightTab("telemetry")}
-                  className={`px-2.5 py-1 rounded-md text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-md text-[12px] flex items-center gap-1.5 transition-all cursor-pointer ${
                     activeRightTab === "telemetry"
-                      ? "bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] shadow-xs"
-                      : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+                      ? "bg-[var(--cs-surface)] text-[var(--cs-accent-clay)] font-bold border border-[var(--cs-accent-clay)]/40 shadow-xs ring-1 ring-[var(--cs-accent-clay)]/20"
+                      : "text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-surface)]/60 font-medium border border-transparent"
                   }`}
                 >
-                  <Activity className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                  <Activity className={`w-3.5 h-3.5 ${activeRightTab === "telemetry" ? "text-[var(--cs-accent-clay)]" : "text-[var(--cs-text-muted)]"}`} />
                   <span>Service Telemetry</span>
                 </button>
 
@@ -605,26 +605,44 @@ function VariantSearchPanel({
                   aria-selected={activeRightTab === "pipeline"}
                   aria-controls="panel-pipeline"
                   onClick={() => setActiveRightTab("pipeline")}
-                  className={`px-2.5 py-1 rounded-md text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-md text-[12px] flex items-center gap-1.5 transition-all cursor-pointer ${
                     activeRightTab === "pipeline"
-                      ? "bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] shadow-xs"
-                      : "text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)]"
+                      ? "bg-[var(--cs-surface)] text-[var(--cs-accent-clay)] font-bold border border-[var(--cs-accent-clay)]/40 shadow-xs ring-1 ring-[var(--cs-accent-clay)]/20"
+                      : "text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-surface)]/60 font-medium border border-transparent"
                   }`}
                 >
-                  <Layers className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                  <Layers className={`w-3.5 h-3.5 ${activeRightTab === "pipeline" ? "text-[var(--cs-accent-clay)]" : "text-[var(--cs-text-muted)]"}`} />
                   <span>Workflow Pipeline</span>
                   {isPipelineActive ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
                   ) : result ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                   ) : null}
                 </button>
               </div>
 
-              {(isPipelineActive || result) && (
-                <span className={result && !isPipelineActive ? "text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1.5" : "badge-data-source flex items-center gap-1.5"}>
-                  <Activity className={`w-3 h-3 ${result && !isPipelineActive ? "text-emerald-500" : "text-[var(--cs-accent-clay)] animate-pulse"}`} />
-                  {isPipelineActive ? "Live Execution" : "Result Loaded"}
+              {/* Ready Status Badge on the far right above separator */}
+              {activeRightTab === "telemetry" ? (
+                <span className="badge-data-source flex items-center gap-1.5 text-[10.5px] font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  Pre-flight Ready
+                </span>
+              ) : (
+                <span className={`flex items-center gap-1.5 text-[10.5px] font-semibold px-2 py-0.5 rounded border ${
+                  isPipelineActive
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                    : result
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-bold"
+                    : "badge-data-source"
+                }`}>
+                  {isPipelineActive ? (
+                    <Activity className="w-3 h-3 text-amber-500 animate-pulse shrink-0" />
+                  ) : result ? (
+                    <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  )}
+                  {isPipelineActive ? "Live Execution" : result ? "Result Loaded" : "Pipeline Ready"}
                 </span>
               )}
             </div>
@@ -648,7 +666,7 @@ function VariantSearchPanel({
                 </div>
 
                 {/* Workflow Live Stages List — Same Card Dimensions & Space as Telemetry */}
-                <div className="flex-1 overflow-y-auto no-scrollbar space-y-1.5 pr-0.5">
+                <div className="flex-1 flex flex-col justify-between gap-2 my-0.5">
                   {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
                     const info = getStageInfo(key as any);
                     const isClickable = !!result && !!onViewChange;
@@ -670,7 +688,7 @@ function VariantSearchPanel({
                             onViewChange?.(targetView);
                           }
                         }}
-                        className={`p-2 px-2.5 rounded-lg border transition-all flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
+                        className={`flex-1 min-h-[50px] p-2.5 px-3 rounded-lg border transition-all flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
                           isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]" : ""
                         } ${
                           isDone 
@@ -682,24 +700,24 @@ function VariantSearchPanel({
                             : "border-[var(--cs-border-subtle)]"
                         }`}
                       >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           {isRunning ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--cs-accent-clay)] shrink-0" />
+                            <Loader2 className="w-4 h-4 animate-spin text-[var(--cs-accent-clay)] shrink-0" />
                           ) : isDone ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                           ) : isDegraded || isErr ? (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
                           ) : (
-                            <Circle className="w-3.5 h-3.5 text-[var(--cs-text-muted)] shrink-0" />
+                            <Circle className="w-4 h-4 text-[var(--cs-text-muted)] shrink-0" />
                           )}
                           
                           <div className="flex flex-col min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[11.5px] font-semibold text-cs-text-primary truncate">
+                              <span className="text-[12px] font-semibold text-cs-text-primary truncate">
                                 {title}
                               </span>
                             </div>
-                            <span className="text-[9.5px] text-cs-text-secondary truncate font-sans leading-tight">
+                            <span className="text-[10px] text-cs-text-secondary truncate font-sans leading-tight">
                               {info.desc}
                             </span>
                           </div>
@@ -721,7 +739,7 @@ function VariantSearchPanel({
 
                           {isClickable && (
                             <span className="p-0.5 rounded text-cs-text-muted hover:text-cs-accent-clay transition-colors">
-                              <ArrowRight className="w-3 h-3" />
+                              <ArrowRight className="w-3.5 h-3.5" />
                             </span>
                           )}
                         </div>
@@ -731,8 +749,8 @@ function VariantSearchPanel({
                 </div>
 
                 {/* Pipeline Live Status Footer */}
-                <div className="p-2.5 px-3 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)" }}>
-                  <Zap className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
+                <div className="p-3 px-3.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11.5px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)" }}>
+                  <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
                   <span className="truncate">
                     {isPipelineActive 
                       ? loadingStep || "Processing pipeline analysis…" 

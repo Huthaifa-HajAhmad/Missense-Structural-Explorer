@@ -257,13 +257,21 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     expect(mockOnViewChange).toHaveBeenCalledWith("structure");
   });
 
-  it("does not render excessive pills (Pre-flight Ready, Pipeline Ready, v1.0.0-dev) or card settings icon pills in idle state", async () => {
+  it("renders ready status badge on the far right of tab switcher and avoids excessive version or settings icon pills", async () => {
     renderPanel();
 
-    // Verify excessive pills are absent
-    expect(screen.queryByText("Pre-flight Ready")).not.toBeInTheDocument();
-    expect(screen.queryByText("Pipeline Ready")).not.toBeInTheDocument();
+    // Verify Pre-flight Ready is present on the tab switcher header for Telemetry
+    expect(screen.getByText("Pre-flight Ready")).toBeInTheDocument();
     expect(screen.queryByText("v1.0.0-dev")).not.toBeInTheDocument();
+
+    // Switch to Workflow Pipeline tab
+    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    await act(async () => {
+      fireEvent.click(pipelineTab);
+    });
+
+    // Verify Pipeline Ready is displayed on the tab switcher header for Pipeline
+    expect(screen.getByText("Pipeline Ready")).toBeInTheDocument();
 
     // Verify service cards do not render redundant inline settings pills
     expect(screen.queryByTitle(/Configure FoldX Engine settings/i)).not.toBeInTheDocument();

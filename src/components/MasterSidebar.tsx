@@ -98,10 +98,10 @@ const EVIDENCE_SUB_ITEMS = [
   { id: "predictors",   label: "In-Silico Predictors"   },
   { id: "alphagenome",  label: "AlphaGenome Atlas"      },
   { id: "splicing",     label: "RNA Splicing"            },
-  { id: "structure",    label: "Residue Shifts"          },
+  { id: "structure",    label: "Residue Shifts & Pockets"},
   { id: "perturbation", label: "Structural Perturbation" },
   { id: "multimers",    label: "Multimer Assembly"       },
-  { id: "function",     label: "Functional Site"         },
+  { id: "function",     label: "Functional Domains"      },
   { id: "interactions", label: "PPI Networks"            },
   { id: "guidelines",   label: "Scores Thresholds"       },
 ];
