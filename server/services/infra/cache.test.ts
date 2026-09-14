@@ -89,7 +89,8 @@ describe("LRU Cache", () => {
     expect(fetchCount).toBe(1);
     expect(res2).toEqual({ score: 0.95 });
 
-    // Clear L1 memory: third call hits L2 SQLite
+    // Allow async L2 SQLite write to persist before clearing L1 memory
+    await new Promise((r) => setTimeout(r, 50));
     clinvarCache.delete(testKey);
     const res3 = await getCachedOrFetch({
       key: testKey,
