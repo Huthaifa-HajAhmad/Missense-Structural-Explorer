@@ -1,10 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Database,
   Dna,
   ShieldAlert,
-  Scale,
-  ExternalLink
+  ExternalLink,
+  Zap,
+  Box,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Cpu,
+  Sparkles,
+  ArrowRight
 } from "lucide-react";
 import { AnalysisResult } from "../../types";
 
@@ -21,6 +29,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   onSelectEvidenceTab,
   foldingDdG = null
 }) => {
+  const [isLineageOpen, setIsLineageOpen] = useState<boolean>(false);
 
   if (!analysisResult) {
     return (
@@ -38,8 +47,8 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const transcriptWarning = analysisResult.transcriptWarning ?? analysisResult.predictorData?.transcriptWarning ?? null;
   const clinvar = analysisResult.clinvar;
   const conservationData = analysisResult.conservationData;
-
-  const isThresholdsActive = activeEvidenceTab === "thresholds" || activeEvidenceTab === "guidelines";
+  const multimerData = analysisResult.multimerData;
+  const subunitComment = multimerData?.subunitComment || analysisResult.uniprotFeatures?.subunitComment;
 
   const clinvarUid = clinvar?.uid;
   const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
@@ -55,7 +64,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
     statusText = "Destabilization + Conservation Concordant (High Risk)";
     statusBadgeStyle = "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
     statusDesc = "Both sequence conservation (REVEL >= 0.75) and structural energetics (FoldX ddG > 1.5 kcal/mol) suggest severe risk of misfolding loss-of-function.";
-  } else if ((revel !== null && revel >= 0.5) || (ddG !== null && ddG > 1.5)) {
+  } else if ((revel !== null && revel >= 0.5) || (ddG !== null && ddG >= 0.5)) {
     statusText = "Moderate-Risk Concordance (Pathogenic Support)";
     statusBadgeStyle = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
     statusDesc = "At least one biophysical indicator (REVEL >= 0.5 or FoldX ddG > 0.5 kcal/mol) shows significant aberration, supporting potential functional disruption.";
@@ -65,14 +74,317 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
     statusDesc = "Consensus indicators fall within benign boundaries. The variant is structurally neutral and evolutionary conservation shows no strict constraint.";
   }
 
+  // Active subtab category normalization
+  const tab = activeEvidenceTab?.toLowerCase() || "clinical";
+
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Dynamic Threshold Concordance Card (Rendered when Threshold tab selected) ── */}
-      {isThresholdsActive && (
-        <div className="flex flex-col gap-2">
+      {/* ── 1. Dynamic Tab-Aware Contextual Intelligence ── */}
+      {tab === "interactions" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5 text-cs-accent-clay" />
+            PPI &amp; Interface Methodology
+          </span>
+
+          {/* Functional vs Physical Networks */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <div className="flex items-center gap-1.5 font-bold text-cs-text-primary text-[11px]">
+              <Info className="w-3.5 h-3.5 text-cs-accent-clay shrink-0" />
+              <span>Functional vs. Physical Networks</span>
+            </div>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              <strong>STRING-db</strong> quantifies proteome-wide functional associations inferred from co-expression, shared pathways, and literature citations.
+            </p>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              In contrast, <strong>OpenBind-0</strong> directly calculates atomistic steric clashes, electrostatic shifts, and binding free energy changes (&Delta;&Delta;G_bind) across the physical 3D subunit interface.
+            </p>
+          </div>
+
+          {/* Confidence Score Thresholds */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
+            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+              STRING Score Confidence Tiers
+            </span>
+            <div className="space-y-1 text-[10.5px] font-mono">
+              <div className="flex justify-between items-center">
+                <span className="text-cs-text-secondary">&ge; 0.900</span>
+                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Highest</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-cs-text-secondary">0.700 – 0.899</span>
+                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">High</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-cs-text-secondary">0.400 – 0.699</span>
+                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Medium</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quaternary Complex Quick Link */}
+          {onSelectEvidenceTab && (
+            <button
+              type="button"
+              onClick={() => onSelectEvidenceTab("multimers")}
+              className="p-2.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-between text-[11px] font-medium transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <Box className="w-4 h-4 text-indigo-400" />
+                <span>Open Quaternary Assembly (Multimers)</span>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Provenance */}
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">STRING-db</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v12.0 · Homo sapiens (9606)</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">OpenBind-0</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">Tier 1 · JapanFold</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "multimers" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Box className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Quaternary Structure Methodology
+          </span>
+
+          {/* ipTM & Quality Metrics */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <span className="text-[11px] font-bold text-cs-text-primary block">
+              Interface Quality (ipTM)
+            </span>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              <strong>ipTM &ge; 0.80</strong> indicates high-confidence subunit interface geometry. <strong>Overall pTM</strong> measures whole-complex structural topology.
+            </p>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              Inter-chain contact boundary is evaluated at heavy-atom distance &le; 4.5 &Aring;.
+            </p>
+          </div>
+
+          {/* Curated Subunit Annotation */}
+          {subunitComment && (
+            <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
+              <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+                Swiss-Prot SUBUNIT Curation
+              </span>
+              <p className="text-[10.5px] text-cs-text-primary italic leading-relaxed">
+                &ldquo;{subunitComment}&rdquo;
+              </p>
+            </div>
+          )}
+
+          {/* Provenance */}
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">Boltz-2 / OpenFold3</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">Tier 1 · JapanFold</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">UniProtKB</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">Swiss-Prot Curated</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "function" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Domain &amp; Feature Architecture
+          </span>
+
+          {/* Feature Legend */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
+            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+              Feature Types &amp; Palette
+            </span>
+            <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 shrink-0" />
+                <span className="text-cs-text-secondary">Domains</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 shrink-0" />
+                <span className="text-cs-text-secondary">Active / Catalytic</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 shrink-0" />
+                <span className="text-cs-text-secondary">Binding Sites</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 shrink-0" />
+                <span className="text-cs-text-secondary">PTM Anchors</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-cyan-500 shrink-0" />
+                <span className="text-cs-text-secondary">Disulfide Bridges</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Navigation Guide */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <span className="text-[11px] font-bold text-cs-text-primary block">
+              Inspection &amp; Zoom Controls
+            </span>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              Use the zoom slider or zoom buttons to focus on specific sequence windows. Clicking domain cards dynamically highlights and scrolls to corresponding SVG pins.
+            </p>
+          </div>
+
+          {/* Provenance */}
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">UniProtKB Feature Table</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">Swiss-Prot Verified</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">InterPro / Pfam</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v2024</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "clinical" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Clinical Evidence &amp; Frequencies
+          </span>
+
+          {/* ClinVar Provenance */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-[11px] text-cs-text-primary flex items-center gap-1">
+                NCBI ClinVar Review
+              </span>
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-cs-text-muted">
+                E-Fetch API
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-[10.5px]">
+              <span className="text-cs-text-secondary">VCV Accession:</span>
+              {clinvarVcv ? (
+                <a
+                  href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${encodeURIComponent(clinvarUid || "")}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-cs-accent-clay hover:underline flex items-center gap-1"
+                >
+                  {clinvarVcv}
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              ) : (
+                <span className="font-mono text-[10px] text-cs-text-muted italic">
+                  Unindexed in ClinVar
+                </span>
+              )}
+            </div>
+            {clinvar?.lastEvaluated && !isNaN(Date.parse(clinvar.lastEvaluated)) && (
+              <div className="flex justify-between items-center text-[10px] text-cs-text-muted pt-1 border-t border-cs-border-subtle">
+                <span>Last Evaluated:</span>
+                <span className="font-mono">{new Date(clinvar.lastEvaluated).toLocaleDateString()}</span>
+              </div>
+            )}
+          </div>
+
+          {/* ACMG Population Frequency Criteria */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+              ACMG Frequency Criteria
+            </span>
+            <div className="space-y-1.5 text-[10.5px]">
+              <div className="flex justify-between items-start gap-2">
+                <span className="font-mono font-bold text-rose-600 dark:text-rose-400 shrink-0">PM2</span>
+                <span className="text-cs-text-secondary text-right">Extremely low/absent in gnomAD (MAF &lt; 0.01%)</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">BS1</span>
+                <span className="text-cs-text-secondary text-right">Frequency greater than expected for disorder (MAF &gt; 0.1%)</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">BA1</span>
+                <span className="text-cs-text-secondary text-right">Stand-alone benign (MAF &gt; 5% in population cohorts)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Provenance */}
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">NCBI ClinVar</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">GRCh38 / E-Utilities</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">gnomAD</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v4.0.0 (Genomes &amp; Exomes)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "predictors" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
+            In-Silico Ensemble Calibration
+          </span>
+
+          {/* Bayesian ACMG Calibration */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <span className="text-[11px] font-bold text-cs-text-primary block">
+              ACMG PP3 / BP4 Evidence Weighting
+            </span>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              Per Tavtigian et al. (2018) and ClinGen SVI guidelines, computational scores are calibrated against local odds of pathogenicity.
+            </p>
+            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+              Multiple correlated tools are harmonized via consensus voting to prevent circular double-counting of evolutionary signals.
+            </p>
+          </div>
+
+          {/* Predictor Suite Registry */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
+            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block pb-1 border-b border-cs-border-subtle">
+              Model Registry &amp; Lineage
+            </span>
+            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
+              <span className="font-semibold text-cs-text-primary">AlphaMissense</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v2023 · Google DeepMind</span>
+            </div>
+            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
+              <span className="font-semibold text-cs-text-primary">REVEL</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v2016 · Ioannidis et al.</span>
+            </div>
+            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
+              <span className="font-semibold text-cs-text-primary">SpliceAI</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v1.3.1 · Illumina</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-cs-text-primary">CADD</span>
+              <span className="font-mono text-[9.5px] text-cs-text-muted">v1.6 · Rentzsch et al.</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(tab === "thresholds" || tab === "guidelines") && (
+        <div className="flex flex-col gap-3">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
             <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Concordance & Calibration Guide
+            Concordance &amp; Calibration Guide
           </span>
 
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
@@ -95,168 +407,154 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               </div>
             </div>
           </div>
+
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+              ClinGen Evidence Point Scale
+            </span>
+            <div className="space-y-1 text-[10.5px]">
+              <div className="flex justify-between">
+                <span className="text-cs-text-secondary">Very Strong (Pathogenic)</span>
+                <span className="font-mono font-bold text-rose-500">8 points</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-cs-text-secondary">Strong (Pathogenic)</span>
+                <span className="font-mono font-bold text-rose-400">4 points</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-cs-text-secondary">Moderate (Pathogenic)</span>
+                <span className="font-mono font-bold text-amber-500">2 points</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-cs-text-secondary">Supporting (Pathogenic)</span>
+                <span className="font-mono font-bold text-amber-400">1 point</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ── 2. Genomic & Transcript Lineage ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Dna className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Genomic & Transcript Lineage
-        </span>
-
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-cs-text-secondary">Genome Assembly:</span>
-            <span className="font-mono font-bold text-cs-text-primary">GRCh38 / hg38</span>
+      {/* Baseline fallback for tabs under subsequent evaluation */}
+      {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "thresholds" && tab !== "guidelines" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Evidence Subtab Telemetry
+          </span>
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px] text-cs-text-secondary">
+            <p>
+              Viewing specialized evidence telemetry for <strong>{activeEvidenceTab}</strong>.
+            </p>
+            <p className="text-[10px] text-cs-text-muted">
+              Deep-dive domain calibrations and metrics are populated dynamically from live backend microservices.
+            </p>
           </div>
-
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-cs-text-secondary">Transcript ID:</span>
-            <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
-          </div>
-
-          {maneRefSeqId && (
-            <div className="flex justify-between items-center text-[11px]">
-              <span className="text-cs-text-secondary">RefSeq Accession:</span>
-              <span className="font-mono text-cs-text-secondary">{maneRefSeqId}</span>
-            </div>
-          )}
-
-          <div className="flex justify-between items-center text-[11px] pt-1 border-t border-cs-border-subtle">
-            <span className="text-cs-text-secondary">Transcript Tier:</span>
-            <span className={`text-[9.5px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
-              isManeSelect
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                : isManePlusClinical
-                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                : isCanonical
-                ? "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
-                : transcriptId
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
-            }`}>
-              {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
-            </span>
-          </div>
-
-          {!transcriptId && (
-            <div className="text-[10px] text-cs-text-muted pt-1 leading-snug">
-              ℹ️ Canonical transcript mapping unresolved from Ensembl REST.
-            </div>
-          )}
-
-          {transcriptWarning && (
-            <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 leading-snug">
-              ⚠️ {transcriptWarning}
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
-      {/* ── 3. Database Lineage & Provenance ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Database className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Data Sources & Provenance
-        </span>
+      {/* ── 2. Collapsible Base Drawer: Genomic Lineage & ACMG Summary ── */}
+      <div className="pt-2 border-t border-cs-border-subtle flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => setIsLineageOpen(prev => !prev)}
+          aria-expanded={isLineageOpen}
+          aria-controls="genomic-lineage-drawer"
+          className="w-full flex items-center justify-between p-2 rounded-lg bg-cs-surface-2 hover:bg-cs-bg-subtle border border-cs-border transition-colors text-left cursor-pointer select-none"
+        >
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-primary flex items-center gap-1.5">
+            <Dna className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Genomic Lineage &amp; ACMG Baseline
+          </span>
+          {isLineageOpen ? (
+            <ChevronUp className="w-3.5 h-3.5 text-cs-text-muted" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-cs-text-muted" />
+          )}
+        </button>
 
-        <div className="space-y-2">
-          {/* ClinVar Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 flex flex-col gap-1">
-            <div className="flex justify-between items-center">
-              <span className="font-bold text-[11px] text-cs-text-primary flex items-center gap-1">
-                NCBI ClinVar
-              </span>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-cs-text-muted">
-                E-Fetch API
-              </span>
-            </div>
-            <div className="flex justify-between items-center text-[10.5px] mt-0.5">
-              <span className="text-cs-text-secondary">VCV Accession:</span>
-              {clinvarVcv ? (
-                <a
-                  href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${clinvarUid || ""}/`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-mono text-cs-accent-clay hover:underline flex items-center gap-1"
-                >
-                  {clinvarVcv}
-                  <ExternalLink className="w-2.5 h-2.5" />
-                </a>
-              ) : (
-                <span className="font-mono text-[10px] text-cs-text-muted italic">
-                  Unindexed in ClinVar
+        {isLineageOpen && (
+          <div id="genomic-lineage-drawer" className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5 animate-fade-in">
+            {/* Assembly & Transcript */}
+            <div className="space-y-1.5 text-[11px]">
+              <div className="flex justify-between items-center">
+                <span className="text-cs-text-secondary">Genome Assembly:</span>
+                <span className="font-mono font-bold text-cs-text-primary">GRCh38 / hg38</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-cs-text-secondary">Transcript ID:</span>
+                <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
+              </div>
+
+              {maneRefSeqId && (
+                <div className="flex justify-between items-center">
+                  <span className="text-cs-text-secondary">RefSeq Accession:</span>
+                  <span className="font-mono text-cs-text-secondary">{maneRefSeqId}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
+                <span className="text-cs-text-secondary">Transcript Tier:</span>
+                <span className={`text-[9.5px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
+                  isManeSelect
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                    : isManePlusClinical
+                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                    : isCanonical
+                    ? "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
+                    : transcriptId
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                    : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
+                }`}>
+                  {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
                 </span>
+              </div>
+
+              {transcriptWarning && (
+                <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 leading-snug">
+                  ⚠️ {transcriptWarning}
+                </div>
               )}
             </div>
-            {clinvar?.lastEvaluated && (
-              <div className="flex justify-between items-center text-[10px] text-cs-text-muted">
-                <span>Evaluation Date:</span>
-                <span className="font-mono">{new Date(clinvar.lastEvaluated).toLocaleDateString()}</span>
-              </div>
-            )}
+
+            {/* ACMG Rule Evaluation Count */}
+            {(() => {
+              const allCriteria = [
+                ...(analysisResult.insights?.acmgCriteria || []),
+                ...(analysisResult.ruleBasedInsights?.acmgCriteria || [])
+              ];
+              const uniqueCriteria = Array.from(new Map(allCriteria.map((c: any) => [c.code, c])).values());
+              const pathCount = uniqueCriteria.filter((c: any) => c.category === "pathogenic" || (c.code && c.code.toUpperCase().startsWith("P"))).length;
+              const benCount = uniqueCriteria.filter((c: any) => c.category === "benign" || (c.code && c.code.toUpperCase().startsWith("B"))).length;
+
+              return (
+                <div className="pt-2 border-t border-cs-border-subtle space-y-1 text-[10.5px]">
+                  <div className="flex justify-between items-center">
+                    <span className="text-cs-text-secondary">Pathogenic Rules:</span>
+                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                      {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-cs-text-secondary">Benign Rules:</span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      {benCount > 0 ? `${benCount} active` : "0 triggered"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-[9.5px] text-cs-text-muted pt-0.5">
+                    <span>Framework:</span>
+                    <span className="font-mono">Richards et al. 2015 / ClinGen</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
-
-          {/* Predictor Registry */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
-            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-              <span className="font-semibold text-cs-text-primary">AlphaMissense</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v2023 · Google DeepMind</span>
-            </div>
-            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-              <span className="font-semibold text-cs-text-primary">REVEL</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v2016 · Ioannidis et al.</span>
-            </div>
-            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-              <span className="font-semibold text-cs-text-primary">SpliceAI</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v1.3.1 · Illumina</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">CADD</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v1.6 · Rentzsch et al.</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── 4. ACMG Evidence Strength Breakdown ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Scale className="w-3.5 h-3.5 text-cs-accent-clay" />
-          ACMG/AMP Evidence Codes
-        </span>
-
-        {(() => {
-          const criteria = analysisResult.ruleBasedInsights?.acmgCriteria || [];
-          const pathCount = criteria.filter((c: any) => c.category === "pathogenic" || c.type === "pathogenic").length;
-          const benCount = criteria.filter((c: any) => c.category === "benign" || c.type === "benign").length;
-
-          return (
-            <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
-              <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-                <span className="text-cs-text-secondary">Pathogenic Rules Evaluated:</span>
-                <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
-                  {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-                <span className="text-cs-text-secondary">Benign Rules Evaluated:</span>
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                  {benCount > 0 ? `${benCount} active` : "0 triggered"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center text-[10px] text-cs-text-muted pt-0.5">
-                <span>Framework Baseline:</span>
-                <span className="font-mono">Richards et al. 2015 / ClinGen</span>
-              </div>
-            </div>
-          );
-        })()}
+        )}
       </div>
     </div>
   );
 };
 
 export default React.memo(EvidenceInspector);
+
 

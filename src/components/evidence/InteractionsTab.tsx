@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ShieldCheck, AlertTriangle, RefreshCw, Zap, Box, ExternalLink, HelpCircle, Info } from "lucide-react";
+import { ShieldCheck, AlertTriangle, RefreshCw, Zap, ExternalLink, HelpCircle } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { PpiBindingData } from "../../types";
 import { useApiClient, extractErrorMessage } from "../../apiClient";
@@ -99,9 +99,18 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
   const subunitComment = multimerData?.subunitComment || result?.uniprotFeatures?.subunitComment;
   const variantPos = result?.metadata?.residueIndex || 0;
 
+  const isExplicitMonomer = multimerData?.status === "monomeric" || 
+    (oligomericState ? oligomericState.toLowerCase().trim() === "monomer" : false);
+  const isExplicitMultimer = multimerData?.status === "success" || (multimerData?.chainCount ?? 0) > 1;
+
+  const isMonomeric = isExplicitMonomer || (
+    !isExplicitMultimer && 
+    Boolean(subunitComment && /^monomer(\.|\b)/i.test(subunitComment.trim()))
+  );
+
   // Multi-tier interface contact determination (guard variantPos > 0 to prevent false-positive contact matches at residue 0)
   const hasDirectComplexContact = variantPos > 0 && multimerContacts.some(
-    c => Math.abs(c.resA - variantPos) <= 4 || Math.abs(c.resB - variantPos) <= 4
+    c => Math.abs(c.resA - variantPos) <= 4 || ((multimerData?.chainCount ?? 0) <= 2 && Math.abs(c.resB - variantPos) <= 4)
   );
   const hasCuratedInterface = interfaceResidues.some(r => r.isVariantPosition);
   const hasCuratedInterfaceAny = interfaceResidues.length > 0;
@@ -109,13 +118,13 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
   const getClassificationBadge = (cls?: string) => {
     switch (cls) {
       case "INTERFACE_DISRUPTIVE":
-        return "bg-rose-500/10 border-rose-500/30 text-rose-400";
+        return "bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400";
       case "ALLOSTERIC_PERTURBATION":
-        return "bg-amber-500/10 border-amber-500/30 text-amber-400";
+        return "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400";
       case "SURFACE_NEUTRAL":
-        return "bg-emerald-500/10 border-emerald-500/30 text-emerald-400";
+        return "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400";
       default:
-        return "bg-slate-500/10 border-slate-500/30 text-slate-400";
+        return "bg-slate-500/10 border-slate-500/30 text-slate-600 dark:text-slate-400";
     }
   };
 
@@ -133,7 +142,7 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
           type="button"
           onClick={() => fetchPpiData()}
           disabled={isLoading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium self-start sm:self-auto transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium self-start sm:self-auto transition-colors disabled:opacity-50 cursor-pointer"
           style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -142,8 +151,8 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg border text-xs flex items-center gap-2 bg-rose-500/10 border-rose-500/20 text-rose-300">
-          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+        <div className="p-3 rounded-lg border text-xs flex items-center gap-2 bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-300">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
           <span>{error}</span>
         </div>
       )}
@@ -163,102 +172,115 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Card 1: ΔΔG_bind */}
           <div className="metric-card">
             <span className="metric-card-label">ΔΔG_bind</span>
             <span className={`metric-card-value ${
-              Number.isFinite(bindingShift?.ddgBind) && bindingShift!.ddgBind! >= 1.5
-                ? "text-[var(--cs-text-danger)]"
-                : ""
+              Number.isFinite(bindingShift?.ddgBind)
+                ? bindingShift!.ddgBind! >= 1.5
+                  ? "text-[var(--cs-text-danger)]"
+                  : bindingShift!.ddgBind! >= 0.5
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+                : "text-[var(--cs-text-muted)]"
             }`}>
               {Number.isFinite(bindingShift?.ddgBind)
                 ? formatDdGValue(bindingShift!.ddgBind!, energyUnit)
-                : "Awaiting Complex"}
+                : isMonomeric
+                  ? "N/A (Monomer)"
+                  : "Pending / Unbound"}
             </span>
-            <span className="metric-card-desc">Binding free energy shift across interface</span>
+            <span className="metric-card-desc">
+              {Number.isFinite(bindingShift?.ddgBind)
+                ? "Binding free energy shift across interface"
+                : isMonomeric
+                  ? "Single-chain monomer; no inter-chain interface"
+                  : "Requires multi-chain 3D quaternary coordinates"}
+            </span>
           </div>
 
+          {/* Card 2: Quaternary Assembly */}
           <div className="metric-card">
-            <span className="metric-card-label">Interface Classification</span>
+            <span className="metric-card-label">Quaternary Assembly</span>
             <div className="mt-1">
-              <span className={`text-[11px] px-2 py-0.5 rounded border font-mono font-bold uppercase ${getClassificationBadge(bindingShift?.classification)}`}>
-                {bindingShift?.classification || (multimerData?.status === "monomeric" ? "PHYSIOLOGICAL MONOMER" : "MONOMER / UNBOUND")}
-              </span>
-            </div>
-            <span className="metric-card-desc">Impact on complex stability</span>
-          </div>
-
-          <div className="metric-card">
-            <span className="metric-card-label">Interface Contact Status</span>
-            <div className="mt-1 flex items-center gap-1.5">
-              {hasDirectComplexContact ? (
-                <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-                  Direct Complex Contact (&lt; 5 Å)
+              {bindingShift?.classification ? (
+                <span className={`text-[11px] px-2 py-0.5 rounded border font-mono font-bold uppercase ${getClassificationBadge(bindingShift?.classification)}`}>
+                  {bindingShift.classification}
                 </span>
-              ) : hasCuratedInterface ? (
-                <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-                  Direct Interface Residue
+              ) : isMonomeric ? (
+                <span className="text-[11px] px-2 py-0.5 rounded border font-mono font-bold uppercase bg-slate-500/10 border-slate-500/30 text-slate-400">
+                  MONOMER (SINGLE CHAIN)
                 </span>
-              ) : hasCuratedInterfaceAny ? (
-                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  Distal from Curated Site
-                </span>
-              ) : multimerContacts.length > 0 ? (
-                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  Distal Complex Residue (&gt; 5 Å)
-                </span>
-              ) : multimerData?.status === "monomeric" ? (
-                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  Physiological Monomer
+              ) : oligomericState ? (
+                <span className="text-[11px] px-2 py-0.5 rounded border font-mono font-bold uppercase bg-indigo-500/10 border-indigo-500/30 text-indigo-400">
+                  {oligomericState.toUpperCase()}
                 </span>
               ) : (
-                <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
-                  <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-                  Uncharacterized (No Complex)
+                <span className="text-[11px] px-2 py-0.5 rounded border font-mono font-bold uppercase bg-slate-500/10 border-slate-500/30 text-slate-400">
+                  UNCHARACTERIZED
                 </span>
               )}
             </div>
             <span className="metric-card-desc">
-              {hasDirectComplexContact || multimerContacts.length > 0
-                ? "3D quaternary contact mapping"
-                : hasCuratedInterfaceAny
-                  ? "UniProt curated interface proximity"
-                  : "Awaiting quaternary assembly"}
+              {bindingShift?.classification
+                ? "Impact on complex stability"
+                : oligomericState || (isMonomeric ? "Curated physiological single-chain state" : "Oligomeric assembly")}
+            </span>
+          </div>
+
+          {/* Card 3: Residue Interface Proximity */}
+          <div className="metric-card">
+            <span className="metric-card-label">Residue Interface Proximity</span>
+            <div className="mt-1 flex items-center gap-1.5">
+              {isMonomeric ? (
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                  Intramolecular (No Interface)
+                </span>
+              ) : hasDirectComplexContact ? (
+                <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                  Direct Interface Contact (&lt; 5 Å)
+                </span>
+              ) : hasCuratedInterface ? (
+                <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                  Direct Interface Residue
+                </span>
+              ) : hasCuratedInterfaceAny ? (
+                <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  Distal from Curated Site
+                </span>
+              ) : multimerContacts.length > 0 ? (
+                <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  Distal Complex Residue (&gt; 5 Å)
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                  Uncharacterized Position
+                </span>
+              )}
+            </div>
+            <span className="metric-card-desc">
+              {isMonomeric
+                ? "Residue is internal to single-chain structure"
+                : hasDirectComplexContact || multimerContacts.length > 0
+                  ? "3D quaternary contact mapping"
+                  : hasCuratedInterfaceAny
+                    ? "UniProt curated interface proximity"
+                    : "No quaternary interface coordinates"}
             </span>
           </div>
         </div>
 
-        {/* Actionable Informational Banner */}
-        {Number.isFinite(bindingShift?.ddgBind) ? (
+        {/* Compact Status Note when ΔΔG_bind is computed */}
+        {Number.isFinite(bindingShift?.ddgBind) && (
           <p className="text-[11px] leading-relaxed pt-1" style={{ color: "var(--cs-text-muted)" }}>
             OpenBind-0 predicted an interface binding shift of {formatDdGValue(bindingShift!.ddgBind!, energyUnit)}. Positive shifts (ΔΔG &gt; 0) denote diminished complex affinity or disrupted subunit docking.
           </p>
-        ) : (
-          <div className="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-500/10 border-indigo-500/30">
-            <div className="space-y-0.5">
-              <span className="font-bold text-xs text-indigo-400 block">
-                Quaternary Complex Required for Live Interface Energy
-              </span>
-              <p className="text-[11px] text-cs-text-secondary leading-relaxed">
-                OpenBind-0 binding affinity calculations (ΔΔG_bind) evaluate inter-chain free energy shifts in multi-chain complexes.
-                {oligomericState ? ` Curated quaternary state: ${oligomericState}.` : ""}
-              </p>
-            </div>
-            {onTabChange && (
-              <button
-                type="button"
-                onClick={() => onTabChange("multimers")}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shrink-0 shadow-sm transition-all cursor-pointer"
-              >
-                <Box className="w-3.5 h-3.5" />
-                <span>Open Multimers Tab &rarr;</span>
-              </button>
-            )}
-          </div>
         )}
       </div>
 
@@ -274,7 +296,7 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
                 key={idx}
                 className={`p-2.5 px-3 rounded-lg border text-xs flex items-center justify-between ${
                   item.isVariantPosition
-                    ? "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                    ? "bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-300"
                     : "bg-[var(--cs-surface-2)] border-[var(--cs-border)] text-[var(--cs-text-primary)]"
                 }`}
               >
@@ -341,7 +363,7 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
                     const pct = isScoreFinite ? (partner.score * 100).toFixed(0) : "—";
                     const isHighest = isScoreFinite && partner.score >= 0.9;
                     const isHigh = isScoreFinite && partner.score >= 0.7;
-                    const stringUrl = `https://string-db.org/network/9606.${encodeURIComponent(partner.partner)}`;
+                    const stringUrl = `https://string-db.org/network/9606.${encodeURIComponent(partner.partner || "")}`;
 
                     return (
                       <tr key={partner.partner || pIdx} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: pIdx < stringPartners.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
@@ -386,19 +408,9 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
             No STRING-db interaction partners found for {gene || "this gene"}.
           </div>
         )}
-
-        {/* Informational Callout: Functional Network vs Structural Binding */}
-        <div className="p-3.5 rounded-xl border bg-cs-surface-2 border-cs-border space-y-1 text-xs">
-          <div className="flex items-center gap-1.5 font-bold text-cs-text-primary text-[11px]">
-            <Info className="w-3.5 h-3.5 text-cs-accent-clay" />
-            <span>Interpreting PPI Evidence: Functional Networks vs. Physical Interface Energetics</span>
-          </div>
-          <p className="text-[11px] text-cs-text-secondary leading-relaxed">
-            <strong>STRING-db</strong> scores measure proteome-wide functional associations inferred from co-expression, shared pathways, and literature citations.
-            In contrast, <strong>OpenBind-0</strong> and <strong>Boltz-2</strong> calculate direct atomistic steric clash, electrostatic shifts, and binding free energy changes (&Delta;&Delta;G_bind) across the physical 3D subunit interface.
-          </p>
-        </div>
       </div>
     </div>
   );
 }
+
+export default React.memo(InteractionsTab);
