@@ -8,6 +8,7 @@ import {
   sendError,
   formatZodError,
   anySignal,
+  onClientDisconnect,
 } from "../../utils.ts";
 import { fetchAlphafoldPdb } from "../../services/structure-fetcher.ts";
 import {
@@ -156,11 +157,8 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       }
 
       const clientAbortController = new AbortController();
-      if (req && typeof req.on === "function") {
-        req.on("close", () => {
-          if (!res.headersSent) clientAbortController.abort();
-        });
-      }
+      // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.
+      onClientDisconnect(res, () => clientAbortController.abort());
       const timeoutSignal = AbortSignal.timeout(240000);
       const combinedSignal = anySignal([clientAbortController.signal, timeoutSignal]);
 

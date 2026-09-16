@@ -8,6 +8,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
 import { PredictorData, ConservationData, StringInteraction, type ClinVarData } from "../external.ts";
 import type { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../../src/shared/contracts.ts";
+import type { NarrativeFallbackReason } from "../../../src/shared/narrativeFallback.ts";
 import { anySignal } from "../../utils.ts";
 import { LRUCache } from "lru-cache";
 
@@ -59,6 +60,210 @@ export function getConfiguredGeminiModels(): string[] {
   return [...new Set([primary, ...fallbacks])];
 }
 
+// ---------------------------------------------------------------------------
+// Synthesis time budget
+// ---------------------------------------------------------------------------
+/**
+ * Wall-clock budget for a full narrative synthesis.
+ *
+ * This MUST stay comfortably below the client's request timeout
+ * (`CLINICAL_NARRATIVE_CLIENT_TIMEOUT_MS` in src/api/clinicalApi.ts). When the two were
+ * equal at 120s the client reliably aborted first, the socket closed, and the server's
+ * request-close handler cancelled the in-flight Gemini call — so the user saw a generic
+ * timeout instead of the graceful rule-based fallback.
+ */
+export const NARRATIVE_SYNTHESIS_BUDGET_MS = 105_000;
+
+/** Budget for the smaller biophysical-only summary call. */
+export const BIOPHYSICAL_SYNTHESIS_BUDGET_MS = 45_000;
+
+/** No attempt is made with less time than this left in the budget. */
+export const MIN_ATTEMPT_TIMEOUT_MS = 15_000;
+/** Ceiling for a single attempt, however much budget is free. */
+export const MAX_ATTEMPT_TIMEOUT_MS = 35_000;
+
+/** Upper bound on distinct models tried for one request (keeps a request bounded). */
+const MAX_MODELS_PER_REQUEST = 4;
+
+/**
+ * Time slice for the next attempt, given what is left of the budget.
+ *
+ * The allocation is adaptive rather than a fixed split, because the dominant failure mode is
+ * *fast*: an overloaded model returns 503 in about a second. A static split therefore gave the
+ * later (healthy) candidates the smallest slices — a 105s budget handed the third candidate only
+ * 21s and it timed out at 21s having needed about 20s. Here a fast failure hands its unused time
+ * to the next candidate, while the reserve guarantees every remaining candidate its floor, so the
+ * plan can never overrun the budget.
+ *
+ * Worst case (every candidate hangs) sums to exactly `budgetMs`, by construction.
+ * Exported for testing.
+ */
+export function sliceForAttempt(remainingBudgetMs: number, attemptsRemaining: number): number {
+  if (remainingBudgetMs <= 0 || attemptsRemaining <= 0) return 0;
+  // Only reserve floors for candidates the budget can actually afford, otherwise a small budget
+  // would reserve more than it has and no attempt could ever be made.
+  const affordableAttempts = Math.max(1, Math.floor(remainingBudgetMs / MIN_ATTEMPT_TIMEOUT_MS));
+  const effectiveRemaining = Math.min(attemptsRemaining, affordableAttempts);
+  const reserveForRest = MIN_ATTEMPT_TIMEOUT_MS * (effectiveRemaining - 1);
+  const available = remainingBudgetMs - reserveForRest;
+  if (available <= 0) return 0;
+  return Math.min(available, MAX_ATTEMPT_TIMEOUT_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Provider health (per-model circuit breaker)
+// ---------------------------------------------------------------------------
+interface ModelHealth {
+  consecutiveFailures: number;
+  cooldownUntil: number;
+  lastDetail?: string;
+}
+
+/**
+ * A model that returns 503/504 is almost always still unhealthy seconds later, and the
+ * experimental flash previews can intermittently 503 for minutes at a time. Without this,
+ * every single request re-paid the full timeout cost of the same broken model first.
+ */
+const MODEL_COOLDOWN_MS = 5 * 60 * 1000;
+const modelHealth = new Map<string, ModelHealth>();
+
+export function isModelCoolingDown(model: string, now: number = Date.now()): boolean {
+  const health = modelHealth.get(model);
+  return Boolean(health && health.cooldownUntil > now);
+}
+
+function recordModelSuccess(model: string): void {
+  modelHealth.delete(model);
+}
+
+function recordModelFailure(model: string, transient: boolean, err?: any): void {
+  const previous = modelHealth.get(model);
+  const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
+  modelHealth.set(model, {
+    consecutiveFailures,
+    cooldownUntil: transient ? Date.now() + MODEL_COOLDOWN_MS : (previous?.cooldownUntil ?? 0),
+    lastDetail: err !== undefined ? sanitizeProviderError(err) : previous?.lastDetail,
+  });
+}
+
+/**
+ * Healthy models first, cooling-down models last, original order preserved within each
+ * group. Degrading rather than dropping cooling models keeps a request working when every
+ * candidate is unhealthy.
+ */
+export function orderModelsByHealth(models: string[], now: number = Date.now()): string[] {
+  const healthy: string[] = [];
+  const cooling: string[] = [];
+  for (const model of models) {
+    (isModelCoolingDown(model, now) ? cooling : healthy).push(model);
+  }
+  return [...healthy, ...cooling];
+}
+
+/** Diagnostics snapshot — surfaced in the health endpoint and the Developer Console. */
+export function getModelHealthSnapshot(): Array<{ model: string; coolingDown: boolean; consecutiveFailures: number; lastDetail?: string }> {
+  const now = Date.now();
+  return [...modelHealth.entries()].map(([model, health]) => ({
+    model,
+    coolingDown: health.cooldownUntil > now,
+    consecutiveFailures: health.consecutiveFailures,
+    lastDetail: health.lastDetail,
+  }));
+}
+
+export function resetModelHealth(): void {
+  modelHealth.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Provider failure classification
+// ---------------------------------------------------------------------------
+export type GeminiFailureKind =
+  | "auth"
+  | "quota"
+  | "overload"
+  | "timeout"
+  | "network"
+  | "not_found"
+  | "unknown";
+
+export function classifyGeminiFailure(err: any): GeminiFailureKind {
+  const status = Number(err?.status || 0);
+  const message = String(err?.message || "").toLowerCase();
+
+  if (
+    status === 401 || status === 403 ||
+    /api key|unauthorized|unauthenticated|permission|access_token_type_unsupported|invalid key/.test(message)
+  ) {
+    return "auth";
+  }
+  if (status === 404 || /not found|not supported|unsupported model|does not exist|no longer available/.test(message)) {
+    return "not_found";
+  }
+  if (status === 429 || /quota|rate limit|resource_exhausted|exhausted/.test(message)) {
+    return "quota";
+  }
+  if (status === 503 || /overload|high demand|service unavailable/.test(message)) {
+    return "overload";
+  }
+  if (status === 504 || /deadline|timeout|timed out|abort/.test(message)) {
+    return "timeout";
+  }
+  if (/enotfound|fetch failed|econnrefused|econnreset|network|dns|socket hang up/.test(message)) {
+    return "network";
+  }
+  return "unknown";
+}
+
+/** Only these kinds are worth waiting on; the rest fail fast to protect the budget. */
+const TRANSIENT_FAILURE_KINDS: ReadonlySet<GeminiFailureKind> = new Set<GeminiFailureKind>([
+  "overload",
+  "quota",
+  "timeout",
+  "network",
+]);
+
+export function isTransientFailure(kind: GeminiFailureKind): boolean {
+  return TRANSIENT_FAILURE_KINDS.has(kind);
+}
+
+export function failureKindToFallbackReason(kind: GeminiFailureKind): NarrativeFallbackReason {
+  switch (kind) {
+    case "auth": return "API_KEY_INVALID";
+    case "quota": return "QUOTA_EXHAUSTED";
+    case "overload": return "PROVIDER_OVERLOADED";
+    case "timeout": return "DEADLINE_EXCEEDED";
+    case "network": return "NETWORK_ERROR";
+    case "not_found": return "MODEL_UNAVAILABLE";
+    default: return "SERVICE_UNAVAILABLE";
+  }
+}
+
+/**
+ * Reduce a provider error to a single safe line for diagnostics.
+ *
+ * The GenAI SDK rejects with `err.message` set to a *stringified JSON body*, which is why
+ * the previous fallback prose embedded raw payloads such as
+ * `{"error":{"code":503,...}}` into a clinical report.
+ */
+export function sanitizeProviderError(err: any): string {
+  const raw = String(err?.message ?? err ?? "unknown provider error");
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    detail = parsed?.error?.message || parsed?.message || raw;
+  } catch {
+    // Not JSON — keep the raw text.
+  }
+  const collapsed = detail.replace(/\s+/g, " ").trim();
+  return collapsed.length > 240 ? `${collapsed.slice(0, 237)}...` : collapsed;
+}
+
+/** Jittered delay before trying a *different* model. Deliberately short. */
+function interModelDelayMs(attempt: number): number {
+  return Math.min(400 * Math.pow(2, attempt - 1), 1_500) + Math.random() * 250;
+}
+
 export function getGeminiClient(customApiKey?: string): GoogleGenAI {
   const apiKey = (customApiKey || process.env.GEMINI_API_KEY || "").trim();
   if (isGeminiApiKeyPlaceholder(apiKey)) {
@@ -83,12 +288,23 @@ export function getGeminiClient(customApiKey?: string): GoogleGenAI {
 export class GeminiError extends Error {
   public code: string;
   public status: number;
+  /** Sanitized provider detail for diagnostics — never rendered into clinical prose. */
+  public providerDetail?: string;
+  /** Models the request actually attempted, in order. */
+  public attemptedModels?: string[];
 
-  constructor(code: string, message: string, status: number) {
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    options?: { providerDetail?: string; attemptedModels?: string[] }
+  ) {
     super(message);
     this.name = "GeminiError";
     this.code = code;
     this.status = status;
+    this.providerDetail = options?.providerDetail;
+    this.attemptedModels = options?.attemptedModels;
   }
 }
 
@@ -438,7 +654,13 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
 
 
   const modelsToTry = getConfiguredGeminiModels();
-  console.log(`[Gemini Entry] models=${modelsToTry[0]}, hasKey=${!!customApiKey}, signalAborted=${timeoutSignal?.aborted}`);
+  // A model that just returned 503/504 is almost certainly still unhealthy, so order
+  // healthy candidates first rather than re-paying a broken primary's timeout every request.
+  const orderedModels = orderModelsByHealth(modelsToTry).slice(0, MAX_MODELS_PER_REQUEST);
+  console.log(
+    `[Gemini Entry] budget=${NARRATIVE_SYNTHESIS_BUDGET_MS}ms candidates=[${orderedModels.join(", ")}] ` +
+    `slice=${MIN_ATTEMPT_TIMEOUT_MS}-${MAX_ATTEMPT_TIMEOUT_MS}ms, hasKey=${!!customApiKey}, signalAborted=${timeoutSignal?.aborted}`
+  );
 
   // When customApiKey is provided, evaluate only the custom key to ensure authentic BYOK diagnostics
   const keysToTry = customApiKey ? [customApiKey] : [undefined];
@@ -446,6 +668,7 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
   let fullText = "";
   let lastError: any = null;
   let success = false;
+  const attemptedModels: string[] = [];
 
   for (const apiKey of keysToTry) {
     let client;
@@ -456,35 +679,61 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
       continue;
     }
 
-    let keyAttempts = 0;
-    const maxAttempts = 5;
+    let spentMs = 0;
 
-    // Waits with exponential backoff + jitter before the next attempt.
-    // Honours the outer timeoutSignal so we don't wait past the deadline.
-    const backoffWait = async (attempt: number) => {
-      const baseMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // 1s, 2s, 4s, 8s cap
-      const jitterMs = Math.random() * 500;
-      const waitMs = baseMs + jitterMs;
-      console.log(`[Gemini Backoff] Waiting ${Math.round(waitMs)}ms before attempt ${attempt + 1}...`);
+    // Short jittered pause before trying the NEXT model. Each iteration already switches
+    // model, so the old 1s/2s/4s/8s exponential backoff spent up to 15s of the budget
+    // waiting to do something it was about to do anyway.
+    const interModelWait = async (attempt: number) => {
+      const waitMs = interModelDelayMs(attempt);
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, waitMs);
         if (timeoutSignal) {
+          if (timeoutSignal.aborted) {
+            clearTimeout(timer);
+            reject(new Error("Aborted during backoff"));
+            return;
+          }
           const onAbort = () => { clearTimeout(timer); reject(new Error("Aborted during backoff")); };
           timeoutSignal.addEventListener("abort", onAbort, { once: true });
         }
       });
     };
 
-    for (const modelName of modelsToTry) {
-      if (keyAttempts >= maxAttempts) {
+    for (let attemptIndex = 0; attemptIndex < orderedModels.length; attemptIndex++) {
+      const modelName = orderedModels[attemptIndex];
+      const remainingMs = NARRATIVE_SYNTHESIS_BUDGET_MS - spentMs;
+
+      if (remainingMs < MIN_ATTEMPT_TIMEOUT_MS) {
+        console.warn(
+          `[Gemini Budget] Budget of ${NARRATIVE_SYNTHESIS_BUDGET_MS}ms consumed after ${spentMs}ms; ` +
+          `${orderedModels.length - attemptIndex} model(s) left untried.`
+        );
         break;
       }
       if (timeoutSignal?.aborted) {
-        throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+        throw new GeminiError(
+          "DEADLINE_EXCEEDED",
+          "Narrative synthesis was cancelled before any model responded.",
+          504,
+          {
+            providerDetail: lastError ? sanitizeProviderError(lastError) : "request cancelled by client",
+            attemptedModels: [...attemptedModels],
+          }
+        );
       }
+
+      // Never let one attempt (or the sum of them) overrun the budget.
+      const attemptTimeoutMs = sliceForAttempt(remainingMs, orderedModels.length - attemptIndex);
+      if (attemptTimeoutMs < MIN_ATTEMPT_TIMEOUT_MS) {
+        console.warn(`[Gemini Budget] Only ${remainingMs}ms left; skipping ${modelName}.`);
+        break;
+      }
+      const attemptStartedAt = Date.now();
+      attemptedModels.push(modelName);
+
       try {
-        keyAttempts++;
-        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${keyAttempts}/${maxAttempts})`);
+        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${orderedModels.length}, slice ${attemptTimeoutMs}ms)`);
         const attemptController = new AbortController();
         const signal = timeoutSignal 
           ? anySignal([timeoutSignal, attemptController.signal])
@@ -498,7 +747,7 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
               temperature: 0.0,
               responseMimeType: "application/json",
               abortSignal: signal,
-              httpOptions: { timeout: 60000 },
+              httpOptions: { timeout: attemptTimeoutMs },
               responseSchema: {
                 type: Type.OBJECT,
                 properties: {
@@ -534,57 +783,54 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
               }
             }
           }),
-          60000,
-          "Google GenAI SDK request timed out",
+          attemptTimeoutMs,
+          `Gemini model ${modelName} exceeded its ${attemptTimeoutMs}ms time slice`,
           timeoutSignal,
           () => attemptController.abort()
         );
 
+        spentMs += Date.now() - attemptStartedAt;
         fullText = response?.text || response?.candidates?.[0]?.content?.parts?.[0]?.text || "";
         if (fullText) {
-          console.log(`[Gemini Analysis] Successfully generated response using model: ${modelName} with ${apiKey ? "custom" : "system"} API key`);
+          console.log(`[Gemini Analysis] Successfully generated response using model: ${modelName} with ${apiKey ? "custom" : "system"} API key in ${spentMs}ms`);
+          recordModelSuccess(modelName);
           lastError = null;
           success = true;
           break;
-        } else {
-          console.warn(`[Gemini Analysis] Model ${modelName} returned empty text. promptFeedback:`, JSON.stringify(response?.promptFeedback), "candidates:", response?.candidates?.length);
         }
+        console.warn(`[Gemini Analysis] Model ${modelName} returned empty text. promptFeedback:`, JSON.stringify(response?.promptFeedback), "candidates:", response?.candidates?.length);
+        // An empty completion is not a transport failure, but it is still not a usable
+        // result — cool the model briefly so we prefer a different one next time.
+        recordModelFailure(modelName, true);
       } catch (err: any) {
-        const errMsg = String(err?.message || "").toLowerCase();
-        const errStatus = Number(err?.status || 0);
-        const errDetails = {
-          message: err?.message,
-          status: errStatus,
-          code: err?.code,
-          name: err?.name,
-          signalAborted: timeoutSignal?.aborted
-        };
-        console.warn(`[Gemini Model Error] Model ${modelName} failed:`, JSON.stringify(errDetails));
+        spentMs += Date.now() - attemptStartedAt;
+        const kind = classifyGeminiFailure(err);
         lastError = err;
+        console.warn(
+          `[Gemini Model Error] model=${modelName} kind=${kind} status=${Number(err?.status || 0)} detail=${sanitizeProviderError(err)}`
+        );
+
+        // A client disconnect must be reported as a cancellation, not as a provider
+        // deadline — the old code checked the abort flag before classifying the error.
         if (timeoutSignal?.aborted) {
-          throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+          throw new GeminiError(
+            "DEADLINE_EXCEEDED",
+            "Narrative synthesis was cancelled before any model responded.",
+            504,
+            { providerDetail: sanitizeProviderError(err), attemptedModels: [...attemptedModels] }
+          );
         }
-        // Non-retryable errors — stop immediately, don't waste attempts
-        const isNonRetryable = (
-          errStatus === 401 || errStatus === 403 ||
-          errMsg.includes("api key") || errMsg.includes("unauthorized") ||
-          errMsg.includes("permission") || errMsg.includes("placeholder")
-        );
-        if (isNonRetryable) {
-          break;
-        }
-        // Retryable overload/rate-limit — backoff before next attempt
-        const isRetryableOverload = (
-          errStatus === 429 || errStatus === 503 ||
-          errMsg.includes("overload") || errMsg.includes("rate limit") ||
-          errMsg.includes("quota") || errMsg.includes("exhausted") ||
-          errMsg.includes("service unavailable")
-        );
-        if (isRetryableOverload && keyAttempts < maxAttempts && !timeoutSignal?.aborted) {
+
+        recordModelFailure(modelName, isTransientFailure(kind), err);
+
+        // Auth failures are configuration problems; another model cannot fix them.
+        if (kind === "auth") break;
+
+        if (isTransientFailure(kind) && attemptIndex < orderedModels.length - 1) {
           try {
-            await backoffWait(keyAttempts);
+            await interModelWait(attemptIndex + 1);
           } catch {
-            // aborted during wait — outer deadline check will handle it
+            // aborted during wait — the outer deadline check will handle it
           }
         }
       }
@@ -595,23 +841,30 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
   }
 
   if (lastError) {
-    const errMsg = (lastError.message || "").toLowerCase();
-    const status = lastError.status || 500;
-    
-    if (customApiKey && (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid") || status === 401 || status === 403)) {
-      throw new GeminiError("API_KEY_INVALID", "Provided custom Gemini API key is invalid or unauthorized.", 403);
-    } else if (errMsg.includes("placeholder") || errMsg.includes("required") || errMsg.includes("must not be a placeholder")) {
-      throw new GeminiError("API_KEY_MISSING", "Google Gemini API Key is not configured or is a placeholder value.", 401);
-    } else if (errMsg.includes("key") || errMsg.includes("api key") || errMsg.includes("invalid key") || status === 403 || status === 401) {
-      throw new GeminiError("API_KEY_INVALID", "Gemini API key is invalid or unauthorized.", 403);
-    } else if (errMsg.includes("quota") || errMsg.includes("exhausted") || errMsg.includes("rate limit") || status === 429) {
-      throw new GeminiError("RESOURCE_EXHAUSTED", "Gemini API quota has been exhausted. Please try again later.", 429);
-    } else if (errMsg.includes("timeout") || errMsg.includes("abort") || errMsg.includes("deadline") || status === 504) {
-      throw new GeminiError("TIMEOUT", "Gemini API request timed out.", 504);
-    } else if (errMsg.includes("overload") || errMsg.includes("overloaded") || errMsg.includes("service unavailable") || status === 503) {
-      throw new GeminiError("TIMEOUT", "Gemini API is temporarily overloaded. Please try again in a moment.", 504);
-    } else {
-      throw new GeminiError("MODEL_UNAVAILABLE", `Gemini model analysis failed: ${lastError.message}`, 503);
+    const kind = classifyGeminiFailure(lastError);
+    const providerDetail = sanitizeProviderError(lastError);
+    const attempted = [...attemptedModels];
+
+    if (/placeholder|must not be a placeholder|is required/.test(String(lastError?.message || ""))) {
+      throw new GeminiError("API_KEY_MISSING", "No Gemini API key is configured.", 401, { providerDetail, attemptedModels: attempted });
+    }
+    if (customApiKey && kind === "auth") {
+      throw new GeminiError("API_KEY_INVALID", "The provided Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted });
+    }
+
+    switch (kind) {
+      case "auth":
+        throw new GeminiError("API_KEY_INVALID", "The Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted });
+      case "quota":
+        throw new GeminiError("QUOTA_EXHAUSTED", "Gemini API quota is exhausted.", 429, { providerDetail, attemptedModels: attempted });
+      case "overload":
+        throw new GeminiError("PROVIDER_OVERLOADED", "Gemini reports that the requested models are overloaded.", 503, { providerDetail, attemptedModels: attempted });
+      case "timeout":
+        throw new GeminiError("DEADLINE_EXCEEDED", "No Gemini model responded within the synthesis time budget.", 504, { providerDetail, attemptedModels: attempted });
+      case "network":
+        throw new GeminiError("NETWORK_ERROR", "The Gemini endpoint could not be reached from the server.", 502, { providerDetail, attemptedModels: attempted });
+      default:
+        throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted });
     }
   }
 
@@ -725,6 +978,11 @@ Generate a JSON object with:
 `;
 
   const modelsToTry = getConfiguredGeminiModels();
+  // Same budget discipline as the narrative call: healthy models first, bounded slices.
+  const orderedModels = orderModelsByHealth(modelsToTry).slice(0, MAX_MODELS_PER_REQUEST);
+  console.log(
+    `[Gemini Biophysical Entry] budget=${BIOPHYSICAL_SYNTHESIS_BUDGET_MS}ms candidates=[${orderedModels.join(", ")}]`
+  );
 
   // Do not replace a valid BYOK failure with a misleading missing-system-key error.
   // Only try the system key when it is actually configured and usable.
@@ -745,19 +1003,29 @@ Generate a JSON object with:
       continue;
     }
 
-    let keyAttempts = 0;
-    const maxAttempts = 3;
+    let spentMs = 0;
 
-    for (const modelName of modelsToTry) {
-      if (keyAttempts >= maxAttempts) {
+    for (let attemptIndex = 0; attemptIndex < orderedModels.length; attemptIndex++) {
+      const modelName = orderedModels[attemptIndex];
+      const remainingMs = BIOPHYSICAL_SYNTHESIS_BUDGET_MS - spentMs;
+
+      if (remainingMs < MIN_ATTEMPT_TIMEOUT_MS) {
+        console.warn(`[Gemini Biophysical Budget] Budget consumed after ${spentMs}ms.`);
         break;
       }
       if (timeoutSignal?.aborted) {
-        throw new GeminiError("DEADLINE_EXCEEDED", "Deadline exceeded or request timed out", 504);
+        throw new GeminiError("DEADLINE_EXCEEDED", "Biophysical synthesis was cancelled before any model responded.", 504);
       }
+
+      const attemptTimeoutMs = sliceForAttempt(remainingMs, orderedModels.length - attemptIndex);
+      if (attemptTimeoutMs < MIN_ATTEMPT_TIMEOUT_MS) {
+        console.warn(`[Gemini Biophysical Budget] Only ${remainingMs}ms left; skipping ${modelName}.`);
+        break;
+      }
+      const attemptStartedAt = Date.now();
+
       try {
-        keyAttempts++;
-        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${keyAttempts}/${maxAttempts})`);
+        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${orderedModels.length}, slice ${attemptTimeoutMs}ms)`);
         const attemptController = new AbortController();
         const signal = timeoutSignal 
           ? anySignal([timeoutSignal, attemptController.signal])
@@ -788,12 +1056,13 @@ Generate a JSON object with:
               }
             }
           }),
-          60000,
-          "Gemini request timed out",
+          attemptTimeoutMs,
+          `Gemini model ${modelName} exceeded its ${attemptTimeoutMs}ms time slice`,
           timeoutSignal,
           () => attemptController.abort()
         );
 
+        spentMs += Date.now() - attemptStartedAt;
         const cleanedText = response.text.trim();
         try {
           parsed = JSON.parse(cleanedText);
@@ -819,13 +1088,19 @@ Generate a JSON object with:
         }
 
         if (parsed) {
+          recordModelSuccess(modelName);
           success = true;
           break;
         }
+        recordModelFailure(modelName, true);
 
       } catch (err: any) {
-        console.warn(`[Gemini Biophysical Analysis] Model ${modelName} failed with ${apiKey ? "custom" : "system"} API key:`, err.message);
+        spentMs += Date.now() - attemptStartedAt;
+        const kind = classifyGeminiFailure(err);
+        console.warn(`[Gemini Biophysical Analysis] model=${modelName} kind=${kind} failed: ${sanitizeProviderError(err)}`);
         lastError = err;
+        if (kind === "auth") break;
+        recordModelFailure(modelName, isTransientFailure(kind), err);
         continue;
       }
     }

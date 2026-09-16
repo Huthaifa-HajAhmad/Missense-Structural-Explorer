@@ -76,7 +76,7 @@ describe("narrativeService", () => {
     expect(finishTraceRun).toHaveBeenCalledWith("t-nar", "completed");
   });
 
-  it("handles failure with descriptive fallback markdown", async () => {
+  it("degrades to a clean clinical summary without leaking the transport error into prose", async () => {
     const mockApiClient = {
       getNarrative: vi.fn().mockRejectedValue(new Error("Rate limit exceeded"))
     };
@@ -109,15 +109,21 @@ describe("narrativeService", () => {
       () => 1
     );
 
-    expect(state.result.analysis).toContain("Narrative Generation Failed");
-    expect(state.result.analysis).toContain("Rate limit exceeded");
+    // The report body stays a clinical document: no infrastructure error text in the prose.
+    expect(state.result.analysis).toContain("Clinical Narrative Unavailable");
+    expect(state.result.analysis).not.toContain("Rate limit exceeded");
+
+    // Degradation is described by structured fields the UI can branch on.
+    expect(state.result.isFallback).toBe(true);
+    expect(state.result.fallbackReason).toBe("SERVICE_UNAVAILABLE");
+    expect(state.result.providerDetail).toBe("Rate limit exceeded");
 
     // Must NOT persist degraded fallback result into long-term sessionStorage
     const storageKeys = Object.keys(sessionStorage).filter(k => k.includes("PAH_p.arg408trp"));
     expect(storageKeys.length).toBe(0);
   });
 
-  it("purgeFallbackNarratives clears fallback analysisResult while preserving biophysical structures and FoldX energetics", () => {
+  it("does not let a degraded narrative stick in the cache, while keeping biophysical artefacts", () => {
     // Seed variant bundle with biophysical calculations and a fallback narrative
     setCachedVariant("GZF1", "p.Arg591Trp", "Q9H116", {
       pdbText: "ATOM 1 CA ALA 1 10.0 10.0 10.0",
@@ -131,10 +137,15 @@ describe("narrativeService", () => {
       }
     });
 
-    const beforePurge = getCachedVariant("GZF1", "p.Arg591Trp");
-    expect(beforePurge?.pdbText).toBe("ATOM 1 CA ALA 1 10.0 10.0 10.0");
-    expect(beforePurge?.foldingDdG).toBe(2.85);
-    expect(beforePurge?.analysisResult?.isFallback).toBe(true);
+    // Regression: the fallback used to be retained in the in-memory cache for 24h, so a single
+    // transient provider 503 pinned the offline report for that variant for the whole session and
+    // later lookups never retried the model.
+    const afterWrite = getCachedVariant("GZF1", "p.Arg591Trp");
+    expect(afterWrite?.analysisResult).toBeUndefined();
+
+    // Biophysical artefacts survive the narrative eviction.
+    expect(afterWrite?.pdbText).toBe("ATOM 1 CA ALA 1 10.0 10.0 10.0");
+    expect(afterWrite?.foldingDdG).toBe(2.85);
 
     purgeFallbackNarratives();
 
@@ -147,6 +158,19 @@ describe("narrativeService", () => {
     expect(afterPurge?.foldingDdG).toBe(2.85);
     expect(afterPurge?.foldingStatus).toBe("completed");
     expect(afterPurge?.computedPocket?.pocketScore).toBe(0.92);
+  });
+
+  it("keeps successfully synthesized narratives in the cache", () => {
+    setCachedVariant("GZF1", "p.Gly100Asp", "Q9H116", {
+      pdbText: "ATOM 1 CA ALA 1 10.0 10.0 10.0",
+      analysisResult: {
+        analysis: "### 🧬 Molecular and Chemical Shift\n\nGenuine AI narrative.",
+        isFallback: false
+      }
+    });
+
+    const cached = getCachedVariant("GZF1", "p.Gly100Asp");
+    expect(cached?.analysisResult?.analysis).toContain("Genuine AI narrative");
   });
 });
 

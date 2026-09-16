@@ -6,11 +6,29 @@ export interface NotificationItem {
   message: string;
 }
 
+/**
+ * Report body sections the clinician can include or exclude.
+ *
+ * This lives in the store (rather than in either pane) because the filter control is in the
+ * Report inspector and the content it filters is in the main Report view. Previously each
+ * side kept private state, so the "Section Filters" toggles filtered nothing at all.
+ */
+export type ReportSectionKey = "summary" | "acmg" | "structure" | "energetics" | "literature";
+
+export const DEFAULT_REPORT_SECTIONS: Record<ReportSectionKey, boolean> = {
+  summary: true,
+  acmg: true,
+  structure: true,
+  energetics: true,
+  literature: true,
+};
+
 export interface UiState {
   viewMode: "wildtype" | "mutant" | "superimposed";
   isHowToInspectOpen: boolean;
   isLegendOpen: boolean;
   notifications: NotificationItem[];
+  reportSections: Record<ReportSectionKey, boolean>;
 }
 
 export interface UiActions {
@@ -22,6 +40,8 @@ export interface UiActions {
   ) => void;
   addNotification: (type: "success" | "info" | "error" | "warn", message: string, autoShowAlerts?: boolean) => void;
   removeNotification: (id: string) => void;
+  toggleReportSection: (key: ReportSectionKey) => void;
+  setReportSections: (sections: Record<ReportSectionKey, boolean>) => void;
 }
 
 export type UiSlice = UiState & UiActions;
@@ -33,10 +53,15 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   isHowToInspectOpen: false,
   isLegendOpen: false,
   notifications: [],
+  reportSections: { ...DEFAULT_REPORT_SECTIONS },
 
   setViewMode: (viewMode) => set({ viewMode }),
   setIsHowToInspectOpen: (isHowToInspectOpen) => set({ isHowToInspectOpen }),
   setIsLegendOpen: (isLegendOpen) => set({ isLegendOpen }),
+  toggleReportSection: (key) => set((state) => ({
+    reportSections: { ...state.reportSections, [key]: !state.reportSections[key] }
+  })),
+  setReportSections: (reportSections) => set({ reportSections }),
   setNotifications: (updater) => set((state) => ({
     notifications: typeof updater === "function" ? updater(state.notifications) : updater
   })),

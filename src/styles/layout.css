@@ -122,6 +122,78 @@
   overflow: hidden;
 }
 
+/* ---------------------------------------------------------------------------
+   CLINICAL REPORT — document surface
+   --------------------------------------------------------------------------- */
+
+/* The report is a reading column; keep the measure comfortable on wide screens. */
+.report-page {
+  scroll-behavior: smooth;
+}
+.report-page > * {
+  max-width: 1100px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+/*
+ * Disclosure transition.
+ * `grid-template-rows: 0fr -> 1fr` animates to intrinsic height and, unlike a
+ * keyframe or a max-height guess, stays interruptible when toggled rapidly.
+ */
+.report-disclosure {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.2, 0, 0, 1),
+              opacity 180ms cubic-bezier(0.2, 0, 0, 1);
+  opacity: 1;
+}
+.report-disclosure[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/*
+ * Disclosure chevron: rotate rather than swapping icons, so the state change is a
+ * single continuous transform with no reflow of the header row.
+ */
+.report-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cs-text-muted);
+  transition: transform 200ms cubic-bezier(0.2, 0, 0, 1),
+              color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.report-chevron[data-open="true"] {
+  transform: rotate(90deg);
+  color: var(--cs-accent-clay);
+}
+
+/* Tactile press feedback — 0.96, per the polish scale-on-press rule. */
+.report-press {
+  transition: transform 120ms cubic-bezier(0.2, 0, 0, 1),
+              opacity 120ms cubic-bezier(0.2, 0, 0, 1),
+              background-color 150ms cubic-bezier(0.2, 0, 0, 1),
+              border-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.report-press:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-disclosure,
+  .report-chevron,
+  .report-press,
+  .report-page {
+    transition: none !important;
+    scroll-behavior: auto;
+  }
+  .report-press:active:not(:disabled) {
+    transform: none;
+  }
+}
+
 /* SCREEN TITLE (per-screen H1, 18px/500, sans) */
 .screen-title {
   font-family: var(--cs-font-sans);

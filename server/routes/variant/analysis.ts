@@ -1,5 +1,5 @@
 import { type Router } from "express";
-import { AuditLogger, sendError } from "../../utils.ts";
+import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import { fetchLandscapeData } from "../../services/external.ts";
 import { validateAndParseVariantRequest } from "./variant-parser.ts";
@@ -75,13 +75,9 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     res.flushHeaders?.();
 
     const abortController = new AbortController();
-    if (typeof req.on === "function") {
-      req.on("close", () => {
-        if (!res.writableEnded) {
-          abortController.abort();
-        }
-      });
-    }
+    // `req.on("close")` fires once the body has been read (express.json has already done so),
+    // which would abort the stream before the first chunk. Detect disconnects on `res` instead.
+    onClientDisconnect(res, () => abortController.abort());
 
     try {
       const { streamCoreAnalysis } = await import("../../services/analysis-orchestrator.ts");

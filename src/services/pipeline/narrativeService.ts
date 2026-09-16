@@ -89,6 +89,10 @@ export async function generateClinicalNarrative(
         analysis: narrativeData.analysis,
         isFallback: narrativeData.isFallback ?? false,
         fallbackReason: narrativeData.fallbackReason,
+        fallbackMessage: narrativeData.fallbackMessage,
+        fallbackRetryable: narrativeData.fallbackRetryable,
+        providerDetail: narrativeData.providerDetail,
+        attemptedModels: narrativeData.attemptedModels,
         insights: {
           ...prevInsights,
           biochemicalShift: narrativeData.insights?.biochemicalShift || prevInsights.biochemicalShift || "",
@@ -111,11 +115,27 @@ export async function generateClinicalNarrative(
       console.error("[NarrativeService Error] Narrative generation failed:", narrativeErr);
       analysisSink.setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
+        /**
+         * A transport-level failure (the request never reached the narrative route, or the
+         * client timed out) is a *degraded* report, not a broken one: the rule-based ACMG
+         * evidence in `prev.result` is still valid. Preserve it and mark the narrative as
+         * unavailable rather than replacing the whole report with an error string.
+         */
         const errorResult = {
           ...prev.result,
-          analysis: `### ❌ Narrative Generation Failed\n\nAn error occurred while generating the clinical narrative: **${narrativeErr.message || narrativeErr}**.\n\nPlease check your network connection or API key settings and try again.`,
+          analysis: [
+            "### Clinical Narrative Unavailable",
+            "",
+            "The narrative synthesis request did not complete, so this report contains the " +
+            "database-derived evidence and rule-based ACMG/AMP assessment only.",
+            "",
+            "Use **Re-synthesize** to retry, or check the **Console** tab for the underlying request error.",
+          ].join("\n"),
           isFallback: true,
-          fallbackReason: "SERVICE_UNAVAILABLE"
+          fallbackReason: "SERVICE_UNAVAILABLE",
+          fallbackMessage: "The narrative request did not complete. The rule-based evidence below is unaffected.",
+          fallbackRetryable: true,
+          providerDetail: String(narrativeErr?.message || narrativeErr),
         };
         setCachedVariant(gene, variant, uniprotId, { analysisResult: errorResult });
         return {

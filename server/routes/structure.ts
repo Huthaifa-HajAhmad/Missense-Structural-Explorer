@@ -7,7 +7,7 @@
  *   POST /structural-diff
  */
 import { type Router } from "express";
-import { sendError, validateUniProt, validateGene, validateVariant, AuditLogger, formatZodError } from "../utils.ts";
+import { sendError, validateUniProt, validateGene, validateVariant, AuditLogger, formatZodError, onClientDisconnect } from "../utils.ts";
 import { z } from "zod";
 import {
   esmFoldRequestSchema,
@@ -552,11 +552,8 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     const clientAbortController = new AbortController();
-    if (req && typeof req.on === "function") {
-      req.on("close", () => {
-        if (!res.headersSent) clientAbortController.abort();
-      });
-    }
+    // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.
+    onClientDisconnect(res, () => clientAbortController.abort());
     try {
       const validGene = validateGene(parseResult.data.gene);
       const validVariant = validateVariant(parseResult.data.variant);
@@ -576,11 +573,8 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     const clientAbortController = new AbortController();
-    if (req && typeof req.on === "function") {
-      req.on("close", () => {
-        if (!res.headersSent) clientAbortController.abort();
-      });
-    }
+    // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.
+    onClientDisconnect(res, () => clientAbortController.abort());
     try {
       const validGene = validateGene(parseResult.data.gene);
       const validVariant = validateVariant(parseResult.data.variant);

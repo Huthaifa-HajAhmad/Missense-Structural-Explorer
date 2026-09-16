@@ -165,7 +165,8 @@ export async function executeFullAnalysisWorkflow({
       // Check if previous cached narrative was a fallback placeholder but we now have active Gemini credentials
       const isFallback = isFallbackNarrative(
         cached.analysisResult?.analysis,
-        cached.analysisResult?.isFallback
+        cached.analysisResult?.isFallback,
+        cached.analysisResult?.fallbackReason
       );
       const hasActiveGemini = Boolean(
         (settings?.geminiSessionId && settings?.geminiSessionExpiresAt && settings.geminiSessionExpiresAt > Date.now()) ||

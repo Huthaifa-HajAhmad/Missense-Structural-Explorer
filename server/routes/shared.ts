@@ -180,6 +180,11 @@ export function handleNarrativeResponse(
     analysis: analysisResult.analysis,
     isFallback: Boolean(analysisResult.isFallback),
     fallbackReason: analysisResult.fallbackReason || undefined,
+    fallbackMessage: analysisResult.fallbackMessage || undefined,
+    fallbackRetryable: analysisResult.fallbackRetryable,
+    // Diagnostics travel beside the report, never inside its prose.
+    providerDetail: analysisResult.providerDetail || undefined,
+    attemptedModels: analysisResult.attemptedModels,
     insights: {
       ...analysisResult.insights,
       acmgCriteria: mergedCriteria,

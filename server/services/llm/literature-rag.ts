@@ -179,8 +179,11 @@ export async function syncLiteratureForGene(
 
     if (signal) {
       if (signal.aborted) {
+        // Return a benign result rather than throwing: this runs inside a detached async IIFE
+        // whose rejection, when combined with the `.finally()` bookkeeping below, used to escape
+        // as an unhandled rejection and terminate the Node process.
         clearTimeout(syncTimeoutId);
-        throw new Error("Aborted");
+        return 0;
       }
       signal.addEventListener("abort", onAbort);
     }
@@ -292,10 +295,16 @@ export async function syncLiteratureForGene(
 
   inFlightSyncs.set(syncKey, syncPromise);
   
-  // Cleanup map when completed
-  syncPromise.finally(() => {
+  // Cleanup map when completed.
+  //
+  // Must be `.then(onFulfilled, onRejected)` and NOT `.finally(...)`: `.finally()` returns a
+  // *derived* promise that rejects whenever `syncPromise` rejects, and nothing handles that
+  // derived promise — which is an unhandled rejection, and Node 22 terminates the process on
+  // those. That is how an aborted literature sync used to take the whole server down mid-request.
+  const releaseSync = () => {
     inFlightSyncs.delete(syncKey);
-  });
+  };
+  syncPromise.then(releaseSync, releaseSync);
 
   return syncPromise;
 }

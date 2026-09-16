@@ -7,6 +7,7 @@ import {
   sendError,
   AuditLogger,
   formatZodError,
+  onClientDisconnect,
 } from "../../utils.ts";
 import {
   pollDynaMut2Job,
@@ -155,7 +156,11 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       }
     }, 15000);
 
-    req.on("close", () => {
+    // Clean up on client disconnect.
+    // `req.on("close")` is wrong here: for a bodyless GET the request completes immediately, so
+    // the listener and ping interval were torn down right after the handshake and the subscriber
+    // never received a single job update. `res` 'close' fires when the stream actually goes away.
+    onClientDisconnect(res, () => {
       clearInterval(pingInterval);
       jobEventEmitter.off("job_update", listener);
     });

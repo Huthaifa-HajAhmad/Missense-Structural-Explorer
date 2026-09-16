@@ -560,6 +560,7 @@ export function AppViews({
                   analysisState={analysisState} 
                   isDark={isDark} 
                   isNarrativeLoading={isNarrativeLoading}
+                  onNavigateToView={setMasterView}
                   fullPage 
                 />
               </ErrorBoundary>

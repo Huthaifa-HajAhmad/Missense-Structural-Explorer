@@ -4,7 +4,9 @@
  * Includes strict cache versioning and legacy storage migration/cleanup.
  */
 
-export const CACHE_VERSION = "v3.5";
+import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/narrativeFallback";
+
+export const CACHE_VERSION = "v3.6";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 
@@ -117,9 +119,28 @@ export function setCachedVariant(
   // Do not persist preliminary, failed/errored, or fallback narrative evaluations into long-term sessionStorage
   const isPreliminary = updated.foldingEnergetics?.evidenceComplete === false ||
     Boolean(updated.foldingEnergetics?.pendingTools && updated.foldingEnergetics.pendingTools.length > 0);
-  const isFallback = isFallbackNarrative(updated.analysisResult?.analysis, updated.analysisResult?.isFallback);
+  const isFallback = isFallbackNarrative(
+    updated.analysisResult?.analysis,
+    updated.analysisResult?.isFallback,
+    updated.analysisResult?.fallbackReason
+  );
 
   if (isFallback) {
+    /**
+     * Drop the degraded narrative from the IN-MEMORY entry as well.
+     *
+     * Previously only sessionStorage was guarded, and `memoryVariantCache.set` above had
+     * already stored the fallback. `getCachedVariant` reads memory first and returns for 24h,
+     * so within a session a single transient provider 503 permanently pinned the fallback for
+     * that variant: every later re-analysis served the stale offline report and never retried
+     * the model. That is what made the outage look permanent rather than transient.
+     *
+     * Biophysical artefacts (structures, energetics, pockets) are still cached — only the
+     * narrative is discarded so the next lookup re-attempts synthesis.
+     */
+    updated.analysisResult = undefined;
+    memoryVariantCache.set(key, updated);
+
     try {
       const hasBiophysicalData = Boolean(
         updated.pdbText ||
@@ -177,22 +198,19 @@ export function setCachedVariant(
   }
 }
 
-export function isFallbackNarrative(analysis?: string | null, isFallback?: boolean): boolean {
-  if (isFallback === true) return true;
-  if (!analysis || typeof analysis !== "string") return false;
-  return (
-    analysis.includes("Gemini API Key Not Configured") ||
-    analysis.includes("AI Explanation Service Offline") ||
-    analysis.includes("AI Service Offline") ||
-    analysis.includes("Fallback Report Loaded") ||
-    analysis.includes("Key Config Required") ||
-    analysis.includes("Narrative Generation Failed")
-  );
+export function isFallbackNarrative(
+  analysis?: string | null,
+  isFallback?: boolean,
+  fallbackReason?: string | null
+): boolean {
+  // Structured signal first; prose sniffing is a compatibility shim for payloads cached
+  // before the server emitted `fallbackReason`. See src/shared/narrativeFallback.ts.
+  return sharedIsFallbackNarrative(analysis, isFallback, fallbackReason);
 }
 
 export function purgeFallbackNarratives(): void {
   for (const [, entry] of memoryVariantCache.entries()) {
-    if (isFallbackNarrative(entry.analysisResult?.analysis, entry.analysisResult?.isFallback)) {
+    if (isFallbackNarrative(entry.analysisResult?.analysis, entry.analysisResult?.isFallback, entry.analysisResult?.fallbackReason)) {
       entry.analysisResult = undefined;
     }
   }
@@ -206,7 +224,7 @@ export function purgeFallbackNarratives(): void {
           const raw = sessionStorage.getItem(k);
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (isFallbackNarrative(parsed?.analysisResult?.analysis, parsed?.analysisResult?.isFallback)) {
+            if (isFallbackNarrative(parsed?.analysisResult?.analysis, parsed?.analysisResult?.isFallback, parsed?.analysisResult?.fallbackReason)) {
               parsed.analysisResult = undefined;
               sessionStorage.setItem(k, JSON.stringify(parsed));
             }

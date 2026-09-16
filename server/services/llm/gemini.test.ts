@@ -26,10 +26,14 @@ vi.mock("./literature-rag.ts", () => {
 });
 
 describe("Gemini API Fallback Cascade and Error Mapping", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockGenerateContent.mockReset();
     mockRetrieveRelevantLiterature.mockReset();
     mockRetrieveRelevantLiterature.mockResolvedValue([]);
+    // The provider-health circuit breaker is module-global: transient failures recorded by
+    // one test would reorder candidate models for the next. Reset it per test.
+    const geminiService = await import("./gemini.ts");
+    geminiService.resetModelHealth();
   });
 
   afterEach(() => {
@@ -135,7 +139,9 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
         expect.any(AbortSignal)
       );
       expect(mockGenerateContent.mock.calls[0][0].config.abortSignal).toBeInstanceOf(AbortSignal);
-      expect(mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout).toBe(60000);
+      // The per-attempt SDK timeout is the model's adaptive budget slice, not a flat 60s.
+      // With a single configured candidate and a full 105s budget, it clamps to the 35s ceiling.
+      expect(mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout).toBe(35000);
     } finally {
       if (oldModel === undefined) delete process.env.GEMINI_MODEL;
       else process.env.GEMINI_MODEL = oldModel;
@@ -252,7 +258,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     try {
       await testErrorMapping("API key is invalid or unauthorized", 403, "API_KEY_INVALID", 403);
       await testErrorMapping("Resource exhausted or quota exceeded", 429, "RESOURCE_EXHAUSTED", 429);
-      await testErrorMapping("Deadline exceeded or request timed out", 504, "TIMEOUT", 504);
+      await testErrorMapping("Deadline exceeded or request timed out", 504, "DEADLINE_EXCEEDED", 504);
       await testErrorMapping("Internal server error or unknown code", 500, "MODEL_UNAVAILABLE", 503);
     } finally {
       process.env.GEMINI_MODEL = oldModel;

@@ -14,6 +14,7 @@ import {
   getApiKeyFromSession,
   formatZodError,
   anySignal,
+  onClientDisconnect,
 } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import {
@@ -113,11 +114,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           const mutant = mutMatch[3];
 
           const clientAbortController = new AbortController();
-          if (req && typeof req.on === "function") {
-            req.on("close", () => {
-              if (!res.headersSent) clientAbortController.abort();
-            });
-          }
+          // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.
+          onClientDisconnect(res, () => clientAbortController.abort());
 
           const timeoutSignal = AbortSignal.timeout(60000);
           const combinedSignal = anySignal([clientAbortController.signal, timeoutSignal]);
@@ -340,11 +338,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         };
 
         const clientAbortController = new AbortController();
-        if (req && typeof req.on === "function") {
-          req.on("close", () => {
-            if (!res.headersSent) clientAbortController.abort();
-          });
-        }
+        // Detect disconnects on `res`: `req` 'close' fires as soon as the body is read.
+        onClientDisconnect(res, () => clientAbortController.abort());
         const combinedSignal = anySignal([clientAbortController.signal, AbortSignal.timeout(240000)]);
 
         // 1. Calculate cache key for FoldX mutant (consistent with foldx.ts)

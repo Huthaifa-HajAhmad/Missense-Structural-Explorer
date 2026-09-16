@@ -663,6 +663,10 @@ export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
   isFallback: z.boolean().optional(),
   fallbackReason: z.string().optional(),
+  fallbackMessage: z.string().optional(),
+  fallbackRetryable: z.boolean().optional(),
+  providerDetail: z.string().optional(),
+  attemptedModels: z.array(z.string()).optional(),
   insights: z.object({
     biochemicalShift: z.string(),
     structuralImpact: z.string(),
@@ -1074,7 +1078,16 @@ export interface AouFrequencyData {
 export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetadata, LanguageModelEvaluations {
   analysis?: string | null;
   isFallback?: boolean;
+  /** Stable degradation code — see src/shared/narrativeFallback.ts. */
   fallbackReason?: string;
+  /** Safe one-line explanation of the degradation, suitable for clinical UI. */
+  fallbackMessage?: string;
+  /** Whether re-running the same request may succeed. */
+  fallbackRetryable?: boolean;
+  /** Sanitized provider diagnostics — surfaced in the Developer Console only. */
+  providerDetail?: string;
+  /** Models the request attempted, in order. */
+  attemptedModels?: string[];
   insights?: ClinicalInsight | null;
   ruleBasedInsights?: RuleBasedInsights | null;
   clinvar?: ClinVarData | null;

@@ -10,6 +10,7 @@
  *   - audit-logger.ts: Structured JSONL audit logging & 30-day retention
  *   - janitor.ts: Filesystem temp directory sweeps
  *   - mutation.ts: Protein sequence mutation applier
+ *   - client-disconnect.ts: Correct client-disconnect detection (res 'close', not req 'close')
  */
 
 export * from "./utils/signals.ts";
@@ -20,3 +21,4 @@ export * from "./utils/crypto-session.ts";
 export * from "./utils/audit-logger.ts";
 export * from "./utils/janitor.ts";
 export * from "./utils/mutation.ts";
+export * from "./utils/client-disconnect.ts";

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Markdown from "react-markdown";
 import { 
   ChevronUp, 
@@ -8,16 +8,30 @@ import {
   FileText, 
   Sparkles, 
   RefreshCw, 
-  KeyRound, 
-  ExternalLink,
-  ShieldAlert,
-  Cpu
+  KeyRound
 } from "lucide-react";
 import { AnalysisState } from "../types";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { isFallbackNarrative, setCachedVariant } from "../services/pipeline/variantCache";
+import {
+  AiStatusStrip,
+  AcmgEvidenceList,
+  EvidenceInventory,
+  EnergeticsSummary,
+  ReportBibliography,
+  ReportSection,
+  StructuralContext,
+  SynthesisProvenance,
+  VerdictChip,
+} from "./report/ReportBlocks";
+import {
+  buildEvidenceInventory,
+  deriveAiStatus,
+  formatDeltaG,
+  summarizeEvidence,
+} from "./report/reportStatus";
 
 interface ClinicalReportBarProps {
   analysisState: AnalysisState;
@@ -25,6 +39,8 @@ interface ClinicalReportBarProps {
   fullPage?: boolean;  // When true: always-expanded, no toggle bar, fills container
   onRetryNarrative?: () => void;
   isNarrativeLoading?: boolean;
+  /** Optional: lets the report deep-link into the Console and Literature views. */
+  onNavigateToView?: (view: any) => void;
 }
 
 function classifyVerdict(classification: string): "pathogenic" | "benign" | "uncertain" | "none" {
@@ -59,7 +75,8 @@ function ClinicalReportBar({
   isDark, 
   fullPage = false,
   onRetryNarrative: propOnRetryNarrative,
-  isNarrativeLoading: propIsNarrativeLoading
+  isNarrativeLoading: propIsNarrativeLoading,
+  onNavigateToView,
 }: ClinicalReportBarProps) {
   const result = analysisState.result;
   const hasResult = !!result;
@@ -78,6 +95,7 @@ function ClinicalReportBar({
   const setAnalysisState = useVariantAnalysisStore(s => s.setAnalysisState);
   const setIsNarrativeLoading = useVariantAnalysisStore(s => s.setIsNarrativeLoading);
   const addNotification = useVariantAnalysisStore(s => s.addNotification);
+  const reportSections = useVariantAnalysisStore(s => s.reportSections);
 
   const isNarrativeLoading = propIsNarrativeLoading ?? (storeIsNarrativeLoading || isSynthesizingLocally);
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
@@ -89,17 +107,59 @@ function ClinicalReportBar({
 
   const classification = result?.clinvar?.classification ?? result?.ruleBasedInsights?.acmgVerdict ?? "";
   const narrative     = result?.analysis ?? "";
-  const acmgCriteria  = (result?.insights?.acmgCriteria ?? result?.ruleBasedInsights?.acmgCriteria ?? []).map(c => c.code);
-  const isFallback    = isFallbackNarrative(narrative, result?.isFallback);
+  const isFallback    = isFallbackNarrative(narrative, result?.isFallback, result?.fallbackReason);
 
   const verdict = classifyVerdict(classification);
   const styles  = VERDICT_STYLES[verdict];
+
+  // ACMG criteria carry their reasons and provenance — the report renders them as evidence rows.
+  const acmgCriteria = useMemo(() => {
+    const items = result?.insights?.acmgCriteria?.length
+      ? result.insights.acmgCriteria
+      : result?.ruleBasedInsights?.acmgCriteria ?? [];
+    return items as Array<{ code: string; reason?: string; source?: string }>;
+  }, [result]);
+
+  // `ruleBasedInsights.acmgVerdict` is the deterministic verdict; prefer it for the headline.
+  const ruleVerdict = result?.ruleBasedInsights?.acmgVerdict;
+  const headlineVerdict = ruleVerdict || result?.insights?.acmgVerdict || classification;
+
+  const plausibility = result?.insights?.plausibility || result?.ruleBasedInsights?.plausibility || "";
+
+  const aiStatus = useMemo(
+    () =>
+      deriveAiStatus({
+        isFallback,
+        fallbackReason: result?.fallbackReason,
+        fallbackMessage: result?.fallbackMessage,
+        fallbackRetryable: result?.fallbackRetryable,
+        providerDetail: result?.providerDetail,
+        attemptedModels: result?.attemptedModels,
+        isKeyActive,
+        hasNarrative: Boolean(narrative),
+        isNarrativeLoading,
+      }),
+    [
+      isFallback,
+      result?.fallbackReason,
+      result?.fallbackMessage,
+      result?.fallbackRetryable,
+      result?.providerDetail,
+      result?.attemptedModels,
+      isKeyActive,
+      narrative,
+      isNarrativeLoading,
+    ]
+  );
+
+  const evidenceSources = useMemo(() => buildEvidenceInventory(result), [result]);
+  const evidenceSummary = useMemo(() => summarizeEvidence(evidenceSources), [evidenceSources]);
 
   const handleCopy = async () => {
     if (!narrative) return;
     try {
       await navigator.clipboard.writeText(
-        `${classification}\n\n${narrative}\n\nACMG Evidence: ${acmgCriteria.join(", ")}`
+        `${classification}\n\n${narrative}\n\nACMG Evidence: ${acmgCriteria.map(c => c.code).join(", ")}`
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -136,36 +196,34 @@ function ClinicalReportBar({
       });
 
       if (narrativeData?.analysis) {
-        setAnalysisState(prev => {
-          if (!prev.result) return prev;
-          const updatedResult = {
-            ...prev.result,
-            analysis: narrativeData.analysis,
-            isFallback: narrativeData.isFallback ?? false,
-            fallbackReason: narrativeData.fallbackReason,
-            insights: narrativeData.insights ?? prev.result.insights
-          };
-          return {
-            ...prev,
-            result: updatedResult
-          };
-        });
+        const mergedResult = {
+          ...result,
+          analysis: narrativeData.analysis,
+          isFallback: narrativeData.isFallback ?? false,
+          fallbackReason: narrativeData.fallbackReason,
+          fallbackMessage: narrativeData.fallbackMessage,
+          fallbackRetryable: narrativeData.fallbackRetryable,
+          providerDetail: narrativeData.providerDetail,
+          attemptedModels: narrativeData.attemptedModels,
+          insights: narrativeData.insights ?? result.insights
+        };
+
+        setAnalysisState(prev => (prev.result ? { ...prev, result: mergedResult } : prev));
 
         // Keep local cache fresh
         const targetGene = gene || result.metadata?.gene || "";
         const targetVariant = variant || result.metadata?.variant || "";
         const targetUniprot = uniprotId || result.metadata?.uniprotId || "";
-        setCachedVariant(targetGene, targetVariant, targetUniprot, {
-          analysisResult: {
-            ...result,
-            analysis: narrativeData.analysis,
-            isFallback: narrativeData.isFallback ?? false,
-            fallbackReason: narrativeData.fallbackReason ?? null,
-            insights: narrativeData.insights ?? result.insights
-          }
-        });
+        setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: mergedResult });
 
-        if (!narrativeData.isFallback) {
+        if (narrativeData.isFallback) {
+          // Report *why* it degraded rather than a generic success-shaped message.
+          addNotification(
+            narrativeData.fallbackRetryable === false ? "warn" : "info",
+            narrativeData.fallbackMessage ||
+              "AI synthesis was unavailable; the report shows database-derived evidence and rule-based ACMG criteria."
+          );
+        } else {
           addNotification(
             "success",
             "Clinical report updated with calibrated multi-layer Gemini insights."
@@ -202,227 +260,233 @@ function ClinicalReportBar({
     </div>
   );
 
-  // Full-page mode: expanded always, no bar chrome
+  // Full-page mode: the report reads as a document, with one honest status statement.
   if (fullPage) {
     return (
-      <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto" style={{ color: "var(--cs-text-primary)" }}>
+      <div className="report-page p-6 flex flex-col gap-5 h-full overflow-y-auto" style={{ color: "var(--cs-text-primary)" }}>
 
-        {/* Screen title + description */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* Screen title + actions */}
+        <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h1 className="screen-title flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
+              <FileText className="w-5 h-5" style={{ color: "var(--cs-accent-clay)" }} strokeWidth={1.75} />
               Clinical Report
             </h1>
             <p className="screen-tab-description">
-              A structured, evidence-backed narrative summary synthesized across biophysical, evolutionary, and clinical databases.
+              A structured, evidence-backed summary assembled from biophysical, evolutionary and
+              clinical databases, with the provenance of every contributing source.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {narrative && !isNarrativeLoading && (
               <button
                 type="button"
                 onClick={handleCopy}
-                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow-sm hover:brightness-110 active:scale-95"
+                className="report-press flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg cursor-pointer shadow-sm hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
                 style={{
                   color: copied ? "var(--cs-good)" : "var(--cs-text-primary)",
                   background: "var(--cs-surface-2)",
                   border: "1px solid var(--cs-border)",
                 }}
               >
-                {copied ? <><Check className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Report</>}
+                {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy Report</>}
               </button>
             )}
 
-            {isKeyActive && (
+            {isKeyActive ? (
               <button
                 type="button"
                 onClick={handleSynthesizeNarrative}
                 disabled={isNarrativeLoading}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow-sm bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="report-press flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer shadow-sm bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
               >
                 {isNarrativeLoading ? (
-                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Synthesizing...</>
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Synthesizing…</>
                 ) : isFallback ? (
                   <><Sparkles className="w-3.5 h-3.5" /> Generate AI Narrative</>
                 ) : (
                   <><RefreshCw className="w-3.5 h-3.5" /> Re-synthesize</>
                 )}
               </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openSettingsTab("connections")}
+                className="report-press flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+                style={{
+                  color: "var(--cs-text-secondary)",
+                  background: "var(--cs-surface-2)",
+                  borderColor: "var(--cs-border)",
+                }}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                Configure Gemini
+              </button>
             )}
           </div>
-        </div>
+        </header>
 
-        {/* AI Activation / Fallback Status Banner */}
-        {isFallback && !isNarrativeLoading && (
-          <div 
-            className="rounded-xl border p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition-all"
-            style={{ 
-              background: isKeyActive 
-                ? "linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%)" 
-                : "rgba(245, 158, 11, 0.07)",
-              borderColor: isKeyActive ? "rgba(99, 102, 241, 0.25)" : "rgba(245, 158, 11, 0.25)"
-            }}
-          >
-            <div className="flex items-start gap-3">
-              {isKeyActive ? (
-                <Cpu className="w-5 h-5 text-indigo-400 mt-0.5 flex-shrink-0" />
-              ) : (
-                <ShieldAlert className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
-              )}
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: isKeyActive ? "var(--cs-accent-clay)" : "var(--cs-warn)" }}>
-                  {isKeyActive ? "AI Session Token Ready — Synthesize Live Report" : "Gemini API Session Token Not Linked"}
-                </h4>
-                <p className="text-xs leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                  {isKeyActive 
-                    ? "A valid Gemini credentials session is active. You can now generate an in-depth AI synthesis combining FoldX, AlphaMissense, PopEVE, and ACMG codes."
-                    : "Currently viewing rule-based fallback report. Connect your Gemini API key in Settings for calibrated multi-layer clinical reasoning and literature integration."}
-                </p>
-              </div>
-            </div>
+        {/* One honest status statement — never "ready" while degraded */}
+        <AiStatusStrip
+          status={aiStatus}
+          onRetry={handleSynthesizeNarrative}
+          onOpenConsole={onNavigateToView ? () => onNavigateToView("console") : undefined}
+        />
 
-            <div className="flex items-center gap-2 self-stretch md:self-auto flex-shrink-0">
-              {isKeyActive ? (
-                <button
-                  type="button"
-                  onClick={handleSynthesizeNarrative}
-                  className="w-full md:w-auto flex items-center justify-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all cursor-pointer bg-indigo-600 hover:bg-indigo-500 text-white shadow-md active:scale-95"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Synthesize AI Narrative Now
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => openSettingsTab("connections")}
-                  className="w-full md:w-auto flex items-center justify-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all cursor-pointer bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 active:scale-95"
-                >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  Configure Gemini Key
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Classification verdict & chips */}
-        <div className="flex flex-wrap items-center gap-4">
-          {classification && (
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 text-[13px] font-semibold px-3 py-1 rounded-full ${styles.badge}`}>
-                <span className={`w-2 h-2 rounded-full animate-pulse ${styles.dot}`} />
-                {classification}
-              </span>
-            </div>
-          )}
-
-          {!isFallback && !isNarrativeLoading && narrative && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-mono font-medium px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              <Sparkles className="w-3 h-3 text-indigo-400" />
-              Gemini 2.5 Synthesized
+        {/* Headline verdict + synthesis provenance */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {headlineVerdict ? (
+            <VerdictChip verdict={headlineVerdict} tone={classifyVerdict(headlineVerdict)} />
+          ) : (
+            <span className="text-[12.5px]" style={{ color: "var(--cs-text-muted)" }}>
+              No classification available
             </span>
           )}
-
-          {/* ACMG criteria chips */}
-          {acmgCriteria.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] font-bold uppercase tracking-widest font-mono mr-1" style={{ color: "var(--cs-text-muted)" }}>
-                ACMG:
-              </span>
-              {acmgCriteria.map((code: string) => (
-                <span
-                  key={code}
-                  className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded border"
-                  style={{
-                    borderColor: "var(--cs-border)",
-                    background: "var(--cs-surface-2)",
-                    color: "var(--cs-text-secondary)",
-                  }}
-                >
-                  {code}
-                </span>
-              ))}
-            </div>
-          )}
+          <SynthesisProvenance model={(result?.insights as any)?.model} isAi={!isFallback && Boolean(narrative)} />
+          {acmgCriteria.length > 0 ? (
+            <span className="text-[11px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
+              {acmgCriteria.length} ACMG {acmgCriteria.length === 1 ? "criterion" : "criteria"} applied
+            </span>
+          ) : null}
         </div>
 
-        {/* Narrative Shimmer Loading Skeleton */}
-        {isNarrativeLoading && (
-          <div className="report-prose-wrapper w-full">
-            <div 
-              className="rounded-2xl border p-6 space-y-4 animate-pulse"
-              style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
-            >
-              <div className="flex items-center gap-3">
-                <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />
-                <span className="text-xs font-mono font-semibold text-indigo-400 tracking-wide">
-                  Synthesizing clinical evidence and ACMG criteria with Gemini 2.5...
-                </span>
-              </div>
-              <div className="space-y-2.5 pt-2">
-                <div className="h-4 bg-slate-700/30 rounded w-5/6" />
-                <div className="h-4 bg-slate-700/30 rounded w-full" />
-                <div className="h-4 bg-slate-700/30 rounded w-4/6" />
-              </div>
-              <div className="space-y-2.5 pt-4">
-                <div className="h-4 bg-slate-700/30 rounded w-1/3" />
-                <div className="h-4 bg-slate-700/30 rounded w-full" />
-                <div className="h-4 bg-slate-700/30 rounded w-11/12" />
-                <div className="h-4 bg-slate-700/30 rounded w-3/4" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Narrative — editorial serif prose rendered with react-markdown */}
-        {!isNarrativeLoading && narrative && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+        {/* Summary + narrative */}
+        {reportSections.summary && (
+          <ReportSection id="report-summary" title="Executive Summary & Clinical Narrative">
+            {plausibility ? (
               <p
-                className="text-[10px] font-bold uppercase tracking-widest font-mono"
-                style={{ color: "var(--cs-text-muted)" }}
+                className="text-[13px] leading-relaxed m-0 mb-3 pb-3"
+                style={{ color: "var(--cs-text-secondary)", borderBottom: "1px solid var(--cs-border-subtle)" }}
               >
-                Clinical Narrative
+                {plausibility}
               </p>
-            </div>
+            ) : null}
 
-            {/* 72ch reading column with Lora serif */}
-            <div className="report-prose-wrapper">
-              <div className="report-prose">
-                <Markdown
-                  components={{
-                    h1: ({ children }) => <h1 className="text-lg font-bold mt-4 mb-2">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-base font-semibold mt-4 mb-2">{children}</h2>,
-                    h3: ({ children }) => (
-                      <h3 className="text-sm font-semibold mt-4 mb-2 flex items-center gap-2 pb-1 border-b" style={{ borderColor: "var(--cs-border)" }}>
-                        {children}
-                      </h3>
-                    ),
-                    p: ({ children }) => <p className="mb-4 leading-relaxed">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc pl-5 mb-4 space-y-1">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal pl-5 mb-4 space-y-1">{children}</ol>,
-                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                    strong: ({ children }) => <strong className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>{children}</strong>,
-                    code: ({ children }) => (
-                      <code className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: "var(--cs-surface-2)", border: "1px solid var(--cs-border)" }}>
-                        {children}
-                      </code>
-                    ),
-                    blockquote: ({ children }) => (
-                      <blockquote className="border-l-2 pl-4 italic my-3" style={{ borderColor: "var(--cs-accent-clay)", color: "var(--cs-text-secondary)" }}>
-                        {children}
-                      </blockquote>
-                    )
-                  }}
-                >
-                  {narrative}
-                </Markdown>
+            {isNarrativeLoading ? (
+              <div
+                className="rounded-xl border p-5 space-y-3 animate-pulse"
+                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
+                aria-busy="true"
+                aria-label="Synthesizing clinical narrative"
+              >
+                <div className="flex items-center gap-2.5">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
+                  <span className="text-[11px] font-mono font-semibold" style={{ color: "var(--cs-accent-clay)" }}>
+                    Synthesizing narrative from curated evidence…
+                  </span>
+                </div>
+                <div className="space-y-2 pt-1">
+                  <div className="h-3.5 rounded w-5/6" style={{ background: "var(--cs-border-subtle)" }} />
+                  <div className="h-3.5 rounded w-full" style={{ background: "var(--cs-border-subtle)" }} />
+                  <div className="h-3.5 rounded w-2/3" style={{ background: "var(--cs-border-subtle)" }} />
+                </div>
               </div>
-            </div>
-          </div>
+            ) : narrative ? (
+              <div className="report-prose-wrapper">
+                <div className="report-prose">
+                  <Markdown
+                    components={{
+                      h1: ({ children }) => <h1 className="text-lg font-bold mt-4 mb-2">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-base font-semibold mt-4 mb-2">{children}</h2>,
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold mt-4 mb-2 flex items-center gap-2 pb-1 border-b" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                          {children}
+                        </h3>
+                      ),
+                      p: ({ children }) => <p className="mb-4 leading-relaxed">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc pl-5 mb-4 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-5 mb-4 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>{children}</strong>,
+                      code: ({ children }) => (
+                        <code className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: "var(--cs-surface-2)", border: "1px solid var(--cs-border-subtle)" }}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-2 pl-4 italic my-3" style={{ borderColor: "var(--cs-accent-clay)", color: "var(--cs-text-secondary)" }}>
+                          {children}
+                        </blockquote>
+                      )
+                    }}
+                  >
+                    {narrative}
+                  </Markdown>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
+                No narrative has been generated for this variant yet.
+              </p>
+            )}
+          </ReportSection>
         )}
+
+        {/* ACMG evidence */}
+        {reportSections.acmg && (
+          <ReportSection
+            id="report-acmg"
+            title="ACMG / AMP Pathogenicity Evidence"
+            meta={
+              <span className="font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                {acmgCriteria.length || "0"}
+              </span>
+            }
+          >
+            <AcmgEvidenceList criteria={acmgCriteria} />
+          </ReportSection>
+        )}
+
+        {/* Energetics */}
+        {reportSections.energetics && (
+          <ReportSection id="report-energetics" title="Biophysical Free-Energy Calculations">
+            <EnergeticsSummary result={result} formatDeltaG={formatDeltaG} />
+          </ReportSection>
+        )}
+
+        {/* Structure */}
+        {reportSections.structure && (
+          <ReportSection id="report-structure" title="3D Macromolecular Coordinates">
+            <StructuralContext
+              metadata={result?.metadata}
+              foldingStatus={(result as any)?.foldingStatus ?? null}
+            />
+          </ReportSection>
+        )}
+
+        {/* Bibliography */}
+        {reportSections.literature && (
+          <ReportSection id="report-literature" title="Scientific Literature Bibliography">
+            <ReportBibliography gene={gene || result?.metadata?.gene || ""} variant={variant || result?.metadata?.variant || ""} />
+          </ReportSection>
+        )}
+
+        {/* Provenance — always visible; it is the trust anchor of the document */}
+        <ReportSection
+          id="report-provenance"
+          title="Evidence Provenance & Completeness"
+          defaultOpen
+          meta={
+            <span className="font-mono" style={{ color: evidenceSummary.present === evidenceSummary.total ? "var(--cs-good)" : "var(--cs-warn)" }}>
+              {evidenceSummary.present}/{evidenceSummary.total}
+            </span>
+          }
+        >
+          <EvidenceInventory
+            sources={evidenceSources}
+            present={evidenceSummary.present}
+            total={evidenceSummary.total}
+          />
+          {aiStatus.diagnostics?.providerDetail ? (
+            <p
+              className="text-[10px] font-mono mt-3 mb-0 pt-2.5 leading-relaxed break-words"
+              style={{ color: "var(--cs-text-muted)", borderTop: "1px solid var(--cs-border-subtle)" }}
+            >
+              Last model error: {aiStatus.diagnostics.providerDetail}
+            </p>
+          ) : null}
+        </ReportSection>
       </div>
     );
   }
@@ -453,16 +517,16 @@ function ClinicalReportBar({
 
         {isNarrativeLoading && (
           <span className="flex items-center gap-1 text-[10px] font-mono text-indigo-400">
-            <RefreshCw className="w-3 h-3 animate-spin" /> Synthesizing...
+            <RefreshCw className="w-3 h-3 animate-spin" /> Synthesizing…
           </span>
         )}
 
         {/* ACMG chips — only when open, truncated strip */}
         {isOpen && acmgCriteria.length > 0 && (
           <div className="flex items-center gap-1 overflow-hidden">
-            {acmgCriteria.slice(0, 5).map((code: string) => (
+            {acmgCriteria.slice(0, 5).map((criterion) => (
               <span
-                key={code}
+                key={criterion.code}
                 className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border"
                 style={{
                   borderColor: "var(--cs-border)",
@@ -470,7 +534,7 @@ function ClinicalReportBar({
                   color: "var(--cs-text-muted)",
                 }}
               >
-                {code}
+                {criterion.code}
               </span>
             ))}
             {acmgCriteria.length > 5 && (
@@ -488,7 +552,7 @@ function ClinicalReportBar({
               type="button"
               onClick={(e) => { e.stopPropagation(); handleSynthesizeNarrative(); }}
               disabled={isNarrativeLoading}
-              className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded transition-all cursor-pointer bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/25"
+              className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded transition-colors cursor-pointer bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/25"
               title="Generate fresh AI narrative"
             >
               <Sparkles className="w-3 h-3" />
@@ -501,7 +565,7 @@ function ClinicalReportBar({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); handleCopy(); }}
-              className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded transition-all cursor-pointer"
+              className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded transition-colors cursor-pointer"
               style={{
                 color: copied ? "var(--cs-good)" : "var(--cs-text-muted)",
                 background: "var(--cs-surface-2)",
@@ -528,7 +592,7 @@ function ClinicalReportBar({
           {isNarrativeLoading ? (
             <div className="flex items-center gap-2 p-3 text-xs text-indigo-400 animate-pulse">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>Generating AI synthesis...</span>
+              <span>Generating AI synthesis…</span>
             </div>
           ) : narrative ? (
             <div 
@@ -558,4 +622,3 @@ function ClinicalReportBar({
 }
 
 export default React.memo(ClinicalReportBar);
-
