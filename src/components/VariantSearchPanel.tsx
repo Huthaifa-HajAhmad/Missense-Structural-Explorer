@@ -29,6 +29,7 @@ import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
+import { isGenomicOrCdnaNotation } from "../shared/variantNotation.ts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
@@ -194,11 +195,8 @@ function VariantSearchPanel({
     handleSearchSubmit(e);
   };
 
-  const isGenomicVariant = (customVariant && (
-    /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
-    /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
-    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i.test(customVariant.trim())
-  )) || !!customGenomic.trim();
+  const isGenomicVariant =
+    (!!customVariant && isGenomicOrCdnaNotation(customVariant)) || !!customGenomic.trim();
   const isGeneRequired = !isGenomicVariant;
   const isVariantRequired = !customGenomic.trim();
 
@@ -482,8 +480,8 @@ function VariantSearchPanel({
                       <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">c.123A&gt;G</code>
                     </div>
                     <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>Genomic:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">20-23365054-G-A</code>
+                      <span>• <strong>Genomic HGVS:</strong></span>
+                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">Chr1(GRCh38):g.25484258G&gt;A</code>
                     </div>
                     <div className="flex items-center justify-between py-0.5">
                       <span>• <strong>ClinVar ID:</strong></span>

@@ -21,7 +21,12 @@
 
   --cs-text-primary:  #191816;   /* near-black ink color */
   --cs-text-secondary:#666055;   /* elegant charcoal secondary text */
-  --cs-text-muted:    #8F897E;   /* dimmed label colors */
+  /**
+   * Dimmed label colour. Was #8F897E, which is only 3.3:1 on --cs-surface-2 — below
+   * AA for the 9.5-10.5px explanatory copy and badge text the inspectors use it for.
+   * #6E685E reaches 5.24:1 while staying visibly lighter than --cs-text-secondary.
+   */
+  --cs-text-muted:    #6E685E;
 
   --cs-accent-clay:   #C46849;   /* Anthropic brand terracotta / clay */
   --cs-accent-mag:    #D946AA;   /* variant marker hot pink */
@@ -93,6 +98,11 @@
   --cs-bg-warning:              #FEF3C7;
   --cs-text-danger:             #DC2626;
   --cs-bg-danger:               #FEE2E2;
+  /**
+   * Danger text placed ON --cs-bg-danger. #DC2626 over #FEE2E2 is only 3.95:1, so
+   * tainted-panel body copy uses this darker shade (5.3:1) instead.
+   */
+  --cs-text-danger-on-soft:     #B91C1C;
   --cs-surface-1:               #FFFFFF;
   --cs-surface-2:               #FAF9F6;
 
@@ -145,6 +155,8 @@
   --cs-bg-warning:              rgba(217, 119, 6, 0.15);
   --cs-text-danger:             #F87171;
   --cs-bg-danger:               rgba(220, 38, 38, 0.15);
+  /** On the translucent dark danger tint the standard red already passes, so reuse it. */
+  --cs-text-danger-on-soft:     #F87171;
   --cs-surface-1:               #2A2724;
   --cs-surface-2:               #201E1B;
 }
@@ -174,6 +186,7 @@
   --color-cs-bg-warning: var(--cs-bg-warning);
   --color-cs-text-danger: var(--cs-text-danger);
   --color-cs-bg-danger: var(--cs-bg-danger);
+  --color-cs-text-danger-on-soft: var(--cs-text-danger-on-soft);
   --color-cs-surface-1: var(--cs-surface-1);
   
   --font-size-cs-micro: var(--cs-text-micro);

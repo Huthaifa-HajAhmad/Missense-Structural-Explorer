@@ -100,3 +100,15 @@ export function buildAlphaGenomeKey(chrom: string, pos: number, ref: string, alt
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom.toLowerCase() : `chr${chrom.toLowerCase()}`;
   return `alphagenome_${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
+
+/**
+ * Cache key for genomic/cDNA coordinate -> protein resolution.
+ *
+ * The mapping from a coordinate to a protein substitution is IMMUTABLE (it is a property
+ * of the reference sequence and transcript annotation, not of time), so this key
+ * deliberately carries no time component and is safe to persist long-term. Including the
+ * assembly prevents a GRCh37 and GRCh38 spelling of the same coordinate from colliding.
+ */
+export function buildCoordinateTranslationKey(assembly: string, normalizedNotation: string): string {
+  return `coord_translation_${assembly.toUpperCase()}_${normalizedNotation.trim().toLowerCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}

@@ -1,6 +1,24 @@
 import { TraceContext, TranslatedVariantResult } from "./types";
 import { parseVariantCoordinate } from "../../shared/variantCoordinate.ts";
 
+// ── Notation grammar is centralized in src/shared/variantNotation.ts ──────────
+// Re-exported here so existing import paths (`./notationService`,
+// `../useAnalysisPipeline`) keep resolving. Never re-declare these patterns locally:
+// the copy that used to live here had drifted from the server's gate and the React
+// inputs, and its `/^chr/i` catch-all mis-routed gene symbols such as CHRD to VEP.
+export {
+  isGenomicOrCdnaNotation,
+  isProteinNotation,
+  classifyNotation,
+  detectAssemblyAnnotation,
+  normalizeGenomicNotation,
+  ACCEPTED_NOTATION_EXAMPLES,
+  ACCEPTED_NOTATION_SUMMARY,
+  type NotationDescriptor,
+  type NotationKind,
+  type GenomeAssembly,
+} from "../../shared/variantNotation.ts";
+
 export function toFoldxMutation(proteinVariant: string): string | null {
   try {
     const coord = parseVariantCoordinate(proteinVariant);
@@ -8,18 +26,6 @@ export function toFoldxMutation(proteinVariant: string): string | null {
   } catch (_) {
     return null;
   }
-}
-
-export function isGenomicOrCdnaNotation(variant: string): boolean {
-  const trimmed = variant.trim();
-  return (
-    /^(?:chr)?[0-9XYMT]+:g\./i.test(trimmed) ||
-    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+/i.test(trimmed) ||
-    /^(?:[A-Z0-9_.]+:)?c\.\d+/i.test(trimmed) ||
-    /^(?:[A-Z0-9_.]+:)?g\.\d+/i.test(trimmed) ||
-    /^(?:chr)?[0-9XYMT]+:\d+/i.test(trimmed) ||
-    /^chr/i.test(trimmed)
-  );
 }
 
 export async function translateVariantNotation(
@@ -68,7 +74,10 @@ export async function translateVariantNotation(
         isManePlusClinical: data.isManePlusClinical,
         isCanonical: data.isCanonical,
         maneRefSeqId: data.maneRefSeqId,
-        transcriptWarning: data.transcriptWarning
+        transcriptWarning: data.transcriptWarning,
+        // Preserved so callers/reports can state which build the coordinate resolved against.
+        assembly: data.assembly,
+        assemblyNote: data.assemblyNote
       }
     };
   } catch (err: any) {

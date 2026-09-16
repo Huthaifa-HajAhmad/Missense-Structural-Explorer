@@ -183,7 +183,34 @@ export const translateVariantResponseSchema = z.object({
   isCanonical: z.boolean().optional(),
   maneRefSeqId: z.string().optional(),
   transcriptWarning: z.string().optional(),
-  genomicCoordinates: z.string().nullable().optional()
+  genomicCoordinates: z.string().nullable().optional(),
+  /** Genome build the notation was resolved against, from an inline "(GRCh38)" annotation. */
+  assembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+  /** Canonical form of the submitted notation after normalization (annotation stripped). */
+  notationNormalized: z.string().optional(),
+  /** Present when an inline assembly annotation redirected the query (e.g. to GRCh37). */
+  assemblyNote: z.string().optional(),
+  /**
+   * Which resolution provider answered, whether a fallback was used, and what else was
+   * attempted. Offline-verifiable provenance for a clinical audit trail.
+   */
+  provenance: z
+    .object({
+      provider: z.string(),
+      providerLabel: z.string(),
+      usedFallback: z.boolean(),
+      cacheHit: z.boolean(),
+      attempts: z.array(
+        z.object({
+          provider: z.string(),
+          ok: z.boolean(),
+          durationMs: z.number(),
+          reason: z.string().optional(),
+          failureKind: z.string().optional()
+        })
+      )
+    })
+    .optional()
 });
 
 export const resolveGeneRequestSchema = z.object({
@@ -568,6 +595,11 @@ export const conservationDataSchema = z.object({
   spliceProximity: z.object({
     distance: z.number(),
     isNearSpliceSite: z.boolean(),
+    /**
+     * Nearest boundary is a genuine exon/intron junction (donor/acceptor), not a
+     * transcript terminus. Optional so payloads predating the field still parse.
+     */
+    isCanonicalJunction: z.boolean().optional(),
     exonNumber: z.number().nullable().optional(),
     totalExons: z.number().nullable().optional(),
     exonId: z.string().nullable().optional(),

@@ -2,6 +2,7 @@
 import { AMINO_ACID_3_TO_1, AMINO_ACID_1_TO_3 } from "./aminoAcids";
 import { z } from "zod";
 import { parseVariantCoordinate, type VariantCoordinate } from "./shared/variantCoordinate.ts";
+import { isGenomicOrCdnaNotation } from "./shared/variantNotation.ts";
 
 import {
   finiteNumber,
@@ -66,12 +67,11 @@ export function getErrorMessage(data: any, defaultMsg = "Request failed"): strin
 export const STORAGE_KEY = "variantHistory";
 
 // Coordinate pattern checkers for VCF and cDNA (F-3)
+//
+// The grammar itself lives in src/shared/variantNotation.ts. This thin delegate is kept
+// so existing imports keep resolving.
 export function isVcfOrCdnaNotation(input: string): boolean {
-  const trimmed = input.trim();
-  const genomicRegex = /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i;
-  const cdnaRegex = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
-  const dashedGenomicRegex = /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i;
-  return genomicRegex.test(trimmed) || cdnaRegex.test(trimmed) || dashedGenomicRegex.test(trimmed);
+  return isGenomicOrCdnaNotation(input);
 }
 
 export const AMINO_ACID_NAMES_MAP: Record<string, string> = {

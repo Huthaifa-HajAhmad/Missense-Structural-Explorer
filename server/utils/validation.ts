@@ -1,15 +1,40 @@
 // Regex patterns (V-1, V-2, V-4)
+//
+// ── NOTATION GRAMMAR LIVES IN src/shared/variantNotation.ts ──────────────────
+// Protein / genomic / cDNA notation patterns are declared exactly once there and are
+// re-exported below to preserve this module's public import surface. Never re-declare
+// them locally: the duplicated copies that used to live here drifted out of sync, which
+// caused valid genomic queries (e.g. "Chr1(GRCh38):g.25484258G>A") to be rejected with a
+// 400 even though Ensembl VEP accepts them.
+import {
+  HGVS_PATTERN,
+  MUTATION_FOLDX_PATTERN,
+  CDNA_PATTERN,
+  DASHED_GENOMIC_PATTERN,
+  GENOMIC_HGVS_PATTERN,
+  isGenomicOrCdnaNotation,
+} from "../../src/shared/variantNotation.ts";
+
+export {
+  HGVS_PATTERN,
+  MUTATION_FOLDX_PATTERN,
+  CDNA_PATTERN,
+  DASHED_GENOMIC_PATTERN,
+};
+
 export const GENE_PATTERN = /^[A-Z0-9\-]{1,20}$/i;
 
-const IUPAC_3 = "(?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val)";
-const IUPAC_1 = "[ARNDCQEGHILKMFPSTWYV]";
-export const HGVS_PATTERN = new RegExp(`^(?:p\\.)?(${IUPAC_3}|${IUPAC_1})(\\d{1,6})(${IUPAC_3}|${IUPAC_1})$`, "i");
-
 export const UNIPROT_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/i;
-export const MUTATION_FOLDX_PATTERN = /^[ARNDCQEGHILKMFPSTWYV][A-Z]\d+[ARNDCQEGHILKMFPSTWYV]$/i;
-export const VCF_GENOMIC_PATTERN = /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i;
-export const CDNA_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
-export const DASHED_GENOMIC_PATTERN = /^(?:chr)?([0-9XYMT]+)-(\d+)-([ACGTN]+)-([ACGTN]+)$/i;
+
+/**
+ * Strict genomic HGVS, including optional inline assembly annotations
+ * ("Chr1(GRCh38):g.25484258G>A") and RefSeq accessions ("NC_000001.11:g.25484258G>A").
+ * Alias of {@link GENOMIC_HGVS_PATTERN}.
+ *
+ * @deprecated Import `GENOMIC_HGVS_PATTERN` from `src/shared/variantNotation.ts` instead.
+ * This alias exists only so pre-existing imports keep resolving.
+ */
+export const VCF_GENOMIC_PATTERN = GENOMIC_HGVS_PATTERN;
 export const NONSENSE_PATTERN = /^(?:p\.)?(?:[A-Za-z]{1,4}|\*)(\d{1,6})(?:Ter|\*|Stop|X)$/i;
 export const FRAMESHIFT_PATTERN = /^(?:p\.)?(?:[A-Za-z]{1,4})(\d{1,6})(?:[A-Za-z*]+)?(?:fs(?:\*|\w+)?\d*)$/i;
 export const INDEL_PATTERN = /^(?:p\.)?(?:[A-Za-z]{1,4}\d{1,6}(?:_[A-Za-z]{1,4}\d{1,6})?)(?:del|ins|dup|delins|inv).*$/i;
@@ -95,16 +120,19 @@ export function validateUniProt(uniprotId: any): string {
   return trimmed.toUpperCase();
 }
 
+/**
+ * True for genomic / cDNA coordinate notations that must first be resolved through the
+ * Ensembl VEP translator. Delegates to the shared notation grammar so the audit-log
+ * anonymizer, the request router and the UI can never disagree about what counts as a
+ * genomic coordinate.
+ *
+ * Previously this pattern list missed assembly-annotated notations
+ * ("Chr1(GRCh38):g.25484258G>A"), which meant those coordinates were written to audit
+ * logs WITHOUT pseudonymization.
+ */
 export function isGenomicCoordinate(val: string): boolean {
   if (typeof val !== "string") return false;
-  const trimmed = val.trim();
-  return (
-    /^(?:chr)?[0-9XYMT]+:g\./i.test(trimmed) ||
-    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+/i.test(trimmed) ||
-    /^(?:[A-Z0-9_.]+:)?c\.\d+/i.test(trimmed) ||
-    /^(?:[A-Z0-9_.]+:)?g\.\d+/i.test(trimmed) ||
-    /^(?:chr)?[0-9XYMT]+:\d+/i.test(trimmed)
-  );
+  return isGenomicOrCdnaNotation(val);
 }
 
 export function formatZodError(error: any): string {

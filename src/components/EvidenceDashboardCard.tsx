@@ -50,6 +50,23 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
 
   const result = analysisState.result;
 
+  /**
+   * MUST be called before any conditional return.
+   *
+   * This was previously declared after the `if (!result)` guard, so the component ran
+   * 4 hooks when there was no result and 5 once one arrived. React rejects that with
+   * "Rendered more hooks than during the previous render", which the surrounding
+   * ErrorBoundary surfaced as a generic "Component Render Failed" card — reachable
+   * simply by submitting a query while the evidence view showed its empty state.
+   */
+  const tabProps = useMemo(() => ({
+    ...props,
+    onTabChange: setActiveTab,
+    energyUnit,
+    formatDdGValue,
+    setSelectedMetric
+  }), [props, setActiveTab, energyUnit, setSelectedMetric]);
+
   if (!result) {
     if (analysisState.isLoading) {
       return (
@@ -128,14 +145,6 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
       </div>
     );
   }
-
-  const tabProps = useMemo(() => ({
-    ...props,
-    onTabChange: setActiveTab,
-    energyUnit,
-    formatDdGValue,
-    setSelectedMetric
-  }), [props, setActiveTab, energyUnit, setSelectedMetric]);
 
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all`} id="evidence-dashboard-card">

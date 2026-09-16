@@ -458,7 +458,16 @@ export async function executeFullAnalysisWorkflow({
   } catch (err: any) {
     if (getActiveRequestId() === requestId && !activeSignal.aborted) {
       console.error("Top-level pipeline error:", err);
-      const parsedResidues = parseMutationResidues(targetVariant);
+      // Defensive: when notation translation fails, `targetVariant` is still a genomic
+      // coordinate and this helper throws. Letting that escape would skip the error-state
+      // assignment below and leave the UI stuck on a loading spinner with no message, so
+      // treat unparseable residues as absent rather than fatal.
+      let parsedResidues: { wt: string; mut: string } | null = null;
+      try {
+        parsedResidues = parseMutationResidues(targetVariant);
+      } catch {
+        parsedResidues = null;
+      }
       const baseParams: PipelineStateBaseParams = {
         gene: targetGene,
         variant: targetVariant,

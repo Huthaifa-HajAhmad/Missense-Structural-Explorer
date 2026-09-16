@@ -3,22 +3,30 @@ import {
   Scissors,
   AlertTriangle,
   Info,
-  HelpCircle,
   GitFork,
   Dna,
   Activity,
-  CheckCircle2,
-  Loader2,
   ArrowRight,
   ShieldCheck,
   Zap,
-  Layers,
-  Database,
-  ExternalLink
+  Layers
 } from "lucide-react";
 import { TabComponentProps } from "./types";
-import { evaluateSplicePredictor, THRESHOLDS } from "../../shared/thresholds";
+import { THRESHOLDS } from "../../shared/thresholds";
+import { deriveSplicingEvidence, LOADING_BADGE } from "../../shared/splicingEvidence.ts";
 
+/**
+ * RNA Splicing Disruption & Mechanistic Etiology — main column.
+ *
+ * This surface carries the decisive message only: the KPI values and verdicts,
+ * the protein-vs-splicing attribution comparison, and the junction schematic.
+ *
+ * The supplementary material that used to live here (model delta breakdowns,
+ * ACMG criterion-by-criterion mapping, coordinate plumbing, interpretation
+ * prose and provenance notices) has moved to the Evidence Inspector sidebar —
+ * see components/inspector/SplicingInspector.tsx. Both surfaces derive their
+ * labels from shared/splicingEvidence.ts so they cannot disagree.
+ */
 function SplicingTabComponent({
   analysisState,
   isBiophysicalLoading,
@@ -26,133 +34,69 @@ function SplicingTabComponent({
   onTabChange
 }: TabComponentProps) {
   const result = analysisState.result;
-  if (!result) return null;
 
-  const spliceai = result.conservationData?.spliceai || null;
-  const isSpliceAiLoading = !spliceai && (isBiophysicalLoading || analysisState.isLoading);
-  const dbscsnv = result.conservationData?.dbscsnv || null;
-  const spliceProximity = result.conservationData?.spliceProximity || null;
-  const alphagenome = result.conservationData?.alphagenome || null;
+  const evidence = useMemo(
+    () =>
+      deriveSplicingEvidence(result, {
+        isLoading: isBiophysicalLoading || analysisState.isLoading
+      }),
+    [result, isBiophysicalLoading, analysisState.isLoading]
+  );
 
-  // Biophysical & protein misfolding evidence (including ensemble mean and repair failure checks)
-  const isFoldxFailed = Boolean(result.foldingEnergetics?.foldxRepairFailed || result.foldingEnergetics?.foldxBinaryMissing);
-  const foldxVal = isFoldxFailed
-    ? null
-    : (foldingDdG ?? result.foldingEnergetics?.foldxMean ?? result.foldingEnergetics?.foldx ?? null);
-  const alphamissenseScore = result.predictorData?.amPathogenicity ?? null;
-  const revelScore = result.conservationData?.revel ?? null;
+  // Protein-level evidence for the attribution comparison.
+  const foldxVal = useMemo(() => {
+    if (!result) return null;
+    const isFoldxFailed = Boolean(
+      result.foldingEnergetics?.foldxRepairFailed || result.foldingEnergetics?.foldxBinaryMissing
+    );
+    if (isFoldxFailed) return null;
+    return foldingDdG ?? result.foldingEnergetics?.foldxMean ?? result.foldingEnergetics?.foldx ?? null;
+  }, [result, foldingDdG]);
 
-  const maxDs = spliceai?.max_ds ?? null;
-  const distance = spliceProximity?.distance ?? null;
-  const isNear = spliceProximity?.isNearSpliceSite ?? false;
+  // Protein-arm raw inputs. Read once here so the etiological verdict and the misfolding
+  // card below cannot drift apart by re-deriving them from different expressions.
+  const alphamissenseScore = result?.predictorData?.amPathogenicity ?? null;
+  const revelScore = result?.conservationData?.revel ?? null;
 
-  // Enriched Exon/Intron metadata (Zero synthetic/hardcoded coordinates)
-  const exonNum = spliceProximity?.exonNumber ?? null;
-  const totalExons = spliceProximity?.totalExons ?? null;
-  const exonLength = spliceProximity?.exonLength ?? null;
-  const exonStart = spliceProximity?.exonStart ?? null;
-  const exonEnd = spliceProximity?.exonEnd ?? null;
-  const intronNum = spliceProximity?.intronNumber ?? spliceProximity?.adjacentIntronNumber ?? null;
-  const rawJunctionType = spliceProximity?.junctionType ?? null;
-  const isAcceptor = rawJunctionType === "acceptor";
-  const isDonor = rawJunctionType === "donor" || (!isAcceptor && distance !== null);
-  const junctionType = isDonor
-    ? "5' Splice Donor (GT)"
-    : isAcceptor
-    ? "3' Splice Acceptor (AG)"
-    : "Splice Junction";
-  const strand = spliceProximity?.strand ?? null;
-  const transcriptId = spliceProximity?.transcriptId ?? result.transcriptId ?? null;
-  const regionType = spliceProximity?.regionType ?? (distance !== null ? "exonic" : null);
+  /**
+   * True when the protein arm carries destabilization evidence. Single definition,
+   * consumed by both the etiology verdict and the Protein Tertiary Misfolding card.
+   */
+  const isProteinDestabilized = useMemo(
+    () =>
+      (foldxVal !== null && foldxVal >= THRESHOLDS.foldxDdG.destabilizingStrong) ||
+      (alphamissenseScore !== null && alphamissenseScore >= THRESHOLDS.alphaMissense.pathogenicSupporting) ||
+      (revelScore !== null && revelScore >= THRESHOLDS.revel.pathogenicSupporting) ||
+      result?.foldingEnergetics?.consensusVerdict === "destabilizing",
+    [foldxVal, alphamissenseScore, revelScore, result]
+  );
 
-  const adaScore = dbscsnv?.ada_score ?? null;
-  const rfScore = dbscsnv?.rf_score ?? null;
-  const hasDbscsnv = adaScore !== null || rfScore !== null;
-  const maxDbsc = hasDbscsnv ? Math.max(adaScore ?? 0, rfScore ?? 0) : null;
-  const isDbscAltering = maxDbsc !== null && maxDbsc >= THRESHOLDS.dbscsnv.spliceAltering;
-
-  // AlphaGenome Splicing Feature Attribution
-  const alphagenomeSplicingAttribution =
-    alphagenome?.featureAttributions?.["fi_MERGED_SPLICING"] ??
-    (alphagenome?.topModality?.toLowerCase().includes("splicing") ? alphagenome?.topFeatureImportance : null) ??
-    null;
-  const isAlphaGenomeSplicingDominant =
-    alphagenome?.topModality?.toLowerCase().includes("splicing") ||
-    (alphagenomeSplicingAttribution !== null && alphagenomeSplicingAttribution >= 0.25);
-
-  const verdict = evaluateSplicePredictor(spliceProximity, spliceai, dbscsnv);
-
-  // SpliceAI Status
-  let dsSeverityLabel = "Unannotated";
-  let dsBadgeClass = "cs-badge cs-badge-muted";
-  if (isSpliceAiLoading) {
-    dsSeverityLabel = "Evaluating SpliceAI...";
-    dsBadgeClass = "text-indigo-400 bg-indigo-500/10 border-indigo-500/30 animate-pulse";
-  } else if (maxDs !== null) {
-    if (maxDs >= THRESHOLDS.spliceai.pathogenicHigh) {
-      dsSeverityLabel = "High Disruption Risk";
-      dsBadgeClass = "cs-badge cs-badge-path";
-    } else if (maxDs >= THRESHOLDS.spliceai.pathogenicModerate) {
-      dsSeverityLabel = "Moderate Probability";
-      dsBadgeClass = "cs-badge cs-badge-warn";
-    } else {
-      dsSeverityLabel = "Low Disruption Risk";
-      dsBadgeClass = "cs-badge cs-badge-good";
-    }
-  }
-
-  // Distance Status
-  let distLabel = "Unmapped";
-  let distBadgeClass = "cs-badge cs-badge-muted";
-  if (distance !== null) {
-    if (distance <= 5) {
-      distLabel = "Critical Junction (≤5 bp)";
-      distBadgeClass = "cs-badge cs-badge-path";
-    } else if (distance <= 12) {
-      distLabel = "Consensus Flank (≤12 bp)";
-      distBadgeClass = "cs-badge cs-badge-warn";
-    } else {
-      distLabel = "Deep Exonic / Preserved";
-      distBadgeClass = "cs-badge cs-badge-good";
-    }
-  }
-
-  // dbscSNV Status
-  let dbscLabel = "Outside Consensus Zone";
-  let dbscBadgeClass = "cs-badge cs-badge-muted";
-  if (hasDbscsnv) {
-    if (isDbscAltering) {
-      dbscLabel = "Splice Altering Candidate";
-      dbscBadgeClass = "cs-badge cs-badge-path";
-    } else {
-      dbscLabel = "Tolerated / Unaltered";
-      dbscBadgeClass = "cs-badge cs-badge-good";
-    }
-  }
-
-  // Mechanistic Etiology Synthesis (Dual-Mechanism Resolution)
-  const isSplicingDisrupted =
-    (maxDs !== null && maxDs >= THRESHOLDS.spliceai.pathogenicModerate) ||
-    isDbscAltering ||
-    isNear ||
-    (distance !== null && distance <= 5) ||
-    isAlphaGenomeSplicingDominant;
-
-  const isBiophysicalConsensusDestabilizing = result.foldingEnergetics?.consensusVerdict === "destabilizing";
-  const isProteinDestabilized =
-    (foldxVal !== null && foldxVal >= THRESHOLDS.foldxDdG.destabilizingStrong) ||
-    (alphamissenseScore !== null && alphamissenseScore >= THRESHOLDS.alphaMissense.pathogenicSupporting) ||
-    (revelScore !== null && revelScore >= THRESHOLDS.revel.pathogenicSupporting) ||
-    isBiophysicalConsensusDestabilizing;
-
+  /**
+   * Mechanistic etiology: which arm of the evidence carries the pathogenicity.
+   * Hoisted above the null guard so hook order stays stable.
+   */
   const etiologyVerdict = useMemo(() => {
-    if (isSpliceAiLoading) {
+    if (!evidence) {
+      return {
+        title: "Unannotated / Pending",
+        badgeClass: "cs-badge cs-badge-muted",
+        description: "Genomic splice proximity and deep learning models unavailable for this coordinate."
+      };
+    }
+
+    if (evidence.isSpliceAiLoading) {
       return {
         title: "Evaluating Splicing...",
-        badgeClass: "text-indigo-400 bg-indigo-500/10 border-indigo-500/30 animate-pulse",
+        badgeClass: LOADING_BADGE,
         description: "Assessing deep learning sequence context across SpliceAI residual channels."
       };
     }
+
+    // Both predicates are defined once above/inside the shared model so the panes
+    // cannot disagree: the splicing arm comes from the shared derivation, the protein
+    // arm from the single hoisted predicate.
+    const isSplicingDisrupted = evidence.isSplicingDisrupted;
+
     if (isSplicingDisrupted && isProteinDestabilized) {
       return {
         title: "Dual-Hit Mechanism",
@@ -171,157 +115,107 @@ function SplicingTabComponent({
       return {
         title: "Tertiary Structure-Dominant",
         badgeClass: "cs-badge cs-badge-warn",
-        description: "Splicing is preserved; pathogenicity is driven by post-translational protein misfolding."
+        description:
+          "No splicing disruption signal; pathogenicity is driven by post-translational protein misfolding."
       };
     }
-    if (maxDs !== null || distance !== null) {
+
+    // No positive signal on either arm. Distinguish "we measured and saw nothing"
+    // from "nothing measured us" — the latter must never read as a benign result.
+    if (evidence.isPredictorCoverageAbsent) {
+      return {
+        title: "No Splice Signal Detected",
+        badgeClass: "cs-badge cs-badge-muted",
+        description:
+          "No SpliceAI or dbscSNV score covers this position, so splicing impact is indeterminate rather than absent."
+      };
+    }
+
+    if (evidence.maxDs !== null) {
       return {
         title: "Preserved / Basal Splice Motif",
         badgeClass: "cs-badge cs-badge-good",
-        description: "Pre-mRNA splicing signals and protein stability remain within neutral limits."
+        description: "SpliceAI and the dbscSNV ensemble both indicate basal, non-disrupted splicing."
       };
     }
+
     return {
       title: "Unannotated / Pending",
       badgeClass: "cs-badge cs-badge-muted",
       description: "Genomic splice proximity and deep learning models unavailable for this coordinate."
     };
-  }, [isSpliceAiLoading, isSplicingDisrupted, isProteinDestabilized, maxDs, distance]);
+  }, [evidence, foldxVal, result]);
 
-  // ACMG Verdict styling
-  let verdictLabel = "VUS / Indeterminate";
-  let verdictBadgeClass = "cs-badge cs-badge-warn";
-  if (isSpliceAiLoading) {
-    verdictLabel = "Evaluating SpliceAI...";
-    verdictBadgeClass = "text-indigo-400 bg-indigo-500/10 border-indigo-500/30 animate-pulse";
-  } else if (verdict === "pathogenic") {
-    verdictLabel = "Pathogenic Supporting (PP3)";
-    verdictBadgeClass = "cs-badge cs-badge-path";
-  } else if (verdict === "benign") {
-    verdictLabel = "Benign Supporting (BP4)";
-    verdictBadgeClass = "cs-badge cs-badge-good";
-  } else if (verdict === "unavailable") {
-    verdictLabel = "Unavailable / Unmapped";
-    verdictBadgeClass = "cs-badge cs-badge-muted";
-  }
+  // Stable hook for the SVG gradient IDs regardless of early return.
+  const gradIdSuffix = useId().replace(/:/g, "_");
+  const exonGradId = `exonGradSplicing_${gradIdSuffix}`;
+  const criticalZoneGradId = `criticalZoneGradSplicing_${gradIdSuffix}`;
 
-  const renderSpliceAiBar = (label: string, val: number | null) => {
-    const rawVal = val ?? 0;
-    const percentage = Math.max(0, Math.min(100, rawVal * 100));
+  if (!result || !evidence) return null;
 
-    let barColor = "bg-cs-good";
-    if (val === null) {
-      barColor = "bg-cs-border";
-    } else if (rawVal >= THRESHOLDS.spliceai.pathogenicHigh) {
-      barColor = "bg-cs-danger";
-    } else if (rawVal >= THRESHOLDS.spliceai.pathogenicModerate) {
-      barColor = "bg-cs-warn";
-    }
-
-    return (
-      <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-        <div className="flex justify-between items-center text-[12px] font-sans font-medium">
-          <span className="text-cs-text-secondary">{label}</span>
-          <span className="font-mono font-semibold text-cs-text-primary">
-            {val !== null ? val.toFixed(3) : "—"}
-          </span>
-        </div>
-        <div className="relative w-full h-2 rounded-full overflow-hidden border mt-2 bg-cs-surface border-cs-border">
-          <div className="absolute top-0 bottom-0 w-0.5 bg-cs-warn/50 z-10" style={{ left: "20%" }} title="Moderate threshold (0.20)" />
-          <div className="absolute top-0 bottom-0 w-0.5 bg-cs-danger/50 z-10" style={{ left: "50%" }} title="High threshold (0.50)" />
-          <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: val !== null ? `${percentage}%` : "0%" }} />
-        </div>
-        <div className="flex justify-between text-[10px] font-mono mt-1 text-cs-text-muted">
-          <span>0.0</span>
-          <span>Mod: 0.20</span>
-          <span>High: 0.50</span>
-          <span>1.0</span>
-        </div>
-      </div>
-    );
-  };
-
-  const renderDbscBar = (title: string, score: number | null, desc: string) => {
-    const rawVal = score ?? 0;
-    const percentage = Math.max(0, Math.min(100, rawVal * 100));
-    const isAltering = score !== null && score >= THRESHOLDS.dbscsnv.spliceAltering;
-    const barColor = score === null ? "bg-cs-border" : isAltering ? "bg-cs-danger" : "bg-cs-good";
-
-    return (
-      <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex flex-col justify-between gap-2.5">
-        <div>
-          <div className="flex justify-between items-center text-[12px] font-sans">
-            <span className="font-semibold text-cs-text-primary">{title}</span>
-            <span className="font-mono text-[14px] font-semibold text-cs-text-primary">
-              {score !== null ? score.toFixed(3) : "—"}
-            </span>
-          </div>
-          <p className="text-[12px] text-cs-text-muted mt-0.5 font-sans leading-normal">{desc}</p>
-        </div>
-
-        <div>
-          <div className="relative w-full h-2.5 rounded-full overflow-hidden border bg-cs-surface border-cs-border">
-            <div className="absolute top-0 bottom-0 w-0.5 bg-cs-danger z-10" style={{ left: "60%" }} title="Altering threshold (0.60)" />
-            <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: score !== null ? `${percentage}%` : "0%" }} />
-          </div>
-          <div className="flex justify-between text-[10px] font-mono mt-1 text-cs-text-muted">
-            <span>0.0 (Tolerated)</span>
-            <span className="text-cs-danger font-semibold">Cutoff: 0.60</span>
-            <span>1.0 (Altering)</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const {
+    maxDs,
+    maxDbsc,
+    distance,
+    isNearSpliceSite,
+    isExonicVariant,
+    isDonor,
+    isAcceptor,
+    junctionType,
+    exonLength,
+    displayExonLabel,
+    displayIntronLabel,
+    strandLabel,
+    transcriptId,
+    dsLabel,
+    dsBadgeClass,
+    proximityLabel,
+    proximityBadgeClass,
+    dbscLabel,
+    dbscBadgeClass,
+    splicingAttribution,
+    isSplicingDominant,
+    hasAlphaGenome,
+    isSpliceAiLoading,
+    isPredictorCoverageAbsent,
+    isSplicingDisrupted,
+    isCriticalJunctionProximity,
+    verdictLabel,
+    verdictBadgeClass
+  } = evidence;
 
   // ---------------------------------------------------------------------------
-  // Biologically Correct SVG Geometry (960 x 240)
-  // Donor Site:   [Exon (5', left)]   ── GT ── [Intron (3', right)]
-  // Acceptor Site:[Intron (5', left)] ── AG ── [Exon (3', right)]
+  // Genomic schematic geometry (960 x 240)
+  // Donor site:    [Exon (5', left)]   ── GT ── [Intron (3', right)]
+  // Acceptor site: [Intron (5', left)] ── AG ── [Exon (3', right)]
   // ---------------------------------------------------------------------------
-  const isExonicVariant = regionType === "exonic" || (distance !== null && regionType !== "intronic");
   const isOffScale = distance !== null && distance > 60;
-  const clampedDistance = typeof distance === "number" && Number.isFinite(distance) && distance >= 0
-    ? Math.min(distance, 60)
-    : null;
+  const clampedDistance =
+    typeof distance === "number" && Number.isFinite(distance) && distance >= 0
+      ? Math.min(distance, 60)
+      : null;
 
   let pinX = 480;
   if (clampedDistance !== null) {
     if (isDonor) {
-      // Exon is left (480 - dist), Intron is right (480 + dist)
-      pinX = isExonicVariant ? 480 - (clampedDistance * 6.3) : 480 + (clampedDistance * 6.3);
+      pinX = isExonicVariant ? 480 - clampedDistance * 6.3 : 480 + clampedDistance * 6.3;
     } else {
-      // Acceptor: Intron is left (480 - dist), Exon is right (480 + dist)
-      pinX = isExonicVariant ? 480 + (clampedDistance * 6.3) : 480 - (clampedDistance * 6.3);
+      pinX = isExonicVariant ? 480 + clampedDistance * 6.3 : 480 - clampedDistance * 6.3;
     }
   }
 
-  // Dynamic tick mark anchors for 5' Donor vs 3' Acceptor geometry
   const leftTickY1 = isDonor ? 132 : 113;
   const leftTickY2 = isDonor ? 144 : 125;
   const rightTickY1 = isDonor ? 113 : 132;
   const rightTickY2 = isDonor ? 125 : 144;
 
-  // Spatial axis sign: Left (<480) is negative (-), Right (>480) is positive (+)
   const chipSignLabel = isDonor
-    ? (isExonicVariant ? `-${distance} bp (Exonic)` : `+${distance} bp (Intronic)`)
-    : (isExonicVariant ? `+${distance} bp (Exonic)` : `-${distance} bp (Intronic)`);
-
-  // Strictly neutral zero-synthetic labels
-  const displayExonLabel = exonNum !== null
-    ? `Exon ${exonNum}${totalExons ? ` of ${totalExons}` : ""}`
-    : "Exon unmapped";
-  const displayIntronLabel = totalExons === 1
-    ? "Single-exon (no introns)"
-    : intronNum !== null
-    ? `Intron ${intronNum}`
-    : "Intron unmapped";
-  const strandLabel = strand ? (strand === "+" ? "Forward (+)" : "Reverse (-)") : "Strand unmapped";
-
-  // Unique gradient IDs to prevent collisions in multi-card/split views
-  const gradIdSuffix = useId().replace(/:/g, "_");
-  const exonGradId = `exonGradSplicing_${gradIdSuffix}`;
-  const criticalZoneGradId = `criticalZoneGradSplicing_${gradIdSuffix}`;
+    ? isExonicVariant
+      ? `-${distance} bp (Exonic)`
+      : `+${distance} bp (Intronic)`
+    : isExonicVariant
+    ? `+${distance} bp (Exonic)`
+    : `-${distance} bp (Intronic)`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -329,15 +223,17 @@ function SplicingTabComponent({
       <div>
         <h1 className="screen-title flex items-center gap-2 text-left">
           <Scissors className="w-5 h-5 text-cs-accent-clay" />
-          RNA Splicing Disruption & Mechanistic Etiology
+          RNA Splicing Disruption &amp; Mechanistic Etiology
         </h1>
         <p className="screen-tab-description">
-          Evaluation of mutation impact on pre-mRNA splicing mechanisms via splice site proximity, SpliceAI deep learning models, dbscSNV consensus ensembles, and AlphaGenome multimodal attribution.
+          Evaluation of mutation impact on pre-mRNA splicing mechanisms via splice site proximity,
+          SpliceAI deep learning models, dbscSNV consensus ensembles, and AlphaGenome multimodal
+          attribution.
         </p>
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 1: Executive KPI Banner (5 Cards)                                */}
+      {/* SECTION 1: Executive KPI Banner (5 Cards)                                 */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         {/* Card 1: SpliceAI Max Delta Score */}
@@ -354,7 +250,7 @@ function SplicingTabComponent({
             </div>
           </div>
           <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${dsBadgeClass}`}>
-            {dsSeverityLabel}
+            {dsLabel}
           </span>
         </div>
 
@@ -378,8 +274,8 @@ function SplicingTabComponent({
               )}
             </div>
           </div>
-          <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${distBadgeClass}`}>
-            {distLabel}
+          <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${proximityBadgeClass}`}>
+            {proximityLabel}
           </span>
         </div>
 
@@ -401,7 +297,9 @@ function SplicingTabComponent({
           </span>
         </div>
 
-        {/* Card 4: AlphaGenome Splicing Impact */}
+        {/* Card 4: AlphaGenome splicing attribution.
+            Shows the splicing-specific SHAP attribution ONLY. The aggregate AVI
+            Phred is a different quantity and is not displayed under this label. */}
         <div className="p-4 rounded-xl border border-cs-border bg-cs-surface flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
@@ -411,19 +309,19 @@ function SplicingTabComponent({
               <Layers className="w-3.5 h-3.5 text-cs-accent-clay" />
             </div>
             <div className="text-[20px] font-semibold font-mono tracking-tight text-cs-text-primary mt-1.5">
-              {alphagenomeSplicingAttribution !== null ? (
-                `${(alphagenomeSplicingAttribution * 100).toFixed(1)}%`
-              ) : alphagenome?.aviPhred !== null && alphagenome?.aviPhred !== undefined ? (
-                `${alphagenome.aviPhred.toFixed(1)} Phred`
-              ) : (
-                "—"
-              )}
+              {splicingAttribution !== null
+                ? `${(splicingAttribution * 100).toFixed(1)}%` /* SHAP values are signed */
+                : "N/A"}
             </div>
           </div>
           <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${
-            isAlphaGenomeSplicingDominant ? "cs-badge cs-badge-path" : alphagenome ? "cs-badge cs-badge-muted" : "cs-badge cs-badge-muted"
+            isSplicingDominant ? "cs-badge cs-badge-path" : "cs-badge cs-badge-muted"
           }`}>
-            {isAlphaGenomeSplicingDominant ? "Primary Driver" : alphagenome ? "Multimodal Context" : "Standby / Unconfigured"}
+            {isSplicingDominant
+              ? "Primary Driver"
+              : !hasAlphaGenome
+              ? "Standby / Unconfigured"
+              : "No Splicing Attribution"}
           </span>
         </div>
 
@@ -440,8 +338,10 @@ function SplicingTabComponent({
               {etiologyVerdict.title}
             </div>
           </div>
+          {/* Badge derived from the verdict itself — must never assert a mechanism
+              that the computed verdict does not report. */}
           <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${etiologyVerdict.badgeClass}`}>
-            Dual-Mechanism Signal
+            {etiologyVerdict.title}
           </span>
         </div>
       </div>
@@ -457,17 +357,25 @@ function SplicingTabComponent({
               <h3 className="text-[13px] font-semibold text-cs-text-primary font-sans">
                 Mechanistic Etiology Attribution: Protein Misfolding vs. Splicing Disruption
               </h3>
-              <p className="text-[12px] text-cs-text-secondary font-sans mt-0.5">
-                Differentiates whether disease etiology is driven by post-translational tertiary instability or pre-mRNA transcript degradation (NMD).
-              </p>
             </div>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 flex flex-wrap items-center gap-2">
+            {/* ACMG criterion verdict — decisive content that must stay in the main
+                column, because the inspector can be collapsed to a 40px rail. */}
+            <span className={`px-2.5 py-1 rounded text-[11px] font-semibold font-mono border ${verdictBadgeClass}`}>
+              {verdictLabel}
+            </span>
             <span className={`px-2.5 py-1 rounded text-[11px] font-semibold font-mono border ${etiologyVerdict.badgeClass}`}>
               {etiologyVerdict.title}
             </span>
           </div>
         </div>
+
+        {/* Per-variant etiology narrative. Previously defined but rendered nowhere, so the
+            verdict appeared without its justification. */}
+        <p className="text-[12px] text-cs-text-secondary font-sans leading-relaxed">
+          {etiologyVerdict.description}
+        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Left Column: Pre-mRNA Splicing Evidence */}
@@ -477,8 +385,24 @@ function SplicingTabComponent({
                 <Scissors className="w-3.5 h-3.5 text-cs-accent-clay" />
                 Pre-mRNA Splicing Evidence
               </span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${isSplicingDisrupted ? "cs-badge-path" : "cs-badge-good"}`}>
-                {isSplicingDisrupted ? "Aberrant Splicing Risk" : "Splicing Preserved"}
+              {/* Derived from the shared isSplicingDisrupted predicate — must never be
+                  green while a high SpliceAI delta or junction proximity is present. */}
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${
+                isPredictorCoverageAbsent
+                  ? "cs-badge cs-badge-muted"
+                  : isSpliceAiLoading
+                  ? LOADING_BADGE
+                  : isSplicingDisrupted
+                  ? "cs-badge cs-badge-path"
+                  : "cs-badge cs-badge-good"
+              }`}>
+                {isPredictorCoverageAbsent
+                  ? "No Splice Signal Detected"
+                  : isSpliceAiLoading
+                  ? "Evaluating..."
+                  : isSplicingDisrupted
+                  ? "Aberrant Splicing Risk"
+                  : "No Disruption Signal"}
               </span>
             </div>
             <div className="space-y-1.5 text-[11px] font-mono text-cs-text-secondary">
@@ -497,7 +421,7 @@ function SplicingTabComponent({
               <div className="flex justify-between">
                 <span>AlphaGenome Splicing SHAP:</span>
                 <span className="font-semibold text-cs-text-primary">
-                  {alphagenomeSplicingAttribution !== null ? `${(alphagenomeSplicingAttribution * 100).toFixed(1)}%` : "N/A"}
+                  {splicingAttribution !== null ? `${(splicingAttribution * 100).toFixed(1)}%` : "N/A"}
                 </span>
               </div>
             </div>
@@ -510,7 +434,7 @@ function SplicingTabComponent({
                 <Dna className="w-3.5 h-3.5 text-indigo-400" />
                 Protein Tertiary Misfolding Evidence
               </span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${isProteinDestabilized ? "cs-badge-warn" : "cs-badge-good"}`}>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${isProteinDestabilized ? "cs-badge cs-badge-warn" : "cs-badge cs-badge-good"}`}>
                 {isProteinDestabilized ? "Structural Destabilization" : "Thermodynamically Tolerated"}
               </span>
             </div>
@@ -543,21 +467,16 @@ function SplicingTabComponent({
           </div>
         </div>
 
-        {/* Narrative & Deep-Link Action Button */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-          <p className="text-[12px] text-cs-text-secondary font-sans leading-relaxed">
-            {etiologyVerdict.description}{" "}
-            <span className="text-cs-text-muted">
-              Deep learning sequence models evaluate whole-transcript splicing contexts alongside tertiary force-field energetic calculations.
-            </span>
-          </p>
+        {/* Action row — the verdict narrative and its derivation now live in the
+            inspector so the main column stays decisive. */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end gap-4 p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
           {onTabChange && (
             <button
               type="button"
               onClick={() => onTabChange("alphagenome")}
               className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold font-mono bg-cs-surface hover:bg-[var(--cs-bg-subtle)] text-cs-text-primary border border-cs-border transition-all cursor-pointer shadow-xs"
             >
-              <span>Explore Epigenomics & Tracks in AlphaGenome Tab</span>
+              <span>Explore Epigenomics &amp; Tracks in AlphaGenome Tab</span>
               <ArrowRight className="w-3.5 h-3.5 text-cs-accent-clay" />
             </button>
           )}
@@ -565,14 +484,16 @@ function SplicingTabComponent({
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 3: Biologically Correct Genomic Architecture Schematic          */}
+      {/* SECTION 3: Genomic Exon-Intron Architecture Schematic                    */}
+      {/* Coordinate plumbing, region metadata and interpretation prose moved to    */}
+      {/* the inspector; the diagram itself is the message and stays here.          */}
       {/* ========================================================================= */}
       <div className="p-6 rounded-xl border border-cs-border bg-cs-surface space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-cs-border-subtle pb-3.5">
           <div className="flex items-center gap-2">
             <Dna className="w-4 h-4 text-cs-accent-clay" />
             <h3 className="text-[14px] font-semibold text-cs-text-primary font-sans">
-              Genomic Exon-Intron Architecture & Splice Junction Coordinates
+              Genomic Exon-Intron Architecture &amp; Splice Junction Coordinates
             </h3>
           </div>
           <div className="flex items-center gap-2 text-[11px] font-mono text-cs-text-secondary">
@@ -607,9 +528,6 @@ function SplicingTabComponent({
             </defs>
 
             {isDonor ? (
-              // -----------------------------------------------------------------
-              // 5' Splice Donor Layout: [Exon (5', left)] ── GT ── [Intron (3', right)]
-              // -----------------------------------------------------------------
               <g>
                 {/* Exon Box (Left: X=40 to 480, Width=440, Height=74) */}
                 <rect x="40" y="58" width="440" height="74" rx="8" fill={`url(#${exonGradId})`} stroke="var(--cs-accent-clay)" strokeWidth="2.2" />
@@ -639,9 +557,6 @@ function SplicingTabComponent({
                 </text>
               </g>
             ) : (
-              // -----------------------------------------------------------------
-              // 3' Splice Acceptor Layout: [Intron (5', left)] ── AG ── [Exon (3', right)]
-              // -----------------------------------------------------------------
               <g>
                 {/* Intron Label Pill (Above pipe) */}
                 <rect x="170" y="16" width="160" height="30" rx="5" fill="var(--cs-surface)" stroke="var(--cs-border)" strokeWidth="1.2" />
@@ -675,7 +590,7 @@ function SplicingTabComponent({
             {/* Critical Consensus Zone (±5 bp Highlight around 480) */}
             <rect x="446" y="50" width="68" height="90" rx="5" fill={`url(#${criticalZoneGradId})`} stroke="var(--cs-danger)" strokeWidth="1.5" strokeDasharray="3 2" />
             <text x="480" y="42" fill="var(--cs-text-danger)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[11px] font-bold" textAnchor="middle">
-              ±5 bp Consensus Zone
+              &plusmn;{THRESHOLDS.spliceai.proximityCriticalBp} bp Consensus Zone
             </text>
 
             {/* Splice Junction 0bp Boundary Line */}
@@ -709,7 +624,7 @@ function SplicingTabComponent({
                   y1="56"
                   x2={pinX}
                   y2="200"
-                  stroke={isNear ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
+                  stroke={isNearSpliceSite ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
                   strokeWidth="2.5"
                   strokeDasharray="5 2.5"
                 />
@@ -717,7 +632,7 @@ function SplicingTabComponent({
                   cx={pinX}
                   cy="95"
                   r="7.5"
-                  fill={isNear ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
+                  fill={isNearSpliceSite ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
                   stroke="var(--cs-surface)"
                   strokeWidth="2.5"
                 />
@@ -730,20 +645,18 @@ function SplicingTabComponent({
                   height="30"
                   rx="6"
                   fill="var(--cs-surface)"
-                  stroke={isNear ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
+                  stroke={isNearSpliceSite ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
                   strokeWidth="1.8"
                 />
                 <text
                   x={pinX}
                   y="222"
-                  fill={isNear ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
+                  fill={isNearSpliceSite ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
                   style={{ fontFamily: "var(--cs-font-mono)" }}
                   className="text-[12px] font-bold"
                   textAnchor="middle"
                 >
-                  {isOffScale
-                    ? `${distance} bp (>60 bp scale)`
-                    : chipSignLabel}
+                  {isOffScale ? `${distance} bp (>60 bp scale)` : chipSignLabel}
                 </text>
               </g>
             ) : (
@@ -762,239 +675,33 @@ function SplicingTabComponent({
           </div>
         </div>
 
-        {/* Scientific Metadata & Interpretation Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
-          <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-            <span className="text-cs-text-muted block text-[10px] uppercase font-sans tracking-wider">Nearest Junction</span>
-            <span className="font-semibold text-cs-text-primary capitalize text-[13px] font-mono mt-0.5 block">{junctionType}</span>
-          </div>
-          <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-            <span className="text-cs-text-muted block text-[10px] uppercase font-sans tracking-wider">Region Type</span>
-            <span className="font-semibold text-cs-text-primary capitalize text-[13px] font-mono mt-0.5 block">
-              {regionType ?? "Unmapped"}
-            </span>
-          </div>
-          <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-            <span className="text-cs-text-muted block text-[10px] uppercase font-sans tracking-wider">Exon Bounds</span>
-            <span
-              className="font-semibold text-cs-text-primary text-[12px] font-mono mt-0.5 block truncate"
-              title={exonStart && exonEnd ? `chr:${exonStart} - ${exonEnd}` : undefined}
-            >
-              {exonStart && exonEnd ? `${exonStart.toLocaleString()} – ${exonEnd.toLocaleString()}` : "Coordinates unmapped"}
-            </span>
-          </div>
-        </div>
-
-        {/* Clinical Prose Explanation */}
-        {distance !== null ? (
-          <div className="space-y-2">
-            <p className="text-[13px] text-cs-text-secondary leading-relaxed font-sans">
-              Variant position resides in <strong className="text-cs-text-primary font-mono">{displayExonLabel}</strong>, located <strong className="text-cs-text-primary font-mono">{distance} bp</strong> from the {junctionType.toLowerCase()}.
-            </p>
-            {isNear ? (
-              <div className="p-3.5 rounded-lg border bg-cs-bg-danger border-cs-danger/25 flex items-start gap-2.5 text-cs-text-danger">
-                <AlertTriangle className="w-4 h-4 mt-0.5 text-cs-danger shrink-0" />
-                <p className="text-[12px] font-sans leading-normal">
-                  <strong>Critical Splice Proximity (&le; 5 bp):</strong> High susceptibility to disabling canonical donor/acceptor dinucleotides, provoking exon skipping or retention.
-                </p>
-              </div>
-            ) : (
-              <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-2.5 text-cs-text-secondary">
-                <Info className="w-4 h-4 mt-0.5 text-cs-text-muted shrink-0" />
-                <p className="text-[12px] font-sans leading-normal">
-                  Located <strong className="text-cs-text-primary font-mono">{distance} bp</strong> {isExonicVariant ? "deep within" : "into adjacent flank of"} {displayExonLabel}, outside the canonical 5 bp splice junction consensus zone. Basal spliceosome donor and acceptor motifs are preserved.
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
+        {/* Coverage notice — the one caveat that must sit next to the figure,
+            because the figure alone could be read as a motif inspection. */}
+        {isPredictorCoverageAbsent && distance !== null && (
           <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-2.5 text-cs-text-secondary">
-            <Info className="w-4 h-4 mt-0.5 text-cs-accent-clay shrink-0" />
+            <Info className="w-4 h-4 mt-0.5 text-cs-text-muted shrink-0" />
             <p className="text-[12px] font-sans leading-normal">
-              Transcript coordinates mapped to Ensembl model {transcriptId ?? "canonical"}. Splicing disruption probability is quantified across machine learning consensus scores below.
+              At <strong className="text-cs-text-primary font-mono">{distance} bp</strong> this variant sits
+              outside the &plusmn;{THRESHOLDS.spliceai.consensusFlankDistance} bp window that SpliceAI and
+              dbscSNV evaluate, so no splice-impact score exists for it. Distances, region type and exon
+              bounds are itemised in the inspector.
             </p>
           </div>
         )}
-      </div>
 
-      {/* ========================================================================= */}
-      {/* SECTION 4: Deep Learning Splice Alteration Models (SpliceAI + dbscSNV)   */}
-      {/* ========================================================================= */}
-      <div className="p-5 rounded-xl border border-cs-border bg-cs-surface space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-cs-border-subtle pb-3">
-          <div>
-            <h3 className="text-[13px] font-semibold flex items-center gap-2 text-cs-text-primary font-sans">
-              <Scissors className="w-4 h-4 text-cs-accent-clay" />
-              SpliceAI Deep Learning Delta Score Breakdown
-            </h3>
-            <p className="text-[12px] text-cs-text-secondary font-sans mt-0.5">
-              32-layer deep dilated residual neural network predicting splice acceptor and donor gains/losses.
+        {/* Near-junction warning — decisive, stays in the main column. Gated on the
+            shared guarded predicate so a transcript terminus (or a single-exon
+            transcript) cannot raise a "critical splice proximity" alarm. */}
+        {distance !== null && isCriticalJunctionProximity && (
+          <div className="p-3.5 rounded-lg border bg-cs-bg-danger border-cs-danger/25 flex items-start gap-2.5 text-cs-text-danger-on-soft">
+            <AlertTriangle className="w-4 h-4 mt-0.5 text-cs-danger shrink-0" />
+            <p className="text-[12px] font-sans leading-normal">
+              <strong>Critical Splice Proximity (&le; {THRESHOLDS.spliceai.proximityCriticalBp} bp):</strong>{" "}
+              High susceptibility to disabling the canonical donor/acceptor dinucleotide, provoking exon
+              skipping or retention.
             </p>
           </div>
-
-          {/* Model Technical Context Badge (Purged non-functional buttons) */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 text-[11px] font-mono text-cs-text-muted">
-            <Database className="w-3.5 h-3.5 text-cs-accent-clay shrink-0" />
-            <span>Context: &plusmn;10,000 bp flanking sequence</span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] font-mono text-cs-text-muted">
-          <span>Evaluated Receptors: Acceptor Gain/Loss, Donor Gain/Loss</span>
-          {isSpliceAiLoading ? (
-            <span className="font-semibold text-indigo-400 inline-flex items-center gap-1.5 animate-pulse">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Computing Deep Learning Delta Scores...
-            </span>
-          ) : (
-            <span className="font-semibold text-cs-text-primary">
-              Max Delta Score: {maxDs !== null ? maxDs.toFixed(3) : "—"}
-            </span>
-          )}
-        </div>
-
-        {isSpliceAiLoading ? (
-          <div className="space-y-3 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {[
-                "Acceptor Gain (ds_ag)",
-                "Acceptor Loss (ds_al)",
-                "Donor Gain (ds_dg)",
-                "Donor Loss (ds_dl)"
-              ].map((label) => (
-                <div key={label} className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 animate-pulse">
-                  <div className="flex justify-between items-center text-[12px] font-sans font-medium">
-                    <span className="text-cs-text-secondary">{label}</span>
-                    <span className="font-mono text-[11px] text-indigo-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
-                      Streaming...
-                    </span>
-                  </div>
-                  <div className="relative w-full h-2 rounded-full overflow-hidden border mt-2 bg-cs-surface border-cs-border">
-                    <div className="h-full rounded-full bg-indigo-500/40 animate-pulse w-2/3" />
-                  </div>
-                  <div className="flex justify-between text-[10px] font-mono mt-1 text-cs-text-muted opacity-60">
-                    <span>0.0</span>
-                    <span>Mod: 0.20</span>
-                    <span>High: 0.50</span>
-                    <span>1.0</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : spliceai && (spliceai.ds_ag !== null || spliceai.ds_al !== null || spliceai.ds_dg !== null || spliceai.ds_dl !== null) ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1 animate-fade-in">
-            {renderSpliceAiBar("Acceptor Gain (ds_ag)", spliceai.ds_ag)}
-            {renderSpliceAiBar("Acceptor Loss (ds_al)", spliceai.ds_al)}
-            {renderSpliceAiBar("Donor Gain (ds_dg)", spliceai.ds_dg)}
-            {renderSpliceAiBar("Donor Loss (ds_dl)", spliceai.ds_dl)}
-          </div>
-        ) : spliceai !== null ? (
-          <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed animate-fade-in">
-            <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-cs-text-primary">No aberrant splicing predicted within sequence window</p>
-              <p className="text-cs-text-muted mt-0.5">
-                SpliceAI evaluated all four splice altering mechanisms (Acceptor Gain, Acceptor Loss, Donor Gain, Donor Loss). All predicted delta scores remain below the basal detection threshold (&Delta;Score &lt; 0.02).
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed animate-fade-in">
-            <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-cs-text-primary">SpliceAI Deep Learning Data Unavailable</p>
-              <p className="text-cs-text-muted mt-0.5">
-                No precomputed or runtime SpliceAI delta scores are available for this genomic position. Splicing evaluation relies on distance proximity and dbscSNV consensus models.
-              </p>
-            </div>
-          </div>
         )}
-      </div>
-
-      {/* dbscSNV Section */}
-      <div className="p-5 rounded-xl border border-cs-border bg-cs-surface space-y-3">
-        <div className="flex items-center justify-between border-b border-cs-border-subtle pb-3">
-          <h3 className="text-[13px] font-semibold flex items-center gap-2 text-cs-text-primary font-sans">
-            <GitFork className="w-4 h-4 text-cs-accent-clay" />
-            dbscSNV Splicing Consensus Ensemble Models
-          </h3>
-          <span className="text-[10px] font-mono text-cs-text-muted bg-cs-surface-2 px-2 py-0.5 rounded border border-cs-border-subtle">
-            Cutoff &ge; 0.60 &rarr; Altering
-          </span>
-        </div>
-        <p className="text-[13px] text-cs-text-secondary leading-relaxed font-sans">
-          Ensemble machine learning models trained on variants within the consensus splice donor (-3 to +8 bp) and acceptor (-12 to +2 bp) regions.
-        </p>
-
-        {hasDbscsnv ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            {renderDbscBar("AdaBoost (ADA_SCORE)", adaScore, "Adaptive boosting ensemble probability of splice site disruption.")}
-            {renderDbscBar("Random Forest (RF_SCORE)", rfScore, "Random forest decision tree consensus probability.")}
-          </div>
-        ) : (
-          <div className="p-4 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3 text-[12px] text-cs-text-secondary font-sans leading-relaxed">
-            <Info className="w-4 h-4 text-cs-text-muted shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-cs-text-primary">Variant Outside dbscSNV Canonical Flank</p>
-              <p className="text-cs-text-muted mt-0.5">
-                dbscSNV ensemble annotations are restricted to &plusmn;12 bp surrounding exon-intron boundaries.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 5: Multi-Tier Clinical Evidence & ACMG Synthesis                 */}
-      {/* ========================================================================= */}
-      <div className="p-5 rounded-xl border border-cs-border bg-cs-surface space-y-4">
-        <div className="flex items-center justify-between border-b border-cs-border-subtle pb-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-cs-good" />
-            <h3 className="text-[13px] font-semibold text-cs-text-primary font-sans">
-              Clinical Synthesis & ACMG Evidence Mapping
-            </h3>
-          </div>
-          <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${verdictBadgeClass}`}>
-            {verdictLabel}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[12px] font-sans">
-          <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 space-y-1.5">
-            <span className="font-semibold text-cs-text-primary block">PP3 (Pathogenic Supporting) Rules</span>
-            <ul className="list-disc pl-4 space-y-1 text-cs-text-secondary text-[11px] leading-relaxed">
-              <li><strong>SpliceAI &ge; 0.20:</strong> Moderate to high probability of causing cryptic donor/acceptor gain or loss.</li>
-              <li><strong>dbscSNV &ge; 0.60:</strong> Ensemble agreement on consensus motif alteration.</li>
-              <li><strong>Proximity &le; 2 bp:</strong> Invariant AG/GT dinucleotide disruption (qualifies for PVS1 if canonical splice site null).</li>
-            </ul>
-          </div>
-
-          <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 space-y-1.5">
-            <span className="font-semibold text-cs-text-primary block">BP4 (Benign Supporting) Rules</span>
-            <ul className="list-disc pl-4 space-y-1 text-cs-text-secondary text-[11px] leading-relaxed">
-              <li><strong>SpliceAI &le; 0.02:</strong> All 4 residual channels indicate basal splicing stability.</li>
-              <li><strong>Distance &gt; 12 bp:</strong> Resides outside consensus splice recognition motifs.</li>
-              <li><strong>dbscSNV &lt; 0.60:</strong> Ensemble models predict tolerated splicing behavior.</li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Primary Citations */}
-        <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-center justify-between text-[11px] font-mono text-cs-text-muted">
-          <span>Citations: Jaganathan et al. (Cell 2019) &bull; Jian et al. (Hum Mutat 2014) &bull; ClinGen SVI</span>
-          <a
-            href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6400593/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-cs-accent-clay hover:underline"
-          >
-            <span>PubMed</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
       </div>
     </div>
   );

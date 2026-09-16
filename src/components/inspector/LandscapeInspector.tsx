@@ -5,6 +5,7 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { getNearestResidues } from "../../data";
 import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
+import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
 import LandscapeMinimap from "../LandscapeMinimap";
 
 interface LandscapeInspectorProps {
@@ -57,8 +58,10 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const parsedProtein = React.useMemo(() => {
     const raw = variant || analysisResult?.metadata?.variant || "";
     if (!raw) return null;
-    // Reject genomic coordinate strings (e.g. chr17:7674220:C>T or 10-102919946-C-G)
-    if (/^(?:chr)?[\dXYM]+[-:]/i.test(raw)) {
+    // Reject genomic coordinate strings (e.g. chr17:7674220:C>T, 10-102919946-C-G) and any
+    // notation the shared grammar recognizes, including assembly-annotated HGVS such as
+    // Chr1(GRCh38):g.25484258G>A.
+    if (isGenomicOrCdnaNotation(raw) || /^(?:chr)?[\dXYM]+[-:]/i.test(raw)) {
       return null;
     }
     const match = raw.match(/^(?:p\.)?([A-Za-z]{1,3})(\d+)([A-Za-z]{1,3})?$/);

@@ -143,7 +143,57 @@ describe("Splice Resolver and Distance Calculator Tests", () => {
       expect(res!.totalExons).toBe(1);
       expect(res!.junctionType).toBe("terminal");
       expect(res!.isNearSpliceSite).toBe(false); // No splicing occurs in single-exon transcripts
+      expect(res!.isCanonicalJunction).toBe(false); // A terminus is not an exon/intron junction
       expect(res!.adjacentIntronNumber).toBeNull();
+    });
+
+    it("marks a real donor/acceptor boundary as a canonical junction", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          object_type: "Transcript",
+          id: "ENST00000256078",
+          strand: 1,
+          Exon: [
+            { id: "EXON1", start: 1000, end: 1200 },
+            { id: "EXON2", start: 2000, end: 2200 }
+          ]
+        })
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // 5bp from exon 1's end => a genuine donor junction.
+      const donor = await resolveSpliceProximity("ENST00000256078", 1195);
+      expect(donor!.junctionType).toBe("donor");
+      expect(donor!.isCanonicalJunction).toBe(true);
+    });
+
+    it("leaves regionType null for positions outside the transcript span", async () => {
+      // 5000 sits well downstream of the last exon (ending at 2200), matching neither
+      // the exon loop nor any intron. It must not be reported as "exonic": that
+      // produced payloads claiming "Region Type: Exonic" with no exon bounds.
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          object_type: "Transcript",
+          id: "ENST00000256078",
+          strand: 1,
+          Exon: [
+            { id: "EXON1", start: 1000, end: 1200 },
+            { id: "EXON2", start: 2000, end: 2200 }
+          ]
+        })
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const offTranscript = await resolveSpliceProximity("ENST00000256078", 5000);
+      expect(offTranscript).toBeDefined();
+      expect(offTranscript!.regionType).toBeNull();
+      expect(offTranscript!.exonNumber).toBeNull();
+      expect(offTranscript!.exonStart).toBeNull();
+      expect(offTranscript!.isCanonicalJunction).toBe(false);
+      // Distance is still reported (fallback calculator); it just is not a junction hit.
+      expect(offTranscript!.distance).toBeGreaterThan(0);
     });
   });
 });

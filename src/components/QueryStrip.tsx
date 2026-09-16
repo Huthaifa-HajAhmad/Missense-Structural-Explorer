@@ -3,6 +3,7 @@ import { Search, Sparkles, History, Trash2, Loader2, Clipboard, ShieldAlert, X, 
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
+import { isGenomicOrCdnaNotation } from "../shared/variantNotation.ts";
 
 interface QueryStripProps {
   isDark: boolean;
@@ -91,11 +92,8 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
   const handleSearchSubmit = propsHandleSearchSubmit ?? ((e: React.FormEvent) => {
     e.preventDefault();
   });
-  const isGenomicVariant = (customVariant && (
-    /^(?:chr)?[0-9XYMT]+:g\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
-    /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i.test(customVariant.trim()) ||
-    /^(?:chr)?[0-9XYMT]+-\d+-[ACGTN]+-[ACGTN]+$/i.test(customVariant.trim())
-  )) || !!customGenomic.trim();
+  const isGenomicVariant =
+    (!!customVariant && isGenomicOrCdnaNotation(customVariant)) || !!customGenomic.trim();
   const isGeneRequired = !isGenomicVariant;
   const isVariantRequired = !customGenomic.trim();
 

@@ -106,6 +106,17 @@ describe("Input Validation Patterns & Functions", () => {
       expect(VCF_GENOMIC_PATTERN.test("chrX:g.12345C>G")).toBe(true);
     });
 
+    it("should accept inline assembly annotations and RefSeq accessions", () => {
+      // Regression: "Chr1(GRCh38):g.25484258G>A" is accepted by Ensembl VEP but used to be
+      // rejected here with a 400 because the pattern had no room for the annotation.
+      expect(VCF_GENOMIC_PATTERN.test("Chr1(GRCh38):g.25484258G>A")).toBe(true);
+      expect(VCF_GENOMIC_PATTERN.test("chr1(GRCh38):g.25484258G>A")).toBe(true);
+      expect(VCF_GENOMIC_PATTERN.test("chr1(GRCh37):g.25484258G>A")).toBe(true);
+      expect(VCF_GENOMIC_PATTERN.test("1(GRCh38):g.25484258G>A")).toBe(true);
+      expect(VCF_GENOMIC_PATTERN.test("chrX(hg19):g.12345C>G")).toBe(true);
+      expect(VCF_GENOMIC_PATTERN.test("NC_000001.11:g.25484258G>A")).toBe(true);
+    });
+
     it("should reject invalid VCF genomic coordinates", () => {
       expect(VCF_GENOMIC_PATTERN.test("chr7:140753336A>T")).toBe(false);
       expect(VCF_GENOMIC_PATTERN.test("g.140753336A>T")).toBe(false);
@@ -345,8 +356,23 @@ describe("Input Validation Patterns & Functions", () => {
     it("should detect genomic coordinates accurately", () => {
       expect(isGenomicCoordinate("chr7:g.140453136A>G")).toBe(true);
       expect(isGenomicCoordinate("c.1222C>T")).toBe(true);
+      expect(isGenomicCoordinate("NC_000001.11:g.25484258G>A")).toBe(true);
       expect(isGenomicCoordinate("p.Arg408Trp")).toBe(false);
       expect(isGenomicCoordinate("RA408W")).toBe(false);
+    });
+
+    it("should recognize assembly-annotated coordinates so they are still pseudonymized", () => {
+      // Regression: these were NOT recognized before, so they bypassed anonymization and
+      // were written to audit logs verbatim.
+      expect(isGenomicCoordinate("Chr1(GRCh38):g.25484258G>A")).toBe(true);
+      expect(isGenomicCoordinate("chr1(GRCh37):g.25484258G>A")).toBe(true);
+      expect(isGenomicCoordinate("chrX(hg19):g.12345C>G")).toBe(true);
+
+      const sanitized = sanitizeAuditMetadata({
+        gene: "MACO1",
+        variant: "Chr1(GRCh38):g.25484258G>A"
+      });
+      expect(sanitized.variant).toMatch(/^chr1:\[HASH_[a-f0-9]{8}\]$/);
     });
 
     it("should anonymize genomic coordinates into pseudonymized hashes in audit logs", () => {

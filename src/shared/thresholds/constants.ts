@@ -26,6 +26,13 @@ export const THRESHOLDS = {
     benign: 0.02,
     /** Standard consensus splice flank interval: ±12 bp (donor -3..+8, acceptor -12..+2) */
     consensusFlankDistance: 12,
+    /**
+     * Proximity at which a variant is treated as sitting on the invariant splice
+     * junction itself, qualifying for PP3/PVS1-style proximity evidence.
+     * Single source of truth for BOTH the backend resolver
+     * (isNearSpliceSite) and the Splicing tab UI — these drifted apart before.
+     */
+    proximityCriticalBp: 5,
   },
   dbscsnv: {
     /** dbscSNV ADA/RF score ≥ 0.60 → high probability of altering splicing */

@@ -38,7 +38,9 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ variant }),
-        timeout: 10000,
+        // Budget must exceed the server's provider-ladder budget (25s), otherwise the client
+        // aborts a resolution that is about to succeed via the fallback provider.
+        timeout: 45000,
         signal
       });
       if (!res.ok) {

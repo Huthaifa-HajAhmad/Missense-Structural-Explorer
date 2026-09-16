@@ -16,6 +16,7 @@ import { MasterView } from "../MasterSidebar";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
+import SplicingInspector from "./SplicingInspector";
 import EnergeticsInspector from "./EnergeticsInspector";
 import LandscapeInspector from "./LandscapeInspector";
 import InsightsInspector from "./InsightsInspector";
@@ -78,6 +79,10 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
 };
 
+/** Panel width bounds. Previously duplicated as literals in the initializer and the drag. */
+const INSPECTOR_MIN_WIDTH = 280;
+const INSPECTOR_MAX_WIDTH = 540;
+
 export const ViewInspector: React.FC<ViewInspectorProps> = ({
   activeView,
   onViewChange,
@@ -125,8 +130,15 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
     const saved = localStorage.getItem("cs-inspector-width");
     const parsed = saved ? parseInt(saved, 10) : 320;
-    return isNaN(parsed) ? 320 : Math.max(280, Math.min(540, parsed));
+    return isNaN(parsed) ? 320 : Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, parsed));
   });
+
+  /** Clamped width setter shared by the mouse drag and the keyboard resize paths. */
+  const applyWidth = useCallback((next: number) => {
+    const clamped = Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, next));
+    setInspectorWidth(clamped);
+    localStorage.setItem("cs-inspector-width", String(clamped));
+  }, []);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -136,9 +148,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       const startWidth = inspectorWidth;
       const handleMouseMove = (me: MouseEvent) => {
         // Dragging left (negative dx) increases inspector width on right panel
-        const newWidth = Math.max(280, Math.min(540, startWidth - (me.clientX - startX)));
-        setInspectorWidth(newWidth);
-        localStorage.setItem("cs-inspector-width", String(newWidth));
+        applyWidth(startWidth - (me.clientX - startX));
       };
       const handleMouseUp = () => {
         document.removeEventListener("mousemove", handleMouseMove);
@@ -149,7 +159,32 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       document.addEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "col-resize";
     },
-    [inspectorWidth, isCollapsed]
+    [inspectorWidth, isCollapsed, applyWidth]
+  );
+
+  /**
+   * Keyboard equivalent of the drag handle. The panel's narrow end degrades content
+   * legibility, so resizing must not be mouse-only.
+   */
+  const handleSeparatorKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (isCollapsed) return;
+      const step = e.shiftKey ? 40 : 10;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        applyWidth(inspectorWidth + step); // left edge moves left => wider
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        applyWidth(inspectorWidth - step);
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        applyWidth(INSPECTOR_MIN_WIDTH);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        applyWidth(INSPECTOR_MAX_WIDTH);
+      }
+    },
+    [inspectorWidth, isCollapsed, applyWidth]
   );
 
   const toggleCollapse = () => {
@@ -201,19 +236,27 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
 
   return (
     <aside 
-      className="relative flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col h-full overflow-hidden transition-[width] duration-75 select-none"
+      className="relative flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col h-full overflow-hidden transition-[width] duration-75"
       style={{
         width: inspectorWidth,
         minWidth: inspectorWidth,
       }}
       aria-label="Context & Provenance Inspector"
     >
-      {/* ── Left-edge resize drag handle ── */}
+      {/* ── Left-edge resize handle (mouse + keyboard) ── */}
       <div
         onMouseDown={handleMouseDown}
-        className="absolute top-0 left-0 w-1.5 h-full transition-colors hover:bg-slate-500/20 active:bg-cs-accent-clay/30 cursor-col-resize select-none"
+        onKeyDown={handleSeparatorKeyDown}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize inspector panel"
+        aria-valuenow={inspectorWidth}
+        aria-valuemin={INSPECTOR_MIN_WIDTH}
+        aria-valuemax={INSPECTOR_MAX_WIDTH}
+        tabIndex={0}
+        className="absolute top-0 left-0 w-1.5 h-full transition-colors hover:bg-slate-500/20 active:bg-cs-accent-clay/30 focus:bg-cs-accent-clay/40 focus:outline-none cursor-col-resize select-none"
         style={{ zIndex: 20 }}
-        title="Drag to resize inspector panel"
+        title="Drag to resize inspector panel (or focus and use arrow keys)"
       />
 
       {/* ── Inspector Header ── */}
@@ -265,7 +308,14 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           />
         )}
 
-        {activeView === "evidence" && (
+        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "splicing" && (
+          <SplicingInspector
+            analysisResult={analysisResult}
+            isBiophysicalLoading={isBiophysicalLoading}
+          />
+        )}
+
+        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() !== "splicing" && (
           <EvidenceInspector
             analysisResult={analysisResult}
             activeEvidenceTab={activeEvidenceTab}

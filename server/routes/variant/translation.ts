@@ -7,35 +7,44 @@ import {
   validateUniProt,
   sendError,
   AuditLogger,
-  VCF_GENOMIC_PATTERN,
   CDNA_PATTERN,
   DASHED_GENOMIC_PATTERN,
   formatZodError,
 } from "../../utils.ts";
-import { fetchWithRetry } from "../../services/http-client.ts";
-
-const ensemblResponseSchema = z.array(
-  z.object({
-    seq_region_name: z.string().optional(),
-    start: z.number().optional(),
-    allele_string: z.string().optional(),
-    transcript_consequences: z.array(
-      z.object({
-        transcript_id: z.string().optional(),
-        canonical: z.union([z.number(), z.boolean()]).optional(),
-        mane_select: z.any().optional(),
-        mane_plus_clinical: z.any().optional(),
-        hgvsp: z.string().optional(),
-        gene_symbol: z.string().optional(),
-        swissprot: z.array(z.string()).optional()
-      })
-    ).optional()
-  })
-);
+import {
+  GENOMIC_HGVS_PATTERN,
+  ACCEPTED_NOTATION_SUMMARY,
+  MISSENSE_ONLY_NOTE,
+  classifyNotation,
+  detectAssemblyAnnotation,
+  normalizeGenomicNotation,
+  type GenomeAssembly,
+} from "../../../src/shared/variantNotation.ts";
+import {
+  resolveCoordinate,
+  DEFAULT_ASSEMBLY,
+} from "../../services/translation/coordinate-resolver.ts";
+import {
+  CoordinateResolutionError,
+  TRANSLATION_PROVIDER_LABELS,
+  resolutionFailureToHttp,
+} from "../../services/translation/types.ts";
 
 const translateVariantSchema = z.object({
   variant: z.string().min(1).max(200),
 });
+
+/**
+ * Narrows an `any` payload field to an object map.
+ *
+ * Ensembl VEP reports `mane_select` / `mane_plus_clinical` either as a RefSeq string
+ * (`"NM_018202.6"`) or as an object (`{ refseq_match, id }`). Reading `.refseq_match`
+ * directly off the property makes TypeScript narrow it to bare `object`, which has no such
+ * key, so the value is funnelled through this helper instead.
+ */
+function asObjectMap(value: any): Record<string, any> | null {
+  return value && typeof value === "object" ? (value as Record<string, any>) : null;
+}
 
 export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: any): void {
 
@@ -48,53 +57,59 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
     try {
       const { variant } = req.body;
 
-      let trimmed = variant.trim();
+      // Any inline genome-build annotation (e.g. "(GRCh38)", "(hg19)") must be read
+      // BEFORE normalization strips it, because it decides which Ensembl host to query.
+      const annotationAssembly = detectAssemblyAnnotation(variant);
+      const assembly: GenomeAssembly = annotationAssembly ?? DEFAULT_ASSEMBLY;
+
+      // Canonicalize: strip the annotation and normalize `chr` casing.
+      // "Chr1(GRCh38):g.25484258G>A" -> "chr1:g.25484258G>A"
+      let trimmed = normalizeGenomicNotation(variant);
+
       const dashedMatch = trimmed.match(DASHED_GENOMIC_PATTERN);
       if (dashedMatch) {
         trimmed = `chr${dashedMatch[1]}:g.${dashedMatch[2]}${dashedMatch[3].toUpperCase()}>${dashedMatch[4].toUpperCase()}`;
       }
 
-      if (!VCF_GENOMIC_PATTERN.test(trimmed) && !CDNA_PATTERN.test(trimmed)) {
-        sendError(res, 400, "BAD_REQUEST", `Invalid notation format: "${variant}". Must be genomic VCF (e.g., chr7:g.140753336A>T), transcript cDNA (e.g., NM_004333.6:c.1799T>A), or genomic coordinates (e.g., 20-23365054-G-A).`);
+      // ── Missense-only scope gate ────────────────────────────────────────────────
+      // Evaluated BEFORE the generic format gate and BEFORE calling VEP. An insertion /
+      // deletion / inversion written in otherwise-valid HGVS would otherwise produce a
+      // vague "invalid notation format" 400, and translating it would waste a network
+      // round trip only to be rejected as a non-missense consequence afterwards.
+      if (classifyNotation(trimmed).kind === "non-substitution") {
+        sendError(
+          res,
+          422,
+          "NON_MISSENSE_VARIANT",
+          `"${variant}" is not a single-nucleotide substitution. ${MISSENSE_ONLY_NOTE}`
+        );
+        return;
+      }
+
+      if (!GENOMIC_HGVS_PATTERN.test(trimmed) && !CDNA_PATTERN.test(trimmed)) {
+        sendError(res, 400, "BAD_REQUEST", `Invalid notation format: "${variant}". Must be ${ACCEPTED_NOTATION_SUMMARY}.`);
         return;
       }
       if (process.env.NODE_ENV !== "production") {
-        console.log(`[VEP Translator] Translating notation: "${trimmed}" via Ensembl REST API...`);
+        console.log(`[Coord Translator] Resolving notation "${trimmed}" against ${assembly}...`);
       } else {
-        console.log("[VEP Translator] Translating notation via Ensembl REST API...");
+        console.log(`[Coord Translator] Resolving coordinate notation (${assembly})...`);
       }
 
       await AuditLogger.log("TRANSLATE_VARIANT", {
-        variant: trimmed
+        variant: trimmed,
+        assembly
       });
 
-      const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(trimmed)}?content-type=application/json&hgvs=1&canonical=1&uniprot=1&mane=1`;
-      const response = await fetchWithRetry(url, {
-        headers: { "Accept": "application/json" },
-        timeout: 15000
-      });
+      // Tier 0 (immutable cache) -> Tier 1 (Ensembl VEP) -> Tier 2 (VariantValidator).
+      // Throws CoordinateResolutionError so the catch block below can answer 503/404/502
+      // honestly instead of a blanket 500.
+      const resolution = await resolveCoordinate(trimmed, assembly);
+      const consequence = resolution.consequence;
 
-      if (!response.ok) {
-        const text = await response.text();
-        sendError(res, response.status === 400 ? 400 : 502, "TRANSLATION_FAILED", `Ensembl VEP API returned status ${response.status}: ${text.slice(0, 300)}`);
-        return;
-      }
-
-      const rawData = await response.json();
-      const parseResult = ensemblResponseSchema.safeParse(rawData);
-      if (!parseResult.success) {
-        sendError(res, 502, "BAD_GATEWAY", "Ensembl VEP API returned an invalid response structure.");
-        return;
-      }
-      const data = parseResult.data;
-      if (data.length === 0 || !data[0].transcript_consequences) {
-        sendError(res, 404, "NOT_FOUND", "No transcript consequences found for the provided variant.");
-        return;
-      }
-
-      const chr = data[0].seq_region_name;
-      const startPos = data[0].start;
-      const alleleStr = data[0].allele_string;
+      const chr = consequence.seq_region_name;
+      const startPos = consequence.start;
+      const alleleStr = consequence.allele_string;
       let genomicCoordinates: string | null = null;
       if (chr && startPos && typeof alleleStr === "string") {
         const parts = alleleStr.split("/");
@@ -103,7 +118,7 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         }
       }
 
-      const consequences = data[0].transcript_consequences;
+      const consequences = consequence.transcript_consequences;
       let selectedTc = consequences.find((t) => t.mane_select && !!t.hgvsp);
       if (!selectedTc) {
         selectedTc = consequences.find((t) => (t.canonical === 1 || t.canonical === true) && !!t.hgvsp);
@@ -128,21 +143,26 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
           uniprotId = validateUniProt(selectedTc.swissprot[0].split(".")[0]);
         }
       } catch (valErr: any) {
-        const isNonMissense = valErr.message.includes("Nonsense") ||
-          valErr.message.includes("Frameshift") ||
-          valErr.message.includes("Insertion/deletion") ||
-          valErr.message.includes("Synonymous");
+        // `valErr` is an Error; interpolating it directly yields "Error: ..." and loses the
+        // message, so the classifier and the surfaced text both read `.message`.
+        const valErrMessage: string = valErr?.message ?? String(valErr);
+
+        const isNonMissense = valErrMessage.includes("Nonsense") ||
+          valErrMessage.includes("Frameshift") ||
+          valErrMessage.includes("Insertion/deletion") ||
+          valErrMessage.includes("Synonymous");
 
         const errorCode = isNonMissense ? "NON_MISSENSE_VARIANT" : "UNPROCESSABLE_ENTITY";
         const errorMsg = isNonMissense
-          ? `Genomic coordinate translated to non-missense consequence (${selectedTc.gene_symbol || "Gene"} ${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}): ${valErr.message}`
-          : `Resolved variant values are invalid: ${valErr.message}`;
+          ? `Genomic coordinate translated to non-missense consequence (${selectedTc.gene_symbol || "Gene"} ${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}): ${valErrMessage}`
+          : `Resolved variant values are invalid: ${valErrMessage}`;
 
         sendError(res, 422, errorCode, errorMsg, {
           gene: selectedTc.gene_symbol,
           hgvsp: selectedTc.hgvsp,
           consequence: (selectedTc as any).consequence_terms,
-          uniprotId: selectedTc.swissprot?.[0]?.split(".")[0]
+          // Strip the Swiss-Prot version suffix for consistency with the success path.
+          uniprotId: selectedTc.swissprot?.[0]?.split(".")[0] ?? ""
         });
         return;
       }
@@ -159,14 +179,16 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       const isCanonical: boolean = !!(selectedTc.canonical === 1 || selectedTc.canonical === true);
 
       let maneRefSeqId: string | undefined = undefined;
+      const maneSelectObject = asObjectMap(selectedTc.mane_select);
+      const manePlusObject = asObjectMap(selectedTc.mane_plus_clinical);
       if (typeof selectedTc.mane_select === "string") {
         maneRefSeqId = selectedTc.mane_select;
-      } else if (selectedTc.mane_select && typeof selectedTc.mane_select === "object") {
-        maneRefSeqId = selectedTc.mane_select.refseq_match || selectedTc.mane_select.id || undefined;
+      } else if (maneSelectObject) {
+        maneRefSeqId = maneSelectObject.refseq_match || maneSelectObject.id || undefined;
       } else if (typeof selectedTc.mane_plus_clinical === "string") {
         maneRefSeqId = selectedTc.mane_plus_clinical;
-      } else if (selectedTc.mane_plus_clinical && typeof selectedTc.mane_plus_clinical === "object") {
-        maneRefSeqId = selectedTc.mane_plus_clinical.refseq_match || selectedTc.mane_plus_clinical.id || undefined;
+      } else if (manePlusObject) {
+        maneRefSeqId = manePlusObject.refseq_match || manePlusObject.id || undefined;
       }
 
       let transcriptWarning: string | undefined = undefined;
@@ -175,6 +197,12 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       } else if (!isManeSelect && !isManePlusClinical && isCanonical) {
         transcriptWarning = "Ensembl canonical transcript used (not explicitly tagged MANE Select). Verify isoform against clinical databases.";
       }
+
+      // Surfaced so the client can display which build was actually queried, and warn when
+      // an inline annotation redirected the request to the GRCh37 Ensembl host.
+      const assemblyNote = annotationAssembly
+        ? `Notation annotated "(${annotationAssembly})" — resolved against the ${assembly} reference assembly.`
+        : undefined;
 
       res.json({
         gene: geneSymbol,
@@ -186,12 +214,41 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         isCanonical,
         maneRefSeqId,
         genomicCoordinates,
+        assembly,
+        notationNormalized: trimmed,
+        // Provenance: which provider actually answered, whether a fallback was used, and
+        // what else was attempted. Cache hits report one synthetic attempt with 0ms.
+        provenance: {
+          provider: resolution.consequence.provider,
+          providerLabel: TRANSLATION_PROVIDER_LABELS[resolution.consequence.provider],
+          usedFallback: resolution.usedFallback,
+          cacheHit: resolution.cacheHit,
+          attempts: resolution.attempts,
+        },
         ...(transcriptWarning ? { transcriptWarning } : {}),
+        ...(assemblyNote ? { assemblyNote } : {}),
       });
     } catch (err: any) {
-      console.error(`[VEP Translator Crash]:`, err);
+      console.error(`[Coordinate Translator Crash]:`, err);
+
+      // Honest status mapping: an upstream outage is NOT an internal server error, and the
+      // client needs to be able to tell the difference (retry vs. report a bug).
+      if (err instanceof CoordinateResolutionError) {
+        const { status, code } = resolutionFailureToHttp(err.kind);
+
+        if (status === 503) {
+          // The per-host circuit breaker cools down for 60s, so advise the same window.
+          try {
+            res.setHeader?.("Retry-After", "60");
+          } catch { /* headers already sent */ }
+        }
+
+        sendError(res, status, code, err.message, { attempts: err.attempts });
+        return;
+      }
+
       if (err.name === "AbortError" || err.message.includes("timeout")) {
-        sendError(res, 504, "TIMEOUT", "Ensembl VEP query timed out. Please try again.");
+        sendError(res, 504, "TIMEOUT", "Coordinate translation timed out. Please try again.");
         return;
       }
       sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || "An error occurred during coordinate translation.");

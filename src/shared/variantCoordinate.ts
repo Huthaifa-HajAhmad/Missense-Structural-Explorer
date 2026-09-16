@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AMINO_ACID_1_TO_3_TITLE, AMINO_ACID_3_TO_1 } from "./aminoAcids.ts";
+import { isGenomicOrCdnaNotation } from "./variantNotation.ts";
 
 export const VariantCoordinateSchema = z.object({
   gene: z.string().optional(),
@@ -56,6 +57,16 @@ export function parseVariantCoordinate(
 ): VariantCoordinate {
   if (!variantStr || typeof variantStr !== "string") {
     throw new Error("Invalid variant notation: input must be a non-empty string.");
+  }
+
+  // Guard before normalization: `cleanVariantString` would otherwise silently mangle a
+  // genomic coordinate into a meaningless token ("Chr1(GRCh38):g.25484258G>A" -> "g.25484258GA"),
+  // producing a confusing generic error. Fail early with an actionable message instead.
+  if (isGenomicOrCdnaNotation(variantStr)) {
+    throw new Error(
+      `Genomic/cDNA notation detected: "${variantStr.trim()}". This parser accepts protein-level ` +
+      `substitutions only. Resolve the coordinate to a protein change first (e.g., p.Glu433Lys).`
+    );
   }
 
   const clean = cleanVariantString(variantStr);

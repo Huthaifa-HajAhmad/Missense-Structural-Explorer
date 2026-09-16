@@ -93,6 +93,10 @@ export interface TranslatedVariantResult {
     isCanonical?: boolean;
     maneRefSeqId?: string;
     transcriptWarning?: string;
+    /** Genome build the notation was resolved against (from an inline "(GRCh38)" annotation). */
+    assembly?: string;
+    /** Explanation emitted when an inline assembly annotation redirected the query. */
+    assemblyNote?: string;
   };
 }
 

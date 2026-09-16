@@ -89,4 +89,14 @@ describe("VariantCoordinate Parser & Normalizer", () => {
     expect(() => parseVariantCoordinate("12345")).toThrow();
     expect(() => parseVariantCoordinate("")).toThrow();
   });
+
+  it("should reject genomic/cDNA notation with an actionable message instead of mangling it", () => {
+    // Regression: cleanVariantString used to reduce "Chr1(GRCh38):g.25484258G>A" to the
+    // meaningless token "g.25484258GA" and then report a generic HGVS error.
+    expect(() => parseVariantCoordinate("Chr1(GRCh38):g.25484258G>A")).toThrow(/Genomic\/cDNA notation detected/);
+    expect(() => parseVariantCoordinate("chr1:g.25484258G>A")).toThrow(/Genomic\/cDNA notation detected/);
+    expect(() => parseVariantCoordinate("NC_000001.11:g.25484258G>A")).toThrow(/Genomic\/cDNA notation detected/);
+    expect(() => parseVariantCoordinate("NM_004333.6:c.1799T>A")).toThrow(/Genomic\/cDNA notation detected/);
+    expect(() => parseVariantCoordinate("20-23365054-G-A")).toThrow(/Genomic\/cDNA notation detected/);
+  });
 });

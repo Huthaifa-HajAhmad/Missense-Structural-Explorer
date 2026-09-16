@@ -13,6 +13,48 @@
 import { CircuitBreaker, Semaphore, anySignal } from "../../utils.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../../src/shared/aminoAcids.ts";
 
+/**
+ * Upper bound on a server-supplied `Retry-After`.
+ *
+ * `Retry-After` is attacker/misconfiguration-controlled: an upstream answering
+ * `503 Retry-After: 600` would otherwise pin a request for ten minutes, far past
+ * the caller's own budget (the coordinate ladder allots 25s). Capping keeps the
+ * hint useful without letting it dictate our scheduling.
+ */
+const MAX_RETRY_AFTER_MS = 10_000;
+
+/**
+ * Floor applied when a server sends `Retry-After: 0`.
+ *
+ * Honouring the value literally would turn a trivially-returned 503 into a
+ * zero-delay retry loop against a struggling upstream, so a small floor is kept.
+ */
+const MIN_RETRY_AFTER_MS = 50;
+
+/**
+ * Sleep that aborts as soon as `signal` fires.
+ *
+ * The previous implementation awaited a bare timer, so a caller abort (including
+ * the resolution ladder's deadline) could not interrupt a backoff already in
+ * progress — the cancellation was only observed at the top of the next attempt.
+ */
+function abortableSleep(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("Aborted"));
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(signal!.reason ?? new Error("Aborted"));
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function normalizeGeneSymbol(gene: string): string {
   const g = gene.trim().toUpperCase();
   if (g === "GBA1") return "GBA";
@@ -102,32 +144,43 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
         });
         clearTimeout(id);
 
-        if (res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503) {
+        if (res.status === 429 || res.status >= 500) {
           lastStatus = res.status;
           let backoff = delay * (2 ** i);
           let hasRetryAfter = false;
-          if (res.status === 429) {
-            const retryAfterHeader = res.headers.get("Retry-After");
-            if (retryAfterHeader) {
-              const seconds = parseInt(retryAfterHeader, 10);
-              if (!isNaN(seconds)) {
-                backoff = seconds * 1000;
+          // Retry-After is valid on any 5xx or 429, not just 429 (RFC 9110 §10.2.3).
+          // Honouring it on 503 keeps an explicit "Retry-After: 0" — sent by providers
+          // that are already free again — from being overridden by our own exponential
+          // backoff. It is clamped and floored so an upstream cannot dictate our schedule
+          // nor induce a zero-delay hot retry.
+          const retryAfterHeader = res.headers?.get("Retry-After");
+          if (retryAfterHeader) {
+            const seconds = parseInt(retryAfterHeader, 10);
+            if (!isNaN(seconds)) {
+              backoff = seconds * 1000;
+              hasRetryAfter = true;
+            } else {
+              const date = Date.parse(retryAfterHeader);
+              if (!isNaN(date)) {
+                backoff = Math.max(0, date - Date.now());
                 hasRetryAfter = true;
-              } else {
-                const date = Date.parse(retryAfterHeader);
-                if (!isNaN(date)) {
-                  backoff = Math.max(0, date - Date.now());
-                  hasRetryAfter = true;
-                }
               }
+            }
+            if (hasRetryAfter) {
+              backoff = Math.min(Math.max(backoff, MIN_RETRY_AFTER_MS), MAX_RETRY_AFTER_MS);
             }
           }
           if (!hasRetryAfter) {
             const jitter = 0.5 + Math.random() * 0.5;
             backoff = Math.round(backoff * jitter);
           }
-          console.warn(`[Upstream Fetch ${res.status}] error/limit on ${url}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
-          await new Promise(resolve => setTimeout(resolve, backoff));
+
+          // Never sleep after the final attempt: there is no next try to prepare for, and
+          // the sleep would be pure added latency before the throw.
+          if (i < retries - 1) {
+            console.warn(`[Upstream Fetch ${res.status}] error/limit on ${url}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
+            await abortableSleep(backoff, options.signal);
+          }
           continue;
         }
 
@@ -146,7 +199,7 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
         const jitter = 0.5 + Math.random() * 0.5;
         const backoff = Math.round(delay * (2 ** i) * jitter);
         console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
-        await new Promise(resolve => setTimeout(resolve, backoff));
+        await abortableSleep(backoff, options.signal);
       }
     }
     breaker.recordFailure();

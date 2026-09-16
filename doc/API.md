@@ -151,11 +151,36 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Request Body**:
   ```json
   {
-    "gene": "PAH",
-    "variant": "chr12:g.102917224C>T"
+    "variant": "Chr1(GRCh38):g.25484258G>A"
   }
   ```
-* **Description**: Uses Ensembl VEP endpoints to translate genomic/cDNA coordinate inputs into IUPAC protein-level missense variant notations and UniProt accessions.
+* **Description**: Uses Ensembl VEP endpoints to translate genomic / cDNA coordinate inputs into IUPAC protein-level **missense** variant notations and UniProt accessions.
+* **Accepted Notations** (see `src/shared/variantNotation.ts` — the single source of truth):
+  | Family | Example |
+  | --- | --- |
+  | Genomic HGVS | `chr1:g.25484258G>A` |
+  | Genomic HGVS + assembly annotation | `Chr1(GRCh38):g.25484258G>A` |
+  | RefSeq RefSeqGene accession | `NC_000001.11:g.25484258G>A` |
+  | Dashed genomic coordinates | `20-23365054-G-A` |
+  | Transcript cDNA HGVS | `NM_004333.6:c.1799T>A` |
+* **Assembly Routing**: An inline `(GRCh38)` / `(GRCh37)` / `(hg38)` / `(hg19)` annotation selects the Ensembl host — `rest.ensembl.org` for GRCh38 and `grch37.rest.ensembl.org` for GRCh37. The annotation is stripped before the query, and the resolved build is echoed back as `assembly`. Notations without an annotation default to GRCh38 (the Ensembl default host).
+* **Response (additions)**:
+  ```json
+  {
+    "gene": "MACO1",
+    "variant": "p.Glu433Lys",
+    "uniprotId": "Q8N5G0",
+    "assembly": "GRCh38",
+    "notationNormalized": "chr1:g.25484258G>A",
+    "assemblyNote": "Notation annotated \"(GRCh38)\" — resolved against the GRCh38 reference assembly."
+  }
+  ```
+* **Error Codes**:
+  - `400 BAD_REQUEST`: Notation is not a recognized coordinate format. The message enumerates every accepted family.
+  - `422 NON_MISSENSE_VARIANT`: The notation is a recognized coordinate but is **not a single-nucleotide substitution** (deletion, insertion, duplication, inversion, delins, `=`), **or** it resolved to a non-missense protein consequence (stop-gain, frameshift, protein indel, synonymous). MissenseResolve models single amino-acid substitutions only.
+  - `404 NOT_FOUND`: VEP returned no transcript consequence mapping to an HGVSp protein change (e.g. intronic / splice-region variants).
+  - `502 BAD_GATEWAY`: Ensembl VEP returned a malformed response.
+  - `504 TIMEOUT`: Ensembl VEP query timed out.
 
 ### 7. Sequence Fetcher
 * **Route**: `GET /api/v1/sequence/:uniprotId`

@@ -38,4 +38,18 @@ describe("isGenomicOrCdnaNotation Detection Unit Tests", () => {
     expect(isGenomicOrCdnaNotation("R215W")).toBe(false);
     expect(isGenomicOrCdnaNotation("p.Gly380Arg")).toBe(false);
   });
+
+  it("should detect assembly-annotated and RefSeq-accession genomic notations", () => {
+    expect(isGenomicOrCdnaNotation("Chr1(GRCh38):g.25484258G>A")).toBe(true);
+    expect(isGenomicOrCdnaNotation("chr1(GRCh37):g.25484258G>A")).toBe(true);
+    expect(isGenomicOrCdnaNotation("chrX(hg19):g.12345C>G")).toBe(true);
+    expect(isGenomicOrCdnaNotation("NC_000001.11:g.25484258G>A")).toBe(true);
+  });
+
+  it("should not flag gene symbols that merely begin with 'chr' as genomic numerals", () => {
+    // The retired `/^chr/i` catch-all routed these to the Ensembl VEP translator.
+    expect(isGenomicOrCdnaNotation("CHRD")).toBe(false);
+    expect(isGenomicOrCdnaNotation("CHRDL1")).toBe(false);
+    expect(isGenomicOrCdnaNotation("chromosome 7")).toBe(false);
+  });
 });

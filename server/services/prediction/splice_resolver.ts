@@ -1,5 +1,6 @@
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
+import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 
 export interface EnsemblExonData {
   id?: string;
@@ -20,6 +21,16 @@ const exonCache = new LRUCache<string, TranscriptExonStructure>({ max: 500 });
 export interface SpliceProximityResult {
   distance: number;
   isNearSpliceSite: boolean;
+  /**
+   * True only when the nearest boundary is a genuine exon/intron junction
+   * ("donor" or "acceptor"). False for transcript termini ("terminal"), for
+   * single-exon transcripts, and when no boundary could be identified.
+   *
+   * Consumers need this separately from `distance <= 5`: a variant 2 bp from the
+   * first exon's start is close to a terminus, not to a splice junction, and must
+   * not be reported as a critical junction hit.
+   */
+  isCanonicalJunction: boolean;
   exonNumber: number | null;
   totalExons: number | null;
   exonId?: string | null;
@@ -131,7 +142,15 @@ export async function resolveSpliceProximity(
   let exonEnd: number | null = null;
   let exonLength: number | null = null;
   let intronNumber: number | null = null;
-  let regionType: "exonic" | "intronic" = "exonic";
+  /**
+   * Starts null and is set only when position is actually classified.
+   *
+   * It previously defaulted to "exonic", so a position outside the transcript span
+   * (upstream of exon 1 or downstream of the last exon) — which matches neither the
+   * exon loop nor the intron loop — was returned as "exonic" with no exon bounds,
+   * producing a payload that described itself as exonic while carrying no exon.
+   */
+  let regionType: "exonic" | "intronic" | null = null;
   let junctionType: "donor" | "acceptor" | "terminal" | null = null;
   let adjacentIntronNumber: number | null = null;
   let nearestJunctionCoord: number | null = null;
@@ -186,12 +205,14 @@ export async function resolveSpliceProximity(
 
   // 2. If not inside an Exon, check which Intron it falls into
   if (exonNumber === null && totalExons > 1) {
-    regionType = "intronic";
     for (let i = 0; i < exons.length - 1; i++) {
       const leftExon = exons[i];
       const rightExon = exons[i + 1];
 
       if (genomicPos > leftExon.end && genomicPos < rightExon.start) {
+        // Asserted only on a confirmed intronic match; setting it before the loop
+        // mislabelled positions that fall outside the transcript entirely.
+        regionType = "intronic";
         intronNumber = isReverse ? (totalExons - 1 - i) : (i + 1);
         adjacentIntronNumber = intronNumber;
 
@@ -225,8 +246,9 @@ export async function resolveSpliceProximity(
       totalExons !== null &&
       totalExons > 1 &&
       (junctionType === "donor" || junctionType === "acceptor") &&
-      minDistance <= 5
+      minDistance <= THRESHOLDS.spliceai.proximityCriticalBp
     ),
+    isCanonicalJunction: junctionType === "donor" || junctionType === "acceptor",
     exonNumber,
     totalExons,
     exonId,

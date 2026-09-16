@@ -180,10 +180,17 @@
   letter-spacing: 0.03em;
 }
 .cs-badge-path  { background: var(--cs-danger-soft);  color: var(--cs-danger); border: 1px solid rgba(220, 38, 38, 0.2); }
+/* @deprecated Legacy names, byte-identical to .cs-badge-warn / .cs-badge-good below.
+ * No current consumers; prefer the severity-named aliases. */
 .cs-badge-vus   { background: var(--cs-warn-soft);    color: #92400E; border: 1px solid rgba(217, 119, 6, 0.25); }
 .dark .cs-badge-vus { color: #FBBF24; border-color: rgba(251, 191, 36, 0.25); }
 .cs-badge-ben   { background: var(--cs-good-soft);    color: #166534; border: 1px solid rgba(22, 163, 74, 0.2); }
 .dark .cs-badge-ben { color: #4ADE80; border-color: rgba(74, 222, 128, 0.25); }
+/* Semantic aliases used across the Evidence tabs (Splicing, Etiology, Guidelines). */
+.cs-badge-warn  { background: var(--cs-warn-soft);    color: #92400E; border: 1px solid rgba(217, 119, 6, 0.25); }
+.dark .cs-badge-warn { color: #FBBF24; border-color: rgba(251, 191, 36, 0.25); }
+.cs-badge-good  { background: var(--cs-good-soft);    color: #166534; border: 1px solid rgba(22, 163, 74, 0.2); }
+.dark .cs-badge-good { color: #4ADE80; border-color: rgba(74, 222, 128, 0.25); }
 .cs-badge-mag   { background: var(--cs-accent-mag-soft); color: var(--cs-accent-mag); border: 1px solid rgba(217, 70, 170, 0.2); }
 .cs-badge-clay  { background: #FBF0EB; color: #9A3412; border: 1px solid rgba(196, 104, 73, 0.2); }
 .cs-badge-muted { background: var(--cs-surface-2); color: var(--cs-text-muted); border: 1px solid var(--cs-border-subtle); }

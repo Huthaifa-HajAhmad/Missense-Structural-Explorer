@@ -499,42 +499,13 @@
   user-select: none;
 }
 
-/* VIEW INSPECTOR & PROVENANCE PANEL */
-.view-inspector {
-  width: 320px;
-  min-width: 280px;
-  max-width: 360px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--cs-border);
-  background: var(--cs-surface);
-  overflow-y: auto;
-  overflow-x: hidden;
-  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.view-inspector-collapsed {
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-}
-.view-inspector-section {
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--cs-border-subtle);
-}
-.view-inspector-section:last-child {
-  border-bottom: none;
-}
-.view-inspector-section-label {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--cs-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-family: var(--cs-font-mono);
-  margin-bottom: 8px;
-  display: block;
-}
+/* VIEW INSPECTOR & PROVENANCE PANEL
+ *
+ * The `.view-inspector*` rules that lived here were dead: no TSX references them, and
+ * their `max-width: 360px` contradicted the live 280-540px clamp implemented in
+ * components/inspector/ViewInspector.tsx (which styles the panel with utilities and an
+ * inline width). Removing them so there is one source of truth for the panel geometry.
+ */
 
 /* DATA-SCREEN TWO-ZONE LAYOUT */
 .data-screen-layout {
