@@ -9,7 +9,8 @@ import { executeFoldxPipeline } from "./foldxService";
 import {
   fetchBiophysicalAnalysis,
   fetchProgressiveLandscape,
-  fetchProgressiveStructuralAssessments
+  fetchProgressiveStructuralAssessments,
+  fetchProgressiveMultimer
 } from "./biophysicalService";
 import { generateClinicalNarrative } from "./narrativeService";
 import {
@@ -71,6 +72,10 @@ export async function executeFullAnalysisWorkflow({
   let transcriptMeta: any = null;
   let residueIndex: number | undefined;
 
+  if (activeSignal.aborted || getActiveRequestId() !== requestId) {
+    return;
+  }
+
   try {
     // Stage 1: Notation Resolution
     if (isGenomicOrCdnaNotation(targetVariant)) {
@@ -101,6 +106,7 @@ export async function executeFullAnalysisWorkflow({
       } catch (geneErr) {
         console.warn("[WorkflowOrchestrator] Gene resolution error:", geneErr);
       }
+      if (activeSignal.aborted || getActiveRequestId() !== requestId) return;
     }
 
     searchSink.setGene(targetGene);
@@ -245,6 +251,18 @@ export async function executeFullAnalysisWorkflow({
           });
         }
 
+        // Backfill multimer data if missing from cached snapshot
+        if (!cached.analysisResult?.multimerData && targetUniprot) {
+          fetchProgressiveMultimer(
+            { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot },
+            fetchWithAuth,
+            activeSignal,
+            analysisSink.setAnalysisState,
+            requestId,
+            getActiveRequestId
+          );
+        }
+
         return;
       }
     } else {
@@ -281,6 +299,9 @@ export async function executeFullAnalysisWorkflow({
       }
       const foldController = new AbortController();
       mutantFoldAbortRef.current = foldController;
+      const onParentAbort = () => foldController.abort();
+      activeSignal.addEventListener("abort", onParentAbort, { once: true });
+
       const foldTimeoutId = setTimeout(() => {
         foldController.abort();
         if (getActiveRequestId() === requestId) {
@@ -303,6 +324,7 @@ export async function executeFullAnalysisWorkflow({
         getActiveRequestId
       }).finally(() => {
         clearTimeout(foldTimeoutId);
+        activeSignal.removeEventListener("abort", onParentAbort);
       });
     }
 
@@ -333,7 +355,6 @@ export async function executeFullAnalysisWorkflow({
     );
 
     const parsedResidues = parseMutationResidues(targetVariant);
-    analysisSink.setIsNarrativeLoading(false);
 
     const baseParams: PipelineStateBaseParams = {
       gene: targetGene,
@@ -432,6 +453,16 @@ export async function executeFullAnalysisWorkflow({
             getActiveRequestId,
             getTraceContext(),
             analysisSink.setIsStructuralLoading
+          );
+
+          // Progressive query for Quaternary Multimer Assembly
+          fetchProgressiveMultimer(
+            { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot },
+            fetchWithAuth,
+            activeSignal,
+            analysisSink.setAnalysisState,
+            requestId,
+            getActiveRequestId
           );
         } else {
           throw new Error("Biophysical result payload empty.");

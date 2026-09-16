@@ -4,6 +4,8 @@ import { TabComponentProps } from "./types";
 import { MultimerData } from "../../types";
 import { useApiClient, extractErrorMessage } from "../../apiClient";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
+import { setCachedVariant } from "../../services/pipeline/variantCache";
 
 export function MultimersTab({ analysisState }: TabComponentProps) {
   const result = analysisState.result;
@@ -20,29 +22,42 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
     if (!gene || !variant || !uniprotId) return;
     setIsLoading(true);
     setError(null);
+    const multimerKey = `multimer_${gene}_${variant}_${uniprotId}`;
     try {
-      const response = await fetchWithAuth("/api/v1/structure/multimer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gene, variant, uniprotId }),
-        signal
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setMultimerData(data);
-        useVariantAnalysisStore.getState().setAnalysisState((prev: any) => {
-          if (!prev?.result) return prev;
-          return {
-            ...prev,
-            result: {
-              ...prev.result,
-              multimerData: data
-            }
-          };
+      const data = await getDeduplicatedPromise(multimerKey, async () => {
+        const response = await fetchWithAuth("/api/v1/structure/multimer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gene, variant, uniprotId }),
+          signal
         });
-      } else {
-        const errorMsg = await extractErrorMessage(response, "Failed to fetch multimer data");
-        setError(errorMsg);
+        if (!response.ok) {
+          const errorMsg = await extractErrorMessage(response, "Failed to fetch multimer data");
+          throw new Error(errorMsg);
+        }
+        return response.json();
+      });
+      if (data) {
+        setMultimerData(data);
+        const currentState = useVariantAnalysisStore.getState().analysisState;
+        const currentMeta = currentState?.result?.metadata;
+        if (currentMeta?.gene === gene && currentMeta?.variant === variant) {
+          useVariantAnalysisStore.getState().setAnalysisState((prev: any) => {
+            if (!prev?.result) return prev;
+            return {
+              ...prev,
+              result: {
+                ...prev.result,
+                multimerData: data
+              }
+            };
+          });
+          if (currentState?.result) {
+            setCachedVariant(gene, variant, uniprotId, {
+              analysisResult: { ...currentState.result, multimerData: data }
+            });
+          }
+        }
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -51,12 +66,13 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [gene, variant, uniprotId, fetchWithAuth]);
+  }, [gene, variant, uniprotId, fetchWithAuth, result]);
 
   // Synchronize on variant change and abort in-flight requests on unmount/variant switch
   useEffect(() => {
     if (result?.multimerData) {
       setMultimerData(result.multimerData);
+      setIsLoading(false);
       return;
     }
     setMultimerData(null);
@@ -136,6 +152,33 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
             </div>
           )}
         </div>
+      ) : !multimerData ? (
+        <div className="p-6 rounded-xl border border-dashed text-center space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+          <Box className="w-8 h-8 mx-auto text-cs-text-muted stroke-[1.5]" />
+          <div>
+            <span className="text-xs font-bold block" style={{ color: "var(--cs-text-primary)" }}>
+              Quaternary Assembly Not Evaluated
+            </span>
+            <p className="text-[11px] text-cs-text-muted mt-1 max-w-md mx-auto leading-relaxed">
+              No quaternary multimer model has been computed for this variant yet. Click below to initiate Boltz-2 / OpenFold3 complex prediction.
+            </p>
+          </div>
+          {subunitComment && (
+            <div className="p-2.5 rounded border text-[11px] font-mono text-left max-w-md mx-auto bg-cs-surface-2 border-cs-border text-cs-text-muted">
+              <span className="font-sans font-bold block text-[10px] text-cs-text-primary mb-0.5">Curated SUBUNIT annotation:</span>
+              {subunitComment}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => fetchMultimerData()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-cs-bg-subtle transition-colors shadow-none"
+            style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-cs-accent-clay" />
+            <span>Evaluate Quaternary Assembly</span>
+          </button>
+        </div>
       ) : (
         <div className="space-y-4">
           {/* Assembly Status & Provenance Card */}
@@ -144,11 +187,11 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
               <div className="flex items-center gap-2">
                 <Box className="w-4 h-4" style={{ color: "var(--cs-accent-clay)" }} />
                 <span className="text-xs font-bold" style={{ color: "var(--cs-text-primary)" }}>
-                  Detected Assembly: {multimerData?.oligomericState || "Oligomeric Assembly"}
+                  Detected Assembly: {multimerData.oligomericState || "Oligomeric Complex"}
                 </span>
               </div>
               <span className="badge-data-source">
-                {multimerData?.provenance || "JapanFold Boltz-2 (Tier 1)"}
+                {multimerData.provenance || "JapanFold Boltz-2"}
               </span>
             </div>
 
@@ -157,23 +200,23 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
               <div className="metric-card">
                 <span className="metric-card-label">Subunit Chains</span>
                 <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
-                  {multimerData?.chainCount || 2} Chains ({multimerData?.chainIds?.join(", ") || "A, B"})
+                  {multimerData.chainCount} Chains {multimerData.chainIds?.length ? `(${multimerData.chainIds.join(", ")})` : ""}
                 </span>
                 <span className="metric-card-desc">Stoichiometric assembly</span>
               </div>
 
               <div className="metric-card">
                 <span className="metric-card-label">Interface pTM (ipTM)</span>
-                <span className={`metric-card-value ${Number.isFinite(multimerData?.ipTm) ? "text-emerald-500" : "text-cs-text-muted"}`}>
-                  {Number.isFinite(multimerData?.ipTm) ? multimerData!.ipTm!.toFixed(2) : "Unavailable"}
+                <span className={`metric-card-value ${Number.isFinite(multimerData.ipTm) ? "text-emerald-500" : "text-cs-text-muted"}`}>
+                  {Number.isFinite(multimerData.ipTm) ? multimerData.ipTm!.toFixed(2) : "Unavailable"}
                 </span>
                 <span className="metric-card-desc">Complex interface confidence</span>
               </div>
 
               <div className="metric-card">
                 <span className="metric-card-label">Overall pTM</span>
-                <span className={`metric-card-value ${Number.isFinite(multimerData?.pTm) ? "text-emerald-500" : "text-cs-text-muted"}`}>
-                  {Number.isFinite(multimerData?.pTm) ? multimerData!.pTm!.toFixed(2) : "Unavailable"}
+                <span className={`metric-card-value ${Number.isFinite(multimerData.pTm) ? "text-emerald-500" : "text-cs-text-muted"}`}>
+                  {Number.isFinite(multimerData.pTm) ? multimerData.pTm!.toFixed(2) : "Unavailable"}
                 </span>
                 <span className="metric-card-desc">Whole-complex prediction score</span>
               </div>

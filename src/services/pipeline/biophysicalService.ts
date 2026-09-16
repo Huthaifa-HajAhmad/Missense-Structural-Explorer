@@ -1,6 +1,6 @@
 import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
 import { TraceContext } from "./types";
-import { setCachedVariant } from "./variantCache";
+import { getCachedVariant, setCachedVariant } from "./variantCache";
 
 export interface BiophysicalAnalysisParams {
   gene: string;
@@ -123,21 +123,85 @@ export function fetchProgressiveLandscape(
       console.log("[BiophysicalService] Progressive Landscape data loaded successfully");
       setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
-        const updatedResult = {
-          ...prev.result,
-          landscapeData: landscapeRes.landscapeData
-        };
-        setCachedVariant(params.gene, params.variant, params.uniprotId, { analysisResult: updatedResult });
         return {
           ...prev,
-          result: updatedResult
+          result: {
+            ...prev.result,
+            landscapeData: landscapeRes.landscapeData
+          }
         };
       });
+      const cached = getCachedVariant(params.gene, params.variant);
+      if (cached?.analysisResult) {
+        setCachedVariant(params.gene, params.variant, params.uniprotId, {
+          analysisResult: {
+            ...cached.analysisResult,
+            landscapeData: landscapeRes.landscapeData
+          }
+        });
+      }
     })
     .catch((landErr: any) => {
       if (!signal.aborted) {
         console.warn("[BiophysicalService Warning] Progressive landscape fetch failed:", landErr);
       }
+    });
+}
+
+export function fetchProgressiveMultimer(
+  params: BiophysicalAnalysisParams,
+  fetchWithAuth: (url: string, options?: any) => Promise<Response>,
+  signal: AbortSignal,
+  setAnalysisState: (fn: any) => void,
+  requestId: number,
+  getActiveRequestId: () => number
+): Promise<any> {
+  const { gene, variant, uniprotId } = params;
+  if (!gene || !variant || !uniprotId) return Promise.resolve(null);
+
+  const multimerKey = `multimer_${gene}_${variant}_${uniprotId}`;
+  return getDeduplicatedPromise(multimerKey, async () => {
+    const response = await fetchWithAuth("/api/v1/structure/multimer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gene, variant, uniprotId }),
+      signal
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch multimer data (${response.status})`);
+    }
+    return response.json();
+  })
+    .then((data: any) => {
+      if (getActiveRequestId() !== requestId || signal.aborted) return data;
+      if (data) {
+        setAnalysisState((prev: any) => {
+          if (!prev.result) return prev;
+          return {
+            ...prev,
+            result: {
+              ...prev.result,
+              multimerData: data
+            }
+          };
+        });
+        const cached = getCachedVariant(gene, variant);
+        if (cached?.analysisResult) {
+          setCachedVariant(gene, variant, uniprotId, {
+            analysisResult: {
+              ...cached.analysisResult,
+              multimerData: data
+            }
+          });
+        }
+      }
+      return data;
+    })
+    .catch((err: any) => {
+      if (!signal.aborted && err.name !== "AbortError") {
+        console.warn("[BiophysicalService Warning] Progressive multimer fetch failed:", err);
+      }
+      return null;
     });
 }
 
@@ -156,9 +220,28 @@ export function fetchProgressiveStructuralAssessments(
   return apiClient
     .getStructuralAssessments(params, signal)
     .then((structRes: any) => {
-      if (getActiveRequestId() !== requestId || signal.aborted) return;
+      if (
+        getActiveRequestId() !== requestId ||
+        signal.aborted ||
+        !structRes ||
+        typeof structRes !== "object"
+      ) {
+        return;
+      }
       setIsStructuralLoading?.(false);
       console.log("[BiophysicalService] Progressive heavy structural models response received:", structRes);
+
+      if (traceContext?.activeTraceId) {
+        traceContext.addTraceSpan({
+          traceId: traceContext.activeTraceId,
+          name: "Deep Language Models (ESM3, ESMC, SaProt)",
+          stage: "biophysics",
+          startTime: Date.now() - 50,
+          offsetMs: 0,
+          durationMs: 50,
+          status: "success"
+        });
+      }
 
       // DevConsole diagnostics: inspect each structural model and emit clear diagnostic warnings/errors
       const modelEntries: [string, any][] = [
@@ -196,25 +279,46 @@ export function fetchProgressiveStructuralAssessments(
           ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
           ...(structRes.serviceStatus || {})
         };
-        const updatedResult = {
-          ...prev.result,
-          esm3Eval: structRes.esm3Eval,
-          esmcEval: structRes.esmcEval,
-          esm2Eval: structRes.esm2Eval,
-          saprotEval: structRes.saprotEval,
-          serviceStatus: mergedServiceStatus,
-          metadata: {
-            ...(prev.result.metadata || {}),
-            serviceStatus: mergedServiceStatus
-          },
-          ruleBasedInsights: structRes.ruleBasedInsights || prev.result.ruleBasedInsights
-        };
-        setCachedVariant(params.gene, params.variant, params.uniprotId, { analysisResult: updatedResult });
         return {
           ...prev,
-          result: updatedResult
+          result: {
+            ...prev.result,
+            esm3Eval: structRes.esm3Eval,
+            esmcEval: structRes.esmcEval,
+            esm2Eval: structRes.esm2Eval,
+            saprotEval: structRes.saprotEval,
+            serviceStatus: mergedServiceStatus,
+            metadata: {
+              ...(prev.result.metadata || {}),
+              serviceStatus: mergedServiceStatus
+            },
+            ruleBasedInsights: structRes.ruleBasedInsights || prev.result.ruleBasedInsights
+          }
         };
       });
+
+      const cached = getCachedVariant(params.gene, params.variant);
+      if (cached?.analysisResult) {
+        const mergedServiceStatus = {
+          ...(cached.analysisResult.serviceStatus || cached.analysisResult.metadata?.serviceStatus || {}),
+          ...(structRes.serviceStatus || {})
+        };
+        setCachedVariant(params.gene, params.variant, params.uniprotId, {
+          analysisResult: {
+            ...cached.analysisResult,
+            esm3Eval: structRes.esm3Eval,
+            esmcEval: structRes.esmcEval,
+            esm2Eval: structRes.esm2Eval,
+            saprotEval: structRes.saprotEval,
+            serviceStatus: mergedServiceStatus,
+            metadata: {
+              ...(cached.analysisResult.metadata || {}),
+              serviceStatus: mergedServiceStatus
+            },
+            ruleBasedInsights: structRes.ruleBasedInsights || cached.analysisResult.ruleBasedInsights
+          }
+        });
+      }
     })
     .catch((structErr: any) => {
       if (

@@ -32,7 +32,27 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
     classTextMute,
     analysisState,
     activeTab: activeTabProp,
-    onTabChange
+    onTabChange,
+    isBiophysicalLoading,
+    foldingDdG,
+    foldingStatus,
+    foldingEnergetics,
+    dynamut2Status,
+    ddmutStatus,
+    computedPocket,
+    isPocketLoading,
+    pocketError,
+    disruptionPredictor,
+    isFolding,
+    foldingError,
+    structuralDiff,
+    active3dModelTab,
+    metrics,
+    onOpenSettings,
+    onRetryStructural,
+    onRetryPocket,
+    onSelectResidue,
+    onNavigateToView
   } = props;
 
   const [localActiveTab, setLocalActiveTab] = useState<TabType>("clinical");
@@ -60,12 +80,73 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
    * simply by submitting a query while the evidence view showed its empty state.
    */
   const tabProps = useMemo(() => ({
-    ...props,
+    isDark,
+    classCard,
+    classCardHeader,
+    classCardTitle,
+    classBorderSec,
+    classTextBody,
+    classTextMute,
+    analysisState,
+    activeTab,
     onTabChange: setActiveTab,
+    isBiophysicalLoading,
+    foldingDdG,
+    foldingStatus,
+    foldingEnergetics,
+    dynamut2Status,
+    ddmutStatus,
+    computedPocket,
+    isPocketLoading,
+    pocketError,
+    disruptionPredictor,
+    isFolding,
+    foldingError,
+    structuralDiff,
+    active3dModelTab,
+    metrics,
+    onOpenSettings,
+    onRetryStructural,
+    onRetryPocket,
+    onSelectResidue,
+    onNavigateToView,
     energyUnit,
     formatDdGValue,
     setSelectedMetric
-  }), [props, setActiveTab, energyUnit, setSelectedMetric]);
+  }), [
+    isDark,
+    classCard,
+    classCardHeader,
+    classCardTitle,
+    classBorderSec,
+    classTextBody,
+    classTextMute,
+    analysisState,
+    activeTab,
+    setActiveTab,
+    isBiophysicalLoading,
+    foldingDdG,
+    foldingStatus,
+    foldingEnergetics,
+    dynamut2Status,
+    ddmutStatus,
+    computedPocket,
+    isPocketLoading,
+    pocketError,
+    disruptionPredictor,
+    isFolding,
+    foldingError,
+    structuralDiff,
+    active3dModelTab,
+    metrics,
+    onOpenSettings,
+    onRetryStructural,
+    onRetryPocket,
+    onSelectResidue,
+    onNavigateToView,
+    energyUnit,
+    setSelectedMetric
+  ]);
 
   if (!result) {
     if (analysisState.isLoading) {
@@ -166,7 +247,9 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "alphagenome" && <AlphaGenomeTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}
         {activeTab === "perturbation" && <PerturbationTab {...tabProps} />}
-        {activeTab === "multimers" && <MultimersTab {...tabProps} />}
+        <div style={{ display: activeTab === "multimers" ? "block" : "none" }}>
+          <MultimersTab {...tabProps} />
+        </div>
         {activeTab === "function" && <FunctionTab {...tabProps} />}
         {activeTab === "interactions" && <InteractionsTab {...tabProps} />}
         {activeTab === "splicing" && <SplicingTab {...tabProps} />}

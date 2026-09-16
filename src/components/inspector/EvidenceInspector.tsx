@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   Database,
   Dna,
@@ -7,8 +7,6 @@ import {
   Zap,
   Box,
   Layers,
-  ChevronDown,
-  ChevronUp,
   Info,
   Cpu,
   Sparkles,
@@ -29,8 +27,6 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   onSelectEvidenceTab,
   foldingDdG = null
 }) => {
-  const [isLineageOpen, setIsLineageOpen] = useState<boolean>(false);
-
   if (!analysisResult) {
     return (
       <div className="text-xs text-cs-text-muted italic p-2">
@@ -50,7 +46,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const multimerData = analysisResult.multimerData;
   const subunitComment = multimerData?.subunitComment || analysisResult.uniprotFeatures?.subunitComment;
 
-  const clinvarUid = clinvar?.uid;
+  const clinvarUid = clinvar?.uid != null ? String(clinvar.uid) : null;
   const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
 
   // Compute dynamic concordance state for threshold view
@@ -259,7 +255,92 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "clinical" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          {/* Static Genomic Lineage & ACMG Baseline first at top on first tab only */}
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+              <Dna className="w-3.5 h-3.5 text-cs-accent-clay" />
+              Genomic Lineage &amp; ACMG Baseline
+            </span>
+            <div id="genomic-lineage-drawer" className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
+              {/* Assembly & Transcript */}
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex justify-between items-center">
+                  <span className="text-cs-text-secondary">Genome Assembly:</span>
+                  <span className="font-mono font-bold text-cs-text-primary">GRCh38 / hg38</span>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <span className="text-cs-text-secondary">Transcript ID:</span>
+                  <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
+                </div>
+
+                {maneRefSeqId && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-cs-text-secondary">RefSeq Accession:</span>
+                    <span className="font-mono text-cs-text-secondary">{maneRefSeqId}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
+                  <span className="text-cs-text-secondary">Transcript Tier:</span>
+                  <span className={`text-[9.5px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
+                    isManeSelect
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                      : isManePlusClinical
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                      : isCanonical
+                      ? "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
+                      : transcriptId
+                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                      : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
+                  }`}>
+                    {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
+                  </span>
+                </div>
+
+                {transcriptWarning && (
+                  <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 leading-snug">
+                    ⚠️ {transcriptWarning}
+                  </div>
+                )}
+              </div>
+
+              {/* ACMG Rule Evaluation Count */}
+              {(() => {
+                const allCriteria = [
+                  ...(analysisResult.insights?.acmgCriteria || []),
+                  ...(analysisResult.ruleBasedInsights?.acmgCriteria || [])
+                ];
+                const validCriteria = allCriteria.filter((c: any) => c && typeof c.code === "string");
+                const uniqueCriteria = Array.from(new Map(validCriteria.map((c: any) => [c.code, c])).values());
+                const pathCount = uniqueCriteria.filter((c: any) => c.category === "pathogenic" || (typeof c.code === "string" && c.code.toUpperCase().startsWith("P"))).length;
+                const benCount = uniqueCriteria.filter((c: any) => c.category === "benign" || (typeof c.code === "string" && c.code.toUpperCase().startsWith("B"))).length;
+
+                return (
+                  <div className="pt-2 border-t border-cs-border-subtle space-y-1 text-[10.5px]">
+                    <div className="flex justify-between items-center">
+                      <span className="text-cs-text-secondary">Pathogenic Rules:</span>
+                      <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                        {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-cs-text-secondary">Benign Rules:</span>
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        {benCount > 0 ? `${benCount} active` : "0 triggered"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-[9.5px] text-cs-text-muted pt-0.5">
+                      <span>Framework:</span>
+                      <span className="font-mono">Richards et al. 2015 / ClinGen</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5 pt-1 border-t border-cs-border-subtle">
             <Database className="w-3.5 h-3.5 text-cs-accent-clay" />
             Clinical Evidence &amp; Frequencies
           </span>
@@ -452,105 +533,6 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
         </div>
       )}
 
-      {/* ── 2. Collapsible Base Drawer: Genomic Lineage & ACMG Summary ── */}
-      <div className="pt-2 border-t border-cs-border-subtle flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={() => setIsLineageOpen(prev => !prev)}
-          aria-expanded={isLineageOpen}
-          aria-controls="genomic-lineage-drawer"
-          className="w-full flex items-center justify-between p-2 rounded-lg bg-cs-surface-2 hover:bg-cs-bg-subtle border border-cs-border transition-colors text-left cursor-pointer select-none"
-        >
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-primary flex items-center gap-1.5">
-            <Dna className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Genomic Lineage &amp; ACMG Baseline
-          </span>
-          {isLineageOpen ? (
-            <ChevronUp className="w-3.5 h-3.5 text-cs-text-muted" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5 text-cs-text-muted" />
-          )}
-        </button>
-
-        {isLineageOpen && (
-          <div id="genomic-lineage-drawer" className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5 animate-fade-in">
-            {/* Assembly & Transcript */}
-            <div className="space-y-1.5 text-[11px]">
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">Genome Assembly:</span>
-                <span className="font-mono font-bold text-cs-text-primary">GRCh38 / hg38</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">Transcript ID:</span>
-                <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
-              </div>
-
-              {maneRefSeqId && (
-                <div className="flex justify-between items-center">
-                  <span className="text-cs-text-secondary">RefSeq Accession:</span>
-                  <span className="font-mono text-cs-text-secondary">{maneRefSeqId}</span>
-                </div>
-              )}
-
-              <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
-                <span className="text-cs-text-secondary">Transcript Tier:</span>
-                <span className={`text-[9.5px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
-                  isManeSelect
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                    : isManePlusClinical
-                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                    : isCanonical
-                    ? "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
-                    : transcriptId
-                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                    : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
-                }`}>
-                  {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
-                </span>
-              </div>
-
-              {transcriptWarning && (
-                <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 leading-snug">
-                  ⚠️ {transcriptWarning}
-                </div>
-              )}
-            </div>
-
-            {/* ACMG Rule Evaluation Count */}
-            {(() => {
-              const allCriteria = [
-                ...(analysisResult.insights?.acmgCriteria || []),
-                ...(analysisResult.ruleBasedInsights?.acmgCriteria || [])
-              ];
-              const uniqueCriteria = Array.from(new Map(allCriteria.map((c: any) => [c.code, c])).values());
-              const pathCount = uniqueCriteria.filter((c: any) => c.category === "pathogenic" || (c.code && c.code.toUpperCase().startsWith("P"))).length;
-              const benCount = uniqueCriteria.filter((c: any) => c.category === "benign" || (c.code && c.code.toUpperCase().startsWith("B"))).length;
-
-              return (
-                <div className="pt-2 border-t border-cs-border-subtle space-y-1 text-[10.5px]">
-                  <div className="flex justify-between items-center">
-                    <span className="text-cs-text-secondary">Pathogenic Rules:</span>
-                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
-                      {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-cs-text-secondary">Benign Rules:</span>
-                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {benCount > 0 ? `${benCount} active` : "0 triggered"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-[9.5px] text-cs-text-muted pt-0.5">
-                    <span>Framework:</span>
-                    <span className="font-mono">Richards et al. 2015 / ClinGen</span>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
-      </div>
     </div>
   );
 };
