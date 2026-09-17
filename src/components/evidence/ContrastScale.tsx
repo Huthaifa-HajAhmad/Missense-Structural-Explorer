@@ -44,10 +44,25 @@ const MAGNITUDE_PIP_CLASS: Record<ShiftMagnitude, string> = {
 /** Marker width in px, mirrored in markerLeft so the two stay in step. */
 const MARKER_WIDTH_PX = 3;
 
-/** Marker fills: the same success/danger tokens as the wild-type / mutant cards. */
-const WILD_TYPE_MARKER_CLASS = "bg-cs-text-success";
-const MUTANT_MARKER_CLASS = "bg-cs-text-danger";
-const SHARED_POSITION_MARKER_CLASS = "bg-cs-text-muted";
+/**
+ * Marker identity: position *and* shape, not hue alone.
+ *
+ * Colour was the only thing mapping a tick on the track back to one of the two
+ * residues, and the two colours used were the semantic `success`/`danger` tokens —
+ * the same "mutant equals bad" claim the header above rejects, relocated from the
+ * delta to the residue. They also did not match the wild-type/mutant cards, which
+ * use the emerald/rose palette rather than those tokens.
+ *
+ * So the wild type occupies the **upper half** of the track and the variant the
+ * **lower half**, in the same emerald/rose hues as the cards. A reader who cannot
+ * separate the two hues by luminance — or who prints the page in greyscale — can
+ * still tell which tick is which, and can see at a glance when the two residues
+ * coincide.
+ */
+const WILD_TYPE_MARKER_CLASS = "top-0 h-1/2 rounded-full bg-emerald-500";
+const MUTANT_MARKER_CLASS = "bottom-0 h-1/2 rounded-[1px] bg-rose-500";
+const SHARED_POSITION_MARKER_CLASS = "top-0 h-1/2 rounded-full bg-cs-text-muted";
+const SHARED_POSITION_LOWER_CLASS = "bottom-0 h-1/2 rounded-[1px] bg-cs-text-muted";
 
 /**
  * Left offset for a marker centred on `position` (0–100).
@@ -64,16 +79,25 @@ function markerLeft(position: number): string {
 /**
  * A residue's position on the axis.
  *
- * Only `left` is dynamic; the width, fill and contrast ring are static, so they
- * live in classes rather than an inline style object.
+ * Only `left` is dynamic; width, height, position within the track and fill are
+ * static, so they live in classes rather than an inline style object.
  */
 function Marker({ position, className }: { position: number; className: string }) {
   return (
     <span
-      className={`absolute top-0 bottom-0 rounded-full w-[3px] shadow-[0_0_0_1.5px_var(--cs-bg-subtle)] ${className}`}
+      className={`absolute w-[3px] shadow-[0_0_0_1.5px_var(--cs-bg-subtle)] ${className}`}
       style={{ left: markerLeft(position) }}
       aria-hidden="true"
     />
+  );
+}
+
+/** Legend key: the same half-height shape the track uses, in a small swatch. */
+function MarkerSwatch({ className }: { className: string }) {
+  return (
+    <span className="relative w-2 h-3.5 rounded-sm overflow-hidden bg-cs-bg-subtle" aria-hidden="true">
+      <span className={`absolute left-0 right-0 ${className}`} />
+    </span>
   );
 }
 
@@ -165,7 +189,10 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         )}
 
         {isUnchanged ? (
-          <Marker position={row.wildTypePosition} className={SHARED_POSITION_MARKER_CLASS} />
+          <>
+            <Marker position={row.wildTypePosition} className={SHARED_POSITION_MARKER_CLASS} />
+            <Marker position={row.wildTypePosition} className={SHARED_POSITION_LOWER_CLASS} />
+          </>
         ) : (
           <>
             <Marker position={row.wildTypePosition} className={WILD_TYPE_MARKER_CLASS} />
@@ -221,17 +248,20 @@ export function BiochemicalContrastScales({ contrast, isLoading = false }: Bioch
 
         <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono flex-wrap justify-end text-cs-text-secondary">
           <span className="inline-flex items-center gap-1.5">
-            <span className={`w-1.5 h-3 rounded-full ${WILD_TYPE_MARKER_CLASS}`} aria-hidden="true" />
-            {contrast.wildTypeLabel}
+            <MarkerSwatch className={WILD_TYPE_MARKER_CLASS} />
+            {contrast.wildTypeLabel} <span className="text-cs-text-muted">upper</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className={`w-1.5 h-3 rounded-full ${MUTANT_MARKER_CLASS}`} aria-hidden="true" />
-            {contrast.mutantLabel}
+            <MarkerSwatch className={MUTANT_MARKER_CLASS} />
+            {contrast.mutantLabel} <span className="text-cs-text-muted">lower</span>
           </span>
           {/* Only shown when it can occur, so the legend never explains an absent case. */}
           {contrast.rows.some(row => row.direction === "unchanged") && (
             <span className="inline-flex items-center gap-1.5">
-              <span className={`w-1.5 h-3 rounded-full ${SHARED_POSITION_MARKER_CLASS}`} aria-hidden="true" />
+              <span className="relative w-2 h-3.5 rounded-sm overflow-hidden bg-cs-bg-subtle" aria-hidden="true">
+                <span className={`absolute left-0 right-0 ${SHARED_POSITION_MARKER_CLASS}`} />
+                <span className={`absolute left-0 right-0 ${SHARED_POSITION_LOWER_CLASS}`} />
+              </span>
               same position
             </span>
           )}

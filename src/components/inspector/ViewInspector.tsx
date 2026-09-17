@@ -14,9 +14,12 @@ import {
 import { AnalysisResult, PdbHomolog, EnergeticsData, PocketResult } from "../../types";
 import { MasterView } from "../MasterSidebar";
 import { revealInspectorSection, useInspectorFocus } from "../../lib/inspectorFocus";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { useSettings } from "../../context/SettingsContext";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
+import PerturbationInspector from "./PerturbationInspector";
 import ResidueShiftInspector from "./ResidueShiftInspector";
 import SplicingInspector from "./SplicingInspector";
 import EnergeticsInspector from "./EnergeticsInspector";
@@ -90,6 +93,10 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
 const INSPECTOR_MIN_WIDTH = 280;
 const INSPECTOR_MAX_WIDTH = 540;
 
+/** Reveal retries: short enough to feel instant, long enough to survive a commit. */
+const MAX_REVEAL_ATTEMPTS = 6;
+const REVEAL_RETRY_MS = 16;
+
 export const ViewInspector: React.FC<ViewInspectorProps> = ({
   activeView,
   onViewChange,
@@ -137,6 +144,20 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("cs-inspector-collapsed") === "true";
   });
+
+  /**
+   * Read directly from the shared stores rather than threading two more props through
+   * every intermediate view: the perturbation selection is produced by the model cards in
+   * the main column and consumed here, the same way ReportInspector reads reportSections.
+   */
+  const activePerturbationModel = useVariantAnalysisStore(s => s.activePerturbationModel);
+  const saprotEngine = useSettings().settings.saprotEngine;
+  /**
+   * The tab reads its geometry from the biophysics slice, while this panel receives
+   * `foldingEnergetics` as a prop but no `structuralDiff`. Reading the slice here keeps
+   * the inspector's score decomposition in step with the verdict in the main column.
+   */
+  const primaryStructuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
 
   const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
     const saved = localStorage.getItem("cs-inspector-width");
@@ -208,33 +229,67 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
 
   /** Scroll container for the inspector body, used to reveal focused sections. */
   const bodyRef = useRef<HTMLDivElement>(null);
+  /** Pending reveal retry, so it can be cancelled on unmount. */
+  const revealTimerRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (revealTimerRef.current !== null) {
+        window.clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, []);
 
   /**
    * Reveal a section on request from a main-column surface.
    *
    * A collapsed inspector mounts its body only after the state update commits, so
-   * the first lookup can legitimately miss. Retrying on the next few frames keeps
-   * this correct without a timer, and the bounded attempt count stops a stale or
-   * misspelled id from spinning.
+   * the first lookup can legitimately miss and the reveal is retried on a short
+   * timer. Three properties this needs and previously lacked:
+   *
+   *   - **Cancellable.** The pending retry is held in a ref and cleared on
+   *     unmount, so it cannot move focus on behalf of a component that is gone.
+   *   - **Reported.** Exhausting the attempts used to be silent: the button
+   *     visibly did nothing and nothing was logged, so the failure was
+   *     undiagnosable. It now warns in development.
+   *   - **Frame-independent.** The first attempt runs synchronously, which is
+   *     already sufficient on the click path (React flushes a discrete event
+   *     before returning), so a reveal never depends on a frame callback.
    */
-  const handleSectionFocusRequest = useCallback(
-    (sectionId: string) => {
-      setIsCollapsed(prev => {
-        if (!prev) return prev;
-        localStorage.setItem("cs-inspector-collapsed", "false");
-        return false;
-      });
+  const handleSectionFocusRequest = useCallback((sectionId: string) => {
+    setIsCollapsed(prev => {
+      if (!prev) return prev;
+      localStorage.setItem("cs-inspector-collapsed", "false");
+      return false;
+    });
 
-      let attempts = 0;
-      const attemptReveal = () => {
-        attempts += 1;
-        if (revealInspectorSection(sectionId, bodyRef.current)) return;
-        if (attempts < 6) requestAnimationFrame(attemptReveal);
-      };
-      requestAnimationFrame(attemptReveal);
-    },
-    []
-  );
+    if (revealTimerRef.current !== null) {
+      window.clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+
+    let attempts = 0;
+    const attemptReveal = () => {
+      if (!isMountedRef.current) return;
+      if (revealInspectorSection(sectionId, bodyRef.current)) return;
+      attempts += 1;
+      if (attempts >= MAX_REVEAL_ATTEMPTS) {
+        if (import.meta.env.DEV) {
+          console.warn(
+            `[Inspector] Section "${sectionId}" was requested but never appeared after ${attempts} attempts. ` +
+              `Check that the active inspector pane renders that id.`
+          );
+        }
+        return;
+      }
+      revealTimerRef.current = window.setTimeout(attemptReveal, REVEAL_RETRY_MS);
+    };
+    attemptReveal();
+  }, []);
 
   useInspectorFocus(handleSectionFocusRequest);
 
@@ -370,9 +425,21 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           />
         )}
 
+        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "perturbation" && (
+          <PerturbationInspector
+            analysisResult={analysisResult}
+            activePerturbationModel={activePerturbationModel}
+            saprotEngine={saprotEngine}
+            foldingEnergetics={foldingEnergetics}
+            structuralDiff={primaryStructuralDiff}
+            metrics={metrics}
+          />
+        )}
+
         {activeView === "evidence" &&
           (activeEvidenceTab || "").toLowerCase() !== "splicing" &&
-          (activeEvidenceTab || "").toLowerCase() !== "structure" && (
+          (activeEvidenceTab || "").toLowerCase() !== "structure" &&
+          (activeEvidenceTab || "").toLowerCase() !== "perturbation" && (
           <EvidenceInspector
             analysisResult={analysisResult}
             activeEvidenceTab={activeEvidenceTab}

@@ -28,8 +28,9 @@ describe("requestInspectorFocus", () => {
   });
 
   it("is inert when nothing is listening", () => {
-    // A producer must be shippable before its consumer exists.
-    expect(() => requestInspectorFocus("no-such-section")).not.toThrow();
+    // A producer must be shippable before its consumer exists. The cast is deliberate:
+    // it stands in for a producer built against a newer section registry than this build.
+    expect(() => requestInspectorFocus("no-such-section" as never)).not.toThrow();
   });
 });
 

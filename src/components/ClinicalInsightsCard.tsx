@@ -167,7 +167,14 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     const model = resolveResidueShiftModel({
       wildType: analysisState.result?.metadata?.wildType,
       mutant: analysisState.result?.metadata?.mutant,
-      variant
+      /*
+       * `metadata.variant`, not the `variant` prop. The prop is the live search
+       * box (`searchSlice.setVariant`), so an unsubmitted edit would make this
+       * chart describe a different substitution than the tab and the inspector,
+       * which both read metadata. The pipeline stores `wildType/mutant: ""` for
+       * placeholder, error and demo states, so the fallback is reachable.
+       */
+      variant: analysisState.result?.metadata?.variant
     });
 
     if (!model.contrast) {
@@ -216,8 +223,19 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           </div>
           <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
             Plots the same normalised 0&ndash;100 descriptors as the Residue Shifts &amp; Pockets tab. Overlapping
-            profiles indicate conservative substitutions; deviations show which chemical axis moved. The axes are fixed
-            descriptors of the residue pair, not predictions of effect.
+            profiles indicate conservative substitutions; deviations show which chemical axis moved.
+          </p>
+          {/*
+            The signed-axis note is load-bearing, not decoration: charge is 0 for
+            Asp/Glu, 50 for neutral and 100 for Lys/Arg, and on a radar radius 0 is
+            the origin. Without this sentence those two residues plot at the centre
+            and read as "no charge" when they are the most strongly charged.
+          */}
+          <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
+            On the charge axis, 0 = negative, 50 = neutral and 100 = positive, so a charge profile near the
+            centre means a neutral residue rather than an uncharged one. The other three axes are magnitudes,
+            where further from the centre is simply more of that property. The axes are fixed descriptors of the
+            residue pair, not predictions of effect.
           </p>
           <div className="mt-1.5 pt-1.5 border-t cs-border-card-sep border-dashed text-[8.5px] leading-normal" style={{ color: "var(--cs-text-muted)" }}>
             <strong>Primary Literature Scales:</strong>
@@ -235,7 +253,12 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         </div>
       </div>
     );
-  }, [variant, isDark, analysisState.result?.metadata?.wildType, analysisState.result?.metadata?.mutant]);
+  }, [
+    isDark,
+    analysisState.result?.metadata?.wildType,
+    analysisState.result?.metadata?.mutant,
+    analysisState.result?.metadata?.variant
+  ]);
 
   const handleExportJSON = () => {
     if (!analysisState.result) return;

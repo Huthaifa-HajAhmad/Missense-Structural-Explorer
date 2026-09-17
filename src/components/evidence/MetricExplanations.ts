@@ -348,13 +348,22 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     architecture: "Random Forest Classifier on Connolly Surface Points",
     modality: "3D Macromolecular Coordinates",
     description: "P2Rank is a template-free machine learning algorithm that identifies and ranks ligand-binding pockets directly from 3D protein structures. It maps chemical and geometric features onto molecular surface points and groups high-probability points into pocket cavities.",
-    interpretation: "Distance < 8.0 Å denotes active-site or pocket proximity (ACTIVE_SITE_PROXIMATE). Pocket Score reflects the predicted ligand-binding affinity probability (0–100%). Pocket volume in Å³ denotes the solvent-accessible cavity volume.",
+    /*
+     * This text is the user-facing legend for the Spatial Classification badge, so
+     * it must describe the four values that badge can take and must not re-assert
+     * claims the panel itself now qualifies. Corrected from an earlier version
+     * that documented only ACTIVE_SITE_PROXIMATE / DISTAL_SURFACE and called the
+     * ranking index a "ligand-binding affinity probability".
+     */
+    interpretation: "Distance is measured from the variant residue to the centroid of the pocket's own residues — not to the cavity's geometric centre — so it grows with pocket size. Spatial classification: ACTIVE_SITE_LINING when the residue is one of P2Rank's returned pocket residues; ACTIVE_SITE_PROXIMATE within 8 Å; POCKET_PERIPHERAL within 12 Å; otherwise DISTAL_SURFACE. The 0–100 ranking index is P2Rank's calibrated probability that the cavity is a true binding site, per model profile: it is not an affinity, and values from different profiles are not comparable. Cavity volume is shown only when the engine reported a measured volume; a surface-point count is never presented as a volume.",
     strengths: [
       "Fast, template-free ligand pocket detection directly from coordinate files.",
       "Predicts specific pocket lining residues and distances to cavity centroids."
     ],
     weaknesses: [
-      "Depends on accurate 3D apo or holo conformations; large induced-fit motions may alter cavity geometry."
+      "Depends on accurate 3D apo or holo conformations; large induced-fit motions may alter cavity geometry.",
+      "The default model profile uses B-factor as a feature and is intended for X-ray structures. For AlphaFold/ESMFold models (pLDDT in the B-factor column) P2Rank recommends its `-c alphafold` profile, so probability values here may not be optimal for modelled input.",
+      "Probability calibration is specific to the model profile, so scores must not be compared across profiles or against other detectors' scores."
     ],
     paperTitle: "Krivak & Hoksza. J Cheminform (2018)",
     paperUrl: "https://doi.org/10.1186/s13321-018-0285-8"

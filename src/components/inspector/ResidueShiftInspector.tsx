@@ -204,9 +204,21 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
       {/* ── 1. Biochemical shift narrative ── */}
-      {/* `tabIndex={-1}` lets the main column's "open the interpretation" control
-          move focus here without adding the section to the tab order. */}
-      <div id={INSPECTOR_SECTIONS.residueShiftNarrative} tabIndex={-1} className="flex flex-col gap-3 outline-none">
+      {/*
+        Focus target for the main column's "open the interpretation" control.
+        `tabIndex={-1}` makes it focusable without joining the tab order, and the
+        `role`/`aria-label` give the programmatic focus move something to announce
+        — a bare div announces nothing, which is what the focus move was for.
+        The ring matters as much: `outline-none` alone left a keyboard user with a
+        silent scroll and no indicator of where they had landed.
+      */}
+      <div
+        id={INSPECTOR_SECTIONS.residueShiftNarrative}
+        tabIndex={-1}
+        role="region"
+        aria-label="Biochemical shift narrative"
+        className="flex flex-col gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+      >
         <div className="flex items-center justify-between gap-2">
           <SectionLabel Icon={Activity}>Biochemical Shift Narrative</SectionLabel>
           <button
@@ -360,7 +372,9 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
       <div
         id={INSPECTOR_SECTIONS.residueShiftPocket}
         tabIndex={-1}
-        className="flex flex-col gap-3 pt-1 border-t border-cs-border-subtle outline-none"
+        role="region"
+        aria-label="P2Rank cavity interpretation"
+        className="flex flex-col gap-3 pt-1 border-t border-cs-border-subtle rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
       >
         <div className="flex items-center justify-between gap-2">
           <SectionLabel Icon={Box}>P2Rank Cavity Interpretation</SectionLabel>
