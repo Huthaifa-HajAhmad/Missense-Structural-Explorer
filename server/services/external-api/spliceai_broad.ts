@@ -218,6 +218,8 @@ export async function fetchSpliceAiBroad(
   if (!baseUrl) return null;
   if (!chrom || !Number.isFinite(pos) || !ref || !alt) return null;
 
+  if (mockProvider) return mockProvider(chrom, pos, ref, alt);
+
   const cacheKey = buildSpliceAiCacheKey(chrom, pos, ref, alt, assembly, distance, mask);
   if (!options.skipCache) {
     const cached = spliceAiCache.get(cacheKey);
@@ -308,4 +310,27 @@ export async function fetchSpliceAiBroad(
 /** Test seam: clears the module cache. */
 export function clearSpliceAiCache(): void {
   spliceAiCache.clear();
+}
+
+/**
+ * Test seam: replaces the transport so a caller can assert the live fetch was ATTEMPTED
+ * without reaching the rate-limited third-party service. Passing null restores the real one.
+ *
+ * This exists because the highest-value property to test is not the HTTP call but the
+ * WIRING — that a protein-notation query carrying a genomic coordinate in predictor
+ * metadata actually reaches this client. That wiring was silently broken once already:
+ * the fetch was placed on a code path that never had a coordinate, so it returned null for
+ * every variant and the feature was inert in production while its unit tests passed.
+ */
+type SpliceAiMockProvider = (
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string
+) => Promise<SpliceAiScoreRecord | null>;
+
+let mockProvider: SpliceAiMockProvider | null = null;
+
+export function setSpliceAiMockProvider(provider: SpliceAiMockProvider | null): void {
+  mockProvider = provider;
 }

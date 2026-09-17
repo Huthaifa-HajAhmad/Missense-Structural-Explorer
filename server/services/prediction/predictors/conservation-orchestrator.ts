@@ -51,20 +51,17 @@ function applyLiveSpliceAi<T extends ConservationData>(
 }
 
 /**
- * Fetches a live SpliceAI score for the variant, or null when no genomic coordinate
- * could be resolved. Never throws: an unreachable academic endpoint degrades to the
- * existing precomputed sources rather than failing the analysis.
+ * Fetches a live SpliceAI score for resolved genomic coordinates. Never throws: an
+ * unreachable academic endpoint degrades to the existing precomputed sources rather than
+ * failing the analysis.
  */
 async function fetchLiveSpliceAiIfPossible(
-  gnomadVariantId?: string | null,
-  variant?: string | null
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string
 ): Promise<SpliceAiScoreRecord | null> {
-  const coords =
-    parseGenomicCoordinateString(gnomadVariantId) ??
-    parseGenomicCoordinateString(variant ?? null);
-  if (!coords) return null;
-
-  return fetchSpliceAiBroad(coords.chrom, coords.pos, coords.ref, coords.alt, {
+  return fetchSpliceAiBroad(chrom, pos, ref, alt, {
     distance: SPLICEAI_DEFAULT_DISTANCE,
   });
 }
@@ -156,12 +153,12 @@ export async function fetchConservationData(
         : null;
 
       /**
-       * Live SpliceAI, resolved once and overlaid on whichever source answers below.
-       * Started here rather than inside a branch so all four provider paths benefit and
-       * the request is made at most once per analysis.
+       * NOTE: live SpliceAI is deliberately NOT fetched here. This function is reached with
+       * `gnomadVariantId = null` (the progressive caller passes null) and `variant` is already
+       * protein notation, so no genomic coordinate is resolvable at this depth. The live score is
+       * fetched in `fetchConservationDataProgressive` — which has the parsed coordinate — and
+       * overlaid on the merged result there, so every provider path benefits from one request.
        */
-      const liveSpliceAi = await fetchLiveSpliceAiIfPossible(gnomadVariantId, variant);
-
       const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
       const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
       const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
@@ -274,7 +271,7 @@ export async function fetchConservationData(
               alphagenome: alphaRes ?? null,
               source: "local dbNSFP"
             };
-            return applyLiveSpliceAi(resVal, liveSpliceAi);
+            return resVal;
           }
         } catch (err: any) {
           console.warn(`[Local dbNSFP Query Error] Fallback to remote: ${err.message}`);
@@ -339,7 +336,7 @@ export async function fetchConservationData(
             } : null,
             source: "Genos Web Query"
           };
-          return applyLiveSpliceAi(resVal, liveSpliceAi);
+          return resVal;
         }
       } catch (err: any) {
         console.warn(`[Genos Web Query Fallback Error] ${err.message}`);
@@ -384,7 +381,7 @@ export async function fetchConservationData(
             dbscsnv: null,
             source: "Public dbNSFP (dbnsfp.org)"
           };
-          return applyLiveSpliceAi(resVal, liveSpliceAi);
+          return resVal;
         }
       } catch (pubErr: any) {
         console.warn(`[Public dbNSFP Query Error] ${pubErr.message}`);
@@ -617,7 +614,7 @@ export async function fetchConservationData(
                 } : null,
                 source: "myvariant.info"
               };
-              return applyLiveSpliceAi(resVal, liveSpliceAi);
+              return resVal;
             }
           }
         }
@@ -625,9 +622,9 @@ export async function fetchConservationData(
         console.warn(`[Conservation Fetch Error] Failed to fetch MyVariant conservation: ${err.message}`);
       }
 
-      // Even when every conservation provider missed, a live SpliceAI score is still a real
-      // measurement from an independent endpoint — surface it rather than discarding it.
-      return applyLiveSpliceAi(defaultRes, liveSpliceAi);
+      // A live SpliceAI score is overlaid by the progressive caller, which holds the genomic
+      // coordinate; this function cannot resolve one (see the note above the aaMatch).
+      return defaultRes;
     }
   });
 }
@@ -694,28 +691,39 @@ export async function fetchConservationDataProgressive(
       let spliceProximity: any = null;
       let gpnStarResult: EvolutionaryScaleResult | null = null;
       let alphagenomeResult: AlphaGenomeAviData | null = null;
+      let liveSpliceAi: SpliceAiScoreRecord | null = null;
 
       const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
       if (parsedCoord) {
-        const [popRes, gpnRes, alphaRes] = await Promise.all([
+        // Live SpliceAI is fetched HERE, not in the base resolver, because this is the only place a
+        // genomic coordinate exists: `variant` has already been translated to protein notation by the
+        // time analysis runs, and the base resolver is called with a null gnomadVariantId. A fetch
+        // placed there could never resolve a coordinate and silently returned null for every variant.
+        const [popRes, gpnRes, alphaRes, liveSpliceAiRes] = await Promise.all([
           fetchPopEVEScore(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
           fetchGpnStarByCoordinate(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
           fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, {
             apiKey: alphagenomeApiKey,
             apiUrl: alphagenomeApiUrl
-          }).catch(() => null)
+          }).catch(() => null),
+          fetchLiveSpliceAiIfPossible(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt)
+            // A caller abort makes the client throw so the HTTP layer can answer 504 honestly.
+            // Catching it HERE keeps that abort from nulling PopEVE, GPN-Star and AlphaGenome, which
+            // share this Promise.all — previously a single SpliceAI abort discarded all four.
+            .catch(() => null)
         ]);
         popEVEScore = popRes;
         gpnStarResult = gpnRes;
         alphagenomeResult = alphaRes;
+        liveSpliceAi = liveSpliceAiRes;
 
         if (pred?.transcriptId) {
           spliceProximity = await resolveSpliceProximity(pred.transcriptId, parsedCoord.pos).catch(() => null);
         }
       }
-      return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult };
+      return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult, liveSpliceAi };
     })
-    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null }));
+    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null, liveSpliceAi: null }));
 
   // 3. Immediately kick off base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant)
   const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
@@ -762,7 +770,7 @@ export async function fetchConservationDataProgressive(
 
   const finalGpnMessage = enrichment.gpnStarResult?.message ?? gpnRes.message ?? null;
 
-  return {
+  return applyLiveSpliceAi({
     ...baseConservation,
     consurf: consurfVal ?? baseConservation.consurf,
     popeve: baseConservation.popeve ?? enrichment.popEVEScore,
@@ -771,5 +779,5 @@ export async function fetchConservationDataProgressive(
     gpnStarStatus: finalGpnStatus,
     gpnStarMessage: finalGpnMessage,
     alphagenome: enrichment.alphagenomeResult ?? baseConservation.alphagenome ?? null
-  };
+  }, enrichment.liveSpliceAi);
 }

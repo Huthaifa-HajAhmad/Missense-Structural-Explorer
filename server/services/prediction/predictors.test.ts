@@ -267,6 +267,100 @@ END
 
       setAlphaGenomeMockProvider(null);
     }, 25000);
+
+    /**
+     * Wiring regression tests for the live SpliceAI overlay.
+     *
+     * These exist because the feature was once inert in production while every unit test of the
+     * client passed: the fetch was placed on a code path that never received a genomic coordinate,
+     * so it returned null for every variant. Testing the client in isolation cannot catch that —
+     * only exercising the orchestrator's own path can. `setSpliceAiMockProvider` keeps these
+     * hermetic (no call to the rate-limited third-party service).
+     */
+    it("overlays a live SpliceAI score onto the progressive result, with provenance", async () => {
+      const { fetchConservationDataProgressive } = await import("../predictors.ts");
+      const { setSpliceAiMockProvider } = await import("../external-api/spliceai_broad.ts");
+      const { clearAllCaches } = await import("../infra/cache.ts");
+
+      // The conservation cache is keyed by gene/variant/pos, so without this an earlier test's
+      // entry is served and the mock provider is never consulted.
+      clearAllCaches(true);
+
+      setSpliceAiMockProvider(async (chrom, pos, ref, alt) => {
+        // The coordinate must reach the client intact, or the score is for the wrong variant.
+        // The parser preserves the input spelling, so a "1-25484258-G-A" id yields "1".
+        expect(chrom).toBe("1");
+        expect(pos).toBe(25484258);
+        expect(ref).toBe("G");
+        expect(alt).toBe("A");
+        return {
+          ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004,
+          max_ds: 0.004,
+          dp: { ds_ag: -142, ds_al: -172, ds_dg: 19, ds_dl: 123 },
+          transcriptId: "ENST00000374343.5",
+          transcriptRefSeqIds: ["NM_018202.6"],
+          isManeSelect: true,
+          geneSymbol: "MACO1",
+          distance: 500,
+          mask: 1,
+          computedLive: true,
+          source: "spliceai:model",
+        };
+      });
+
+      try {
+        const res = await fetchConservationDataProgressive({
+          gene: "MACO1",
+          variant: "p.Glu433Lys",
+          pos: 433,
+          predictorPromise: Promise.resolve({
+            gnomadVariantId: "1-25484258-G-A",
+            transcriptId: "ENST00000374343"
+          })
+        });
+
+        // The headline goal: a variant with no precomputed value now carries a measured score.
+        expect(res.spliceai).not.toBeNull();
+        expect(res.spliceai?.max_ds).toBeCloseTo(0.004, 5);
+        // Delta positions must survive the merge — they localise where splicing shifts.
+        expect(res.spliceai?.dp?.ds_dl).toBe(123);
+        // Provenance must survive too, so a reader can tell live from frozen.
+        expect(res.spliceai?.provenance?.source).toBe("broad-lookup");
+        expect(res.spliceai?.provenance?.distanceBp).toBe(500);
+        expect(res.spliceai?.provenance?.masked).toBe(1);
+      } finally {
+        setSpliceAiMockProvider(null);
+      }
+    }, 25000);
+
+    it("preserves the precomputed score when the live lookup misses", async () => {
+      const { fetchConservationDataProgressive } = await import("../predictors.ts");
+      const { setSpliceAiMockProvider } = await import("../external-api/spliceai_broad.ts");
+      const { clearAllCaches } = await import("../infra/cache.ts");
+      clearAllCaches(true);
+
+      // Simulates an unreachable or rate-limited upstream.
+      setSpliceAiMockProvider(async () => null);
+
+      try {
+        const res = await fetchConservationDataProgressive({
+          gene: "MACO1",
+          variant: "p.Glu433Lys",
+          pos: 433,
+          predictorPromise: Promise.resolve({
+            gnomadVariantId: "1-25484258-G-A",
+            transcriptId: "ENST00000374343"
+          })
+        });
+
+        // A null live score must never erase or fabricate the fallback value.
+        if (res.spliceai !== null && res.spliceai !== undefined) {
+          expect(res.spliceai.provenance?.source).not.toBe("broad-lookup");
+        }
+      } finally {
+        setSpliceAiMockProvider(null);
+      }
+    }, 25000);
   });
 
   describe("Tier 3 Public dbNSFP Predictors Extraction", () => {

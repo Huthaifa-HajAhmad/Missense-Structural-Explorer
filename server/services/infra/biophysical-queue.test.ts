@@ -1,23 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import fs from "fs";
-import path from "path";
 import { BiophysicalJobQueue } from "./biophysical-queue.ts";
 
 describe("BiophysicalJobQueue Unit Tests", () => {
-  const dbPath = path.join(process.cwd(), "data", "shared_state.sqlite");
-
   let originalRedisUrl: string | undefined;
 
   beforeEach(() => {
     originalRedisUrl = process.env.REDIS_URL;
     delete process.env.REDIS_URL;
     BiophysicalJobQueue.resetForTesting();
-    // Delete sharing DB if it exists to have clean tests
-    try {
-      if (fs.existsSync(dbPath)) {
-        fs.rmSync(dbPath, { force: true });
-      }
-    } catch (_) {}
+    // NOTE: this suite used to `fs.rmSync` the shared queue database here and in afterEach.
+    // That file is the developer's real state: the queue already runs against `:memory:`
+    // under NODE_ENV=test (biophysical-queue.ts:404-406), so `resetForTesting()` alone gives
+    // a clean queue and the deletions only ever destroyed real data.
   });
 
   afterEach(() => {
@@ -27,11 +21,6 @@ describe("BiophysicalJobQueue Unit Tests", () => {
     } else {
       delete process.env.REDIS_URL;
     }
-    try {
-      if (fs.existsSync(dbPath)) {
-        fs.rmSync(dbPath, { force: true });
-      }
-    } catch (_) {}
   });
 
   it("should process jobs sequentially up to concurrency limit", async () => {

@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import fs from "fs";
-import path from "path";
 import { 
   cosineSimilarity, 
   getEmbedding, 
@@ -40,26 +38,16 @@ vi.mock("./gemini.ts", () => {
 });
 
 describe("Literature RAG and Vector Search Service Unit Tests", () => {
-  const dbPath = path.join(process.cwd(), "data", "shared_state.sqlite");
-  
   beforeEach(() => {
     resetDbForTesting();
-    // Delete database to start clean
-    try {
-      if (fs.existsSync(dbPath)) {
-        fs.rmSync(dbPath, { force: true });
-      }
-    } catch (_) {}
+    // NOTE: this suite used to `fs.rmSync` the shared database here and in afterEach, which
+    // deleted the developer's real `data/shared_state.sqlite`. The module already uses an
+    // in-memory database under NODE_ENV=test (literature-rag.ts:11), so resetting the
+    // singleton alone gives a clean store and the file deletions were pure data loss.
   });
 
   afterEach(() => {
     resetDbForTesting();
-    // Clean up database
-    try {
-      if (fs.existsSync(dbPath)) {
-        fs.rmSync(dbPath, { force: true });
-      }
-    } catch (_) {}
   });
 
   describe("cosineSimilarity", () => {
