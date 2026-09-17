@@ -13,10 +13,21 @@ import {
 } from "../../services/external.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
+import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
   variant: z.string().min(1).max(200),
+  /**
+   * Genome build the caller's coordinate notation was expressed in.
+   *
+   * Carried explicitly because nearly every coordinate-consuming source downstream is
+   * single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, and
+   * the SpliceAI Lookup client), and this application supports GRCh37 input by design.
+   * Without it the build was silently assumed to be GRCh38. Defaults to GRCh38 so
+   * existing clients keep their current behaviour.
+   */
+  assembly: z.enum(["GRCh37", "GRCh38"]).optional().default("GRCh38"),
   uniprotId: z.string().max(50).optional().default(""),
   acmgWeighting: z.enum(["standard", "conservative", "strict-structural"]).optional(),
   userDirections: z.string().max(1000).optional(),
@@ -110,6 +121,13 @@ export interface ParsedVariantContext {
   originalNotation?: string;
   userDirections?: string;
   acmgWeighting: "standard" | "conservative" | "strict-structural";
+  /**
+   * Build the supplied coordinate notation was expressed in. Threaded to every
+   * coordinate-consuming consumer so a single-build source can never be handed the
+   * wrong build's coordinates. Optional in the type because the parser always fills it
+   * (the request schema defaults it to GRCh38); consumers default it identically.
+   */
+  assembly?: GenomeAssembly;
   residueIndex: string;
   wildType: string;
   mutant: string;
@@ -222,6 +240,8 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     originalNotation,
     userDirections,
     acmgWeighting,
+    // The schema defaults this to GRCh38, so it is always a concrete build by here.
+    assembly: (req.body.assembly ?? "GRCh38") as GenomeAssembly,
     residueIndex,
     wildType,
     mutant,

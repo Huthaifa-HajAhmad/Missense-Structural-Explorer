@@ -20,6 +20,7 @@ import {
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
 import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
+import { CANONICAL_ASSEMBLY } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
 import { predictStructuralDisruption, runEsm2Eval, type DisruptionPrediction } from "../stability/biophysics.ts";
@@ -50,6 +51,9 @@ export async function fetchCoreVariantData(
     uniprotId,
     originalNotation,
     acmgWeighting,
+    // Build the caller's notation was expressed in; forwarded so build-pinned sources can
+    // be skipped rather than handed another build's coordinates.
+    assembly = CANONICAL_ASSEMBLY,
     sequence,
     pos,
     wt1Letter,
@@ -154,6 +158,7 @@ export async function fetchCoreVariantData(
     variant,
     pos,
     uniprotId,
+    assembly,
     pdbMappingPromise,
     predictorPromise,
     genosPromise,

@@ -12,6 +12,8 @@ import { fetchRealConsurfData } from "./consurf-resolver.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
 import { fetchSpliceAiBroad, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiScoreRecord } from "../../external-api/spliceai_broad.ts";
+import { CANONICAL_ASSEMBLY, sourceSupportsAssembly } from "../../../../src/shared/assembly.ts";
+import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
 
 /**
@@ -59,13 +61,20 @@ async function fetchLiveSpliceAiIfPossible(
   chrom: string,
   pos: number,
   ref: string,
-  alt: string
+  alt: string,
+  assembly: GenomeAssembly
 ): Promise<SpliceAiScoreRecord | null> {
+  // SpliceAI Lookup runs a separate service per build, so the build is routed rather than
+  // rejected. Sending a GRCh37 coordinate to the GRCh38 model would not merely miss: the
+  // service validates REF, and when the GRCh38 base at that numeric position happens to
+  // match, it accepts and scores a DIFFERENT LOCUS, returning plausible numbers for an
+  // unrelated variant.
+  if (!sourceSupportsAssembly("spliceai-lookup", assembly)) return null;
   return fetchSpliceAiBroad(chrom, pos, ref, alt, {
     distance: SPLICEAI_DEFAULT_DISTANCE,
+    assembly,
   });
 }
-
 
 export const myVariantResponseSchema = z.object({
   hits: z.array(z.object({
@@ -634,6 +643,14 @@ export interface ProgressiveConservationContext {
   variant: string;
   pos?: number | null;
   uniprotId?: string | null;
+  /**
+   * Build the caller's notation was expressed in. Every coordinate-consuming source in
+   * this pipeline is single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4
+   * ids) or has a service per build (SpliceAI Lookup), so this decides routing — a
+   * GRCh37 coordinate handed to a GRCh38 index either misses or, worse, resolves to a
+   * different locus. Defaults to GRCh38, which is what every source here is pinned to.
+   */
+  assembly?: GenomeAssembly;
   pdbMappingPromise?: Promise<any>;
   predictorPromise?: Promise<any>;
   genosPromise?: Promise<any>;
@@ -662,6 +679,10 @@ export async function fetchConservationDataProgressive(
     alphagenomeApiUrl,
     sequence
   } = context;
+
+  // Every source reachable from here is GRCh38-pinned or build-aware, so the canonical
+  // build is the safe default and matches this pipeline's existing behaviour.
+  const assembly: GenomeAssembly = context.assembly ?? CANONICAL_ASSEMBLY;
 
   const resolvedPos = (pos !== undefined && pos !== null) 
     ? pos 
@@ -695,18 +716,31 @@ export async function fetchConservationDataProgressive(
 
       const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
       if (parsedCoord) {
-        // Live SpliceAI is fetched HERE, not in the base resolver, because this is the only place a
-        // genomic coordinate exists: `variant` has already been translated to protein notation by the
-        // time analysis runs, and the base resolver is called with a null gnomadVariantId. A fetch
-        // placed there could never resolve a coordinate and silently returned null for every variant.
+        /**
+         * Build gate. `parsedCoord` carries no build — the parser is lexical — and the
+         * predictor metadata can disagree with the request: a MyVariant.info `_id` is hg19
+         * by default while the analysis assumes GRCh38. Each source below declares the
+         * builds it can serve, and is not called when the coordinate falls outside that set.
+         * A skipped source reads as "not assessed", which is true; a wrong-build score
+         * reads as evidence, which is not.
+         */
         const [popRes, gpnRes, alphaRes, liveSpliceAiRes] = await Promise.all([
           fetchPopEVEScore(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
-          fetchGpnStarByCoordinate(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null),
-          fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, {
-            apiKey: alphagenomeApiKey,
-            apiUrl: alphagenomeApiUrl
-          }).catch(() => null),
-          fetchLiveSpliceAiIfPossible(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt)
+          // GPN-Star is a GRCh38-only Tabix index.
+          sourceSupportsAssembly("gpn-star", assembly)
+            ? fetchGpnStarByCoordinate(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null)
+            : Promise.resolve(null),
+          // AlphaGenome is GRCh38-only: the Atlas holds GRCh38 SNVs and the model is GRCh38.
+          sourceSupportsAssembly("alphagenome", assembly)
+            ? fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, {
+                apiKey: alphagenomeApiKey,
+                apiUrl: alphagenomeApiUrl
+              }).catch(() => null)
+            : Promise.resolve(null),
+          // Live SpliceAI runs a service per build, so it routes rather than refusing.
+          // Fetching HERE (not in the base resolver) matters: this is the only place a
+          // genomic coordinate exists, and the base resolver is handed a null gnomadVariantId.
+          fetchLiveSpliceAiIfPossible(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, assembly)
             // A caller abort makes the client throw so the HTTP layer can answer 504 honestly.
             // Catching it HERE keeps that abort from nulling PopEVE, GPN-Star and AlphaGenome, which
             // share this Promise.all — previously a single SpliceAI abort discarded all four.

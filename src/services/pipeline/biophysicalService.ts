@@ -6,6 +6,12 @@ export interface BiophysicalAnalysisParams {
   gene: string;
   variant: string;
   uniprotId: string;
+  /**
+   * Build the user's notation was expressed in, carried from the notation translation
+   * step. Most coordinate-based evidence sources on the server are single-build, so this
+   * decides which of them can be consulted at all — without it the server assumed GRCh38.
+   */
+  assembly?: "GRCh37" | "GRCh38";
 }
 
 export async function fetchBiophysicalAnalysis(
@@ -15,21 +21,21 @@ export async function fetchBiophysicalAnalysis(
   onChunk?: (chunkData: any) => void,
   traceContext?: TraceContext
 ): Promise<any> {
-  const { gene, variant, uniprotId } = params;
+  const { gene, variant, uniprotId, assembly } = params;
   const bpKey = `biophysical_${gene}_${variant}_${uniprotId}`;
   const bpStart = performance.now();
 
   return getDeduplicatedPromise(bpKey, () => {
     const streamOrPromise = apiClient.streamBiophysicalAnalysis
       ? apiClient.streamBiophysicalAnalysis(
-          { gene, variant, uniprotId },
+          { gene, variant, uniprotId, ...(assembly ? { assembly } : {}) },
           (chunkData: any) => {
             if (signal.aborted) return;
             if (onChunk) onChunk(chunkData);
           },
           signal
         )
-      : apiClient.getBiophysicalAnalysis({ gene, variant, uniprotId }, signal);
+      : apiClient.getBiophysicalAnalysis({ gene, variant, uniprotId, ...(assembly ? { assembly } : {}) }, signal);
 
     return streamOrPromise
       .then((res: any) => {

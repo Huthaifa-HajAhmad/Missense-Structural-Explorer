@@ -331,7 +331,16 @@ export async function executeFullAnalysisWorkflow({
     // Stage 4: Multi-Model Biophysics Suite
     analysisSink.setLoadingStep("Step 3/4: Computing AI biophysical assessment...");
     const biophysicalPromise = fetchBiophysicalAnalysis(
-      { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot },
+      // `assembly` comes from the notation-translation step, which is the only place the
+      // build is known (it is parsed from an inline annotation, or defaults to GRCh38).
+      // Forwarding it lets the server route build-aware sources and skip the GRCh38-only
+      // ones instead of handing them another build's coordinates.
+      {
+        gene: targetGene,
+        variant: targetVariant,
+        uniprotId: targetUniprot,
+        ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {})
+      },
       apiClient,
       activeSignal,
       (chunkData: any) => {
