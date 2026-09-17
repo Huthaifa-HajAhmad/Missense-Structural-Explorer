@@ -37,6 +37,61 @@ The front-end is structured as a client-side Single Page Application (SPA) compi
    * Leverages a GPU-accelerated WebGL context to render complex PDB spatial coordinates.
    * Automatically initializes viewport states (e.g., lighting, representation models) and exposes structural selection hooks for highlighting particular amino acid indexes.
 
+### Evidence Surface Convention (main column vs. inspector)
+
+Every evidence tab renders into **two** surfaces: the main column (the decisive
+quantities) and the right-hand inspector (the interpretation and provenance).
+Read this before adding or changing anything under `components/evidence/` or
+`components/inspector/`.
+
+**1. Split by function, not by duplicating content.**
+
+| Surface | Carries | Does *not* carry |
+| :--- | :--- | :--- |
+| Main column | KPI values, scales, verdicts, interactive controls | Long-form prose, methodology, provenance |
+| Inspector | Interpretation prose, band explanations, glossary, limitations, provenance, copy/export | A *second derivation* of any number the main column already computes |
+
+**2. Anything the two surfaces must agree on lives in one pure module.**
+Derivations belong in `src/shared/<topic>Evidence.ts` — no React, no fetching,
+no client imports — and both panes call it. Precedent:
+
+| Topic | Shared derivation | Inspector |
+| :--- | :--- | :--- |
+| RNA splicing | `src/shared/splicingEvidence.ts` | `components/inspector/SplicingInspector.tsx` |
+| Residue shifts & Pockets | `src/shared/residueShiftEvidence.ts` | `components/inspector/ResidueShiftInspector.tsx` |
+
+When the derivation needs client-side inputs (a variant string to parse, a
+property table), put the resolver in `src/lib/` and have every surface call the
+resolver rather than the raw derivation — see `src/lib/residueShiftModel.ts`.
+
+This is not stylistic. These surfaces have already drifted: the Insights radar
+labelled an axis "Molecular Size" while the scales called the same axis "Residue
+Volume / Size", and it resolved its residue pair by re-parsing the variant string
+instead of reading the metadata the other two surfaces use — so for genomic or
+cDNA input it rendered nothing at all while the scales showed values. A
+duplicated derivation is how a UI grows two contradictory answers to one
+question.
+
+These are defaults, not prohibitions. The inspector **may** restate a number when
+that number is the subject of its sentence (the P2Rank pane quotes the distance
+and the ranking index because its prose is *about* them), and the main column may
+carry a one-line interpretation or a caveat when the alternative is an
+unexplained figure. What must not happen is a second *derivation*.
+
+This convention is about revealing an inspector **section**. Existing
+cross-pane navigation through props — `onNavigateToView` and
+`onSelectEvidenceTab` — is unchanged and should not be migrated.
+
+**3. Never render a degraded state as content.** A pipeline fallback string
+(`"⚠️ **Biochemical Shift Unavailable**"`) is a *state*, not prose. Classify it
+with the shared derivation and render an explicit unavailable/loading state.
+
+**4. Cross-pane navigation goes through `src/lib/inspectorFocus.ts`.** A
+main-column control that reveals an inspector section calls
+`requestInspectorFocus(INSPECTOR_SECTIONS.<id>)`; the inspector owns expanding,
+scrolling and focus. Section ids are declared as data in that module so a typo
+cannot fail silently.
+
 ### Rendering & Geometry Management
 * **Dynamic Sizing**: Rather than listening to fixed window dimensions, the viewport utilizes a `ResizeObserver` tracking the absolute dimensions of the container element, triggering `plugin.layout.setSettings` updates to prevent layout deformation.
 * **Selection Highlighting**: When a residue index is specified (e.g., residue `#273` in p53), Molstar builds structured representation queries. It renders the target residue in **Ball and Stick** or **Spacefill (VDW Spheres)** representations while coloring the remaining polymer backbone in transparent cartoon ribbons or custom thematic palettes (e.g. by Hydrophobicity or PLDDT score).

@@ -339,6 +339,20 @@ export function AppViews({
     }
   }, [viewMode, setFoldedResidueIndex, setSelectedResidueIndex]);
 
+  /**
+   * Shared by the main Residue Shifts tab and the inspector's pocket narrative:
+   * both surfaces offer the same retry, and both must target the same residue,
+   * chain and UniProt accession the pipeline already used.
+   */
+  const handleRetryPocket = useCallback(() => {
+    const resIdx = analysisState.result?.metadata?.residueIndex;
+    const targetChain = (analysisState.result?.metadata as any)?.chain || "A";
+    const targetUniprot = analysisState.result?.metadata?.uniprotId || uniprotId;
+    if (resIdx && actions?.fetchPocketInfo) {
+      actions.fetchPocketInfo(pdbText, targetChain, resIdx, targetUniprot);
+    }
+  }, [analysisState.result, uniprotId, actions, pdbText]);
+
   return (
     <main className="app-view flex-1 relative overflow-hidden transition-all duration-300">
       <Suspense fallback={
@@ -411,14 +425,7 @@ export function AppViews({
                   metrics={active3dModelTab === "esm3" ? esmFoldMetrics : foldxMetrics}
                   onOpenSettings={handleOpenSettingsMemo}
                   onRetryStructural={actions?.retryStructuralAnalysis}
-                  onRetryPocket={() => {
-                    const resIdx = analysisState.result?.metadata?.residueIndex;
-                    const targetChain = (analysisState.result?.metadata as any)?.chain || "A";
-                    const targetUniprot = analysisState.result?.metadata?.uniprotId || uniprotId;
-                    if (resIdx && actions?.fetchPocketInfo) {
-                      actions.fetchPocketInfo(pdbText, targetChain, resIdx, targetUniprot);
-                    }
-                  }}
+                  onRetryPocket={handleRetryPocket}
                   onSelectResidue={handleResidueClickMemo}
                   onNavigateToView={setMasterView}
                 />
@@ -637,6 +644,10 @@ export function AppViews({
               comparePdbData={resolvedStructureProps.comparePdbData}
               hasMutantModel={resolvedStructureProps.hasMutantModel}
               active3dModelTab={resolvedStructureProps.active3dModelTab}
+              computedPocket={computedPocket}
+              isPocketLoading={isPocketLoading}
+              pocketError={pocketError}
+              onRetryPocket={handleRetryPocket}
             />
           )}
         </div>

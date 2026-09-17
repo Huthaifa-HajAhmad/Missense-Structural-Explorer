@@ -11,11 +11,13 @@ import {
   BookOpen, 
   SlidersHorizontal 
 } from "lucide-react";
-import { AnalysisResult, PdbHomolog, EnergeticsData } from "../../types";
+import { AnalysisResult, PdbHomolog, EnergeticsData, PocketResult } from "../../types";
 import { MasterView } from "../MasterSidebar";
+import { revealInspectorSection, useInspectorFocus } from "../../lib/inspectorFocus";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
+import ResidueShiftInspector from "./ResidueShiftInspector";
 import SplicingInspector from "./SplicingInspector";
 import EnergeticsInspector from "./EnergeticsInspector";
 import LandscapeInspector from "./LandscapeInspector";
@@ -63,6 +65,11 @@ export interface ViewInspectorProps {
   hasMutantModel?: boolean;
   active3dModelTab?: "alphafold2" | "esm3";
   bFactorMetadata?: { source: string; details?: string } | null;
+  /** P2Rank output backing the Residue Shifts inspector's cavity narrative. */
+  computedPocket?: PocketResult | null;
+  isPocketLoading?: boolean;
+  pocketError?: string | null;
+  onRetryPocket?: () => void | Promise<void>;
 }
 
 const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> }> = {
@@ -121,7 +128,11 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   comparePdbData,
   hasMutantModel,
   active3dModelTab = "alphafold2",
-  bFactorMetadata
+  bFactorMetadata,
+  computedPocket = null,
+  isPocketLoading = false,
+  pocketError = null,
+  onRetryPocket
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("cs-inspector-collapsed") === "true";
@@ -194,6 +205,38 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       return next;
     });
   };
+
+  /** Scroll container for the inspector body, used to reveal focused sections. */
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Reveal a section on request from a main-column surface.
+   *
+   * A collapsed inspector mounts its body only after the state update commits, so
+   * the first lookup can legitimately miss. Retrying on the next few frames keeps
+   * this correct without a timer, and the bounded attempt count stops a stale or
+   * misspelled id from spinning.
+   */
+  const handleSectionFocusRequest = useCallback(
+    (sectionId: string) => {
+      setIsCollapsed(prev => {
+        if (!prev) return prev;
+        localStorage.setItem("cs-inspector-collapsed", "false");
+        return false;
+      });
+
+      let attempts = 0;
+      const attemptReveal = () => {
+        attempts += 1;
+        if (revealInspectorSection(sectionId, bodyRef.current)) return;
+        if (attempts < 6) requestAnimationFrame(attemptReveal);
+      };
+      requestAnimationFrame(attemptReveal);
+    },
+    []
+  );
+
+  useInspectorFocus(handleSectionFocusRequest);
 
   const headerInfo = VIEW_TITLES[activeView] || {
     title: "Inspector Panel",
@@ -287,7 +330,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       </div>
 
       {/* ── Dynamic Inspector Sub-view ── */}
-      <div className="flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
+      <div ref={bodyRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
         {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
           <StructureInspector
             analysisResult={analysisResult}
@@ -315,7 +358,21 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           />
         )}
 
-        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() !== "splicing" && (
+        {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "structure" && (
+          <ResidueShiftInspector
+            analysisResult={analysisResult}
+            computedPocket={computedPocket}
+            isPocketLoading={isPocketLoading}
+            pocketError={pocketError}
+            isBiophysicalLoading={isBiophysicalLoading}
+            isNarrativeLoading={isNarrativeLoading}
+            onRetryPocket={onRetryPocket}
+          />
+        )}
+
+        {activeView === "evidence" &&
+          (activeEvidenceTab || "").toLowerCase() !== "splicing" &&
+          (activeEvidenceTab || "").toLowerCase() !== "structure" && (
           <EvidenceInspector
             analysisResult={analysisResult}
             activeEvidenceTab={activeEvidenceTab}

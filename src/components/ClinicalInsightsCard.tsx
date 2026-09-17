@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useRef, useState, useLayoutEffect } from "react";
+import React, { memo, useCallback, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { getResidueContext, getCalibration } from "../shared/uncertainty";
 import { generateProvenanceManifest } from "../shared/provenance";
 import { 
@@ -71,11 +71,8 @@ function SafeResponsiveContainer({ children }: { children: React.ReactElement })
 import Markdown from "react-markdown";
 import { VARIANT_PRESETS, getNearestResidues } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
-import { 
-  AMINO_ACID_NAMES_MAP, 
-  AMINO_ACID_PROPERTIES, 
-  parseMutationResidues 
-} from "../useVariantAnalysis";
+import { resolveResidueShiftModel } from "../lib/residueShiftModel";
+import { deriveBiochemicalNarrative, getPropertyScaleDefinition } from "../shared/residueShiftEvidence";
 
 interface ClinicalInsightsCardProps {
   isDark: boolean;
@@ -142,63 +139,103 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     ? propIsNarrativeLoading
     : isClinicalLoading;
 
+  /**
+   * Shared with the Residue Shifts inspector: one classification of "is there a
+   * usable narrative", so the two views cannot disagree and neither prints the
+   * pipeline's fallback markdown as prose.
+   */
+  const biochemicalNarrative = useMemo(
+    () =>
+      deriveBiochemicalNarrative(analysisState.result?.insights?.biochemicalShift, {
+        isLoading: isNarrativeLoading
+      }),
+    [analysisState.result?.insights?.biochemicalShift, isNarrativeLoading]
+  );
+
   const renderResiduePropertyRadar = useCallback(() => {
-    try {
-      const parsed = parseMutationResidues(variant);
-      const wtData = AMINO_ACID_PROPERTIES[parsed.wt] || { hydrophobicity: 50, charge: 50, size: 50, polarity: 50 };
-      const mutData = AMINO_ACID_PROPERTIES[parsed.mut] || { hydrophobicity: 50, charge: 50, size: 50, polarity: 50 };
-      
-      const radarData = [
-        { subject: "Hydrophobicity", WT: wtData.hydrophobicity, MUT: mutData.hydrophobicity },
-        { subject: "Charge", WT: wtData.charge, MUT: mutData.charge },
-        { subject: "Molecular Size", WT: wtData.size, MUT: mutData.size },
-        { subject: "Polarity", WT: wtData.polarity, MUT: mutData.polarity }
-      ];
+    /*
+     * Resolved through the shared model rather than by re-parsing `variant` here.
+     *
+     * Two defects this closes:
+     *   1. Axis names were local to this chart ("Charge", "Molecular Size") and had
+     *      already drifted from the Residue Shifts tab ("Isoelectric Charge Index",
+     *      "Residue Volume / Size"). Both now read PROPERTY_SCALE_DEFINITIONS.
+     *   2. An unresolved residue fell back to a flat all-50 profile, which drew a
+     *      plausible-looking radar out of a parse failure. Missing data now reads as
+     *      missing data.
+     */
+    const model = resolveResidueShiftModel({
+      wildType: analysisState.result?.metadata?.wildType,
+      mutant: analysisState.result?.metadata?.mutant,
+      variant
+    });
 
-      const wtColor = "var(--cs-good)";
-      const mutColor = "var(--cs-danger)";
-
+    if (!model.contrast) {
       return (
-        <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-3 rounded-lg border cs-surface-card transition-colors">
-          <div className="w-full sm:w-[50%] h-[155px]">
-            <SafeResponsiveContainer>
-              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                <PolarGrid stroke={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)"} />
-                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: "var(--cs-text-secondary)" }} />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8, fill: "var(--cs-text-muted)" }} />
-                <Radar name="Wild-Type" dataKey="WT" stroke={wtColor} fill={wtColor} fillOpacity={0.12} />
-                <Radar name="Mutant" dataKey="MUT" stroke={mutColor} fill={mutColor} fillOpacity={0.12} />
-                <Tooltip contentStyle={{ fontSize: 10, background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} />
-              </RadarChart>
-            </SafeResponsiveContainer>
-          </div>
-          <div className="w-full sm:w-[45%] flex flex-col gap-1.5 text-[10.5px]">
-            <div className="flex items-center gap-2 pb-1 border-b cs-border-card-sep border-dashed">
-              <span className="w-2.5 h-2.5 rounded" style={{ background: wtColor }}></span>
-              <span style={{ color: "var(--cs-text-primary)" }}>Wild-Type ({parsed.wt})</span>
-            </div>
-            <div className="flex items-center gap-2 pb-2">
-              <span className="w-2.5 h-2.5 rounded" style={{ background: mutColor }}></span>
-              <span style={{ color: "var(--cs-text-primary)" }}>Mutant ({parsed.mut})</span>
-            </div>
-            <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
-              Plots isoelectric properties on a normalized 0–100 scale (0 = negative, 50 = neutral, 100 = positive). Overlapping profiles indicate conservative substitutions, whereas deviations support molecular/biophysical disruption.
-            </p>
-            <div className="mt-1.5 pt-1.5 border-t cs-border-card-sep border-dashed text-[8.5px] leading-normal" style={{ color: "var(--cs-text-muted)" }}>
-              <strong>Primary Literature Scales:</strong>
-              <ul className="list-disc pl-3 mt-0.5 space-y-0.5">
-                <li>Hydrophobicity: Kyte-Doolittle Hydropathy Index (J Mol Biol, 1982)</li>
-                <li>Molecular Size: Amino acid van der Waals volume (Science, 1974)</li>
-                <li>Charge & Polarity: IUPAC classification at pH 7.4</li>
-              </ul>
-            </div>
-          </div>
+        <div
+          className="p-3 rounded-lg border text-[11px] leading-relaxed font-sans"
+          style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}
+        >
+          Residue property comparison is unavailable: the wild-type or variant residue could not be resolved to the
+          normalised amino-acid scales. No profile is plotted, because a defaulted one would misrepresent the substitution.
         </div>
       );
-    } catch {
-      return null;
     }
-  }, [variant, isDark]);
+
+    const radarData = model.contrast.rows.map(row => ({
+      subject: getPropertyScaleDefinition(row.key).shortLabel,
+      WT: row.wildTypeValue,
+      MUT: row.mutantValue
+    }));
+
+    const wtColor = "var(--cs-good)";
+    const mutColor = "var(--cs-danger)";
+
+    return (
+      <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-3 rounded-lg border cs-surface-card transition-colors">
+        <div className="w-full sm:w-[50%] h-[155px]">
+          <SafeResponsiveContainer>
+            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+              <PolarGrid stroke={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)"} />
+              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: "var(--cs-text-secondary)" }} />
+              <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8, fill: "var(--cs-text-muted)" }} />
+              <Radar name="Wild-Type" dataKey="WT" stroke={wtColor} fill={wtColor} fillOpacity={0.12} />
+              <Radar name="Mutant" dataKey="MUT" stroke={mutColor} fill={mutColor} fillOpacity={0.12} />
+              <Tooltip contentStyle={{ fontSize: 10, background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} />
+            </RadarChart>
+          </SafeResponsiveContainer>
+        </div>
+        <div className="w-full sm:w-[45%] flex flex-col gap-1.5 text-[10.5px]">
+          <div className="flex items-center gap-2 pb-1 border-b cs-border-card-sep border-dashed">
+            <span className="w-2.5 h-2.5 rounded" style={{ background: wtColor }}></span>
+            <span style={{ color: "var(--cs-text-primary)" }}>Wild-Type ({model.wildTypeLabel})</span>
+          </div>
+          <div className="flex items-center gap-2 pb-2">
+            <span className="w-2.5 h-2.5 rounded" style={{ background: mutColor }}></span>
+            <span style={{ color: "var(--cs-text-primary)" }}>Mutant ({model.mutantLabel})</span>
+          </div>
+          <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
+            Plots the same normalised 0&ndash;100 descriptors as the Residue Shifts &amp; Pockets tab. Overlapping
+            profiles indicate conservative substitutions; deviations show which chemical axis moved. The axes are fixed
+            descriptors of the residue pair, not predictions of effect.
+          </p>
+          <div className="mt-1.5 pt-1.5 border-t cs-border-card-sep border-dashed text-[8.5px] leading-normal" style={{ color: "var(--cs-text-muted)" }}>
+            <strong>Primary Literature Scales:</strong>
+            <ul className="list-disc pl-3 mt-0.5 space-y-0.5">
+              {model.contrast.rows.map(row => {
+                const definition = getPropertyScaleDefinition(row.key);
+                return (
+                  <li key={row.key}>
+                    {definition.shortLabel}: {definition.source}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }, [variant, isDark, analysisState.result?.metadata?.wildType, analysisState.result?.metadata?.mutant]);
 
   const handleExportJSON = () => {
     if (!analysisState.result) return;
@@ -539,9 +576,19 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                         <Activity className="w-3.5 h-3.5" />
                         <span>Biochemical Shift</span>
                       </div>
+                      {/* Rendered through the shared derivation so the degraded case
+                          ("Warning: Biochemical Shift Unavailable") reads as a status
+                          instead of printing its markdown markers, and so this view
+                          and the Residue Shifts inspector cannot disagree about
+                          whether a narrative exists. */}
                       <p className={`text-[12px] leading-relaxed font-sans pl-5 transition-colors ${classTextBody}`}>
-                        {analysisState.result.insights?.biochemicalShift || "Rule-based amino acid property shifts computed. Detailed AI synthesis unavailable."}
+                        {biochemicalNarrative.prose || biochemicalNarrative.detail || "Rule-based amino acid property shifts computed. Detailed AI synthesis unavailable."}
                       </p>
+                      {biochemicalNarrative.state === "unavailable" && (
+                        <p className="text-[10px] font-mono pl-5 pt-0.5" style={{ color: "var(--cs-text-muted)" }}>
+                          State: {biochemicalNarrative.badge}
+                        </p>
+                      )}
                     </div>
 
                     {/* Structural Impact Section */}

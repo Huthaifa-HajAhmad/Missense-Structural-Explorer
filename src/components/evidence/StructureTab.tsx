@@ -1,8 +1,24 @@
-import React from "react";
-import { Info, ShieldAlert, RotateCw, Box } from "lucide-react";
+import React, { useMemo } from "react";
+import { Info, ShieldAlert, RotateCw, Box, PanelRightOpen } from "lucide-react";
 import { TabComponentProps } from "./types";
-import { AMINO_ACID_PROPERTIES, AMINO_ACID_NAMES_MAP } from "../../useVariantAnalysis";
-import { AMINO_ACID_3_TO_1 } from "../../aminoAcids";
+import { AMINO_ACID_NAMES_MAP } from "../../useVariantAnalysis";
+import { BiochemicalContrastScales } from "./ContrastScale";
+import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
+import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";
+import { derivePocketNarrative } from "../../shared/residueShiftEvidence";
+
+/**
+ * Data-source badge for the pocket section.
+ *
+ * A lookup instead of a nested ternary (prohibited by the repository review
+ * rules), and it keeps the four pipeline states distinguishable at a glance.
+ */
+function pocketSourceBadge(pocket: TabComponentProps["computedPocket"]): string {
+  if (!pocket) return "Standby";
+  if (pocket.status === "success") return "P2Rank ML";
+  if (pocket.status === "none_detected") return "No Pocket Detected";
+  return "Model Offline";
+}
 
 export function StructureTab({
   analysisState,
@@ -16,36 +32,42 @@ export function StructureTab({
   onNavigateToView
 }: TabComponentProps) {
   const result = analysisState.result;
+  const variantResidueIndex = result?.metadata?.residueIndex ?? null;
+
+  /**
+   * The contrast model is derived by the shared resolver, which the Residue Shifts
+   * inspector and the Insights radar also call — so the scales, the sidebar prose
+   * and the radar cannot describe different substitutions or label the axes
+   * differently.
+   */
+  const model = useMemo(
+    () =>
+      resolveResidueShiftModel({
+        wildType: result?.metadata?.wildType,
+        mutant: result?.metadata?.mutant,
+        variant: result?.metadata?.variant
+      }),
+    [result?.metadata?.wildType, result?.metadata?.mutant, result?.metadata?.variant]
+  );
+
+  const contrast = model.contrast;
+  const normalWt = model.wildTypeLabel;
+  const normalMut = model.mutantLabel;
+  const wt1 = model.wildTypeCode;
+  const mut1 = model.mutantCode;
+
+  const pocketNarrative = useMemo(
+    () =>
+      derivePocketNarrative(computedPocket, {
+        isLoading: isPocketLoading,
+        error: pocketError,
+        variantResidueIndex,
+        variantResidueChain: (result?.metadata as { chain?: string } | undefined)?.chain ?? null
+      }),
+    [computedPocket, isPocketLoading, pocketError, variantResidueIndex, result?.metadata]
+  );
+
   if (!result) return null;
-
-  const normalWt = result.metadata?.wildType ? (result.metadata.wildType.charAt(0).toUpperCase() + result.metadata.wildType.slice(1).toLowerCase()) : "";
-  const normalMut = result.metadata?.mutant ? (result.metadata.mutant.charAt(0).toUpperCase() + result.metadata.mutant.slice(1).toLowerCase()) : "";
-  const wt1 = normalWt.length === 3 ? AMINO_ACID_3_TO_1[normalWt] : normalWt;
-  const mut1 = normalMut.length === 3 ? AMINO_ACID_3_TO_1[normalMut] : normalMut;
-  const wtProp = wt1 ? AMINO_ACID_PROPERTIES[wt1] : null;
-  const mutProp = mut1 ? AMINO_ACID_PROPERTIES[mut1] : null;
-
-  const renderContrastBar = (wtVal: number, mutVal: number) => {
-    const minVal = Math.min(wtVal, mutVal);
-    const maxVal = Math.max(wtVal, mutVal);
-    const isDecrease = wtVal > mutVal;
-    return (
-      <div className="relative h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-        <div 
-          className="absolute h-full left-0 opacity-80" 
-          style={{ width: `${minVal}%`, backgroundColor: "var(--cs-accent-clay, #c46849)" }} 
-        />
-        <div 
-          className="absolute h-full" 
-          style={{ 
-            left: `${minVal}%`, 
-            width: `${maxVal - minVal}%`,
-            backgroundColor: isDecrease ? "var(--cs-text-success, #10b981)" : "var(--cs-text-danger, #f43f5e)"
-          }} 
-        />
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-4">
@@ -55,7 +77,7 @@ export function StructureTab({
           Residue biochemical shifts, burial status, packing density, and P2Rank ligand-binding pocket proximity.
         </p>
       </div>
-      
+
       <div className="grid grid-cols-2 gap-4">
         <div className="p-3 rounded-lg border flex flex-col items-center justify-center" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
           <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Wild-Type Residue</span>
@@ -74,50 +96,9 @@ export function StructureTab({
         </div>
       </div>
 
-      {wtProp && mutProp && (
-        <div className="p-4 rounded-lg border space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-          <span className="block text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Biochemical Property Contrast (Scale: 0-100)</span>
-          
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span style={{ color: "var(--cs-text-secondary)" }}>Hydrophobicity</span>
-              <span className="font-bold">{wtProp.hydrophobicity} → {mutProp.hydrophobicity}</span>
-            </div>
-            {renderContrastBar(wtProp.hydrophobicity, mutProp.hydrophobicity)}
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span style={{ color: "var(--cs-text-secondary)" }}>Residue Volume / Size</span>
-              <span className="font-bold">{wtProp.size} → {mutProp.size}</span>
-            </div>
-            {renderContrastBar(wtProp.size, mutProp.size)}
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span style={{ color: "var(--cs-text-secondary)" }}>Polarity</span>
-              <span className="font-bold">{wtProp.polarity} → {mutProp.polarity}</span>
-            </div>
-            {renderContrastBar(wtProp.polarity, mutProp.polarity)}
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span style={{ color: "var(--cs-text-secondary)", cursor: "help" }} title="Normalized scale: 0 = negative, 50 = neutral, 100 = positive">Isoelectric Charge Index ⓘ</span>
-              <span className="font-bold">{wtProp.charge} → {mutProp.charge}</span>
-            </div>
-            {renderContrastBar(wtProp.charge, mutProp.charge)}
-          </div>
-        </div>
-      )}
-
-      {result.insights?.biochemicalShift && (
-        <div className="p-3 rounded-lg border text-[12px] font-sans leading-relaxed" style={{ background: "rgba(196,104,73,0.05)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }}>
-          <span className="font-bold block uppercase text-[11px] mb-1 tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Biochemical Shift Narrative:</span>
-          {result.insights.biochemicalShift}
-        </div>
-      )}
+      {/* Always rendered: the component owns the "scales unavailable" state, so an
+          unresolved residue reads as missing data rather than as an absent card. */}
+      <BiochemicalContrastScales contrast={contrast} isLoading={analysisState.isLoading} />
 
       {(result.disruptionPredictor?.burialStatus !== undefined || result.disruptionPredictor?.neighborCount !== undefined || result.disruptionPredictor?.rsa !== undefined) ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -197,15 +178,7 @@ export function StructureTab({
               <Info className="w-3.5 h-3.5" />
             </button>
           </div>
-          <span className="badge-data-source">
-            {!computedPocket
-              ? "Standby"
-              : computedPocket.status === "success"
-                ? "P2Rank ML"
-                : computedPocket.status === "none_detected"
-                  ? "No Pocket Detected"
-                  : "Model Offline"}
-          </span>
+          <span className="badge-data-source">{pocketSourceBadge(computedPocket)}</span>
         </div>
 
         {isPocketLoading ? (
@@ -236,7 +209,7 @@ export function StructureTab({
               <div className="metric-card">
                 <span className="metric-card-label">Pocket Distance</span>
                 <span className={`metric-card-value ${
-                  computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance < 10
+                  pocketNarrative.proximity.band === "lining" || pocketNarrative.proximity.band === "proximal"
                     ? "text-[var(--cs-text-danger)]"
                     : ""
                 }`}>
@@ -244,26 +217,42 @@ export function StructureTab({
                     ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
                     : "N/A"}
                 </span>
-                <span className="metric-card-desc">Distance to pocket centroid</span>
+                <span className="metric-card-desc">{pocketNarrative.proximity.label} &middot; distance to pocket centroid</span>
               </div>
 
               <div className="metric-card">
-                <span className="metric-card-label">Binding Probability</span>
+                <span className="metric-card-label">Cavity Ranking Index</span>
                 <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
-                  {computedPocket.status === "success" ? `${computedPocket.pocketScore}%` : "N/A"}
+                  {computedPocket.status === "success" && pocketNarrative.ranking.score !== null
+                    ? `${pocketNarrative.ranking.score} / 100`
+                    : "N/A"}
                 </span>
-                <span className="metric-card-desc">P2Rank affinity index</span>
+                {/* Not "Binding Probability": the runner writes a rescaled raw score
+                    into this field whenever P2Rank's probability rounds to zero, so
+                    a bare "%" would assert a calibration the payload cannot vouch for. */}
+                <span className="metric-card-desc">{pocketNarrative.ranking.label} &middot; P2Rank ranking index</span>
               </div>
 
               <div className="metric-card">
-                <span className="metric-card-label">Pocket Volume</span>
-                <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
-                  {computedPocket.pocketVolume ? `${computedPocket.pocketVolume} Å³` : "N/A"}
+                <span className="metric-card-label">
+                  {pocketNarrative.volume.isMeasured ? "Pocket Volume" : "Cavity Surface"}
                 </span>
+                <span className="metric-card-value" style={{ color: "var(--cs-accent)" }}>
+                  {pocketNarrative.volume.isMeasured && pocketNarrative.volume.volume !== null
+                    ? `${pocketNarrative.volume.volume.toLocaleString()} Å³`
+                    : pocketNarrative.volume.surfacePoints !== null
+                      ? `${pocketNarrative.volume.surfacePoints} pts`
+                      : "N/A"}
+                </span>
+                {/* Å³ is printed only when an engine reported a measured volume. The
+                    production payload's "volume" is sas_points × 10, so quoting it as
+                    a physical volume would manufacture a unit (see the shared module). */}
                 <span className="metric-card-desc">
-                  {computedPocket.sasPoints
-                    ? `${computedPocket.sasPoints} SAS points${computedPocket.surfaceAtoms ? ` · ${computedPocket.surfaceAtoms} surf atoms` : ""}`
-                    : "Spatial cavity volume"}
+                  {pocketNarrative.volume.isMeasured
+                    ? pocketNarrative.volume.label
+                    : pocketNarrative.volume.surfacePoints !== null
+                      ? "SA surface points · no volume reported"
+                      : "No cavity size reported"}
                 </span>
               </div>
             </div>
@@ -297,14 +286,25 @@ export function StructureTab({
             <div className="p-3.5 rounded-xl border space-y-2.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
               <div className="flex justify-between items-center text-xs">
                 <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Likely Co-Factor / Target Ligand:</span>
-                <span className="font-semibold font-mono text-[12px]" style={{ color: "var(--cs-text-primary)" }}>{computedPocket.likelyCofactor || "None detected"}</span>
+                <span className="font-semibold font-mono text-[12px]" style={{ color: "var(--cs-text-primary)" }}>
+                  {pocketNarrative.cofactor.name || "None recorded"}
+                </span>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="font-medium font-sans text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>Spatial Classification:</span>
-                <span className="badge-data-source">
-                  {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined && computedPocket.pocketDistance <= 8.0
-                    ? "ACTIVE_SITE_PROXIMATE"
-                    : "DISTAL_SURFACE"}
+                <span className="flex items-center gap-1.5">
+                  <span className="badge-data-source" title={pocketNarrative.classification.detail}>
+                    {pocketNarrative.classification.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.residueShiftPocket)}
+                    className="p-1 rounded border border-cs-border text-cs-text-muted hover:text-cs-accent-clay hover:border-cs-accent-clay/40 transition-colors cursor-pointer"
+                    title="Read the cavity interpretation in the inspector"
+                    aria-label="Open the cavity interpretation in the inspector"
+                  >
+                    <PanelRightOpen className="w-3 h-3" />
+                  </button>
                 </span>
               </div>
             </div>
@@ -312,9 +312,17 @@ export function StructureTab({
             {computedPocket.pocketResidues && computedPocket.pocketResidues.length > 0 && (
               <div className="space-y-2 mt-3.5">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
-                    Pocket Lining Residues (Top {Math.min(8, computedPocket.pocketResidues.length)})
-                  </h4>
+                  <span className="flex items-baseline gap-2 min-w-0">
+                    <h4 className="text-[11px] font-medium uppercase tracking-wider font-sans" style={{ color: "var(--cs-accent-clay)" }}>
+                      Pocket Lining Residues (Top {Math.min(8, computedPocket.pocketResidues.length)})
+                    </h4>
+                    {/* Each chip's distance is measured to the variant residue, not to
+                        the cavity. Without saying so, the numbers read as depth into
+                        the pocket. */}
+                    <span className="text-[9.5px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                      distance to this residue
+                    </span>
+                  </span>
                   {onNavigateToView && (
                     <button
                       type="button"
@@ -332,7 +340,7 @@ export function StructureTab({
                   )}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
-                  {computedPocket.pocketResidues.slice(0, 8).map((res: any) => (
+                  {computedPocket.pocketResidues.slice(0, 8).map(res => (
                     <button
                       key={`${res.name}-${res.index}`}
                       type="button"
