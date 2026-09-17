@@ -232,27 +232,82 @@
   margin-top: 8px;
 }
 
-/* GLOBAL VARIANT HEADER */
+/* ============================================================
+   GLOBAL VARIANT HEADER
+   Two bands: (1) the variant identity, with its lineage identifiers
+   pulled to the right edge; (2) the gnomAD v2 constraint rail.
+   Every metric renders its reference ranges as a banded threshold
+   track, so the "Normal: … / Severe: …" prose the old cards spelled
+   out is now read off the axis instead of parsed as a sentence.
+   Layout is container-query driven — the sidebar is resizable, so the
+   rail must reflow on its own width rather than the viewport's.
+   ============================================================ */
 .variant-header {
   position: sticky;
   top: 0;
   z-index: 10;
   background: var(--cs-surface);
   border-bottom: 1px solid var(--cs-border);
-  padding: 12px 20px 14px;
+  padding: 10px 20px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   flex-shrink: 0;
+  container-type: inline-size;
+
+  /* Constraint tone palette. Scoped to the header so it maps 1:1 onto the
+     gnomAD severity bands without adding new globals to the design system.
+     The -fg values clear WCAG AA on --cs-surface-2, which the raw
+     --cs-warn / --cs-good roles do not at this text size. */
+  --vh-good-fg: #166534;
+  --vh-warn-fg: #92400E;
+  --vh-path-fg: #B91C1C;
+  --vh-clay-fg: #9C4A2F;
+  --vh-good-soft: rgba(22, 163, 74, 0.12);
+  --vh-warn-soft: rgba(217, 119, 6, 0.14);
+  --vh-path-soft: rgba(220, 38, 38, 0.12);
+  --vh-clay-soft: rgba(196, 104, 73, 0.13);
+  --vh-muted-soft: rgba(25, 24, 22, 0.06);
+  --vh-track: #E8E4DD;
+  --vh-tick: #C6C0B4;
+  --vh-band-good: rgba(22, 163, 74, 0.20);
+  --vh-band-warn: rgba(217, 119, 6, 0.26);
+  --vh-band-path: rgba(220, 38, 38, 0.22);
 }
 
-/* Tier 1: Gene symbol + HGVS row */
+.dark .variant-header {
+  --vh-good-fg: #4ADE80;
+  --vh-warn-fg: #FBBF24;
+  --vh-path-fg: #F87171;
+  --vh-clay-fg: #E9A183;
+  --vh-good-soft: rgba(74, 222, 128, 0.14);
+  --vh-warn-soft: rgba(251, 191, 36, 0.14);
+  --vh-path-soft: rgba(248, 113, 113, 0.14);
+  --vh-clay-soft: rgba(233, 161, 131, 0.14);
+  --vh-muted-soft: rgba(255, 255, 255, 0.08);
+  --vh-track: #35322D;
+  --vh-tick: #4C4740;
+  --vh-band-good: rgba(74, 222, 128, 0.30);
+  --vh-band-warn: rgba(251, 191, 36, 0.28);
+  --vh-band-path: rgba(248, 113, 113, 0.30);
+}
+
+/* ── Band 1 · variant identity + lineage identifiers ── */
 .variant-header-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  min-width: 0;
+}
+
+.variant-header-identity {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  flex-wrap: wrap;
+  min-width: 0;
 }
+
 .variant-header-gene {
   font-family: var(--cs-font-serif);
   font-size: var(--cs-text-display);
@@ -261,110 +316,111 @@
   line-height: 1.15;
   letter-spacing: -0.01em;
 }
+
 .variant-header-hgvs {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-family: var(--cs-font-mono);
   font-size: var(--cs-text-numeric);
-  font-weight: 400;
+  font-weight: 600;
   color: var(--cs-text-secondary);
   line-height: 1.4;
-}
-
-/* Tier 2: Semantic cluster row */
-.variant-header-clusters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 6px 10px;
-  margin-top: 4px;
-}
-
-/* One semantic group (Identifiers | Constraint | Functional) */
-.variant-header-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  padding-right: 10px;
-  border-right: 1px solid var(--cs-border-subtle);
-}
-.variant-header-group:last-child {
-  border-right: none;
-  padding-right: 0;
-}
-
-/* ── Pill badge system ── */
-.vh-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px 3px 7px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 11px;
-  line-height: 1.4;
-  white-space: nowrap;
-  transition: opacity 120ms ease;
-}
-
-/* Pill modifier colours */
-.vh-pill--path  { background: var(--cs-danger-soft);  color: var(--cs-danger);       border-color: rgba(220, 38, 38, 0.2); }
-.vh-pill--warn  { background: var(--cs-warn-soft);    color: #92400E;                border-color: rgba(217, 119, 6, 0.25); }
-.vh-pill--ben   { background: var(--cs-good-soft);    color: #166534;                border-color: rgba(22, 163, 74, 0.2); }
-.vh-pill--mag   { background: var(--cs-accent-mag-soft); color: var(--cs-accent-mag); border-color: rgba(217, 70, 170, 0.2); }
-.vh-pill--muted { background: var(--cs-surface-2);    color: var(--cs-text-muted);   border-color: var(--cs-border-subtle); }
-
-/* Dark mode overrides */
-.dark .vh-pill--warn  { color: #FBBF24; border-color: rgba(251, 191, 36, 0.25); }
-.dark .vh-pill--ben   { color: #4ADE80; border-color: rgba(74, 222, 128, 0.25); }
-
-/* Splice proximity alert pulse */
-.vh-pill--pulse { animation: vh-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-@keyframes vh-pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.65; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .vh-pill--pulse {
-    animation: none;
-  }
-}
-
-/* Pill sub-elements */
-.vh-pill-label {
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--cs-text-secondary);
-  opacity: 0.9;
-  font-family: var(--cs-font-mono);
-}
-.vh-pill-value {
-  font-size: 11.5px;
-  font-weight: 600;
-  font-family: var(--cs-font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* Micro status tag inside a pill */
-.vh-tag {
+.vh-identifiers {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Park the identifiers against the right edge — that half of the header row is
+   otherwise empty. Below this width they stay left-aligned so a wrapped chip
+   row does not jump to the far side of the header. */
+@container (min-width: 760px) {
+  .vh-identifiers {
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+}
+
+/* ── Identifier chip ── */
+.vh-chip {
   display: inline-flex;
   align-items: center;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 9px;
-  font-weight: 600;
+  gap: 6px;
+  height: 24px;
+  padding: 0 7px 0 8px;
+  border-radius: var(--cs-radius-badge);
+  border: 1px solid var(--cs-border-subtle);
+  background: var(--cs-surface-2);
+  color: var(--cs-text-secondary);
+  white-space: nowrap;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+}
+.vh-chip:hover,
+.vh-chip:focus-within {
+  border-color: var(--cs-border);
+}
+
+.vh-chip-icon {
+  flex-shrink: 0;
+  color: var(--cs-text-muted);
+}
+
+.vh-chip-key {
+  font-family: var(--cs-font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  background: rgba(0, 0, 0, 0.07);
-  color: inherit;
-  opacity: 0.85;
-  font-family: var(--cs-font-mono);
+  color: var(--cs-text-muted);
 }
-.dark .vh-tag { background: rgba(255, 255, 255, 0.12); }
+
+.vh-chip-value {
+  font-family: var(--cs-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+}
+
+.vh-chip-tag {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.vh-chip-tag[data-tone="good"]  { background: var(--vh-good-soft);  color: var(--vh-good-fg); }
+.vh-chip-tag[data-tone="warn"]  { background: var(--vh-warn-soft);  color: var(--vh-warn-fg); }
+.vh-chip-tag[data-tone="path"]  { background: var(--vh-path-soft);  color: var(--vh-path-fg); }
+.vh-chip-tag[data-tone="clay"]  { background: var(--vh-clay-soft);  color: var(--vh-clay-fg); }
+.vh-chip-tag[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--cs-text-muted); }
+
+/* Splice-junction proximity — rare, actionable, and the only alert in the row.
+   The pulse is a state cue, not an idle animation: it stops under
+   prefers-reduced-motion and the colour/label carry the same signal statically. */
+.vh-chip--alert {
+  background: var(--vh-path-soft);
+  border-color: rgba(220, 38, 38, 0.24);
+  animation: vh-alert-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.vh-chip--alert .vh-chip-icon,
+.vh-chip--alert .vh-chip-value {
+  color: var(--vh-path-fg);
+}
+@keyframes vh-alert-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.62; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vh-chip--alert { animation: none; }
+}
 
 /* Copy / external-link icon button (WCAG 2.5.8 compliant hit target) */
 .vh-icon-btn {
@@ -373,7 +429,6 @@
   align-items: center;
   justify-content: center;
   padding: 2px;
-  margin-left: 2px;
   min-width: 18px;
   min-height: 18px;
   border: none;
@@ -381,9 +436,9 @@
   color: inherit;
   cursor: pointer;
   opacity: 0.65;
-  border-radius: 3px;
+  border-radius: 4px;
   text-decoration: none;
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms ease-out, background 120ms ease-out;
   flex-shrink: 0;
 }
 .vh-icon-btn::after {
@@ -393,182 +448,259 @@
   min-width: 24px;
   min-height: 24px;
 }
-.vh-icon-btn:hover  { opacity: 1; }
-.vh-icon-btn:active { transform: scale(0.96); opacity: 1; }
+.vh-icon-btn:hover  { opacity: 1; background: var(--vh-muted-soft); }
+.vh-icon-btn:active { opacity: 1; transform: scale(0.96); }
 .vh-icon-btn:focus-visible {
   outline: 2px solid var(--cs-accent);
   outline-offset: 2px;
 }
 
-/* ── List-style gnomAD v2 constraint cluster ── */
-.vh-constraint-cluster {
+/* Copy affordances stay out of the way until the chip is hovered or focused.
+   The button keeps its box (no layout shift) and :focus-within reveals it, so
+   keyboard users still see where they are. Touch keeps them always visible. */
+@media (hover: hover) and (pointer: fine) {
+  .variant-header .vh-icon-btn { opacity: 0; }
+  .vh-chip:hover .vh-icon-btn,
+  .vh-chip:focus-within .vh-icon-btn,
+  .variant-header-hgvs:hover .vh-icon-btn,
+  .variant-header-hgvs:focus-within .vh-icon-btn { opacity: 0.7; }
+  .variant-header .vh-icon-btn:hover,
+  .variant-header .vh-icon-btn:focus-visible { opacity: 1; }
+}
+
+/* ── Band 2 · gnomAD v2 constraint rail ──
+   A single ledger: source label + three metric tracks. The 1px grid gaps sit on a
+   border-coloured backdrop, so the dividers draw themselves at any reflow width
+   and no cell needs its own border bookkeeping. */
+.vh-rail {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--cs-border-subtle);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.vh-rail > li {
+  background: var(--cs-surface-2);
+}
+
+.vh-rail > li.vh-rail-meta {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding-left: 10px;
-  border-left: 1px solid var(--cs-border-subtle);
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--cs-bg-subtle);
 }
 
-.vh-constraint-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.vh-constraint-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-family: var(--cs-font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  background: var(--cs-surface-2);
-  color: var(--cs-text-secondary);
-  border: 1px solid var(--cs-border-subtle);
-}
-
-.vh-constraint-title {
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--cs-text-secondary);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.vh-constraint-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: stretch;
-}
-
-/* Individual metric card in list style */
-.vh-constraint-card {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 4px 9px 5px;
-  border-radius: 6px;
-  background: var(--cs-surface-2);
-  border: 1px solid var(--cs-border-subtle);
-  transition: border-color 150ms ease-out, background 150ms ease-out;
-}
-.vh-constraint-card:hover {
-  border-color: var(--cs-border);
-}
-
-.vh-constraint-card-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-}
-
-.vh-constraint-name {
-  font-family: var(--cs-font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--cs-text-primary);
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-
-.vh-score-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: var(--cs-font-mono);
-  font-size: 11.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.3;
-}
-
-.vh-status-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 5px;
-  border-radius: 3px;
+.vh-rail-src {
   font-family: var(--cs-font-mono);
   font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  border: 1px solid transparent;
+  color: var(--cs-text-muted);
+}
+
+.vh-rail-scope {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--cs-text-secondary);
+}
+
+/* ── One metric: label + value, reference track, threshold axis, verdict ── */
+.vh-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 14px 9px;
+  min-width: 0;
+}
+
+.vh-metric-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.vh-metric-label {
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vh-metric-value {
+  font-family: var(--cs-font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+  white-space: nowrap;
+}
+.vh-metric-value[data-tone="good"]  { color: var(--vh-good-fg); }
+.vh-metric-value[data-tone="warn"]  { color: var(--vh-warn-fg); }
+.vh-metric-value[data-tone="path"]  { color: var(--vh-path-fg); }
+.vh-metric-value[data-tone="muted"] { color: var(--cs-text-muted); }
+
+/* Threshold track: reference bands + tick marks + the observed value. */
+.vh-scale {
+  position: relative;
+  height: 6px;
+  margin-top: 1px;
+}
+
+.vh-scale-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--cs-radius-pill);
+  background: var(--vh-track);
+  overflow: hidden;
+}
+
+.vh-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.vh-band[data-tone="good"] { background: var(--vh-band-good); }
+.vh-band[data-tone="warn"] { background: var(--vh-band-warn); }
+.vh-band[data-tone="path"] { background: var(--vh-band-path); }
+
+/* Unmeasured metrics keep their reference zones visible but recede. */
+.vh-scale[data-empty="true"] .vh-band { opacity: 0.45; }
+
+.vh-tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--vh-tick);
+}
+
+.vh-marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 2.5px solid var(--cs-surface-2);
+  box-shadow: 0 1px 2px rgba(25, 24, 22, 0.18);
+}
+.vh-marker[data-tone="good"]  { background: var(--vh-good-fg); }
+.vh-marker[data-tone="warn"]  { background: var(--vh-warn-fg); }
+.vh-marker[data-tone="path"]  { background: var(--vh-path-fg); }
+.vh-marker[data-tone="muted"] { background: var(--cs-text-muted); }
+.dark .vh-marker { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+
+/* Threshold numbers, pinned under the tick they belong to. */
+.vh-axis {
+  position: relative;
+  height: 12px;
+  margin-top: -1px;
+}
+
+.vh-axis-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
   white-space: nowrap;
 }
 
-/* Status tag modifiers */
-.vh-status--path {
-  background: var(--cs-danger-soft);
-  color: var(--cs-danger);
-  border-color: rgba(220, 38, 38, 0.2);
-}
-.vh-status--warn {
-  background: var(--cs-warn-soft);
-  color: #92400E;
-  border-color: rgba(217, 119, 6, 0.25);
-}
-.dark .vh-status--warn {
-  color: #FBBF24;
-  border-color: rgba(251, 191, 36, 0.25);
-}
-.vh-status--ben {
-  background: var(--cs-good-soft);
-  color: #166534;
-  border-color: rgba(22, 163, 74, 0.2);
-}
-.dark .vh-status--ben {
-  color: #4ADE80;
-  border-color: rgba(74, 222, 128, 0.25);
-}
-.vh-status--muted {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--cs-text-muted);
-  border-color: var(--cs-border-subtle);
-}
-.dark .vh-status--muted {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-/* Bottom line: normal ranges & benchmarks (WCAG AA compliant contrast) */
-.vh-constraint-card-bot {
+.vh-foot {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  color: var(--cs-text-secondary);
-  line-height: 1.3;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-height: 15px;
+  margin-top: -2px;
 }
 
-@media (max-width: 768px) {
-  .vh-constraint-card-top,
-  .vh-constraint-card-bot {
-    flex-wrap: wrap;
+.vh-verdict {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.vh-verdict[data-tone="good"]  { background: var(--vh-good-soft);  color: var(--vh-good-fg); }
+.vh-verdict[data-tone="warn"]  { background: var(--vh-warn-soft);  color: var(--vh-warn-fg); }
+.vh-verdict[data-tone="path"]  { background: var(--vh-path-soft);  color: var(--vh-path-fg); }
+.vh-verdict[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--cs-text-muted); }
+
+/* Variant-specific RMC footnote: constrained block + p-value. */
+.vh-note {
+  margin-left: auto;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-secondary);
+  white-space: nowrap;
+}
+
+/* Full metric sentences for assistive tech — the visual track carries the same
+   information, so it is hidden from the accessibility tree with aria-hidden. */
+.vh-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Rail reflow ──
+   Query widths are the header's content box, so the 128px label column costs
+   more than it earns below ~880px: there it becomes a strip across the top and
+   the metrics keep their three tracks. Below ~620px the tracks stack, since
+   three 150px scales cannot hold two threshold labels. */
+@container (max-width: 880px) {
+  .vh-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .vh-rail > li.vh-rail-meta {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 8px;
+    /* Match the metric cells' inline padding so the strip and the first
+       metric share a left edge once they are stacked. */
+    padding: 7px 14px;
   }
 }
 
-.vh-ref-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  white-space: nowrap;
-}
-
-.vh-ref-kw {
-  font-weight: 600;
-  opacity: 0.9;
-}
-
-.vh-ref-sep {
-  opacity: 0.45;
-  user-select: none;
+@container (max-width: 620px) {
+  .vh-rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vh-rail > li.vh-rail-meta {
+    grid-column: auto;
+  }
 }
 
 /* VIEW INSPECTOR & PROVENANCE PANEL
