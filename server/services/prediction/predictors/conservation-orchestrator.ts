@@ -11,7 +11,64 @@ import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 import { fetchRealConsurfData } from "./consurf-resolver.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
+import { fetchSpliceAiBroad, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiScoreRecord } from "../../external-api/spliceai_broad.ts";
 import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
+
+/**
+ * Overlays a live Broad SpliceAI score onto whatever the dbNSFP/Genos path produced.
+ *
+ * The precomputed `SpliceAI_pred_*` columns were generated against GENCODE v24 with a
+ * 50 bp reporting window, so a variant absent from those tables yields null and the UI
+ * reports "no score" for a variant SpliceAI does in fact score. A live result is
+ * therefore preferred, and the frozen value is kept only when the live call misses.
+ *
+ * `provenance` is always stamped, so a reader can tell which window and annotation the
+ * number came from — the two sources legitimately disagree on borderline variants.
+ */
+function applyLiveSpliceAi<T extends ConservationData>(
+  data: T,
+  live: SpliceAiScoreRecord | null
+): T {
+  if (!live) return data;
+  return {
+    ...data,
+    spliceai: {
+      ds_ag: live.ds_ag,
+      ds_al: live.ds_al,
+      ds_dg: live.ds_dg,
+      ds_dl: live.ds_dl,
+      max_ds: live.max_ds,
+      dp: live.dp,
+      provenance: {
+        source: "broad-lookup",
+        distanceBp: live.distance,
+        masked: live.mask,
+        computedLive: live.computedLive,
+        annotationSet: live.isManeSelect ? "MANE Select" : null,
+      },
+    },
+  };
+}
+
+/**
+ * Fetches a live SpliceAI score for the variant, or null when no genomic coordinate
+ * could be resolved. Never throws: an unreachable academic endpoint degrades to the
+ * existing precomputed sources rather than failing the analysis.
+ */
+async function fetchLiveSpliceAiIfPossible(
+  gnomadVariantId?: string | null,
+  variant?: string | null
+): Promise<SpliceAiScoreRecord | null> {
+  const coords =
+    parseGenomicCoordinateString(gnomadVariantId) ??
+    parseGenomicCoordinateString(variant ?? null);
+  if (!coords) return null;
+
+  return fetchSpliceAiBroad(coords.chrom, coords.pos, coords.ref, coords.alt, {
+    distance: SPLICEAI_DEFAULT_DISTANCE,
+  });
+}
+
 
 export const myVariantResponseSchema = z.object({
   hits: z.array(z.object({
@@ -97,6 +154,13 @@ export async function fetchConservationData(
       const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null)
         ? await resolveSpliceProximity(transcriptId, genomicPos)
         : null;
+
+      /**
+       * Live SpliceAI, resolved once and overlaid on whichever source answers below.
+       * Started here rather than inside a branch so all four provider paths benefit and
+       * the request is made at most once per analysis.
+       */
+      const liveSpliceAi = await fetchLiveSpliceAiIfPossible(gnomadVariantId, variant);
 
       const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
       const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
@@ -210,7 +274,7 @@ export async function fetchConservationData(
               alphagenome: alphaRes ?? null,
               source: "local dbNSFP"
             };
-            return resVal;
+            return applyLiveSpliceAi(resVal, liveSpliceAi);
           }
         } catch (err: any) {
           console.warn(`[Local dbNSFP Query Error] Fallback to remote: ${err.message}`);
@@ -275,7 +339,7 @@ export async function fetchConservationData(
             } : null,
             source: "Genos Web Query"
           };
-          return resVal;
+          return applyLiveSpliceAi(resVal, liveSpliceAi);
         }
       } catch (err: any) {
         console.warn(`[Genos Web Query Fallback Error] ${err.message}`);
@@ -320,7 +384,7 @@ export async function fetchConservationData(
             dbscsnv: null,
             source: "Public dbNSFP (dbnsfp.org)"
           };
-          return resVal;
+          return applyLiveSpliceAi(resVal, liveSpliceAi);
         }
       } catch (pubErr: any) {
         console.warn(`[Public dbNSFP Query Error] ${pubErr.message}`);
@@ -553,7 +617,7 @@ export async function fetchConservationData(
                 } : null,
                 source: "myvariant.info"
               };
-              return resVal;
+              return applyLiveSpliceAi(resVal, liveSpliceAi);
             }
           }
         }
@@ -561,7 +625,9 @@ export async function fetchConservationData(
         console.warn(`[Conservation Fetch Error] Failed to fetch MyVariant conservation: ${err.message}`);
       }
 
-      return defaultRes;
+      // Even when every conservation provider missed, a live SpliceAI score is still a real
+      // measurement from an independent endpoint — surface it rather than discarding it.
+      return applyLiveSpliceAi(defaultRes, liveSpliceAi);
     }
   });
 }

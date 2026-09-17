@@ -87,6 +87,23 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       // Far and low SpliceAI -> benign
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
 
+      /**
+       * Live SpliceAI regression (MACO1 p.Glu433Lys).
+       *
+       * 16 bp from the exon 7 donor. Illumina's precomputed tables hold no SpliceAI value
+       * for this position, so the tables yielded null and the app reported
+       * "Unavailable / Unmapped" — for a variant SpliceAI does score. The Broad Lookup API
+       * returns max ΔScore 0.004 here, which evaluates to a measured benign (BP4) rather
+       * than an indeterminate result. This pins that a scored-but-tiny delta at a distance
+       * outside the consensus flank is benign, not unavailable.
+       */
+      expect(
+        evaluateSplicePredictor(
+          { distance: 16, isNearSpliceSite: false },
+          { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004, max_ds: 0.004 }
+        )
+      ).toBe("benign");
+
       // Boundary distance tests (consensusFlankDistance = 12 bp)
       // Distance 5 bp with isNearSpliceSite -> pathogenic
       expect(evaluateSplicePredictor({ distance: 5, isNearSpliceSite: true }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("pathogenic");

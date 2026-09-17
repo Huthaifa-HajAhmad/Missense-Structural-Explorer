@@ -623,7 +623,36 @@ export const conservationDataSchema = z.object({
     ds_al: z.number().nullable(),
     ds_dg: z.number().nullable(),
     ds_dl: z.number().nullable(),
-    max_ds: z.number().nullable()
+    max_ds: z.number().nullable(),
+    /**
+     * Where splicing changes relative to the variant (negative = upstream). A large |dp|
+     * alongside a small delta score is the signature of a variant far from any junction,
+     * which the delta score alone cannot convey. Absent for payloads scored before the
+     * Broad Lookup API became the source.
+     */
+    dp: z.object({
+      ds_ag: z.number().nullable(),
+      ds_al: z.number().nullable(),
+      ds_dg: z.number().nullable(),
+      ds_dl: z.number().nullable()
+    }).optional(),
+    /**
+     * Provenance for the score, so a reader can tell a live model computation from a
+     * frozen precomputed table. Illumina's precomputed columns were generated against
+     * GENCODE v24 with a 50 bp reporting window; the Broad Lookup API computes against a
+     * current annotation. Those differences move scores, so the source must be visible.
+     */
+    provenance: z.object({
+      /** "broad-lookup" (live) or "precomputed-dbnsfp" (frozen table). */
+      source: z.enum(["broad-lookup", "precomputed-dbnsfp", "genos"]),
+      /** Reporting window the score was produced under (SpliceAI -D). */
+      distanceBp: z.number().nullable().optional(),
+      /** 1 = masked (recommended for interpretation), 0 = raw. */
+      masked: z.number().nullable().optional(),
+      /** True when the model ran for this request rather than a table answering. */
+      computedLive: z.boolean().optional(),
+      annotationSet: z.string().nullable().optional()
+    }).optional()
   }).nullable().optional(),
   dbscsnv: z.object({
     ada_score: z.number().nullable(),
