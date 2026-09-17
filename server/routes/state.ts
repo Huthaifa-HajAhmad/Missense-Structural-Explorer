@@ -211,7 +211,17 @@ if (redisSub) {
 
 class SqliteInFlightPrewarms {
   private db: DatabaseSync | null = null;
-  private dbPath = path.join(process.cwd(), "data", "shared_state.sqlite");
+  /**
+   * Resolved lazily from the environment so tests can redirect it.
+   *
+   * Previously a plain module-scope constant pointing at `<cwd>/data/shared_state.sqlite`.
+   * This class is constructed in a MODULE-SCOPE initialiser below and is reachable from
+   * `middleware.ts` through a value import of `PUBLIC_ENDPOINTS`, so merely importing the API
+   * router opened the developer's real database — and two suites deleted that same file.
+   */
+  private get dbPath(): string {
+    return process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite");
+  }
   private TTL = 30 * 60 * 1000; // 30 minutes
 
   constructor() {

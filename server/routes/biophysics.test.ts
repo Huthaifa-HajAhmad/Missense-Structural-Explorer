@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
-import path from "path";
 import { apiRouter } from "../routes.ts";
 import { getNearestResidues } from "../../src/shared/nearestResidues.ts";
 import { clearAllCaches } from "../services/cache.ts";
-import { REGISTRY_PATH } from "./shared.ts";
+import { getRegistryPath } from "./shared.ts";
 import { BiophysicalJobQueue } from "../services/biophysical-queue.ts";
 import { clearInFlightRemoteSubmissions } from "./biophysics/generation.ts";
 
@@ -15,13 +14,15 @@ describe("Biophysics Route Endpoints & Helper Unit Tests", () => {
     try {
       BiophysicalJobQueue.initialize(2, async () => ({}));
     } catch (_) {}
+    // Clear the job registry between tests. This hook previously deleted the REAL
+    // temp_jobs/job_registry.json; setup now redirects JOB_REGISTRY_PATH into the OS temp
+    // directory, so the same reset applies to throwaway state only. Clearing it is required,
+    // not optional: the redirected file persists between runs, and a stale entry whose
+    // jobId/type happen to match makes the backfill test pass or fail depending on history.
     try {
-      const cacheDir = path.join(process.cwd(), "logs", "gemini_cache");
-      if (fs.existsSync(cacheDir)) {
-        fs.rmSync(cacheDir, { recursive: true, force: true });
-      }
-      if (fs.existsSync(REGISTRY_PATH)) {
-        fs.rmSync(REGISTRY_PATH, { force: true });
+      const registryPath = getRegistryPath();
+      if (fs.existsSync(registryPath)) {
+        fs.rmSync(registryPath, { force: true });
       }
     } catch (err) {}
   });

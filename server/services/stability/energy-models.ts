@@ -36,8 +36,15 @@ import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 const raspCache = new LRUCache<string, { score: number | null; reason?: string }>({ max: 200 });
 defaultCacheRegistry.registerCache("raspCache", raspCache, { ttlDesc: "none" });
 
-const RASP_SQLITE_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
-const RASP_CSV_PATH = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
+/**
+ * RaSP lookup sources. Resolved from the environment so tests can redirect them.
+ *
+ * These were frozen module constants pointing into the repository, which let
+ * `energy-models.test.ts` overwrite the real 414 MB `data/df_rasp_gnomad_clinvar.csv` with a
+ * five-line mock — restoring it only in `afterAll`, so any interrupt destroyed it for good.
+ */
+const RASP_SQLITE_PATH = process.env.RASP_SQLITE_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
+const RASP_CSV_PATH = process.env.RASP_CSV_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
 let raspSqliteDb: DatabaseSync | null = null;
 let raspSqliteChecked = false;
 

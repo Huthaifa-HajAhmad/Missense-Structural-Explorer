@@ -27,7 +27,16 @@ export function sanitizeAuditMetadata(metadata: any): any {
 }
 
 export class AuditLogger {
-  private static logPath = path.join(process.cwd(), "logs", "audit.jsonl");
+  /**
+   * Append target for the audit trail.
+   *
+   * Resolved per call so tests can redirect it: route suites legitimately exercise
+   * `AuditLogger.log`, and with a frozen path each run appended real audit records to the
+   * developer's `logs/audit.jsonl`.
+   */
+  private static get logPath(): string {
+    return process.env.AUDIT_LOG_PATH ?? path.join(process.cwd(), "logs", "audit.jsonl");
+  }
   public static failureCount = 0;
 
   static async log(action: string, metadata: any) {

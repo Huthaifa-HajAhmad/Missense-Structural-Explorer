@@ -5,9 +5,13 @@ import { lookupPrecomputedRaspScore, closeRaspResources, initializeRaspDatabase 
 import { buildRaspSqliteDatabase } from "../../../scripts/build-rasp-sqlite.ts";
 
 describe("RaSP SQLite Database & Lookups Unit Tests", () => {
-  const dataDir = path.join(process.cwd(), "data");
-  const tempCsvPath = path.join(dataDir, "df_rasp_gnomad_clinvar.csv");
-  const tempSqlitePath = path.join(dataDir, "df_rasp_gnomad_clinvar.sqlite");
+  // These resolve to the OS temp directory under test (setup.ts sets RASP_CSV_PATH /
+  // RASP_SQLITE_PATH). They previously pointed at the repository, so this suite overwrote the
+  // real 414 MB data/df_rasp_gnomad_clinvar.csv with the fixture below and restored it only in
+  // afterAll — an interrupt or OOM destroyed it permanently.
+  const dataDir = path.dirname(process.env.RASP_CSV_PATH ?? path.join(process.cwd(), "data", "x"));
+  const tempCsvPath = process.env.RASP_CSV_PATH ?? path.join(dataDir, "df_rasp_gnomad_clinvar.csv");
+  const tempSqlitePath = process.env.RASP_SQLITE_PATH ?? path.join(dataDir, "df_rasp_gnomad_clinvar.sqlite");
 
   let originalCsvExists = false;
   let originalSqliteExists = false;

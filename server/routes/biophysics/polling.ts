@@ -23,7 +23,7 @@ import {
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
-import { recordJobInRegistry, REGISTRY_PATH, type RegistryJob } from "../shared.ts";
+import { recordJobInRegistry, getRegistryPath, type RegistryJob } from "../shared.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 
 function parseMutationParam(mutation: string): { wtLetter: string; mutLetter: string; posNum: number; chainParam: string } | null {
@@ -292,8 +292,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
  
   async function checkBioSigJobStaleness(jobId: string, tool: "dynamut2" | "ddmut"): Promise<boolean> {
     try {
-      if (fs.existsSync(REGISTRY_PATH)) {
-        const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+      if (fs.existsSync(getRegistryPath())) {
+        const content = await fs.promises.readFile(getRegistryPath(), "utf-8");
         const registry: RegistryJob[] = JSON.parse(content);
         const entry = registry.find(j => j.jobId === jobId && j.type === tool);
         if (entry) {
@@ -312,8 +312,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
   async function backfillRemotePredictionToCache(jobId: string, tool: "dynamut2" | "ddmut", prediction: number): Promise<void> {
     try {
-      if (fs.existsSync(REGISTRY_PATH)) {
-        const registryContent = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+      if (fs.existsSync(getRegistryPath())) {
+        const registryContent = await fs.promises.readFile(getRegistryPath(), "utf-8");
         const registry: RegistryJob[] = JSON.parse(registryContent);
         const entry = registry.find(j => j.jobId === jobId && j.type === tool);
         if (entry && entry.foldxCacheKey) {

@@ -83,6 +83,17 @@ export interface RegistryJob {
   foldxCacheKey?: string;
 }
 
+/**
+ * Live background-job registry path.
+ *
+ * Resolved per call rather than frozen at import so tests can redirect it; a module-scope
+ * constant meant `biophysics.test.ts` deleted the developer's real registry on every run.
+ */
+export const REGISTRY_PATH_ENV = "JOB_REGISTRY_PATH";
+export function getRegistryPath(): string {
+  return process.env[REGISTRY_PATH_ENV] ?? path.join(process.cwd(), "temp_jobs", "job_registry.json");
+}
+/** @deprecated Prefer {@link getRegistryPath}; a frozen path cannot be redirected under test. */
 export const REGISTRY_PATH = path.join(process.cwd(), "temp_jobs", "job_registry.json");
 
 export async function recordJobInRegistry(
@@ -92,10 +103,11 @@ export async function recordJobInRegistry(
   foldxCacheKey?: string
 ) {
   try {
+    const registryPath = getRegistryPath();
     let registry: RegistryJob[] = [];
-    if (fs.existsSync(REGISTRY_PATH)) {
+    if (fs.existsSync(registryPath)) {
       try {
-        const content = await fs.promises.readFile(REGISTRY_PATH, "utf-8");
+        const content = await fs.promises.readFile(registryPath, "utf-8");
         registry = JSON.parse(content) as RegistryJob[];
       } catch {}
     }
@@ -109,13 +121,13 @@ export async function recordJobInRegistry(
     if (registry.length > 1000) {
       registry = registry.slice(-1000);
     }
-    await fs.promises.mkdir(path.dirname(REGISTRY_PATH), { recursive: true });
-    const tmpPath = `${REGISTRY_PATH}.${crypto.randomUUID()}.tmp`;
+    await fs.promises.mkdir(path.dirname(registryPath), { recursive: true });
+    const tmpPath = `${registryPath}.${crypto.randomUUID()}.tmp`;
     await fs.promises.writeFile(tmpPath, JSON.stringify(registry, null, 2), "utf-8");
     try {
-      await fs.promises.rename(tmpPath, REGISTRY_PATH);
+      await fs.promises.rename(tmpPath, registryPath);
     } catch (renameErr) {
-      await fs.promises.writeFile(REGISTRY_PATH, JSON.stringify(registry, null, 2), "utf-8");
+      await fs.promises.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
       if (fs.existsSync(tmpPath)) {
         await fs.promises.unlink(tmpPath).catch(() => {});
       }
