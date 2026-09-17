@@ -111,46 +111,29 @@ export interface AssemblyTaggedCoordinate {
   assembly: GenomeAssembly;
 }
 
-/** A coordinate lifted onto the canonical build. */
+/** A coordinate lifted onto the canonical build. Produced by the liftover step, which owns
+ * the round-trip check and discards any lift that fails it.
+ *
+ * Modelling "unverified" as an absent value rather than a flagged one means no downstream
+ * consumer has to remember to check a boolean in order to stay correct: the unsafe state
+ * cannot be expressed, and a successful lift is simply a canonical-build coordinate. */
 export interface LiftedCoordinate extends AssemblyTaggedCoordinate {
   /** The build the caller originally supplied. */
   originalAssembly: GenomeAssembly;
   /** The coordinate as originally supplied, retained for provenance. */
   original: { chrom: string; pos: number };
-  /**
-   * Always true on a value that exists.
-   *
-   * A lift is only ever ACCEPTED when mapping the lifted position back onto
-   * `originalAssembly` reproduced the original position exactly; a lift that fails that
-   * round-trip is discarded (the caller receives null) rather than propagated with a
-   * warning flag. Modelling "unverified" as an absent value rather than a marked one means
-   * no downstream consumer has to remember to check a boolean in order to stay correct —
-   * the unsafe state cannot be expressed.
-   */
+  /** Always true on a value that exists; a failed round-trip yields no value at all. */
   reverseVerified: true;
 }
 
 /**
- * Whether a coordinate may be handed to a build-pinned source.
+ * Word the absence of a score for a source that cannot serve this build, so a skipped
+ * source reads as "not assessed" rather than as a negative result.
  *
- * Deliberately conservative and deliberately simple: a source is only ever given a
- * coordinate whose build it natively serves. Lifted coordinates are modelled as being on
- * the canonical build (see {@link LiftedCoordinate}), so a successful lift satisfies this
- * check for the canonical-build sources without any special case. Verification can never
- * widen a source's declared support — that is what keeps a bad lift from becoming a
- * plausible-looking score for the wrong locus.
- */
-export function canUseCoordinateForSource(
-  source: AssemblyAwareSource,
-  coordinate: { assembly: GenomeAssembly } | null | undefined
-): boolean {
-  if (!coordinate) return false;
-  return sourceSupportsAssembly(source, coordinate.assembly);
-}
-
-/**
- * Wording for a source that cannot serve this coordinate, so the UI and logs explain
- * absence rather than leaving a reader to assume a negative result.
+ * NOTE: currently exercised only by unit tests. The production gate composes
+ * `sourceSupportsAssembly` directly because refusal reasons are not yet surfaced in the UI.
+ * Wire this in — or delete it — when that surface lands, rather than leaving a public
+ * helper unused.
  */
 export function describeAssemblyRefusal(
   source: AssemblyAwareSource,

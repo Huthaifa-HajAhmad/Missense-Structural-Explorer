@@ -3,7 +3,6 @@ import {
   ASSEMBLY_SUPPORT,
   ASSEMBLY_LABELS,
   CANONICAL_ASSEMBLY,
-  canUseCoordinateForSource,
   describeAssemblyRefusal,
   sourceSupportsAssembly,
   supportedAssemblies,
@@ -64,31 +63,26 @@ describe("ASSEMBLY_SUPPORT — the declaration table", () => {
   });
 });
 
-describe("canUseCoordinateForSource — the refusal rules", () => {
+describe("sourceSupportsAssembly — the production gate", () => {
   it("allows a native-build coordinate for a build-aware source", () => {
-    expect(canUseCoordinateForSource("spliceai-lookup", { assembly: "GRCh37" })).toBe(true);
-    expect(canUseCoordinateForSource("ensembl-vep", { assembly: "GRCh37" })).toBe(true);
+    // SpliceAI Lookup runs a service per build, so a GRCh37 coordinate is routed, not refused.
+    expect(sourceSupportsAssembly("spliceai-lookup", "GRCh37")).toBe(true);
+    expect(sourceSupportsAssembly("spliceai-lookup", "GRCh38")).toBe(true);
+    expect(sourceSupportsAssembly("ensembl-vep", "GRCh37")).toBe(true);
   });
 
   it("refuses another build's coordinate for a pinned source", () => {
     // The whole point: GPN-Star is a GRCh38-only index, so a GRCh37 position must never
-    // reach it — a silent miss is bad, a coincidental hit is worse.
-    expect(canUseCoordinateForSource("gpn-star", { assembly: "GRCh37" })).toBe(false);
-    expect(canUseCoordinateForSource("dbnsfp-local", { assembly: "GRCh37" })).toBe(false);
-    expect(canUseCoordinateForSource("genos", { assembly: "GRCh37" })).toBe(false);
-  });
-
-  it("refuses a foreign-build coordinate, since a pinned source cannot serve it at all", () => {
-    // GPN-Star is a GRCh38-only index: a GRCh37 position must never reach it — a silent miss
-    // is bad, a coincidental hit is worse. There is no flag that makes this acceptable, which
-    // is the point: a bad lift is discarded by the lift step, not marked and passed along.
-    expect(canUseCoordinateForSource("gpn-star", { assembly: "GRCh37" })).toBe(false);
-    expect(canUseCoordinateForSource("dbnsfp-local", { assembly: "GRCh37" })).toBe(false);
+    // reach it — a silent miss is bad, a coincidental hit at the wrong locus is worse.
+    expect(sourceSupportsAssembly("gpn-star", "GRCh37")).toBe(false);
+    expect(sourceSupportsAssembly("dbnsfp-local", "GRCh37")).toBe(false);
+    expect(sourceSupportsAssembly("genos", "GRCh37")).toBe(false);
+    expect(sourceSupportsAssembly("alphagenome", "GRCh37")).toBe(false);
   });
 
   it("accepts a lifted coordinate, because a lift lands on the canonical build", () => {
-    // By the time a lift is used it is modelled as a canonical-build coordinate, so a
-    // canonical-build source accepts it with no special case in the gate.
+    // A successful lift is modelled as a canonical-build coordinate, so a canonical-build
+    // source accepts it with no special case in the gate.
     const lifted: LiftedCoordinate = {
       chrom: "7", pos: 140753336, ref: "T", alt: "A",
       assembly: CANONICAL_ASSEMBLY,
@@ -96,13 +90,27 @@ describe("canUseCoordinateForSource — the refusal rules", () => {
       original: { chrom: "7", pos: 140453136 },
       reverseVerified: true
     };
-    expect(canUseCoordinateForSource("gpn-star", lifted)).toBe(true);
-    expect(canUseCoordinateForSource("alphagenome", lifted)).toBe(true);
+    expect(sourceSupportsAssembly("gpn-star", lifted.assembly)).toBe(true);
+    expect(sourceSupportsAssembly("alphagenome", lifted.assembly)).toBe(true);
   });
 
-  it("refuses when there is no coordinate at all", () => {
-    expect(canUseCoordinateForSource("gpn-star", null)).toBe(false);
-    expect(canUseCoordinateForSource("gpn-star", undefined)).toBe(false);
+  /**
+   * Regression for the hole this change originally left open.
+   *
+   * The coordinate handed to these sources comes from `gnomadVariantId`, which has two
+   * producers: Ensembl VEP on the GRCh38 host, and a MyVariant.info `_id` that is ALWAYS
+   * hg19 by default (the query endpoint has no assembly parameter). The declared build
+   * therefore does not by itself prove the coordinate's build — the gate is only as sound
+   * as that alignment. This test records the obligation so the producer side cannot be
+   * changed to emit another build without failing here.
+   */
+  it("documents that the gate trusts the declared build, so producers must agree", () => {
+    // A GRCh38 declaration opens every GRCh38-only source…
+    expect(sourceSupportsAssembly("gpn-star", "GRCh38")).toBe(true);
+    // …so a producer emitting hg19 coordinates while the request declares GRCh38 would
+    // bypass the gate entirely. The build must therefore be established BEFORE it is
+    // declared, not inferred from it.
+    expect(sourceSupportsAssembly("gpn-star", "GRCh37")).toBe(false);
   });
 });
 
