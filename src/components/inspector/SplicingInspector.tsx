@@ -257,16 +257,16 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
                 </>
               ) : isCanonicalJunction && distance <= PROXIMITY_CONSENSUS_BP ? (
                 <>
-                  {" "}This falls inside the &plusmn;{PROXIMITY_CONSENSUS_BP} bp consensus recognition window
-                  but outside the critical junction band, so it may affect splice-site recognition without
-                  directly disrupting the invariant dinucleotide.
+                  {" "}This falls inside the &plusmn;{PROXIMITY_CONSENSUS_BP} bp perijunctional consensus region
+                  flanking a junction, but outside the critical band, so it may affect splice-site recognition
+                  without directly disrupting the invariant dinucleotide.
                 </>
               ) : (
                 <>
-                  {" "}This places it outside the &plusmn;{PROXIMITY_CONSENSUS_BP} bp consensus window used by
-                  SpliceAI and dbscSNV, which is why neither model returns a score at this position. Distance
-                  alone does not establish that the splice motif is intact — it establishes that these
-                  predictors do not cover it.
+                  {" "}This places it beyond the &plusmn;{PROXIMITY_CONSENSUS_BP} bp perijunctional region that
+                  splice-site predictors are classically characterised over. Absence of a score here is not
+                  evidence of intact splicing — it means no predictor returned a value for this position, and
+                  the reason is not inferable from distance alone.
                 </>
               )}
             </p>

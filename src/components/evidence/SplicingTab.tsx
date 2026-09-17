@@ -676,15 +676,20 @@ function SplicingTabComponent({
         </div>
 
         {/* Coverage notice — the one caveat that must sit next to the figure,
-            because the figure alone could be read as a motif inspection. */}
+            because the figure alone could be read as a motif inspection.
+            It must NOT claim to know *why* no score exists: SpliceAI reads a ±10,000 bp
+            context but reports delta scores only within -D (default 50 bp) of a
+            gained/lost site, while dbscSNV is characterised over the ±12 bp
+            perijunctional region. Three different windows — so absence of a value is
+            not attributable to the ±12 bp figure alone. */}
         {isPredictorCoverageAbsent && distance !== null && (
           <div className="p-3.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-2.5 text-cs-text-secondary">
             <Info className="w-4 h-4 mt-0.5 text-cs-text-muted shrink-0" />
             <p className="text-[12px] font-sans leading-normal">
-              At <strong className="text-cs-text-primary font-mono">{distance} bp</strong> this variant sits
-              outside the &plusmn;{THRESHOLDS.spliceai.consensusFlankDistance} bp window that SpliceAI and
-              dbscSNV evaluate, so no splice-impact score exists for it. Distances, region type and exon
-              bounds are itemised in the inspector.
+              No SpliceAI or dbscSNV score was returned for this position
+              (<strong className="text-cs-text-primary font-mono">{distance} bp</strong> from the nearest
+              junction), so its splice impact is indeterminate rather than absent. Distances, region type
+              and exon bounds are itemised in the inspector.
             </p>
           </div>
         )}

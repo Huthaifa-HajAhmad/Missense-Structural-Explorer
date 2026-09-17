@@ -24,7 +24,16 @@ export const THRESHOLDS = {
     pathogenicSupporting: 0.20,
     /** SpliceAI ΔScore ≤ 0.02: minimal / negligible splice alteration risk (BP4) */
     benign: 0.02,
-    /** Standard consensus splice flank interval: ±12 bp (donor -3..+8, acceptor -12..+2) */
+    /**
+     * Perijunctional consensus region: ±12 bp (donor -3..+8, acceptor -12..+2).
+     *
+     * This describes the region dbscSNV is TRAINED over — it is NOT SpliceAI's
+     * window. SpliceAI reads ~10,000 bp of flanking context but, per its `-D`
+     * parameter, reports delta scores only within 50 bp (default) of a gained or
+     * lost splice site. The two must not be presented as one window: doing so
+     * implies a coverage limit that does not exist, since 50 bp reporting covers
+     * anything inside this ±12 bp region.
+     */
     consensusFlankDistance: 12,
     /**
      * Proximity at which a variant is treated as sitting on the invariant splice
