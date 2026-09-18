@@ -141,11 +141,20 @@ export async function fetchConservationData(
   genosRec?: any | null,
   uniprotId?: string | null,
   transcriptId?: string | null,
-  genomicPos?: number | null
+  genomicPos?: number | null,
+  /**
+   * Build that `gnomadVariantId`'s coordinates belong to, when known.
+   *
+   * Participates in the cache key because this payload folds in single-build sources (GPN-Star,
+   * local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload built from one build's
+   * coordinate is not a valid answer for another's. Absent means "unknown", which is a distinct
+   * key rather than a default.
+   */
+  assembly?: string | null
 ): Promise<ConservationData> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
-  const cacheKey = buildConservationKey(gene, variant, pdbId, chainId, pos, gnomadVariantId);
+  const cacheKey = buildConservationKey(gene, variant, pdbId, chainId, pos, gnomadVariantId, assembly);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -758,7 +767,10 @@ export async function fetchConservationDataProgressive(
           usableBy("alphagenome")
             ? fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, {
                 apiKey: alphagenomeApiKey,
-                apiUrl: alphagenomeApiUrl
+                apiUrl: alphagenomeApiUrl,
+                // The build reaches the cache key so a GRCh38 entry is never served for another
+                // build's coordinate at the same numeric position.
+                assembly: coordinateAssembly
               }).catch(() => null)
             : Promise.resolve(null),
           // Live SpliceAI runs a service per build, so it routes on the COORDINATE's build
@@ -791,6 +803,22 @@ export async function fetchConservationDataProgressive(
     new Promise(r => setTimeout(() => r(null), 500))
   ]);
 
+  /**
+   * The base payload's cache key includes the coordinate's build.
+   *
+   * This payload folds in single-build sources (local dbNSFP, Genos, dbnsfp.org), so a result
+   * assembled from one build's coordinates is not a valid answer for another's. The build lives
+   * on the predictor metadata, so it is awaited here — the promise has already been started by
+   * the caller, so this does not add a round trip, and the enrichment task above consumes the
+   * same promise rather than a second copy.
+   *
+   * A rejection is not fatal: a missing predictor means "no coordinate", and the base payload is
+   * still assembled without one.
+   */
+  const coordinateAssembly = await (predictorPromise || Promise.resolve(null))
+    .then(pred => (pred?.gnomadVariantAssembly ?? null) as string | null)
+    .catch(() => null);
+
   const baseConservationPromise = fetchConservationData(
     gene,
     variant,
@@ -801,7 +829,8 @@ export async function fetchConservationDataProgressive(
     fastGenos,
     uniprotId,
     null,
-    null
+    null,
+    coordinateAssembly
   );
 
   // 4. Concurrently query frontier genomic foundation model (Song Lab GPN-Star fallback)

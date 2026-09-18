@@ -17,7 +17,11 @@ vi.mock("../prediction/index.ts", () => ({
     revel: 0.85,
     amPathogenicity: 0.92,
     amClass: "pathogenic",
-    gnomadVariantId: "12-102845012-G-A"
+    gnomadVariantId: "12-102845012-G-A",
+    // The gnomAD frequency lookup is now gated on the coordinate's build: the endpoint is
+    // gnomAD r4 (GRCh38-only) and answers by numeric position, so an untagged coordinate is
+    // refused rather than sent. Fixtures must declare the build they mean.
+    gnomadVariantAssembly: "GRCh38"
   })),
   fetchConservationData: vi.fn(async () => ({
     revel: 0.85,
@@ -144,6 +148,27 @@ describe("Core Data Fetcher Service Unit Tests", () => {
     expect(result.serviceStatus.gnomadConstraint).toBe("ok");
     expect(result.serviceStatus.gnomadFrequency).toBe("ok");
     expect(result.serviceStatus.pdbMapping).toBe("ok");
+  });
+
+  it("does not query gnomAD with a coordinate whose build is unknown", async () => {
+    // gnomAD r4 is GRCh38-only and answers by numeric position, so an id from another build whose
+    // alleles coincide returns a DIFFERENT locus's frequency. Those frequencies drive
+    // PM2/BA1/BS1/PS4, making this the highest-impact wrong number the pipeline can produce.
+    // An untagged coordinate must therefore yield no frequency rather than a confident wrong one.
+    // Both modules are already mocked at module scope; no dynamic import is needed.
+    const { fetchPredictorData } = await import("../prediction/index.ts");
+    const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+    vi.mocked(fetchGnomadVariantFrequency).mockClear();
+    vi.mocked(fetchPredictorData).mockResolvedValueOnce({
+      caddPhred: 28.5, revel: 0.85, amPathogenicity: 0.92, amClass: "pathogenic",
+      gnomadVariantId: "12-102845012-G-A"
+      // gnomadVariantAssembly deliberately absent.
+    } as any);
+
+    const result = await fetchCoreVariantData(baseContext, 2000);
+
+    expect(fetchGnomadVariantFrequency).not.toHaveBeenCalled();
+    expect(result.gnomadFrequency).toBeNull();
   });
 
   it("should handle service errors gracefully and report status as error/not_found without throwing", async () => {

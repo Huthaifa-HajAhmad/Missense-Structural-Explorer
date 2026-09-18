@@ -74,6 +74,15 @@ export interface FetchAlphaGenomeOptions {
   signal?: AbortSignal;
   apiKey?: string | null;
   apiUrl?: string | null;
+  /**
+   * Build the coordinates belong to, when known. Part of the cache key.
+   *
+   * AlphaGenome is GRCh38-only and looks up by numeric position, so an id from another build whose
+   * alleles coincide resolves to a different locus. Absent is recorded as "unknown" rather than
+   * defaulted to GRCh38, so a build-less coordinate cannot silently share an entry with a real
+   * GRCh38 one.
+   */
+  assembly?: string | null;
 }
 
 /**
@@ -112,7 +121,8 @@ export async function fetchAlphaGenome(
   const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
   const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
   const hasCredentials = Boolean(effectiveApiKey || endpoint);
-  const cacheKey = buildAlphaGenomeKey(normChrom, pos, normRef, normAlt);
+  const assembly = !(signalOrOptions instanceof AbortSignal) ? (signalOrOptions?.assembly ?? null) : null;
+  const cacheKey = buildAlphaGenomeKey(normChrom, pos, normRef, normAlt, assembly);
 
   const cached = alphagenomeCache.get(cacheKey);
   const isNegativeCached = Boolean(cached?.message?.includes("not indexed"));

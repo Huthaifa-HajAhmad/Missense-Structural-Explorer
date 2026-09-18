@@ -6,6 +6,8 @@ import { buildGnomadFreqKey, buildGnomadConstraintKey } from "../infra/cache-key
 export interface FetchGnomadFrequencyOptions {
   l1Cache?: LRUCache<string, any>;
   bypassSqlite?: boolean;
+  /** Build that the variant id's coordinates belong to, when known. Part of the cache key. */
+  assembly?: string | null;
 }
 
 export interface FetchGnomadConstraintOptions {
@@ -41,9 +43,12 @@ export interface GnomadVariantFrequency {
 /**
  * Query gnomAD GraphQL API for variant allele frequencies.
  *
- * @param variantId  gnomAD variant ID in the form "CHR-POS-REF-ALT" (GRCh38).
- *                   If not known, pass null and the function returns null.
- * @param options    Optional cache and persistence overrides.
+ * @param variantId  gnomAD variant ID in the form "CHR-POS-REF-ALT". The endpoint is gnomAD r4,
+ *                   which is GRCh38: an id from another build resolves by numeric position and
+ *                   returns a DIFFERENT locus.
+ * @param options    Optional cache and persistence overrides, plus the build that `variantId`'s
+ *                   coordinates belong to. The build participates in the cache key because the id
+ *                   alone does not identify a locus — the same numerics exist in both builds.
  */
 export async function fetchGnomadVariantFrequency(
   variantId: string | null,
@@ -52,7 +57,7 @@ export async function fetchGnomadVariantFrequency(
   if (!variantId) return null;
 
   return getCachedOrFetch({
-    key: buildGnomadFreqKey(variantId),
+    key: buildGnomadFreqKey(variantId, options?.assembly ?? null),
     source: "gnomAD GraphQL API",
     l1Cache: options?.l1Cache ?? gnomadFreqCache,
     ttlSeconds: 14 * 24 * 60 * 60,

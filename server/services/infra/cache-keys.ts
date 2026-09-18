@@ -7,7 +7,15 @@
 
 import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts";
 
-export const CACHE_SCHEMA_VERSION = "v4";
+/**
+ * Bumped to v5 when genome-build-awareness was added to the coordinate-bearing keys.
+ *
+ * The bump must accompany the key change rather than follow it: keys that gained a build
+ * component would otherwise leave every entry written under v4 live for its full TTL
+ * (14-30 days), and those entries carry no build — so a GRCh38 request could still be served a
+ * GRCh37-derived payload while the code looked correct.
+ */
+export const CACHE_SCHEMA_VERSION = "v5";
 export const DATA_SOURCES_VERSION = {
   dbnsfp: "4.4a",
   gnomad: "v4.1.0",
@@ -15,9 +23,17 @@ export const DATA_SOURCES_VERSION = {
   foldx: "v2"
 };
 
-export function buildGnomadFreqKey(variantId: string): string {
+/**
+ * Cache key for a gnomAD allele-frequency lookup.
+ *
+ * `assembly` participates because the id is a bare `chrom-pos-ref-alt`: gnomAD r4 answers by
+ * numeric position, so an hg19 id whose alleles happen to coincide resolves to the GRCh38 locus
+ * and returns the wrong population frequency. These frequencies drive PM2 / BA1 / BS1 / PS4 —
+ * the highest-impact wrong number this pipeline can produce.
+ */
+export function buildGnomadFreqKey(variantId: string, assembly?: string | null): string {
   const clean = variantId.trim().replace(/^chr/i, "");
-  return `gnomad_freq_${clean}_schema:${CACHE_SCHEMA_VERSION}`;
+  return `gnomad_freq_${clean}_${assembly ?? "unknown"}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildClinvarKey(gene: string, variant: string, notation?: string): string {
@@ -78,17 +94,26 @@ export function buildPredictorsKey(gene: string, variant: string, uniprotId?: st
   return `predictors_${normGene}_${cleanVar}${uId}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
+/**
+ * Cache key for a conservation payload.
+ *
+ * The build participates because several of the sources folded in here are single-build
+ * (GPN-Star, local dbNSFP, Genos, dbnsfp.org, PopEVE, gnomAD r4), so a payload assembled from one
+ * build's coordinates is not a valid answer for another's. The coordinate id alone was not
+ * sufficient: it is also empty on the progressive path, leaving the key build-blind in practice.
+ */
 export function buildConservationKey(
   gene: string,
   variant: string,
   pdbId?: string | null,
   chainId?: string | null,
   pos?: number | null,
-  gnomadVariantId?: string | null
+  gnomadVariantId?: string | null,
+  assembly?: string | null
 ): string {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
-  return `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos ?? ""}_${gnomadVariantId || ""}_schema:${CACHE_SCHEMA_VERSION}`;
+  return `conservation_${normGene}_${cleanVar}_${pdbId || ""}_${chainId || ""}_${pos ?? ""}_${gnomadVariantId || ""}_${assembly ?? "unknown"}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildStringKey(gene: string): string {
@@ -96,9 +121,15 @@ export function buildStringKey(gene: string): string {
   return `string_ppi_${normGene}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
-export function buildAlphaGenomeKey(chrom: string, pos: number, ref: string, alt: string): string {
+/**
+ * Cache key for an AlphaGenome lookup.
+ *
+ * AlphaGenome is GRCh38-only and answers by numeric position, so the build participates for the
+ * same reason as the gnomAD key: a coordinate from another build would fetch a different locus.
+ */
+export function buildAlphaGenomeKey(chrom: string, pos: number, ref: string, alt: string, assembly?: string | null): string {
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom.toLowerCase() : `chr${chrom.toLowerCase()}`;
-  return `alphagenome_${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+  return `alphagenome_${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}_${assembly ?? "unknown"}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 /**

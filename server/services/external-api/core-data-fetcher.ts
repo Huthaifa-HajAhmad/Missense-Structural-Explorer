@@ -20,7 +20,7 @@ import {
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
 import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
-import { CANONICAL_ASSEMBLY } from "../../../src/shared/assembly.ts";
+import { CANONICAL_ASSEMBLY, sourceSupportsAssembly } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
 import { predictStructuralDisruption, runEsm2Eval, type DisruptionPrediction } from "../stability/biophysics.ts";
@@ -144,7 +144,23 @@ export async function fetchCoreVariantData(
   const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then((localFreqs: any) => {
     if (localFreqs && localFreqs.gnomad) return localFreqs.gnomad;
     return predictorPromise.then(pred => {
-      return fetchGnomadVariantFrequency(pred?.gnomadVariantId || null);
+      /**
+       * Build gate on the coordinate before querying gnomAD.
+       *
+       * The endpoint is gnomAD r4, which is GRCh38-only, and it answers by numeric position: an
+       * id from another build whose alleles coincide resolves to a DIFFERENT locus and returns
+       * that locus's population frequency. These frequencies drive PM2 / BA1 / BS1 / PS4, which
+       * makes a wrong-locus value the highest-impact wrong number this pipeline can produce.
+       *
+       * A build that is unknown or unsupported therefore yields no frequency, which surfaces as
+       * "not assessed" rather than as a confident number for the wrong position. The build is
+       * also passed into the cache key so a cross-build entry can never be served.
+       */
+      const coordinateAssembly = pred?.gnomadVariantAssembly ?? null;
+      if (!coordinateAssembly || !sourceSupportsAssembly("gnomad-variants", coordinateAssembly)) {
+        return null;
+      }
+      return fetchGnomadVariantFrequency(pred?.gnomadVariantId || null, { assembly: coordinateAssembly });
     });
   }).catch(err => {
     console.warn("[Gnomad Frequency Warning] Error querying variant frequency:", err);
