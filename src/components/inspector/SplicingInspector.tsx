@@ -2,6 +2,7 @@ import React from "react";
 import { Scissors, GitFork, CheckCircle2, Info, ExternalLink, Database, Dna, GitBranch, Cpu } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds/index.ts";
+import { SectionLabel } from "./SectionLabel";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import {
   deriveSplicingEvidence,
@@ -101,24 +102,6 @@ function DeltaBar({
         />
       </div>
     </div>
-  );
-}
-
-function SectionLabel({
-  Icon,
-  children
-}: {
-  Icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-}) {
-  return (
-    /* Rendered as a real heading so the sidebar participates in screen-reader heading
-       navigation. Previously every section label was a <span>, so the inspector — which
-       now owns the ACMG rule mapping — was skipped entirely by heading traversal. */
-    <h3 className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5 m-0">
-      <Icon className="w-3.5 h-3.5 text-cs-accent-clay" />
-      {children}
-    </h3>
   );
 }
 
