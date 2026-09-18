@@ -18,10 +18,10 @@ jobs:
       OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Deploy to OCI VM via SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         if: env.OCI_SSH_HOST != '' && env.OCI_SSH_KEY != ''
         with:
           host: ${{ secrets.OCI_SSH_HOST }}

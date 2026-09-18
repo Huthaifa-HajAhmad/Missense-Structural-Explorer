@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -25,13 +25,13 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Cache uv dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/uv
           key: ${{ runner.os }}-uv-${{ hashFiles('tools/uv.lock') }}
@@ -42,7 +42,7 @@ jobs:
         run: uv sync --project tools --no-dev
 
       - name: Cache Vitest results
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules/.vitest
           key: ${{ runner.os }}-vitest-${{ github.sha }}
@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload PR build preview artifact
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pr-build-preview
           path: dist/
