@@ -124,6 +124,12 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
     amClass,
     caddPhred,
     gnomadVariantId,
+    /**
+     * The MyVariant.info `_id` is hg19 by default — its query service has no assembly
+     * parameter at all — so this coordinate is GRCh37 and must be labelled as such. It was
+     * previously returned untagged and consumed as though it were GRCh38.
+     */
+    gnomadVariantAssembly: gnomadVariantId ? ("GRCh37" as const) : null,
     transcriptId,
     maneRefSeqId,
     isManeSelect: Boolean(isManeSelect),
@@ -246,7 +252,14 @@ export async function fetchPredictorData(gene: string, variant: string, uniprotI
               amPathogenicity, 
               amClass, 
               caddPhred, 
-              gnomadVariantId, 
+              gnomadVariantId,
+              /**
+               * This path queries the GRCh38 Ensembl host (the URL above is hard-coded), so the
+               * coordinate it derives is GRCh38. Stated explicitly rather than left implicit:
+               * the build now travels with the coordinate, because the gate that consumes it
+               * can no longer assume the request's declared build matches the coordinate's.
+               */
+              gnomadVariantAssembly: gnomadVariantId ? ("GRCh38" as const) : null,
               transcriptId: tc.transcript_id,
               isManeSelect: !!tc.mane_select,
               isManePlusClinical: !!tc.mane_plus_clinical,

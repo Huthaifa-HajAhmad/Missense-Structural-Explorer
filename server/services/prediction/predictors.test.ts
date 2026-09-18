@@ -250,6 +250,9 @@ END
 
       const mockPredictor = Promise.resolve({
         gnomadVariantId: "chr17:7673802:C>T", // colon notation with >
+        // AlphaGenome is GRCh38-only and the gate keys on the coordinate's build, so the fixture
+        // must declare one. An undeclared build is refused rather than assumed.
+        gnomadVariantAssembly: "GRCh38",
         transcriptId: "ENST00000269305"
       });
 
@@ -315,6 +318,10 @@ END
           pos: 433,
           predictorPromise: Promise.resolve({
             gnomadVariantId: "1-25484258-G-A",
+            // The coordinate's build must be declared explicitly: the gate now keys on it, and a
+            // null build refuses. This mirrors the Ensembl VEP producer, which queries the GRCh38
+            // host. The MyVariant producer instead declares GRCh37, because its `_id` is hg19.
+            gnomadVariantAssembly: "GRCh38",
             transcriptId: "ENST00000374343"
           })
         });
@@ -349,6 +356,10 @@ END
           pos: 433,
           predictorPromise: Promise.resolve({
             gnomadVariantId: "1-25484258-G-A",
+            // The coordinate's build must be declared explicitly: the gate now keys on it, and a
+            // null build refuses. This mirrors the Ensembl VEP producer, which queries the GRCh38
+            // host. The MyVariant producer instead declares GRCh37, because its `_id` is hg19.
+            gnomadVariantAssembly: "GRCh38",
             transcriptId: "ENST00000374343"
           })
         });
@@ -358,6 +369,83 @@ END
           expect(res.spliceai.provenance?.source).not.toBe("broad-lookup");
         }
       } finally {
+        setSpliceAiMockProvider(null);
+      }
+    }, 25000);
+
+    /**
+     * Build-binding tests.
+     *
+     * The gate previously compared the build the user's NOTATION declared against each source's
+     * support, which answers the wrong question: the coordinate comes from predictor metadata
+     * whose producers disagree (VEP → GRCh38 host; MyVariant `_id` → hg19). That let a GRCh37
+     * request route a GRCh38 coordinate to the GRCh37 service, and an untagged coordinate reach
+     * GRCh38-only sources. These pin the corrected semantics: the gate follows the COORDINATE's
+     * build, and an unknown build refuses rather than defaulting.
+     */
+    it("refuses a coordinate whose build is unknown, rather than assuming one", async () => {
+      const { fetchConservationDataProgressive } = await import("../predictors.ts");
+      const { setSpliceAiMockProvider } = await import("../external-api/spliceai_broad.ts");
+      const { clearAllCaches } = await import("../infra/cache.ts");
+      clearAllCaches(true);
+
+      let called = false;
+      setSpliceAiMockProvider(async () => {
+        called = true;
+        return null;
+      });
+
+      try {
+        await fetchConservationDataProgressive({
+          gene: "MACO1",
+          variant: "p.Glu433Lys",
+          pos: 433,
+          // No gnomadVariantAssembly: the coordinate's build is unknown.
+          predictorPromise: Promise.resolve({
+            gnomadVariantId: "1-25484258-G-A",
+            transcriptId: "ENST00000374343"
+          })
+        });
+
+        // An untagged coordinate must not be routed: a wrong-build request is not merely a miss,
+        // it can be ACCEPTED and scored for a different locus. Refusing is the safe answer.
+        expect(called).toBe(false);
+      } finally {
+        setSpliceAiMockProvider(null);
+      }
+    }, 25000);
+
+    it("routes a GRCh37-labelled coordinate to the GRCh37 service, not the GRCh38 one", async () => {
+      const { fetchSpliceAiBroad, setSpliceAiMockProvider } = await import("../external-api/spliceai_broad.ts");
+
+      // Capture the URL the client would actually request. The mock provider sits at the
+      // transport boundary, so the URL is built for real and only the response is stubbed.
+      let requestedUrl: string | null = null;
+      const originalFetch = global.fetch;
+      global.fetch = (async (url: any) => {
+        requestedUrl = String(url);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ scores: [] }),
+          text: async () => "",
+          headers: { get: () => null }
+        } as any;
+      }) as any;
+      setSpliceAiMockProvider(null);
+
+      try {
+        await fetchSpliceAiBroad("17", 7577121, "G", "A", { assembly: "GRCh37", skipCache: true });
+
+        // The whole point of labelling the coordinate: an hg19 position goes to the hg37
+        // service. Sending it to the GRCh38 model is what produced a plausible score for a
+        // different locus (the hg38 base at that numeric position coincides with the hg19 REF).
+        expect(requestedUrl).not.toBeNull();
+        expect(requestedUrl).toContain("spliceai-37-");
+        expect(requestedUrl).not.toContain("spliceai-38-");
+        expect(requestedUrl).toContain("hg=37");
+      } finally {
+        global.fetch = originalFetch;
         setSpliceAiMockProvider(null);
       }
     }, 25000);

@@ -285,8 +285,28 @@ export const pocketFinderResponseSchema = z.object({
   likelyCofactor: z.string(),
   status: z.enum(["success", "fallback", "none_detected", "unavailable"]).catch("unavailable"),
   pocketDistance: z.number().nullable().optional(),
+  /**
+   * Distance to P2Rank's own cavity centre (`center_x/y/z`), which the client
+   * prefers over `pocketDistance` — the latter is measured to the centroid of the
+   * pocket's residues and grows with pocket size. Absent for fpocket results and
+   * for payloads cached before the field existed.
+   */
+  cavityCentreDistance: z.number().nullable().optional(),
   sasPoints: z.number().optional(),
-  surfaceAtoms: z.number().optional()
+  surfaceAtoms: z.number().optional(),
+  /**
+   * Where the ambiguous numbers came from. `pocketScore` may be a calibrated
+   * probability or a rescaled raw score, and `pocketVolume` a measured volume or
+   * nothing at all; the client refuses to print a unit or a probability label it
+   * cannot vouch for. Absent means unverified, never assumed.
+   */
+  provenance: z
+    .object({
+      engine: z.enum(["p2rank", "fpocket"]).optional(),
+      scoreSource: z.enum(["probability", "rescaled_raw_score", "unavailable"]).optional(),
+      volumeSource: z.enum(["measured", "unavailable", "scaled_surface_points"]).optional()
+    })
+    .optional()
 });
 
 export type PocketFinderRequest = z.infer<typeof pocketFinderRequestSchema>;
@@ -415,6 +435,22 @@ export const predictorDataSchema = z.object({
   amClass: z.string().nullable(),
   caddPhred: z.number().nullable(),
   gnomadVariantId: z.string().nullable().optional(),
+  /**
+   * Genome build that `gnomadVariantId`'s numeric coordinates belong to.
+   *
+   * REQUIRED TO BE EXPLICIT, and deliberately nullable. The id is produced two ways and they
+   * disagree: the Ensembl VEP path queries the GRCh38 host, while the MyVariant.info fallback
+   * parses `hit._id`, which is hg19 by default and carries no build marker. Several downstream
+   * sources are single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4, AlphaGenome,
+   * and one SpliceAI service per build), and a wrong-build coordinate does not merely miss —
+   * when the other build's base at that numeric position coincides, it scores a DIFFERENT LOCUS
+   * and the result is attributed to this variant.
+   *
+   * `null` therefore means "build unknown" and must never be treated as a default: an inferred
+   * build is indistinguishable from a verified one, which is exactly how the wrong-locus case
+   * slipped through. Consumers refuse a coordinate with an unknown or unsupported build.
+   */
+  gnomadVariantAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
   proteinName: z.string().nullable().optional(),
   transcriptId: z.string().optional(),
   isManeSelect: z.boolean().optional(),

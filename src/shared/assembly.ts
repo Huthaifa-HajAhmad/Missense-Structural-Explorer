@@ -73,6 +73,10 @@ export const ASSEMBLY_SUPPORT = {
   "gpn-star": ["GRCh38"],
   /** AlphaGenome Atlas holds GRCh38 SNVs; the model inputs GRCh38 sequence. */
   alphagenome: ["GRCh38"],
+  /** PopEVE is matched against `popeve_grch38.vcf.gz` on chrom/pos/ref/alt. */
+  popEVE: ["GRCh38"],
+  /** Splice-junction geometry is resolved against GRCh38 Ensembl exon boundaries. */
+  "splice-proximity": ["GRCh38"],
   /** Local dbNSFP SQLite ingest carries hg38 columns only. */
   "dbnsfp-local": ["GRCh38"],
   /** Requests hard-code `genome_build: 'hg38'`. */
