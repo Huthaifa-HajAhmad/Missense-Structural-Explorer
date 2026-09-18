@@ -276,7 +276,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   return (
     <div className={`flex flex-col h-full justify-between gap-3 text-cs-text-primary ${className}`}>
       {/* ── Top Bar: Title, Count, Ping & Configure Actions ── */}
-      <div className="flex items-center justify-between pb-2 border-b border-[var(--cs-border-subtle)] shrink-0">
+      <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-[var(--cs-accent-clay)]" />
           <h2 className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--cs-text-primary)" }}>
@@ -316,7 +316,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             onClick={() => refresh()}
             disabled={loading}
             title="Ping all services & refresh telemetry"
-            className="p-1 rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-all cursor-pointer disabled:opacity-50"
+            className="p-1 rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
             aria-label="Ping all services"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-cs-accent-clay" : ""}`} />
@@ -326,7 +326,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             type="button"
             onClick={() => handleConfigure("connections")}
             title="Open Connection Settings"
-            className="p-1 rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-all cursor-pointer"
+            className="p-1 rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
             aria-label="Configure connection settings"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -351,7 +351,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   svc.onAction?.();
                 }
               }}
-              className={`p-2 px-2.5 rounded-lg border transition-all flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
+              className={`min-h-[46px] px-3 py-2 rounded-lg border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
                 isClickable
                   ? "border-[var(--cs-border-subtle)] cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
                   : "border-[var(--cs-border-subtle)] hover:border-[var(--cs-border)]"

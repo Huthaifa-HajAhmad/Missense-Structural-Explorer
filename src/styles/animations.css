@@ -63,19 +63,21 @@
   border-width: 1.5px;
 }
 
-/* Tab Panel Transition — Noticeable, fluid depth translation with subtle scale */
+/* Tab Panel Transition — a short cross-fade with a 4px rise.
+   The panel lives inside a fixed-height track, so the offset stays small enough
+   not to be clipped by the card, and scale is left out: scaling a text panel
+   re-rasterises it and softens glyphs for the length of the animation. */
 @keyframes cs-tab-transition {
-  0% {
+  from {
     opacity: 0;
-    transform: translateY(12px) scale(0.99);
+    transform: translateY(4px);
   }
-  100% {
+  to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 .cs-tab-transition {
-  animation: cs-tab-transition 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity;
+  animation: cs-tab-transition 0.18s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
