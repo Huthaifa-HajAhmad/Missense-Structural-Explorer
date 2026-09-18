@@ -328,22 +328,24 @@ function CopyBtn({ text, label }: { text: string; label: string }) {
   );
 }
 
-/** One metric: label + value, reference track, threshold axis, verdict. */
+/**
+ * One metric as a list row: label, value, reference track, threshold legend, verdict.
+ * The reference ranges are drawn on the track as bands and tick marks; the numbers
+ * beside it name those ticks in left-to-right order.
+ */
 function ConstraintMetric({ metric }: { metric: VhMetric }) {
   const { domain, bands, ticks, marker, tone } = metric;
   const markerLeft = marker === null ? null : vhMarkerPct(marker, domain);
 
   return (
     <li className="vh-metric" title={metric.tooltip}>
-      <div className="vh-metric-head">
-        <span className="vh-metric-label">{metric.label}</span>
-        <span className="vh-metric-value" data-tone={tone}>
-          {metric.value}
-        </span>
-      </div>
+      <span className="vh-metric-label">{metric.label}</span>
+      <span className="vh-metric-value" data-tone={tone}>
+        {metric.value}
+      </span>
 
-      <div className="vh-scale" data-empty={marker === null ? "true" : undefined} aria-hidden="true">
-        <span className="vh-scale-track">
+      <span className="vh-scale" data-empty={marker === null ? "true" : undefined} aria-hidden="true">
+        <span className="vh-scale-bar">
           {bands.map((band) => (
             <span
               key={`${band.from}-${band.to}`}
@@ -360,22 +362,18 @@ function ConstraintMetric({ metric }: { metric: VhMetric }) {
           <span key={tick.at} className="vh-tick" style={{ left: `${vhPct(tick.at, domain)}%` }} />
         ))}
         {markerLeft !== null && <span className="vh-marker" data-tone={tone} style={{ left: `${markerLeft}%` }} />}
-      </div>
-
-      <div className="vh-axis" aria-hidden="true">
         {ticks.map((tick) => (
-          <span key={tick.at} className="vh-axis-label" style={{ left: `${vhPct(tick.at, domain)}%` }}>
+          <span key={`label-${tick.at}`} className="vh-axis-label" style={{ left: `${vhPct(tick.at, domain)}%` }}>
             {tick.label}
           </span>
         ))}
-      </div>
+      </span>
 
-      <div className="vh-foot">
-        <span className="vh-verdict" data-tone={tone}>
-          {metric.verdict}
-        </span>
-        {metric.note && <span className="vh-note">{metric.note}</span>}
-      </div>
+      <span className="vh-verdict" data-tone={tone}>
+        {metric.verdict}
+      </span>
+      {/* Rendered only when present, so rows without a footnote stay single-line. */}
+      {metric.note && <span className="vh-note">{metric.note}</span>}
 
       <span className="vh-sr-only">{metric.detail}</span>
     </li>
@@ -447,7 +445,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
 
   return (
     <div className="variant-header" role="banner" aria-label="Active variant">
-      {/* ── Band 1 · identity (left) + lineage identifiers (right, filling the header's dead space) ── */}
+      {/* ── Band 1 · the variant's identity ── */}
       <div className="variant-header-top">
         <div className="variant-header-identity">
           <span className="variant-header-gene">{gene}</span>
@@ -459,6 +457,8 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
           )}
         </div>
 
+        {/* Lineage identifiers stay under the gene rather than being pushed to the far
+            edge of the header, so the header reads as one left-aligned block. */}
         {hasIdentifiers && (
           <div className="vh-identifiers" aria-label="Lineage and identifiers">
             {displayTranscriptId && (
@@ -523,17 +523,19 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
         )}
       </div>
 
-      {/* ── Band 2 · gnomAD v2 constraint rail: source label + three threshold tracks ── */}
+      {/* ── Band 3 · gnomAD v2 constraint list: one row per metric ── */}
       {metrics.length > 0 && (
-        <ul className="vh-rail" aria-label="gnomAD v2 population constraint and normal ranges">
-          <li className="vh-rail-meta">
+        <div className="vh-rail">
+          <div className="vh-rail-meta">
             <span className="vh-rail-src">gnomAD v2</span>
             <span className="vh-rail-scope">Gene constraint</span>
-          </li>
-          {metrics.map((metric) => (
-            <ConstraintMetric key={metric.key} metric={metric} />
-          ))}
-        </ul>
+          </div>
+          <ul className="vh-metrics" aria-label="gnomAD v2 population constraint and normal ranges">
+            {metrics.map((metric) => (
+              <ConstraintMetric key={metric.key} metric={metric} />
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
