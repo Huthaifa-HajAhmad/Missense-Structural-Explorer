@@ -402,16 +402,18 @@ export class BiophysicalJobQueue {
 
     if (!this.bullQueue) {
       /**
-       * Prefer the explicit override over the NODE_ENV heuristic.
+       * Under test the queue stays IN-MEMORY, and that ordering is deliberate.
        *
-       * `SHARED_STATE_DB_PATH` is read by the other writer of this same file, and relying on
-       * `NODE_ENV === "test"` alone made safety depend on a variable Vitest only defaults — an
-       * inherited value from a shell or CI would have opened the developer's real database.
+       * `SHARED_STATE_DB_PATH` is honoured first in production, but if it took precedence under
+       * test the queue would become file-backed: the resulting disk write per enqueue is slower
+       * and asynchronous in a way some of these tests are sensitive to (a job observed as
+       * "queued" that the old in-memory queue had already flipped to "running"). The path is
+       * still redirected by the test setup, so production state is untouched either way — this
+       * keeps the tests measuring queue behaviour rather than SQLite latency.
        */
-      const dbPath = process.env.SHARED_STATE_DB_PATH
-        ?? (process.env.NODE_ENV === "test"
-          ? ":memory:"
-          : path.join(process.cwd(), "data", "shared_state.sqlite"));
+      const dbPath = process.env.NODE_ENV === "test"
+        ? ":memory:"
+        : (process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite"));
       this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback);
     }
   }

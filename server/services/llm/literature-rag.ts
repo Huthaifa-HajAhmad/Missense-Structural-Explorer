@@ -11,10 +11,11 @@ import { getGeminiClient } from "./gemini.ts";
  * variable Vitest merely defaults — an ambient value would have used the real database.
  */
 function resolveSharedStatePath(): string {
-  return process.env.SHARED_STATE_DB_PATH
-    ?? (process.env.NODE_ENV === "test"
-      ? ":memory:"
-      : path.join(process.cwd(), "data", "shared_state.sqlite"));
+  // In-memory under test (ordering matters: this module reads the DB synchronously, and the
+  // tests assert on an empty database rather than on a redirected file). The override is
+  // honoured in production so an operator can relocate the file.
+  if (process.env.NODE_ENV === "test") return ":memory:";
+  return process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite");
 }
 
 let dbInstance: DatabaseSync | null = null;
