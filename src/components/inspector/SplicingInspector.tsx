@@ -1,5 +1,5 @@
 import React from "react";
-import { Scissors, GitFork, CheckCircle2, Info, ExternalLink, Database, Dna, GitBranch, Cpu } from "lucide-react";
+import { Scissors, GitFork, CheckCircle2, Info, Database, Dna, GitBranch, Cpu } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds/index.ts";
 import { SectionLabel } from "./SectionLabel";
@@ -61,13 +61,16 @@ function DeltaBar({
   value,
   cutoff,
   cutoffLabel,
-  isSpliceAi
+  isSpliceAi,
+  shiftLabel
 }: {
   label: string;
   value: number | null;
   cutoff: number;
   cutoffLabel: string;
   isSpliceAi: boolean;
+  /** Where this channel's shift lands, relative to the variant (e.g. "+123 bp"). */
+  shiftLabel?: string | null;
 }) {
   const isUnavailable = value === null;
   const percentage = isUnavailable ? 0 : Math.max(0, Math.min(100, value * 100));
@@ -87,6 +90,9 @@ function DeltaBar({
       <div className="flex justify-between items-center gap-2 text-[11px]">
         <span className="text-cs-text-secondary truncate">{label}</span>
         <span className="font-mono font-semibold text-cs-text-primary shrink-0">
+          {/* The shift offset answers "where", which the delta score alone cannot: a large
+              offset with a small score means the change lands far from any junction. */}
+          {shiftLabel ? <span className="text-cs-text-muted font-normal mr-1.5">{shiftLabel}</span> : null}
           {isUnavailable ? "—" : value.toFixed(3)}
         </span>
       </div>
@@ -103,6 +109,30 @@ function DeltaBar({
       </div>
     </div>
   );
+}
+
+/**
+ * Describe where a SpliceAI number came from, in words a reader can act on.
+ *
+ * The three sources genuinely differ and legitimately disagree on borderline variants, so
+ * "SpliceAI v1.3.1 · Jaganathan 2019" was misleading: it stated one tool version for a number
+ * that may have come from a frozen table computed years earlier against an older annotation.
+ */
+function describeSpliceAiSource(
+  provenance: {
+    source: "broad-lookup" | "precomputed-dbnsfp" | "genos";
+    masked?: number | null;
+    computedLive?: boolean;
+    annotationSet?: string | null;
+  } | null
+): string {
+  if (!provenance) return "not stated";
+  if (provenance.source === "broad-lookup") {
+    const masked = provenance.masked === 1 ? "masked" : provenance.masked === 0 ? "raw" : null;
+    return ["Broad Lookup (live)", masked].filter(Boolean).join(" \u00b7 ");
+  }
+  if (provenance.source === "genos") return "Genos (precomputed)";
+  return "dbNSFP (precomputed, GENCODE v24)";
 }
 
 export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
@@ -128,6 +158,7 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
 
   const {
     spliceai,
+    spliceaiProvenance,
     isSpliceAiLoading,
     maxDs,
     adaScore,
@@ -156,6 +187,20 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
   const hasSpliceAiChannels =
     spliceai !== null &&
     (spliceai.ds_ag !== null || spliceai.ds_al !== null || spliceai.ds_dg !== null || spliceai.ds_dl !== null);
+
+  /**
+   * Per-channel shift offsets, shown beside each bar.
+   *
+   * `dp` says WHERE splicing changes relative to the variant; the delta score only says how
+   * much. A large |dp| with a small score is the signature of a variant far from any junction,
+   * which is the case the README's own worked example demonstrates (-28/-46/-2/-31). Without it
+   * a reader cannot tell a genuine near-junction shift from a distant one.
+   */
+  const dpFor = (key: "ds_ag" | "ds_al" | "ds_dg" | "ds_dl"): string | null => {
+    const value = spliceai?.dp?.[key];
+    if (value === null || value === undefined) return null;
+    return `${value > 0 ? "+" : ""}${value} bp`;
+  };
 
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
@@ -287,16 +332,33 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
         <SectionLabel Icon={Cpu}>SpliceAI Deep Learning Breakdown</SectionLabel>
 
         <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
-          <div className="flex justify-between items-center">
-            <span className="text-cs-text-secondary">Context</span>
-            <span className="font-mono text-cs-text-muted">&plusmn;10,000 bp flanking</span>
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-cs-text-secondary shrink-0">Source</span>
+            <span className="font-mono text-cs-text-muted text-right">
+              {describeSpliceAiSource(spliceaiProvenance)}
+            </span>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-cs-text-secondary">Channels</span>
-            <span className="font-mono text-cs-text-muted">AG / AL / DG / DL</span>
+          {/*
+            The reporting window, taken from provenance rather than hardcoded. It previously read
+            "±10,000 bp flanking" for every variant: that is the model's INPUT context (and
+            SpliceAI's published context is 10,000 nt total, i.e. ±5,000), not the window the
+            number was produced under — the live request uses 500 bp and the frozen dbNSFP
+            columns used 50 bp.
+          */}
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-cs-text-secondary shrink-0">Reporting window</span>
+            <span className="font-mono text-cs-text-muted text-right">
+              {spliceaiProvenance?.distanceBp != null
+                ? `\u00b1${spliceaiProvenance.distanceBp} bp`
+                : "not stated"}
+            </span>
           </div>
-          <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
-            <span className="text-cs-text-secondary">Max Delta Score</span>
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-cs-text-secondary shrink-0">Channels</span>
+            <span className="font-mono text-cs-text-muted text-right">AG / AL / DG / DL</span>
+          </div>
+          <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle gap-2">
+            <span className="text-cs-text-secondary shrink-0">Max Delta Score</span>
             <span className="font-mono font-semibold text-cs-text-primary">
               {maxDs !== null ? maxDs.toFixed(3) : "—"}
             </span>
@@ -311,10 +373,10 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
           </div>
         ) : hasSpliceAiChannels ? (
           <div className="space-y-2">
-            <DeltaBar label="Acceptor Gain (ds_ag)" value={spliceai!.ds_ag} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi />
-            <DeltaBar label="Acceptor Loss (ds_al)" value={spliceai!.ds_al} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi />
-            <DeltaBar label="Donor Gain (ds_dg)" value={spliceai!.ds_dg} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi />
-            <DeltaBar label="Donor Loss (ds_dl)" value={spliceai!.ds_dl} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi />
+            <DeltaBar label="Acceptor Gain (ds_ag)" value={spliceai!.ds_ag} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi shiftLabel={dpFor("ds_ag")} />
+            <DeltaBar label="Acceptor Loss (ds_al)" value={spliceai!.ds_al} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi shiftLabel={dpFor("ds_al")} />
+            <DeltaBar label="Donor Gain (ds_dg)" value={spliceai!.ds_dg} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi shiftLabel={dpFor("ds_dg")} />
+            <DeltaBar label="Donor Loss (ds_dl)" value={spliceai!.ds_dl} cutoff={THRESHOLDS.spliceai.pathogenicModerate} cutoffLabel={`Moderate (${THRESHOLDS.spliceai.pathogenicModerate})`} isSpliceAi shiftLabel={dpFor("ds_dl")} />
           </div>
         ) : (
           /* Reached only when no channel carries a score — either SpliceAI never ran
@@ -432,36 +494,59 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
           </p>
         </div>
 
-        {/* Provenance */}
+        {/* Provenance. Each row links the source it actually names: the card previously offered
+            a single unlabelled "PubMed" link to PMC6400593, which resolves to
+            "Implementation Science in Nutrition" — unrelated to any of the three tools whose
+            provenance this block asserts. */}
         <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-cs-text-primary">SpliceAI</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">v1.3.1 &middot; Jaganathan 2019</span>
+          <div className="flex justify-between items-center gap-2">
+            <span className="font-semibold text-cs-text-primary shrink-0">SpliceAI</span>
+            <a
+              href="https://pubmed.ncbi.nlm.nih.gov/30661751/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-[9.5px] text-cs-accent-clay hover:underline text-right"
+            >
+              Jaganathan 2019, Cell
+            </a>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-cs-text-primary">dbscSNV</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">Jian 2014 &middot; Hum Mutat</span>
+          <div className="flex justify-between items-center gap-2">
+            <span className="font-semibold text-cs-text-primary shrink-0">dbscSNV</span>
+            <a
+              href="https://pubmed.ncbi.nlm.nih.gov/25313161/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-[9.5px] text-cs-accent-clay hover:underline text-right"
+            >
+              Jian 2014, Nucleic Acids Res
+            </a>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-cs-text-primary">ClinGen SVI</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">PP3 / BP4 framework</span>
+          <div className="flex justify-between items-center gap-2">
+            <span className="font-semibold text-cs-text-primary shrink-0">ClinGen SVI</span>
+            <a
+              href="https://pubmed.ncbi.nlm.nih.gov/36413997/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-[9.5px] text-cs-accent-clay hover:underline text-right"
+            >
+              Pejaver 2022, PP3/BP4
+            </a>
           </div>
-          <a
-            href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6400593/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-cs-accent-clay hover:underline pt-1"
-          >
-            <span>PubMed</span>
-            <ExternalLink className="w-2.5 h-2.5" />
-          </a>
         </div>
 
         <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 flex items-start gap-2">
           <Database className="w-3.5 h-3.5 text-cs-accent-clay shrink-0 mt-0.5" />
+          {/*
+            The build is NOT stated here. This line used to assert "on GRCh38" unconditionally,
+            which became false once GRCh37 input was supported and SpliceAI was routed per build.
+            The resolved build reaches the client on the translate response, but this inspector
+            does not receive it, so rather than assert a build it cannot know, it describes the
+            model the coordinates came from and defers the build to the source row above.
+          */}
           <p className="text-[10px] text-cs-text-muted leading-relaxed">
             Splice junction geometry resolved against the Ensembl transcript model
-            {transcriptId ? ` (${transcriptId})` : ""} on GRCh38.
+            {transcriptId ? ` (${transcriptId})` : ""}. SpliceAI scores are computed on the build
+            reported in the Source row.
           </p>
         </div>
       </div>

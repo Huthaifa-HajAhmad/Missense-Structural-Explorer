@@ -44,7 +44,33 @@ export interface SplicingEvidenceModel {
   hasDbscsnv: boolean;
   isDbscAltering: boolean;
   /** SpliceAI per-channel delta scores (null when unannotated). */
-  spliceai: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null } | null;
+  spliceai: {
+    ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null;
+    /**
+     * Where splicing changes relative to the variant (negative = upstream), per channel.
+     *
+     * A large |dp| alongside a small delta score is the signature of a variant far from any
+     * junction — information the delta score alone cannot convey. The client has produced this
+     * since the Broad integration; it was discarded here, so the panes could not show it.
+     */
+    dp?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null };
+  } | null;
+  /**
+   * Where the SpliceAI number came from.
+   *
+   * Absent means "not stated", which is a real and common state: the precomputed dbNSFP paths
+   * stamp no provenance, so a reader must not assume live simply because a score exists. This
+   * is the difference between a live model run (500 bp window, masked, current GENCODE) and a
+   * frozen table (50 bp, GENCODE v24) — they legitimately disagree on borderline variants, so
+   * the panes must be able to say which one answered.
+   */
+  spliceaiProvenance: {
+    source: "broad-lookup" | "precomputed-dbnsfp" | "genos";
+    distanceBp?: number | null;
+    masked?: number | null;
+    computedLive?: boolean;
+    annotationSet?: string | null;
+  } | null;
   isSpliceAiLoading: boolean;
 
   // ── AlphaGenome: splicing attribution is NOT the same as the aggregate AVI ──
@@ -400,7 +426,24 @@ export function deriveSplicingEvidence(
     hasDbscsnv,
     isDbscAltering,
     spliceai: spliceai
-      ? { ds_ag: spliceai.ds_ag, ds_al: spliceai.ds_al, ds_dg: spliceai.ds_dg, ds_dl: spliceai.ds_dl }
+      ? {
+          ds_ag: spliceai.ds_ag,
+          ds_al: spliceai.ds_al,
+          ds_dg: spliceai.ds_dg,
+          ds_dl: spliceai.ds_dl,
+          ...(spliceai.dp ? { dp: spliceai.dp } : {}),
+        }
+      : null,
+    // Surfaced so the panes can state which source produced the number, instead of hardcoding a
+    // tool version and a reporting window that are wrong for two of the three possible sources.
+    spliceaiProvenance: spliceai?.provenance
+      ? {
+          source: spliceai.provenance.source,
+          distanceBp: spliceai.provenance.distanceBp ?? null,
+          masked: spliceai.provenance.masked ?? null,
+          computedLive: spliceai.provenance.computedLive,
+          annotationSet: spliceai.provenance.annotationSet ?? null,
+        }
       : null,
     isSpliceAiLoading,
     splicingAttribution,

@@ -347,3 +347,73 @@ describe("deriveSplicingEvidence — AlphaGenome attribution keying", () => {
     expect(m.isSplicingDominant).toBe(true);
   });
 });
+
+/**
+ * Pass-through tests for the SpliceAI provenance and delta positions.
+ *
+ * Both were produced by the client and typed in `contracts.ts` but discarded here, so neither
+ * pane could render them: the panels instead hardcoded a tool version and a reporting window
+ * ("±10,000 bp flanking") that are wrong for the frozen precomputed source, and could not say
+ * WHERE a shift lands — which is the whole reason `dp` exists. Discord here is what let the
+ * hardcoded claims go unchallenged.
+ */
+describe("deriveSplicingEvidence — SpliceAI provenance and delta positions", () => {
+  it("carries dp through so a reader can see where the shift lands", () => {
+    const m = deriveSplicingEvidence(
+      makeResult({
+        spliceProximity: { distance: 16, isNearSpliceSite: false },
+        spliceai: {
+          ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004, max_ds: 0.004,
+          dp: { ds_ag: -142, ds_al: -172, ds_dg: 19, ds_dl: 123 }
+        },
+        dbscsnv: null
+      })
+    )!;
+
+    // A large |dp| with a small delta is the signature of a variant far from any junction —
+    // the delta score alone cannot convey that.
+    expect(m.spliceai?.dp?.ds_dl).toBe(123);
+    expect(m.spliceai?.dp?.ds_ag).toBe(-142);
+  });
+
+  it("carries provenance through, including the reporting window the score was made under", () => {
+    const m = deriveSplicingEvidence(
+      makeResult({
+        spliceProximity: { distance: 16, isNearSpliceSite: false },
+        spliceai: {
+          ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004, max_ds: 0.004,
+          provenance: {
+            source: "broad-lookup",
+            distanceBp: 500,
+            masked: 1,
+            computedLive: true,
+            annotationSet: "MANE Select"
+          }
+        },
+        dbscsnv: null
+      })
+    )!;
+
+    expect(m.spliceaiProvenance?.source).toBe("broad-lookup");
+    // 500, not 10,000: the panel previously displayed the model's INPUT context as though it
+    // were the window the number was produced under.
+    expect(m.spliceaiProvenance?.distanceBp).toBe(500);
+    expect(m.spliceaiProvenance?.masked).toBe(1);
+  });
+
+  it("reports provenance as absent when the source did not state one", () => {
+    // The precomputed dbNSFP / Genos paths stamp no provenance, so absence is a real state.
+    // A renderer must say "not stated" rather than assume a live model run.
+    const m = deriveSplicingEvidence(
+      makeResult({
+        spliceProximity: { distance: 16, isNearSpliceSite: false },
+        spliceai: { ds_ag: 0.9, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.9 },
+        dbscsnv: null
+      })
+    )!;
+
+    // The derivation hoists max_ds out of the channel object onto the model.
+    expect(m.maxDs).toBeCloseTo(0.9, 5);
+    expect(m.spliceaiProvenance).toBeNull();
+  });
+});
