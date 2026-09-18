@@ -25,4 +25,14 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 
+[tool.uv]
+# The lockfile resolved `transformers` to a commit on the private Biohub fork, even
+# though it is declared against PyPI above and `Biohub/esm` only requires
+# `transformers>=4.5` - nothing in this dependency set needs a fork API. That private
+# git source is what broke the CD image build: `uv sync` inside Docker cannot
+# authenticate to github.com, so it failed with "could not read Username" and the
+# deployment never started. Restoring the resolution to the explicitly declared PyPI
+# dependency keeps the build reproducible without shipping a credential.
+override-dependencies = ["transformers==4.57.6"]
+
 

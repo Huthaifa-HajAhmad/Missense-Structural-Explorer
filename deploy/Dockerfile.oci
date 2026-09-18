@@ -42,7 +42,14 @@ COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
-# Copy Python dependency lockfiles & build venv with BuildKit uv cache
+# Copy Python dependency lockfiles & build venv with BuildKit uv cache.
+#
+# Every remaining git source in tools/uv.lock must be anonymously fetchable: this build
+# has no GitHub credential, because a private source here fails the image build with
+# "could not read Username for 'https://github.com'" and the deployment never starts.
+# `transformers` was resolved from the private Biohub fork until tools/pyproject.toml
+# pinned it back to PyPI via `override-dependencies`; keep it that way, or supply a
+# token as a build secret before reintroducing a private source.
 COPY tools/pyproject.toml tools/uv.lock ./tools/
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
