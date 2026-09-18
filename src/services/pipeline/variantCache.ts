@@ -6,7 +6,26 @@
 
 import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/narrativeFallback";
 
-export const CACHE_VERSION = "v3.6";
+/**
+ * Client-side snapshot cache, versioned so a schema change to what a bundle MEANS invalidates it.
+ *
+ * v3.7 — invalidated because `analysisResult` became build-aware on the server.
+ *
+ * This cache is keyed on protein notation (`GENE_variant`), which is canonically
+ * build-independent: the same amino-acid substitution is the same substitution whichever build the
+ * coordinates came from, and the rest of the bundle (PDB text, FoldER energetics, pockets,
+ * homologs) carries no coordinates at all. What DOES depend on the build is the embedded
+ * `analysisResult`, because the server assembles it from coordinate-consuming sources.
+ *
+ * The server side is now build-scoped (its cache keys carry the build and the schema version was
+ * bumped), so the residual hazard is narrow but real: whichever build requested a protein variant
+ * FIRST leaves a snapshot here for 24 h, and a later request for the same protein variant from the
+ * other build is served that snapshot without contacting the server. Bumping the version discards
+ * the entries written before the server became build-aware; closing the remaining window needs the
+ * build in this key, which requires threading it through every one of the ~20 call sites — most of
+ * which only ever hold protein notation and therefore have no build to thread.
+ */
+export const CACHE_VERSION = "v3.7";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

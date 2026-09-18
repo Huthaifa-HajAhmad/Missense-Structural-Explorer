@@ -217,16 +217,28 @@ export async function fetchConservationData(
           const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant);
           if (rec) {
             const parsedGnomad = parseGenomicCoordinateString(gnomadVariantId);
-            const popEVEPromise = parsedGnomad
-              ? fetchPopEVEScore(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt).catch(() => null)
+            /**
+             * Same build gate as the progressive path, applied here too.
+             *
+             * This resolver is reachable with a coordinate (`gnomadVariantId` is a parameter), and
+             * PopEVE and GPN-Star match chrom/pos/ref/alt against GRCh38-only indexes. Gating only
+             * the progressive call site would leave this one free to score the wrong locus the
+             * moment anyone passes a coordinate in.
+             */
+            const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
+              assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
+
+            const coordinateUsable = parsedGnomad !== null && usableBy("gpn-star");
+            const popEVEPromise = coordinateUsable
+              ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
             const consurfPromise = (pdbId && chainId && resolvedPos !== null)
               ? fetchRealConsurfData(pdbId, chainId, resolvedPos)
               : Promise.resolve(null);
 
-            const gpnTabixPromise = parsedGnomad
-              ? fetchGpnStarByCoordinate(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt).catch(() => null)
+            const gpnTabixPromise = coordinateUsable
+              ? fetchGpnStarByCoordinate(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
             const alphaPromise = parsedGnomad
@@ -788,7 +800,16 @@ export async function fetchConservationDataProgressive(
         alphagenomeResult = alphaRes;
         liveSpliceAi = liveSpliceAiRes;
 
-        if (pred?.transcriptId) {
+        /**
+         * Splice-junction geometry is resolved against GRCh38 Ensembl exon boundaries.
+         *
+         * The transcript ids in this pipeline come from Ensembl's GRCh38 host, so the exon model
+         * is GRCh38 and comparing a GRCh37 position against it yields a wrong distance, a wrong
+         * region type and a wrong canonical-junction verdict — all rendered as measured geometry
+         * ("N bp from junction", "Exon 3 of 12"). `splice-proximity` was declared GRCh38-only but
+         * nothing enforced it, so this was reachable with an hg19 coordinate.
+         */
+        if (pred?.transcriptId && usableBy("splice-proximity")) {
           spliceProximity = await resolveSpliceProximity(pred.transcriptId, parsedCoord.pos).catch(() => null);
         }
       }
