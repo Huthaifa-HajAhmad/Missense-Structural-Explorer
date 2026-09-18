@@ -289,5 +289,125 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
     sessionStorage.removeItem("missenseTransientCredentials");
   });
+
+  /**
+   * The form already routes on the notation grammar, but did so invisibly: required-field
+   * asterisks changed meaning based on a parse the user could not see. These tests cover the
+   * surface that makes the parse legible.
+   */
+  describe("live notation understanding", () => {
+    it("labels a protein substitution as analysed directly", async () => {
+      renderPanel();
+
+      const variantInput = screen.getByPlaceholderText("e.g. p.Gly380Arg");
+      await act(async () => {
+        fireEvent.change(variantInput, { target: { value: "p.Gly380Arg" } });
+      });
+
+      expect(screen.getByText("Protein HGVS")).toBeInTheDocument();
+      expect(screen.queryByText("Derived")).not.toBeInTheDocument();
+    });
+
+    it("labels a coordinate notation as needing resolution, and marks the gene derived", async () => {
+      renderPanel();
+
+      const variantInput = screen.getByPlaceholderText("e.g. p.Gly380Arg");
+      await act(async () => {
+        fireEvent.change(variantInput, { target: { value: "chr1:g.25484258G>A" } });
+      });
+
+      expect(screen.getByText("Genomic → resolve")).toBeInTheDocument();
+      // The gene is resolved from the coordinate, which is why the asterisk disappeared.
+      expect(screen.getByText("Derived")).toBeInTheDocument();
+    });
+
+    it("warns when a coordinate notation is outside the missense scope", async () => {
+      renderPanel();
+
+      const variantInput = screen.getByPlaceholderText("e.g. p.Gly380Arg");
+      await act(async () => {
+        fireEvent.change(variantInput, { target: { value: "chr1:g.25484258delG" } });
+      });
+
+      expect(screen.getByText("Out of scope")).toBeInTheDocument();
+    });
+
+    it("flags a malformed UniProt accession instead of silently accepting it", async () => {
+      renderPanel();
+
+      const uniprotInput = screen.getByPlaceholderText("e.g. Q9H8M5 (Auto-resolved if omitted)") as HTMLInputElement;
+      await act(async () => {
+        fireEvent.change(uniprotInput, { target: { value: "Q9H8" } });
+      });
+      expect(screen.getByText("Check format")).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.change(uniprotInput, { target: { value: "Q9H8M5" } });
+      });
+      expect(screen.getByText("Format OK")).toBeInTheDocument();
+    });
+
+    it("surfaces custom analysis instructions while the disclosure is collapsed", async () => {
+      renderPanel();
+
+      expect(screen.queryByText(/^\d+ chars$/)).not.toBeInTheDocument();
+
+      const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions");
+      await act(async () => {
+        fireEvent.change(textarea, { target: { value: "Focus on the cofactor loop" } });
+      });
+
+      expect(screen.getByText("26 chars")).toBeInTheDocument();
+    });
+  });
+
+  describe("accepted-inputs catalogue", () => {
+    it("draws its examples from the shared notation catalogue", () => {
+      renderPanel();
+
+      // Sourced from ACCEPTED_NOTATION_EXAMPLES, so the panel cannot advertise a grammar the
+      // parser rejects. The ClinVar Variation ID the previous hand-written copy listed is
+      // absent because the analysis route has no branch for it.
+      expect(screen.getByText("chr1:g.25484258G>A")).toBeInTheDocument();
+      expect(screen.getByText("Chr1(GRCh38):g.25484258G>A")).toBeInTheDocument();
+      expect(screen.getByText("NC_000001.11:g.25484258G>A")).toBeInTheDocument();
+      expect(screen.getByText("20-23365054-G-A")).toBeInTheDocument();
+      expect(screen.getByText("NM_004333.6:c.1799T>A")).toBeInTheDocument();
+      expect(screen.getByText("p.Arg408Trp")).toBeInTheDocument();
+      expect(screen.queryByText("VCV000013920")).not.toBeInTheDocument();
+    });
+
+    it("fills the matching field and clears the competing one", async () => {
+      renderPanel();
+
+      const variantInput = screen.getByPlaceholderText("e.g. p.Gly380Arg") as HTMLInputElement;
+      await act(async () => {
+        fireEvent.change(variantInput, { target: { value: "p.Gly380Arg" } });
+      });
+
+      const genomicExample = screen.getByRole("button", { name: /Use example 20-23365054-G-A in the Genomic coords field/i });
+      await act(async () => {
+        fireEvent.click(genomicExample);
+      });
+
+      const genomicInput = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
+      expect(genomicInput.value).toBe("20-23365054-G-A");
+      // The two notation fields are alternative routes, not additive inputs.
+      expect(variantInput.value).toBe("");
+      expect(useVariantAnalysisStore.getState().customVariant).toBe("");
+    });
+
+    it("fills a protein example into the variant field", async () => {
+      renderPanel();
+
+      const proteinExample = screen.getByRole("button", { name: /Use example p.Arg408Trp in the Variant notation field/i });
+      await act(async () => {
+        fireEvent.click(proteinExample);
+      });
+
+      expect((screen.getByPlaceholderText("e.g. p.Gly380Arg") as HTMLInputElement).value).toBe("p.Arg408Trp");
+      expect(useVariantAnalysisStore.getState().customVariant).toBe("p.Arg408Trp");
+    });
+  });
 });
 

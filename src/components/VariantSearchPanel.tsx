@@ -28,7 +28,7 @@ import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
-import { isGenomicOrCdnaNotation } from "../shared/variantNotation.ts";
+import { isGenomicOrCdnaNotation, classifyNotation, ACCEPTED_NOTATION_EXAMPLES, type NotationKind } from "../shared/variantNotation.ts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
@@ -82,6 +82,116 @@ const WORKFLOW_STAGES = [
 
 type RailTabId = "telemetry" | "pipeline";
 const RAIL_TAB_ORDER: RailTabId[] = ["telemetry", "pipeline"];
+
+type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
+
+const FIELD_BADGE_TONES: Record<FieldBadgeTone, string> = {
+  neutral: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)]",
+  ok: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  warn: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+  clay: "bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)] border-[var(--cs-accent-clay)]/30",
+};
+
+/**
+ * Micro-badge occupying the right-hand slot of a field label.
+ *
+ * Every label used that slot differently before: one carried a red asterisk, two spelled
+ * "(Optional)" into the label text itself, and the rest left it empty — so the two columns
+ * never lined up and "is this field required?" had to be read three different ways. Shared
+ * geometry also keeps the label row's height stable, since `leading-none` + a 3px pad stays
+ * under the 12px label's own line box.
+ */
+const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; children: React.ReactNode }> = ({
+  tone = "neutral",
+  title,
+  children,
+}) => (
+  <span
+    title={title}
+    className={`text-[9.5px] font-mono font-bold uppercase leading-none px-1.5 py-[3px] rounded border shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
+  >
+    {children}
+  </span>
+);
+
+/**
+ * Verdict badge per notation family, for the right-hand slot of the Variant Notation label.
+ *
+ * `unknown` is deliberately neutral rather than a warning: every prefix of a valid notation
+ * ("p.Gly3" on the way to "p.Gly380Arg") classifies as unknown, so an amber state here would
+ * flash a false alarm on almost every keystroke.
+ */
+const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTone; title: string }> = {
+  "protein-hgvs": {
+    label: "Protein HGVS",
+    tone: "ok",
+    title: "Analysed directly — no coordinate translation needed.",
+  },
+  "protein-foldx": {
+    label: "Protein code",
+    tone: "ok",
+    title: "FoldX-style substitution code — analysed directly.",
+  },
+  cdna: {
+    label: "cDNA → resolve",
+    tone: "clay",
+    title: "Transcript cDNA. Resolved to a protein substitution by Ensembl VEP, with VariantValidator as the fallback tier.",
+  },
+  "genomic-hgvs": {
+    label: "Genomic → resolve",
+    tone: "clay",
+    title: "Genomic HGVS. Resolved to a protein substitution by Ensembl VEP, with VariantValidator as the fallback tier.",
+  },
+  "genomic-dashed": {
+    label: "Genomic → resolve",
+    tone: "clay",
+    title: "Dashed genomic coordinates. Resolved to a protein substitution by Ensembl VEP, with VariantValidator as the fallback tier.",
+  },
+  "genomic-bare": {
+    label: "Genomic → resolve",
+    tone: "clay",
+    title: "Genomic coordinates. Resolved to a protein substitution by Ensembl VEP, with VariantValidator as the fallback tier.",
+  },
+  "non-substitution": {
+    label: "Out of scope",
+    tone: "warn",
+    title: "A recognised coordinate notation, but not a single-nucleotide substitution. This platform analyses missense substitutions only.",
+  },
+  unknown: {
+    label: "No match",
+    tone: "neutral",
+    title: "Not yet a recognised notation. Protein HGVS (p.Gly380Arg), cDNA (c.123A>G) or genomic coordinates (20-23365054-G-A) are accepted.",
+  },
+};
+
+/** Loose UniProtKB accession shape (6 or 10 alphanumerics) — a typo guard, not a validator. */
+const UNIPROT_ACCESSION_PATTERN = /^[A-Z0-9]{6}(?:[A-Z0-9]{4})?$/i;
+
+/** The examples are grouped by the field they belong in, which is also the fix for the two notation fields overlapping. */
+const NOTATION_EXAMPLE_GROUPS: Array<{
+  target: "variant" | "genomic";
+  label: string;
+  hint: string;
+  values: string[];
+}> = [
+  {
+    target: "variant",
+    label: "Variant notation",
+    hint: "Protein-level substitutions and transcript cDNA go in the Variant Notation field.",
+    values: [ACCEPTED_NOTATION_EXAMPLES.protein, ACCEPTED_NOTATION_EXAMPLES.cdna],
+  },
+  {
+    target: "genomic",
+    label: "Genomic coords",
+    hint: "Coordinate notations go in the Genomic Coordinates field.",
+    values: [
+      ACCEPTED_NOTATION_EXAMPLES.genomicHgvs,
+      ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated,
+      ACCEPTED_NOTATION_EXAMPLES.genomicAccession,
+      ACCEPTED_NOTATION_EXAMPLES.genomicDashed,
+    ],
+  },
+];
 
 /**
  * Shared geometry for the outcome badge on the far right of the rail header.
@@ -261,7 +371,38 @@ function VariantSearchPanel({
   const isGeneRequired = !isGenomicVariant;
   const isVariantRequired = !customGenomic.trim();
 
-  const inputBase = `w-full rounded-lg px-3 py-2 text-[13px] outline-none border transition-all font-medium select-text ${classInput}`;
+  // Parsed verdicts, shown so the routing the form already performs is visible rather than
+  // implied. Routing itself still goes through `isGenomicOrCdnaNotation`, so the badge can
+  // describe the parser but can never disagree with it.
+  const variantNotation = customVariant.trim() ? classifyNotation(customVariant) : null;
+  const genomicNotation = customGenomic.trim() ? classifyNotation(customGenomic) : null;
+  const genomicAssemblyLabel = genomicNotation
+    ? genomicNotation.assembly
+      ? `${genomicNotation.assembly} annotated`
+      : "GRCh38 default"
+    : null;
+  const uniprotLooksValid = !customUniprot.trim() || UNIPROT_ACCESSION_PATTERN.test(customUniprot.trim());
+  const hasDirections = userDirections.trim().length > 0;
+
+  /**
+   * Fills a field from the example catalogue.
+   *
+   * The sibling notation field is cleared, because the two are alternative routes to the
+   * same answer rather than additive inputs — the same reason selecting a recent analysis
+   * clears the coordinate field. Leaving both populated is what made it ambiguous which one
+   * the pipeline would actually follow.
+   */
+  const applyNotationExample = (target: "variant" | "genomic", value: string) => {
+    if (target === "variant") {
+      setCustomVariant(value);
+      setCustomGenomic("");
+    } else {
+      setCustomGenomic(value);
+      setCustomVariant("");
+    }
+  };
+
+  const inputBase = `w-full h-10 rounded-lg px-3 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out font-medium select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)]/25 ${classInput}`;
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "literature" | "report") => {
@@ -348,10 +489,15 @@ function VariantSearchPanel({
                   <div className="flex flex-col gap-1.5">
                     <label 
                       htmlFor="input-gene-symbol"
-                      className="text-[12px] font-medium flex justify-between items-center"
+                      className="text-[12px] font-medium flex justify-between items-center gap-2"
                       style={{ color: "var(--cs-text-secondary)" }}
                     >
                       <span>Gene Symbol {isGeneRequired && <span className="text-rose-500">*</span>}</span>
+                      {!isGeneRequired && (
+                        <FieldBadge tone="clay" title="Your coordinate notation resolves the gene, so this field is not required.">
+                          Derived
+                        </FieldBadge>
+                      )}
                     </label>
                     <div className="relative">
                       <input
@@ -371,10 +517,19 @@ function VariantSearchPanel({
                   <div className="flex flex-col gap-1.5">
                     <label 
                       htmlFor="input-variant-notation"
-                      className="text-[12px] font-medium flex justify-between items-center"
+                      className="text-[12px] font-medium flex justify-between items-center gap-2"
                       style={{ color: "var(--cs-text-secondary)" }}
                     >
                       <span>Variant Notation {isVariantRequired && <span className="text-rose-500">*</span>}</span>
+                      {variantNotation ? (
+                        <FieldBadge tone={NOTATION_BADGES[variantNotation.kind].tone} title={NOTATION_BADGES[variantNotation.kind].title}>
+                          {NOTATION_BADGES[variantNotation.kind].label}
+                        </FieldBadge>
+                      ) : !isVariantRequired ? (
+                        <FieldBadge title="Your genomic coordinates define the variant, so this field is not required.">
+                          Optional
+                        </FieldBadge>
+                      ) : null}
                     </label>
                     <div className="relative">
                       <input
@@ -396,10 +551,13 @@ function VariantSearchPanel({
                 <div className="flex flex-col gap-1.5">
                   <label 
                     htmlFor="input-genomic-coords"
-                    className="text-[12px] font-medium flex justify-between items-center"
+                    className="text-[12px] font-medium flex justify-between items-center gap-2"
                     style={{ color: "var(--cs-text-secondary)" }}
                   >
-                    <span>Genomic Coordinates (Optional)</span>
+                    <span>Genomic Coordinates</span>
+                    <FieldBadge title={genomicAssemblyLabel ? "Genome build this coordinate will be resolved against." : "Optional: protein-level notation alone is enough to run the analysis."}>
+                      {genomicAssemblyLabel ?? "Optional"}
+                    </FieldBadge>
                   </label>
                   <div className="relative">
                     <input
@@ -416,13 +574,23 @@ function VariantSearchPanel({
                 </div>
 
                 {/* Row 3: UniProt Accession */}
-                <div className="flex flex-col gap-1.5 mt-1">
+                <div className="flex flex-col gap-1.5">
                   <label 
                     htmlFor="input-uniprot-acc"
-                    className="text-[12px] font-medium flex justify-between items-center"
+                    className="text-[12px] font-medium flex justify-between items-center gap-2"
                     style={{ color: "var(--cs-text-secondary)" }}
                   >
-                    <span>UniProt Accession (Optional)</span>
+                    <span>UniProt Accession</span>
+                    <FieldBadge
+                      tone={uniprotLooksValid ? "neutral" : "warn"}
+                      title={
+                        uniprotLooksValid
+                          ? "Optional: the accession is auto-resolved from the gene when omitted."
+                          : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                      }
+                    >
+                      {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                    </FieldBadge>
                   </label>
                   <div className="relative">
                     <input
@@ -439,15 +607,24 @@ function VariantSearchPanel({
                 </div>
 
                 {/* AI Focus Area / Custom Instructions (Collapsible) */}
-                <div className="border border-[var(--cs-border)] rounded-lg overflow-hidden bg-[var(--cs-surface-2)] transition-all">
+                <div className="border border-[var(--cs-border)] rounded-lg overflow-hidden bg-[var(--cs-surface-2)] transition-[border-color]">
                   <details className="group">
-                    <summary className="flex justify-between items-center px-3.5 py-2.5 text-xs font-medium select-none cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>
+                    <summary className="flex justify-between items-center gap-2 px-3.5 py-2.5 text-xs font-medium select-none cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>
                       <span className="flex items-center gap-2">
                         <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
                         AI Focus Area & Custom Analysis Instructions
                       </span>
-                      <span className="transition-transform group-open:rotate-180 text-[var(--cs-text-muted)]">
-                        <ChevronDown className="w-4 h-4" />
+                      <span className="flex items-center gap-2 shrink-0">
+                        {/* Collapsed content used to be silent: instructions could be set and then
+                            invisible, with nothing on the closed row to say so. */}
+                        {hasDirections && (
+                          <FieldBadge tone="clay" title="Custom analysis instructions are set and will direct the AI narrative.">
+                            {userDirections.trim().length} chars
+                          </FieldBadge>
+                        )}
+                        <span className="transition-transform group-open:rotate-180 text-[var(--cs-text-muted)]">
+                          <ChevronDown className="w-4 h-4" />
+                        </span>
                       </span>
                     </summary>
                     <div className="p-3.5 border-t border-[var(--cs-border-subtle)] space-y-2.5">
@@ -520,43 +697,58 @@ function VariantSearchPanel({
               </form>
 
               {/* Format Help Box (Preserves layout card height balance with clean, modern badge chips) */}
-              <div className="mt-4 p-3.5 rounded-lg border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] text-[12px] flex items-start gap-3 shadow-xs">
-                <HelpCircle className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0 mt-0.5" />
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-[12px]" style={{ color: "var(--cs-text-primary)" }}>
-                      Supported Input Formats & Conventions
-                    </span>
-                    <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
-                      Auto-Resolved
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                    <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>Protein HGVS:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">p.Gly380Arg</code>
+              {/*
+                Accepted-inputs reference, rebuilt on two rules.
+
+                CONTENT: every example is read from `ACCEPTED_NOTATION_EXAMPLES`, the same
+                catalogue the server's 400 response is generated from, so the panel can no
+                longer advertise a grammar the parser rejects. The previous hand-written copy
+                had already drifted — it listed a ClinVar Variation ID as an input format,
+                but the analysis route only ever branches on genomic/cDNA vs protein, so a
+                bare VCV id fails in the pipeline (the ClinVar reader accepts one, but that
+                is an internal call, not a notation for these fields).
+
+                AFFORDANCE: each example fills its own field. The two notation fields overlap
+                in meaning — the Variant field accepts both protein and cDNA — and grouping
+                the examples by destination field is what makes that split self-evident.
+              */}
+              <div className="mt-4 rounded-lg border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-[var(--cs-border-subtle)]">
+                  <span className="flex items-center gap-2 text-[11.5px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
+                    <HelpCircle className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                    Accepted Inputs
+                  </span>
+                  <FieldBadge tone="neutral" title="Selecting an example fills the matching field and clears the other.">
+                    Click to fill
+                  </FieldBadge>
+                </div>
+
+                <div className="px-3 py-2.5 space-y-2">
+                  {NOTATION_EXAMPLE_GROUPS.map(group => (
+                    <div key={group.target} className="flex items-start gap-2.5">
+                      <span
+                        className="w-[86px] shrink-0 pt-[5px] text-right text-[10px] font-medium leading-tight"
+                        style={{ color: "var(--cs-text-muted)" }}
+                      >
+                        {group.label}
+                      </span>
+                      <div className="flex flex-wrap gap-1 min-w-0">
+                        {group.values.map(value => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => applyNotationExample(group.target, value)}
+                            title={`${group.hint} Fills "${value}" and clears the other notation field.`}
+                            aria-label={`Use example ${value} in the ${group.label} field`}
+                            className="px-1.5 py-[3px] rounded border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] font-mono text-[10px] transition-[background-color,border-color,scale] duration-150 ease-out hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-accent-mag-soft)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+                            style={{ color: "var(--cs-text-secondary)" }}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>cDNA HGVS:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">c.123A&gt;G</code>
-                    </div>
-                    <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>Genomic HGVS:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">Chr1(GRCh38):g.25484258G&gt;A</code>
-                    </div>
-                    <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>ClinVar ID:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">VCV000013920</code>
-                    </div>
-                    <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>Gene Symbol:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">CNNM2, MECP2</code>
-                    </div>
-                    <div className="flex items-center justify-between py-0.5">
-                      <span>• <strong>UniProt:</strong></span>
-                      <code className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)]">Q9H8M5, P51587</code>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
 

@@ -247,3 +247,104 @@ export async function fetchVariantValidatorConsequence(
 
   return { consequence, attempt: attempt(true) };
 }
+
+/**
+ * Canonical coordinate used to establish whether this provider can take over.
+ *
+ * A liveness ping is NOT sufficient here, for two reasons. VariantValidator exposes no
+ * `/info` or `/version` endpoint — both return 404, and the version is only reported inside
+ * a resolution payload's `metadata` block — so there is nothing cheap to ping. More
+ * importantly, this provider's documented failure mode is a **HTTP 200 carrying
+ * `flag: "intergenic"` and no gene** (trap 1 at the top of this file), which a status-code
+ * check would score as healthy.
+ *
+ * Readiness is therefore proven by resolving a real coordinate. This is the same locus the
+ * file header cites as verified live, chosen because it exercises the whole parse path —
+ * dynamic payload-key discovery, protein-consequence extraction, gene symbol — and not
+ * merely the transport.
+ */
+export const VARIANT_VALIDATOR_PROBE = {
+  assembly: "GRCh38" as GenomeAssembly,
+  notation: "NC_000001.11:g.25484258G>A",
+  expectedGene: "MACO1",
+} as const;
+
+/**
+ * Bound for the readiness probe.
+ *
+ * Short on purpose: the only caller runs this after the primary has already failed, so the
+ * operator is waiting on a payload that has spent at least one primary timeout already.
+ * A retry would double that wait for an answer that is already known to be degraded.
+ */
+export const VARIANT_VALIDATOR_PROBE_TIMEOUT_MS = 6000;
+
+/**
+ * Probes whether the fallback tier can actually resolve a coordinate right now.
+ *
+ * Never throws: a fallback that cannot be reached must be reportable, not fatal, because
+ * the caller is already rendering a degraded primary.
+ */
+export async function checkVariantValidatorHealth(signal?: AbortSignal): Promise<{
+  healthy: boolean;
+  latencyMs: number;
+  message: string;
+  timestamp: string;
+}> {
+  const startedAt = Date.now();
+  // JSON is requested both ways on purpose. Without an Accept header this endpoint answers
+  // XML, and `content-type` is also honoured as a query parameter (verified live: it returns
+  // the MACO1 payload as JSON). Sending both means the probe cannot report a healthy provider
+  // as dead merely because one of the two negotiation paths changed.
+  const url =
+    `${VARIANT_VALIDATOR_BASE}/${VARIANT_VALIDATOR_PROBE.assembly}` +
+    `/${encodeURIComponent(VARIANT_VALIDATOR_PROBE.notation)}` +
+    `/${VARIANT_VALIDATOR_SELECT_TRANSCRIPTS}` +
+    `?content-type=application/json`;
+
+  const result = (healthy: boolean, message: string) => ({
+    healthy,
+    latencyMs: Math.round(Date.now() - startedAt),
+    message,
+    timestamp: new Date().toISOString(),
+  });
+
+  let response: Response;
+  try {
+    response = await fetchWithRetry(
+      url,
+      {
+        headers: { Accept: "application/json" },
+        timeout: VARIANT_VALIDATOR_PROBE_TIMEOUT_MS,
+        signal,
+      },
+      1
+    );
+  } catch (err: any) {
+    return result(false, err?.message || "VariantValidator unreachable");
+  }
+
+  if (!response.ok) {
+    return result(false, `HTTP ${response.status}`);
+  }
+
+  // Deliberately the same JSON + mapper pair the live resolution path uses, so the probe
+  // cannot report a provider as ready through a code path the real fallback does not take.
+  let consequence: ResolvedConsequence | null;
+  try {
+    consequence = mapVariantValidatorResponse(await response.json(), VARIANT_VALIDATOR_PROBE.assembly);
+  } catch (err: any) {
+    return result(false, err?.message || "VariantValidator returned malformed JSON");
+  }
+
+  const gene = consequence?.transcript_consequences?.[0]?.gene_symbol;
+  if (gene !== VARIANT_VALIDATOR_PROBE.expectedGene) {
+    return result(
+      false,
+      gene
+        ? `Resolved ${gene}, expected ${VARIANT_VALIDATOR_PROBE.expectedGene}`
+        : "No consequence returned for the probe coordinate"
+    );
+  }
+
+  return result(true, `Resolved ${VARIANT_VALIDATOR_PROBE.expectedGene} probe`);
+}

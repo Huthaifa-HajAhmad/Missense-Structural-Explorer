@@ -6,6 +6,8 @@ import { AuditLogger, sendError } from "../utils.ts";
 import { clearAllCaches, defaultCacheRegistry } from "../services/cache.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
 import { adapterRegistry } from "../services/adapters/service-adapters.ts";
+import type { HealthStatus } from "../services/adapters/types.ts";
+import { checkVariantValidatorHealth } from "../services/translation/variant-validator.ts";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
 
@@ -18,6 +20,101 @@ import { checkP2RankCapability } from "../services/pocket.ts";
  */
 function resolveCacheDir(envKey: string, dirName: string): string {
   return process.env[envKey] ?? path.join(process.cwd(), "logs", dirName);
+}
+
+/** The shape `checkVariantValidatorHealth` returns. */
+export type FallbackProbe = (signal?: AbortSignal) => Promise<{
+  healthy: boolean;
+  latencyMs: number;
+  message: string;
+  timestamp: string;
+}>;
+
+type FallbackVerdict = Awaited<ReturnType<FallbackProbe>>;
+
+/** A verdict is refreshed after this long, but stays displayable for longer. */
+const FALLBACK_VERDICT_REFRESH_MS = 20_000;
+/** Past this, a stale verdict is worse than none: it would claim coverage that may be gone. */
+const FALLBACK_VERDICT_MAX_AGE_MS = 120_000;
+
+let fallbackVerdict: { result: FallbackVerdict; at: number } | null = null;
+let fallbackProbeInFlight: Promise<void> | null = null;
+
+/** Test hook: the verdict cache is process-global, so suites must be able to clear it. */
+export function resetFallbackVerdictCache(): void {
+  fallbackVerdict = null;
+  fallbackProbeInFlight = null;
+}
+
+/**
+ * Latest known fallback verdict, refreshing in the background.
+ *
+ * DELIBERATELY SYNCHRONOUS AND NEVER AWAITED BY THE REQUEST PATH. The first implementation
+ * awaited the probe, which was wrong for two reasons. `/diagnostics` is a general health poll
+ * that fans out to ~10 services; making it wait on an eleventh — one that only matters when
+ * the primary is already down, and that a blackholed network holds open for the full timeout —
+ * took the endpoint from instant to multi-second in exactly the outage it exists to describe,
+ * and timed out the suite's own diagnostics test. So the probe runs off to the side and the
+ * response carries whatever verdict is already known.
+ *
+ * The client compensates with one bounded follow-up fetch when it sees an unhealthy primary
+ * with no verdict yet, which is what makes the answer appear without the user refreshing.
+ */
+export function currentFallbackVerdict(): FallbackVerdict | null {
+  const now = Date.now();
+  if (!fallbackVerdict || now - fallbackVerdict.at >= FALLBACK_VERDICT_REFRESH_MS) {
+    if (!fallbackProbeInFlight) {
+      fallbackProbeInFlight = checkVariantValidatorHealth()
+        .then((result) => {
+          fallbackVerdict = { result, at: Date.now() };
+        })
+        // A probe that cannot even be attempted must not become an unhandled rejection; the
+        // absence of a verdict is itself the reportable state.
+        .catch(() => {})
+        .finally(() => {
+          fallbackProbeInFlight = null;
+        });
+    }
+  }
+
+  if (fallbackVerdict && now - fallbackVerdict.at < FALLBACK_VERDICT_MAX_AGE_MS) {
+    return fallbackVerdict.result;
+  }
+  return null;
+}
+
+/**
+ * Attaches the coordinate-translation fallback verdict to the service-health payload.
+ *
+ * Coordinate resolution is a provider ladder (Ensembl VEP -> VariantValidator, see
+ * services/translation/coordinate-resolver.ts). Reporting only the primary's health tells the
+ * operator "coordinate translation is down" when the ladder would still answer, and says
+ * nothing at all when BOTH tiers are out. The verdict is therefore attached — but only when the
+ * primary has already failed, and only when one is known.
+ *
+ * `checkAllHealth` hands back its cache entry BY REFERENCE (15s TTL), so this copies both the
+ * record and the affected entry. Attaching in place would bake the fallback into that cache and
+ * leave it on display after Ensembl had already recovered.
+ */
+export function attachNotationFallback(
+  probedHealth: Record<string, HealthStatus>,
+  verdict: FallbackVerdict | null
+): Record<string, HealthStatus> {
+  const serviceHealth: Record<string, HealthStatus> = { ...probedHealth };
+  const ensemblHealth = serviceHealth.ensembl;
+  if (!ensemblHealth || ensemblHealth.healthy || !verdict) {
+    return serviceHealth;
+  }
+
+  serviceHealth.ensembl = {
+    ...ensemblHealth,
+    fallback: {
+      id: "variant-validator",
+      name: "VariantValidator",
+      ...verdict,
+    },
+  };
+  return serviceHealth;
 }
 
 export function registerHealthRoutes(apiRouter: Router): void {
@@ -89,7 +186,13 @@ export function registerHealthRoutes(apiRouter: Router): void {
     const cacheDiagnostics = defaultCacheRegistry.getDiagnostics();
 
     const p2rankCap = await checkP2RankCapability();
-    const serviceHealth = await adapterRegistry.checkAllHealth();
+    const probedHealth = await adapterRegistry.checkAllHealth();
+    // Only consulted (and only refreshed) once the primary has actually failed. `currentFallbackVerdict`
+    // returns immediately — it starts a background refresh rather than waiting on one.
+    const serviceHealth = attachNotationFallback(
+      probedHealth,
+      probedHealth.ensembl?.healthy ? null : currentFallbackVerdict()
+    );
 
     res.json({
       status: "ok",

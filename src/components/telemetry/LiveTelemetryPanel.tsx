@@ -21,9 +21,37 @@ interface ServiceStatusCard {
   statusText: string;
   isReady: boolean;
   isWarning?: boolean;
+  /** Primary unreachable but its fallback tier is live: degraded, not broken. */
+  isDegraded?: boolean;
+  /** Every tier of this service's ladder is unreachable. */
+  isDown?: boolean;
   latency?: number | string | null;
   tag?: string;
+  /** Overrides the default "Configure <name> settings" accessible label. */
+  actionLabel?: string;
   onAction?: () => void;
+}
+
+/**
+ * Leading status dot. `isWarning` pulses because it marks a state the operator must act on
+ * (a missing key); `isDegraded` deliberately does not, because it marks a state that needs
+ * no action at all.
+ */
+function statusDotClass(svc: ServiceStatusCard): string {
+  if (svc.isDown) return "bg-rose-500";
+  if (svc.isWarning) return "bg-amber-500 animate-pulse";
+  if (svc.isDegraded) return "bg-amber-500";
+  if (svc.isReady) return "bg-emerald-500";
+  return "bg-slate-400";
+}
+
+function statusPillClass(svc: ServiceStatusCard): string {
+  if (svc.isDown) return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30";
+  if (svc.isWarning || svc.isDegraded) {
+    return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
+  }
+  if (svc.isReady) return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
+  return "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20";
 }
 
 export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
@@ -43,17 +71,43 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
   const isLoaded = Boolean(diagnostics);
 
-  // 1. Ensembl VEP
+  /**
+   * 1. Ensembl VEP — the head of the coordinate-translation ladder.
+   *
+   * Ensembl is the primary tier of a two-tier resolver (Ensembl VEP -> VariantValidator,
+   * see services/translation/coordinate-resolver.ts). Its health alone is therefore the
+   * wrong thing to render: a dead Ensembl does NOT mean coordinate translation is down,
+   * and the server only reports a `fallback` block once Ensembl has actually failed. Those
+   * two facts give three distinct states, and collapsing them into one "Offline" pill is
+   * what made a covered outage look identical to an uncovered one.
+   */
   const ensemblHealth = diagnostics?.serviceHealth?.ensembl;
   const ensemblReady = Boolean(ensemblHealth?.healthy);
-  const ensemblLatency = ensemblHealth?.latencyMs;
+  const ensemblFallback = ensemblHealth?.fallback;
+  /** Primary down, tier 2 live: the ladder still answers, so this is degraded, not broken. */
+  const ensemblDegraded = Boolean(ensemblHealth && !ensemblReady && ensemblFallback?.healthy);
+  /** Both tiers down: coordinate queries genuinely fail and the user must switch notation. */
+  const ensemblUncovered = Boolean(
+    ensemblHealth && !ensemblReady && ensemblFallback && !ensemblFallback.healthy
+  );
+  // While degraded, the latency that matters is the tier actually answering.
+  const ensemblLatency = ensemblDegraded ? ensemblFallback?.latencyMs : ensemblHealth?.latencyMs;
   const ensemblStatusText = !isLoaded && loading
     ? "Connecting…"
     : ensemblReady
     ? "REST Live"
+    : ensemblDegraded
+    ? "Fallback Ready"
+    : ensemblUncovered
+    ? "No Fallback"
     : ensemblHealth
     ? "Offline"
     : "Standby";
+  const ensemblDescription = ensemblDegraded
+    ? `${ensemblFallback!.name} taking over`
+    : ensemblUncovered
+    ? "No provider reachable — use p.Glu433Lys style notation"
+    : "Transcript & consequence mapping";
 
   // 2. AlphaGenome Atlas
   const alphagenomeHealth = diagnostics?.serviceHealth?.alphagenome;
@@ -178,10 +232,16 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "ensembl",
       name: "Ensembl VEP",
       category: "genomic",
-      description: "Transcript & consequence mapping",
+      description: ensemblDescription,
       statusText: ensemblStatusText,
       isReady: ensemblReady,
-      latency: formatLatency(ensemblLatency)
+      isDegraded: ensemblDegraded,
+      isDown: ensemblUncovered,
+      latency: formatLatency(ensemblLatency),
+      // Only when the primary has failed: re-probing re-runs the whole ladder, including
+      // the conditional fallback check, so the pill can flip back to REST Live.
+      actionLabel: "Re-check Ensembl VEP and its fallback",
+      onAction: ensemblReady ? undefined : () => refresh()
     },
     {
       id: "alphagenome",
@@ -272,6 +332,13 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
   const onlineCount = isLoaded ? services.filter(s => s.isReady).length : 0;
   const totalCount = services.length;
+  /** Degraded services are covered by a live fallback, so the header should say so rather than just "not online". */
+  const degradedServices = services.filter(s => s.isDegraded);
+  const uncoveredServices = services.filter(s => s.isDown);
+  const coverageNote = [
+    ...degradedServices.map(s => `${s.name} offline — ${s.description}`),
+    ...uncoveredServices.map(s => `${s.name} and its fallback are both unreachable`)
+  ].join("; ");
 
   return (
     <div className={`flex flex-col h-full justify-between gap-3 text-cs-text-primary ${className}`}>
@@ -295,7 +362,13 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                 ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
                 : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
             }`}
-            title={!isLoaded && loading ? "Checking service reachability and engines…" : `${onlineCount} of ${totalCount} services online and responsive`}
+            title={
+              !isLoaded && loading
+                ? "Checking service reachability and engines…"
+                : coverageNote
+                ? `${onlineCount} of ${totalCount} services online — ${coverageNote}`
+                : `${onlineCount} of ${totalCount} services online and responsive`
+            }
           >
             <span
               className={`w-1.5 h-1.5 rounded-full ${
@@ -341,10 +414,11 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
           return (
             <div
               key={svc.id}
+              data-service-id={svc.id}
               onClick={svc.onAction}
               role={isClickable ? "button" : undefined}
               tabIndex={isClickable ? 0 : undefined}
-              aria-label={isClickable ? `Configure ${svc.name} settings` : svc.name}
+              aria-label={isClickable ? (svc.actionLabel ?? `Configure ${svc.name} settings`) : svc.name}
               onKeyDown={e => {
                 if (isClickable && (e.key === "Enter" || e.key === " ")) {
                   e.preventDefault();
@@ -352,21 +426,21 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                 }
               }}
               className={`min-h-[46px] px-3 py-2 rounded-lg border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
+                svc.isDown
+                  ? "border-rose-500/30 bg-rose-500/5 dark:bg-rose-950/10"
+                  : svc.isDegraded
+                  ? "border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10"
+                  : "border-[var(--cs-border-subtle)]"
+              } ${
                 isClickable
-                  ? "border-[var(--cs-border-subtle)] cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
-                  : "border-[var(--cs-border-subtle)] hover:border-[var(--cs-border)]"
+                  ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+                  : "hover:border-[var(--cs-border)]"
               }`}
             >
               {/* Left: Indicator Dot + Name + Subtitle */}
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    svc.isWarning
-                      ? "bg-amber-500 animate-pulse"
-                      : svc.isReady
-                      ? "bg-emerald-500"
-                      : "bg-slate-400"
-                  }`}
+                  className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass(svc)}`}
                   aria-hidden="true"
                 />
                 <div className="flex flex-col min-w-0 flex-1">
@@ -380,7 +454,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       </span>
                     )}
                   </div>
-                  <span className="text-[9.5px] text-cs-text-secondary truncate font-sans leading-tight">
+                  <span className="text-[9.5px] text-cs-text-secondary truncate font-sans leading-tight" title={svc.description}>
                     {svc.description}
                   </span>
                 </div>
@@ -395,13 +469,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   </span>
                 )}
                 <span
-                  className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-                    svc.isWarning
-                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                      : svc.isReady
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                      : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-                  }`}
+                  className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${statusPillClass(svc)}`}
                 >
                   {svc.statusText}
                 </span>
