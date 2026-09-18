@@ -76,6 +76,14 @@ function SectionLabel({
   );
 }
 
+/** Human labels for the classification result. The raw tokens are internal only. */
+const VERDICT_LABELS: Record<string, string> = {
+  pathogenic: "Constrained",
+  benign: "Tolerated",
+  intermediate: "Intermediate",
+  uncalibrated: "No cut-point",
+  unavailable: "No score"
+};
 function statusBadgeClass(calibration: ModelCalibration | null): string {
   if (!calibration) return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
   switch (calibration.status) {
@@ -236,15 +244,26 @@ export const PerturbationInspector: React.FC<PerturbationInspectorProps> = ({
           </div>
           <div className="flex items-center justify-between gap-2 pt-1 border-t border-cs-border-subtle">
             <span className="text-[10.5px] text-cs-text-secondary">Shared scale</span>
-            <span
-              className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-                homogeneity.homogeneous
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                  : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-              }`}
-            >
-              {homogeneity.homogeneous ? "Yes" : "No — mixed"}
-            </span>
+            {/*
+              "Shared scale" is only a question for a pool of two or more models. With no
+              or one contributor there is nothing to share, and a green "Yes" beside
+              "Models contributing 0" reported success over no data.
+            */}
+            {!homogeneity.sufficient ? (
+              <span className="text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border bg-slate-500/10 text-cs-text-muted border-cs-border-subtle">
+                n/a
+              </span>
+            ) : (
+              <span
+                className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+                  homogeneity.homogeneous
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                    : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                }`}
+              >
+                {homogeneity.homogeneous ? "Yes" : "No — mixed"}
+              </span>
+            )}
           </div>
         </div>
 
@@ -252,10 +271,13 @@ export const PerturbationInspector: React.FC<PerturbationInspectorProps> = ({
           <div className="p-2.5 rounded-lg border border-amber-500/25 bg-cs-bg-warning flex items-start gap-2">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
             <p className="text-[10px] text-cs-text-secondary leading-relaxed">
-              These models do not share a score scale — their ΔLLR values span {pooled.spread?.toFixed(1)} nats,
-              which no single model would produce internally. The pooled mean is shown for continuity but is not a
-              quantity on any model's axis, so no pooled strength classification is offered. Compare the models by
-              their within-model residue rank instead, or read them individually.
+              These models do not share a score scale — their ΔLLR values span {pooled.spread?.toFixed(1)} nats
+              {homogeneity.families.length > 1
+                ? `, and they come from ${homogeneity.families.length} different model families (${homogeneity.families.join(", ")})`
+                : ""}
+              . The pooled mean is shown for continuity but is not a quantity on any model's axis, so no pooled
+              strength classification is offered. Compare the models by their within-model residue rank instead, or
+              read them individually.
             </p>
           </div>
         )}
@@ -283,7 +305,12 @@ export const PerturbationInspector: React.FC<PerturbationInspectorProps> = ({
                   ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                   : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
             }`}>
-              {activeVerdict === "uncalibrated" ? "No cut-point" : activeVerdict}
+              {/*
+                Every verdict is mapped to a human label. Printing the internal token meant
+                a model that had not returned a score showed a lowercase "unavailable" inside
+                an uppercase-styled badge, which reads as neither calibration nor absence.
+              */}
+              {VERDICT_LABELS[activeVerdict] ?? "Unknown"}
             </span>
           </div>
           <p className="text-[10.5px] text-cs-text-secondary leading-relaxed">
