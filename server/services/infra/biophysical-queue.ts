@@ -401,9 +401,17 @@ export class BiophysicalJobQueue {
     }
 
     if (!this.bullQueue) {
-      const dbPath = process.env.NODE_ENV === "test"
-        ? ":memory:"
-        : path.join(process.cwd(), "data", "shared_state.sqlite");
+      /**
+       * Prefer the explicit override over the NODE_ENV heuristic.
+       *
+       * `SHARED_STATE_DB_PATH` is read by the other writer of this same file, and relying on
+       * `NODE_ENV === "test"` alone made safety depend on a variable Vitest only defaults — an
+       * inherited value from a shell or CI would have opened the developer's real database.
+       */
+      const dbPath = process.env.SHARED_STATE_DB_PATH
+        ?? (process.env.NODE_ENV === "test"
+          ? ":memory:"
+          : path.join(process.cwd(), "data", "shared_state.sqlite"));
       this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback);
     }
   }

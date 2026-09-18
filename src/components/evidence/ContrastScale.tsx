@@ -155,15 +155,18 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         </div>
       </div>
 
-      {/* ── 0–100 track ── */}
+      {/*
+        ── 0–100 track ──
+
+        Purely graphical, and hidden from assistive technology. It previously
+        carried `role="img"` with a sentence-length `aria-label` that restated the
+        axis label, both values and the delta chip already rendered as plain text
+        immediately above and below it, so each of the four rows was announced
+        roughly twice. The text is the accessible content; this only draws it.
+      */}
       <div
         className="relative h-3 rounded-full border overflow-hidden bg-cs-bg-subtle border-cs-border-subtle"
-        role="img"
-        aria-label={
-          isUnchanged
-            ? `${row.label}: wild type ${row.wildTypeValue} and variant ${row.mutantValue} are identical on a 0 to 100 scale.`
-            : `${row.label}: wild type ${row.wildTypeValue} to variant ${row.mutantValue} on a 0 to 100 scale, a ${row.magnitudeLabel} ${row.direction}.`
-        }
+        aria-hidden="true"
       >
         {/* Quarter gridlines give the axis a readable scale without a chart library.
             Only the offset and the emphasis are dynamic, so they stay inline. */}

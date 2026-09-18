@@ -1,6 +1,6 @@
 import React from "react";
 import { LucideIcon, Loader2 } from "lucide-react";
-import { THRESHOLDS } from "../../../shared/thresholds";
+import { classifyLlr, isCalibrated, type ModelCalibration } from "../../../shared/modelCalibration";
 
 export interface PerturbModelDef {
   id: "saprot" | "esm2" | "esmc";
@@ -12,6 +12,11 @@ export interface PerturbModelDef {
   tokenSettingKey: string;
   hasKey: boolean;
   conformation?: string | null;
+  /**
+   * What is known about this model's score scale. Drives whether ΔLLR may be tinted
+   * against a cut-point at all — see src/shared/modelCalibration.ts.
+   */
+  calibration?: ModelCalibration | null;
 }
 
 interface PerturbationModelCardsProps {
@@ -28,8 +33,7 @@ export function PerturbationModelCards({
   onOpenSettings
 }: PerturbationModelCardsProps) {
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {models.map(m => {
         const isSelected = m.id === activeModelId;
         const IconComponent = m.icon;
@@ -49,7 +53,7 @@ export function PerturbationModelCards({
                 }
               }}
               onClick={() => onSelectModel(m.id)}
-              className="relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)] animate-pulse"
+              className="relative p-4 rounded-xl border flex flex-col justify-between min-h-[158px] cursor-pointer transition-all duration-300 shadow-sm text-left focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)] animate-pulse"
               style={{
                 background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
                 borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
@@ -67,7 +71,7 @@ export function PerturbationModelCards({
                   </div>
                 </div>
                 <h3 className="text-xs font-bold transition-colors text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
-                <p className="text-[9px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left">
+                <p className="text-[10px] mt-1 leading-normal line-clamp-2 text-cs-text-muted text-left">
                   Computing evolutionary sequence log-likelihood and residue embedding shifts...
                 </p>
               </div>
@@ -122,7 +126,7 @@ export function PerturbationModelCards({
                 }
               }}
               onClick={() => onSelectModel(m.id)}
-              className="group relative p-4 rounded-xl border flex flex-col justify-between h-[145px] cursor-pointer transition-all duration-300 shadow-xs text-left opacity-85 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
+              className="group relative p-4 rounded-xl border flex flex-col justify-between min-h-[158px] cursor-pointer transition-all duration-300 shadow-xs text-left opacity-85 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
               style={{
                 background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
                 borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
@@ -146,21 +150,32 @@ export function PerturbationModelCards({
                   </div>
                 </div>
                 <h3 className="text-xs font-bold transition-colors text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
-                <p className="text-[10px] mt-1 leading-normal line-clamp-2 text-slate-400 text-left font-sans">
+                <p className="text-[10px] mt-1 leading-normal line-clamp-2 text-cs-text-muted text-left font-sans">
                   {displayDesc}
                 </p>
               </div>
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t pt-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+              <div className="flex items-center justify-between text-[10px] font-mono text-cs-text-muted border-t pt-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
                 <span>Score: —</span>
-                <span className="text-[9px] text-slate-500">Standby</span>
+                <span className="text-[9.5px] text-cs-text-muted">Standby</span>
               </div>
             </div>
           );
         }
 
-        const llrVal = typeof m.data.llr === "number" ? m.data.llr : 0;
-        const isModelDangerous = llrVal <= THRESHOLDS.esm.pathogenic;
-        const shiftVal = typeof m.data.embeddingShift === "number" ? m.data.embeddingShift : 0;
+        const llrVal: number | null = typeof m.data.llr === "number" && Number.isFinite(m.data.llr) ? m.data.llr : null;
+        /**
+         * A cut-point may only be applied when the registry holds one for *this* model.
+         * The previous single-constant comparison tinted SaProt (≈0) and ESMC (≈-8.4)
+         * against ESM-1b's -5.0, which was defined for neither.
+         */
+        const llrIsCalibrated = isCalibrated(m.calibration ?? null);
+        const llrVerdict = classifyLlr(llrVal, m.calibration ?? null);
+        const llrColor = !llrIsCalibrated
+          ? "var(--cs-text-primary)"
+          : llrVerdict === "pathogenic"
+            ? "var(--cs-text-danger)"
+            : "var(--cs-text-success)";
+        const shiftVal: number | null = typeof m.data.embeddingShift === "number" && Number.isFinite(m.data.embeddingShift) ? m.data.embeddingShift : null;
 
         return (
           <div
@@ -175,7 +190,7 @@ export function PerturbationModelCards({
               }
             }}
             onClick={() => onSelectModel(m.id)}
-            className="relative p-4 rounded-xl border flex flex-col justify-between h-[155px] cursor-pointer transition-all duration-300 shadow-sm text-left focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
+            className="relative p-4 rounded-xl border flex flex-col justify-between min-h-[158px] cursor-pointer transition-all duration-300 shadow-sm text-left focus:outline-none focus:ring-1 focus:ring-[var(--cs-accent-clay)]"
             style={{
               background: isSelected ? "var(--cs-surface)" : "var(--cs-surface-2)",
               borderColor: isSelected ? "var(--cs-accent-clay)" : "var(--cs-border-subtle)",
@@ -216,38 +231,47 @@ export function PerturbationModelCards({
                 </div>
               </div>
               <h3 className="text-xs font-bold text-left" style={{ color: "var(--cs-text-primary)" }}>{m.name}</h3>
-              <p className="text-[9px] mt-0.5 leading-normal truncate text-slate-400 text-left">
+              <p className="text-[10px] mt-0.5 leading-normal truncate text-cs-text-muted text-left">
                 {(m.data as any).provenance ? (m.data as any).provenance : m.description}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t text-left" style={{ borderColor: "var(--cs-border-subtle)" }}>
               <div>
-                <span className="block text-[8px] uppercase font-bold tracking-wider text-slate-400">Δ LLR (nats)</span>
-                <span className="text-xs font-mono font-bold" style={{ color: isModelDangerous ? "var(--cs-text-danger)" : "var(--cs-text-success)" }}>
-                  {llrVal.toFixed(3)}
+                <span className="block text-[9.5px] uppercase font-bold tracking-wider text-cs-text-muted">Δ LLR (nats)</span>
+                <span className="text-xs font-mono font-bold" style={{ color: llrColor }}>
+                  {llrVal === null ? "N/A" : llrVal.toFixed(3)}
                 </span>
+                {!llrIsCalibrated && (
+                  <span
+                    className="block text-[9.5px] font-mono text-cs-text-muted leading-tight mt-0.5"
+                    title="No published pathogenic/benign cut-point exists for this model's own score scale, so this value is reported uncalibrated rather than tinted against another model's threshold."
+                  >
+                    uncalibrated
+                  </span>
+                )}
               </div>
               <div>
-                <span className="block text-[8px] uppercase font-bold tracking-wider text-slate-400">Emb. Shift</span>
+                <span className="block text-[9.5px] uppercase font-bold tracking-wider text-cs-text-muted">Emb. Shift</span>
                 <span className="text-xs font-mono font-bold" style={{ color: "var(--cs-accent-clay)" }}>
-                  {shiftVal.toFixed(3)}
+                  {shiftVal === null ? "N/A" : shiftVal.toFixed(3)}
                 </span>
+                {m.calibration?.embeddingDim && (
+                  <span className="block text-[9.5px] font-mono text-cs-text-muted leading-tight mt-0.5">
+                    {m.calibration.embeddingDim}-dim
+                  </span>
+                )}
               </div>
             </div>
 
             {m.conformation && (
-              <div className="absolute top-4 right-12 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border bg-teal-500/10 text-teal-600 border-teal-500/20">
+              <div className="mt-1.5 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20 inline-block w-fit">
                 State: {m.conformation}
               </div>
             )}
           </div>
         );
       })}
-    </div>
-    <p className="text-[10px] text-slate-400 font-mono mt-2 px-1">
-      Note: Embedding shift scale reflects latent model dimensionality (768-dim for VESM / SaProt 35M, 1280-dim for ESM-2 650M / SaProt 650M, 2560-dim for ESMC-6B).
-    </p>
     </div>
   );
 }

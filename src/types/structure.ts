@@ -29,6 +29,21 @@ export interface PocketResult {
   status?: "success" | "fallback" | "none_detected" | "unavailable" | string;
   sasPoints?: number;
   surfaceAtoms?: number;
+  /**
+   * Distance to P2Rank's own cavity centre, preferred over `pocketDistance`
+   * (measured to the centroid of the pocket's residues, so it grows with the
+   * pocket). Absent for fpocket results and older cached payloads.
+   */
+  cavityCentreDistance?: number | null;
+  /**
+   * Where the ambiguous numbers came from, so a renderer never prints a unit or a
+   * probability label the payload cannot vouch for.
+   */
+  provenance?: {
+    engine?: "p2rank" | "fpocket";
+    scoreSource?: "probability" | "rescaled_raw_score" | "unavailable";
+    volumeSource?: "measured" | "unavailable" | "scaled_surface_points";
+  } | null;
 }
 
 export interface StructuralMetrics {

@@ -9,6 +9,12 @@ import { EmbeddingShiftChart } from "./perturbation/EmbeddingShiftChart";
 import { PhysicalPerturbationSection } from "./perturbation/PhysicalPerturbationSection";
 import { Esm3ExploratorySection } from "./perturbation/Esm3ExploratorySection";
 import { useApiClient } from "../../apiClient";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { resolveModelCalibration } from "../../shared/modelCalibration";
+import {
+  resolveModelDisplayName,
+  type PerturbationModelId
+} from "../../shared/perturbationModels";
 
 interface SaProtLoadingProgressBannerProps {
   modelName: string;
@@ -140,25 +146,37 @@ export function PerturbationTab({
   const result = analysisState.result;
   const { settings, updateSetting } = useSettings();
   const { apiClient } = useApiClient();
-  const [activePerturbModel, setActivePerturbModel] = useState<"saprot" | "esm2" | "esmc">(
-    settings.defaultPerturbationModel
-  );
+  const activePerturbModel = useVariantAnalysisStore(state => state.activePerturbationModel);
+  const setActivePerturbModel = useVariantAnalysisStore(state => state.setActivePerturbationModel);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  if (!result) return null;
+  /**
+   * Seed the selected model from the user's configured default whenever a new variant is
+   * analysed. The setting is labelled "Pre-selects these models when a new analysis
+   * session starts", and lifting the selection into the store had left it unread.
+   */
+  useEffect(() => {
+    setActivePerturbModel(settings.defaultPerturbationModel);
+  }, [settings.defaultPerturbationModel, setActivePerturbModel, result?.metadata?.gene, result?.metadata?.variant]);
 
+  /**
+   * Evaluated before the null guard below. `result` can become null on an instance that
+   * has already rendered with data, and returning early ahead of a hook would change the
+   * hook count between renders.
+   */
+  const saprotDisplayName = useMemo(
+    () =>
+      resolveModelDisplayName("saprot", {
+        saprotEngine: settings.saprotEngine,
+        provenance: result?.saprotEval?.provenance
+      }),
+    [result?.saprotEval?.provenance, settings.saprotEngine]
+  );
+
+  if (!result) return null;
   const wtRes = result.metadata?.wildType || "R";
   const mutRes = result.metadata?.mutant || "H";
   const pos = result.metadata?.residueIndex || 408;
-
-  const saprotDisplayName = useMemo(() => {
-    if (result.saprotEval?.provenance) {
-      return result.saprotEval.provenance;
-    }
-    if (settings.saprotEngine === "saprot-35m") return "SaProt 35M AF2";
-    if (settings.saprotEngine === "remote-hf") return "SaProt (Remote HF)";
-    return "SaProt 650M AF2";
-  }, [result.saprotEval?.provenance, settings.saprotEngine]);
 
   const handleSwitchTo35M = async () => {
     updateSetting("saprotEngine", "saprot-35m");
@@ -194,7 +212,8 @@ export function PerturbationTab({
       tokenName: "Hugging Face Access Token",
       tokenSettingKey: "hfToken",
       hasKey: !!settings.hfToken,
-      conformation: result.saprotEval?.conformationState || null
+      conformation: result.saprotEval?.conformationState || null,
+      calibration: resolveModelCalibration("saprot", { saprotEngine: settings.saprotEngine })
     },
     {
       id: "esm2",
@@ -204,7 +223,8 @@ export function PerturbationTab({
       icon: Activity,
       tokenName: "Hugging Face Access Token",
       tokenSettingKey: "hfToken",
-      hasKey: !!settings.hfToken
+      hasKey: !!settings.hfToken,
+      calibration: resolveModelCalibration("esm2")
     },
     {
       id: "esmc",
@@ -214,11 +234,34 @@ export function PerturbationTab({
       icon: Sparkles,
       tokenName: "Biohub API Token",
       tokenSettingKey: "biohubApiToken",
-      hasKey: !!settings.biohubApiToken
+      hasKey: !!settings.biohubApiToken,
+      calibration: resolveModelCalibration("esmc")
     }
   ];
 
   const activeList = models.filter(m => !!m.data && !m.data.error);
+
+  /**
+   * The pooled tuple and its families are derived together, in one pass, so the family at
+   * index i always describes the evaluation at index i. `computeMultiModelLlr` only uses
+   * the families when the counts match, so a mismatch degrades to the spread heuristic
+   * rather than mis-attributing a family to the wrong model.
+   */
+  const pooledTuple = useMemo<{ evaluations: any[]; families: string[] }>(() => {
+    const entries: { data: any; family: string }[] = [];
+    const candidates: [any, string][] = [
+      [result?.esm2Eval, "esm2"],
+      [result?.esmcEval, "esmc"],
+      [result?.saprotEval, "saprot"]
+    ];
+    for (const [data, family] of candidates) {
+      if (data) entries.push({ data, family });
+    }
+    return {
+      evaluations: entries.map(e => e.data),
+      families: entries.map(e => e.family)
+    };
+  }, [result?.esm2Eval, result?.esmcEval, result?.saprotEval]);
   const hasAnyToken = !!settings.hfToken || !!settings.biohubApiToken;
   const allFailedOrEmpty = models.every(m => !m.data || Boolean(m.data.error));
 
@@ -317,7 +360,7 @@ export function PerturbationTab({
         </div>
       )}
 
-      <div className="flex items-center gap-3 pt-1">
+      <div className="flex items-center gap-3 pt-2">
         <span className="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
           Section A: Sequence-Language-Model representation perturbation
         </span>
@@ -331,7 +374,6 @@ export function PerturbationTab({
         onSelectModel={setActivePerturbModel}
         onOpenSettings={onOpenSettings}
       />
-
       {activeEval?.loading ? (
         activePerturbModel === "saprot" ? (
           <SaProtLoadingProgressBanner
@@ -416,10 +458,12 @@ export function PerturbationTab({
             activeEval={activeEval}
             wtRes={wtRes}
             mutRes={mutRes}
+            calibration={currentModel.calibration ?? null}
           />
 
-          {/* Grid 3: Preference list & embedding shift chart */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Grid 3: Preference list & embedding shift chart — two views of the same
+              residue position, so they share a palette and stretch to one height. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
             <ResiduePreferenceList
               preferences={activeEval.preferences || []}
               wtRes={wtRes}
@@ -442,11 +486,13 @@ export function PerturbationTab({
           <PhysicalPerturbationSection
             activeEval={activeEval}
             currentModelName={currentModel.name}
-            allEvaluations={[result.esmcEval, result.esm2Eval, result.saprotEval].filter(Boolean)}
+            allEvaluations={pooledTuple.evaluations}
+            poolFamilies={pooledTuple.families}
             foldingEnergetics={foldingEnergetics}
             structuralDiff={structuralDiff}
             metrics={metrics}
             pos={pos}
+            calibration={currentModel.calibration ?? null}
           />
 
           {/* Section C: ESM3 exploratory structural hypotheses */}

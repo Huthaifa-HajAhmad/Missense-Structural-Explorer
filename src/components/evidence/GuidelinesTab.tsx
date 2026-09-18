@@ -145,8 +145,16 @@ export function GuidelinesTab({
                 const esmStatus = esmVal !== null ? (esmVal <= THRESHOLDS.esm1b.pathogenic ? "path" : esmVal >= THRESHOLDS.esm1b.benign ? "benign" : "vus") : "none";
                 rows.push(renderRow("esm", "ESM-1b", esmVal, esmVal?.toFixed(2) ?? "—", ">= -5.0", "<= -7.5", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
 
-                const vesmStatus = vesmVal !== null ? (vesmVal <= THRESHOLDS.esm.pathogenic ? "path" : vesmVal >= THRESHOLDS.esm.benign ? "benign" : "vus") : "none";
-                rows.push(renderRow("vesm", "VESM-150M", vesmVal, vesmVal?.toFixed(2) ?? "—", ">= -2.0", "<= -5.0", "Info / -", vesmStatus, vesmStatus === "path" ? "Deleterious" : vesmStatus === "benign" ? "Tolerated" : "Neutral"));
+                /**
+                 * This value comes from `esmcEval`, so it is ESMC-6B's masked-marginal ΔLLR —
+                 * not "VESM-150M", and with no published pathogenic/benign cut-point on its own
+                 * scale. It was previously tested against ESM-1b's -5.0/-2.0 pair and badged
+                 * Deleterious/Tolerated. The score is still shown, but classified as
+                 * informational rather than against another model's threshold.
+                 */
+                const esmcLlr = vesmVal;
+                const esmcStatus = "none";
+                rows.push(renderRow("esmc", "ESMC-6B", esmcLlr, esmcLlr?.toFixed(2) ?? "—", "No calibrated cut-point", "Model-native scale", "Info / -", esmcStatus, esmcLlr !== null ? "Informational" : "No data"));
 
                 // --- CATEGORY 2: Biophysical & Structural Energetics ---
                 rows.push(renderCategoryHeader("cat-biophys", "2. Biophysical & Structural Energetics"));

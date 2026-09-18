@@ -1,4 +1,5 @@
 import { StateCreator } from "zustand";
+import type { PerturbationModelId } from "../../shared/perturbationModels";
 
 export interface NotificationItem {
   id: string;
@@ -29,6 +30,15 @@ export interface UiState {
   isLegendOpen: boolean;
   notifications: NotificationItem[];
   reportSections: Record<ReportSectionKey, boolean>;
+  /**
+   * Which protein-language model card is selected on the Structural Perturbation tab.
+   *
+   * This lives in the store because the selection drives two panes at once: the main
+   * column renders the chosen model's metrics, and the Perturbation inspector describes
+   * that same model's calibration. Keeping it private to the tab left the inspector
+   * unable to say which model its notes referred to.
+   */
+  activePerturbationModel: PerturbationModelId;
 }
 
 export interface UiActions {
@@ -42,6 +52,7 @@ export interface UiActions {
   removeNotification: (id: string) => void;
   toggleReportSection: (key: ReportSectionKey) => void;
   setReportSections: (sections: Record<ReportSectionKey, boolean>) => void;
+  setActivePerturbationModel: (model: PerturbationModelId) => void;
 }
 
 export type UiSlice = UiState & UiActions;
@@ -54,8 +65,10 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   isLegendOpen: false,
   notifications: [],
   reportSections: { ...DEFAULT_REPORT_SECTIONS },
+  activePerturbationModel: "saprot",
 
   setViewMode: (viewMode) => set({ viewMode }),
+  setActivePerturbationModel: (activePerturbationModel) => set({ activePerturbationModel }),
   setIsHowToInspectOpen: (isHowToInspectOpen) => set({ isHowToInspectOpen }),
   setIsLegendOpen: (isLegendOpen) => set({ isLegendOpen }),
   toggleReportSection: (key) => set((state) => ({

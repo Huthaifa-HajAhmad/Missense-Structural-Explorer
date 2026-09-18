@@ -636,15 +636,27 @@ export interface PocketResidueSummary {
 export interface PocketProvenance {
   /** Which engine produced the numbers. */
   engine?: "p2rank" | "fpocket" | null;
-  /** `measured` = an engine-reported volume; `scaled_surface_points` = a count × 10. */
-  volumeSource?: "measured" | "scaled_surface_points" | null;
+  /**
+   * `measured` = an engine-reported volume; `unavailable` = none was measured.
+   * `scaled_surface_points` is the legacy value for a surface-point count that was
+   * published as a volume in cubic Ångströms, kept only so an older cached payload
+   * is still recognised as unverified rather than trusted.
+   */
+  volumeSource?: "measured" | "unavailable" | "scaled_surface_points" | null;
   /** `probability` = P2Rank's calibrated per-profile field; `rescaled_raw_score` = a score rescaled to look like one. */
-  scoreSource?: "probability" | "rescaled_raw_score" | null;
+  scoreSource?: "probability" | "rescaled_raw_score" | "unavailable" | null;
 }
 
 export interface PocketNarrativeInput {
   status?: string | null;
   pocketDistance?: number | null;
+  /**
+   * Distance from the variant residue to P2Rank's own cavity centre (`center_x/y/z`).
+   * Preferred over `pocketDistance` when present: `pocketDistance` is measured to
+   * the centroid of the pocket's residues, which grows as the pocket grows, so the
+   * 4/8/12 Å bands only describe proximity meaningfully against the real centre.
+   */
+  cavityCentreDistance?: number | null;
   pocketScore?: number | null;
   pocketVolume?: number | null;
   likelyCofactor?: string | null;
@@ -667,7 +679,14 @@ export interface PocketNarrative {
   /** What the reader may and may not conclude. */
   bottomLine: string | null;
   classification: { code: PocketSpatialClassification; label: string; detail: string };
-  proximity: { band: PocketProximityBand; label: string; distance: number | null; detail: string };
+  proximity: {
+    band: PocketProximityBand;
+    label: string;
+    distance: number | null;
+    detail: string;
+    /** What the distance is measured to, so a label cannot misname it. */
+    reference: string;
+  };
   ranking: { band: PocketRankingBand; label: string; score: number | null; detail: string };
   volume: {
     band: PocketVolumeBand;
@@ -782,6 +801,20 @@ const RANKING_DETAILS: Record<PocketRankingBand, string> = {
  * selected the nearest pocket that does *not* contain the variant residue.
  */
 const DISTANCE_REFERENCE = "the centroid of the pocket residues";
+/** Reference phrase used when the engine reported its own cavity centre. */
+const CAVITY_CENTRE_REFERENCE = "the cavity centre";
+
+/**
+ * Which reference the reported distance uses.
+ *
+ * P2Rank reports `center_x/y/z`, so when that is available the distance is to the
+ * real cavity centre and the 4/8/12 Å bands mean what they say. Otherwise the only
+ * available quantity is the centroid of the pocket's own residues, which is
+ * pocket-size dependent — and every label says so.
+ */
+function distanceReference(hasCavityCentre: boolean): string {
+  return hasCavityCentre ? CAVITY_CENTRE_REFERENCE : DISTANCE_REFERENCE;
+}
 
 const EMPTY_CLASSIFICATION: PocketNarrative["classification"] = Object.freeze({
   code: "UNCLASSIFIED",
@@ -790,7 +823,8 @@ const EMPTY_CLASSIFICATION: PocketNarrative["classification"] = Object.freeze({
 });
 
 function spatialClassificationFor(
-  proximity: PocketProximityBand
+  proximity: PocketProximityBand,
+  reference: string = DISTANCE_REFERENCE
 ): { code: PocketSpatialClassification; label: string; detail: string } {
   switch (proximity) {
     case "lining":
@@ -803,25 +837,25 @@ function spatialClassificationFor(
       return {
         code: "ACTIVE_SITE_PROXIMATE",
         label: "ACTIVE_SITE_PROXIMATE",
-        detail: `This residue sits within ${POCKET_PROXIMITY_BANDS.proximal} \u00c5 of ${DISTANCE_REFERENCE} \u2014 first shell.`,
+        detail: `This residue sits within ${POCKET_PROXIMITY_BANDS.proximal} \u00c5 of ${reference} \u2014 first shell.`,
       };
     case "peripheral":
       return {
         code: "POCKET_PERIPHERAL",
         label: "POCKET_PERIPHERAL",
-        detail: `This residue sits ${POCKET_PROXIMITY_BANDS.proximal}\u2013${POCKET_PROXIMITY_BANDS.peripheral} \u00c5 from ${DISTANCE_REFERENCE} \u2014 on the rim rather than in the cavity.`,
+        detail: `This residue sits ${POCKET_PROXIMITY_BANDS.proximal}\u2013${POCKET_PROXIMITY_BANDS.peripheral} \u00c5 from ${reference} \u2014 on the rim rather than in the cavity.`,
       };
     case "distal":
       return {
         code: "DISTAL_SURFACE",
         label: "DISTAL_SURFACE",
-        detail: `This residue is further than ${POCKET_PROXIMITY_BANDS.peripheral} \u00c5 from ${DISTANCE_REFERENCE}, so it does not shape the cavity itself.`,
+        detail: `This residue is further than ${POCKET_PROXIMITY_BANDS.peripheral} \u00c5 from ${reference}, so it does not shape the cavity itself.`,
       };
     default:
       return {
         code: "UNCLASSIFIED",
         label: "UNCLASSIFIED",
-        detail: `No distance to ${DISTANCE_REFERENCE} was reported, so spatial classification cannot be assigned.`,
+        detail: `No distance to ${reference} was reported, so spatial classification cannot be assigned.`,
       };
   }
 }
@@ -863,15 +897,19 @@ function normalisePocketStatus(
  * reference point (`DISTANCE_REFERENCE`) rather than "the cavity centre", which
  * the number is not.
  */
-function buildDistanceClause(rawDistance: number | null, includesVariantResidue: boolean): string {
+function buildDistanceClause(
+  rawDistance: number | null,
+  includesVariantResidue: boolean,
+  reference: string = DISTANCE_REFERENCE
+): string {
   if (rawDistance !== null) {
     const liningNote = includesVariantResidue ? ", and this residue is one of the residues lining it" : "";
-    return `The nearest cavity P2Rank found has ${DISTANCE_REFERENCE} ${rawDistance.toFixed(2)} \u00c5 from this residue${liningNote}.`;
+    return `The nearest cavity P2Rank found has ${reference} ${rawDistance.toFixed(2)} \u00c5 from this residue${liningNote}.`;
   }
   if (includesVariantResidue) {
     return "This residue is one of the residues lining the predicted cavity, although no centroid distance was reported.";
   }
-  return `P2Rank did not report a distance from this residue to ${DISTANCE_REFERENCE}.`;
+  return `P2Rank did not report a distance from this residue to ${reference}.`;
 }
 
 /**
@@ -953,7 +991,8 @@ function pocketBadgeTone(
 const EMPTY_GLOSSARY = [
   {
     term: "Pocket distance",
-    meaning: `How far, in \u00c5ngstr\u00f6ms (1 \u00c5 = one tenth of a nanometre), the variant residue sits from ${DISTANCE_REFERENCE}. It is not the geometric centre of the cavity, and it grows as the pocket gets larger.`,
+    meaning:
+      "How far the variant residue sits from the pocket: from the cavity centre when the engine reports one (P2Rank does), otherwise from the centroid of the pocket's own residues, which grows as the pocket gets larger.",
   },
   {
     term: "P2Rank ranking index",
@@ -994,7 +1033,7 @@ export function derivePocketNarrative(
     plainLanguage: null,
     bottomLine: null,
     classification: EMPTY_CLASSIFICATION,
-    proximity: { band: "unknown", label: PROXIMITY_LABELS.unknown, distance: null, detail: "" },
+    proximity: { band: "unknown", label: PROXIMITY_LABELS.unknown, distance: null, detail: "", reference: DISTANCE_REFERENCE },
     ranking: { band: "unknown", label: RANKING_LABELS.unknown, score: null, detail: "" },
     volume: {
       band: "unknown",
@@ -1108,18 +1147,25 @@ export function derivePocketNarrative(
   }
 
   // ── status === "success" ──
-  const rawDistance =
-    pocket?.pocketDistance !== null && pocket?.pocketDistance !== undefined && Number.isFinite(pocket.pocketDistance)
-      ? pocket.pocketDistance
-      : null;
-  const score =
-    pocket?.pocketScore !== null && pocket?.pocketScore !== undefined && Number.isFinite(pocket.pocketScore)
-      ? pocket.pocketScore
-      : null;
-  const volume =
-    pocket?.pocketVolume !== null && pocket?.pocketVolume !== undefined && Number.isFinite(pocket.pocketVolume)
-      ? pocket.pocketVolume
-      : null;
+  const finiteOrNull = (value: number | null | undefined): number | null =>
+    value !== null && value !== undefined && Number.isFinite(value) ? value : null;
+
+  /*
+   * Prefer P2Rank's own cavity centre over the centroid of its residues.
+   *
+   * Both are reported by the runner now; the centroid is the fallback because it
+   * is the only quantity available when the engine does not report a centre
+   * (fpocket) or when the payload predates that field. The 4/8/12 Å bands below
+   * only describe proximity meaningfully against the real centre, so which one was
+   * used travels with the number.
+   */
+  const cavityCentreDistance = finiteOrNull(pocket?.cavityCentreDistance);
+  const residueCentroidDistance = finiteOrNull(pocket?.pocketDistance);
+  const rawDistance = cavityCentreDistance ?? residueCentroidDistance;
+  const reference = distanceReference(cavityCentreDistance !== null);
+
+  const score = finiteOrNull(pocket?.pocketScore);
+  const volume = finiteOrNull(pocket?.pocketVolume);
 
   const residues = (pocket?.pocketResidues ?? []).filter(
     (residue): residue is PocketResidueSummary =>
@@ -1162,7 +1208,7 @@ export function derivePocketNarrative(
       : null;
 
   const proximityBand = classifyProximity(rawDistance, includesVariantResidue);
-  const classification = spatialClassificationFor(proximityBand);
+  const classification = spatialClassificationFor(proximityBand, reference);
   const rankingBand = classifyPocketRanking(score);
 
   /*
@@ -1186,7 +1232,7 @@ export function derivePocketNarrative(
       ? pocket.sasPoints
       : null;
 
-  const distanceClause = buildDistanceClause(rawDistance, includesVariantResidue);
+  const distanceClause = buildDistanceClause(rawDistance, includesVariantResidue, reference);
 
   const rankingClause =
     score !== null
@@ -1237,6 +1283,7 @@ export function derivePocketNarrative(
       label: PROXIMITY_LABELS[proximityBand],
       distance: rawDistance,
       detail: classification.detail,
+      reference,
     },
     ranking: {
       band: rankingBand,

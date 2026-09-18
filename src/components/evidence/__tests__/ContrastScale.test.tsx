@@ -57,25 +57,47 @@ describe("BiochemicalContrastScales", () => {
   });
 
   it("does not render an unchanged axis as a change", () => {
-    render(<BiochemicalContrastScales contrast={contrast()} />);
+    const { container } = render(<BiochemicalContrastScales contrast={contrast()} />);
 
-    // Polarity is 100 -> 100: one "unchanged" chip, and an accessible label that
-    // says so explicitly rather than showing a full-width filled bar.
+    // Polarity is 100 -> 100: the chip says so and both values agree, rather than
+    // a full-width filled bar that read as the largest possible change. The value
+    // pair is matched across the row because the arrow is its own element.
     expect(screen.getByText("unchanged")).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/Polarity: wild type 100 and variant 100 are identical on a 0 to 100 scale/)
-    ).toBeInTheDocument();
+    expect(container.textContent).toMatch(/100\s*→\s*100/);
   });
 
-  it("gives every changed axis an accessible description of the move", () => {
+  it("states a changed axis as a value pair plus words, with no duplicate graphic label", () => {
     render(<BiochemicalContrastScales contrast={contrast()} />);
 
-    expect(
-      screen.getByLabelText(/Isoelectric Charge Index: wild type 0 to variant 95 on a 0 to 100 scale, a marked increase/)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/Hydrophobicity: wild type 10 to variant 5 on a 0 to 100 scale, a slight decrease/)
-    ).toBeInTheDocument();
+    // The values and the magnitude/direction words are the accessible content.
+    expect(screen.getByText(/marked increase/)).toBeInTheDocument();
+    expect(screen.getByText(/slight decrease/)).toBeInTheDocument();
+    expect(screen.getByText("Isoelectric Charge Index")).toBeInTheDocument();
+
+    // The track is decoration: it must not carry a second, sentence-length
+    // description of the same row for a screen reader to read out twice.
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes the two markers by position and shape, not by hue alone", () => {
+    const { container } = render(<BiochemicalContrastScales contrast={contrast()} />);
+
+    // The hydrophobicity row (10 -> 5) has one marker per residue.
+    const markers = Array.from(container.querySelectorAll<HTMLElement>("span")).filter(
+      node => node.className.includes("w-[3px]") && node.className.includes("absolute")
+    );
+    expect(markers.length).toBeGreaterThanOrEqual(2);
+
+    const upper = markers.filter(node => node.className.includes("top-0"));
+    const lower = markers.filter(node => node.className.includes("bottom-0"));
+    expect(upper.length).toBeGreaterThan(0);
+    expect(lower.length).toBeGreaterThan(0);
+
+    // Identity colours are the palette the wild-type/mutant cards use, not the
+    // semantic success/danger tokens — which asserted a verdict about the residue.
+    expect(markers.some(node => node.className.includes("bg-emerald-500"))).toBe(true);
+    expect(markers.some(node => node.className.includes("bg-rose-500"))).toBe(true);
+    expect(markers.some(node => /cs-text-(success|danger)/.test(node.className))).toBe(false);
   });
 
   it("keeps both markers fully inside the track at the extremes", () => {

@@ -9,6 +9,7 @@ import {
   getOverallInterpretationText,
   computeMultiModelLlr
 } from "../../../shared/perturbationHelpers";
+import type { ModelCalibration } from "../../../shared/modelCalibration";
 import { BackboneDisplacementChart } from "./BackboneDisplacementChart";
 
 interface PhysicalPerturbationSectionProps {
@@ -19,6 +20,14 @@ interface PhysicalPerturbationSectionProps {
   structuralDiff?: any;
   metrics?: any;
   pos: number;
+  /** Governs whether the sequence term may be described in calibrated language. */
+  calibration?: ModelCalibration | null;
+  /**
+   * Registry family per entry of `allEvaluations`, in the same order. Supplies the
+   * mixed-scale decision so it reflects which models contributed rather than how far
+   * apart their numbers happen to sit. See `computeMultiModelLlr`.
+   */
+  poolFamilies?: (string | null | undefined)[];
 }
 
 export function PhysicalPerturbationSection({
@@ -28,7 +37,9 @@ export function PhysicalPerturbationSection({
   foldingEnergetics,
   structuralDiff,
   metrics,
-  pos
+  pos,
+  calibration = null,
+  poolFamilies
 }: PhysicalPerturbationSectionProps) {
   if (!foldingEnergetics && !structuralDiff) return null;
 
@@ -42,12 +53,25 @@ export function PhysicalPerturbationSection({
     : null;
 
   const multiModel = computeMultiModelLlr(allEvaluations && allEvaluations.length > 0 ? allEvaluations : [activeEval]);
-  const effectiveSequenceLlr = multiModel.llr ?? activeEval?.llr;
+
+  /**
+   * A mean of raw ΔLLR across model families is not a score on any model's axis, so it
+   * must not silently become the sequence term of the 0-100 verdict. When the pool mixes
+   * scales the term is withheld, and `calculateLps` renormalises over the physical terms
+   * it still has. A single model's own score is always on a scale, so it is kept.
+   */
+  const poolIsMixed = multiModel.count > 1 && multiModel.mixedScale;
+  const effectiveSequenceLlr = poolIsMixed ? null : (multiModel.llr ?? activeEval?.llr);
 
   const lpsScore = calculateLps(effectiveSequenceLlr, vdw, structuralDiff?.clashes?.diff, maxCaDisp);
   const lpsDetails = getLpsDetails(lpsScore);
 
-  const seqEvidence = getSequenceEvidenceText(activeEval?.llr, currentModelName.split(" ")[0], multiModel);
+  const seqEvidence = getSequenceEvidenceText(
+    activeEval?.llr,
+    currentModelName.split(" ")[0],
+    multiModel,
+    calibration
+  );
   const energyEvidence = getEnergeticEvidenceText(vdw, foldingEnergetics?.foldxSd);
   const geomEvidence = getGeometricEvidenceText(maxCaDisp);
   const overallInterpretation = getOverallInterpretationText(maxCaDisp, vdw);
@@ -67,11 +91,11 @@ export function PhysicalPerturbationSection({
         <div className="md:col-span-2 p-4 rounded-xl border flex flex-col gap-3 transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
           <div className="flex items-center gap-2 border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <Sparkles className="w-4 h-4 text-purple-500 shrink-0" />
-            <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-slate-300" style={{ color: "var(--cs-text-secondary)" }}>
+            <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-cs-text-secondary">
               Local perturbation summary
             </span>
           </div>
-          <ul className="list-disc pl-5 space-y-1.5 text-[11px] leading-relaxed text-slate-300">
+          <ul className="list-disc pl-5 space-y-1.5 text-[11.5px] leading-relaxed text-cs-text-secondary">
             <li>
               <strong>Sequence-model evidence</strong>: {seqEvidence.replace(/^Sequence-model (?:evidence|consensus(?:\s*\([^)]*\))?):\s*/i, "")}
             </li>
@@ -88,23 +112,21 @@ export function PhysicalPerturbationSection({
         </div>
 
         <div className="p-4 rounded-xl border flex flex-col justify-between transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-          <div className="border-b pb-2 flex items-center justify-between" style={{ borderColor: "var(--cs-border-subtle)" }}>
-            <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-slate-400">
-              Consensus Verdict
+          <div className="border-b pb-2 flex items-center justify-between gap-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-cs-text-muted">
+              {poolIsMixed ? "Physical Verdict" : "Consensus Verdict"}
             </span>
-            <span className={`text-[8px] uppercase font-mono px-2 py-0.5 rounded border font-bold ${lpsDetails.badgeClass}`}>
+            <span className={`text-[8px] uppercase font-mono px-2 py-0.5 rounded border font-bold shrink-0 ${lpsDetails.badgeClass}`}>
               {lpsDetails.labelText}
             </span>
           </div>
-          <div className="my-2.5">
-            <p className="text-[9px] text-slate-400 leading-normal">
-              Experimental score combining sequence LLR penalty, FoldX steric energy, clash differences, and backbone Cα displacement.
-            </p>
-          </div>
-          <div className="flex items-baseline gap-1 mt-auto">
+
+          {/* The score leads: it is the reason this card exists, and the term breakdown
+              now lives in the inspector beside the tab. */}
+          <div className="flex items-baseline gap-1 mt-3">
             {lpsDetails.score !== null ? (
               <>
-                <strong className="text-2xl font-bold font-mono" style={{ color: lpsDetails.color }}>
+                <strong className="text-3xl font-bold font-mono tabular-nums" style={{ color: lpsDetails.color }}>
                   {lpsDetails.score.toFixed(1)}
                 </strong>
                 <span className="text-[10px] font-mono text-slate-500">/ 100</span>
@@ -113,6 +135,14 @@ export function PhysicalPerturbationSection({
               <strong className="text-sm font-bold font-mono text-slate-500">N/A</strong>
             )}
           </div>
+
+          <p className="text-[10px] text-cs-text-muted leading-normal mt-2">
+            {lpsDetails.score === null
+              ? "No scored terms were returned, so no combined verdict can be formed."
+              : poolIsMixed
+                ? `Physical terms only: FoldX steric energy, clash difference and backbone Cα displacement. The sequence term is excluded because the ${multiModel.count} contributing models do not share a score scale.`
+                : "Sequence penalty, FoldX steric energy, clash difference and backbone Cα displacement, renormalised over the terms that returned a value."}
+          </p>
         </div>
       </div>
 
@@ -123,7 +153,7 @@ export function PhysicalPerturbationSection({
             style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
           >
             <div className="flex items-center justify-between w-full">
-              <span className="block text-[9px] uppercase font-bold tracking-wider text-slate-400">Sidechain RMSD</span>
+              <span className="block text-[9.5px] uppercase font-bold tracking-wider text-cs-text-muted">Sidechain RMSD</span>
               <Info className="w-3 h-3 shrink-0 text-slate-500" />
             </div>
             <strong className="text-base font-bold font-mono block mt-1.5" style={{
@@ -133,7 +163,7 @@ export function PhysicalPerturbationSection({
             }}>
               {sidechainRmsd !== null ? `${sidechainRmsd.toFixed(2)} Å` : "N/A"}
             </strong>
-            <span className="text-[8px] mt-0.5 text-slate-500">Local sidechain displacement (FoldX)</span>
+            <span className="text-[10px] mt-0.5 text-cs-text-muted">Local sidechain displacement (FoldX)</span>
           </div>
 
           <div
@@ -141,7 +171,7 @@ export function PhysicalPerturbationSection({
             style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
           >
             <div className="flex items-center justify-between w-full">
-              <span className="block text-[9px] uppercase font-bold tracking-wider text-slate-400">VdW Clash Δ</span>
+              <span className="block text-[9.5px] uppercase font-bold tracking-wider text-cs-text-muted">VdW Clash Δ</span>
               <Info className="w-3 h-3 shrink-0 text-slate-500" />
             </div>
             <div className="flex items-center gap-1.5 mt-1.5">
@@ -156,7 +186,7 @@ export function PhysicalPerturbationSection({
                 </span>
               )}
             </div>
-            <span className="text-[8px] mt-0.5 text-slate-500">Steric repulsion energy delta</span>
+            <span className="text-[10px] mt-0.5 text-cs-text-muted">Steric repulsion energy delta</span>
           </div>
 
           <div
@@ -164,13 +194,13 @@ export function PhysicalPerturbationSection({
             style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
           >
             <div className="flex items-center justify-between w-full">
-              <span className="block text-[9px] uppercase font-bold tracking-wider text-slate-400">Electrostatic Δ</span>
+              <span className="block text-[9.5px] uppercase font-bold tracking-wider text-cs-text-muted">Electrostatic Δ</span>
               <Info className="w-3 h-3 shrink-0 text-slate-500" />
             </div>
             <strong className="text-base font-bold font-mono block mt-1.5" style={{ color: "var(--cs-text-primary)" }}>
               {electrostatics !== null ? `${electrostatics >= 0 ? "+" : ""}${electrostatics.toFixed(2)} kcal/mol` : "N/A"}
             </strong>
-            <span className="text-[8px] mt-0.5 text-slate-500">Charge interaction shift</span>
+            <span className="text-[10px] mt-0.5 text-cs-text-muted">Charge interaction shift</span>
           </div>
         </div>
       )}
@@ -181,7 +211,7 @@ export function PhysicalPerturbationSection({
             <div className="p-4 rounded-xl border space-y-3 transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
               <div className="flex items-center gap-1.5 border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
                 <Layers className="w-4 h-4 text-teal-500 shrink-0" />
-                <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-slate-400">
+                <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-cs-text-muted">
                   Local contact network
                 </span>
               </div>
@@ -210,31 +240,25 @@ export function PhysicalPerturbationSection({
                   })()}
                 </div>
               </div>
-              <p className="text-[9px] font-sans leading-normal text-slate-500 mt-2">
-                Contacts counted within a 4 Å heavy-atom cutoff after WT→MT superposition.
-              </p>
             </div>
           )}
 
           {metrics.deltaSasa !== undefined && metrics.deltaSasa !== null && (
-            <div className="p-4 rounded-xl border space-y-3 transition-all duration-300 shadow-sm text-left flex flex-col justify-between" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-              <div>
-                <div className="flex items-center gap-1.5 border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+            <div className="p-4 rounded-xl border space-y-3 transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+              <div className="border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+                <div className="flex items-center gap-1.5">
                   <Layers className="w-4 h-4 text-sky-500 shrink-0" />
-                  <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-slate-400">
+                  <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-cs-text-muted">
                     ΔSASA (mutation site)
                   </span>
                 </div>
-                <div className="flex items-center justify-between mt-3 font-mono">
-                  <span className="text-[10px] font-bold text-slate-400">Exposure delta</span>
-                  <strong className="text-sm font-bold" style={{ color: metrics.deltaSasa > 0 ? "var(--cs-text-warning)" : "var(--cs-text-success)" }}>
-                    {metrics.deltaSasa >= 0 ? `+${metrics.deltaSasa.toFixed(1)}` : metrics.deltaSasa.toFixed(1)} Å² {metrics.deltaSasa > 0 ? "more exposed" : "more buried"}
-                  </strong>
-                </div>
               </div>
-              <p className="text-[9px] font-sans leading-normal text-slate-500 mt-3 pt-2 border-t border-dashed" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                Positive values indicate the mutated residue becomes more solvent exposed relative to the WT structure.
-              </p>
+              <div className="flex items-center justify-between font-mono">
+                <span className="text-[10px] font-bold text-slate-400">Exposure delta</span>
+                <strong className="text-sm font-bold tabular-nums" style={{ color: metrics.deltaSasa > 0 ? "var(--cs-text-warning)" : "var(--cs-text-success)" }}>
+                  {metrics.deltaSasa >= 0 ? `+${metrics.deltaSasa.toFixed(1)}` : metrics.deltaSasa.toFixed(1)} Å² {metrics.deltaSasa > 0 ? "more exposed" : "more buried"}
+                </strong>
+              </div>
             </div>
           )}
         </div>
@@ -243,7 +267,7 @@ export function PhysicalPerturbationSection({
       {structuralDiff && (
         <div className="p-4 rounded-xl border space-y-3.5 transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
           <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
-            <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-slate-400">
+            <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-cs-text-muted">
               Kabsch-Aligned Structural Displacements
             </span>
             <span className="text-[9px] font-mono px-2 py-0.5 rounded border bg-slate-500/5 text-slate-400 border-slate-500/10">
@@ -253,37 +277,36 @@ export function PhysicalPerturbationSection({
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
             <div className="p-2.5 border rounded-lg" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-              <div className="text-[9px] font-bold uppercase tracking-wider font-mono text-slate-400">Global RMSD</div>
-              <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
+              <div className="text-[9.5px] font-bold uppercase tracking-wider font-mono text-cs-text-muted">Global RMSD</div>
+              <div className="text-sm font-bold font-mono mt-1 tabular-nums" style={{ color: "var(--cs-text-primary)" }}>
                 {isFoldxRigid ? "0.0000 Å" : `${structuralDiff.rmsd.toFixed(4)} Å`}
               </div>
+              {isFoldxRigid && (
+                <div
+                  className="text-[8px] font-sans text-slate-500 mt-0.5 leading-tight"
+                  title="FoldX mutates onto a rigid Cα template, so backbone coordinates are identical by construction. This zero is a property of the method, not evidence that the backbone did not move."
+                >
+                  rigid template by construction
+                </div>
+              )}
             </div>
             <div className="p-2.5 border rounded-lg" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-              <div className="text-[9px] font-bold uppercase tracking-wider font-mono text-slate-400">Local RMSD</div>
-              <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
+              <div className="text-[9.5px] font-bold uppercase tracking-wider font-mono text-cs-text-muted">Local RMSD</div>
+              <div className="text-sm font-bold font-mono mt-1 tabular-nums" style={{ color: "var(--cs-text-primary)" }}>
                 {structuralDiff.localRmsd !== null ? `${structuralDiff.localRmsd.toFixed(4)} Å` : "N/A"}
               </div>
             </div>
             <div className="p-2.5 border rounded-lg" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-              <div className="text-[9px] font-bold uppercase tracking-wider font-mono text-slate-400">WT Clashes</div>
-              <div className="text-sm font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.clashes.wtClashCount}</div>
+              <div className="text-[9.5px] font-bold uppercase tracking-wider font-mono text-cs-text-muted">WT Clashes</div>
+              <div className="text-sm font-bold font-mono mt-1 tabular-nums" style={{ color: "var(--cs-text-primary)" }}>{structuralDiff.clashes.wtClashCount}</div>
             </div>
             <div className="p-2.5 border rounded-lg" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-              <div className="text-[9px] font-bold uppercase tracking-wider font-mono text-slate-400">Clash Diff</div>
-              <div className="text-sm font-bold font-mono mt-1" style={{ color: structuralDiff.clashes.diff > 0 ? "var(--cs-text-danger)" : "var(--cs-text-success)" }}>
+              <div className="text-[9.5px] font-bold uppercase tracking-wider font-mono text-cs-text-muted">Clash Diff</div>
+              <div className="text-sm font-bold font-mono mt-1 tabular-nums" style={{ color: structuralDiff.clashes.diff > 0 ? "var(--cs-text-danger)" : "var(--cs-text-success)" }}>
                 {structuralDiff.clashes.diff > 0 ? `+${structuralDiff.clashes.diff}` : structuralDiff.clashes.diff}
               </div>
             </div>
           </div>
-
-          {isFoldxRigid && (
-            <div className="p-2.5 rounded-lg border text-[10px] leading-relaxed flex gap-2 items-start" style={{ background: "rgba(245, 158, 11, 0.04)", borderColor: "rgba(245, 158, 11, 0.15)", color: "var(--cs-text-warning)" }}>
-              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-500" />
-              <p>
-                <strong>Template-constrained alignment notice</strong>: FoldX mutation uses a rigid Cα backbone template, meaning backbone coordinates remain identical and global Cα RMSD is mathematically 0.0 Å.
-              </p>
-            </div>
-          )}
 
           {structuralDiff.windowDisplacements && structuralDiff.windowDisplacements.length > 0 && (
             <BackboneDisplacementChart

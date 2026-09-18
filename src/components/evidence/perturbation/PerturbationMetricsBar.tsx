@@ -1,57 +1,115 @@
 import React from "react";
-import { THRESHOLDS } from "../../../shared/thresholds";
+import { classifyLlr, isCalibrated, type ModelCalibration } from "../../../shared/modelCalibration";
 
 interface PerturbationMetricsBarProps {
   activeEval: any;
   wtRes: string;
   mutRes: string;
+  /** Governs whether ΔLLR may be tinted against a cut-point. */
+  calibration?: ModelCalibration | null;
 }
 
+/**
+ * The five decisive per-residue quantities for the selected model.
+ *
+ * Colour policy: only ΔLLR carries a risk tint, and only when the model has a published
+ * cut-point. The probabilities are deliberately left neutral — a low P(mutant) is the
+ * expected reading for a damaging substitution, so tinting it amber would imply the
+ * number is reassuring when it is not. The model's own preference ranking, shown as a
+ * rank out of 20, is what carries the qualitative read.
+ */
 export function PerturbationMetricsBar({
   activeEval,
   wtRes,
-  mutRes
+  mutRes,
+  calibration = null
 }: PerturbationMetricsBarProps) {
-  const mutProbColor = activeEval.mutProbability >= 0.1 
-    ? "var(--cs-text-success)" 
-    : activeEval.mutProbability < 0.01 
-      ? "var(--cs-text-danger)" 
-      : "var(--cs-text-warning)";
+  const mutProb = typeof activeEval.mutProbability === "number" ? activeEval.mutProbability : null;
+  const wtProb = typeof activeEval.wtProbability === "number" ? activeEval.wtProbability : null;
 
-  const preferenceLabel = activeEval.mutRank <= 3 
-    ? "Highly Preferred" 
-    : activeEval.mutRank >= 15 
-      ? "Strongly Dispreferred" 
-      : "Neutral Preference";
+  /**
+   * Relative depletion is the interpretable quantity here: how much of the wild-type
+   * residue's likelihood the mutant retains. It is a ratio of two numbers from the same
+   * model, so unlike ΔLLR it needs no cross-model calibration.
+   */
+  const retention = wtProb !== null && mutProb !== null && wtProb > 0
+    ? mutProb / wtProb
+    : null;
+
+  const llrVal = typeof activeEval.llr === "number" ? activeEval.llr : null;
+  const llrIsCalibrated = isCalibrated(calibration);
+  const llrVerdict = classifyLlr(llrVal, calibration);
+  const llrColor = !llrIsCalibrated
+    ? "var(--cs-text-primary)"
+    : llrVerdict === "pathogenic"
+      ? "var(--cs-text-danger)"
+      : "var(--cs-text-success)";
+
+  const mutRank = typeof activeEval.mutRank === "number" ? activeEval.mutRank : null;
+  const preferenceLabel = mutRank === null
+    ? "Rank unavailable"
+    : mutRank <= 3
+      ? "Highly Preferred"
+      : mutRank >= 15
+        ? "Strongly Dispreferred"
+        : "Neutral Preference";
+
+  const entropy = typeof activeEval.positionalEntropy === "number" ? activeEval.positionalEntropy : null;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
       <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-slate-400">P(Wildtype AA)</span>
-        <strong className="text-base font-bold font-mono block mt-1 text-sky-400">{activeEval.wtProbability.toFixed(4)}</strong>
-        <span className="block text-[8px] mt-0.5 text-slate-500">Expectation of native {wtRes}</span>
-      </div>
-      <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-slate-400">P(Mutant AA)</span>
-        <strong className="text-base font-bold font-mono block mt-1" style={{ color: mutProbColor }}>{activeEval.mutProbability.toFixed(4)}</strong>
-        <span className="block text-[8px] mt-0.5 text-slate-500">Compatibility of variant {mutRes}</span>
-      </div>
-      <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-slate-400">Δ LLR (nats)</span>
-        <strong className="text-base font-bold font-mono block mt-1" style={{ color: activeEval.llr <= THRESHOLDS.esm.pathogenic ? "var(--cs-text-danger)" : "var(--cs-text-success)" }}>{activeEval.llr.toFixed(3)}</strong>
-        <span className="block text-[8px] mt-0.5 text-slate-500">Mutation penalty index</span>
-      </div>
-      <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-slate-400">Mutant Preference</span>
-        <strong className="text-base font-bold font-mono block mt-1 text-slate-200">
-          {activeEval.mutRank} <span className="text-[10px] text-slate-500">/ 20</span>
+        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-cs-text-muted">P(Wildtype AA)</span>
+        <strong className="text-base font-bold font-mono block mt-1 text-sky-700 dark:text-sky-400 tabular-nums">
+          {wtProb === null ? "N/A" : wtProb.toFixed(4)}
         </strong>
-        <span className="block text-[8px] mt-0.5 text-slate-500">{preferenceLabel}</span>
+        <span className="block text-[10px] mt-0.5 text-cs-text-muted">Expectation of native {wtRes}</span>
       </div>
+
       <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-slate-400">Positional Entropy</span>
-        <strong className="text-base font-bold font-mono block mt-1 text-indigo-400">{activeEval.positionalEntropy.toFixed(3)}</strong>
-        <span className="block text-[8px] mt-0.5 text-slate-500">Residue flexibility (bits)</span>
+        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-cs-text-muted">P(Mutant AA)</span>
+        <strong className="text-base font-bold font-mono block mt-1 tabular-nums" style={{ color: "var(--cs-text-primary)" }}>
+          {mutProb === null ? "N/A" : mutProb.toFixed(4)}
+        </strong>
+        <span className="block text-[10px] mt-0.5 text-cs-text-muted">
+          {retention === null
+            ? `Compatibility of variant ${mutRes}`
+            : `Retains ${(retention * 100) < 1 ? "<1" : (retention * 100).toFixed(0)}% of native likelihood`}
+        </span>
+      </div>
+
+      <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-cs-text-muted">Δ LLR (nats)</span>
+        <strong className="text-base font-bold font-mono block mt-1 tabular-nums" style={{ color: llrColor }}>
+          {llrVal === null ? "N/A" : llrVal.toFixed(3)}
+        </strong>
+        <span className="block text-[10px] mt-0.5 text-cs-text-muted">
+          {llrIsCalibrated ? "Against published cut-point" : "Model-native scale · uncalibrated"}
+        </span>
+      </div>
+
+      <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-cs-text-muted">Mutant Preference</span>
+        <strong className="text-base font-bold font-mono block mt-1 tabular-nums" style={{ color: "var(--cs-text-primary)" }}>
+          {mutRank === null ? "N/A" : <>{mutRank} <span className="text-[10px] text-cs-text-muted">/ 20</span></>}
+        </strong>
+        <span className="block text-[10px] mt-0.5 text-cs-text-muted">{preferenceLabel}</span>
+      </div>
+
+      <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+        <span className="block text-[9px] uppercase font-mono tracking-wider font-semibold text-cs-text-muted">Positional Entropy</span>
+        <strong className="text-base font-bold font-mono block mt-1 text-indigo-700 dark:text-indigo-400 tabular-nums">
+          {entropy === null ? "N/A" : entropy.toFixed(3)}
+        </strong>
+        <span className="block text-[10px] mt-0.5 text-cs-text-muted">
+          {entropy === null
+            ? "Residue flexibility"
+            : entropy >= 2.5
+              ? "Broadly tolerant site (bits)"
+              : entropy <= 1.0
+                ? "Strongly constrained (bits)"
+                : "Residue flexibility (bits)"}
+        </span>
       </div>
     </div>
   );

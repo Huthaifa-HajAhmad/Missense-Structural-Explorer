@@ -151,7 +151,14 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     predictorData?.amPathogenicity,
     predictorData?.amClass,
     conservationData?.bayesdel,
-    esmcEval?.llr ?? esm2?.llr,
+    /**
+     * This positional argument is labelled "ESM-1b" and evaluated with ESM-1b's
+     * documented cut-points (-7.5 / -5.0), so it must receive an ESM-1b score. It was
+     * being fed `esmcEval?.llr ?? esm2?.llr`, which made an ESMC ΔLLR of ~-8.4 render as
+     * "ESM-1b: pathogenic". ESMC, ESM-2 and SaProt have no published cut-points on their
+     * own scales and travel through `extra` below, which is evaluated as informational.
+     */
+    conservationData?.esm1b ?? null,
     {
       metarnn: conservationData?.metarnn,
       clinpred: conservationData?.clinpred,

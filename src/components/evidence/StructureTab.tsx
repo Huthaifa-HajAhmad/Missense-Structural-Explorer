@@ -4,6 +4,7 @@ import { TabComponentProps } from "./types";
 import { AMINO_ACID_NAMES_MAP } from "../../useVariantAnalysis";
 import { BiochemicalContrastScales } from "./ContrastScale";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
+import { useResidueScalesLoading } from "../../lib/residueScalesLoading";
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";
 import { derivePocketNarrative } from "../../shared/residueShiftEvidence";
 
@@ -26,6 +27,7 @@ export function StructureTab({
   computedPocket,
   isPocketLoading,
   pocketError,
+  isBiophysicalLoading,
   active3dModelTab,
   onRetryPocket,
   onSelectResidue,
@@ -55,6 +57,14 @@ export function StructureTab({
   const normalMut = model.mutantLabel;
   const wt1 = model.wildTypeCode;
   const mut1 = model.mutantCode;
+
+  /*
+   * Shared with the inspector so both panes give the same answer to "are these
+   * values still coming?". Previously this passed `analysisState.isLoading` while
+   * the inspector passed `isBiophysicalLoading`, so with one true and the other
+   * false the two surfaces contradicted each other about the same missing datum.
+   */
+  const areScalesLoading = useResidueScalesLoading(isBiophysicalLoading);
 
   const pocketNarrative = useMemo(
     () =>
@@ -97,8 +107,10 @@ export function StructureTab({
       </div>
 
       {/* Always rendered: the component owns the "scales unavailable" state, so an
-          unresolved residue reads as missing data rather than as an absent card. */}
-      <BiochemicalContrastScales contrast={contrast} isLoading={analysisState.isLoading} />
+          unresolved residue reads as missing data rather than as an absent card.
+          The loading flag comes from the shared hook so this card and the inspector
+          cannot describe the same missing value differently. */}
+      <BiochemicalContrastScales contrast={contrast} isLoading={areScalesLoading} />
 
       {(result.disruptionPredictor?.burialStatus !== undefined || result.disruptionPredictor?.neighborCount !== undefined || result.disruptionPredictor?.rsa !== undefined) ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -195,7 +207,12 @@ export function StructureTab({
             {onRetryPocket && (
               <button
                 type="button"
-                onClick={() => onRetryPocket()}
+                onClick={() => {
+                  // `void`, not a bare call: the handler returns void|Promise and
+                  // React discards a returned promise, which would surface as an
+                  // unhandled rejection if the retry ever rejected.
+                  void onRetryPocket();
+                }}
                 className="px-3 py-1 rounded text-[10.5px] font-mono font-semibold bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-600 dark:text-rose-400 inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <RotateCw className="w-3 h-3" />
@@ -272,7 +289,12 @@ export function StructureTab({
                 {onRetryPocket && (
                   <button
                     type="button"
-                    onClick={() => onRetryPocket()}
+                    onClick={() => {
+                  // `void`, not a bare call: the handler returns void|Promise and
+                  // React discards a returned promise, which would surface as an
+                  // unhandled rejection if the retry ever rejected.
+                  void onRetryPocket();
+                }}
                     disabled={isPocketLoading}
                     className="px-3.5 py-1.5 rounded-lg font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all bg-amber-600 hover:bg-amber-500 active:scale-95 text-white border border-amber-600 shadow-sm shrink-0 cursor-pointer disabled:opacity-50"
                   >

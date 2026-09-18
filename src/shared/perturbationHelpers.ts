@@ -1,4 +1,12 @@
 import { THRESHOLDS } from "./thresholds";
+import { classifyLlr, isCalibrated, type ModelCalibration } from "./modelCalibration";
+
+/**
+ * Fallback spread threshold, used only when the caller cannot supply model families.
+ * Family membership is the primary signal (see `computeMultiModelLlr`); this value is a
+ * coarse backstop, not a calibrated boundary. See src/shared/modelCalibration.ts.
+ */
+const MIXED_SCALE_SPREAD_NATS = 2.0;
 
 export interface LPSResult {
   score: number | null;
@@ -94,10 +102,26 @@ export function getLpsDetails(score: number | null): LPSResult {
 /**
  * Computes a synthesized sequence LLR across all valid deep language models,
  * filtering out any degenerate uniform distributions.
+ *
+ * The pooled mean is retained for continuity, but it is only meaningful when the
+ * contributing models share a score scale. `mixedScale` reports when they do not, so
+ * callers can decline to describe the pool in calibrated language. Values are reported
+ * exactly as the models returned them — no rescaling is applied, because no defensible
+ * cross-family transform exists without a calibration study.
  */
 export function computeMultiModelLlr(
-  evaluations: any[]
-): { llr: number | null; count: number; details: string } {
+  evaluations: any[],
+  /**
+   * Model families parallel to the values that survive filtering, when known.
+   *
+   * Family membership is a property of the model, so it is the defensible signal for
+   * "do these scores share a scale". The nats spread is retained as reported context but
+   * is not used to decide: it is constant-true for the observed values (every pair spans
+   * more than the old 2.0-nat threshold) and it false-negatives when two different
+   * families happen to agree on one variant.
+   */
+  options?: { families?: (string | null | undefined)[] }
+): { llr: number | null; count: number; details: string; mixedScale: boolean; spread: number | null; uncalibrated: boolean; mixedScaleBasis: "family" | "spread" } {
   const list = Array.isArray(evaluations) ? evaluations : [];
   const validModels: { name: string; llr: number }[] = [];
   for (const ev of list) {
@@ -115,33 +139,80 @@ export function computeMultiModelLlr(
   }
 
   if (validModels.length === 0) {
-    return { llr: null, count: 0, details: "No valid sequence model data" };
+    return { llr: null, count: 0, details: "No valid sequence model data", mixedScale: false, spread: null, uncalibrated: false, mixedScaleBasis: "family" };
   }
 
   const meanLlr = validModels.reduce((acc, m) => acc + m.llr, 0) / validModels.length;
   const details = validModels.map(m => `${m.name}: ${m.llr.toFixed(1)}`).join(", ");
-  return { llr: meanLlr, count: validModels.length, details };
+
+  const values = validModels.map(m => m.llr);
+  const spread = Math.max(...values) - Math.min(...values);
+
+  const families = (options?.families ?? []).filter((f): f is string => typeof f === "string");
+  /**
+   * A single model cannot be internally inconsistent, so only a genuine mixture is
+   * flagged. When family identity is available it decides outright; the spread check is
+   * the fallback for callers that cannot supply families.
+   */
+  const distinctFamilies = new Set(families);
+  const mixedScale =
+    validModels.length > 1 &&
+    (families.length === validModels.length
+      ? distinctFamilies.size > 1
+      : spread > MIXED_SCALE_SPREAD_NATS);
+  const mixedScaleBasis: "family" | "spread" =
+    families.length === validModels.length ? "family" : "spread";
+
+  /**
+   * A pool of several models is never a calibrated score: the cut-points in the registry
+   * are per-model and cannot be applied to a mean. Callers must not attach calibrated
+   * language to this number even when the members happen to share a scale.
+   */
+  const uncalibrated = validModels.length > 1 || mixedScale;
+
+  return { llr: meanLlr, count: validModels.length, details, mixedScale, spread, uncalibrated, mixedScaleBasis };
 }
 
 /**
- * Returns structural interpretation text for the summary bullets
+ * Returns structural interpretation text for the summary bullets.
+ *
+ * Strength is only asserted when the score being described is on a scale that supports
+ * the claim: either the caller supplied a calibration for the model, or the input is a
+ * pool whose members demonstrably share a scale. Otherwise the LLR is reported as a
+ * model-native value with its rank context, which is the strongest honest statement.
  */
 export function getSequenceEvidenceText(
   llr: number | null | undefined,
   modelName = "ESMC",
-  multiModel?: { llr: number | null; count: number; details: string }
+  multiModel?: { llr: number | null; count: number; details: string; mixedScale?: boolean; spread?: number | null; uncalibrated?: boolean },
+  calibration?: ModelCalibration | null
 ): string {
   const effectiveLlr = (multiModel && multiModel.llr !== null) ? multiModel.llr : llr;
   if (effectiveLlr === null || effectiveLlr === undefined || isNaN(effectiveLlr)) {
     return "Sequence evidence: no prediction model data available.";
   }
-  const isDangerous = effectiveLlr <= THRESHOLDS.esm.pathogenic; // -5.0
-  const isModerate = effectiveLlr <= THRESHOLDS.esm.benign; // -2.0
-  const strength = isDangerous ? "strong" : isModerate ? "moderate" : "minimal";
+
+  // A pooled mean across families is not a calibrated score, whatever the number says.
+  const poolIsMixed = Boolean(multiModel && multiModel.mixedScale);
 
   if (multiModel && multiModel.count > 1) {
+    if (poolIsMixed) {
+      return `Sequence-model pool (${multiModel.count} models): values span ${multiModel.spread?.toFixed(1)} nats and are not on a shared scale, so no pooled strength classification is reported (${multiModel.details})`;
+    }
+    if (!isCalibrated(calibration)) {
+      return `Sequence-model pool (${multiModel.count} models): pooled ΔLLR ${effectiveLlr.toFixed(1)} nats — a mean across models, with no calibrated cut-point (${multiModel.details})`;
+    }
+    const verdict = classifyLlr(effectiveLlr, calibration);
+    const strength = verdict === "pathogenic" ? "strong" : verdict === "intermediate" ? "moderate" : "minimal";
     return `Sequence-model consensus (${multiModel.count} models): ${strength} perturbation (${multiModel.details})`;
   }
+
+  if (!isCalibrated(calibration)) {
+    return `Sequence-model evidence: model-native ΔLLR ${effectiveLlr.toFixed(1)} nats from ${modelName}, which has no established cut-point — read against its within-model residue rank`;
+  }
+
+  const verdict = classifyLlr(effectiveLlr, calibration);
+  const strength = verdict === "pathogenic" ? "strong" : verdict === "intermediate" ? "moderate" : "minimal";
   return `Sequence-model evidence: ${strength} perturbation (${modelName} LLR ${effectiveLlr.toFixed(1)})`;
 }
 

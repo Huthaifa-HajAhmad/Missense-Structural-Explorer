@@ -3,12 +3,25 @@ import path from "path";
 import fs from "fs";
 import { getGeminiClient } from "./gemini.ts";
 
-const dbPath = path.join(process.cwd(), "data", "shared_state.sqlite");
+/**
+ * Shared-state database path.
+ *
+ * Resolved per call and preferring the explicit override: the same file is written by the
+ * biophysical queue, and gating only on `NODE_ENV === "test"` made test safety depend on a
+ * variable Vitest merely defaults — an ambient value would have used the real database.
+ */
+function resolveSharedStatePath(): string {
+  return process.env.SHARED_STATE_DB_PATH
+    ?? (process.env.NODE_ENV === "test"
+      ? ":memory:"
+      : path.join(process.cwd(), "data", "shared_state.sqlite"));
+}
+
 let dbInstance: DatabaseSync | null = null;
 
 function getDb(): DatabaseSync {
   if (!dbInstance) {
-    const targetDbPath = process.env.NODE_ENV === "test" ? ":memory:" : dbPath;
+    const targetDbPath = resolveSharedStatePath();
     if (targetDbPath !== ":memory:") {
       const dir = path.dirname(targetDbPath);
       if (!fs.existsSync(dir)) {

@@ -514,6 +514,13 @@ export function useBiophysicalModeling(
           ]);
           if (isAborted) return;
           setStructuralDiff(diffData);
+          /**
+           * Mirror the diff into the store alongside the other diff-derived state. Without
+           * this the store's `structuralDiff` was never written by any producer, so the
+           * Perturbation inspector's collision and Cα-displacement rows read a permanently
+           * null field while `setFoldxMetrics` on the next lines was already mirrored.
+           */
+          useVariantAnalysisStore.getState().setStructuralDiff(diffData);
           if (alignData.alignedPdb) {
             setCompareMutantPdb(alignData.alignedPdb);
             useVariantAnalysisStore.getState().setCompareMutantPdb(alignData.alignedPdb);
@@ -532,6 +539,7 @@ export function useBiophysicalModeling(
       setCompareMutantPdb(null);
       useVariantAnalysisStore.getState().setCompareMutantPdb(null);
       useVariantAnalysisStore.getState().setFoldxMetrics(null);
+      useVariantAnalysisStore.getState().setStructuralDiff(null);
     }
   }, [foldingStatus, mutantPdb, pdbText, foldedResidueIndex, apiClient]);
 

@@ -41,6 +41,16 @@ const TEST_STATE_ENV: Record<string, string> = {
   JOB_REGISTRY_PATH: path.join(TEST_STATE_ROOT, "temp_jobs", "job_registry.json"),
   RASP_CSV_PATH: path.join(TEST_STATE_ROOT, "data", "df_rasp_gnomad_clinvar.csv"),
   RASP_SQLITE_PATH: path.join(TEST_STATE_ROOT, "data", "df_rasp_gnomad_clinvar.sqlite"),
+  /**
+   * The FoldX disk cache and the `/debug/clear-caches` handler that empties it.
+   *
+   * These were the last unredirectable real-state deleters: the handler used hardcoded
+   * `process.cwd()` paths and read no variable, and a route suite calls it directly, so every
+   * suite run emptied the developer's real `logs/foldx_cache` (hours of recomputation) and
+   * deleted the live job registry.
+   */
+  FOLDX_CACHE_DIR: path.join(TEST_STATE_ROOT, "logs", "foldx_cache"),
+  GEMINI_CACHE_DIR: path.join(TEST_STATE_ROOT, "logs", "gemini_cache"),
 };
 
 for (const dir of [
@@ -66,6 +76,22 @@ function resolveRealStateDir(target: string): boolean {
   const repoStateDirs = ["data", "logs", "temp_jobs"].map(d => path.join(process.cwd(), d));
   const resolved = path.resolve(target);
   return repoStateDirs.some(dir => resolved === dir || resolved.startsWith(dir + path.sep));
+}
+
+/**
+ * `NODE_ENV` is a second, independent guard — assert it rather than trust it.
+ *
+ * `biophysical-queue.ts`, `literature-rag.ts` and `landscape.ts` each decide whether to open a
+ * real database by testing `process.env.NODE_ENV === "test"`. Vitest only defaults that variable
+ * (`NODE_ENV ||= "test"`), so an inherited value from a shell, CI or Docker wins — and
+ * `SHARED_STATE_DB_PATH` is read by only one of the three shared-state writers, so the other two
+ * would open the real file. Vitest guarantees the value, which makes asserting it safe.
+ */
+if (process.env.NODE_ENV !== "test") {
+  throw new Error(
+    `[test-setup] NODE_ENV is "${process.env.NODE_ENV}" rather than "test". Modules that gate real ` +
+    `database access on it would open the developer's real state. Unset NODE_ENV, or set it to "test".`
+  );
 }
 
 for (const [key, value] of Object.entries(TEST_STATE_ENV)) {

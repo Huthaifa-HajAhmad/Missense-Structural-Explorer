@@ -110,31 +110,49 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   const aviPercentile = alphagenome?.topPercentile ?? null;
 
   // Helper to render score bars
-  const renderScoreBar = (val: number | null, min: number, max: number, threshLow: number, threshHigh: number, invert = false) => {
+  /**
+   * Pass `null` for both cut-points when the model has no published threshold on its own
+   * score scale. The value is still plotted, but on a neutral bar with no verdict colouring
+   * and no cutoff markers, because a cut-point belonging to another model would mislead.
+   */
+  const renderScoreBar = (
+    val: number | null,
+    min: number,
+    max: number,
+    threshLow: number | null,
+    threshHigh: number | null,
+    invert = false
+  ) => {
     if (val === null) return null;
     const percentage = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
-    const lowPercent = ((threshLow - min) / (max - min)) * 100;
-    const highPercent = ((threshHigh - min) / (max - min)) * 100;
 
-    const isPathogenic = invert ? val <= threshLow : val >= threshHigh;
-    const isBenign = invert ? val >= threshHigh : val <= threshLow;
+    const hasCutPoints = threshLow !== null && threshHigh !== null;
+    const lowPercent = hasCutPoints ? ((threshLow! - min) / (max - min)) * 100 : 0;
+    const highPercent = hasCutPoints ? ((threshHigh! - min) / (max - min)) * 100 : 0;
 
-    let barColor = "bg-amber-500/80";
+    const isPathogenic = hasCutPoints && (invert ? val <= threshLow! : val >= threshHigh!);
+    const isBenign = hasCutPoints && (invert ? val >= threshHigh! : val <= threshLow!);
+
+    let barColor = hasCutPoints ? "bg-amber-500/80" : "bg-slate-500/60";
     if (isPathogenic) barColor = "bg-rose-500/80 shadow-[0_0_8px_rgba(244,63,94,0.5)]";
     if (isBenign) barColor = "bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.5)]";
 
     return (
       <div className="w-full mt-2.5">
         <div className="relative w-full h-2 rounded-full overflow-hidden border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-          {/* Threshold markers */}
-          <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-500/50" style={{ left: `${invert ? highPercent : lowPercent}%` }} title="Benign Cutoff" />
-          <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500/50" style={{ left: `${invert ? lowPercent : highPercent}%` }} title="Pathogenic Cutoff" />
+          {/* Threshold markers — omitted entirely when no cut-point exists for this model */}
+          {hasCutPoints && (
+            <>
+              <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-500/50" style={{ left: `${invert ? highPercent : lowPercent}%` }} title="Benign Cutoff" />
+              <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500/50" style={{ left: `${invert ? lowPercent : highPercent}%` }} title="Pathogenic Cutoff" />
+            </>
+          )}
           {/* Fill Bar */}
           <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${percentage}%` }} />
         </div>
         <div className="flex justify-between text-[10px] mt-1 px-0.5" style={{ color: "var(--cs-text-muted)" }}>
           <span>Min: {min}</span>
-          <span>Max: {max}</span>
+          {hasCutPoints ? <span>Max: {max}</span> : <span className="italic">No calibrated cut-point</span>}
         </div>
       </div>
     );
@@ -435,7 +453,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                     </span>
                   ) : "—")}
                 </span>
-                {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, -5.0, -2.0, true)}
+                {vesmScore !== null && vesmScore !== undefined && renderScoreBar(vesmScore, -25, 5, null, null, true)}
                 {renderSourceLabel("Local VESM-150M / EvolutionaryScale")}
               </div>
             </div>
@@ -479,7 +497,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                     </span>
                   ) : "—")}
                 </span>
-                {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, -7.5, -5.0, true)}
+                {esm2Score !== null && esm2Score !== undefined && renderScoreBar(esm2Score, -25, 5, null, null, true)}
                 {renderSourceLabel("Meta FAIR (ESM-2 650M/3B)")}
               </div>
             </div>
@@ -525,7 +543,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                     </span>
                   ) : "—")}
                 </span>
-                {saprotScore !== null && saprotScore !== undefined && renderScoreBar(saprotScore, -20, 5, -6.0, -3.0, true)}
+                {saprotScore !== null && saprotScore !== undefined && renderScoreBar(saprotScore, -20, 5, null, null, true)}
                 {renderSourceLabel("Westlake University / Hugging Face")}
               </div>
             </div>

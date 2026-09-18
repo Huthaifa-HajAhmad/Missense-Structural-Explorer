@@ -12,16 +12,35 @@ export const mutantCache = new LRUCache<string, any>({
 });
 defaultCacheRegistry.registerCache("mutantCache", mutantCache, { ttlDesc: "24h" });
 
-const FOLDX_CACHE_DIR = path.join(process.cwd(), "logs", "foldx_cache");
-if (!fs.existsSync(FOLDX_CACHE_DIR)) {
-  try {
-    fs.mkdirSync(FOLDX_CACHE_DIR, { recursive: true });
-  } catch (_) {}
+/**
+ * FoldX disk-cache directory.
+ *
+ * Resolved from the environment (with the repository path as the production default) so tests
+ * can redirect it. It was a frozen `process.cwd()` constant that read no variable, which made
+ * this module — and the `/debug/clear-caches` handler that deletes the same directory — the last
+ * places a test run could destroy real cached results.
+ *
+ * The directory is created lazily on first write rather than at import: an import-time
+ * `mkdirSync` created a real folder under the repository as a side effect of merely importing
+ * this module, including under test.
+ */
+export function getFoldxCacheDir(): string {
+  return process.env.FOLDX_CACHE_DIR ?? path.join(process.cwd(), "logs", "foldx_cache");
+}
+
+function ensureFoldxCacheDir(): string {
+  const dir = getFoldxCacheDir();
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (_) {}
+  }
+  return dir;
 }
 
 export function getCacheFilename(cacheKey: string): string {
   const hash = crypto.createHash("sha256").update(cacheKey).digest("hex");
-  return path.join(FOLDX_CACHE_DIR, `${hash}.json`);
+  return path.join(ensureFoldxCacheDir(), `${hash}.json`);
 }
 
 export async function getMutantFromCache(cacheKey: string): Promise<any | null> {
@@ -83,7 +102,7 @@ export function writeMutantToCache(cacheKey: string, result: any) {
     };
     const filename = getCacheFilename(cacheKey);
     const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
-    fs.promises.mkdir(FOLDX_CACHE_DIR, { recursive: true })
+    fs.promises.mkdir(getFoldxCacheDir(), { recursive: true })
       .then(async () => {
         await fs.promises.writeFile(tmpFilename, JSON.stringify(entry), "utf-8");
         await fs.promises.rename(tmpFilename, filename);

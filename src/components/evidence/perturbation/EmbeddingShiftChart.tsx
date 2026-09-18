@@ -15,6 +15,7 @@ interface EmbeddingShiftChartProps {
   pos: number;
   points: LocalShiftPoint[];
   pathD: string;
+  /** Distance definition varies by model (cosine for ESMC, Euclidean otherwise). */
   shiftMetric: string;
   meanShift: number;
 }
@@ -28,20 +29,26 @@ export function EmbeddingShiftChart({
   meanShift
 }: EmbeddingShiftChartProps) {
   return (
-    <div className="p-4 rounded-xl border transition-all duration-300 shadow-sm space-y-3" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+    <div className="p-4 rounded-xl border transition-all duration-300 shadow-sm space-y-3 flex flex-col h-full" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
       <div className="flex justify-between items-center border-b pb-2 text-left" style={{ borderColor: "var(--cs-border-subtle)" }}>
-        <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-slate-400">Local Contextual Embedding Shift</span>
+        <span className="text-[11px] uppercase font-bold tracking-wider font-sans text-cs-text-muted">Local Contextual Embedding Shift</span>
         <span className="text-[9px] font-mono flex items-center gap-2" style={{ color: "var(--cs-accent-clay)" }}>
           {(activeEval as any).klDivergence !== undefined && (activeEval as any).klDivergence !== null && (
             <span style={{ color: "var(--cs-text-secondary)" }}>KL Div: {(activeEval as any).klDivergence.toFixed(3)}</span>
           )}
-          <span className="font-bold text-slate-350">Max: {activeEval.embeddingShift.toFixed(3)}</span>
+          <span className="font-bold text-cs-text-secondary">Max: {typeof activeEval.embeddingShift === "number" ? activeEval.embeddingShift.toFixed(3) : "—"}</span>
+          <span
+            className="text-cs-text-muted"
+            title={`${shiftMetric} averaged across this ±10 residue window. Units differ by model: this value is not comparable to another model's card.`}
+          >
+            Mean: {meanShift.toFixed(3)}
+          </span>
         </span>
       </div>
 
       {points.length > 0 ? (
-        <div className="relative w-full overflow-x-auto flex justify-center py-2">
-          <svg className="w-full max-w-[580px] h-[170px]" viewBox="0 0 580 170">
+        <div className="relative w-full flex-1 overflow-x-auto flex justify-center items-center py-2">
+          <svg className="w-full max-w-[580px] h-[230px]" viewBox="0 0 580 170" preserveAspectRatio="xMidYMid meet">
             <line x1="40" y1="140" x2="560" y2="140" stroke="var(--cs-border-subtle)" strokeWidth="1" />
             <line x1="40" y1="85" x2="560" y2="85" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
             <line x1="40" y1="30" x2="560" y2="30" stroke="var(--cs-border-subtle)" strokeDasharray="3,3" strokeWidth="1" />
@@ -97,13 +104,14 @@ export function EmbeddingShiftChart({
           </svg>
         </div>
       ) : (
-        <div className="py-8 text-center text-[11px] font-mono animate-pulse text-slate-500">
-          Local contextual embedding shift data unavailable for this window.
+        <div className="py-8 px-4 text-center space-y-1">
+          <p className="text-[11px] font-mono text-cs-text-secondary">No embedding-shift window returned</p>
+          <p className="text-[10px] text-cs-text-muted leading-relaxed max-w-[42ch] mx-auto">
+            This model reported no local shift map, so the ±10 residue trace around position {pos} cannot be drawn.
+            The remaining metrics on this card are unaffected.
+          </p>
         </div>
       )}
-      <p className="text-[10px] leading-normal text-left text-slate-500">
-        * Line plots trace {shiftMetric} shifts in model embedding coordinates across the structural neighborhood (± 10 residues). Average local shift is {meanShift.toFixed(3)}.
-      </p>
     </div>
   );
 }

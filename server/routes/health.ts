@@ -9,6 +9,17 @@ import { adapterRegistry } from "../services/adapters/service-adapters.ts";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
 
+/**
+ * Resolve a disk-cache directory, honouring an environment override.
+ *
+ * Without this, `/debug/clear-caches` deleted real directories that no test could redirect —
+ * and a route suite calls the handler directly, so the suite emptied the developer's FoldX
+ * cache on every run.
+ */
+function resolveCacheDir(envKey: string, dirName: string): string {
+  return process.env[envKey] ?? path.join(process.cwd(), "logs", dirName);
+}
+
 export function registerHealthRoutes(apiRouter: Router): void {
   apiRouter.get("/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -117,7 +128,13 @@ export function registerHealthRoutes(apiRouter: Router): void {
       clearAllCaches(true);
 
       // 2. Delete FoldX disk cache files (.json files in logs/foldx_cache)
-      const foldxCacheDir = path.join(process.cwd(), "logs", "foldx_cache");
+      //
+      // Both directories below are resolved from the environment so tests can redirect them.
+      // They were hardcoded `process.cwd()` paths that read no variable at all, which made this
+      // handler the last unredirectable real-state deleter in the codebase: route suites exercise
+      // it directly, so running the test suite emptied the developer's real FoldX cache (hours of
+      // recomputation) and deleted the live job registry.
+      const foldxCacheDir = resolveCacheDir("FOLDX_CACHE_DIR", "foldx_cache");
       let deletedFoldx = 0;
       if (fs.existsSync(foldxCacheDir)) {
         const files = fs.readdirSync(foldxCacheDir);
@@ -132,7 +149,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
       }
 
       // 3. Delete Gemini disk cache files (.json files in logs/gemini_cache)
-      const geminiCacheDir = path.join(process.cwd(), "logs", "gemini_cache");
+      const geminiCacheDir = resolveCacheDir("GEMINI_CACHE_DIR", "gemini_cache");
       let deletedGemini = 0;
       if (fs.existsSync(geminiCacheDir)) {
         const files = fs.readdirSync(geminiCacheDir);
@@ -147,7 +164,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
       }
 
       // 4. Delete job registry JSON
-      const registryPath = path.join(process.cwd(), "temp_jobs", "job_registry.json");
+      const registryPath = process.env.JOB_REGISTRY_PATH ?? path.join(process.cwd(), "temp_jobs", "job_registry.json");
       if (fs.existsSync(registryPath)) {
         try {
           fs.unlinkSync(registryPath);

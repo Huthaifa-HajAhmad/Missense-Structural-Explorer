@@ -15,13 +15,16 @@ import {
 } from "lucide-react";
 import type { AnalysisResult, PocketResult } from "../../types";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
+import { useResidueScalesLoading } from "../../lib/residueScalesLoading";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { METRIC_EXPLANATIONS } from "../evidence/MetricExplanations";
+import { SectionLabel } from "./SectionLabel";
 import {
   PROPERTY_SCALE_DEFINITIONS,
   deriveBiochemicalNarrative,
   derivePocketNarrative,
   findNarrativeDiscrepancies,
+  type NarrativeState,
   type PocketNarrative
 } from "../../shared/residueShiftEvidence";
 
@@ -63,22 +66,7 @@ interface ResidueShiftInspectorProps {
  * cannot disagree about the same variant.
  */
 
-function SectionLabel({
-  Icon,
-  children
-}: {
-  Icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <h3 className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5 m-0">
-      <Icon className="w-3.5 h-3.5 text-cs-accent-clay" />
-      {children}
-    </h3>
-  );
-}
-
-const NARRATIVE_BADGE_CLASS: Record<string, string> = {
+const NARRATIVE_BADGE_CLASS: Record<NarrativeState, string> = {
   ready: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
   loading: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
   unavailable: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
@@ -136,6 +124,23 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 }) => {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [isScaleReferenceOpen, setIsScaleReferenceOpen] = useState(false);
+
+  /*
+   * Read through the shared hook rather than the raw `isBiophysicalLoading` prop:
+   * the main column passes `analysisState.isLoading`, and using a different flag
+   * here let the two panes describe the same missing datum differently.
+   */
+  const areScalesLoading = useResidueScalesLoading(isBiophysicalLoading);
+
+  /*
+   * One expression for the copy button's tooltip and its accessible name. They
+   * were written out twice, so a change to the failure copy had to be made in two
+   * places or the tooltip and the announced label would diverge.
+   */
+  const copyHint =
+    copyState === "failed"
+      ? "Copy failed — the clipboard is unavailable in this context"
+      : "Copy the full residue-shift interpretation";
 
   const metadata = analysisResult?.metadata;
   const variantResidueIndex = metadata?.residueIndex ?? null;
@@ -229,16 +234,8 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
                 ? "border-rose-500/40 text-rose-500"
                 : "border-cs-border text-cs-text-muted hover:text-cs-accent-clay hover:border-cs-accent-clay/40"
             }`}
-            title={
-              copyState === "failed"
-                ? "Copy failed — the clipboard is unavailable in this context"
-                : "Copy the full residue-shift interpretation"
-            }
-            aria-label={
-              copyState === "failed"
-                ? "Copy failed — the clipboard is unavailable in this context"
-                : "Copy the full residue-shift interpretation"
-            }
+            title={copyHint}
+            aria-label={copyHint}
           >
             {copyState === "copied" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
           </button>
@@ -319,7 +316,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 flex items-start gap-2">
             <Info className="w-3.5 h-3.5 text-cs-text-muted shrink-0 mt-0.5" />
             <p className="text-[10.5px] text-cs-text-muted leading-relaxed">
-              {isBiophysicalLoading
+              {areScalesLoading
                 ? "Residue property scales are still being assembled for this substitution."
                 : "The wild-type or variant residue could not be resolved to a property scale, so no derived interpretation is available."}
             </p>
@@ -403,7 +400,11 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
           {(pocket.status === "error" || pocket.status === "unavailable") && onRetryPocket && (
             <button
               type="button"
-              onClick={() => onRetryPocket()}
+              onClick={() => {
+                // `void`: the handler is typed `void | Promise<void>` and React
+                // discards a returned promise, so a rejection would be unhandled.
+                void onRetryPocket();
+              }}
               disabled={isPocketLoading}
               className="mt-1 px-2.5 py-1 rounded border border-cs-accent-clay/30 bg-cs-accent-clay/10 text-cs-accent-clay font-mono text-[10px] font-semibold inline-flex items-center gap-1.5 hover:bg-cs-accent-clay/20 transition-colors cursor-pointer disabled:opacity-50"
             >

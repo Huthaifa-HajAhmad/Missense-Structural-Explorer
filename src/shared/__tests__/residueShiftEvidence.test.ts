@@ -384,6 +384,37 @@ describe("derivePocketNarrative", () => {
     expect(narrative.plainLanguage).toContain("Å³");
   });
 
+  it("prefers P2Rank's own cavity centre over the residue centroid when both are reported", () => {
+    // The residue centroid grows with pocket size, so the 4/8/12 Å bands only mean
+    // what they say against the real centre.
+    const narrative = derivePocketNarrative(
+      { ...DISTAL_POCKET, cavityCentreDistance: 7.4 },
+      { variantResidueIndex: 433 }
+    );
+
+    expect(narrative.proximity.distance).toBe(7.4);
+    expect(narrative.proximity.reference).toBe("the cavity centre");
+    expect(narrative.proximity.band).toBe("proximal");
+    expect(narrative.proximity.detail).toContain("the cavity centre");
+    expect(narrative.plainLanguage).toContain("the cavity centre");
+  });
+
+  it("falls back to the centroid and says which quantity it is using", () => {
+    const narrative = derivePocketNarrative(DISTAL_POCKET, { variantResidueIndex: 433 });
+    expect(narrative.proximity.distance).toBe(28.14);
+    expect(narrative.proximity.reference).toBe("the centroid of the pocket residues");
+    expect(narrative.plainLanguage).not.toMatch(/cavity centre/i);
+  });
+
+  it("ignores a non-finite cavity centre rather than reporting NaN", () => {
+    const narrative = derivePocketNarrative(
+      { ...DISTAL_POCKET, cavityCentreDistance: Number.NaN },
+      { variantResidueIndex: 433 }
+    );
+    expect(narrative.proximity.distance).toBe(28.14);
+    expect(narrative.proximity.reference).toBe("the centroid of the pocket residues");
+  });
+
   it("describes the ranking index accurately rather than denying it is calibrated", () => {
     // P2Rank's own documentation describes this field as a calibrated probability
     // of being a ligand-binding site, per model profile. The earlier copy claimed
