@@ -283,8 +283,8 @@ export function buildResolutionUnavailableMessage(kind: ResolutionFailureKind): 
   }
   return (
     "Coordinate translation is temporarily unavailable because all reference providers are " +
-    "unreachable. You can enter the protein-level substitution directly (for example " +
-    "p.Glu433Lys) — the rest of the analysis runs without coordinate translation."
+    "unreachable or failed to answer in time. You can enter the protein-level substitution " +
+    "directly (for example p.Glu433Lys) — the rest of the analysis runs without coordinate translation."
   );
 }
 
@@ -306,6 +306,7 @@ export async function resolveCoordinate(
 
   // Enforce a single wall-clock deadline across every provider.
   const deadline = new AbortController();
+  const ladderStartedAt = Date.now();
   const timer = setTimeout(
     () => deadline.abort(new Error(`Coordinate resolution exceeded its ${budgetMs}ms budget`)),
     budgetMs
@@ -330,14 +331,56 @@ export async function resolveCoordinate(
         fetchedFresh = true;
         const attempts: ProviderAttempt[] = [];
 
-        for (const { provider, resolve } of PROVIDER_CHAIN) {
+        for (let i = 0; i < PROVIDER_CHAIN.length; i++) {
+          const { provider, resolve } = PROVIDER_CHAIN[i];
           // A caller-initiated abort propagates untouched so the HTTP layer can answer 504.
           if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
           if (deadline.signal.aborted) break; // budget exhausted; stop trying providers
 
+          // ── Fair share of the remaining budget ──────────────────────────────────────
+          // The ladder used to hand its ENTIRE budget to the primary. Ensembl VEP's own retry
+          // envelope is 3 attempts x 15s, so a VEP that was slow or unreachable consumed all
+          // 25s, the deadline fired, and the loop broke BEFORE VariantValidator — the tier that
+          // exists precisely for a degraded primary — was ever called. The clinician was then
+          // told "all reference providers are unreachable" for an outage that affected only the
+          // primary, and the independent fallback never received the chance the ladder promises.
+          //
+          // Each provider now gets an even share of whatever remains, so every rung is
+          // guaranteed a window. When the primary answers or fails fast (the common case)
+          // nothing has been consumed, so the fallback still inherits nearly the whole budget.
+          const providersLeft = PROVIDER_CHAIN.length - i;
+          const remainingMs = budgetMs - (Date.now() - ladderStartedAt);
+          const windowMs = Math.floor(remainingMs / providersLeft);
+
+          // A provider is skipped only when no positive window is left at all: while any budget
+          // remains, every rung gets a chance to answer rather than being written off.
+          if (windowMs <= 0) {
+            attempts.push({
+              provider,
+              ok: false,
+              durationMs: 0,
+              reason: `skipped: only ${Math.max(0, remainingMs)}ms of the ${budgetMs}ms budget remained`,
+              failureKind: "upstream_unavailable",
+            });
+            continue;
+          }
+
+          const windowController = new AbortController();
+          const windowTimer = setTimeout(
+            () =>
+              windowController.abort(
+                new Error(
+                  `${provider} exceeded its ${windowMs}ms share of the ${budgetMs}ms resolution budget`
+                )
+              ),
+            windowMs
+          );
+          const providerSignal = anySignal([ladderSignal, windowController.signal]);
+
           const providerStartedAt = Date.now();
           try {
-            const { consequence, attempt } = await resolve(notation, assembly, ladderSignal);
+            const { consequence, attempt } = await resolve(notation, assembly, providerSignal);
+            clearTimeout(windowTimer);
             lastAttempts = [...attempts, attempt];
             // Persist fallback provenance with the payload so a later cache read does
             // not silently upgrade a degraded answer to a first-choice one.
@@ -348,6 +391,7 @@ export async function resolveCoordinate(
               usedFallback: consequence.provider !== PROVIDER_CHAIN[0].provider,
             };
           } catch (err: any) {
+            clearTimeout(windowTimer);
             if (signal?.aborted) throw err;
 
             if (err instanceof CoordinateResolutionError) {
@@ -355,18 +399,24 @@ export async function resolveCoordinate(
               continue;
             }
 
-            // Non-namespaced error: almost always the shared deadline aborting an in-flight
-            // provider call. Record it and stop — remaining providers share the same signal.
+            // Non-namespaced error: either this provider's window expired, the ladder's
+            // deadline fired, or the provider threw something unexpected. Only the deadline
+            // ends the ladder — an expired window moves on to the next rung with the budget
+            // that is left, which is what keeps a slow primary from starving the fallback.
             attempts.push({
               provider,
               ok: false,
               durationMs: Math.max(1, Date.now() - providerStartedAt),
               reason: deadline.signal.aborted
                 ? `resolution budget of ${budgetMs}ms exceeded`
-                : err?.message || "unexpected provider error",
+                : windowController.signal.aborted
+                  ? `${provider} did not answer within its ${windowMs}ms share of the resolution budget`
+                  : err?.message || "unexpected provider error",
               failureKind: "upstream_unavailable",
             });
-            break;
+
+            if (deadline.signal.aborted) break;
+            continue;
           }
         }
 

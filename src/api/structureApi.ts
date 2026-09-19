@@ -38,8 +38,16 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ variant }),
-        // Budget must exceed the server's provider-ladder budget (25s), otherwise the client
-        // aborts a resolution that is about to succeed via the fallback provider.
+        // This budget must cover ONE server resolution: the ladder allots 25s, and the budget
+        // must exceed it or the client aborts a resolution that is about to succeed via the
+        // fallback provider.
+        //
+        // It is deliberately NOT sized for a client-side retry. The server's own ladder already
+        // retries each provider (3 attempts for VEP), and on total failure it answers
+        // `503 Retry-After: 60` — a cooldown no interactive request can wait out. `fetchWithRetry`
+        // therefore returns that response instead of retrying, which is what keeps the server's
+        // actionable message ("enter the protein-level substitution directly") in front of the
+        // user instead of a bare "Request timed out after 45000ms" from a second, aborted attempt.
         timeout: 45000,
         signal
       });

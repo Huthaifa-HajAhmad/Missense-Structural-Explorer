@@ -278,7 +278,17 @@ export function useAuthSession() {
         }
       }
 
-      let response = await fetchWithRetry(url, { ...options, headers, signal });
+      // `totalTimeoutMs` tells the retry utility which whole-call budget the watchdog above is
+      // enforcing, so it never starts an attempt that timer would abort mid-flight — the bug
+      // that turned a server `503 Retry-After: 60` into "Request timed out after 45000ms".
+      const retryOptions = {
+        ...options,
+        headers,
+        signal,
+        ...(options.timeout ? { totalTimeoutMs: options.timeout } : {}),
+      };
+
+      let response = await fetchWithRetry(url, retryOptions);
 
       // Attempt re-auth only if 401 was returned on an endpoint that relies on Gemini sessions
       if (response.status === 401 && shouldCheckSession && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
@@ -308,7 +318,7 @@ export function useAuthSession() {
                 updateSetting("geminiSessionExpiresAt", newExpiresAt);
                 purgeFallbackNarratives();
                 headers["X-Gemini-Session-ID"] = newSessionId;
-                response = await fetchWithRetry(url, { ...options, headers, signal });
+                response = await fetchWithRetry(url, retryOptions);
               }
             } else if (sessionRes.status === 400 || sessionRes.status === 403) {
               invalidApiKeys.add(geminiApiKey);

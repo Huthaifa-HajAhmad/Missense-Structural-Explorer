@@ -164,6 +164,57 @@ describe("coordinate-resolver provider ladder", () => {
     expect(error.message).toContain("temporarily unavailable");
     expect(error.attempts.length).toBeGreaterThan(0);
   });
+
+  /**
+   * Regression: the ladder handed its WHOLE budget to the primary provider, so an Ensembl VEP
+   * that was slow (rather than failing fast) consumed all of it — VEP's own retry envelope is
+   * 3 attempts x 15s — and the loop broke before VariantValidator was ever called. Clinicians
+   * were told "all reference providers are unreachable" for a primary-only problem, while the
+   * independent fallback the ladder exists to provide never ran.
+   */
+  it("still attempts the fallback when the primary hangs instead of failing", async () => {
+    const vepCalls: string[] = [];
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation((url: any, init: any) => {
+      if (String(url).includes("rest.ensembl.org")) {
+        vepCalls.push(String(url));
+        // A hanging primary: never answers, honours the abort its window eventually sends.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }) as any;
+      }
+      return Promise.resolve(jsonResponse(VV_PAYLOAD));
+    });
+
+    const outcome = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 800 });
+
+    // The fallback must have produced the answer.
+    expect(outcome.consequence.provider).toBe("variant-validator");
+    expect(outcome.usedFallback).toBe(true);
+    expect(vepCalls.length).toBeGreaterThan(0);
+
+    // Both rungs appear in the audit trail: the primary timed out on its share of the budget,
+    // it was not skipped.
+    expect(outcome.attempts.map((a) => a.provider)).toEqual(["ensembl-vep", "variant-validator"]);
+    expect(outcome.attempts[0].ok).toBe(false);
+    expect(outcome.attempts[0].reason).toContain("share of the resolution budget");
+    expect(outcome.attempts[1].ok).toBe(true);
+  });
+
+  it("gives every remaining rung a positive window even on a tiny budget", async () => {
+    // Before the split, the primary consumed this entire budget and the fallback was never
+    // reached; now each rung gets a share, so both are at least attempted and recorded.
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(
+      (_url: any, init: any) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }) as any
+    );
+
+    const error: any = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 200 }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(CoordinateResolutionError);
+    expect(error.attempts.map((a: any) => a.provider)).toEqual(["ensembl-vep", "variant-validator"]);
+  });
 });
 
 describe("buildResolutionUnavailableMessage", () => {
