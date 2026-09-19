@@ -33,7 +33,9 @@ export const INSPECTOR_SECTIONS = {
   /** Biochemical shift narrative in the Residue Shifts inspector. */
   residueShiftNarrative: "inspector-residue-shift-narrative",
   /** P2Rank cavity interpretation in the Residue Shifts inspector. */
-  residueShiftPocket: "inspector-residue-shift-pocket"
+  residueShiftPocket: "inspector-residue-shift-pocket",
+  /** Relocated ACMG/AMP evidence-code key in the Thresholds inspector pane. */
+  thresholdKey: "inspector-threshold-key"
 } as const;
 
 export type InspectorSectionId = (typeof INSPECTOR_SECTIONS)[keyof typeof INSPECTOR_SECTIONS];

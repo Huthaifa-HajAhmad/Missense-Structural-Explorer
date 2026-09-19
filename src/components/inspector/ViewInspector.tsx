@@ -89,6 +89,25 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
 };
 
+/**
+ * Per-subtab inspector subtitles for the Evidence view. The static
+ * "Genomic & Database Provenance" line gave no orientation as the reader moved
+ * between the ten evidence tabs; naming the active surface does.
+ */
+const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
+  clinical: "Population Frequencies & Clinical DBs",
+  predictors: "In-Silico Ensemble Calibration",
+  alphagenome: "AlphaGenome Atlas Tracks",
+  splicing: "RNA Splicing Calibration",
+  structure: "Residue Shifts & Pocket Provenance",
+  perturbation: "Structural Perturbation Models",
+  multimers: "Multimer Assembly Quality",
+  function: "Functional Domains & Features",
+  interactions: "PPI Network Provenance",
+  guidelines: "Threshold Matches & Calibration",
+  thresholds: "Threshold Matches & Calibration"
+};
+
 /** Panel width bounds. Previously duplicated as literals in the initializer and the drag. */
 const INSPECTOR_MIN_WIDTH = 280;
 const INSPECTOR_MAX_WIDTH = 540;
@@ -299,6 +318,13 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     Icon: SlidersHorizontal
   };
 
+  /** Evidence tabs override the static subtitle with the active surface. */
+  const evidenceSubtitle =
+    activeView === "evidence"
+      ? EVIDENCE_TAB_SUBTITLES[(activeEvidenceTab || "").toLowerCase()]
+      : undefined;
+  const headerSubtitle = evidenceSubtitle ?? headerInfo.subtitle;
+
   const Icon = headerInfo.Icon;
 
   if (isCollapsed) {
@@ -368,7 +394,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
               {headerInfo.title}
             </span>
             <span className="text-[10px] text-cs-text-muted truncate font-sans">
-              {headerInfo.subtitle}
+              {headerSubtitle}
             </span>
           </div>
         </div>
@@ -445,6 +471,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             activeEvidenceTab={activeEvidenceTab}
             onSelectEvidenceTab={onSelectEvidenceTab}
             foldingDdG={foldingDdG}
+            foldingEnergetics={foldingEnergetics}
           />
         )}
 

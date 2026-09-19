@@ -1,6 +1,93 @@
 import React from "react";
 import { TabComponentProps } from "./types";
-import { THRESHOLDS } from "../../shared/thresholds";
+import { PanelRightOpen } from "lucide-react";
+import {
+  buildGuidelinesRows,
+  guidelinesGroup,
+  guidelinesBandPct,
+  summarizeGuidelinesRows,
+  type GuidelinesRow
+} from "../../shared/thresholds";
+import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";
+
+/** Summary chip tone per verdict group. */
+const GROUP_TONES = {
+  path: "path",
+  benign: "benign",
+  vus: "vus",
+  info: "info",
+  nodata: "nodata"
+} as const;
+
+type GroupKey = keyof typeof GROUP_TONES;
+
+const GROUP_LABELS: Record<GroupKey, string> = {
+  path: "path. supporting",
+  benign: "benign / neutral",
+  vus: "VUS / intermediate",
+  info: "informational",
+  nodata: "awaiting data"
+};
+
+function SummaryChip({ group, count }: { group: GroupKey; count: number }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-sans"
+      style={
+        group === "path"
+          ? { background: "var(--cs-bg-danger)", color: "var(--cs-text-danger-on-soft)", borderColor: "color-mix(in srgb, var(--cs-text-danger) 25%, transparent)" }
+          : group === "benign"
+          ? { background: "var(--cs-bg-success)", color: "var(--cs-text-success)", borderColor: "color-mix(in srgb, var(--cs-text-success) 25%, transparent)" }
+          : group === "vus"
+          ? { background: "var(--cs-bg-warning)", color: "var(--cs-text-warning)", borderColor: "color-mix(in srgb, var(--cs-text-warning) 30%, transparent)" }
+          : group === "info"
+          ? { background: "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)", color: "var(--cs-accent-clay)", borderColor: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)" }
+          : { background: "var(--cs-surface-2)", color: "var(--cs-text-muted)", borderColor: "var(--cs-border)" }
+      }
+    >
+      <span className="font-mono font-bold tabular-nums">{count}</span>
+      <span>{GROUP_LABELS[group]}</span>
+    </span>
+  );
+}
+
+/** The score numeral tinted by verdict, with its calibration micro-track beneath. */
+function ScoreCell({ row }: { row: GuidelinesRow }) {
+  const group = guidelinesGroup(row);
+  const hasValue = row.value !== null && row.value !== undefined;
+  return (
+    <div className="inline-flex flex-col items-center min-w-[96px]">
+      <span className="gt-value" data-tone={GROUP_TONES[group]}>{row.display}</span>
+      {hasValue && row.band && (
+        <span
+          className="gt-track w-full"
+          aria-hidden="true"
+          title={`${row.display} · benign ${row.benignText} · pathogenic ${row.pathText}`}
+        >
+          {row.band.segments.map((seg, i) => (
+            <span
+              key={i}
+              className="gt-track-seg"
+              data-tone={seg.tone}
+              style={{
+                left: `${guidelinesBandPct(seg.from, row.band!)}%`,
+                width: `${guidelinesBandPct(seg.to, row.band!) - guidelinesBandPct(seg.from, row.band!)}%`
+              }}
+            />
+          ))}
+          {row.band.ticks.map((tick, i) => (
+            <span key={i} className="gt-tick" style={{ left: `${guidelinesBandPct(tick, row.band!)}%` }} />
+          ))}
+          <span
+            className="gt-marker"
+            data-tone={GROUP_TONES[group]}
+            style={{ left: `${guidelinesBandPct(row.value!, row.band!)}%` }}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function GuidelinesTab({
   analysisState,
@@ -10,199 +97,119 @@ export function GuidelinesTab({
   const result = analysisState.result;
   if (!result) return null;
 
+  const rows = buildGuidelinesRows({ result, foldingDdG: foldingDdG ?? null, foldingEnergetics });
+  const summary = summarizeGuidelinesRows(rows);
+
+  const renderCategoryHeader = (catKey: string, catTitle: string) => (
+    <tr key={catKey} className="bg-[var(--cs-surface-2)]">
+      <td colSpan={6} className="gt-cat-cell p-2 px-4 text-[10.5px] font-bold uppercase tracking-wider text-left" style={{ color: "var(--cs-accent-clay)" }}>
+        {catTitle}
+      </td>
+    </tr>
+  );
+
+  const renderRow = (row: GuidelinesRow) => {
+    const group = guidelinesGroup(row);
+    const isPath = row.status === "path_strong" || row.status === "path";
+    const isBenign = row.status === "benign";
+    const codes = row.acmgCode.split("/");
+    const pathCode = codes[0]?.trim() || row.acmgCode;
+    const benignCode = codes[1]?.trim() || row.acmgCode;
+    const hasValue = row.value !== null && row.value !== undefined;
+
+    return (
+      <tr key={row.key} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
+        <td className="p-3 px-4 text-[12px] font-semibold text-left border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>{row.name}</td>
+        <td className="p-3 px-4 text-center border-r border-[var(--cs-border-subtle)]">
+          <ScoreCell row={row} />
+        </td>
+        <td className="p-3 px-4 text-center text-[11px] font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-muted)" }}>{row.benignText}</td>
+        <td className="p-3 px-4 text-center text-[11px] font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-muted)" }}>{row.pathText}</td>
+        <td className="p-3 px-4 text-center font-bold font-mono text-xs border-r border-[var(--cs-border-subtle)]">
+          {hasValue && isPath ? (
+            <span className="px-2 py-0.5 rounded border font-bold" style={{ color: "var(--cs-text-danger-on-soft)", backgroundColor: "var(--cs-bg-danger)", borderColor: "var(--cs-text-danger)" }}>{pathCode}</span>
+          ) : hasValue && isBenign ? (
+            <span className="px-2 py-0.5 rounded border font-bold" style={{ color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "var(--cs-text-success)" }}>{benignCode}</span>
+          ) : (
+            <span className="opacity-40" style={{ color: "var(--cs-text-muted)" }}>{row.acmgCode}</span>
+          )}
+        </td>
+        <td className="p-3 px-4 text-center">
+          {hasValue ? (
+            <span className="gt-badge" data-tone={GROUP_TONES[group]}>{row.matchLabel}</span>
+          ) : (
+            <span style={{ color: "var(--cs-text-muted)" }}>—</span>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="screen-title">Threshold Guide</h1>
         <p className="screen-tab-description">ACMG/AMP evidence code thresholds for each computational predictor, with live match highlighting for the current variant.</p>
       </div>
-      
 
+      {/* At-a-glance verdict roll-up over all 20 metrics. */}
+      <div className="flex flex-wrap items-center gap-1.5" role="status" aria-label="Live threshold match summary">
+        {summary.pathSupporting.length > 0 && <SummaryChip group="path" count={summary.pathSupporting.length} />}
+        {summary.benignSupporting.length > 0 && <SummaryChip group="benign" count={summary.benignSupporting.length} />}
+        {summary.vus.length > 0 && <SummaryChip group="vus" count={summary.vus.length} />}
+        {summary.informational.length > 0 && <SummaryChip group="info" count={summary.informational.length} />}
+        {summary.noData.length > 0 && <SummaryChip group="nodata" count={summary.noData.length} />}
+        <span className="text-[10.5px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
+          · {summary.total} metrics
+        </span>
+      </div>
 
-      {/* Threshold Table */}
+      {/* Threshold Table — capped-height scroller so the header and the
+          category bands stay visible across the full 23-row body. */}
       <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
-        <div className="overflow-x-auto">
-          <table className="w-full font-sans border-collapse">
+        <div className="gt-scroller overflow-auto" style={{ maxHeight: "clamp(420px, calc(100vh - 300px), 960px)" }}>
+          <table className="w-full font-sans border-collapse" style={{ minWidth: 640 }}>
+            <caption className="sr-only">ACMG/AMP cut-point table with live verdict for each computational predictor</caption>
             <thead>
-              <tr className="table-header-row border-b border-[var(--cs-border)]" style={{ background: "var(--cs-surface-2)" }}>
-                <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Assay / Metric</th>
-                <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Score</th>
-                <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Benign ≤</th>
-                <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Pathogenic ≥</th>
-                <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>ACMG Code</th>
-                <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center" style={{ color: "var(--cs-text-secondary)" }}>Match</th>
+              <tr className="table-header-row border-b border-[var(--cs-border)]">
+                <th scope="col" className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Assay / Metric</th>
+                <th scope="col" className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Score</th>
+                <th scope="col" className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Benign ≤</th>
+                <th scope="col" className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Pathogenic ≥</th>
+                <th scope="col" className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>ACMG Code</th>
+                <th scope="col" className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center" style={{ color: "var(--cs-text-secondary)" }}>Match</th>
               </tr>
             </thead>
             <tbody>
-              {(() => {
-                const caddVal = result.predictorData?.caddPhred ?? null;
-                const revelVal = result.conservationData?.revel ?? null;
-                const amVal = result.predictorData?.amPathogenicity ?? null;
-                const amCls = result.predictorData?.amClass ?? null;
-                const bayesdelVal = result.conservationData?.bayesdel ?? null;
-                const metarnnVal = result.conservationData?.metarnn ?? null;
-                const clinpredVal = result.conservationData?.clinpred ?? null;
-                const eigenVal = result.conservationData?.eigenPhred ?? null;
-                const dannVal = result.conservationData?.dann ?? null;
-                const popeveVal = result.conservationData?.popeve ?? null;
-                const esmVal = result.conservationData?.esm1b ?? null;
-                const vesmVal = result.esmcEval?.llr ?? null;
-
-                const foldxVal = foldingDdG ?? null;
-                const dynamut2Val = result.dynamut2 ?? foldingEnergetics?.dynamut2 ?? null;
-                const ddmutVal = result.ddmut ?? foldingEnergetics?.ddmut ?? null;
-                const raspVal = result.rasp ?? foldingEnergetics?.rasp ?? null;
-                const thermompnnVal = foldingEnergetics?.thermompnn ?? result.thermompnn ?? null;
-
-                const gerpVal = result.conservationData?.gerp ?? null;
-                const phylopVal = result.conservationData?.phylop ?? null;
-                const misZVal = (result as any)?.misZ ?? (result as any)?.gnomadMisZ ?? null;
-                const loeufVal = (result as any)?.loeuf ?? (result as any)?.gnomadLoeuf ?? null;
-
-                const renderCategoryHeader = (catKey: string, catTitle: string) => (
-                  <tr key={catKey} className="bg-[var(--cs-surface-2)]">
-                    <td colSpan={6} className="p-2 px-4 text-[10.5px] font-bold uppercase tracking-wider text-left border-b border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-accent-clay)" }}>
-                      {catTitle}
-                    </td>
-                  </tr>
-                );
-
-                const renderRow = (
-                  key: string,
-                  name: string,
-                  val: number | null | undefined,
-                  valDisplay: string,
-                  benignText: string,
-                  pathText: string,
-                  acmgCode: string,
-                  status: "path_strong" | "path" | "benign" | "neutral" | "vus" | "none",
-                  matchBadgeLabel: string
-                ) => {
-                  const isPath = status === "path_strong" || status === "path";
-                  const isBenign = status === "benign";
-                  const codes = acmgCode.split('/');
-                  const pathCode = codes[0]?.trim() || acmgCode;
-                  const benignCode = codes[1]?.trim() || acmgCode;
-
-                  return (
-                    <tr key={key} className="hover:bg-[var(--cs-bg-subtle)] transition-colors" style={{ color: "var(--cs-text-primary)", borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                      <td className="p-3 px-4 text-[12px] font-semibold text-left border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>{name}</td>
-                      <td className="p-3 px-4 text-center font-mono text-[12px] border-r border-[var(--cs-border-subtle)]">{val !== null && val !== undefined ? valDisplay : "—"}</td>
-                      <td className="p-3 px-4 text-center text-[11px] font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-muted)" }}>{benignText}</td>
-                      <td className="p-3 px-4 text-center text-[11px] font-mono border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-muted)" }}>{pathText}</td>
-                      <td className="p-3 px-4 text-center font-bold font-mono text-xs border-r border-[var(--cs-border-subtle)]">
-                        {isPath ? (
-                          <span className="px-2 py-0.5 rounded border font-bold" style={{ color: "var(--cs-text-danger)", backgroundColor: "var(--cs-bg-danger)", borderColor: "var(--cs-text-danger)" }}>{pathCode}</span>
-                        ) : isBenign ? (
-                          <span className="px-2 py-0.5 rounded border font-bold" style={{ color: "var(--cs-text-success)", backgroundColor: "var(--cs-bg-success)", borderColor: "var(--cs-text-success)" }}>{benignCode}</span>
-                        ) : (
-                          <span className="opacity-40" style={{ color: "var(--cs-text-muted)" }}>{acmgCode}</span>
-                        )}
-                      </td>
-                      <td className="p-3 px-4 text-center">
-                        {val !== null && val !== undefined ? (
-                          <span className="badge-data-source">{matchBadgeLabel}</span>
-                        ) : (
-                          <span style={{ color: "var(--cs-text-muted)" }}>—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                };
-
-                const rows: React.ReactNode[] = [];
-
-                // --- CATEGORY 1: In-Silico Pathogenicity Predictors ---
-                rows.push(renderCategoryHeader("cat-path", "1. In-Silico Pathogenicity & Machine Learning"));
-
-                const revelStatus = revelVal !== null ? (revelVal >= 0.75 ? "path_strong" : revelVal >= 0.5 ? "path" : revelVal < 0.15 ? "benign" : "vus") : "none";
-                rows.push(renderRow("revel", "REVEL", revelVal, revelVal?.toFixed(3) ?? "—", "< 0.15", ">= 0.50 (strong >= 0.75)", "PP3 / BP4", revelStatus, revelStatus === "path_strong" ? "Strong Path." : revelStatus === "path" ? "Path. Supp." : revelStatus === "benign" ? "Benign" : "VUS"));
-
-                const amStatus = (amCls?.toLowerCase().includes("pathogenic") || (amVal !== null && amVal >= 0.983)) ? "path_strong" : (amCls?.toLowerCase().includes("benign") || (amVal !== null && amVal <= 0.063)) ? "benign" : "vus";
-                rows.push(renderRow("am", "AlphaMissense", amVal, amVal?.toFixed(3) ?? "—", "<= 0.063", ">= 0.983 (supp >= 0.564)", "PP3 / BP4", amVal !== null || amCls !== null ? amStatus : "none", amStatus === "path_strong" ? "Pathogenic" : amStatus === "benign" ? "Benign" : "VUS"));
-
-                const caddStatus = caddVal !== null ? (caddVal >= 25 ? "path_strong" : caddVal >= 20 ? "path" : caddVal <= 10 ? "benign" : "vus") : "none";
-                rows.push(renderRow("cadd", "CADD PHRED", caddVal, caddVal?.toFixed(1) ?? "—", "<= 10.0", ">= 20.0 (strong >= 25)", "PP3 / BP4", caddStatus, caddStatus === "path_strong" ? "Strong Path." : caddStatus === "path" ? "Path. Supp." : caddStatus === "benign" ? "Benign" : "Moderate"));
-
-                const bayesdelStatus = bayesdelVal !== null ? (bayesdelVal >= 0.133 ? "path" : bayesdelVal <= -0.0404 ? "benign" : "vus") : "none";
-                rows.push(renderRow("bayesdel", "BayesDel (noAF)", bayesdelVal, bayesdelVal?.toFixed(3) ?? "—", "<= -0.0404", ">= 0.133", "PP3 / BP4", bayesdelStatus, bayesdelStatus === "path" ? "Pathogenic" : bayesdelStatus === "benign" ? "Benign" : "VUS"));
-
-                const metarnnStatus = metarnnVal !== null ? (metarnnVal >= 0.5 ? "path" : "benign") : "none";
-                rows.push(renderRow("metarnn", "MetaRNN", metarnnVal, metarnnVal?.toFixed(3) ?? "—", "< 0.50", ">= 0.50", "PP3 / BP4", metarnnStatus, metarnnStatus === "path" ? "Deleterious" : "Tolerated"));
-
-                const clinpredStatus = clinpredVal !== null ? (clinpredVal >= 0.5 ? "path" : "benign") : "none";
-                rows.push(renderRow("clinpred", "ClinPred", clinpredVal, clinpredVal?.toFixed(3) ?? "—", "< 0.50", ">= 0.50", "PP3 / BP4", clinpredStatus, clinpredStatus === "path" ? "Deleterious" : "Tolerated"));
-
-                const eigenStatus = eigenVal !== null ? (eigenVal >= 4.0 ? "path" : "benign") : "none";
-                rows.push(renderRow("eigen", "Eigen PHRED", eigenVal, eigenVal?.toFixed(1) ?? "—", "< 4.0", ">= 4.0", "PP3 / BP4", eigenStatus, eigenStatus === "path" ? "Pathogenic" : "Benign"));
-
-                const dannStatus = dannVal !== null ? (dannVal >= 0.96 ? "path" : dannVal <= 0.5 ? "benign" : "vus") : "none";
-                rows.push(renderRow("dann", "DANN", dannVal, dannVal?.toFixed(3) ?? "—", "<= 0.50", ">= 0.96", "PP3 / BP4", dannStatus, dannStatus === "path" ? "Pathogenic" : dannStatus === "benign" ? "Benign" : "Moderate"));
-
-                const popeveStatus = popeveVal !== null ? (popeveVal < 0 ? (popeveVal <= -4.617 ? "path_strong" : popeveVal <= -2.0 ? "path" : popeveVal >= -1.0 ? "benign" : "vus") : (popeveVal >= 0.75 ? "path_strong" : popeveVal <= 0.25 ? "benign" : "vus")) : "none";
-                rows.push(renderRow("popeve", "popEVE", popeveVal, popeveVal?.toFixed(3) ?? "—", "<= 0.25 (LLR >= -1.0)", ">= 0.75 (LLR <= -4.617 severe)", "PP3 / BP4", popeveStatus, popeveStatus === "path_strong" ? "Severe Path." : popeveStatus === "path" ? "Pathogenic" : popeveStatus === "benign" ? "Benign" : "VUS"));
-
-                const esmStatus = esmVal !== null ? (esmVal <= THRESHOLDS.esm1b.pathogenic ? "path" : esmVal >= THRESHOLDS.esm1b.benign ? "benign" : "vus") : "none";
-                rows.push(renderRow("esm", "ESM-1b", esmVal, esmVal?.toFixed(2) ?? "—", ">= -5.0", "<= -7.5", "Info / -", esmStatus, esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral"));
-
-                /**
-                 * This value comes from `esmcEval`, so it is ESMC-6B's masked-marginal ΔLLR —
-                 * not "VESM-150M", and with no published pathogenic/benign cut-point on its own
-                 * scale. It was previously tested against ESM-1b's -5.0/-2.0 pair and badged
-                 * Deleterious/Tolerated. The score is still shown, but classified as
-                 * informational rather than against another model's threshold.
-                 */
-                const esmcLlr = vesmVal;
-                const esmcStatus = "none";
-                rows.push(renderRow("esmc", "ESMC-6B", esmcLlr, esmcLlr?.toFixed(2) ?? "—", "No calibrated cut-point", "Model-native scale", "Info / -", esmcStatus, esmcLlr !== null ? "Informational" : "No data"));
-
-                // --- CATEGORY 2: Biophysical & Structural Energetics ---
-                rows.push(renderCategoryHeader("cat-biophys", "2. Biophysical & Structural Energetics"));
-
-                const foldxStatus = foldxVal !== null ? (foldxVal > 1.5 ? "path_strong" : foldxVal > 0.5 ? "path" : foldxVal >= -0.5 ? "benign" : "neutral") : "none";
-                rows.push(renderRow("foldx", "FoldX ΔΔG", foldxVal, foldxVal ? `${foldxVal.toFixed(2)} kcal/mol` : "—", "-0.5 to +0.5", "> 0.50 (severe > 1.50)", "PM1 / BP3", foldxStatus, foldxStatus === "path_strong" ? "Severe Destab." : foldxStatus === "path" ? "Destab." : foldxStatus === "benign" ? "Neutral" : "Stabilizing"));
-
-                const dynamut2Status = dynamut2Val !== null ? (dynamut2Val <= -1.0 ? "path" : "benign") : "none";
-                rows.push(renderRow("dynamut2", "DynaMut2 ΔΔG", dynamut2Val, dynamut2Val ? `${dynamut2Val.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", dynamut2Status, dynamut2Status === "path" ? "Destabilizing" : "Neutral"));
-
-                const ddmutStatus = ddmutVal !== null ? (ddmutVal <= -1.0 ? "path" : "benign") : "none";
-                rows.push(renderRow("ddmut", "DDMut ΔΔG", ddmutVal, ddmutVal ? `${ddmutVal.toFixed(2)} kcal/mol` : "—", "> -1.0", "<= -1.0 kcal/mol", "PM1 / BP3", ddmutStatus, ddmutStatus === "path" ? "Destabilizing" : "Neutral"));
-
-                const raspStatus = raspVal !== null ? (raspVal > 0.5 ? "path" : "benign") : "none";
-                rows.push(renderRow("rasp", "RaSP ΔΔG", raspVal, raspVal ? `${raspVal.toFixed(2)} kcal/mol` : "—", "-0.5 to +0.5", "> 0.50 kcal/mol", "PM1 / BP3", raspStatus, raspStatus === "path" ? "Destabilizing" : "Neutral"));
-
-                const thermompnnStatus = thermompnnVal !== null ? (thermompnnVal >= 1.0 ? "path" : "benign") : "none";
-                rows.push(renderRow("thermompnn", "ThermoMPNN ΔΔG°", thermompnnVal, thermompnnVal ? `${thermompnnVal.toFixed(2)} kcal/mol` : "—", "< 1.00", ">= +1.00 kcal/mol", "PM1 / BP3", thermompnnStatus, thermompnnStatus === "path" ? "Destabilizing" : "Neutral"));
-
-                // --- CATEGORY 3: Evolutionary Conservation & Population Intolerance ---
-                rows.push(renderCategoryHeader("cat-cons", "3. Evolutionary Conservation & Population Intolerance"));
-
-                const gerpStatus = gerpVal !== null ? (gerpVal >= 2.0 ? "path" : "benign") : "none";
-                rows.push(renderRow("gerp", "GERP++ RS", gerpVal, gerpVal?.toFixed(2) ?? "—", "< 2.00", ">= 2.00 (conserved)", "PP3 / BP4", gerpStatus, gerpStatus === "path" ? "Conserved" : "Neutral"));
-
-                const phylopStatus = phylopVal !== null ? (phylopVal >= 1.5 ? "path" : "benign") : "none";
-                rows.push(renderRow("phylop", "phyloP 100-way", phylopVal, phylopVal?.toFixed(2) ?? "—", "< 1.50", ">= 1.50 (conserved)", "PP3 / BP4", phylopStatus, phylopStatus === "path" ? "Conserved" : "Variable"));
-
-                const misZStatus = misZVal !== null ? (misZVal >= 3.09 ? "path_strong" : misZVal >= 2.0 ? "path" : "benign") : "none";
-                rows.push(renderRow("misZ", "gnomAD Missense Z", misZVal, misZVal?.toFixed(2) ?? "—", "< 2.00", ">= 2.00 (strong >= 3.09)", "PP2 / BP1", misZStatus, misZStatus === "path_strong" ? "Depleted (Strong)" : misZStatus === "path" ? "Constrained" : "Unconstrained"));
-
-                const loeufStatus = loeufVal !== null ? (loeufVal < 0.35 ? "path_strong" : loeufVal < 0.60 ? "path" : "benign") : "none";
-                rows.push(renderRow("loeuf", "gnomAD LOEUF", loeufVal, loeufVal?.toFixed(2) ?? "—", ">= 0.60", "< 0.35 (mod < 0.60)", "PP2 / BP1", loeufStatus, loeufStatus === "path_strong" ? "Severe Intolerant" : loeufStatus === "path" ? "Mod. Intolerant" : "Tolerated"));
-
-                return rows;
-              })()}
+              {renderCategoryHeader("cat-path", "1. In-Silico Pathogenicity & Machine Learning")}
+              {rows.filter(r => r.category === 1).map(renderRow)}
+              {renderCategoryHeader("cat-biophys", "2. Biophysical & Structural Energetics")}
+              {rows.filter(r => r.category === 2).map(renderRow)}
+              {renderCategoryHeader("cat-cons", "3. Evolutionary Conservation & Population Intolerance")}
+              {rows.filter(r => r.category === 3).map(renderRow)}
             </tbody>
           </table>
         </div>
       </div>
 
-      <div className="p-3 rounded-lg border text-[12px] font-sans leading-relaxed shadow-sm" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-secondary)" }}>
-        <h5 className="font-bold text-[11px] font-medium uppercase tracking-wider mb-1" style={{ color: "var(--cs-text-primary)" }}>ACMG/AMP Evidence Codes Key:</h5>
-        <ul className="list-disc pl-4 space-y-1">
-          <li><strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>PP3 (Pathogenic Supporting)</strong> / <strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>BP4 (Benign Supporting)</strong>: Computational algorithms predict a deleterious/neutral effect on the protein.</li>
-          <li><strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>PM1 (Pathogenic Moderate)</strong>: Mutational hot-spot or critical functional domain (e.g. binding pocket interface) without benign variation.</li>
-          <li><strong className="font-mono" style={{ color: "var(--cs-accent-clay)" }}>BP3 (Benign Supporting)</strong>: In-frame deletion/insertion in a repetitive region, or structurally neutral substitution.</li>
-        </ul>
+      {/* Track legend + pointer to the relocated verbose key. The evidence-code
+          definitions live in the inspector pane to keep this column decisive. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
+        <p className="text-[11px] font-sans leading-relaxed m-0" style={{ color: "var(--cs-text-secondary)" }}>
+          Track legend:&nbsp;
+          <span className="font-semibold" style={{ color: "var(--cs-text-success)" }}>benign window</span>
+          <span style={{ color: "var(--cs-text-muted)" }}> · grey zone · </span>
+          <span className="font-semibold" style={{ color: "var(--cs-text-danger-on-soft)" }}>pathogenic window</span>
+          <span style={{ color: "var(--cs-text-muted)" }}> — ticks name the cut-points; the marker is the current score.</span>
+        </p>
+        <button
+          type="button"
+          onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.thresholdKey)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-cs-accent-clay/30 bg-cs-accent-clay/10 text-cs-accent-clay text-[10.5px] font-mono font-semibold hover:bg-cs-accent-clay/20 transition-colors cursor-pointer shrink-0"
+        >
+          <PanelRightOpen className="w-3 h-3" aria-hidden="true" />
+          ACMG/AMP code key
+        </button>
       </div>
     </div>
   );
