@@ -812,7 +812,14 @@ export interface CoverageSummary {
   notAvailableInDeployment: number;
   /** Engines still legitimately running. */
   running: readonly EnergyEngineId[];
-  /** Engines that returned nothing, with the reason. */
+  /**
+   * Engines with NO VALUE, with the reason — which is not the same as "engines that returned nothing".
+   *
+   * A `skipped` engine (hidden while the run continues) has no value either and belongs here under both
+   * the old and the new predicate, so the narrower wording was untrue for that member. The distinction
+   * that carries weight is against `running`: an engine still calculating is pending, not missing, and
+   * the two buckets must stay disjoint or any surface branching on them contradicts its own spinner.
+   */
   missing: readonly EngineOutcome[];
   /**
    * True when too few engines returned a value for the consensus to be presented as an

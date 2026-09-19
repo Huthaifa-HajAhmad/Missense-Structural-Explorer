@@ -89,6 +89,18 @@ describe("EnergeticsInspector — the diagnostics it renders", () => {
     // The measured regression was text-cs-text-warning on the soft surface = 3.03:1.
     expect(heading!.className).not.toContain("text-cs-text-warning");
     expect(heading!.className).toContain("text-cs-text-primary");
+
+    /**
+     * F16: those two assertions pass on a class list carrying the good token AND a low-contrast one —
+     * `text-cs-text-primary text-cs-text-muted` — because which colour actually renders then depends on
+     * CSS order, not on this test. Requiring EXACTLY ONE text-colour token closes that: it fails both
+     * for the wrong token and for a second one added alongside.
+     */
+    const colourTokens = heading!.className.match(/\btext-cs-text-[a-z-]+/g) ?? [];
+    expect(
+      colourTokens,
+      "exactly one text colour may apply, or CSS order decides which one renders"
+    ).toEqual(["text-cs-text-primary"]);
   });
 
   it("calls an excluded value Not counted, matching the main column", () => {
