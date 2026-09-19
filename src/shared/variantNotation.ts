@@ -344,11 +344,13 @@ export const ACCEPTED_NOTATION_EXAMPLES = {
   genomicDashed: "20-23365054-G-A",
   cdna: "NM_004333.6:c.1799T>A",
   protein: "p.Arg408Trp",
+  proteinAccessioned: "NP_001032248.1:p.Lys281Asn",
 } as const;
 
 /** One-line summary of accepted coordinate notations, used in user-facing error messages. */
 export const ACCEPTED_NOTATION_SUMMARY =
   `genomic HGVS (e.g., ${ACCEPTED_NOTATION_EXAMPLES.genomicHgvs} or ` +
   `${ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated}), ` +
-  `transcript cDNA (e.g., ${ACCEPTED_NOTATION_EXAMPLES.cdna}), or ` +
-  `dashed genomic coordinates (e.g., ${ACCEPTED_NOTATION_EXAMPLES.genomicDashed})`;
+  `transcript cDNA (e.g., ${ACCEPTED_NOTATION_EXAMPLES.cdna}), ` +
+  `dashed genomic coordinates (e.g., ${ACCEPTED_NOTATION_EXAMPLES.genomicDashed}), or a protein ` +
+  `substitution qualified by the protein it is numbered on (e.g., ${ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned})`;

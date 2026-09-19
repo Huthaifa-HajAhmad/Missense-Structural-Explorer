@@ -67,8 +67,8 @@ export function generateOpenApiSpec() {
                 "properties": {
                   "variant": {
                     "type": "string",
-                    "example": "BRAF V600E",
-                    "description": "Genomic, cDNA, HGVS, or gene-variant string notation."
+                    "example": "NP_001032248.1:p.Lys281Asn",
+                    "description": "Genomic HGVS, dashed coordinates, transcript cDNA, or a protein substitution qualified by the protein its numbering belongs to (`NP_…`, `<UniProt accession>[-isoform]`). An accession-qualified notation is mapped onto CANONICAL UniProt numbering; an unverifiable basis is refused rather than assumed."
                   }
                 }
               }
@@ -110,7 +110,56 @@ export function generateOpenApiSpec() {
                     },
                     "isCanonical": {
                       "type": "boolean",
-                      "example": true
+                      "example": true,
+                      "description": "Ensembl's canonical-TRANSCRIPT flag, not a statement about residue numbering — use `numberingBasis`/`numberingVerified` for that."
+                    },
+                    "uniprotIsoform": {
+                      "type": "string",
+                      "example": "Q9Y305-1",
+                      "description": "UniProt isoform whose numbering `variant` uses."
+                    },
+                    "numberingBasis": {
+                      "type": "string",
+                      "enum": ["canonical", "remapped", "unverified"],
+                      "description": "How the numbering was established. `unverified` is disclosed in `transcriptWarning` and is never cached."
+                    },
+                    "numberingVerified": {
+                      "type": "boolean",
+                      "description": "False only for `unverified`."
+                    },
+                    "numberingProteinId": {
+                      "type": "string",
+                      "example": "NP_001032248.1",
+                      "description": "Protein accession the numbering follows when the provider named no UniProt isoform."
+                    },
+                    "numberingRemap": {
+                      "type": "object",
+                      "description": "Present when the input notation was renumbered onto the canonical isoform.",
+                      "properties": {
+                        "reason": { "type": "string" },
+                        "from": {
+                          "type": "object",
+                          "properties": {
+                            "hgvsp": { "type": "string" },
+                            "transcriptId": { "type": "string" },
+                            "isoform": { "type": "string" },
+                            "maneRefSeqId": { "type": "string" },
+                            "accession": { "type": "string", "example": "NP_001032248.1" }
+                          }
+                        },
+                        "to": {
+                          "type": "object",
+                          "properties": {
+                            "hgvsp": { "type": "string" },
+                            "transcriptId": { "type": "string" },
+                            "isoform": { "type": "string" }
+                          }
+                        }
+                      }
+                    },
+                    "transcriptWarning": {
+                      "type": "string",
+                      "description": "Human-readable disclosure of a renumbering or an unverifiable numbering basis."
                     },
                     "genomicCoordinates": {
                       "type": "string",
@@ -126,6 +175,12 @@ export function generateOpenApiSpec() {
           },
           "401": {
             "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "422": {
+            "description": "The notation is out of missense scope (`NON_MISSENSE_VARIANT`), its numbering cannot be mapped (`ISOFORM_NUMBERING_MISMATCH`), it is equally consistent with two numberings (`AMBIGUOUS_PROTEIN_NUMBERING`), or its numbering basis could not be established (`UNPROCESSABLE_ENTITY`)."
+          },
+          "503": {
+            "description": "Every reference provider was unreachable or did not answer in time (`TRANSLATION_UNAVAILABLE`), sent with `Retry-After: 60`. The message tells the clinician to enter the protein-level substitution, which skips translation entirely."
           }
         }
       }

@@ -824,7 +824,9 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     // The canonical-equivalent notation, which is what the structures are numbered on.
     expect(body.variant).toBe("p.Lys272Asn");
     expect(body.uniprotId).toBe("Q9Y305");
-    expect(body.uniprotIsoform).toBe("Q9Y305-4");
+    // `uniprotIsoform` means "the isoform the RETURNED variant is numbered on" and the returned
+    // variant is canonical, so it is absent here; the INPUT basis belongs in the remap record.
+    expect(body.uniprotIsoform).toBeUndefined();
     expect(body.numberingBasis).toBe("remapped");
     expect(body.numberingVerified).toBe(true);
     expect(body.numberingProteinId).toBe("NP_001032248.1");

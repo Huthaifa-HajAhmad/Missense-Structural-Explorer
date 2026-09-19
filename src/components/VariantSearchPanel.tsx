@@ -196,8 +196,12 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
   {
     target: "variant",
     label: "Variant notation",
-    hint: "Protein-level substitutions and transcript cDNA go in the Variant Notation field.",
-    values: [ACCEPTED_NOTATION_EXAMPLES.protein, ACCEPTED_NOTATION_EXAMPLES.cdna],
+    hint: "Protein-level substitutions, accession-qualified protein notations and transcript cDNA go in the Variant Notation field.",
+    values: [
+      ACCEPTED_NOTATION_EXAMPLES.protein,
+      ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned,
+      ACCEPTED_NOTATION_EXAMPLES.cdna,
+    ],
   },
   {
     target: "genomic",

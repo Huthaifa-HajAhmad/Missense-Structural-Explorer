@@ -256,9 +256,10 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
               gene: proteinGene,
               variant: canonicalNotation,
               uniprotId: outcome.canonicalAccession ?? "",
-              ...(outcome.basisKind === "isoform" && outcome.basisId
-                ? { uniprotIsoform: outcome.basisId }
-                : {}),
+              // NOTE: no `uniprotIsoform` here. That field means "the isoform the RETURNED variant
+              // is numbered on", and `canonicalNotation` is canonical by construction — reporting
+              // the input's isoform (e.g. Q9Y305-4) would describe a numbering this response does
+              // not use. The input basis is recorded below in `numberingRemap.from.isoform`.
               ...(/^NP_/.test(accessionedProtein.accession)
                 ? { numberingProteinId: accessionedProtein.accession }
                 : {}),
