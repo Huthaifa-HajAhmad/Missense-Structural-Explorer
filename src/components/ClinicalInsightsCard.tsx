@@ -98,7 +98,7 @@ import { deriveBiochemicalNarrative, getPropertyScaleDefinition } from "../share
  * `result: any` is what let both mistakes past `tsc`. The parameter is typed now — that is the real
  * fix, because this function's whole job is to agree with a caller elsewhere in the codebase.
  */
-function deriveConsensus(args: {
+export function deriveConsensus(args: {
   result: AnalysisState["result"] | null;
   foldingEnergetics?: any;
   /** The FoldX single-value fallback, which the badge applies and the first version omitted. */
@@ -128,6 +128,36 @@ function deriveConsensus(args: {
     result.metadata?.residueIndex ?? 0,
     plddt ?? null
   );
+}
+
+/**
+ * The `verdictContext` the export paths pass to the manifest — one function, so the call site has
+ * nothing left to get wrong.
+ *
+ * A review showed the gap this closes: the tests pinned the manifest's precedence rules, but the
+ * component that calls it was untested, so a regression passing `foldingEnergetics?.consensusVerdict`
+ * (the frozen snapshot — exactly the `109fa35` defect) as the derived verdict passed every test. The
+ * caller could supply an *answer* where an input belonged.
+ *
+ * This takes inputs and returns the context, so the component's call site is a single call whose
+ * argument is data. Substituting the stored verdict is no longer something a caller can express, and
+ * the accompanying test fails if this ever returns the snapshot.
+ */
+export function buildExportVerdictContext(args: {
+  result: AnalysisState["result"] | null;
+  foldingEnergetics?: any;
+  foldingDdG?: number | null;
+  plddt?: number | null;
+}) {
+  const derived = deriveConsensus(args);
+  return {
+    derivedVerdict: derived?.consensusVerdict ?? null,
+    // The caveat fields still come from the stored bundle: `evidenceComplete` is written only by the
+    // server at FoldX commit, so deriving it here would require the live `pendingTools` the client
+    // filters as engines resolve. Tracked as open in §11.10.3 item 8.
+    evidenceComplete: args.foldingEnergetics?.evidenceComplete ?? null,
+    pendingTools: args.foldingEnergetics?.pendingTools ?? []
+  };
 }
 
 interface ClinicalInsightsCardProps {
@@ -414,21 +444,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       analysisState.result,
       settings,
       foldingEnergetics,
-      {
-        // The live value, so the manifest cannot contradict the screen...
-        derivedVerdict:
-          deriveConsensus({
-            result: analysisState.result,
-            foldingEnergetics,
-            foldingDdG,
-            plddt: disruptionPredictor?.plddt
-          })?.consensusVerdict ?? null,
-        // ...and the caveat that used to travel inside the verdict string as a " (Preliminary -
-        // pending: …)" suffix. Removing that suffix was right; leaving nothing in its place meant an
-        // export could state an incomplete run's verdict with no indication it was partial.
-        evidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
-        pendingTools: foldingEnergetics?.pendingTools ?? []
-      }
+      // One call, inputs only — see `buildExportVerdictContext`.
+      buildExportVerdictContext({
+        result: analysisState.result,
+        foldingEnergetics,
+        foldingDdG,
+        plddt: disruptionPredictor?.plddt
+      })
     );
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
