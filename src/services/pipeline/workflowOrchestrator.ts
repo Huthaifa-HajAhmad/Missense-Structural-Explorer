@@ -26,7 +26,13 @@ import {
   createDemoFallbackAnalysisState,
   PipelineStateBaseParams
 } from "./pipelineStateFactory";
-import { getCachedVariant, setCachedVariant, isFallbackNarrative } from "./variantCache";
+import {
+  getCachedVariant,
+  setCachedVariant,
+  isFallbackNarrative,
+  recordBiophysicsAttempt,
+  getBiophysicsAttemptedAt,
+} from "./variantCache";
 
 export interface WorkflowOrchestratorParams {
   targetGeneArg: string;
@@ -276,27 +282,17 @@ export async function executeFullAnalysisWorkflow({
         const retryableFailure =
           cached.foldingStatus === "failed" && !foldxStructurallyUnavailable;
         const retryCooldownElapsed =
-          Date.now() - (cached.biophysicsAttemptedAt ?? 0) > BIOPHYSICS_RETRY_COOLDOWN_MS;
+          Date.now() - (getBiophysicsAttemptedAt(targetGene, targetVariant) ?? 0) > BIOPHYSICS_RETRY_COOLDOWN_MS;
 
         const needsBiophysicsBackfill =
           (snapshotIncomplete || retryableFailure) && retryCooldownElapsed;
 
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
           // Recorded BEFORE dispatch, so an abort or a crash still starts the cooldown rather
-          // than leaving the next visit free to launch another full run.
-          setCachedVariant(
-            targetGene,
-            targetVariant,
-            targetUniprot,
-            { biophysicsAttemptedAt: Date.now() },
-            {
-              // A failed or still-preliminary bundle is exactly the state the cache refuses to
-              // persist, and it is also exactly when this cooldown matters — so ask for the
-              // timestamp explicitly. Without it the cooldown lived in memory only, and a reload
-              // re-dispatched the whole run immediately.
-              persistAttemptTimestamp: true
-            }
-          );
+          // than leaving the next visit free to launch another full run. Written to its own store:
+          // a bundle-shaped record could never be read back by the check above, because that check
+          // lives inside the cached-bundle branch a payload-free record can never enter.
+          recordBiophysicsAttempt(targetGene, targetVariant, targetUniprot);
 
           // The dispatch is deliberately not awaited, but it must never be a floating promise: a
           // rejection here would surface as an unhandled rejection and leave the spinner up with no

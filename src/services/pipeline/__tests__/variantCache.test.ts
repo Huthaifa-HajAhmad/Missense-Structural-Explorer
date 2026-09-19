@@ -1,56 +1,38 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   setCachedVariant,
+  getCachedVariant,
   clearClientVariantCache,
+  recordBiophysicsAttempt,
+  getBiophysicsAttemptedAt,
   CACHE_VERSION,
   type CachedVariantBundle,
 } from "../variantCache";
 
 /**
- * The biophysics retry cooldown must survive a page reload.
+ * The biophysics retry cooldown, and the store it lives in.
  *
  * WHY THIS EXISTS
  * ---------------
- * `workflowOrchestrator` records `biophysicsAttemptedAt` before dispatching a backfill, so that an
- * abort or a crash still starts the cooldown rather than letting the next visit launch another
- * multi-minute FoldX run. But it records it through `setCachedVariant`, whose persistence filter
- * deliberately refuses to store a failed or still-partial bundle — which is exactly the state that
- * triggers a retry. So the timestamp reached module memory only, and the single most likely user
- * action (giving up on the spinner and pressing F5) discarded it: memory is gone, sessionStorage has
- * no record of the attempt, `retryCooldownElapsed` reads `undefined` as "elapsed", and the full run
- * is dispatched again. That is the compute burn the cooldown was written to prevent.
+ * `workflowOrchestrator` records an attempt BEFORE dispatching a backfill, so an abort or a crash
+ * still starts the cooldown rather than letting the next visit launch another multi-minute FoldX
+ * run. Two separate defects made that intent useless, both found by measuring the shipped code
+ * rather than reading it:
  *
- * The guarantee was never asserted, which is why nothing failed.
+ *   1. The timestamp was first kept in module memory only — the cache's persistence guard refuses
+ *      failed/preliminary bundles, which is exactly the state that retries — so pressing F5
+ *      discarded it.
+ *   2. It was then written as a payload-free *bundle* record, which failed twice more: the only
+ *      reader sits inside the cached-bundle branch such a record can never enter (so the cooldown
+ *      was written and ignored), and `getCachedVariant` returned it as a truthy "cached variant",
+ *      making four call sites skip `resetViewerState()` and leave the previous variant's structure
+ *      on screen.
+ *
+ * So the cooldown now has its own store. These tests call the REAL reader and writer — the previous
+ * version hand-copied the loader's predicate and would have passed against a `getCachedVariant` that
+ * returned null for everything.
  */
 
-/** Every persisted entry, so the tests can inspect what actually reached sessionStorage. */
-function persistedEntries(): Array<{ key: string; value: Record<string, unknown> }> {
-  const entries: Array<{ key: string; value: Record<string, unknown> }> = [];
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
-    if (!key) continue;
-    try {
-      entries.push({ key, value: JSON.parse(sessionStorage.getItem(key) ?? "{}") });
-    } catch {
-      // A non-JSON entry belongs to another part of the app; ignore it.
-    }
-  }
-  return entries;
-}
-
-function persistedFor(gene: string): Record<string, unknown> | null {
-  const hit = persistedEntries().find(e => e.value.gene === gene);
-  return hit ? hit.value : null;
-}
-
-/**
- * A minimal in-memory `sessionStorage`.
- *
- * This suite runs in the node environment (component tests get jsdom), where the global does not
- * exist — and `variantCache` guards its storage access with try/catch, so without a shim every
- * assertion would pass vacuously against a no-op. The module resolves `sessionStorage` from the
- * global scope at call time, so installing this exercises the real code path.
- */
 function installSessionStorageShim(): void {
   const store = new Map<string, string>();
   Object.defineProperty(globalThis, "sessionStorage", {
@@ -68,88 +50,89 @@ function installSessionStorageShim(): void {
   });
 }
 
-describe("variantCache — the biophysics attempt timestamp", () => {
+/** Keys of the persisted attempt records, so a rename of the prefix is caught. */
+function attemptKeys(): string[] {
+  return persistedKeys("mrx_attempt_");
+}
+
+/** Every persisted key under a prefix. */
+function persistedKeys(prefix: string): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const k = sessionStorage.key(i);
+    if (k && k.startsWith(prefix)) keys.push(k);
+  }
+  return keys;
+}
+
+const FAILED_BUNDLE: Partial<CachedVariantBundle> = {
+  foldingStatus: "failed",
+  foldingEnergetics: { foldxError: "FoldX binary not found" } as never,
+};
+
+describe("biophysics attempt cooldown", () => {
   beforeEach(() => {
     installSessionStorageShim();
     clearClientVariantCache();
-    sessionStorage.clear();
   });
 
-  const FAILED_BUNDLE: Partial<CachedVariantBundle> = {
-    foldingStatus: "failed",
-    foldingEnergetics: { foldxError: "FoldX binary not found" } as never,
-  };
+  it("reads back what it recorded, through the real reader", () => {
+    recordBiophysicsAttempt("GENEA", "p.Ala1Val", "P00001");
+    const at = getBiophysicsAttemptedAt("GENEA", "p.Ala1Val");
+    expect(typeof at).toBe("number");
+    expect(at).toBeGreaterThan(0);
+  });
+
+  it("persists under its own key, so it can outlive the session's memory", () => {
+    recordBiophysicsAttempt("GENEB", "p.Ala1Val", "P00001");
+
+    const keys = attemptKeys();
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toContain(CACHE_VERSION);
+    // ...and it is not stored as a bundle.
+    expect(keys[0].startsWith("mrx_bundle_")).toBe(false);
+  });
+
+  it("writes no bundle record for a failed attempt, so a reload cannot mistake it for a variant", () => {
+    // The regression: a payload-free bundle record made `getCachedVariant` truthy AFTER A RELOAD
+    // (in memory it is truthy anyway — `setCachedVariant` writes memory before its guards), so
+    // `if (!cached) resetViewerState()` was skipped and the previous variant's structure stayed on
+    // screen until the new fetch landed. The invariant that prevents it is that nothing is
+    // persisted under a bundle key.
+    setCachedVariant("GENEC", "p.Ala1Val", "P00001", FAILED_BUNDLE);
+    recordBiophysicsAttempt("GENEC", "p.Ala1Val", "P00001");
+
+    expect(persistedKeys("mrx_bundle_")).toEqual([]);
+    expect(attemptKeys()).toHaveLength(1);
+  });
 
   it("still refuses to persist a failed bundle", () => {
-    // The behaviour the new option must not weaken.
-    setCachedVariant("GENEA", "p.Ala1Val", "P00001", FAILED_BUNDLE);
-    const stored = persistedFor("GENEA");
-    expect(stored?.foldingStatus).toBeUndefined();
-    expect(stored?.foldingEnergetics).toBeUndefined();
+    setCachedVariant("GENED", "p.Ala1Val", "P00001", FAILED_BUNDLE);
+    expect(persistedKeys("mrx_bundle_")).toEqual([]);
   });
 
-  it("persists the attempt timestamp for a failed bundle when asked", () => {
-    setCachedVariant(
-      "GENEB",
-      "p.Ala1Val",
-      "P00001",
-      { ...FAILED_BUNDLE, biophysicsAttemptedAt: 1_700_000_000_000 },
-      { persistAttemptTimestamp: true }
-    );
-
-    const stored = persistedFor("GENEB");
-    expect(stored).not.toBeNull();
-    expect(stored!.biophysicsAttemptedAt).toBe(1_700_000_000_000);
-    // ...and ONLY the cooldown metadata: the failure itself must not be persisted by this path.
-    expect(stored!.foldingStatus).toBeUndefined();
-    expect(stored!.foldingEnergetics).toBeUndefined();
-  });
-
-  it("writes a record the loader will accept after a reload", () => {
-    setCachedVariant(
-      "GENEC",
-      "p.Ala1Val",
-      "P00001",
-      { ...FAILED_BUNDLE, biophysicsAttemptedAt: 1_700_000_000_000 },
-      { persistAttemptTimestamp: true }
-    );
-
-    // A direct "reload" cannot be simulated: the only reset export, `clearClientVariantCache()`,
-    // clears sessionStorage as well as memory — so it would destroy the record under test. Instead
-    // the stored record is checked against the exact predicate `getCachedVariant` applies before it
-    // will hand an entry back: version match, a `timestamp` within 24h, and the field itself.
-    const stored = persistedFor("GENEC");
-    expect(stored).not.toBeNull();
-    expect(stored!.version).toBe(CACHE_VERSION);
-    expect(typeof stored!.timestamp).toBe("number");
-    expect(Date.now() - (stored!.timestamp as number)).toBeLessThan(24 * 60 * 60 * 1000);
-    expect(stored!.biophysicsAttemptedAt).toBe(1_700_000_000_000);
-  });
-
-  it("does not invent a timestamp when none was supplied", () => {
-    setCachedVariant("GENED", "p.Ala1Val", "P00001", FAILED_BUNDLE, {
-      persistAttemptTimestamp: true,
-    });
-    expect(persistedFor("GENED")).toBeNull();
-  });
-
-  it("merges into an existing record rather than replacing it", () => {
-    // A successful run is persisted normally...
+  it("does not disturb a good bundle for the same variant", () => {
     setCachedVariant("GENEE", "p.Ala1Val", "P00001", { foldingDdG: 1.2 });
-    expect(persistedFor("GENEE")?.foldingDdG).toBe(1.2);
+    recordBiophysicsAttempt("GENEE", "p.Ala1Val", "P00001");
 
-    // ...and a later failed attempt adds only the cooldown, keeping the good data.
-    setCachedVariant(
-      "GENEE",
-      "p.Ala1Val",
-      "P00001",
-      { ...FAILED_BUNDLE, biophysicsAttemptedAt: 42 },
-      { persistAttemptTimestamp: true }
-    );
+    const restored = getCachedVariant("GENEE", "p.Ala1Val");
+    expect(restored?.foldingDdG).toBe(1.2);
+    expect(getBiophysicsAttemptedAt("GENEE", "p.Ala1Val")).toBeGreaterThan(0);
+  });
 
-    const stored = persistedFor("GENEE");
-    expect(stored?.foldingDdG).toBe(1.2);
-    expect(stored?.biophysicsAttemptedAt).toBe(42);
-    expect(stored?.foldingStatus).toBeUndefined();
+  it("keeps the cooldown independent per variant", () => {
+    recordBiophysicsAttempt("GENEF", "p.Ala1Val", "P00001");
+    expect(getBiophysicsAttemptedAt("GENEF", "p.Gly2Asp")).toBeNull();
+    expect(getBiophysicsAttemptedAt("OTHERGENE", "p.Ala1Val")).toBeNull();
+  });
+
+  it("returns null when nothing has been recorded", () => {
+    expect(getBiophysicsAttemptedAt("GENEG", "p.Ala1Val")).toBeNull();
+  });
+
+  it("still honours a timestamp written into a bundle by the previous release", () => {
+    // Backwards compatibility: bundles persisted before the dedicated store existed carry the field.
+    setCachedVariant("GENEH", "p.Ala1Val", "P00001", { foldingDdG: 1.2, biophysicsAttemptedAt: 1_700_000_000_000 });
+    expect(getBiophysicsAttemptedAt("GENEH", "p.Ala1Val")).toBe(1_700_000_000_000);
   });
 });

@@ -29,6 +29,23 @@ export const CACHE_VERSION = "v3.7";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 
+/**
+ * Biophysics attempt timestamps live under their OWN key, deliberately not inside a cached bundle.
+ *
+ * They were briefly written as a payload-free bundle record, which failed twice over, both measured
+ * by review:
+ *   • the only reader of `biophysicsAttemptedAt` sits INSIDE the cached-bundle branch, and a record
+ *     with no `analysisResult` can never reach it — so the cooldown was written and then ignored,
+ *     and the multi-minute FoldX re-run it exists to prevent still happened;
+ *   • `getCachedVariant` returned that record as a truthy "cached variant", so the four call sites
+ *     guarding on `if (!cached) resetViewerState()` skipped their reset and left the PREVIOUS
+ *     variant's structure on screen.
+ *
+ * A timestamp is not a bundle. Keeping it in its own store means it cannot be mistaken for one.
+ */
+const ATTEMPT_PREFIX = `mrx_attempt_${CACHE_VERSION}_`;
+const memoryAttempts = new Map<string, number>();
+
 export interface CachedVariantBundle {
   version?: string;
   gene: string;
@@ -118,20 +135,7 @@ export function setCachedVariant(
   gene: string,
   variant: string,
   uniprotId: string,
-  bundle: Partial<CachedVariantBundle>,
-  /**
-   * Persist `biophysicsAttemptedAt` even for a bundle the guard below refuses to store.
-   *
-   * The retry cooldown is written at exactly the moment the guard fires — the previous attempt
-   * either failed or is still partial — so the timestamp reached memory only. A reload (or a tab
-   * crash) then restored a snapshot with no record of the attempt, `retryCooldownElapsed` read
-   * `undefined` as "elapsed", and the full multi-minute FoldX run was dispatched again: the compute
-   * burn the cooldown exists to prevent, reachable by pressing F5.
-   *
-   * This writes ONLY the cooldown metadata, never the failed biophysics payload the guard protects
-   * the user from.
-   */
-  options?: { persistAttemptTimestamp?: boolean }
+  bundle: Partial<CachedVariantBundle>
 ): void {
   if (!gene || !variant) return;
   const key = getCacheKey(gene, variant);
@@ -206,30 +210,7 @@ export function setCachedVariant(
   }
 
   if (updated.foldingStatus === "failed" || (updated.foldingEnergetics as any)?.foldxError || isPreliminary) {
-    if (options?.persistAttemptTimestamp && updated.biophysicsAttemptedAt !== undefined) {
-      try {
-        const storageKey = `${CACHE_PREFIX}${key}`;
-        const onDisk = sessionStorage.getItem(storageKey);
-        const base = onDisk ? JSON.parse(onDisk) : {};
-        sessionStorage.setItem(
-          storageKey,
-          JSON.stringify({
-            ...base,
-            version: CACHE_VERSION,
-            gene: updated.gene,
-            variant: updated.variant,
-            uniprotId: updated.uniprotId,
-            // `getCachedVariant` refuses a record without a fresh timestamp (and expires it after
-            // 24h), so a cooldown written without one would be discarded on the very reload it
-            // exists to survive.
-            timestamp: updated.timestamp,
-            biophysicsAttemptedAt: updated.biophysicsAttemptedAt
-          })
-        );
-      } catch (_) {
-        // Storage full or unavailable: the in-memory cooldown still applies to this session.
-      }
-    }
+    // No cooldown write here any more — `recordBiophysicsAttempt` owns that, under its own key.
     return;
   }
 
@@ -299,8 +280,59 @@ export function purgeFallbackNarratives(): void {
   }
 }
 
+/**
+ * Records that a biophysics attempt was made for this variant, in memory and in sessionStorage.
+ *
+ * Written BEFORE dispatch so an abort or a crash still starts the cooldown. Independent of
+ * `setCachedVariant` and its persistence guard by design: the cooldown is recorded at exactly the
+ * moment that guard refuses to store a bundle (the previous attempt failed or is still partial), so
+ * routing it through the bundle was always going to be fragile.
+ */
+export function recordBiophysicsAttempt(gene: string, variant: string, _uniprotId?: string | null): void {
+  if (!gene || !variant) return;
+  const key = getCacheKey(gene, variant);
+  const at = Date.now();
+  memoryAttempts.set(key, at);
+  try {
+    sessionStorage.setItem(`${ATTEMPT_PREFIX}${key}`, String(at));
+  } catch (_) {
+    // Storage full or unavailable: the in-memory cooldown still applies to this session.
+  }
+}
+
+/**
+ * The last recorded attempt time for this variant, or null.
+ *
+ * Falls back to a bundle field so a timestamp written by the previous release is still honoured —
+ * but prefers the dedicated store, which is the one that survives a reload for failed and
+ * preliminary bundles alike.
+ */
+export function getBiophysicsAttemptedAt(gene: string, variant: string): number | null {
+  if (!gene || !variant) return null;
+  const key = getCacheKey(gene, variant);
+
+  const inMemory = memoryAttempts.get(key);
+  if (typeof inMemory === "number") return inMemory;
+
+  try {
+    const stored = sessionStorage.getItem(`${ATTEMPT_PREFIX}${key}`);
+    if (stored) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed)) {
+        memoryAttempts.set(key, parsed);
+        return parsed;
+      }
+    }
+  } catch (_) {}
+
+  // Backwards compatibility with a bundle that carries the field.
+  const fromBundle = getCachedVariant(gene, variant)?.biophysicsAttemptedAt;
+  return typeof fromBundle === "number" ? fromBundle : null;
+}
+
 export function clearClientVariantCache(): void {
   memoryVariantCache.clear();
+  memoryAttempts.clear();
   try {
     const keysToRemove: string[] = [];
     for (let i = 0; i < sessionStorage.length; i++) {
