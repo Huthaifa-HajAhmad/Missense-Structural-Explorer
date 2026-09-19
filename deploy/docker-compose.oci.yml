@@ -12,6 +12,9 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - THERMOMPNN_PROVIDER=${THERMOMPNN_PROVIDER:-local}
+      # Revision this image was built from, surfaced by GET /api/v1/version so "did my fix ship?"
+      # is answerable from outside the host. Supplied by the deploy workflow.
+      - BUILD_COMMIT=${BUILD_COMMIT:-unknown}
     volumes:
       # Persistent SQLite databases (analyses.sqlite, landscape_cache.sqlite, df_rasp_gnomad_clinvar.sqlite)
       - ../data:/app/data

@@ -340,6 +340,22 @@ export function registerHealthRoutes(apiRouter: Router): void {
   });
 
   apiRouter.get("/version", (req, res) => {
-    res.json({ version: "1.0.0", env: process.env.NODE_ENV || "development" });
+    res.json({
+      version: "1.0.0",
+      env: process.env.NODE_ENV || "development",
+      /**
+       * Which revision is actually running.
+       *
+       * Deployments are gated on CI now, and a broken CI run once deployed anyway; without the
+       * revision there is no way to answer "did my fix ship?" from outside the host. Supplied by
+       * the deploy pipeline (`BUILD_COMMIT`), with the usual provider aliases as fallbacks.
+       */
+      commit:
+        process.env.BUILD_COMMIT ||
+        process.env.GIT_COMMIT ||
+        process.env.SOURCE_COMMIT ||
+        null,
+      builtAt: process.env.BUILD_TIME || null,
+    });
   });
 }

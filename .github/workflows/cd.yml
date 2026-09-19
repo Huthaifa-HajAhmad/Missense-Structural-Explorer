@@ -1,8 +1,13 @@
 name: Continuous Deployment (OCI)
 
 on:
-  push:
-    branches: [ main ]
+  # GATED ON CI. This workflow used to run on every push to main, so it deployed commits whose
+  # lint/test/build gates had FAILED — observed: commit 4a6a949 was deployed (run 35455821454)
+  # while its CI run 35455821450 died in the Python setup step before any gate ran.
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -12,13 +17,20 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer'
+    if: >-
+      github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     env:
       OCI_SSH_HOST: ${{ secrets.OCI_SSH_HOST }}
       OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+      # The revision CI just validated. Deploying exactly this commit is what makes the gate mean
+      # something: a push that lands while CI is still running is not deployed by this run.
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
@@ -28,14 +40,20 @@ jobs:
           username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
           key: ${{ secrets.OCI_SSH_KEY }}
           command_timeout: 30m
+          envs: DEPLOY_SHA
           script: |
             set -e
             cd Missense-Structural-Explorer || exit 1
-            echo "[CD] Pulling latest changes from main branch..."
-            git pull origin main
-            echo "[CD] Enabling Docker BuildKit layer caching..."
+            echo "[CD] Deploying the CI-validated commit $DEPLOY_SHA"
             export DOCKER_BUILDKIT=1
             export COMPOSE_DOCKER_CLI_BUILD=1
+            # Deploy EXACTLY the validated revision rather than "whatever main is now", so a newer
+            # unvalidated push cannot ride in behind the gate. The VM therefore ends on a detached
+            # HEAD by design; every run fetches and checks out its own revision.
+            git fetch --all --prune
+            git checkout --force "$DEPLOY_SHA"
+            # Recorded in the image so GET /api/v1/version reports what is actually running.
+            export BUILD_COMMIT="$DEPLOY_SHA"
             echo "[CD] Rebuilding and launching Docker containers..."
             docker compose -f deploy/docker-compose.oci.yml up -d --build
             echo "[CD] Verifying container health..."
