@@ -51,6 +51,14 @@ export interface CachedVariantBundle {
   computedPocket?: any | null;
   homologs?: any[] | null;
   disruptionPredictor?: any | null;
+  /**
+   * When the biophysics pipeline was last dispatched for this variant.
+   *
+   * Dedicated to this purpose on purpose: `timestamp` below is a whole-bundle marker refreshed by
+   * ANY write (landscape, multimer, pockets), so using it as a retry clock would let an unrelated
+   * update silently re-arm — or suppress — a multi-minute FoldX re-run.
+   */
+  biophysicsAttemptedAt?: number;
   timestamp: number;
 }
 

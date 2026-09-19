@@ -151,7 +151,11 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "RaSP (Rapid Stability Prediction)",
     category: "Structural Embeddings / MLP Stability Head",
     description: "RaSP predicts thermodynamic stability changes (ΔΔG) using ESM-IF1 structural embeddings combined with a pre-trained multi-layer perceptron head trained on ~350k experimental stability datapoints. It operates directly on 3D structure.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
+    // RaSP is a positive-native engine: a LARGER score means destabilization (see
+    // `shared/engineStatus.ts`, whose per-engine cut is +1.0). This rule was previously written
+    // with the opposite sign, so this explanation contradicted both the app's own maths and the
+    // Energetics tab's copy for the same method.
+    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; lower/negative scores represent neutral or stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
     paperTitle: "Blaabjerg et al. Cell Systems (2023)",
     paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
   },

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { executeFullAnalysisWorkflow } from "../workflowOrchestrator";
+import { executeFoldxPipeline } from "../foldxService";
 import * as variantCache from "../variantCache";
+import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../../shared/timeouts";
 
 vi.mock("../biophysicalService", () => ({
   fetchBiophysicalAnalysis: vi.fn().mockResolvedValue({
@@ -26,8 +28,7 @@ vi.mock("../narrativeService", () => ({
   generateClinicalNarrative: vi.fn().mockResolvedValue(undefined)
 }));
 
-describe("workflowOrchestrator", () => {
-  const createMockSinks = () => ({
+const createMockSinks = () => ({
     search: {
       setGene: vi.fn(),
       setVariant: vi.fn(),
@@ -69,8 +70,9 @@ describe("workflowOrchestrator", () => {
       setCustomPdbUrl: vi.fn(),
       setIsStructureLoading: vi.fn()
     }
-  });
+});
 
+describe("workflowOrchestrator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     variantCache.clearClientVariantCache();
@@ -183,5 +185,133 @@ describe("workflowOrchestrator", () => {
     });
 
     expect(sinks.analysis.setIsBiophysicalLoading).toHaveBeenCalledWith(false);
+  });
+});
+
+/**
+ * The backfill gate decides whether revisiting a variant spends minutes of compute.
+ *
+ * The predicate it replaced was permanently true in any deployment without the Python sidecar
+ * (`foldingEnergetics.stabilityoracle == null` can never be satisfied), so every visit re-ran the
+ * full FoldX pipeline and the watchdog then stamped a fresh failure onto a good cached snapshot.
+ * These tests pin the three replacement rules.
+ */
+describe("workflowOrchestrator biophysics backfill gate", () => {
+  const COMPLETE_ANALYSIS = {
+    analysis: "Cached report",
+    isFallback: false,
+    metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
+    clinvar: { classification: "Pathogenic" },
+    predictorData: { revel: 0.88 }
+  };
+
+  const HEALTHY_SNAPSHOT = {
+    analysisResult: COMPLETE_ANALYSIS,
+    pdbText: "ATOM CA ...",
+    mutantPdb: "ATOM CA ...",
+    foldingStatus: "success",
+    foldingDdG: 2.1,
+    // StabilityOracle is null because the sidecar is absent — NOT because the snapshot is stale.
+    foldingEnergetics: { foldx: 2.1, dynamut2: -0.5, stabilityoracle: null }
+  };
+
+  async function runWithCache(bundle: Record<string, unknown>) {
+    const sinks = createMockSinks();
+    variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", bundle);
+    await executeFullAnalysisWorkflow({
+      targetGeneArg: "PAH",
+      targetVariantArg: "p.Arg408Trp",
+      targetUniprotArg: "P00439",
+      options: {
+        fetchWithAuth: vi.fn(),
+        apiClient: {},
+        settings: { biophysicsConditions: {} },
+        userDirections: "",
+        sinks: sinks as any
+      },
+      activeSignal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      getTraceContext: () => ({ activeTraceId: "t1", traceStart: 0, addTraceSpan: vi.fn() }),
+      fetchHomologs: vi.fn(),
+      fetchPocketData: vi.fn(),
+      mutantFoldAbortRef: { current: null }
+    });
+    return sinks;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    variantCache.clearClientVariantCache();
+  });
+
+  it("does NOT re-run FoldX when a healthy snapshot only lacks an unavailable engine", async () => {
+    await runWithCache(HEALTHY_SNAPSHOT);
+    expect(executeFoldxPipeline).not.toHaveBeenCalled();
+  });
+
+  it("does NOT retry a structurally impossible failure (repair failed)", async () => {
+    await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      foldingStatus: "failed",
+      foldingDdG: null,
+      foldingEnergetics: { foldx: null, foldxRepairFailed: true, stabilityoracle: null },
+      biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS * 2
+    });
+    expect(executeFoldxPipeline).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits a retryable failure instead of re-running on every visit", async () => {
+    const bundle = {
+      ...HEALTHY_SNAPSHOT,
+      foldingStatus: "failed",
+      biophysicsAttemptedAt: Date.now() - 1000
+    };
+    await runWithCache(bundle);
+    expect(executeFoldxPipeline).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient failure once the cooldown has elapsed", async () => {
+    await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      foldingStatus: "failed",
+      biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000
+    });
+    expect(executeFoldxPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("still backfills a snapshot that is genuinely missing its structure", async () => {
+    await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      mutantPdb: null,
+      biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS * 2
+    });
+    expect(executeFoldxPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores a pending engine as pending only when a job id can still resolve it", async () => {
+    const sinks = await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      // DDMut has no score yet but does have an id, so its poller can still report the outcome.
+      ddmutStatus: "pending",
+      ddmutJobId: "ddm-live-1",
+      // ThermoMPNN has neither, so nothing can ever resolve it.
+      thermompnnStatus: "pending",
+      thermompnnJobId: null
+    });
+
+    expect(sinks.biophysical.setDdmutStatus).toHaveBeenCalledWith("pending");
+    expect(sinks.biophysical.setThermompnnStatus).toHaveBeenCalledWith("unavailable");
+  });
+
+  it("keeps a restored engine with a score as done, whatever its status says", async () => {
+    const sinks = await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      dynamut2Status: "pending",
+      dynamut2JobId: null
+    });
+
+    // A value that exists outranks a stale lifecycle status (and a missing id).
+    expect(sinks.biophysical.setDynamut2Status).toHaveBeenCalledWith("done");
   });
 });

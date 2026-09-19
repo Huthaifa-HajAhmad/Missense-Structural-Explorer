@@ -4,6 +4,7 @@ import fs from "fs";
 import { execFile } from "child_process";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
+import { CONFIG } from "../../../config.ts";
 import { Semaphore } from "../../../utils.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
@@ -164,7 +165,9 @@ export async function generateMutantPdbInternal(
   signal?: AbortSignal,
   options?: FoldxOptions
 ): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
-  await biophysicalSemaphore.acquire(120000, signal);
+  // Waiting for a concurrency slot is part of the job's wall-clock cost, so it is budgeted here
+  // and counted against the queue's whole-job cap (see CONFIG.timeouts).
+  await biophysicalSemaphore.acquire(CONFIG.timeouts.foldxSemaphoreWaitMs, signal);
   try {
   const fullWtPath = path.join(jobDir, "wt.pdb");
   const fullMutPath = path.join(jobDir, "individual_list.txt");
@@ -324,7 +327,7 @@ export async function generateMutantPdbInternal(
           "--pdb=wt.pdb",
           ...extraArgs
         ], {
-          timeout: 300000,   // 5 min — RepairPDB on large chains (~350 res) routinely takes >60s
+          timeout: CONFIG.timeouts.foldxRepairMs,   // counted against the queue's whole-job cap
           cwd: jobDir,
           signal
         });
@@ -363,7 +366,7 @@ export async function generateMutantPdbInternal(
         "--numberOfRuns=5",
         ...extraArgs
       ], {
-        timeout: 300000,   // 5 min — BuildModel 5 runs on large chains (~400 res) under Box64 emulation takes ~2-3 min
+        timeout: CONFIG.timeouts.foldxBuildModelMs,   // counted against the queue's whole-job cap
         cwd: jobDir,
         signal
       });
@@ -421,7 +424,7 @@ export async function generateMutantPdbInternal(
           "--mutant-file=individual_list.txt",
           "--numberOfRuns=5",
           ...extraArgs
-        ], { timeout: 120000, cwd: jobDir, signal });
+        ], { timeout: CONFIG.timeouts.foldxBuildModelRetryMs, cwd: jobDir, signal });
 
         // Check BuildModel output files
         let foldxOutPdb2 = path.join(jobDir, "wt_1_0.pdb");

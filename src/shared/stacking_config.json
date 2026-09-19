@@ -15,7 +15,7 @@
       "foldx": "1.2 - Physical force field baseline with rotamer repacking; sensitive to backbone strain",
       "dynamut2": "1.0 - Normal mode analysis + graph neural network ensemble; secondary validation",
       "ddmut": "1.0 - Deep learning 3D CNN on atomic density; complementary feature space",
-      "rasp": "1.5 - Rosetta-derived 3D neural network pre-computed on Zenodo; high local consistency",
+      "rasp": "1.5 - Rosetta-derived 3D neural network precomputed over a curated set (1,345 proteins / 8.3 M variants, not the whole proteome); high local consistency where covered",
       "thermompnn": "2.0 - ProteinMPNN backbone-conditioned neural sequence model; highest single-model precision on DMS",
       "stabilityoracle": "1.8 - 3D SiameseGraphormer evaluating wildtype vs mutant; strong thermodynamic generalization"
     }

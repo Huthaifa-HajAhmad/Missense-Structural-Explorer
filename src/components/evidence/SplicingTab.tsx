@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { THRESHOLDS } from "../../shared/thresholds";
+import { buildEngineOutcomes } from "../../shared/engineStatus";
 import { deriveSplicingEvidence, LOADING_BADGE } from "../../shared/splicingEvidence.ts";
 
 /**
@@ -59,16 +60,43 @@ function SplicingTabComponent({
   const revelScore = result?.conservationData?.revel ?? null;
 
   /**
+   * Canonical per-engine outcomes for the protein arm, from the shared engine contract, so this
+   * surface applies each engine's own calibrated cut-points instead of hand-written comparisons.
+   */
+  const proteinEngineOutcomes = useMemo(() => {
+    const energetics = result?.foldingEnergetics as any;
+    return buildEngineOutcomes({
+      foldxDdg: energetics?.foldx ?? null,
+      foldxMean: energetics?.foldxMean ?? null,
+      dynamut2: energetics?.dynamut2 ?? null,
+      ddmut: energetics?.ddmut ?? null,
+      rasp: energetics?.rasp ?? null,
+      thermompnn: energetics?.thermompnn ?? null,
+      stabilityoracle: energetics?.stabilityoracle ?? null,
+      foldxRepairFailed: energetics?.foldxRepairFailed ?? false,
+      foldxBinaryMissing: energetics?.foldxBinaryMissing ?? false,
+    });
+  }, [result]);
+
+  /**
    * True when the protein arm carries destabilization evidence. Single definition,
    * consumed by both the etiology verdict and the Protein Tertiary Misfolding card.
+   *
+   * Each engine is judged on its OWN calibrated cut-points via the shared engine contract. The
+   * previous fourth clause compared `consensusVerdict` against the literal `"destabilizing"`,
+   * which `computeCalibratedConsensus` can never return (it returns "… Misfolding Risk (…)"), so
+   * the clause was dead: a variant whose only evidence was a strongly destabilizing prediction
+   * from DynaMut2/DDMut/RaSP/ThermoMPNN/StabilityOracle was reported as "Thermodynamically
+   * Tolerated" — the opposite of its evidence. `consensusVerdict.guard.test.ts` now rejects any
+   * comparison against a string the consensus cannot produce.
    */
   const isProteinDestabilized = useMemo(
     () =>
       (foldxVal !== null && foldxVal >= THRESHOLDS.foldxDdG.destabilizingStrong) ||
       (alphamissenseScore !== null && alphamissenseScore >= THRESHOLDS.alphaMissense.pathogenicSupporting) ||
       (revelScore !== null && revelScore >= THRESHOLDS.revel.pathogenicSupporting) ||
-      result?.foldingEnergetics?.consensusVerdict === "destabilizing",
-    [foldxVal, alphamissenseScore, revelScore, result]
+      proteinEngineOutcomes.some(outcome => outcome.contributesToConsensus && outcome.risk?.id === "high"),
+    [foldxVal, alphamissenseScore, revelScore, proteinEngineOutcomes]
   );
 
   /**

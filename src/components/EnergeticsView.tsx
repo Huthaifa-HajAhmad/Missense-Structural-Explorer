@@ -1,17 +1,27 @@
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { 
   Activity, 
-  ShieldAlert, 
   Info,
   ExternalLink,
   Circle,
-  CheckCircle2,
   Database,
   FlaskConical
 } from "lucide-react";
 import { AnalysisState, EnergeticsData, StructureProvenance } from "../types";
 import { useSettings } from "../context/SettingsContext";
-import { THRESHOLDS, computeCalibratedConsensus, calibrateRawScore } from "../shared/thresholds";
+import { computeCalibratedConsensus, calibrateRawScore } from "../shared/thresholds";
+import {
+  buildEngineOutcomes,
+  describeCoverage,
+  describeProvenance,
+  formatDdg,
+  formatDdgPair,
+  summarizeCoverage,
+  type EnergyEngineId,
+  type EngineOutcome,
+  type EngineTone,
+  type ProvenanceSource,
+} from "../shared/engineStatus";
 
 interface EnergeticsViewProps {
   isDark: boolean;
@@ -119,7 +129,7 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
 };
 
 interface SimulationProgressBannerProps {
-  onSkipSlowPredictors: () => void;
+  onHidePendingEngines: () => void;
 }
 
 const getSimulationStage = (elapsed: number) => {
@@ -130,7 +140,7 @@ const getSimulationStage = (elapsed: number) => {
 };
 
 const SimulationProgressBanner = memo(function SimulationProgressBanner({
-  onSkipSlowPredictors
+  onHidePendingEngines
 }: SimulationProgressBannerProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -151,7 +161,7 @@ const SimulationProgressBanner = memo(function SimulationProgressBanner({
   ];
 
   return (
-    <div className="p-4 rounded-xl border space-y-3 animate-fade-in" style={{ background: "rgba(196,104,73,0.06)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
+    <div className="p-4 rounded-xl border space-y-3 animate-fade-in" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-bold text-xs uppercase flex items-center gap-2">
           <Activity className="w-4 h-4 shrink-0 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
@@ -159,15 +169,21 @@ const SimulationProgressBanner = memo(function SimulationProgressBanner({
         </div>
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-accent-clay)" }}>
-            Elapsed: {elapsedSeconds}s (typical: 45–75s)
+            Elapsed: {elapsedSeconds}s
           </span>
           {elapsedSeconds >= 45 && (
             <button
               type="button"
-              onClick={onSkipSlowPredictors}
-              className="text-[11px] px-2.5 py-1 rounded-md font-semibold border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer"
+              onClick={onHidePendingEngines}
+              title="Collapses the still-running rows so the settled results are easier to read. This does not cancel or skip any calculation."
+              className="text-[11px] px-2.5 py-1 rounded-md font-semibold border transition-colors cursor-pointer"
+              style={{
+                background: "var(--cs-bg-warning)",
+                borderColor: "var(--cs-border)",
+                color: "var(--cs-text-warning)",
+              }}
             >
-              Skip Slow Predictors
+              Hide pending engines
             </button>
           )}
         </div>
@@ -224,33 +240,42 @@ const EnergeticsView = memo(function EnergeticsView({
   foldingError = null
 }: EnergeticsViewProps) {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-  const [skippedSlowPredictors, setSkippedSlowPredictors] = useState(false);
-  const handleSkipSlowPredictors = useCallback(() => setSkippedSlowPredictors(true), []);
+  /**
+   * Presentation-only: collapses the rows of engines that are still running.
+   *
+   * This deliberately cannot change the engine count or the consensus framing. It previously
+   * could — the old "Skip Slow Predictors" control only relabelled rows as "Skipped by User"
+   * while the requests kept running, and it removed those engines from the pending list, so
+   * clicking a button that did nothing changed the reported method count.
+   */
+  const [hidePendingEngines, setHidePendingEngines] = useState(false);
+  const handleHidePendingEngines = useCallback(() => setHidePendingEngines(true), []);
   const { settings } = useSettings();
   const energyUnit = settings.energyUnit;
   const result = analysisState.result;
 
-  const formatDdGValue = (val: number | null, unit: "kcal/mol" | "kJ/mol") => {
-    if (val === null || val === undefined) return "N/A";
-    if (unit === "kJ/mol") {
-      return `${(val * 4.184).toFixed(2)} kJ/mol`;
+  /**
+   * Severity → surface styling.
+   *
+   * Uses the theme's semantic tokens rather than raw palette classes. The previous hand-mixed
+   * amber/slate tints were fixed to the dark surface: they failed AA in light mode and the
+   * gauge vanished entirely in dark. `--cs-text-danger-on-soft` is the token the stylesheet
+   * documents for text on a danger tint.
+   */
+  const toneBadgeClass = (tone: EngineTone) => {
+    switch (tone) {
+      case "good":
+        return "bg-[var(--cs-bg-success)] text-[var(--cs-text-success)] border border-[var(--cs-border)]";
+      case "warn":
+        return "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-[var(--cs-border)]";
+      case "danger":
+        return "bg-[var(--cs-bg-danger)] text-[var(--cs-text-danger-on-soft)] border border-[var(--cs-border)]";
+      case "muted":
+        return "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)]";
+      case "neutral":
+      default:
+        return "bg-[var(--cs-surface-2)] text-[var(--cs-text-secondary)] border border-[var(--cs-border)]";
     }
-    return `${val.toFixed(2)} kcal/mol`;
-  };
-
-  const getDdGBadge = (val: number | null) => {
-    if (val === null) return { label: "Not Computed", category: "Not Computed", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
-    const formatted = formatDdGValue(val, energyUnit);
-    if (val > 1.5) {
-      return { label: `+${formatted} (Highly Destabilizing)`, category: "Highly Destabilizing", style: "bg-[var(--cs-bg-danger)] text-[var(--cs-text-danger)] border border-rose-500/30 font-semibold" };
-    }
-    if (val > 0.5) {
-      return { label: `+${formatted} (Moderately Destabilizing)`, category: "Moderately Destabilizing", style: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-amber-500/30 font-semibold" };
-    }
-    if (val < -0.5) {
-      return { label: `${formatted} (Stabilizing)`, category: "Stabilizing", style: "bg-[var(--cs-bg-success)] text-[var(--cs-text-success)] border border-emerald-500/30 font-semibold" };
-    }
-    return { label: `${formatted} (Neutral)`, category: "Neutral", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-secondary)] border border-[var(--cs-border)] font-semibold" };
   };
 
   if (!result) {
@@ -274,11 +299,14 @@ const EnergeticsView = memo(function EnergeticsView({
   const residueIndex = result?.metadata?.residueIndex ?? 0;
   const foldxDdG = foldingEnergetics?.foldx ?? foldingDdG;
   const foldxMeanVal = foldingEnergetics?.foldxMean ?? foldingDdG;
-  const foldxSd = foldingEnergetics?.foldxSd ?? 0;
-  const vdw = foldingEnergetics?.vdw ?? 0;
-  const electrostatics = foldingEnergetics?.electrostatics ?? 0;
+  // Absent diagnostics stay `null`. They were previously coerced to 0, which made the FoldX row
+  // assert "± 0.00 kcal/mol" (perfect reproducibility across five runs) from data that was
+  // simply missing, and made "measured zero" indistinguishable from "not measured".
+  const foldxSd = foldingEnergetics?.foldxSd ?? null;
+  const vdw = foldingEnergetics?.vdw ?? null;
+  const electrostatics = foldingEnergetics?.electrostatics ?? null;
   const stericClashWarning = foldingEnergetics?.stericClashWarning ?? false;
-  const localSidechainRmsd = foldingEnergetics?.localSidechainRmsd ?? 0.0;
+  const localSidechainRmsd = foldingEnergetics?.localSidechainRmsd ?? null;
   const dynamut2 = foldingEnergetics?.dynamut2 ?? null;
   const ddmut = foldingEnergetics?.ddmut ?? null;
   const rasp = foldingEnergetics?.rasp ?? null;
@@ -318,6 +346,71 @@ const EnergeticsView = memo(function EnergeticsView({
     return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex, disruptionPredictor?.plddt);
   }, [energetics, uniprotFeatures, residueIndex, disruptionPredictor?.plddt]);
 
+  /**
+   * Canonical engine outcomes — the ONE place raw runtime facts become user-facing state.
+   *
+   * The interpretation itself lives in `buildEngineOutcomes` so the inspector renders from the
+   * same rules; this component only supplies the facts it already holds.
+   */
+  const engineOutcomes = useMemo(
+    () =>
+      buildEngineOutcomes({
+        foldxMean: foldxMeanVal,
+        foldxDdg: foldxDdG,
+        foldxSd,
+        dynamut2,
+        ddmut,
+        rasp,
+        thermompnn,
+        stabilityoracle,
+        dynamut2Status,
+        ddmutStatus,
+        thermompnnStatus,
+        raspReason,
+        thermompnnError,
+        foldingError,
+        foldingStatus,
+        foldxRepairFailed,
+        foldxBinaryMissing,
+        isFolding,
+        hidePending: hidePendingEngines,
+      }),
+    [
+      foldxMeanVal, foldxDdG, foldxSd, dynamut2, ddmut, rasp, thermompnn, stabilityoracle,
+      dynamut2Status, ddmutStatus, thermompnnStatus, raspReason, thermompnnError, foldingError,
+      foldingStatus, foldxRepairFailed, foldxBinaryMissing, isFolding, hidePendingEngines,
+    ]
+  );
+
+  /** Coverage is computed once, from the same outcomes the table renders. */
+  const coverage = useMemo(() => summarizeCoverage(engineOutcomes), [engineOutcomes]);
+
+  /** Engines still running — drives the "Calculating" note, from the same source as the table. */
+  const pendingToolNames = useMemo(
+    () =>
+      coverage.running
+        .map(id => engineOutcomes.find(o => o.id === id)?.engine.name)
+        .filter((name): name is string => Boolean(name)),
+    [coverage.running, engineOutcomes]
+  );
+
+  /**
+   * Raw provider values, keyed by engine.
+   *
+   * The calibration curves in `stacking_config.json` are fitted in each provider's NATIVE sign
+   * convention, so they must be fed the raw value — while every *display* goes through
+   * `formatDdg(canonicalDdg)`. Keeping both, explicitly named, is what stops the two conventions
+   * from leaking into each other again.
+   */
+  const rawByEngine: Record<EnergyEngineId, number | null | undefined> = {
+    foldx: foldxMeanVal ?? foldxDdG,
+    dynamut2,
+    ddmut,
+    rasp,
+    thermompnn,
+    stabilityoracle,
+  };
+
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full font-mono text-xs`} id="energetics-view" role="region" aria-label="Biophysical Energetics Analysis">
       <div className="px-5 py-5 border-b flex-shrink-0" style={{ borderColor: "var(--cs-border)" }}>
@@ -334,13 +427,17 @@ const EnergeticsView = memo(function EnergeticsView({
         {foldingEnergetics?.structureProvenance && !isFolding && (
           (() => {
             const prov: StructureProvenance = foldingEnergetics.structureProvenance!;
-            const isExperimental = prov.source === "experimental";
+            // Provenance labels come from the shared contract. Previously a `client-provided`
+            // structure fell through to "AlphaFold Prediction" — a false claim about the very
+            // template the FoldX number depends on.
+            const provView = describeProvenance(prov.source as ProvenanceSource, {
+              pdbId: prov.pdbId,
+              resolution: prov.resolution,
+              identity: prov.identity,
+            });
+            const isTemplate = provView.isTemplate;
             const isHomolog = prov.source === "homolog";
-            const label = isExperimental
-              ? "Experimental Structure"
-              : isHomolog
-              ? "Structural Homolog"
-              : "AlphaFold Prediction";
+            const label = provView.label;
             const methodClean = prov.method
               ? prov.method.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
               : null;
@@ -348,20 +445,20 @@ const EnergeticsView = memo(function EnergeticsView({
               <div
                 className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-lg border text-[10px] font-mono animate-fade-in"
                 style={{
-                  background: isExperimental || isHomolog
+                  background: isTemplate
                     ? "color-mix(in srgb, var(--cs-bg-success) 30%, transparent)"
                     : "var(--cs-surface-2)",
-                  borderColor: isExperimental || isHomolog
+                  borderColor: isTemplate
                     ? "color-mix(in srgb, var(--cs-text-success) 40%, transparent)"
                     : "var(--cs-border-subtle)"
                 }}
                 title="Structure template used for FoldX ΔΔG computation"
               >
-                {isExperimental || isHomolog
+                {isTemplate
                   ? <Database className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-success)" }} />
                   : <FlaskConical className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-muted)" }} />
                 }
-                <span className="font-bold" style={{ color: isExperimental || isHomolog ? "var(--cs-text-success)" : "var(--cs-text-muted)" }}>
+                <span className="font-bold" style={{ color: isTemplate ? "var(--cs-text-success)" : "var(--cs-text-muted)" }}>
                   {label}
                 </span>
                 {prov.pdbId && (
@@ -401,8 +498,8 @@ const EnergeticsView = memo(function EnergeticsView({
         )}
         {/* ─────────────────────────────────────────────────────────────────── */}
 
-        {isFolding && !skippedSlowPredictors && (
-          <SimulationProgressBanner onSkipSlowPredictors={handleSkipSlowPredictors} />
+        {isFolding && !hidePendingEngines && (
+          <SimulationProgressBanner onHidePendingEngines={handleHidePendingEngines} />
         )}
 
         <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
@@ -417,262 +514,154 @@ const EnergeticsView = memo(function EnergeticsView({
                 </tr>
               </thead>
               <tbody>
-                {(() => {
-                  const isFoldxPending = isFolding && energetics.foldxMean === null;
-                  const isDynamutPending = !skippedSlowPredictors && (
-                    dynamut2Status === "pending" || 
-                    (isFolding && energetics.dynamut2 === null && dynamut2Status !== "unavailable")
-                  );
-                  const isDdmutPending = !skippedSlowPredictors && (
-                    ddmutStatus === "pending" || 
-                    (isFolding && energetics.ddmut === null && ddmutStatus !== "unavailable")
-                  );
-                  const isThermompnnPending = (
-                    thermompnnStatus === "pending" || 
-                    (isFolding && energetics.thermompnn === null && thermompnnStatus !== "unavailable" && thermompnnStatus !== "error")
-                  );
-                  const isStabilityOraclePending = isFolding && energetics.stabilityoracle === null;
+                {engineOutcomes.map((outcome, idx) => {
+                  // ONE value string per engine, from ONE formatter in ONE sign convention.
+                  // The table previously negated DynaMut2/DDMut while the breakdown panel below
+                  // printed the raw sign, so one number appeared as both +0.09 and −0.09.
+                  const sd = outcome.id === "foldx" ? foldxSd : null;
+                  const valueText =
+                    outcome.canonicalDdg === null
+                      ? "—"
+                      : formatDdgPair(outcome.canonicalDdg, sd, energyUnit);
 
-                  const items = [
-                    { key: "foldx", name: "FoldX (Mean ± SD)", type: "Force Field Repacking (5 runs)", val: energetics.foldxMean, invertSign: false, isPending: isFoldxPending },
-                    { key: "dynamut2", name: "DynaMut2", type: "Normal Mode Analysis / ML", val: energetics.dynamut2, invertSign: true, isPending: isDynamutPending },
-                    { key: "ddmut", name: "DDMut (Deep Learning)", type: "Graph Deep Learning / Transformers", val: energetics.ddmut, invertSign: true, isPending: isDdmutPending },
-                    { key: "rasp", name: "RaSP", type: "ESM-IF1 Structural Embeddings / MLP", val: energetics.rasp, invertSign: false, isPending: false },
-                    { key: "thermompnn", name: "ThermoMPNN", type: "ProteinMPNN Embeddings / Deep Learning", val: energetics.thermompnn, invertSign: false, isPending: isThermompnnPending },
-                    { key: "stabilityoracle", name: "StabilityOracle", type: "Graph-Transformer / Structure ML", val: energetics.stabilityoracle, invertSign: false, isPending: isStabilityOraclePending }
-                  ];
+                  const isComputed = outcome.state === "computed";
+                  /**
+                   * A value that is shown but not counted.
+                   *
+                   * FoldX retains its number after a failed repair for transparency, while the
+                   * consensus excludes it. That exclusion used to be invisible: the row showed a
+                   * danger-toned "Destabilizing" badge, the value was absent from the breakdown, and
+                   * nothing said why — so the reader was invited to act on a number the app had
+                   * already discarded.
+                   */
+                  const isExcluded = isComputed && !outcome.contributesToConsensus;
 
-                  return items.map((item, idx) => {
-                    let scoreText = "N/A";
-                    let badge: { label: string; category: string; style: string; tooltip?: string } = {
-                      label: "N/A",
-                      category: "N/A",
-                      style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold"
-                    };
+                  // Confidence is a separate note rather than a colour override: the old code
+                  // restyled "(Speculative)" in amber, making "Highly Destabilizing
+                  // (Speculative)" visually identical to "Moderately Destabilizing".
+                  const confidenceNote = isExcluded
+                    ? outcome.reason
+                    : isComputed
+                      ? disruptionPredictor?.plddt != null && disruptionPredictor.plddt < 70
+                        ? `Low template confidence (pLDDT ${disruptionPredictor.plddt.toFixed(1)})`
+                        : outcome.id === "foldx" && foldxRepairFailed
+                        ? "Repair phase failed"
+                        : null
+                      : outcome.reason;
 
-                    if (item.val !== null && item.val !== undefined) {
-                      if (item.name.includes("FoldX") && energetics.foldxSd !== null && energetics.foldxSd !== undefined) {
-                        const mean = energetics.foldxMean ?? energetics.foldx ?? 0;
-                        const sd = energetics.foldxSd;
-                        if (energyUnit === "kJ/mol") {
-                          scoreText = `${(mean * 4.184).toFixed(2)} ± ${(sd * 4.184).toFixed(2)} kJ/mol`;
-                        } else {
-                          scoreText = `${mean.toFixed(2)} ± ${sd.toFixed(2)} kcal/mol`;
-                        }
-                      } else {
-                        const displayVal = item.invertSign ? -item.val : item.val;
-                        scoreText = formatDdGValue(displayVal, energyUnit);
-                      }
-                      const badgeVal = item.invertSign ? -item.val : item.val;
-                      badge = getDdGBadge(badgeVal);
-                      if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70) {
-                        badge = {
-                          ...badge,
-                          category: `${badge.category} (Speculative)`,
-                          style: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-amber-500/30 font-semibold"
-                        };
-                      }
-                      if (item.key === "foldx" && energetics.foldxRepairFailed) {
-                        badge = {
-                          ...badge,
-                          category: `${badge.category} (Low Confidence - Repair Failed)`,
-                          style: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-amber-500/30 font-semibold"
-                        };
-                      }
-                    } else if (item.isPending) {
-                      scoreText = item.key === "dynamut2" 
-                        ? "Running NMA..." 
-                        : (item.key === "ddmut" 
-                            ? "Graph Embedding..." 
-                            : (item.key === "stabilityoracle"
-                                ? "3D Graphormer..."
-                                : "Simulating..."));
-                      badge = { 
-                        label: "In Progress", 
-                        category: "In Progress", 
-                        style: "bg-[var(--cs-surface-2)] text-[var(--cs-accent-clay)] border border-[var(--cs-border)] animate-pulse font-semibold",
-                        tooltip: `${item.name} prediction is currently running.`
-                      };
-                    } else if (skippedSlowPredictors && (item.key === "dynamut2" || item.key === "ddmut")) {
-                      scoreText = "Skipped";
-                      badge = { 
-                        label: "Skipped by User", 
-                        category: "Skipped", 
-                        style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
-                        tooltip: "Slow predictors skipped by user."
-                      };
-                    } else {
-                      scoreText = "—";
-                      if (item.key === "foldx" && energetics.foldxBinaryMissing) {
-                        badge = {
-                          label: "Standby",
-                          category: "Standby",
-                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold",
-                          tooltip: "FoldX binary not configured for this system environment."
-                        };
-                      } else if (item.key === "foldx" && (foldingStatus === "failed" || (energetics as any)?.foldxError || energetics.foldxRepairFailed)) {
-                        scoreText = "Failed";
-                        badge = {
-                          label: "Simulation Failed",
-                          category: "Simulation Failed",
-                          style: "bg-rose-500/10 text-rose-500 border border-rose-500/20 font-semibold",
-                          tooltip: "FoldX atomic force field minimization failed."
-                        };
-                      } else if (item.key === "rasp") {
-                        badge = { 
-                          label: "Not in Zenodo DB", 
-                          category: "Not in Zenodo DB", 
-                          style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold",
-                          tooltip: "Precomputed RaSP saturation mutagenesis profile not found in local Zenodo snapshot for this protein."
-                        };
-                      } else if (item.key === "dynamut2" && dynamut2Status === "unavailable") {
-                        badge = { 
-                          label: "Upstream Congested", 
-                          category: "Upstream Congested", 
-                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold",
-                          tooltip: "BioSig DynaMut2 server queue is currently congested (>5m timeout). Multi-method consensus automatically calibrates using remaining active engines."
-                        };
-                      } else if (item.key === "ddmut" && ddmutStatus === "unavailable") {
-                        badge = { 
-                          label: "Upstream Congested", 
-                          category: "Upstream Congested", 
-                          style: "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold",
-                          tooltip: "BioSig DDMut GPU worker queue at Univ. of Queensland is currently congested (>5m timeout). Multi-method consensus automatically calibrates using remaining active engines."
-                        };
-                      } else if (item.key === "thermompnn") {
-                        if (thermompnnStatus === "error") {
-                          if (thermompnnError && /warming|starting|initializing/i.test(thermompnnError)) {
-                            scoreText = "Warming Up";
-                            badge = { 
-                              label: "Initializing", 
-                              category: "Initializing", 
-                              style: "bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold animate-pulse",
-                              tooltip: "Local VESM-150M neural sidecar model weights are warming up."
-                            };
-                          } else {
-                            badge = { 
-                              label: "Standby", 
-                              category: "Standby", 
-                              style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
-                              tooltip: typeof thermompnnError === "string" ? thermompnnError.slice(0, 150) : "ThermoMPNN neural sidecar is in standby."
-                            };
-                          }
-                        } else if (thermompnnStatus === "unavailable") {
-                          badge = { 
-                            label: "Standby", 
-                            category: "Standby", 
-                            style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold",
-                            tooltip: "ThermoMPNN service is currently unavailable."
-                          };
-                        } else {
-                          badge = { label: "Standby", category: "Standby", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
-                        }
-                      } else if (item.key === "stabilityoracle") {
-                        badge = {
-                          label: "Standby",
-                          category: "Standby",
-                          style: "bg-slate-500/10 text-slate-400 border border-slate-500/20 font-semibold"
-                        };
-                      } else {
-                        badge = { label: "Standby", category: "Standby", style: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)] font-semibold" };
-                      }
-                    }
+                  const badgeTone: EngineTone = isExcluded
+                    ? "muted"
+                    : isComputed
+                      ? outcome.risk?.severity ?? "neutral"
+                      : outcome.tone;
+                  const badgeLabel = isExcluded
+                    ? "Not counted"
+                    : isComputed
+                      ? outcome.risk?.label ?? "—"
+                      : outcome.label;
 
-                    return (
-                      <tr key={item.key} className="hover:bg-[var(--cs-bg-subtle)] transition-colors animate-fade-in" style={{ color: "var(--cs-text-primary)", borderBottom: idx < items.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
-                        <td className="p-3 px-4 font-semibold text-[12px] text-left w-1/4 border-r border-[var(--cs-border-subtle)]">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedMetric(item.key)}
-                            className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 focus:outline-none w-full"
-                          >
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span style={{ color: "var(--cs-text-primary)" }}>{item.name}</span>
-                            </div>
-                            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          </button>
-                        </td>
-                        <td className="p-3 px-4 text-[12px] text-center w-[35%] border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>{item.type}</td>
-                        <td className="p-3 px-4 text-center font-mono text-[12px] w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>{scoreText}</td>
-                        <td className="p-3 px-4 text-center w-[15%]">
-                          <div className="flex justify-center">
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded-lg border ${badge.style}`}
-                              title={badge.tooltip}
-                            >
-                              {badge.category}
-                            </span>
+                  return (
+                    <tr key={outcome.id} className="hover:bg-[var(--cs-bg-subtle)] transition-colors animate-fade-in" style={{ color: "var(--cs-text-primary)", borderBottom: idx < engineOutcomes.length - 1 ? "1px solid var(--cs-border-subtle)" : "none" }}>
+                      <td className="p-3 px-4 font-semibold text-[12px] text-left w-1/4 border-r border-[var(--cs-border-subtle)]">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMetric(outcome.id)}
+                          aria-haspopup="dialog"
+                          aria-label={`Explain the ${outcome.engine.name} method`}
+                          className="hover:underline cursor-pointer text-left font-bold flex items-center gap-1.5 w-full rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span style={{ color: "var(--cs-text-primary)" }}>{outcome.engine.name}</span>
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  });
-                })()}
+                          <Info className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-muted)" }} />
+                        </button>
+                      </td>
+                      <td className="p-3 px-4 text-[12px] text-center w-[30%] border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>{outcome.engine.taxonomy}</td>
+                      <td className="p-3 px-4 text-center font-mono text-[12px] tabular-nums w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-primary)" }}>{valueText}</td>
+                      <td className="p-3 px-4 text-center w-[20%]">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-lg border font-semibold ${outcome.state === "running" ? "animate-pulse" : ""} ${toneBadgeClass(badgeTone)}`}
+                            title={[badgeLabel, confidenceNote, outcome.detail].filter(Boolean).join(" — ")}
+                          >
+                            {badgeLabel}
+                          </span>
+                          {confidenceNote && (
+                            <span className="text-[9px] leading-tight" style={{ color: "var(--cs-text-muted)" }}>
+                              {confidenceNote}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
         <p className="text-[10px] text-cs-text-muted mt-1.5 px-1 font-mono">
-          * All stability values normalized: positive ΔΔG = destabilizing, negative ΔΔG = stabilizing.
+          * Values are shown in one normalised convention: positive ΔΔG = destabilizing, negative = stabilizing. Each engine is classified using its own calibrated cut-points, not FoldX&rsquo;s.
         </p>
       </div>
 
-        {/* Extended Biophysical Details & Consensus Verdict */}
-        {(energetics.foldxMean !== null || energetics.dynamut2 !== null || energetics.ddmut !== null || energetics.rasp !== null || energetics.thermompnn !== null || energetics.stabilityoracle !== null) && (
-          <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
+        {/* Consensus verdict and per-engine breakdown.
+            Always rendered: this block was previously hidden when all six engines were null,
+            leaving the tab with no explanation at all in precisely the case that needed one. */}
+        <div className="p-3.5 rounded-lg border space-y-3.5" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
 
             {(() => {
-              const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
-              const foldxMean = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx);
-              const dynamut2 = energetics.dynamut2;
-              const ddmut = energetics.ddmut;
-              const rasp = energetics.rasp;
-              const thermompnn = energetics.thermompnn;
-              const stabilityoracle = energetics.stabilityoracle;
+              const hasValidConsensus = calConsensus.consensusProbability !== null;
 
-              const activeToolsCount = [foldxMean, dynamut2, ddmut, rasp, thermompnn, stabilityoracle].filter(v => v !== null).length;
-
-              let styleClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+              /**
+               * Verdict tone.
+               *
+               * The default was confident emerald, which a single-tool estimate inherited — the
+               * most misleading pixel on the screen. Coverage now participates: a "low risk"
+               * verdict that rests on fewer than MIN_ENGINES_FOR_CONSENSUS engines is rendered
+               * as provisional (dashed, warning-toned) rather than as an all-clear.
+               */
+              let styleClass = "bg-[var(--cs-bg-success)] text-[var(--cs-text-success)] border border-[var(--cs-border)]";
               if (calConsensus.consensusVerdict.includes("Insufficient")) {
-                styleClass = "bg-slate-500/10 text-slate-400 border border-slate-500/20";
+                styleClass = "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)]";
               } else if (calConsensus.consensusVerdict.includes("High")) {
-                styleClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold";
-              } else if (calConsensus.consensusVerdict.includes("Moderate") || calConsensus.consensusVerdict.includes("Elevated")) {
-                styleClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold";
+                styleClass = "bg-[var(--cs-bg-danger)] text-[var(--cs-text-danger-on-soft)] border border-[var(--cs-border)] font-bold";
+              } else if (
+                calConsensus.consensusVerdict.includes("Moderate") ||
+                calConsensus.consensusVerdict.includes("Elevated") ||
+                coverage.insufficient
+              ) {
+                styleClass = "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-dashed border-[var(--cs-border)]";
               }
 
-              const hasValidConsensus = calConsensus.consensusProbability !== null;
               const pPercent = hasValidConsensus ? Math.round(calConsensus.consensusProbability! * 100) : 0;
               const minPercent = calConsensus.consensusConfMin !== null ? Math.round(calConsensus.consensusConfMin * 100) : 0;
               const maxPercent = calConsensus.consensusConfMax !== null ? Math.round(calConsensus.consensusConfMax * 100) : 0;
 
               let detailText = "Variant consensus exhibits neutral biophysical stability.";
               if (calConsensus.consensusVerdict.includes("Insufficient")) {
-                detailText = "Insufficient biophysical data to compute a destabilization consensus. No valid predictor models have evaluated.";
+                detailText = "Insufficient biophysical data to compute a destabilization consensus.";
               } else if (calConsensus.consensusVerdict.includes("High")) {
                 detailText = "Calibrated consensus indicates high probability of protein destabilization.";
-              } else if (calConsensus.consensusVerdict.includes("Moderate") || calConsensus.consensusVerdict.includes("Elevated")) {
+              } else if (
+                calConsensus.consensusVerdict.includes("Moderate") ||
+                calConsensus.consensusVerdict.includes("Elevated")
+              ) {
                 detailText = "Moderate or elevated destabilization prediction warrants clinical attention.";
               }
 
-              if (disruptionPredictor?.plddt !== undefined && disruptionPredictor.plddt !== null && disruptionPredictor.plddt < 70 && activeToolsCount > 0) {
-                detailText = `${detailText} WARNING: Low template confidence (pLDDT < 70) at this position; predictions are speculative.`;
+              if (disruptionPredictor?.plddt != null && disruptionPredictor.plddt < 70 && coverage.computed > 0) {
+                detailText = `${detailText} Low template confidence (pLDDT ${disruptionPredictor.plddt.toFixed(1)}) at this position; predictions are speculative.`;
               }
-
-              const pendingTools: string[] = [];
-              if (!skippedSlowPredictors) {
-                if (dynamut2Status === "pending") pendingTools.push("DynaMut2");
-                if (ddmutStatus === "pending") pendingTools.push("DDMut");
-              }
-              if (thermompnnStatus === "pending") pendingTools.push("ThermoMPNN");
 
               return (
                 <div className="flex flex-col gap-3 border-b pb-4 animate-fade-in" style={{ borderColor: "var(--cs-border-subtle)" }}>
                   <div className="flex items-center justify-between flex-wrap gap-1.5">
                     <span className="text-[10px] font-bold uppercase tracking-wider font-mono flex items-center gap-1.5" style={{ color: "var(--cs-text-muted)" }}>
-                      <span>{activeToolsCount}-Method Calibrated Consensus</span>
-                      {pendingTools.length > 0 && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold tracking-normal normal-case">
-                          Preliminary — Calculating: {pendingTools.join(", ")}
+                      {/* The number of engines is part of the headline, not a footnote. */}
+                      <span>Calibrated Consensus — {coverage.label}</span>
+                      {coverage.running.length > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-[var(--cs-border)] font-semibold tracking-normal normal-case">
+                          Calculating: {pendingToolNames.join(", ")}
                         </span>
                       )}
                     </span>
@@ -681,18 +670,25 @@ const EnergeticsView = memo(function EnergeticsView({
                     </span>
                   </div>
 
-                  {activeToolsCount > 0 && hasValidConsensus ? (
+                  {coverage.computed > 0 && hasValidConsensus ? (
                     <div className="space-y-3 mt-1 pl-2">
                       <div className="flex justify-between items-center text-[10px] font-mono">
                         <span style={{ color: "var(--cs-text-secondary)" }}>Calibrated Probability of Destabilization:</span>
                         <span className="font-bold text-[var(--cs-accent-clay)]">{pPercent}%</span>
                       </div>
-                      
+
                       {/* Gauge Bar */}
-                      <div className="relative w-full h-3 rounded-full bg-slate-800/80 border border-slate-700/50 overflow-visible">
+                      <div
+                        className="relative w-full h-3 rounded-full bg-[var(--cs-surface-2)] border border-[var(--cs-border)] overflow-visible"
+                        role="meter"
+                        aria-valuenow={pPercent}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label="Calibrated probability of destabilization"
+                      >
                         {/* Conformal range band */}
                         <div 
-                          className="absolute h-full rounded-full opacity-35 bg-amber-500"
+                          className="absolute h-full rounded-full opacity-35 bg-[var(--cs-accent-clay)]"
                           style={{
                             left: `${minPercent}%`,
                             width: `${Math.max(2, maxPercent - minPercent)}%`
@@ -708,17 +704,21 @@ const EnergeticsView = memo(function EnergeticsView({
                       </div>
 
                       {/* Conformal Interval Details */}
-                      <div className="flex justify-between items-center text-[9px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
+                      <div className="flex justify-between items-center text-[10px] font-mono" style={{ color: "var(--cs-text-muted)" }}>
                         <span>90% Conformal Prediction Interval:</span>
                         <span>[{minPercent}% – {maxPercent}%]</span>
                       </div>
-                      <p className="text-[10px] leading-relaxed mt-1" style={{ color: "var(--cs-text-secondary)" }}>
+                      {/* Coverage is stated in words as well as in the header count. */}
+                      <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                        {describeCoverage(coverage)}
+                      </p>
+                      <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
                         {detailText}
                       </p>
                     </div>
                   ) : (
-                    <p className="text-[10px] italic text-slate-400">
-                      Biophysical predictions are currently processing or unavailable.
+                    <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
+                      No engine has returned a value yet.
                     </p>
                   )}
                 </div>
@@ -730,49 +730,53 @@ const EnergeticsView = memo(function EnergeticsView({
                 Calibrated Tool Breakdown:
               </span>
               {(() => {
-                const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
-                const foldxMean = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx);
-                const dynamut2 = energetics.dynamut2;
-                const ddmut = energetics.ddmut;
-                const rasp = energetics.rasp;
-                const thermompnn = energetics.thermompnn;
-                const stabilityoracle = energetics.stabilityoracle;
+                /**
+                 * Calibration curves are fitted in each provider's NATIVE sign convention, so the
+                 * raw value drives the probability while the canonical value drives the display.
+                 * This panel previously printed the raw sign while the table above negated it, so
+                 * the same measurement appeared as both −0.09 and +0.09 on one card.
+                 */
+                const rows = engineOutcomes
+                  .filter(o => o.contributesToConsensus && o.canonicalDdg !== null)
+                  .map(o => {
+                    const raw = rawByEngine[o.id] ?? null;
+                    const cal = raw === null ? null : calibrateRawScore(o.id, raw);
+                    return cal ? { outcome: o, cal } : null;
+                  })
+                  .filter((row): row is { outcome: EngineOutcome; cal: NonNullable<ReturnType<typeof calibrateRawScore>> } => row !== null);
 
-                const toolsList = [
-                  { name: "FoldX (Ensemble ddG)", val: foldxMean, key: "foldx" as const },
-                  { name: "StabilityOracle (Structure ML)", val: stabilityoracle, key: "stabilityoracle" as const },
-                  { name: "DynaMut2 (Normal Mode Analysis)", val: dynamut2, key: "dynamut2" as const },
-                  { name: "DDMut (Deep Learning)", val: ddmut, key: "ddmut" as const },
-                  { name: "RaSP (Rapid ddG)", val: rasp, key: "rasp" as const },
-                  { name: "ThermoMPNN (Language Model)", val: thermompnn, key: "thermompnn" as const }
-                ];
-
-                return toolsList.map(t => {
-                  if (t.val === null) return null;
-                  const cal = calibrateRawScore(t.key, t.val);
-                  if (!cal) return null;
-                  const prob = Math.round(cal.p * 100);
-                  const lower = Math.round(cal.lower * 100);
-                  const upper = Math.round(cal.upper * 100);
-
+                if (rows.length === 0) {
                   return (
-                    <div key={t.key} className="flex justify-between items-center text-[10px] font-mono py-1.5 border-b border-dashed" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
-                      <span style={{ color: "var(--cs-text-secondary)" }}>{t.name}:</span>
-                      <div className="flex gap-2">
-                        <span className="font-bold" style={{ color: "var(--cs-text-primary)" }}>{formatDdGValue(t.val, energyUnit)}</span>
-                        <span className="text-slate-400">| P: {prob}% [{lower}%–{upper}%]</span>
-                      </div>
-                    </div>
+                    <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
+                      No calibrated per-engine probabilities are available for this run.
+                    </p>
                   );
-                });
+                }
+
+                return rows.map(({ outcome, cal }) => (
+                  <div
+                    key={outcome.id}
+                    className="flex justify-between items-center text-[10px] font-mono py-1.5 border-b border-dashed"
+                    style={{ borderColor: "var(--cs-border-subtle)" }}
+                  >
+                    <span style={{ color: "var(--cs-text-secondary)" }}>{outcome.engine.name}:</span>
+                    <div className="flex gap-2">
+                      <span className="font-bold" style={{ color: "var(--cs-text-primary)" }}>
+                        {formatDdg(outcome.canonicalDdg, energyUnit)}
+                      </span>
+                      <span style={{ color: "var(--cs-text-muted)" }}>
+                        | P: {Math.round(cal.p * 100)}% [{Math.round(cal.lower * 100)}%–{Math.round(cal.upper * 100)}%]
+                      </span>
+                    </div>
+                  </div>
+                ));
               })()}
             </div>
 
-          </div>
-        )}
+        </div>
 
         <div className="text-[9px] p-2.5 rounded border italic" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
-          * Multi-method calibrated consensus integrates physics-based force fields (FoldX), normal mode dynamics (DynaMut2), structural graph ML (StabilityOracle), deep learning (DDMut, RaSP), and language modeling (ThermoMPNN) with isotonic probability calibration.
+          * Calibrated consensus integrates physics-based force fields (FoldX), normal mode dynamics (DynaMut2), structural graph ML (StabilityOracle), deep learning (DDMut, RaSP), and language modeling (ThermoMPNN) with isotonic probability calibration. It is only as broadly supported as the number of engines that returned a value.
         </div>
       </div>
 

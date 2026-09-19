@@ -26,6 +26,12 @@ import crypto from "crypto";
 import { anySignal } from "../../utils.ts";
 import { DatabaseSync } from "node:sqlite";
 import { computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
+import {
+  verifyRaspIndex,
+  RASP_INDEX_SCHEMA_VERSION,
+  type RaspIndexMeta,
+  type RaspIndexVerdict
+} from "../../../src/shared/raspIndex.ts";
 import { CONFIG } from "../../config.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 
@@ -42,11 +48,126 @@ defaultCacheRegistry.registerCache("raspCache", raspCache, { ttlDesc: "none" });
  * These were frozen module constants pointing into the repository, which let
  * `energy-models.test.ts` overwrite the real 414 MB `data/df_rasp_gnomad_clinvar.csv` with a
  * five-line mock — restoring it only in `afterAll`, so any interrupt destroyed it for good.
+ *
+ * Exported deliberately: the diagnostics route must resolve the index through the SAME indirection.
+ * It previously joined `process.cwd()` itself, so it described a different file than the loader read
+ * — the developer's real index under test, and a divergent path in any deployment that overrides
+ * `RASP_SQLITE_PATH`.
  */
-const RASP_SQLITE_PATH = process.env.RASP_SQLITE_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
+export const RASP_SQLITE_PATH = process.env.RASP_SQLITE_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
 const RASP_CSV_PATH = process.env.RASP_CSV_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
 let raspSqliteDb: DatabaseSync | null = null;
 let raspSqliteChecked = false;
+
+/** Reads the counts an index actually contains. */
+function readRaspIndexCounts(db: DatabaseSync): { rows: number; proteins: number } {
+  const rows = (db.prepare("SELECT COUNT(*) AS c FROM rasp_variants").get() as any)?.c ?? 0;
+  const proteins = (db.prepare("SELECT COUNT(DISTINCT uniprot_id) AS c FROM rasp_variants").get() as any)?.c ?? 0;
+  return { rows: Number(rows), proteins: Number(proteins) };
+}
+
+/** Reads the index's own completeness record, or null when it has none. */
+function readRaspIndexMeta(db: DatabaseSync): RaspIndexMeta | null {
+  try {
+    const row = db.prepare(
+      "SELECT schema_version, rows, proteins, built_at FROM rasp_index_meta LIMIT 1"
+    ).get() as any;
+    if (!row) return null;
+    return {
+      schemaVersion: Number(row.schema_version),
+      rows: Number(row.rows),
+      proteins: Number(row.proteins),
+      builtAt: row.built_at ?? null
+    };
+  } catch {
+    // The table itself is missing: an index built by an older script.
+    return null;
+  }
+}
+
+/**
+ * Inspects an ALREADY-OPEN index and decides whether it can be trusted.
+ *
+ * The check it replaces was "bigger than 1 KB and has at least one row", which a truncated index
+ * satisfies exactly as well as a complete one — that is how a 6-protein prefix came to serve
+ * "no precomputed profile" for 1,339 covered proteins without anything failing.
+ */
+export function inspectRaspIndex(db: DatabaseSync): RaspIndexVerdict {
+  try {
+    return verifyRaspIndex(readRaspIndexCounts(db), readRaspIndexMeta(db));
+  } catch (err: any) {
+    return {
+      usable: false,
+      rows: 0,
+      proteins: 0,
+      meta: null,
+      reason: `the index could not be read (${err?.message ?? "unknown error"})`
+    };
+  }
+}
+
+/**
+ * A CHEAP verdict for a path, for the diagnostics route.
+ *
+ * Deliberately does **not** re-count the table. Verifying completeness means `COUNT(*)` plus
+ * `COUNT(DISTINCT uniprot_id)` over 8.3 M rows, which measured 0.42 s warm and exceeded 5 s cold —
+ * and this route is unauthenticated and on the request path, so doing that work per call blocks the
+ * event loop for every other request (the suite caught it as a 5 s timeout).
+ *
+ * The **loader** is the verifier: `getRaspSqliteDb` runs the full check once, expensively, and
+ * refuses an index that fails. This function reports what the index *records* about itself, plus the
+ * cheap facts a diagnostic needs (file present, table non-empty, schema version).
+ *
+ * `verified` distinguishes the two, so the diagnostics screen never presents a recorded count as a
+ * checked one.
+ */
+export function inspectRaspIndexFile(dbPath: string = RASP_SQLITE_PATH): RaspIndexVerdict {
+  if (!fs.existsSync(dbPath)) {
+    return { usable: false, rows: 0, proteins: 0, meta: null, reason: "the index file is not present" };
+  }
+  try {
+    const db = new DatabaseSync(dbPath, { open: true } as any);
+    try {
+      const meta = readRaspIndexMeta(db);
+      // O(1) existence probe: enough to tell "usable store" from "empty file".
+      const hasRow = Boolean(db.prepare("SELECT 1 AS one FROM rasp_variants LIMIT 1").get());
+      if (!hasRow) {
+        return { usable: false, rows: 0, proteins: 0, meta, reason: "the index contains no rows" };
+      }
+      if (!meta) {
+        return {
+          usable: false,
+          rows: 0,
+          proteins: 0,
+          meta: null,
+          reason:
+            "the index carries no completeness record, so a truncated index would be indistinguishable from a complete one"
+        };
+      }
+      if (meta.schemaVersion !== RASP_INDEX_SCHEMA_VERSION) {
+        return {
+          usable: false,
+          rows: meta.rows,
+          proteins: meta.proteins,
+          meta,
+          reason: `the index was built with schema v${meta.schemaVersion} but this build expects v${RASP_INDEX_SCHEMA_VERSION}`
+        };
+      }
+      // Reported as usable on the strength of its own record; the loader confirms it with a count.
+      return { usable: true, rows: meta.rows, proteins: meta.proteins, meta, verified: false };
+    } finally {
+      db.close();
+    }
+  } catch (err: any) {
+    return {
+      usable: false,
+      rows: 0,
+      proteins: 0,
+      meta: null,
+      reason: `the index could not be opened (${err?.message ?? "unknown error"})`
+    };
+  }
+}
 
 function getRaspSqliteDb(): DatabaseSync | null {
   if (raspSqliteChecked) return raspSqliteDb;
@@ -54,18 +175,28 @@ function getRaspSqliteDb(): DatabaseSync | null {
   try {
     const stat = fs.statSync(RASP_SQLITE_PATH);
     if (stat.size < 1024) return null; // placeholder / empty
+
     const db = new DatabaseSync(RASP_SQLITE_PATH, { open: true });
-    // Quick sanity check
-    const row = (db.prepare("SELECT count(*) as c FROM rasp_variants LIMIT 1").get as any)() as { c: number } | undefined;
-    if (!row || row.c === 0) {
+    const verdict = inspectRaspIndex(db);
+
+    if (!verdict.usable) {
       db.close();
-      console.warn("[RaSP SQLite] Database exists but is empty.");
+      console.warn(
+        `[RaSP SQLite] Rejecting the index at ${RASP_SQLITE_PATH}: ${verdict.reason}. ` +
+          `RaSP will report a database-unavailable miss until it is rebuilt (npm run migrate:rasp).`
+      );
       return null;
     }
+
     raspSqliteDb = db;
-    console.log(`[RaSP SQLite] Indexed database active (${(stat.size / 1024 / 1024).toFixed(1)} MB).`);
+    console.log(
+      `[RaSP SQLite] Index verified: ${verdict.rows.toLocaleString()} rows across ` +
+        `${verdict.proteins.toLocaleString()} proteins (schema v${verdict.meta?.schemaVersion}, ` +
+        `${(stat.size / 1024 / 1024).toFixed(1)} MB, built ${verdict.meta?.builtAt ?? "unknown"}).`
+    );
     return raspSqliteDb;
-  } catch {
+  } catch (err: any) {
+    console.warn(`[RaSP SQLite] Index unreadable: ${err?.message ?? "unknown error"}`);
     return null;
   }
 }
@@ -147,7 +278,10 @@ export async function initializeRaspDatabase(): Promise<void> {
   const { buildRaspSqliteDatabase } = await import("../../../scripts/build-rasp-sqlite.ts");
 
   if (fs.existsSync(RASP_CSV_PATH)) {
-    console.log("[RaSP] CSV found without SQLite index. Triggering automatic SQLite build...");
+    // Reached both when no index exists AND when one exists but failed verification (truncated,
+    // corrupt, or built by an older schema). The second case is the self-healing path that was
+    // missing: the loader used to accept a truncated index forever, so the rebuild never ran.
+    console.log("[RaSP] CSV present and no verified SQLite index. Rebuilding the index...");
     try {
       await buildRaspSqliteDatabase(RASP_CSV_PATH, RASP_SQLITE_PATH);
       raspSqliteChecked = false;
@@ -156,6 +290,11 @@ export async function initializeRaspDatabase(): Promise<void> {
     } catch (err: any) {
       console.error("[RaSP SQLite Migration Error]", err.message);
     }
+  } else if (fs.existsSync(RASP_SQLITE_PATH)) {
+    console.warn(
+      "[RaSP] The index exists but did not verify, and no source CSV is available to rebuild it. " +
+        "RaSP will report a database-unavailable miss. Restore data/df_rasp_gnomad_clinvar.csv and restart."
+    );
   }
 
   if (!fs.existsSync(RASP_SQLITE_PATH)) {

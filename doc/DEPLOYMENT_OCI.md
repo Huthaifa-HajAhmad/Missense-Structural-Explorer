@@ -212,7 +212,7 @@ sudo ufw status verbose
 | **ThermoMPNN** | PyTorch CPU (ARM NEON) | **~2–4 seconds** | Official weights (`thermoMPNN_default.pt`). Canonical route: `POST /predict/thermompnn`. |
 | **FoldX 5 (BuildModel)** | x86_64 via Box64 v0.4.4 | **~15–30 seconds** | 5 independent runs; dynamic FP recompilation. |
 | **P2Rank** | Java 17 OpenJDK (ARM64 Native) | **~10–25 seconds** | Full ligand pocket binding prediction. |
-| **RaSP** | SQLite Precomputed Database | **< 5 milliseconds** | Indexed lookup across human proteome. |
+| **RaSP** | SQLite Precomputed Database | **< 5 milliseconds** | Indexed lookup over the bundled precomputed set — **8,331,709 variants across 1,345 proteins**, not the whole proteome. A protein outside that set reports "not covered", which is a property of the dataset rather than a fault. Check real coverage with `GET /api/v1/capabilities` (`indexedProteins`). |
 | **ESM-2 (650M) / SaProt** | PyTorch CPU (ARM64) | **~3–8 seconds** | Deep sequence embedding & zero-shot evaluation. |
 
 ---

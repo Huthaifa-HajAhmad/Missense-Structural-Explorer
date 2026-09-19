@@ -255,7 +255,10 @@ class SQLiteQueue {
 
   private reapStaleJobs() {
     if (this.isShutdown) return;
-    const maxExecutionTime = 300000; // 5 minutes
+    // The reaper must outlive the job cap, or it would kill jobs that are still legitimately
+    // running. Both are now configurable and their ordering is asserted by
+    // server/tests/foldx-timeout-budget.test.ts.
+    const maxExecutionTime = CONFIG.timeouts.foldxReaperLeaseMs;
     const cutoff = Date.now() - maxExecutionTime;
 
     try {
@@ -288,8 +291,9 @@ class SQLiteQueue {
         }
       }
 
-      // Also reap stuck queued jobs
-      const maxQueueWait = 600000; // 10 minutes
+      // Also reap stuck queued jobs. The wait is longer than the running lease because a queued
+      // job is legitimately waiting behind others rather than executing.
+      const maxQueueWait = CONFIG.timeouts.foldxQueuedLeaseMs;
       const queueCutoff = Date.now() - maxQueueWait;
       const staleQueuedJobs = this.db.prepare(`
         SELECT id FROM biophysical_jobs

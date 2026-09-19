@@ -109,6 +109,37 @@ export interface CalibratedConsensusResult {
 }
 
 /**
+ * Every string `computeCalibratedConsensus` can return.
+ *
+ * Exported so the verdict is a *closed set* rather than free text. Surfaces used to compare it
+ * against literals they had invented — `SplicingTab` tested `consensusVerdict === "destabilizing"`,
+ * which the function can never produce, so that branch was dead and a variant whose only evidence
+ * was a destabilizing prediction was reported "Thermodynamically Tolerated". A guard test now
+ * rejects any literal that is not a fragment of a real verdict.
+ */
+export const CONSENSUS_VERDICTS = {
+  insufficient: "Insufficient Biophysical Data",
+  lowNeutral: "Low Misfolding Risk (Neutral Stability)",
+  high: "High Misfolding Risk (Destabilizing Consensus)",
+  moderate: "Moderate Misfolding Risk (Conflicting Stability)",
+  elevatedSingle: "Elevated Misfolding Risk (Single-Tool Estimate)",
+  lowSingle: "Low Misfolding Risk (Single-Tool Estimate)"
+} as const;
+
+/** All verdict strings, for exhaustive iteration in tests and guards. */
+export const CONSENSUS_VERDICT_VALUES: readonly string[] = Object.values(CONSENSUS_VERDICTS);
+
+/**
+ * True when `literal` is a legitimate way to inspect a verdict — either a whole verdict or a
+ * fragment of one (so `includes("High")`, `includes("Moderate")` and `includes("Insufficient")`
+ * remain valid), matched case-sensitively as the string comparisons are.
+ */
+export function isConsensusVerdictFragment(literal: string): boolean {
+  if (!literal) return false;
+  return CONSENSUS_VERDICT_VALUES.some(verdict => verdict.includes(literal));
+}
+
+/**
  * Calculates consensus probability and conformal intervals from available predictors
  * by doing a weighted average of individual calibrated probabilities.
  */
@@ -133,7 +164,7 @@ export function computeCalibratedConsensus(
       consensusProbability: null,
       consensusConfMin: null,
       consensusConfMax: null,
-      consensusVerdict: "Insufficient Biophysical Data"
+      consensusVerdict: CONSENSUS_VERDICTS.insufficient
     };
   }
 
@@ -197,7 +228,7 @@ export function computeCalibratedConsensus(
       consensusProbability: null,
       consensusConfMin: null,
       consensusConfMax: null,
-      consensusVerdict: "Insufficient Biophysical Data"
+      consensusVerdict: CONSENSUS_VERDICTS.insufficient
     };
   }
 
@@ -206,19 +237,19 @@ export function computeCalibratedConsensus(
   const consensusConfMax = weightedUpperSum / totalWeight;
 
   // Probability-based consensus threshold mapping
-  let consensusVerdict = "Low Misfolding Risk (Neutral Stability)";
+  let consensusVerdict: string = CONSENSUS_VERDICTS.lowNeutral;
   if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
-    consensusVerdict = "High Misfolding Risk (Destabilizing Consensus)";
+    consensusVerdict = CONSENSUS_VERDICTS.high;
   } else if (consensusProbability >= THRESHOLDS.biophysicalConsensus.moderateRiskProbability) {
-    consensusVerdict = "Moderate Misfolding Risk (Conflicting Stability)";
+    consensusVerdict = CONSENSUS_VERDICTS.moderate;
   }
 
   // Handle single-predictor fallback label schema
   if (availableCount === 1) {
     if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
-      consensusVerdict = "Elevated Misfolding Risk (Single-Tool Estimate)";
+      consensusVerdict = CONSENSUS_VERDICTS.elevatedSingle;
     } else {
-      consensusVerdict = "Low Misfolding Risk (Single-Tool Estimate)";
+      consensusVerdict = CONSENSUS_VERDICTS.lowSingle;
     }
   }
 

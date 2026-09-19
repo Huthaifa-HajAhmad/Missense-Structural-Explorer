@@ -1,6 +1,24 @@
 import { describe, it, expect, vi } from "vitest";
 import { executeFoldxPipeline } from "../foldxService";
 
+/** The biophysical sink surface `executeFoldxPipeline` is allowed to write to. */
+const makeSink = () => ({
+  setIsFolding: vi.fn(),
+  setFoldingError: vi.fn(),
+  setFoldingStatus: vi.fn(),
+  setMutantPdb: vi.fn(),
+  setFoldedResidueIndex: vi.fn(),
+  setFoldingDdG: vi.fn(),
+  setFoldingEnergetics: vi.fn(),
+  setDynamut2JobId: vi.fn(),
+  setDynamut2Status: vi.fn(),
+  setDdmutJobId: vi.fn(),
+  setDdmutStatus: vi.fn(),
+  setThermompnnJobId: vi.fn(),
+  setThermompnnStatus: vi.fn(),
+  setThermompnnError: vi.fn()
+});
+
 describe("foldxService", () => {
   it("handles immediate completion response", async () => {
     const mockFetchWithAuth = vi.fn().mockResolvedValue({
@@ -22,22 +40,7 @@ describe("foldxService", () => {
       })
     });
 
-    const sink: any = {
-      setIsFolding: vi.fn(),
-      setFoldingError: vi.fn(),
-      setFoldingStatus: vi.fn(),
-      setMutantPdb: vi.fn(),
-      setFoldedResidueIndex: vi.fn(),
-      setFoldingDdG: vi.fn(),
-      setFoldingEnergetics: vi.fn(),
-      setDynamut2JobId: vi.fn(),
-      setDynamut2Status: vi.fn(),
-      setDdmutJobId: vi.fn(),
-      setDdmutStatus: vi.fn(),
-      setThermompnnJobId: vi.fn(),
-      setThermompnnStatus: vi.fn(),
-      setThermompnnError: vi.fn()
-    };
+    const sink: any = makeSink();
 
     await executeFoldxPipeline({
       uniprotId: "P00439",
@@ -96,22 +99,7 @@ describe("foldxService", () => {
       throw new Error("Unknown route");
     });
 
-    const sink: any = {
-      setIsFolding: vi.fn(),
-      setFoldingError: vi.fn(),
-      setFoldingStatus: vi.fn(),
-      setMutantPdb: vi.fn(),
-      setFoldedResidueIndex: vi.fn(),
-      setFoldingDdG: vi.fn(),
-      setFoldingEnergetics: vi.fn(),
-      setDynamut2JobId: vi.fn(),
-      setDynamut2Status: vi.fn(),
-      setDdmutJobId: vi.fn(),
-      setDdmutStatus: vi.fn(),
-      setThermompnnJobId: vi.fn(),
-      setThermompnnStatus: vi.fn(),
-      setThermompnnError: vi.fn()
-    };
+    const sink: any = makeSink();
 
     await executeFoldxPipeline({
       uniprotId: "P00439",
@@ -160,22 +148,7 @@ describe("foldxService", () => {
       throw new Error("Unknown route");
     });
 
-    const sink: any = {
-      setIsFolding: vi.fn(),
-      setFoldingError: vi.fn(),
-      setFoldingStatus: vi.fn(),
-      setMutantPdb: vi.fn(),
-      setFoldedResidueIndex: vi.fn(),
-      setFoldingDdG: vi.fn(),
-      setFoldingEnergetics: vi.fn(),
-      setDynamut2JobId: vi.fn(),
-      setDynamut2Status: vi.fn(),
-      setDdmutJobId: vi.fn(),
-      setDdmutStatus: vi.fn(),
-      setThermompnnJobId: vi.fn(),
-      setThermompnnStatus: vi.fn(),
-      setThermompnnError: vi.fn()
-    };
+    const sink: any = makeSink();
 
     await executeFoldxPipeline({
       uniprotId: "P00439",
@@ -272,5 +245,84 @@ describe("foldxService", () => {
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
     expect(sink.setIsFolding).toHaveBeenCalledWith(false);
     expect(sink.setFoldingStatus).not.toHaveBeenCalled();
+  });
+
+  /**
+   * An engine reported as "pending" with no job id can never be resolved: `useJobPoller` needs an
+   * id to start, and the SSE channel for these engines is only emitted from that poller's own
+   * handler. The end of the FoldX run is the last moment anything could settle it, so it must not
+   * be left pending — that is what produced a permanent "Simulating…" row.
+   */
+  it("settles a pending engine that has no job id to poll", async () => {
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM 1 N ...",
+        ddG: 1.5,
+        energetics: { foldx: 1.5 },
+        dynamut2Status: "pending",
+        dynamut2JobId: null,
+        ddmutStatus: "pending",
+        ddmutJobId: "ddm-live-1",
+        thermompnnStatus: "pending",
+        thermompnnJobId: null
+      })
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    // Unreachable engines become terminal...
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith("unavailable");
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("unavailable");
+    // ...while an engine with a live poller is left to report its own outcome.
+    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith("unavailable");
+  });
+
+  it("settles pending engines when the queued job fails before they resolve", async () => {
+    const mockFetchWithAuth = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/v1/generate-mutant") {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "queued",
+            foldxJobId: "job-fail-2",
+            dynamut2Status: "pending",
+            dynamut2JobId: null
+          })
+        };
+      }
+      if (url === "/api/v1/foldx-job/job-fail-2") {
+        return { ok: true, json: async () => ({ status: "failed", error: "FoldX process crashed" }) };
+      }
+      throw new Error("Unknown route");
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith("unavailable");
+    expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
   });
 });

@@ -1,7 +1,13 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Activity, Cpu, Gauge, ShieldAlert, Info, AlertTriangle, AlertCircle } from "lucide-react";
 import { AnalysisResult, EnergeticsData } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
+import {
+  buildEngineOutcomes,
+  formatDdg,
+  type EngineTone,
+  type RemoteStatus,
+} from "../../shared/engineStatus";
 
 interface EnergeticsInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -15,6 +21,34 @@ interface EnergeticsInspectorProps {
   disruptionPredictor?: { plddt?: number } | null;
   isFolding?: boolean;
 }
+
+/**
+ * Severity → dot colour. The state's *text* always accompanies the dot, so a row is never
+ * colour-only: previously an 8px dot was the sole signal, and under `reduce-motion` the
+ * pending/unavailable pair collapsed to near-identical amber.
+ */
+const TONE_DOT: Record<EngineTone, string> = {
+  good: "var(--cs-text-success)",
+  warn: "var(--cs-text-warning)",
+  danger: "var(--cs-text-danger)",
+  neutral: "var(--cs-text-muted)",
+  muted: "var(--cs-border)",
+};
+
+/** States that warrant an entry in the diagnostics list. */
+const NEEDS_ATTENTION = new Set([
+  "failed",
+  "not-installed",
+  "not-covered",
+  "upstream-busy",
+  "upstream-error",
+  "no-result",
+]);
+
+type EnergeticsExtras = EnergeticsData & {
+  raspReason?: string;
+  foldxBinaryMissing?: boolean;
+};
 
 export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   analysisResult,
@@ -33,10 +67,62 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
   const plddt = disruptionPredictor?.plddt ?? analysisResult?.disruptionPredictor?.plddt ?? null;
   const isLowConfidence = plddt !== null && plddt < 70;
-  const foldxRepairFailed = foldingEnergetics?.foldxRepairFailed;
-  const foldxBinaryMissing = (foldingEnergetics as any)?.foldxBinaryMissing;
-  const isAsyncOffline = (dynamut2Status === "unavailable" || ddmutStatus === "unavailable");
-  const raspReason = (foldingEnergetics as any)?.raspReason || ((foldingEnergetics?.rasp === null) ? "Protein is not present in the pre-computed database" : null);
+  const energetics = foldingEnergetics as EnergeticsExtras | null | undefined;
+
+  /**
+   * The same canonical outcomes the main column renders.
+   *
+   * Both surfaces call one builder, so the inspector cannot claim an engine is offline while the
+   * table beside it shows a value. The previous flag was `dynamut2Status === "unavailable" ||
+   * ddmutStatus === "unavailable"`, so one engine's failure produced a false statement about the
+   * other, and the card named both.
+   */
+  const outcomes = useMemo(
+    () =>
+      buildEngineOutcomes({
+        foldxMean: energetics?.foldxMean,
+        foldxDdg: energetics?.foldx,
+        foldxSd: energetics?.foldxSd,
+        dynamut2: energetics?.dynamut2,
+        ddmut: energetics?.ddmut,
+        rasp: energetics?.rasp,
+        thermompnn: energetics?.thermompnn,
+        stabilityoracle: energetics?.stabilityoracle,
+        dynamut2Status: dynamut2Status as RemoteStatus,
+        ddmutStatus: ddmutStatus as RemoteStatus,
+        thermompnnStatus: thermompnnStatus as RemoteStatus,
+        raspReason: energetics?.raspReason ?? null,
+        thermompnnError,
+        foldingError,
+        foldingStatus,
+        foldxRepairFailed: energetics?.foldxRepairFailed,
+        foldxBinaryMissing: energetics?.foldxBinaryMissing,
+        isFolding,
+      }),
+    [
+      energetics, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError,
+      foldingError, foldingStatus, isFolding,
+    ]
+  );
+
+  const diagnostics = useMemo(() => outcomes.filter(o => NEEDS_ATTENTION.has(o.state)), [outcomes]);
+
+  const provenanceRows = useMemo(() => {
+    const prov = energetics?.structureProvenance;
+    if (!prov) return [] as Array<{ label: string; value: string }>;
+    const rows: Array<{ label: string; value: string }> = [];
+    if (prov.pdbId) rows.push({ label: "Template", value: `${prov.pdbId.toUpperCase()}${prov.chainId ? `:${prov.chainId}` : ""}` });
+    if (prov.resolution != null) rows.push({ label: "Resolution", value: `${prov.resolution.toFixed(1)} Å` });
+    if (prov.identity != null) rows.push({ label: "Sequence identity", value: `${prov.identity.toFixed(0)}%` });
+    if (prov.foldxVersion) rows.push({ label: "FoldX version", value: prov.foldxVersion });
+    if (prov.foldxRuns != null) rows.push({ label: "Ensemble runs", value: String(prov.foldxRuns) });
+    if (prov.seed != null) rows.push({ label: "Random seed", value: String(prov.seed) });
+    if (prov.raspDatasetSnapshot) rows.push({ label: "RaSP snapshot", value: prov.raspDatasetSnapshot });
+    if (prov.vesmModel) rows.push({ label: "Embedding model", value: prov.vesmModel });
+    if (prov.afdbVersion) rows.push({ label: "AlphaFold DB", value: prov.afdbVersion });
+    if (prov.modelSha) rows.push({ label: "Model digest", value: prov.modelSha.slice(0, 12) });
+    return rows;
+  }, [energetics]);
 
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
@@ -57,112 +143,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         </div>
       </div>
 
-      {/* ── 2. Active Engine Notices & Diagnostics ── */}
-      {(thermompnnStatus === "error" || isAsyncOffline || isLowConfidence || (foldxRepairFailed && !foldxBinaryMissing) || foldxBinaryMissing || (foldingError && !foldxBinaryMissing) || raspReason) && (
-        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            Active Method Diagnostics
-          </span>
-
-          <div className="space-y-2">
-            {/* ThermoMPNN Error Notice */}
-            {thermompnnStatus === "error" && thermompnnError && (
-              <div className="p-2.5 rounded-lg border border-rose-500/25 bg-rose-500/10 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] uppercase tracking-wide text-rose-900 dark:text-rose-200">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
-                  <span>ThermoMPNN Prediction Failed</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary font-mono break-words">
-                  {thermompnnError}
-                </p>
-              </div>
-            )}
-
-            {/* Asynchronous Services Offline */}
-            {isAsyncOffline && (
-              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
-                  <Info className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span>ΔΔG Partial (Async Services Offline)</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
-                  One or more remote biophysical prediction webhooks (DynaMut2 / DDMut) are currently offline. Displaying local force-field and deep learning fallback models.
-                </p>
-              </div>
-            )}
-
-            {/* Low-Confidence Template Alert */}
-            {isLowConfidence && (
-              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
-                  <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span>Low-Confidence Template (pLDDT: {plddt?.toFixed(1)})</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
-                  The local AlphaFold template residue has low confidence (pLDDT &lt; 70). Rigid-backbone force-field calculations are highly speculative in disordered loops.
-                </p>
-              </div>
-            )}
-
-            {/* FoldX Binary Missing Notice */}
-            {foldxBinaryMissing && (
-              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-cs-text-secondary">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-primary">
-                  <Info className="w-3.5 h-3.5 shrink-0 text-cs-accent-clay" />
-                  <span>FoldX 5.0 Engine Not Installed</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
-                  Local FoldX binary or parameter files are not mounted in the server container. Academic users can mount a Linux executable and parameter assets (<code className="font-mono text-[9.5px]">molecules/</code>, <code className="font-mono text-[9.5px]">rotabase.txt</code>) into <code className="font-mono text-[9.5px]">/app/tools/foldx/</code> to enable local empirical force-field calculations.
-                </p>
-              </div>
-            )}
-
-            {/* FoldX Repair Warning */}
-            {foldxRepairFailed && !foldxBinaryMissing && (
-              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-amber-900 dark:text-amber-200">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span>FoldX Repair Warning</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
-                  {(foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== null && (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== undefined
-                    ? "FoldX RepairPDB phase was bypassed for this structure. Calculations proceeded with un-repaired starting coordinates."
-                    : "FoldX RepairPDB phase failed and un-repaired BuildModel could not produce a valid energy estimate for this structure."}
-                </p>
-              </div>
-            )}
-
-            {/* RaSP Method Notice */}
-            {raspReason && (
-              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-cs-text-secondary">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-primary">
-                  <Info className="w-3.5 h-3.5 shrink-0 text-cs-accent-clay" />
-                  <span>RaSP Database Coverage</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
-                  {raspReason}
-                </p>
-              </div>
-            )}
-
-            {/* Simulation Error */}
-            {foldingError && !foldxBinaryMissing && (
-              <div className="p-2.5 rounded-lg border border-rose-500/25 bg-rose-500/10 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-rose-900 dark:text-rose-200">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
-                  <span>Biophysical Simulation Failed</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary font-mono">
-                  {foldingError}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── 3. Engine Compute Provenance & Telemetry ── */}
+      {/* ── 2. Engine telemetry: one row per engine, from the canonical state ── */}
       <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
           <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
@@ -170,101 +151,98 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         </span>
 
         <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          {/* FoldX Local */}
-          {(() => {
-            const hasFoldxVal = (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== null && (foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx) !== undefined;
-            const isFailed = foldingStatus === "failed" || (!hasFoldxVal && !isFolding && (foldingError || (foldingEnergetics as any)?.foldxError || foldxRepairFailed));
-            return (
-              <div className="flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${
-                    isFolding
-                      ? "bg-amber-500 animate-ping"
-                      : hasFoldxVal
-                      ? "bg-emerald-500"
-                      : foldxBinaryMissing
-                      ? "bg-slate-400"
-                      : isFailed
-                      ? "bg-rose-500"
-                      : "bg-slate-400"
-                  }`} />
-                  <span className="font-semibold text-cs-text-primary">FoldX 5.0</span>
-                </div>
-                <span className="font-mono text-[10px] text-cs-text-muted" title={foldingError || undefined}>
-                  {isFolding
-                    ? "Repacking sidechains..."
-                    : hasFoldxVal
-                    ? "Local Force-Field (Ready)"
-                    : foldxBinaryMissing
-                    ? "Not Installed (Mount Binary)"
-                    : isFailed
-                    ? (foldingError ? `Failed: ${foldingError.slice(0, 32)}...` : "Simulation Failed")
-                    : foldingStatus === "unavailable"
-                    ? "Unavailable"
-                    : "Idle"}
-                </span>
+          {outcomes.map(outcome => (
+            <div key={outcome.id} className="flex items-start justify-between gap-2 text-[11px]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  aria-hidden="true"
+                  className={`w-2 h-2 rounded-full shrink-0 ${outcome.state === "running" ? "animate-ping" : ""}`}
+                  style={{ background: TONE_DOT[outcome.tone] }}
+                />
+                <span className="font-semibold text-cs-text-primary truncate">{outcome.engine.name}</span>
               </div>
-            );
-          })()}
-
-          {/* StabilityOracle Structure ML */}
-          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${foldingEnergetics?.stabilityoracle !== null && foldingEnergetics?.stabilityoracle !== undefined ? "bg-emerald-500" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">StabilityOracle</span>
+              <div className="flex flex-col items-end text-right min-w-0">
+                <span className="font-mono text-[10px] text-cs-text-secondary">{outcome.label}</span>
+                {outcome.canonicalDdg !== null && (
+                  <span className="font-mono text-[10px] text-cs-text-muted">
+                    {formatDdg(outcome.canonicalDdg, energyUnit)}
+                  </span>
+                )}
+              </div>
             </div>
-            <span className="font-mono text-[10px] text-cs-text-muted">
-              {foldingEnergetics?.stabilityoracle !== null && foldingEnergetics?.stabilityoracle !== undefined ? "Structure Graph ML (Ready)" : "Unavailable (No Heuristics)"}
-            </span>
-          </div>
-
-          {/* DynaMut2 */}
-          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${dynamut2Status === "pending" ? "bg-amber-500 animate-ping" : dynamut2Status === "done" ? "bg-emerald-500" : dynamut2Status === "unavailable" ? "bg-amber-500/70" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">DynaMut2</span>
-            </div>
-            <span className="font-mono text-[10px] text-cs-text-muted">
-              {dynamut2Status === "pending" ? "Remote NMA Server..." : dynamut2Status === "done" ? "BioSig Server (Ready)" : dynamut2Status === "unavailable" ? "BioSig Queue / Unavailable" : "Idle"}
-            </span>
-          </div>
-
-          {/* DDMut Siamese Transformer */}
-          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${ddmutStatus === "pending" ? "bg-amber-500 animate-ping" : ddmutStatus === "done" ? "bg-emerald-500" : ddmutStatus === "unavailable" ? "bg-amber-500/70" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">DDMut</span>
-            </div>
-            <span className="font-mono text-[10px] text-cs-text-muted">
-              {ddmutStatus === "pending" ? "Graph Deep Learning..." : ddmutStatus === "done" ? "BioSig Siamese (Ready)" : ddmutStatus === "unavailable" ? "BioSig Queue / Unavailable" : "Idle"}
-            </span>
-          </div>
-
-          {/* RaSP Rapid ddG */}
-          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${foldingEnergetics?.rasp !== null && foldingEnergetics?.rasp !== undefined ? "bg-emerald-500" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">RaSP</span>
-            </div>
-            <span className="font-mono text-[10px] text-cs-text-muted">
-              {foldingEnergetics?.rasp !== null && foldingEnergetics?.rasp !== undefined ? "Precomputed / Local (Ready)" : raspReason ? "Coverage Limited" : "Not Available"}
-            </span>
-          </div>
-
-          {/* ThermoMPNN */}
-          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-cs-border-subtle">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${thermompnnStatus === "pending" ? "bg-amber-500 animate-ping" : thermompnnStatus === "done" ? "bg-emerald-500" : thermompnnStatus === "error" ? "bg-rose-500" : "bg-slate-400"}`} />
-              <span className="font-semibold text-cs-text-primary">ThermoMPNN</span>
-            </div>
-            <span className="font-mono text-[10px] text-cs-text-muted">
-              {thermompnnStatus === "pending" ? "ProteinMPNN Embeddings..." : thermompnnStatus === "done" ? "Neural Backbone (Ready)" : thermompnnStatus === "error" ? "API Limit / Failed" : "Offline"}
-            </span>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* ── 4. Thermodynamic Reference Parameters ── */}
+      {/* ── 3. Diagnostics: plain language, one entry per engine that needs attention ── */}
+      {diagnostics.length > 0 && (
+        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-cs-text-warning" />
+            What Is Missing, And Why
+          </span>
+
+          <div className="space-y-2">
+            {isLowConfidence && (
+              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-warning">
+                  <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                  <span>Low-confidence template (pLDDT {plddt?.toFixed(1)})</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
+                  The template residue has low confidence (pLDDT &lt; 70). Rigid-backbone force-field
+                  calculations are speculative in disordered loops.
+                </p>
+              </div>
+            )}
+
+            {diagnostics.map(outcome => (
+              <div key={outcome.id} className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
+                  {outcome.tone === "danger" ? (
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-danger)" }} />
+                  ) : (
+                    <Info className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-warning)" }} />
+                  )}
+                  <span className="text-cs-text-primary">
+                    {outcome.engine.name} — {outcome.label}
+                  </span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-cs-text-secondary">{outcome.reason}</p>
+                {outcome.detail && (
+                  // Technical text stays available for diagnosis but is not shown to a clinical
+                  // reader by default: this panel previously rendered raw provider errors,
+                  // HTTP text and container paths directly.
+                  <details className="text-[9.5px]">
+                    <summary className="cursor-pointer text-cs-text-muted select-none">Technical detail</summary>
+                    <p className="mt-1 font-mono break-words text-cs-text-muted">{outcome.detail}</p>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── 4. Run provenance ── */}
+      {provenanceRows.length > 0 && (
+        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Computation Provenance
+          </span>
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
+            {provenanceRows.map(row => (
+              <div key={row.label} className="flex justify-between items-center gap-2">
+                <span className="text-cs-text-secondary">{row.label}:</span>
+                <span className="font-mono font-semibold text-cs-text-primary truncate" title={row.value}>{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. Thermodynamic Reference Parameters ── */}
       <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
           <Gauge className="w-3.5 h-3.5 text-cs-accent-clay" />
@@ -282,12 +260,14 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           </div>
           <div className="flex justify-between items-center">
             <span className="text-cs-text-secondary">Experimental Uncertainty:</span>
-            <span className="font-mono font-semibold text-cs-text-primary">± 1.2 kcal/mol (ProTherm)</span>
+            {/* Bound to the display unit: this previously stayed in kcal/mol after the user
+                switched the whole tab to kJ/mol. */}
+            <span className="font-mono font-semibold text-cs-text-primary">± {formatDdg(1.2, energyUnit)} (ProTherm)</span>
           </div>
         </div>
       </div>
 
-      {/* ── 5. Unit Configuration ── */}
+      {/* ── 6. Unit Configuration ── */}
       <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted">
           Energy Display Units
@@ -297,6 +277,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <button
             type="button"
             onClick={() => updateSetting("energyUnit", "kcal/mol")}
+            aria-pressed={energyUnit === "kcal/mol"}
             className={`py-1.5 px-2 rounded-lg border text-[11px] font-mono font-semibold cursor-pointer transition-all ${
               energyUnit === "kcal/mol"
                 ? "bg-cs-accent-clay text-white border-cs-accent-clay"
@@ -308,6 +289,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <button
             type="button"
             onClick={() => updateSetting("energyUnit", "kJ/mol")}
+            aria-pressed={energyUnit === "kJ/mol"}
             className={`py-1.5 px-2 rounded-lg border text-[11px] font-mono font-semibold cursor-pointer transition-all ${
               energyUnit === "kJ/mol"
                 ? "bg-cs-accent-clay text-white border-cs-accent-clay"

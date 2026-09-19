@@ -1,5 +1,6 @@
 import { parseMutationResidues } from "../../variantAnalysisUtils";
 import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../../data";
+import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../shared/timeouts";
 import {
   isGenomicOrCdnaNotation,
   translateVariantNotation as translateVariantNotationService
@@ -144,19 +145,35 @@ export async function executeFullAnalysisWorkflow({
       if (cached.foldingDdG != null) biophysicalSink.setFoldingDdG(cached.foldingDdG);
       if (cached.foldingEnergetics) biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
       if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);
-      const isStale = (Date.now() - (cached.timestamp || 0)) > 300000;
-      const resolveRestoredStatus = (status: string | null | undefined, score: number | null | undefined) => {
+      /**
+       * Decides whether a restored remote status is still actionable.
+       *
+       * The previous rule was clock-based — `Date.now() - cached.timestamp > 5 min` — but
+       * `cached.timestamp` is a whole-bundle marker that ANY write refreshes (landscape, pockets,
+       * multimer), so the same status could be judged fresh or stale depending on whether
+       * something unrelated had touched the bundle. It also marked a still-pollable engine
+       * unavailable purely because the snapshot was old.
+       *
+       * The real question is not "how old is this?" but "can anything still resolve it?": a
+       * pending engine is recoverable only if there is a job id to poll (`useJobPoller` requires
+       * one, and the SSE channel for these engines is only emitted from that poller).
+       */
+      const resolveRestoredStatus = (
+        status: string | null | undefined,
+        score: number | null | undefined,
+        jobId: string | null | undefined
+      ) => {
         if (score != null) return "done";
-        if (status === "pending" && isStale) return "unavailable";
+        if (status === "pending" && !jobId) return "unavailable";
         return status ?? null;
       };
 
       biophysicalSink.setDynamut2JobId(cached.dynamut2JobId ?? null);
-      biophysicalSink.setDynamut2Status(resolveRestoredStatus(cached.dynamut2Status, cached.foldingEnergetics?.dynamut2) as any);
+      biophysicalSink.setDynamut2Status(resolveRestoredStatus(cached.dynamut2Status, cached.foldingEnergetics?.dynamut2, cached.dynamut2JobId) as any);
       biophysicalSink.setDdmutJobId(cached.ddmutJobId ?? null);
-      biophysicalSink.setDdmutStatus(resolveRestoredStatus(cached.ddmutStatus, cached.foldingEnergetics?.ddmut) as any);
+      biophysicalSink.setDdmutStatus(resolveRestoredStatus(cached.ddmutStatus, cached.foldingEnergetics?.ddmut, cached.ddmutJobId) as any);
       biophysicalSink.setThermompnnJobId(cached.thermompnnJobId ?? null);
-      biophysicalSink.setThermompnnStatus(resolveRestoredStatus(cached.thermompnnStatus, cached.foldingEnergetics?.thermompnn) as any);
+      biophysicalSink.setThermompnnStatus(resolveRestoredStatus(cached.thermompnnStatus, cached.foldingEnergetics?.thermompnn, cached.thermompnnJobId) as any);
       biophysicalSink.setThermompnnError(cached.thermompnnError ?? null);
       if (cached.computedPocket) {
         structureSink.setComputedPocket(cached.computedPocket);
@@ -233,10 +250,44 @@ export async function executeFullAnalysisWorkflow({
           });
         }
 
-        // P0-CRITICAL: If the cached variant snapshot lacks mutantPdb or StabilityOracle energetics,
-        // or if previous run was failed/unavailable, dispatch executeFoldxPipeline to compute / backfill biophysics without blocking the UI.
-        const needsBiophysicsBackfill = !cached.mutantPdb || !cached.foldingEnergetics || cached.foldingEnergetics?.stabilityoracle == null || cached.foldingStatus === "failed" || cached.foldingStatus === "unavailable";
+        /**
+         * Should this cached snapshot be re-computed?
+         *
+         * The previous predicate was PERMANENTLY TRUE in any deployment without the Python
+         * sidecar: `cached.foldingEnergetics?.stabilityoracle == null` can never be satisfied
+         * because StabilityOracle has no other data path. Every single visit therefore re-ran the
+         * full FoldX pipeline, and the watchdog then stamped a fresh `failed` status onto an
+         * otherwise good cached snapshot — which is why the tab showed cached engine values
+         * beside a brand-new "timed out" error.
+         *
+         * Three rules replace it:
+         *   1. Re-run only what another attempt can actually fix (missing structure, missing
+         *      energetics, or a failure that is not structural).
+         *   2. An engine that is *structurally* unavailable here — missing binary, failed repair,
+         *      absent sidecar, uncovered dataset — is not evidence of an incomplete snapshot.
+         *   3. Rate-limit retries, so a persistently failing run cannot re-burn minutes of compute
+         *      on every visit. There is no negative-caching or circuit breaker behind this yet.
+         */
+        const cachedEnergetics = cached.foldingEnergetics;
+        const foldxStructurallyUnavailable = Boolean(
+          cachedEnergetics?.foldxBinaryMissing || cachedEnergetics?.foldxRepairFailed
+        );
+        const snapshotIncomplete = !cached.mutantPdb || !cachedEnergetics;
+        const retryableFailure =
+          cached.foldingStatus === "failed" && !foldxStructurallyUnavailable;
+        const retryCooldownElapsed =
+          Date.now() - (cached.biophysicsAttemptedAt ?? 0) > BIOPHYSICS_RETRY_COOLDOWN_MS;
+
+        const needsBiophysicsBackfill =
+          (snapshotIncomplete || retryableFailure) && retryCooldownElapsed;
+
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
+          // Recorded BEFORE dispatch, so an abort or a crash still starts the cooldown rather
+          // than leaving the next visit free to launch another full run.
+          setCachedVariant(targetGene, targetVariant, targetUniprot, {
+            biophysicsAttemptedAt: Date.now()
+          });
+
           executeFoldxPipeline({
             gene: targetGene,
             uniprotId: targetUniprot,
@@ -302,15 +353,15 @@ export async function executeFullAnalysisWorkflow({
       const onParentAbort = () => foldController.abort();
       activeSignal.addEventListener("abort", onParentAbort, { once: true });
 
-      const foldTimeoutId = setTimeout(() => {
-        foldController.abort();
-        if (getActiveRequestId() === requestId) {
-          biophysicalSink.setFoldingError("Simulation timed out after 5 minutes.");
-          biophysicalSink.setFoldingStatus("failed");
-          biophysicalSink.setIsFolding(false);
-        }
-      }, 300000);
-
+      /**
+       * No absolute watchdog here any more.
+       *
+       * A timer armed before submission cannot tell a *queued* job from a *running* one, so it fired
+       * while the job was still legitimately waiting for a concurrency slot — reporting a timeout for
+       * work the server went on to complete, and orphaning the result. `foldxService` bounds each
+       * phase itself (queue wait, execution, and every individual poll), which it can do because it
+       * observes the job's state as it polls.
+       */
       executeFoldxPipeline({
         gene: targetGene,
         uniprotId: targetUniprot,
@@ -323,7 +374,6 @@ export async function executeFullAnalysisWorkflow({
         requestId,
         getActiveRequestId
       }).finally(() => {
-        clearTimeout(foldTimeoutId);
         activeSignal.removeEventListener("abort", onParentAbort);
       });
     }

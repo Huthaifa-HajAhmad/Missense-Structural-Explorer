@@ -1,5 +1,11 @@
 import { BiophysicsConditions, StructureProvenance } from "../../types";
 import { generateMutantResponseSchema } from "../../shared/contracts";
+import {
+  CLIENT_FOLDX_POLL_BUDGET_MS,
+  CLIENT_FOLDX_POLL_REQUEST_MS,
+  CLIENT_FOLDX_QUEUE_BUDGET_MS,
+  CLIENT_FOLDX_SUBMIT_BUDGET_MS,
+} from "../../shared/timeouts";
 import { toFoldxMutation } from "./notationService";
 import { PipelineBiophysicalSink } from "./types";
 import { setCachedVariant } from "./variantCache";
@@ -60,7 +66,10 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
             }
           : {})
       }),
-      signal
+      signal,
+      // This request may resolve a structure from PDBe and fall back to AlphaFold; without a ceiling
+      // a stalled connection left the spinner up indefinitely.
+      timeout: CLIENT_FOLDX_SUBMIT_BUDGET_MS
     });
 
     if (signal.aborted || getActiveRequestId() !== requestId) return;
@@ -124,6 +133,36 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       });
     };
 
+    /**
+     * Settles remote engines that reported "pending" with no job id.
+     *
+     * `useJobPoller` requires a job id before it will start, and the SSE channel for these engines
+     * is only ever emitted from inside that poller's own handler — so an engine left at "pending"
+     * with no id has no route to a result, and the store carries that non-terminal status forever.
+     * The FoldX run ending is the last moment anything could resolve it.
+     *
+     * Engines that DO have a job id are deliberately left alone: their poller is live and will
+     * report the real outcome.
+     */
+    const settleUnreachableRemoteEngines = (payload: {
+      dynamut2Status?: string | null;
+      dynamut2JobId?: string | null;
+      ddmutStatus?: string | null;
+      ddmutJobId?: string | null;
+      thermompnnStatus?: string | null;
+      thermompnnJobId?: string | null;
+    }) => {
+      if (payload.dynamut2Status === "pending" && !payload.dynamut2JobId) {
+        sink.setDynamut2Status("unavailable");
+      }
+      if (payload.ddmutStatus === "pending" && !payload.ddmutJobId) {
+        sink.setDdmutStatus("unavailable");
+      }
+      if (payload.thermompnnStatus === "pending" && !payload.thermompnnJobId) {
+        sink.setThermompnnStatus("unavailable");
+      }
+    };
+
     if (data.status !== "queued" && data.status !== "running") {
       const isFoldxSuccess = (data.status === "success" || data.status === "completed") && data.ddG !== null;
       const effectiveFoldingStatus = isFoldxSuccess ? "success" : (data.status === "unavailable" ? "unavailable" : "failed");
@@ -139,6 +178,8 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       if (data.energetics) {
         applyEnergetics(data.energetics, data.provenance);
       }
+      // The run is over: nobody will resolve an engine that is still pending without an id.
+      settleUnreachableRemoteEngines(data);
       setCachedVariant(cacheGeneKey, variant, uniprotId, {
         mutantPdb: data.pdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
@@ -161,14 +202,31 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
       let delay = 2000;
       let foldxCommitted = false;
-      const pollStart = Date.now();
+      const submitStart = Date.now();
+      /**
+       * When the server first reported this job as `running`, or null while it is still queued.
+       *
+       * The submitted-at timestamp is deliberately NOT used for the execution budget: a queued job is
+       * waiting for a concurrency slot, not spending its own budget, and conflating the two is what
+       * made the client abandon jobs the server completed.
+       */
+      let executionStart: number | null = null;
       let consecutiveErrors = 0;
 
       while (true) {
         if (signal.aborted || getActiveRequestId() !== requestId) return;
 
-        if (Date.now() - pollStart > 300000) {
-          throw new Error("Biophysical simulation timed out after 5 minutes.");
+        // Phase-aware deadline: queue wait and execution are budgeted separately.
+        const phaseStart = executionStart ?? submitStart;
+        const phaseBudget = executionStart !== null
+          ? CLIENT_FOLDX_POLL_BUDGET_MS
+          : CLIENT_FOLDX_QUEUE_BUDGET_MS;
+        if (Date.now() - phaseStart > phaseBudget) {
+          throw new Error(
+            executionStart !== null
+              ? `FoldX simulation timed out after ${Math.round(CLIENT_FOLDX_POLL_BUDGET_MS / 60000)} minutes of execution.`
+              : `FoldX job waited more than ${Math.round(CLIENT_FOLDX_QUEUE_BUDGET_MS / 60000)} minutes in the queue.`
+          );
         }
 
         // Wait with progressive backoff
@@ -182,7 +240,9 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           pollRes = await fetchWithAuth(`/api/v1/foldx-job/${jobId}`, {
             method: "GET",
             headers: { "Accept": "application/json" },
-            signal
+            signal,
+            // Bound a single stalled poll so the loop's own deadline is always reachable.
+            timeout: CLIENT_FOLDX_POLL_REQUEST_MS
           });
         } catch (fetchErr: any) {
           consecutiveErrors++;
@@ -207,6 +267,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
         consecutiveErrors = 0;
         const pollData = await pollRes.json();
+
+        // The job has left the queue: from here the execution budget applies, not the queue budget.
+        if (pollData.status === "running" && executionStart === null) {
+          executionStart = Date.now();
+        }
 
         // Update remote job IDs dynamically if newly resolved
         if (pollData.dynamut2JobId != null) sink.setDynamut2JobId(pollData.dynamut2JobId);
@@ -252,6 +317,17 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               const ddmStatus = resResult.energetics?.ddmut != null ? "done" : (pollData.ddmutStatus ?? data.ddmutStatus ?? null);
               const tmStatus = resResult.energetics?.thermompnn != null ? "done" : (pollData.thermompnnStatus ?? data.thermompnnStatus ?? null);
 
+              // The FoldX run has finished, so any engine still pending without a job id is
+              // unreachable; one WITH an id is left to its live poller.
+              settleUnreachableRemoteEngines({
+                dynamut2Status: d2Status,
+                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
+                ddmutStatus: ddmStatus,
+                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
+                thermompnnStatus: tmStatus,
+                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null
+              });
+
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
                 mutantPdb: resResult.pdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
@@ -271,6 +347,15 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               if (resResult?.energetics) {
                 applyEnergetics(resResult.energetics, resResult.provenance);
               }
+              // The job failed, so nothing will resolve a still-pending remote engine.
+              settleUnreachableRemoteEngines({
+                dynamut2Status: pollData.dynamut2Status ?? data.dynamut2Status ?? null,
+                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
+                ddmutStatus: pollData.ddmutStatus ?? data.ddmutStatus ?? null,
+                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
+                thermompnnStatus: pollData.thermompnnStatus ?? data.thermompnnStatus ?? null,
+                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null
+              });
             }
           }
 

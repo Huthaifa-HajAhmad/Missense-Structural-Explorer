@@ -29,10 +29,51 @@ export const CONFIG = {
     isTest: process.env.NODE_ENV === "test",
     biophysicalConcurrency: parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "4", 10),
   },
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * FOLDX TIME BUDGETS — these MUST nest. Read this before changing any number.
+   * ─────────────────────────────────────────────────────────────────────────────
+   * A FoldX run is supervised by several independent timers spread across two processes. They were
+   * all set to 300 s while the work they supervise can legitimately take 840 s, so the outermost
+   * timer always fired first: a *successful* long run was reported to the user as
+   * "Simulation timed out after 5 minutes", and because nothing cancels the queued job, the
+   * result it eventually produced was orphaned.
+   *
+   * Required ordering, asserted by `server/tests/foldx-timeout-budget.test.ts`:
+   *
+   *   semaphoreWait + repair + buildModel + buildModelRetry   ← worst-case work
+   *     ≤ foldxSec                                            ← queue job cap
+   *     < foldxReaperLeaseMs                                  ← stale-running reaper
+   *     ≤ foldxQueuedLeaseMs                                  ← stale-queued reaper
+   *     ≤ CLIENT_FOLDX_QUEUE_BUDGET_MS                        ← client, while the job is QUEUED
+   *
+   *   worst-case work ≤ foldxSec < CLIENT_FOLDX_POLL_BUDGET_MS ← client, while the job is RUNNING
+   *
+   * The client budgets those two phases separately on purpose. A single budget covering queue wait
+   * plus execution abandoned jobs the server completed — a job can wait `foldxQueuedLeaseMs` for a
+   * slot and *then* execute for `foldxSec`. There is deliberately **no absolute watchdog**: armed
+   * before submission it cannot tell the phases apart, so it is the defect rather than the guard.
+   *
+   * These are worst-case caps, not expected durations: a typical run on a ~400-residue chain
+   * takes minutes, and the stage caps are only reached on pathological structures.
+   */
   timeouts: {
     coreAnalysisMs: parseInt(process.env.CORE_TIMEOUT_MS || "45000", 10),
     structuralModelsMs: parseInt(process.env.STRUCTURAL_TIMEOUT_MS || "120000", 10),
-    foldxSec: parseInt(process.env.FOLDX_TIMEOUT_S || "300", 10),
+    /** Whole-job cap for a queued FoldX job, covering every stage below. */
+    foldxSec: parseInt(process.env.FOLDX_TIMEOUT_S || "900", 10),
+    /** Wait for a concurrency slot before FoldX starts (counts against the job cap). */
+    foldxSemaphoreWaitMs: parseInt(process.env.FOLDX_SEMAPHORE_WAIT_MS || "120000", 10),
+    /** FoldX RepairPDB subprocess cap. */
+    foldxRepairMs: parseInt(process.env.FOLDX_REPAIR_TIMEOUT_MS || "300000", 10),
+    /** FoldX BuildModel subprocess cap (the 5-run ensemble). */
+    foldxBuildModelMs: parseInt(process.env.FOLDX_BUILDMODEL_TIMEOUT_MS || "300000", 10),
+    /** Second BuildModel attempt, made only after a RepairPDB failure. */
+    foldxBuildModelRetryMs: parseInt(process.env.FOLDX_BUILDMODEL_RETRY_MS || "120000", 10),
+    /** Reaper lease for a job a crash left in `running`. Must exceed the job cap. */
+    foldxReaperLeaseMs: parseInt(process.env.FOLDX_REAPER_LEASE_MS || "960000", 10),
+    /** Reaper lease for a job stuck in `queued`; queued jobs legitimately wait behind others. */
+    foldxQueuedLeaseMs: parseInt(process.env.FOLDX_QUEUED_LEASE_MS || "1800000", 10),
     p2rankSec: parseInt(process.env.P2RANK_TIMEOUT_S || "120", 10),
     sidecarHealthCheckMs: parseInt(process.env.SIDECAR_HEALTH_MS || "5000", 10),
     httpDefaultTimeoutMs: parseInt(process.env.HTTP_DEFAULT_TIMEOUT_MS || "15000", 10),

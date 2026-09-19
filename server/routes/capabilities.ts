@@ -16,6 +16,7 @@
 import { type Router } from "express";
 import fs from "fs";
 import path from "path";
+import { inspectRaspIndexFile, RASP_SQLITE_PATH } from "../services/stability/energy-models.ts";
 import { execSync } from "child_process";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
@@ -96,18 +97,20 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     const { hasBox64, box64Version } = getBox64Status();
 
     // 4. RaSP SQLite Database
-    const raspDbPath = path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
-    let raspReady = false;
+    //
+    // Reported from the index's own completeness record, not from its file size. The size-only
+    // check endorsed the truncated index (3.1 MB > 1 MB) as "ready" while it served a coverage
+    // miss for 99.5% of the proteins it was supposed to cover — the diagnostics screen was
+    // corroborating the very bug it existed to reveal.
+    // Resolved through the same indirection the loader uses, so diagnostics cannot describe a
+    // different file than the one serving lookups.
+    const raspDbPath = RASP_SQLITE_PATH;
+    const raspVerdict = inspectRaspIndexFile(raspDbPath);
+    const raspReady = raspVerdict.usable;
     let raspSizeBytes = 0;
-    if (fs.existsSync(raspDbPath)) {
-      try {
-        const st = fs.statSync(raspDbPath);
-        if (st.size > 1024 * 1024) {
-          raspReady = true;
-          raspSizeBytes = st.size;
-        }
-      } catch (_) {}
-    }
+    try {
+      if (fs.existsSync(raspDbPath)) raspSizeBytes = fs.statSync(raspDbPath).size;
+    } catch (_) {}
 
     // P2Rank Pocket Detection Diagnostic Check
     const p2rankCap = await checkP2RankCapability();
@@ -203,7 +206,17 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
           databaseIndexed: raspReady,
           sqlitePath: raspDbPath,
           sizeMb: raspSizeBytes > 0 ? (raspSizeBytes / (1024 * 1024)).toFixed(1) : null,
-          storage: "SQLite (indexed O(log n))"
+          storage: "SQLite (indexed O(log n))",
+          // Real coverage, so the diagnostics screen can tell a curated dataset from a broken
+          // index instead of repeating "ready".
+          indexedVariants: raspVerdict.rows,
+          indexedProteins: raspVerdict.proteins,
+          indexBuiltAt: raspVerdict.meta?.builtAt ?? null,
+          indexSchemaVersion: raspVerdict.meta?.schemaVersion ?? null,
+          // False means the counts came from the index's own record; the loader counts them once at
+          // load. Reported so a recorded figure is never presented as a checked one.
+          indexCountsVerified: Boolean(raspVerdict.verified),
+          ...(raspReady ? {} : { unavailableReason: raspVerdict.reason ?? null })
         }
       },
       {
