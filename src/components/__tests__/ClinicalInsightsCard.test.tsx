@@ -207,4 +207,61 @@ describe("ClinicalInsightsCard export handlers", () => {
       (URL as any).createObjectURL = originalCreate;
     }
   });
+
+  it("does not export an interval that contradicts its own probability", async () => {
+    /**
+     * F10-1 from the fourth review panel. The JSON export derived its probability but read the interval
+     * bounds from the STORED snapshot, so a report could carry a point estimate OUTSIDE its own interval
+     * — measured as 80.6% with 68.1-89.1 on screen against 80.6% with 2.1-11.3 exported. The stored
+     * snapshot below deliberately disagrees with what the engines derive, which is how that arose.
+     */
+    const blobs: Blob[] = [];
+    const originalCreate = (URL as any).createObjectURL;
+    (URL as any).createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return "blob:mock";
+    };
+
+    try {
+      renderCard(baseResult(), {
+        foldingEnergetics: {
+          foldx: 3.0,
+          dynamut2: -1.5,
+          ddmut: -1.2,
+          rasp: 1.5,
+          thermompnn: 1.1,
+          stabilityoracle: 1.3,
+          // A stale snapshot from an earlier, two-engine commit.
+          consensusProbability: 0.11,
+          consensusConfMin: 0.021,
+          consensusConfMax: 0.113,
+        },
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /Export JSON/i }));
+
+      expect(blobs, "the handler must have produced a download").toHaveLength(1);
+      const json = JSON.parse(await blobs[0].text());
+      const consensus = json.biophysicalEnergetics;
+
+      expect(typeof consensus.consensusProbability).toBe("number");
+      expect(consensus.consensusProbability, "the stored probability was exported").not.toBeCloseTo(
+        0.11,
+        5
+      );
+
+      // Assert the TYPES before the ordering: `null <= 0.8` coerces to true, so the bounds checks below
+      // would pass vacuously against a null interval.
+      expect(typeof consensus.consensusConfMin).toBe("number");
+      expect(typeof consensus.consensusConfMax).toBe("number");
+      expect(consensus.consensusConfMin).toBeLessThanOrEqual(consensus.consensusProbability);
+      expect(consensus.consensusConfMax).toBeGreaterThanOrEqual(consensus.consensusProbability);
+      expect(consensus.consensusConfMin, "the bounds stayed at the stored snapshot").not.toBeCloseTo(
+        0.021,
+        5
+      );
+    } finally {
+      (URL as any).createObjectURL = originalCreate;
+    }
+  });
 });

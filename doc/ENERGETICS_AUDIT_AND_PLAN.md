@@ -1798,3 +1798,76 @@ established by measurement:
 
 Also inherent: a comparison through a renamed local is undetectable by any source scan, and a template
 literal nested inside another would defeat the string-blanking regex.
+
+---
+
+## §11.13 — Corrections to the record (fourth panel + record-integrity review)
+
+A fourth adversarial panel examined the round-3 fixes, and a separate record-integrity review audited this
+document, the commit messages and the harness skills against the code. Both found real defects, including
+one in my own reasoning that had already been written into the record as a refutation. **§11.11 and §11.12
+are superseded wherever they disagree with this section.**
+
+### The material correction: R1 was NOT refuted, and the seed is back
+
+§11.11 and commit `d9753c3` record R1 as refuted: "the `return` at `workflowOrchestrator:347` sits inside
+`if (cached)`, so a cached bundle never reaches Stage 3". That is wrong. The return sits inside
+`if (hasCompleteAnalysis && (!userDirections || !userDirections.trim()))`, one level INSIDE `if (cached)`,
+and `hasCompleteAnalysis` is false for a bundle with no `analysisResult` — which `variantCache`
+deliberately persists mid-run. Such a bundle DOES fall through to the Stage-3 dispatch.
+
+Why I got it wrong is the part worth keeping: I concluded "unreachable" from a mutation check that dropped
+the Stage-3 seed and left every test passing. **The check passed because the FIXTURE could not reach the
+dispatch** — `HEALTHY_SNAPSHOT` satisfies `hasCompleteAnalysis` and returns before Stage 3. Silence from a
+test that never reaches the code is not evidence about the code. Removing the seed therefore re-opened the
+live-poller teardown F4 had just fixed, and it stayed that way across three commits.
+
+Fixed in `2f39878`: the seed is restored, the fixture now carries `analysisResult: undefined` so it
+reaches Stage 3, and dropping the seed is CAUGHT ("a dispatch went out unseeded") where it was invisible.
+The invariant test that §11.11 called a guard for "that path" could not have been one; it is now.
+
+### Claims corrected, with what each should have said
+
+| id | where | the claim | the truth |
+|---|---|---|---|
+| R-05 | §11.11 verdicts | `2da29a4` "carried one inert test" | Three findings: F2 (residue source), F9 (tautology), F11 (caller untested) — as §11.12's own table assigns them |
+| R-06 | §11.11 parked list vs §11.12 | F10/F11 both "parked by owner decision" and fixed | They are FIXED (`6e7e802`). The parked list is stale — `41d5b53` appended §11.12 without editing §11.11 |
+| R-07 | §9, §11.5 | "a second ΔΔG formatter survives in `EvidenceDashboardCard.tsx` … 'THE formatter' claim is untrue" | Stale: since `660c1be` the card delegates to `formatDdg`, and `3ecb16c` pins it. True at `8d61ef8`, false now |
+| R-08 | commit `c467d0b` | "1441 tests pass (10 in the two touched suites added here)" | FALSE: it touches ONE test file with 3 tests; 1441 was the previous commit's total. Another writer's message, recorded here because a commit message is part of the record |
+| R-09 | §11.12 F15 row | "0 violations across 232 files" | The claim is true and was executed; the figure is historical. The guard's walker now collects 234 files |
+| R-10 | §11.11 engine-guard bullet | "six shapes mutation-verified, four of which previously shipped" | FIVE previously shipped (`void 0`, `Number.NaN`, `engines.thermompnn`, `rasp ?? null`, `Boolean(0)`); the old blacklist caught only `null` |
+| R-11 | §11.6 P4 | dead exports include `KJ_PER_KCAL`; all five listed as open | `KJ_PER_KCAL` was never dead (exported, used twice, imported by a test). The other four were deleted in `77715f0`, so the item is four-fifths done |
+| R-12 | §11.12 preamble | "Commits, newest last" | The rows are not in commit order (22:49, 22:59, 22:53, … 22:03, 22:22). Read the table by finding, not by sequence |
+| R-13 | §11.4.1 CLOSED row | "Still bypassable by a rename or `switch`/`case`" | The `switch`/`case` half is superseded: after `b0c71ff` the scan is statement-scoped and flags it. The rename half stands |
+| R-14 | §11.12 F10 row | "the equivalence test … now compares the screen against the export" | Imprecise: the hand-transcription test at `clinicalExportVerdict.test.ts:91` is unmodified. A JOINT test was ADDED in `EnergeticsView.test.tsx`. The promise is met, but not by the test named |
+| R-16 | §3.1, §11.3 A9 | `scripts/build-rasp-sqlite.ts:88`; `build-rasp-sqlite.ts:240-241` | Dangling: the wrapper is 27 lines. The batch size is `server/services/stability/build-rasp-sqlite.ts:133` (`const BATCH = 5000`); the `rmSync` cited at 240-241 was removed in `4042a62` and exists nowhere |
+| R-17 | commit `dbbf843` | "full suite: exit 1 — 1 failed" | Correctly reported and now explained: the failure was another writer's `server/routes/variant/translation.test.ts`, since fixed. The record could not distinguish it from the flake because §11.10.4 never captured the failing test's name |
+
+### Resolved by making the claim true, rather than by editing the prose
+
+- **R-04** — §11.11 said `SERVER_CANNOT_IMPORT_SCRIPTS` ships "with a positive self-test". It did not: the
+  verification was manual. Two cases now exist in `server/tests/architectural-boundaries.test.ts` — one
+  that MUST flag a server→scripts import, and one that pins the test-file exemption — and removing the
+  rule's condition fails the suite.
+- **R-15** — the wrapper now really does carry an entry-point guard (`import.meta.url` against
+  `process.argv[1]`), so "the auto-run guard lives in the wrapper" is true; importing it is inert.
+- **F10-1's missing test** — the commit that fixed the export's interval said it had no test. It now does,
+  and restoring the stored bounds fails it.
+- **The `verification-integrity` skill** — two defects a review found are corrected: rule 3's example was
+  inverted (it said "two engines present" where the finding was two engines MISSING, contradicting the
+  same file's rule 6), and it pointed at `adversarial-review-panel` as a sibling skill when that name is a
+  harness subagent spec, not a file under `skills/`.
+
+### Still outstanding, deliberately
+
+- **F7** is disposed in substance but never named: its subject, the derived caveat, was reverted in
+  `7780d3d`, which makes it moot rather than fixed. Recorded here so the completeness claim is exact.
+- **R-08** cannot be fixed at source: the overstated test count is in another writer's commit message.
+- The ~180 UI/orchestration line citations in §3-§11 were only spot-checked; the decay is repo-wide rather
+  than confined to the RaSP and `energy-models.ts` families that were adjudicated.
+- **F15's precision (F15-1)** remains: the verdict guard's predicate flags every non-fragment literal in a
+  statement that mentions the identifier and contains a comparison token. It is green on the tree, but
+  minimal realistic edits to `EnergeticsView`'s tone logic would produce false positives — which is how
+  this guard has been narrowed twice already. A receiver/operand-based rewrite is the fix; it is not done.
+- **F6-2** remains latent: a regex literal carrying a quote desynchronises the string blanker, after which
+  the spread check fails OPEN rather than loudly.

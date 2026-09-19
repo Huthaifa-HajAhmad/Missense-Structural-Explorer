@@ -153,5 +153,46 @@ describe("Architectural Boundary Rules & Layer Isolation", () => {
       const subfile = path.join(rootDir, "src", "shared", "sub", "index.ts");
       expect(isInsideDir(subfile, parent)).toBe(true);
     });
+
+    /**
+     * The self-test for `SERVER_CANNOT_IMPORT_SCRIPTS`, which is a source-scanning rule and therefore
+     * needs a case that MUST be flagged, routed through the rule's own code path.
+     *
+     * This rule was added to close a real gap — the check above only fires for targets inside `src/`, so
+     * `energy-models.ts` importing `scripts/build-rasp-sqlite.ts` was a live server-to-tooling edge that
+     * the checker reported clean. It was verified manually at the time (reintroduce the edge, watch it
+     * fail, restore); a record-integrity review pointed out that a manual check leaves no committed
+     * guard, so someone could later narrow the rule and nothing would notice. Hence this test.
+     */
+    it("detects a server file importing from scripts/ (the rule's positive self-test)", () => {
+      const mockFiles = new Map<string, string>();
+      mockFiles.set(
+        path.join(rootDir, "server", "services", "rogue-tooling-user.ts"),
+        'import { buildRaspSqliteDatabase } from "../../scripts/build-rasp-sqlite.ts";'
+      );
+
+      const violations = checkBoundaries(rootDir, mockFiles);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe("SERVER_CANNOT_IMPORT_SCRIPTS");
+      expect(violations[0].importPath).toBe("../../scripts/build-rasp-sqlite.ts");
+    });
+
+    it("exempts TEST files, which legitimately exercise tooling", () => {
+      /**
+       * Deliberately pinned, because the exemption is what keeps this rule honest: without it the rule
+       * would carry one permanent violation (`server/tests/architectural-boundaries.test.ts` imports the
+       * checker), and a guard with a known false positive is one people learn to route around.
+       */
+      const mockFiles = new Map<string, string>();
+      mockFiles.set(
+        path.join(rootDir, "server", "tests", "some-scan.test.ts"),
+        'import { checkBoundaries } from "../../scripts/check-boundaries.ts";'
+      );
+
+      const violations = checkBoundaries(rootDir, mockFiles);
+
+      expect(violations).toHaveLength(0);
+    });
   });
 });
