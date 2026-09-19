@@ -994,14 +994,21 @@ New: **`src/shared/engineStatus.ts`** — one pure module that owns
 * the six-engine registry (one display name, taxonomy, native sign convention and per-engine
   cut-points each);
 * **9 canonical states** replacing the ~40 ad-hoc strings, with a total label/tone map;
-* **one** ΔΔG formatter and **one** sign normaliser (positive = destabilizing, always);
+* **one** ΔΔG formatter and **one** sign normaliser (positive = destabilizing, always) — **for the
+  surfaces that use them. This is a target, not the state:** `src/components/EvidenceDashboardCard.tsx`
+  still holds a private formatter that prints `"N/A"` where the canonical one prints `"—"`. Recorded as
+  an open item (§11.6 P4), not claimed as done.
 * `resolveEngineOutcome` / `buildEngineOutcomes` — the single place pipeline facts become
   user-facing state, shared by both surfaces;
 * `summarizeCoverage` / `describeCoverage` — the n-of-6 fact, computed once;
 * `describeProvenance` — all four `StructureProvenance.source` values;
 * `findLegacyLabels` — the migration scanner the guard test runs.
 
-Both Energetics surfaces now render exclusively from it.
+Both Energetics surfaces now build their rows, badges and verdicts from it. **Not "exclusively"** —
+the view still synthesises a few status-adjacent strings of its own ("Low template confidence
+(pLDDT …)", "Repair phase failed", "Calculating: …") and the server keeps its own engine counter.
+Stated as a target that is a rule to converge on; stated as a fact it was false, and a reviewer
+caught it.
 
 ### Defects closed
 
@@ -1021,16 +1028,20 @@ Both Energetics surfaces now render exclusively from it.
 | **7.7** badge/gauge contrast | semantic tokens (`--cs-text-danger-on-soft`, theme-aware gauge); the 1.92:1 `text-emerald-400` verdict is gone | — (partial: raw palette classes reduced, not eliminated) |
 | **7.6** accessibility | `role="meter"` + ARIA on the gauge, focus-visible on method buttons, `aria-pressed` on the unit toggle, non-colour status text | — (the modal's dialog semantics remain open) |
 
-Net effect on the two components: **−33 lines** while adding the above.
+Net effect on the two components at the first commit: **−14 lines** (`EnergeticsView` +319/−315,
+`EnergeticsInspector` +175/−193) while adding the above. The earlier figure of −33 was wrong.
 
 ### Phase 2 — orchestration and state hygiene (landed)
 
 | Item | What changed |
 |---|---|
 | **2.1 / D-2** | The backfill gate is no longer permanently true. It was `foldingEnergetics.stabilityoracle == null`, which can never be satisfied without the Python sidecar, so **every visit re-ran the full FoldX pipeline** and the watchdog then stamped a fresh failure onto a good cached snapshot. Replaced with three rules: re-run only what a retry can fix; a *structurally* unavailable engine (missing binary, failed repair, absent sidecar, uncovered dataset) is not evidence of an incomplete snapshot; and retries are rate-limited by `BIOPHYSICS_RETRY_COOLDOWN_MS` (15 min), since there is still no negative caching or circuit breaker. |
-| **2.2 / D-3** | The FoldX budgets now **nest**. They were all 300 s while the work they supervise can take 840 s, so the outermost timer always fired first and a *successful* run was reported as a timeout — while the server kept computing and wrote a result no client would read. One source of truth in `server/config.ts` (job cap 900 s, reaper lease 960 s, stage budgets), the client budgets in `src/shared/timeouts.ts` (poll 1000 s, watchdog 1020 s), and the timeout message is now derived from its budget instead of hardcoding "5 minutes". |
+| **2.2 / D-3** | The FoldX budgets now **nest**. They were all 300 s while the work they supervise can take 840 s, so the outermost timer always fired first and a *successful* run was reported as a timeout — while the server kept computing and wrote a result no client would read. One source of truth in `server/config.ts` (job cap 900 s, reaper lease 960 s, stage budgets), the client budgets in `src/shared/timeouts.ts` — a **queue** budget (1800 s, at least the server's queued lease) and an **execution** budget (1000 s, above the job cap, restarted when the server first reports `running`), plus per-request ceilings on the submit and each poll. There is deliberately **no absolute watchdog**: armed before submission it cannot tell a queued job from a running one, so it *was* the defect rather than the guard. *(An earlier revision of this row listed "watchdog 1020 s"; no such constant exists, and the row contradicted §11.8 in this same document.)* The timeout message is derived from its budget instead of hardcoding "5 minutes". |
 | **2.2 guard** | `server/tests/foldx-timeout-budget.test.ts` asserts the ordering and that no numeric stage timeout can reappear next to a `CONFIG` lookup. This is what makes the defect non-recurring: nothing failed when the numbers drifted apart. |
-| **2.7 / D-4** | An engine reported `pending` with **no job id** can never resolve — `useJobPoller` needs an id to start, and the SSE channel for these engines is only emitted from that poller's own handler. The end of the FoldX run is the last moment anything could settle it, so `foldxService` now settles exactly those engines (at all three terminal branches) and deliberately leaves engines **with** an id to their live poller. |
+| **2.7 / D-4** | An engine reported `pending` with **no job id** can never resolve — `useJobPoller` needs an id to start, and the SSE channel for these engines is only emitted from that poller's own handler. The end of the FoldX run is the last moment anything could settle it, so `foldxService` now settles exactly those engines — at all three terminal branches **and, since the
+second fix round, on every error exit** (the helper had been defined *inside* the `try`, so the `catch`
+could not reach it, which is why the exits that actually leave `pending` with a null id never settled
+anything) — and deliberately leaves engines **with** an id to their live poller. |
 | **5.3 / 3.6** | The `isStale` heuristic is gone. It judged a restored `pending` using `cached.timestamp`, a whole-bundle marker that *any* write refreshes (landscape, pockets, multimer), so the same status could be judged fresh or stale depending on whether something unrelated had touched the bundle. The rule is now evidence-based: a pending engine is recoverable **iff** there is a job id to poll. Found by the Phase 2 guard test itself. |
 | **regression** | Fixed a defect introduced by the Phase 1 change: `unavailable` was mapped to "Provider busy" for *every* engine, so ThermoMPNN's missing sidecar told the user to retry a service that will never be there. Absence is now attributed per engine (`upstream` / `coverage` / `install`). |
 
@@ -1294,6 +1305,10 @@ merging.
 
 ### 11.4 Tests that do not pin what they claim
 
+Original list (the first panel's findings). **Status is tracked below the list — do not read the list
+as current.** Several items have since been fixed, and two claims in the list itself turned out to be
+wrong.
+
 Tautological or unreachable-assertion: `EnergeticsView.test.tsx` "provisional" (satisfied by the
 verdict string itself — deleting `|| coverage.insufficient` passes), "per-engine cut-points"
 (satisfied by "…(Destabilizing Consensus)" — blanking the Risk column passes), "ensemble spread"
@@ -1305,6 +1320,38 @@ entire `EnergeticsInspector` (368 changed lines, no test). Guard holes: the verd
 `computeConsensusVerdict` wrapper) and its fragment rule (accepts `=== "High Misfolding Risk"`);
 the label guard covers 2 of 4 status surfaces and cannot see JSX text; and none of the five sandbox
 harnesses sets a non-zero exit code.
+
+#### 11.4.1 Status — this is the current state, and it is NOT "closed"
+
+Reopened deliberately. An earlier revision of §11.8 implied these were dealt with; the tests reviewer
+showed otherwise, and two of the list's own claims were false.
+
+**CLOSED, with mutation checks:**
+
+| Item | Evidence |
+|---|---|
+| "provisional" assertion | Now asserts `badge.className` contains `border-dashed` — the words were satisfied by the verdict string itself. |
+| "per-engine cut-points" | Now scoped with `within(screen.getByRole("row", { name: /RaSP/ }))` — the page-level assertion was satisfied by the verdict text. |
+| RaSP rejection/rebuild | Real behavioural tests through the real loader: absent→present and truncated→rebuilt with **no restart or reset**, plus the converse pinning that a genuine coverage miss *is* still cached. |
+| The cooldown write | Rewritten to call the **real** reader/writer. The previous version hand-copied the loader's predicate — a reviewer sabotaged `getCachedVariant` to `return null` and all five tests still passed. |
+| The build's atomicity | The sentinel test failed at a precondition, so a direct-write build passed it. Now a late failure is forced **at the swap** and the test requires `renameSync` to have been **called**; reinstating the removed `rmSync` makes it fail. |
+| The verdict guard's gate | Narrowed to require a comparison operator, after it accused an ordinary object literal. **Still bypassable by a rename or `switch`/`case`** — covered instead by the literal union in `consensus.ts`, which makes an impossible comparison a compile error. |
+| The label guard's surfaces | `SplicingTab.tsx` added; both `"N/A"` literals and `"Standby / Unconfigured"` migrated. The scanner is now string-aware (it was blind to a label sharing a line with a URL). |
+
+**STILL OPEN:**
+
+| Item | Why it matters |
+|---|---|
+| "ensemble spread" | Still asserts a shape the server cannot produce: `enrichBiophysicalResult` computes `foldxSd` and omits it from the returned `energetics`, so the ± branch of `formatDdgPair` is production-dead. The test grants confidence in a feature that never renders. |
+| `capabilities`' new fields | Still no test fails without the fix. |
+| `EnergeticsInspector` | Still has **no test file at all**. |
+| Label guard: JSX text, single quotes, backticks | Only double-quoted literals are flagged; JSX text nodes are invisible. |
+| Harness exit codes | All five `scratch/verify-*.mjs` still exit 0 regardless of the assertions inside them. |
+| Two vacuous assertions in `engineStatus.test.ts` | One compares `formatDdg` with itself; the "labels are disjoint" check can never match, because the scanner requires quoted text and `join("\n")` produces none. |
+| The fragment rule | `isConsensusVerdictFragment` still accepts a full verdict and any substring, so the guard cannot catch its own motivating bug. |
+
+*(The two false claims in the original list: the assertions it said were satisfied by the verdict text
+**had** been fixed at `8d61ef8`, and the `EnergeticsInspector` line count was for a different diff.)*
 
 ### 11.5 Pre-existing defects the review surfaced
 
@@ -1323,7 +1370,9 @@ channel, so `not-installed` and `failed` are unreachable and its dedicated reaso
 canonical one prints `"—"`), so the module's "THE formatter" claim is untrue repo-wide (R4-F11). The
 boundary checker **does not scan `scripts/`**, and `energy-models.ts:235` already imports from it —
 a live violation reported clean (R4-Q4). §7.5's recommendation to unify the two coverage counters was
-**dropped from the plan**; it is restored as item P2-11 below (R4-F22).
+**dropped from the plan**; it is restored inline here as an open item (R4-F22): have
+`computeCalibratedConsensus` return the engine count it actually averaged, so the headline count and
+the average cannot diverge as engines are added. **Status: open.**
 
 ### 11.6 Fix order
 
@@ -1384,10 +1433,10 @@ fails if the union ever widens back to `string`.
 |---|---|---|
 | **A10** provisional hole | The badge tested `includes("High")` **before** `coverage.insufficient`, so a two-engine "High Misfolding Risk (Destabilizing Consensus)" — reachable, since only a single engine is remapped to the `*Single` verdicts — rendered as solid danger. Provisional now wins over the verdict text. | `EnergeticsView.test.tsx` asserts the dashed style. |
 | **A5** cooldown lost on reload | The retry cooldown was written through `setCachedVariant`, whose persistence filter refuses failed/preliminary bundles — exactly the state that triggers a retry — so it reached memory only and pressing F5 re-dispatched the whole run. A `persistAttemptTimestamp` option writes **only** the cooldown metadata (plus the `timestamp` the loader requires, without which the record is discarded on read). | New `src/services/pipeline/__tests__/variantCache.test.ts` — the guarantee R3 found unasserted. |
-| **A7** surfaces fed different facts | `EnergeticsInspector` never received `foldingDdG`, so on a bundle where it is set but `energetics.foldx` is absent, the table showed a value and telemetry showed "No result" for one run. It now takes the same fallback. | (see note) |
-| **R5 F3** pLDDT card suppressed | The low-confidence card sat **inside** `diagnostics.length > 0`, so on a run where every engine returned a value — the good case — a low-pLDDT template produced an empty array and the warning vanished. The more complete the run, the less the panel said about its reliability. It is now outside that gate. | (see note) |
+| **A7** surfaces fed different facts | `EnergeticsInspector` never received `foldingDdG`, so on a bundle where it is set but `energetics.foldx` is absent, the table showed a value and telemetry showed "No result" for one run. It now takes the same fallback. | **no test** — see §11.4.1 |
+| **R5 F3** pLDDT card suppressed | The low-confidence card sat **inside** `diagnostics.length > 0`, so on a run where every engine returned a value — the good case — a low-pLDDT template produced an empty array and the warning vanished. The more complete the run, the less the panel said about its reliability. It is now outside that gate. | **no test** — see §11.4.1 |
 | **R5 F4/F5** FoldX notices | The generic state reasons said nothing actionable for a missing binary, and the repair-failed caveat was unreachable whenever a value existed (the value took the `computed` branch, whose reason is empty). Both now have their own copy. | `engineStatus.test.ts` |
-| **P1-3** backfill rejection | The background dispatch was a floating promise with no watchdog and no `.catch`, so a rejection left the spinner up with no deadline and no message. | (see note) |
+| **P1-3** backfill rejection | The background dispatch was a floating promise with no watchdog and no `.catch`, so a rejection left the spinner up with no deadline and no message. | **no test** — see §11.4.1 |
 | **P2** guard coverage | `SplicingTab.tsx` was added to `GUARDED_SURFACES` — which immediately surfaced **two more** `"N/A"` literals it had been hiding, now `"—"`. The guard also strips comments before scanning, after it flagged its own documentation for the fourth time. | `energeticsLabels.guard.test.ts` |
 
 **Still open, and why** — none of these are silent data loss; each is either cosmetic, needs a shared
