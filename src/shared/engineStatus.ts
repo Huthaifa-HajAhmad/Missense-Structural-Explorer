@@ -853,7 +853,14 @@ export const MIN_ENGINES_FOR_CONSENSUS = 3;
 export function summarizeCoverage(outcomes: readonly EngineOutcome[]): CoverageSummary {
   const computed = outcomes.filter(o => o.contributesToConsensus).length;
   const running = outcomes.filter(o => o.state === "running").map(o => o.id);
-  const missing = outcomes.filter(o => !o.contributesToConsensus && o.state !== "running");
+  /**
+   * "Returned nothing" means NO VALUE — not "not counted".
+   *
+   * The predicate was `!contributesToConsensus`, which put an excluded FoldX value in this bucket: a
+   * value that is displayed, with a badge saying why it is not counted, listed as missing. The field's
+   * own docstring says "engines that returned nothing", and the two are not the same thing.
+   */
+  const missing = outcomes.filter(o => o.canonicalDdg === null && o.state !== "running");
   const notAvailableInDeployment = outcomes.filter(
     o => o.state === "not-installed" || o.state === "not-covered"
   ).length;

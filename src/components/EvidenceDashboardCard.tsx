@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from "react";
 import { Database } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { EvidenceDashboardCardProps, TabType } from "./evidence/types";
+import { formatDdg } from "../shared/engineStatus";
 import { ClinicalTab } from "./evidence/ClinicalTab";
 import { SplicingTab } from "./evidence/SplicingTab";
 import { PredictorsTab } from "./evidence/PredictorsTab";
@@ -13,12 +14,17 @@ import { GuidelinesTab } from "./evidence/GuidelinesTab";
 import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
 
+/**
+ * Delegates to the canonical ΔΔG formatter.
+ *
+ * This was a second implementation, and it differed from the canonical one in ways a reader could
+ * see: it printed `"N/A"` where the canonical formatter prints `"—"` for an absent value, and it
+ * hard-coded `4.184` rather than using the shared constant. So the module's claim that there is ONE
+ * ΔΔG formatter was false repo-wide, and the same missing value could render two ways on two
+ * surfaces. Wrapping instead of reimplementing is what makes that claim true.
+ */
 function formatDdGValue(val: number | null | undefined, unit: "kcal/mol" | "kJ/mol"): string {
-  if (val === null || val === undefined) return "N/A";
-  if (unit === "kJ/mol") {
-    return `${(val * 4.184).toFixed(2)} kJ/mol`;
-  }
-  return `${val.toFixed(2)} kcal/mol`;
+  return formatDdg(val ?? null, unit);
 }
 
 function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {

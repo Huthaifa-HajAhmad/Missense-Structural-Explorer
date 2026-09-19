@@ -621,4 +621,23 @@ describe("engineStatus — the exclusion is stated, not inferred", () => {
       expect(outcome.reason).toContain("excluded from the consensus");
     }
   });
+
+  it("does not list an excluded-but-shown value as missing", () => {
+    /**
+     * `CoverageSummary.missing` is documented as "engines that returned nothing, with the reason",
+     * but its predicate was `!contributesToConsensus` — so a FoldX value of 3.00 that is DISPLAYED,
+     * with a badge explaining it is not counted, was listed as missing. The field contradicted its own
+     * meaning, and the bucket is the kind of thing a future surface would render verbatim.
+     */
+    const summary = summarizeCoverage(
+      buildEngineOutcomes({ foldxMean: 3.0, foldxRepairFailed: true })
+    );
+    const missingIds = summary.missing.map(o => o.id);
+
+    // The excluded value returned something, so it is not missing...
+    expect(missingIds).not.toContain("foldx");
+    // ...while engines that genuinely returned nothing still are.
+    expect(missingIds).toContain("dynamut2");
+    expect(missingIds).toContain("thermompnn");
+  });
 });
