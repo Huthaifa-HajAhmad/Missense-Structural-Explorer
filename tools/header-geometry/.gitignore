@@ -1,0 +1,3 @@
+# Build output and the headless browser's profile are per-run artefacts.
+dist/
+.browser-profile/

@@ -11,6 +11,7 @@ describe("VariantHeader Component Tests", () => {
     isManeSelect: true,
     predictorData: {
       gnomadVariantId: "7-140753336-A-T",
+      gnomadVariantAssembly: "GRCh38",
     } as any,
     gnomadConstraint: {
       missense_z: 2.04,
@@ -189,7 +190,7 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.getByText("460–600 · p = 0.002")).toBeInTheDocument();
   });
 
-  it("should expose the full metric sentences to assistive tech", () => {
+  it("should expose the reference ranges to assistive tech without restating the visible values", () => {
     render(
       <VariantHeader
         gene="BRAF"
@@ -199,13 +200,24 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
+    // The reference sentence is the sr-only contract; the label, value and verdict are
+    // already exposed as visible text, so repeating them here would double every row.
     expect(
-      screen.getByText(/gnomAD v2 Missense Z score \+2\.04: above the tolerant reference range/)
+      screen.getByText(/Reference: tolerant below 2\.0, constrained from 2\.0, severe intolerance at or above 3\.09/)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/gnomAD v2 loss-of-function \(LOEUF\) 0\.71: below the tolerant reference range/)
+      screen.getByText(/Reference: strong loss-of-function intolerance below 0\.35, moderate constraint below 1\.0/)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Constrained block 460 to 600, p-value 0\.002/)).toBeInTheDocument();
+    expect(screen.getByText(/Reference: unconstrained at O\/E ≈ 1\.0\./)).toBeInTheDocument();
+
+    const srOnly = Array.from(document.querySelectorAll(".vh-sr-only")).map((el) => el.textContent ?? "");
+    const detail = srOnly.filter((t) => t.startsWith("Reference:"));
+    expect(detail).toHaveLength(3); // one per metric row
+    // The metric value and verdict are NOT repeated inside the hidden detail.
+    expect(detail.some((t) => t.includes("+2.04"))).toBe(false);
+    expect(detail.some((t) => t.includes("Constrained"))).toBe(false);
+    expect(detail.some((t) => t.includes("0.71"))).toBe(false);
+
     expect(
       screen.getByTitle(/Regional Missense Constraint \(RMC\): Constrained block 460 to 600/)
     ).toBeInTheDocument();
@@ -367,6 +379,230 @@ describe("VariantHeader Component Tests", () => {
     );
 
     expect(screen.getByText("Ensembl Canonical")).toBeInTheDocument();
+  });
+
+  it("explains an absent regional call without claiming the gene has no blocks", () => {
+    // Reachable state: the gene HAS RMC blocks (hasRegionalData true) but the variant
+    // had no residue position, so the server returns regionalConstraint: null.
+    const noPositionResult: Partial<AnalysisResult> = {
+      transcriptId: "NM_018202.6",
+      gnomadConstraint: {
+        missense_z: 3.13,
+        oe_mis: 0.26,
+        pli: 0.98,
+        loeuf: 0.26,
+        isPP2Constrained: true,
+        hasRegionalData: true,
+        regionalConstraint: null,
+      },
+    };
+
+    render(
+      <VariantHeader
+        gene="MACO1"
+        variant="p.Glu433Lys"
+        uniprotId="Q9NSG2"
+        analysisResult={noPositionResult as AnalysisResult}
+      />
+    );
+
+    expect(screen.getByText("No data")).toBeInTheDocument();
+    // The gene must NOT be described as lacking blocks: only this residue was unresolved.
+    expect(screen.queryByText(/no gnomAD constraint blocks/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("No gnomAD blocks")).not.toBeInTheDocument();
+    expect(screen.getByText(/No sub-regional call was returned for this residue/)).toBeInTheDocument();
+    expect(screen.getByTitle(/no sub-regional call was returned for this residue/)).toBeInTheDocument();
+  });
+
+  it("still says a gene has no blocks when it genuinely has none", () => {
+    const noBlocksResult: Partial<AnalysisResult> = {
+      gnomadConstraint: {
+        missense_z: 1.2,
+        oe_mis: 1.1,
+        pli: 0.1,
+        loeuf: 1.1,
+        isPP2Constrained: false,
+        hasRegionalData: false,
+        regionalConstraint: null,
+      },
+    };
+
+    render(
+      <VariantHeader
+        gene="UNKNOWN"
+        variant="p.Ala123Val"
+        uniprotId="Q99999"
+        analysisResult={noBlocksResult as AnalysisResult}
+      />
+    );
+
+    expect(screen.getByText("No gnomAD blocks")).toBeInTheDocument();
+    expect(screen.getByText(/The gene has no gnomAD constraint blocks/)).toBeInTheDocument();
+  });
+
+  it.each([
+    [0.05, "p = 0.050"],
+    [0.002, "p = 0.002"],
+    [0.0015, "p = 0.0015"],
+    [0.00149, "p = 0.0015"],
+    [0.0009, "p = 9.0×10⁻⁴"],
+    [9.96e-6, "p = 1.0×10⁻⁵"],
+    [6.648150909581207e-6, "p = 6.6×10⁻⁶"],
+    [1e-12, "p = 1.0×10⁻¹²"],
+  ])("formats the RMC p-value %s canonically", (pValue, expected) => {
+    const result: Partial<AnalysisResult> = {
+      gnomadConstraint: {
+        missense_z: 3.13,
+        oe_mis: 0.26,
+        pli: 0.98,
+        loeuf: 0.26,
+        isPP2Constrained: true,
+        hasRegionalData: true,
+        regionalConstraint: { isConstrained: true, oeRatio: 0.68, pValue, regionText: "Gln199 to Met555" },
+      },
+    };
+
+    render(
+      <VariantHeader
+        gene="MACO1"
+        variant="p.Glu433Lys"
+        uniprotId="Q9NSG2"
+        analysisResult={result as AnalysisResult}
+      />
+    );
+
+    expect(screen.getByText(new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
+  });
+
+  it.each([0, -1, NaN, Infinity])("omits the RMC p-value when it is %s", (pValue) => {
+    const result: Partial<AnalysisResult> = {
+      gnomadConstraint: {
+        missense_z: 3.13,
+        oe_mis: 0.26,
+        pli: 0.98,
+        loeuf: 0.26,
+        isPP2Constrained: true,
+        hasRegionalData: true,
+        regionalConstraint: { isConstrained: true, oeRatio: 0.68, pValue, regionText: "Gln199 to Met555" },
+      },
+    };
+
+    render(
+      <VariantHeader
+        gene="MACO1"
+        variant="p.Glu433Lys"
+        uniprotId="Q9NSG2"
+        analysisResult={result as AnalysisResult}
+      />
+    );
+
+    expect(screen.queryByText(/p = /)).not.toBeInTheDocument();
+    expect(screen.getByText("Gln199–Met555")).toBeInTheDocument();
+  });
+
+  it("labels the coordinate build from the payload instead of assuming GRCh38", () => {
+    const grch37: Partial<AnalysisResult> = {
+      predictorData: { gnomadVariantId: "7-140453136-A-T", gnomadVariantAssembly: "GRCh37" } as any,
+    };
+
+    const { container, rerender } = render(
+      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={grch37 as AnalysisResult} />
+    );
+
+    expect(screen.getByText("hg19")).toBeInTheDocument();
+    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
+    expect(screen.getByTitle(/GRCh37 genomic coordinates/)).toBeInTheDocument();
+    expect(screen.getByText("GRCh37 coordinates")).toBeInTheDocument();
+
+    // Unknown build: show the coordinate but make no build claim at all.
+    const unknownBuild: Partial<AnalysisResult> = {
+      predictorData: { gnomadVariantId: "7-140453136-A-T", gnomadVariantAssembly: null } as any,
+    };
+
+    rerender(
+      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={unknownBuild as AnalysisResult} />
+    );
+
+    expect(container.querySelector(".vh-chip-key")).toBeNull();
+    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
+    expect(screen.getByTitle(/Build not reported/)).toBeInTheDocument();
+  });
+
+  it("exposes the constraint metrics as a list for VoiceOver", () => {
+    const { container } = render(
+      <VariantHeader
+        gene="BRAF"
+        variant="p.Val600Glu"
+        uniprotId="P15056"
+        analysisResult={mockAnalysisResult as AnalysisResult}
+      />
+    );
+
+    // `list-style: none` drops list semantics in WebKit unless the role is explicit.
+    const list = container.querySelector(".vh-metrics");
+    expect(list).toHaveAttribute("role", "list");
+    expect(list?.querySelectorAll("li.vh-metric")).toHaveLength(3);
+  });
+
+  it("gates the ClinGen PP2 wording on the server's own flag, not the Z threshold alone", () => {
+    const pp2NotMet: Partial<AnalysisResult> = {
+      gnomadConstraint: {
+        missense_z: 3.4,
+        oe_mis: 0.72, // ≥ 0.6, so the pipeline's isPP2Constrained is false
+        pli: 0.8,
+        loeuf: 0.5,
+        isPP2Constrained: false,
+        hasRegionalData: false,
+        regionalConstraint: null,
+      },
+    };
+
+    const { rerender } = render(
+      <VariantHeader gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={pp2NotMet as AnalysisResult} />
+    );
+
+    // The Z severity itself still reports as severe...
+    expect(screen.getByText("Severe intolerance")).toBeInTheDocument();
+    // ...but PP2 is not claimed.
+    expect(screen.getByTitle(/ClinGen PP2 not met/)).toBeInTheDocument();
+    expect(screen.queryByTitle(/ClinGen PP2 is met/)).not.toBeInTheDocument();
+
+    const pp2Met: Partial<AnalysisResult> = {
+      gnomadConstraint: {
+        ...pp2NotMet.gnomadConstraint,
+        oe_mis: 0.26,
+        isPP2Constrained: true,
+      } as any,
+    };
+
+    rerender(
+      <VariantHeader gene="GENE2" variant="p.Ala1Val" uniprotId="P00002" analysisResult={pp2Met as AnalysisResult} />
+    );
+
+    expect(screen.getByTitle(/ClinGen PP2 is met/)).toBeInTheDocument();
+  });
+
+  it("keeps the band tones and verdicts in step with the thresholds", () => {
+    const { container } = render(
+      <VariantHeader
+        gene="BRAF"
+        variant="p.Val600Glu"
+        uniprotId="P15056"
+        analysisResult={mockAnalysisResult as AnalysisResult}
+      />
+    );
+
+    const tonesOf = (label: string) => {
+      const row = Array.from(container.querySelectorAll("li.vh-metric")).find(
+        (li) => li.querySelector(".vh-metric-label")?.textContent === label
+      );
+      return Array.from(row?.querySelectorAll(".vh-band") ?? []).map((b) => (b as HTMLElement).dataset.tone);
+    };
+
+    // The band ladder and the tier ladder are declared separately; this pins them together.
+    expect(tonesOf("Missense Z")).toEqual(["good", "warn", "path"]);
+    expect(tonesOf("LOEUF")).toEqual(["path", "warn", "good"]);
+    expect(tonesOf("Regional O/E")).toEqual([]);
   });
 
   it("should handle copy to clipboard interaction and update screen reader feedback", async () => {

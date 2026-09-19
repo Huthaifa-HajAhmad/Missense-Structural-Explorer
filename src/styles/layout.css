@@ -255,8 +255,10 @@
   display: flex;
   flex-direction: row;
   /* Wrap, rather than a container query switching flex-direction: a container
-     query cannot restyle its own query container, so the header must reflow
-     itself. Below ~840px the group drops under the identity. */
+     query cannot restyle its own query container, so the header must reflow itself.
+     Line breaking uses the flex-basis sum, so the group drops under the identity when
+     the content box falls below 285 + 600 + 24 = 909px (an element width of ~949px,
+     i.e. a ~1169px viewport at the default sidebar). */
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px 24px;
@@ -276,6 +278,7 @@
   --vh-path-soft: rgba(220, 38, 38, 0.12);
   --vh-clay-soft: rgba(196, 104, 73, 0.13);
   --vh-muted-soft: rgba(25, 24, 22, 0.06);
+  --vh-muted-fg: #6E685E;
   --vh-track: #E8E4DD;
   --vh-tick: #C6C0B4;
   --vh-band-good: rgba(22, 163, 74, 0.20);
@@ -293,6 +296,7 @@
   --vh-path-soft: rgba(248, 113, 113, 0.14);
   --vh-clay-soft: rgba(233, 161, 131, 0.14);
   --vh-muted-soft: rgba(255, 255, 255, 0.08);
+  --vh-muted-fg: #A9A29A;
   --vh-track: #35322D;
   --vh-tick: #4C4740;
   --vh-band-good: rgba(74, 222, 128, 0.30);
@@ -360,7 +364,7 @@
   background: var(--cs-surface-2);
   color: var(--cs-text-secondary);
   white-space: nowrap;
-  transition: border-color 150ms ease-out, background 150ms ease-out;
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
 }
 .vh-chip:hover,
 .vh-chip:focus-within {
@@ -369,7 +373,7 @@
 
 .vh-chip-icon {
   flex-shrink: 0;
-  color: var(--cs-text-muted);
+  color: var(--vh-muted-fg);
 }
 
 .vh-chip-key {
@@ -378,7 +382,7 @@
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--cs-text-muted);
+  color: var(--vh-muted-fg);
 }
 
 .vh-chip-value {
@@ -401,7 +405,7 @@
 .vh-chip-tag[data-tone="warn"]  { background: var(--vh-warn-soft);  color: var(--vh-warn-fg); }
 .vh-chip-tag[data-tone="path"]  { background: var(--vh-path-soft);  color: var(--vh-path-fg); }
 .vh-chip-tag[data-tone="clay"]  { background: var(--vh-clay-soft);  color: var(--vh-clay-fg); }
-.vh-chip-tag[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--cs-text-muted); }
+.vh-chip-tag[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
 
 /* Splice-junction proximity — rare, actionable, and the only alert in the row.
    The pulse is a state cue, not an idle animation: it stops under
@@ -421,6 +425,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .vh-chip--alert { animation: none; }
+  .vh-icon-btn:active { transform: none; }
 }
 
 /* Copy / external-link icon button (WCAG 2.5.8 compliant hit target) */
@@ -439,7 +444,8 @@
   opacity: 0.65;
   border-radius: 4px;
   text-decoration: none;
-  transition: opacity 120ms ease-out, background 120ms ease-out;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out,
+    transform 120ms cubic-bezier(0.2, 0, 0, 1);
   flex-shrink: 0;
 }
 .vh-icon-btn::after {
@@ -505,7 +511,7 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--cs-text-muted);
+  color: var(--vh-muted-fg);
 }
 
 .vh-rail-scope {
@@ -535,7 +541,7 @@
    down the group. */
 .vh-metric {
   display: grid;
-  grid-template-columns: 82px 48px minmax(0, 1fr) 140px;
+  grid-template-columns: 82px 58px minmax(0, 1fr) 140px;
   grid-template-areas:
     "label value scale verdict"
     "note  note  note  note";
@@ -554,7 +560,7 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--cs-text-muted);
+  color: var(--vh-muted-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -575,7 +581,7 @@
 .vh-metric-value[data-tone="good"]  { color: var(--vh-good-fg); }
 .vh-metric-value[data-tone="warn"]  { color: var(--vh-warn-fg); }
 .vh-metric-value[data-tone="path"]  { color: var(--vh-path-fg); }
-.vh-metric-value[data-tone="muted"] { color: var(--cs-text-muted); }
+.vh-metric-value[data-tone="muted"] { color: var(--vh-muted-fg); }
 
 /* ── Reference track ──
    One box holding the bar (reference bands + ticks + the value marker) with the
@@ -584,13 +590,16 @@
 .vh-scale {
   grid-area: scale;
   position: relative;
-  height: 18px;
+  /* 20px = bar (1..5) + marker centred at 3 (spans -2.5..8.5) + numerals from 9.
+     The numerals used to start at 7px, i.e. under the marker, so a value sitting on
+     a threshold drew its dot across the number that names that threshold. */
+  height: 20px;
   min-width: 0;
 }
 
 .vh-scale-bar {
   position: absolute;
-  top: 3px;
+  top: 1px;
   left: 0;
   right: 0;
   height: 4px;
@@ -613,15 +622,17 @@
 
 .vh-tick {
   position: absolute;
-  top: 2px;
-  height: 6px;
+  top: -1px;
+  height: 8px;
   width: 1px;
   background: var(--vh-tick);
+  /* ticks are 1px wide but centred like the marker and its numeral */
+  transform: translateX(-0.5px);
 }
 
 .vh-marker {
   position: absolute;
-  top: 5px;
+  top: 3px;
   width: 11px;
   height: 11px;
   border-radius: 50%;
@@ -632,18 +643,18 @@
 .vh-marker[data-tone="good"]  { background: var(--vh-good-fg); }
 .vh-marker[data-tone="warn"]  { background: var(--vh-warn-fg); }
 .vh-marker[data-tone="path"]  { background: var(--vh-path-fg); }
-.vh-marker[data-tone="muted"] { background: var(--cs-text-muted); }
+.vh-marker[data-tone="muted"] { background: var(--vh-muted-fg); }
 .dark .vh-marker { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
 
 .vh-axis-label {
   position: absolute;
-  top: 7px;
+  top: 9px;
   transform: translateX(-50%);
   font-family: var(--cs-font-mono);
   font-size: 9.5px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  color: var(--cs-text-muted);
+  color: var(--vh-muted-fg);
   white-space: nowrap;
 }
 
@@ -660,7 +671,7 @@
 .vh-verdict[data-tone="good"]  { background: var(--vh-good-soft);  color: var(--vh-good-fg); }
 .vh-verdict[data-tone="warn"]  { background: var(--vh-warn-soft);  color: var(--vh-warn-fg); }
 .vh-verdict[data-tone="path"]  { background: var(--vh-path-soft);  color: var(--vh-path-fg); }
-.vh-verdict[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--cs-text-muted); }
+.vh-verdict[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
 
 /* Variant-specific RMC footnote (constrained block + p-value), right-aligned on
    its own line so it never competes with the verdict for the same gap. */
@@ -691,9 +702,13 @@
 }
 
 /* ── Reflow ──
-   The header wraps itself (see .variant-header) below ~840px. Inside the group,
-   four columns and two threshold numerals need ~150px of track, so below ~600px
-   the row stacks and the spine becomes a strip. */
+   The header wraps itself (see .variant-header) below 909px of content box. Inside
+   the group, four aligned columns need ~100px of track and the two threshold
+   numerals collide below ~92px (they are 21.8% of the track apart and 40px wide
+   together); the reachable minimum is 175px, so this branch is about giving the
+   row room, not about rescuing collisions.
+   Container queries measure the CONTENT box, so 600px here means an element width
+   of ~640px (the header carries 20px of padding each side). */
 @container (max-width: 600px) {
   .vh-rail {
     flex-direction: column;
@@ -702,6 +717,8 @@
     flex: 0 0 auto;
     flex-direction: row;
     align-items: baseline;
+    /* reset: the base rule centres on the block axis, which becomes horizontal here */
+    justify-content: flex-start;
     gap: 7px;
     padding: 4px 14px;
   }

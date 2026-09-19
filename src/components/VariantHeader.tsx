@@ -77,17 +77,25 @@ const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
 /**
  * Compact p-value. gnomAD RMC p-values run to ~20 significant characters, which is
  * unreadable in a header row, so tiny values collapse to `6.6×10⁻⁶`.
+ *
+ * Two rounding traps this avoids:
+ *  - `toFixed(3)` across the 0.001–0.01 band turns 0.0015 into "0.002" and 0.00149
+ *    into "0.001", i.e. it can display a p-value as meeting a 0.001 significance
+ *    line that the true value does not meet. That band keeps a fourth decimal.
+ *  - rounding the mantissa after taking `Math.log10` can carry it to 10.0
+ *    (9.99e-6 → "10.0×10⁻⁶"), which is not valid scientific notation.
+ *    `toExponential` normalises the carry into the exponent.
  */
 function formatPValue(p: number | null): string | null {
   if (p === null || !Number.isFinite(p) || p <= 0) return null;
-  if (p >= 0.001) return p.toFixed(3);
-  const exponent = Math.floor(Math.log10(p));
-  const mantissa = p / 10 ** exponent;
-  const digits = String(Math.abs(exponent))
+  if (p >= 0.01) return p.toFixed(3);
+  if (p >= 0.001) return String(Number(p.toFixed(4)));
+  const [mantissa, exponent] = p.toExponential(1).split("e");
+  const digits = String(Math.abs(Number(exponent)))
     .split("")
     .map((d) => SUPERSCRIPT[Number(d)])
     .join("");
-  return `${mantissa.toFixed(1)}×10⁻${digits}`;
+  return `${mantissa}×10⁻${digits}`;
 }
 
 /** "Gln199 to Met555" → "Gln199–Met555" */
@@ -104,7 +112,16 @@ function signed(value: number): string {
 // Metric builders — one per gnomAD v2 signal
 // ─────────────────────────────────────────────
 
-function buildMissenseZMetric(missenseZ: number | null | undefined): VhMetric {
+/**
+ * @param missenseZ gnomAD v2 missense Z
+ * @param isPP2Constrained the server's own PP2 call, which additionally requires
+ *   missense O/E < 0.6. The header must not re-derive PP2 from the Z threshold
+ *   alone: it would claim ClinGen PP2 for genes the pipeline's flag says do not meet it.
+ */
+function buildMissenseZMetric(
+  missenseZ: number | null | undefined,
+  isPP2Constrained: boolean
+): VhMetric {
   const domains = {
     domain: MISSENSE_Z_DOMAIN,
     bands: [
@@ -118,7 +135,11 @@ function buildMissenseZMetric(missenseZ: number | null | undefined): VhMetric {
     ],
     note: null,
   };
-  const refRange = "Reference: tolerant below 2.0, constrained from 2.0, severe intolerance at or above 3.09 (ClinGen PP2).";
+  const refRange =
+    "Reference: tolerant below 2.0, constrained from 2.0, severe intolerance at or above 3.09.";
+  const pp2Clause = isPP2Constrained
+    ? " ClinGen PP2 is met (Z ≥ 3.09 and missense O/E < 0.6)."
+    : " ClinGen PP2 is not met (it also requires missense O/E < 0.6).";
 
   const z = typeof missenseZ === "number" ? missenseZ : null;
 
@@ -132,14 +153,20 @@ function buildMissenseZMetric(missenseZ: number | null | undefined): VhMetric {
       marker: null,
       ...domains,
       tooltip: "gnomAD v2 Missense Z score — not available for this gene.",
-      detail: `gnomAD v2 Missense Z score. Not measured for this gene. ${refRange}`,
+      detail: `Not measured for this gene. ${refRange}`,
     };
   }
 
   const value = signed(z);
   const tier =
     z >= 3.09
-      ? { tone: "path" as VhTone, verdict: "Severe intolerance", why: "severe missense intolerance (ClinGen PP2)" }
+      ? {
+          tone: "path" as VhTone,
+          verdict: "Severe intolerance",
+          why: isPP2Constrained
+            ? "severe missense intolerance, ClinGen PP2 met"
+            : "severe missense intolerance (ClinGen PP2 not met: missense O/E not below 0.6)",
+        }
       : z >= 2.0
         ? { tone: "warn" as VhTone, verdict: "Constrained", why: "above the tolerant reference range" }
         : { tone: "good" as VhTone, verdict: "Tolerant", why: "within the tolerant reference range" };
@@ -152,8 +179,9 @@ function buildMissenseZMetric(missenseZ: number | null | undefined): VhMetric {
     verdict: tier.verdict,
     marker: z,
     ...domains,
-    tooltip: `gnomAD v2 Missense Z score ${value} — ${tier.why}. ${refRange}`,
-    detail: `gnomAD v2 Missense Z score ${value}: ${tier.why}. ${refRange}`,
+    tooltip: `gnomAD v2 Missense Z score ${value} — ${tier.why}. ${refRange}${z >= 3.09 ? pp2Clause : ""}`,
+    // Reference-only: the label, value and verdict are already announced as visible text.
+    detail: `${refRange}${z >= 3.09 ? pp2Clause : ""}`,
   };
 }
 
@@ -186,7 +214,7 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
       marker: null,
       ...domains,
       tooltip: "gnomAD v2 loss-of-function observed/expected upper bound fraction (LOEUF) — not available for this gene.",
-      detail: `gnomAD v2 loss-of-function (LOEUF). Not measured for this gene. ${refRange}`,
+      detail: `Not measured for this gene. ${refRange}`,
     };
   }
 
@@ -207,7 +235,7 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
     marker: v,
     ...domains,
     tooltip: `gnomAD v2 loss-of-function observed/expected upper bound fraction (LOEUF) ${value} — ${tier.why}. ${refRange}`,
-    detail: `gnomAD v2 loss-of-function (LOEUF) ${value}: ${tier.why}. ${refRange}`,
+    detail: refRange,
   };
 }
 
@@ -225,17 +253,33 @@ function buildRmcMetric(
   const refRange = "Reference: unconstrained at O/E ≈ 1.0.";
 
   if (!regional) {
+    // `regional` is null in two different situations, and they mean opposite things:
+    // the gene has no RMC blocks at all, or it has blocks but this variant had no
+    // residue position to look up. The verdict already distinguished them; the copy
+    // must too, or it tells the reader the gene is unstudied when it is not.
+    const noCall = hasRegionalData
+      ? {
+          verdict: "No data",
+          reason: "no sub-regional call was returned for this residue",
+          sentence:
+            "No sub-regional call was returned for this residue, so RMC is not assessed here. This is not a statement about the gene.",
+        }
+      : {
+          verdict: "No gnomAD blocks",
+          reason: "this gene has no gnomAD constraint blocks",
+          sentence: "The gene has no gnomAD constraint blocks, so no sub-regional call was made.",
+        };
     return {
       key: "regional-oe",
       label: "Regional O/E",
       value: VH_NO_VALUE,
       tone: "muted",
-      verdict: hasRegionalData ? "No data" : "No gnomAD blocks",
+      verdict: noCall.verdict,
       marker: null,
       ...domains,
       note: null,
-      tooltip: "gnomAD v2 Regional Missense Constraint (RMC) — this gene has no gnomAD constraint blocks.",
-      detail: `gnomAD v2 Regional Missense Constraint (RMC). The gene has no gnomAD constraint blocks, so no sub-regional call was made. ${refRange}`,
+      tooltip: `gnomAD v2 Regional Missense Constraint (RMC) — ${noCall.reason}.`,
+      detail: `${noCall.sentence} ${refRange}`,
     };
   }
 
@@ -264,9 +308,8 @@ function buildRmcMetric(
       tooltip: `gnomAD v2 Regional Missense Constraint (RMC): ${regionDetail}${
         pText ? `, p = ${pText}` : ""
       }. Observed/expected ratio ${value} against a neutral baseline of 1.0.`,
-      detail: `gnomAD v2 Regional Missense Constraint (RMC) ${value}: ${regionDetail}${
-        pText ? `, p-value ${pText}` : ""
-      }. ${refRange}`,
+      // Reference-only: the value, the verdict and the block/p-value note are visible text.
+      detail: refRange,
     };
   }
 
@@ -280,7 +323,8 @@ function buildRmcMetric(
     ...domains,
     note: null,
     tooltip: `gnomAD v2 Regional Missense Constraint (RMC): the residue sits outside every constrained sub-region (observed/expected ${value}).`,
-    detail: `gnomAD v2 Regional Missense Constraint (RMC) ${value}: residue outside every constrained sub-region, so variation is expected. ${refRange}`,
+    // The "outside every constrained sub-region" clause is tooltip-only otherwise.
+    detail: `Residue outside every constrained sub-region. ${refRange}`,
   };
 }
 
@@ -392,17 +436,18 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
   // Gene / regional constraint signals (gnomAD v2)
   const hasRegionalData = gnomad?.hasRegionalData ?? false;
   const regional = gnomad?.regionalConstraint ?? null;
+  const isPP2Constrained = gnomad?.isPP2Constrained ?? false;
 
   const metrics = useMemo<VhMetric[]>(
     () =>
       gnomad
         ? [
-            buildMissenseZMetric(gnomad.missense_z),
+            buildMissenseZMetric(gnomad.missense_z, isPP2Constrained),
             buildLoeufMetric(gnomad.loeuf),
             buildRmcMetric(hasRegionalData, regional),
           ]
         : [],
-    [gnomad, hasRegionalData, regional]
+    [gnomad, hasRegionalData, regional, isPP2Constrained]
   );
 
   // Transcript / lineage metadata
@@ -413,8 +458,15 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
   const maneRefSeqId = analysisResult?.maneRefSeqId ?? predictorData?.maneRefSeqId ?? null;
   const displayTranscriptId = maneRefSeqId?.trim() || transcriptId || null;
 
-  // Genomic coordinate identifier (display-ready VCF-like string)
+  // Genomic coordinate identifier (display-ready VCF-like string).
+  // The build is NOT ours to assume: the MyVariant.info fallback returns GRCh37
+  // (vep-orchestrator), and the contract states that a coordinate with an unknown
+  // or unsupported build must not be presented as though it were verified — a
+  // wrong-build id pasted into another tool scores a different locus.
   const genomicId = predictorData?.gnomadVariantId ?? null;
+  const genomicAssembly = predictorData?.gnomadVariantAssembly ?? null;
+  const assemblyTag = genomicAssembly === "GRCh37" ? "hg19" : genomicAssembly === "GRCh38" ? "hg38" : null;
+  const genomicTitle = `${genomicAssembly ?? "Build not reported"} genomic coordinates ${genomicId ?? ""}`.trim();
 
   // HGVS formatted variant notation
   const formattedVariant = useMemo(() => {
@@ -476,11 +528,11 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
             )}
 
             {genomicId && (
-              <span className="vh-chip" title={`GRCh38 genomic coordinates ${genomicId}`}>
+              <span className="vh-chip" title={genomicTitle}>
                 <MapPin className="vh-chip-icon" size={12} strokeWidth={1.75} aria-hidden="true" />
-                <span className="vh-sr-only">GRCh38 coordinates </span>
+                <span className="vh-sr-only">{genomicAssembly ? `${genomicAssembly} coordinates ` : "Coordinates, build not reported, "}</span>
                 <span className="vh-chip-value">{genomicId}</span>
-                <span className="vh-chip-key">hg38</span>
+                {assemblyTag && <span className="vh-chip-key">{assemblyTag}</span>}
                 <CopyBtn text={genomicId} label="genomic coordinates" />
               </span>
             )}
@@ -523,14 +575,20 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
         )}
       </div>
 
-      {/* ── Band 3 · gnomAD v2 constraint list: one row per metric ── */}
+      {/* ── Band 2 · gnomAD v2 constraint list: one row per metric ── */}
       {metrics.length > 0 && (
         <div className="vh-rail">
           <div className="vh-rail-meta">
             <span className="vh-rail-src">gnomAD v2</span>
             <span className="vh-rail-scope">Gene constraint</span>
           </div>
-          <ul className="vh-metrics" aria-label="gnomAD v2 population constraint and normal ranges">
+          {/* role="list" is explicit because `list-style: none` drops list semantics in
+              WebKit, so VoiceOver would otherwise not announce "list, 3 items". */}
+          <ul
+            className="vh-metrics"
+            role="list"
+            aria-label="gnomAD v2 population constraint and normal ranges"
+          >
             {metrics.map((metric) => (
               <ConstraintMetric key={metric.key} metric={metric} />
             ))}
