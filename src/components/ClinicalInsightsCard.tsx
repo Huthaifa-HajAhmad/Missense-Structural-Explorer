@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { getResidueContext, getCalibration } from "../shared/uncertainty";
 import { generateProvenanceManifest } from "../shared/provenance";
+import { computeCalibratedConsensus } from "../shared/thresholds";
 import { 
   FileText, 
   CheckCircle2, 
@@ -73,6 +74,46 @@ import { VARIANT_PRESETS, getNearestResidues } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
 import { resolveResidueShiftModel } from "../lib/residueShiftModel";
 import { deriveBiochemicalNarrative, getPropertyScaleDefinition } from "../shared/residueShiftEvidence";
+
+/**
+ * The consensus verdict DERIVED from the current run state — the same computation the Energetics
+ * badge performs, so an export cannot state a verdict the screen contradicts.
+ *
+ * `foldingEnergetics.consensusVerdict` is a snapshot taken when the server committed the FoldX job.
+ * Remote engines keep resolving for up to ten minutes after that and the badge recomputes as they
+ * do, so a report built from the stored field could print "Low Misfolding Risk (Neutral Stability)"
+ * for a run the screen calls "High Misfolding Risk (Destabilizing Consensus)" — measured: foldx +0.5
+ * and rasp +0.6 at commit time, ThermoMPNN +2.0 arriving later. A stored verdict is a fact about the
+ * past; an exported report is a claim about this variant.
+ *
+ * The inputs are the caller's resolved values, which is why this is not a method on the contract: the
+ * context (residue features, pLDDT) only exists client-side.
+ */
+function deriveConsensus(args: {
+  result: any;
+  foldingEnergetics: any;
+  residueIndex: number | null;
+  plddt?: number | null;
+}) {
+  const { result, foldingEnergetics: fe, residueIndex, plddt } = args;
+  if (!result) return null;
+  return computeCalibratedConsensus(
+    {
+      foldx: fe?.foldx ?? result.foldingEnergetics?.foldx ?? null,
+      foldxMean: fe?.foldxMean ?? null,
+      dynamut2: fe?.dynamut2 ?? result.dynamut2 ?? null,
+      ddmut: fe?.ddmut ?? result.ddmut ?? null,
+      rasp: fe?.rasp ?? result.rasp ?? null,
+      thermompnn: fe?.thermompnn ?? result.thermompnn ?? null,
+      stabilityoracle: fe?.stabilityoracle ?? result.foldingEnergetics?.stabilityoracle ?? null,
+      foldxRepairFailed: fe?.foldxRepairFailed ?? false,
+      foldxBinaryMissing: fe?.foldxBinaryMissing ?? false
+    },
+    result.uniprotFeatures || null,
+    residueIndex ?? undefined,
+    plddt ?? null
+  );
+}
 
 interface ClinicalInsightsCardProps {
   isDark: boolean;
@@ -309,8 +350,21 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         rasp: foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null,
         thermompnn: foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null,
         stabilityoracle: foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null,
-        consensusStabilityVerdict: foldingEnergetics?.consensusVerdict ?? null,
-        consensusProbability: (foldingEnergetics as any)?.consensusProbability ?? null,
+        // Derived, not read from the snapshot: see `deriveConsensus`.
+        consensusStabilityVerdict:
+          deriveConsensus({
+            result: analysisState.result,
+            foldingEnergetics,
+            residueIndex: selectedResidueIndex,
+            plddt: disruptionPredictor?.plddt
+          })?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
+        consensusProbability:
+          deriveConsensus({
+            result: analysisState.result,
+            foldingEnergetics,
+            residueIndex: selectedResidueIndex,
+            plddt: disruptionPredictor?.plddt
+          })?.consensusProbability ?? (foldingEnergetics as any)?.consensusProbability ?? null,
         consensusConfMin: (foldingEnergetics as any)?.consensusConfMin ?? null,
         consensusConfMax: (foldingEnergetics as any)?.consensusConfMax ?? null
       },
@@ -337,7 +391,14 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       uniprotId || analysisState.result.metadata?.uniprotId || "",
       analysisState.result,
       settings,
-      foldingEnergetics
+      foldingEnergetics,
+      // The live value, so the manifest cannot contradict the screen.
+      deriveConsensus({
+        result: analysisState.result,
+        foldingEnergetics,
+        residueIndex: selectedResidueIndex,
+        plddt: disruptionPredictor?.plddt
+      })?.consensusVerdict ?? null
     );
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);

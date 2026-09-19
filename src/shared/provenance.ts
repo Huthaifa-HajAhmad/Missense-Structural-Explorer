@@ -66,7 +66,21 @@ export function generateProvenanceManifest(
   uniprotId: string,
   analysisResult: AnalysisResult | null,
   settings?: { acmgWeighting?: string },
-  foldingEnergetics?: EnergeticsData | null
+  foldingEnergetics?: EnergeticsData | null,
+  /**
+   * The verdict DERIVED from the final run state, when the caller can compute one.
+   *
+   * `foldingEnergetics.consensusVerdict` is a snapshot taken when the server committed the FoldX job.
+   * Remote engines keep resolving for up to ten minutes after that, and the on-screen badge
+   * recomputes as they do — so an exported report built from the stored field could state a verdict
+   * the screen contradicts. It is not a hypothetical: a run with foldx +0.5 and rasp +0.6 exports
+   * "Low Misfolding Risk (Neutral Stability)" while a ThermoMPNN result arriving later puts
+   * "High Misfolding Risk (Destabilizing Consensus)" on screen.
+   *
+   * A stored verdict is a fact about the past; a manifest is a claim about this variant. Callers that
+   * have the inputs pass the live value here, and it wins.
+   */
+  derivedStabilityVerdict?: string | null
 ): ProvenanceManifest {
   const meta = (analysisResult as any)?.metadata || {};
   const status = (analysisResult as any)?.serviceStatus || meta?.serviceStatus || {};
@@ -96,7 +110,7 @@ export function generateProvenanceManifest(
     serviceStatuses: status,
     verdictSummary: {
       acmgVerdict: analysisResult?.ruleBasedInsights?.acmgVerdict || null,
-      stabilityVerdict: foldingEnergetics?.consensusVerdict || null
+      stabilityVerdict: derivedStabilityVerdict ?? foldingEnergetics?.consensusVerdict ?? null
     }
   };
 }
