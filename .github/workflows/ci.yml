@@ -26,9 +26,11 @@ jobs:
         # status, so a failed download exited 0, the step went green while installing nothing, and
         # the next step died with "uv: command not found" (exit 127) — skipping lint, tests and
         # the build entirely. Observed on run 35455821450, where every earlier run had passed.
-        uses: astral-sh/setup-uv@v10
-        with:
-          version: "latest"
+        #
+        # Pinned to a RESOLVABLE ref: this action publishes full version tags only (`v10.1.0`);
+        # `@v10` fails at "Set up job" with "unable to find version v10". The `version` input is
+        # omitted on purpose — its default installs the latest uv, as the installer did.
+        uses: astral-sh/setup-uv@v10.1.0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
