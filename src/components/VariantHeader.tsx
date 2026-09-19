@@ -509,6 +509,10 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
           )}
         </div>
 
+        {/* Pushes the identifier line to the bottom edge of the stretched column,
+            so it anchors on the header's baseline instead of floating under the gene. */}
+        <div className="variant-header-spacer" aria-hidden="true" />
+
         {/* Lineage identifiers stay under the gene rather than being pushed to the far
             edge of the header, so the header reads as one left-aligned block. */}
         {hasIdentifiers && (
@@ -575,13 +579,12 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
         )}
       </div>
 
-      {/* ── Band 2 · gnomAD v2 constraint list: one row per metric ── */}
+      {/* ── Band 2 · gnomAD v2 constraint list: one row per metric ──
+          No caption: the list's aria-label and each row's tooltip already carry
+          the gnomAD v2 / gene-constraint provenance, so a headline would only add
+          a fourth line to a three-row group. */}
       {metrics.length > 0 && (
         <div className="vh-rail">
-          <div className="vh-rail-meta">
-            <span className="vh-rail-src">gnomAD v2</span>
-            <span className="vh-rail-scope">Gene constraint</span>
-          </div>
           {/* role="list" is explicit because `list-style: none` drops list semantics in
               WebKit, so VoiceOver would otherwise not announce "list, 3 items". */}
           <ul

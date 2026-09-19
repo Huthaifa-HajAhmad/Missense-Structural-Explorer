@@ -171,25 +171,19 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
   return checks;
 }
 
-/** In the stacked branch the source strip must share the left edge with the rows. */
+/** There is no caption line above the rows anymore: the bare list owns the
+   rail. This check keeps a future regression from re-introducing the strip. */
 function checkStackedStrip(host: HTMLElement, id: string): GeometryCheck {
   const rail = host.querySelector(".vh-rail");
-  const meta = host.querySelector(".vh-rail-meta");
-  const label = host.querySelector(".vh-metric-label");
-  if (!rail || !meta || !label) {
-    return { name: `${id}: source strip left-aligned`, pass: false, detail: "missing rail/meta/label" };
+  const stray = host.querySelector(".vh-rail-meta");
+  const list = host.querySelector(".vh-metrics");
+  if (!rail || !list) {
+    return { name: `${id}: rail is a bare list`, pass: false, detail: "missing rail/list" };
   }
-  const metaBox = rect(meta);
-  const first = meta.firstElementChild;
-  const textLeft = first ? rect(first).left : metaBox.left;
-  const labelLeft = rect(label).left;
-  // A `flex-direction: row` flip that forgets to reset `justify-content: center`
-  // centres the strip while the rows below stay left-aligned.
-  const delta = Math.abs(textLeft - labelLeft);
   return {
-    name: `${id}: source strip shares the left edge with the rows`,
-    pass: delta <= 2,
-    detail: `strip text left ${px(textLeft)}, row label left ${px(labelLeft)}, delta ${px(delta)}px`,
+    name: `${id}: rail is a bare list`,
+    pass: stray === null && rail.firstElementChild === list,
+    detail: stray ? "stray .vh-rail-meta caption still rendered" : "list is the rail's only child",
   };
 }
 
@@ -268,7 +262,7 @@ function effectiveBackground(el: Element, pageBackground: Rgb): Rgb {
 function checkContrast(host: HTMLElement, id: string, pageBackgroundHex: string): GeometryCheck[] {
   const page = parseColor(pageBackgroundHex);
   if (!page) return [];
-  const selectors = [".vh-metric-label", ".vh-axis-label", ".vh-rail-src", ".vh-chip-key", ".vh-metric-value", ".vh-verdict", ".vh-note"];
+  const selectors = [".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict", ".vh-note"];
   const checks: GeometryCheck[] = [];
   selectors.forEach((selector) => {
     const el = host.querySelector(selector);

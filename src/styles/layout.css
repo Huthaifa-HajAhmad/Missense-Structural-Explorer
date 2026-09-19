@@ -313,21 +313,34 @@
 
 /* ── Left column · the variant's identity, with its lineage identifiers under it ──
    A column, not a row: pushing the chips to the far edge of the header left the
-   gene stranded in the middle of an otherwise empty band. */
+   gene stranded in the middle of an otherwise empty band. It stretches to the
+   header's full height and pins the identifier line to the bottom edge, so the
+   meta line sits on the same baseline as the last metric row and the header's
+   border — anchored, not floating in the middle of a taller header. */
 .variant-header-top {
   flex: 1 1 285px;
   min-width: 0;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
+  gap: 4px;
 }
 
+/* The identity pair (gene + HGVS) sits on the first metric row's baseline;
+   this is the anchor that keeps them at the top while the meta line drops. */
 .variant-header-identity {
   display: flex;
   align-items: baseline;
   gap: 10px;
   min-width: 0;
+  padding-top: 2px;
+}
+
+/* Absorbs the height difference between the two-row identity block and the
+   three-row metric group, pushing the identifiers to the bottom edge. */
+.variant-header-spacer {
+  flex: 1 1 auto;
 }
 
 .variant-header-gene {
@@ -359,6 +372,9 @@
      means a wrapped line never opens with stray punctuation. */
   gap: 4px 14px;
   min-width: 0;
+  /* Same 4px vertical inset as the metric rows, so the meta line sits on the
+     group's row rhythm rather than between rhythms. */
+  padding: 4px 0;
 }
 
 /* ── Identifier meta entry ──
@@ -504,39 +520,8 @@
   .vh-rail::before { display: none; }
 }
 
-/* The source line is a caption above the rows, at the same micro-caps scale as
-   the identity meta line — provenance as typography, not a tinted spine. Its
-   14px inset matches the rows' padding so caption and labels share a left edge. */
-.vh-rail-meta {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 6px;
-  padding: 0 14px 4px;
-}
-
-.vh-rail-src {
-  font-family: var(--cs-font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--cs-text-secondary);
-}
-
-.vh-rail-scope {
-  font-family: var(--cs-font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--vh-muted-fg);
-}
-.vh-rail-scope::before {
-  content: "·";
-  margin-right: 6px;
-  color: var(--vh-tick);
-}
+/* The rail is a bare list now — rows separated by the list's 1px gaps, no
+   caption line and no inset, so the group's rhythm is uniform top to bottom. */
 
 .vh-metrics {
   flex: 1 1 auto;

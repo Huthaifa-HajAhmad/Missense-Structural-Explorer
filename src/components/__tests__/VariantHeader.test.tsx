@@ -154,9 +154,10 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    // Source attribution survives as a rail label rather than a full sentence
-    expect(screen.getByText("gnomAD v2")).toBeInTheDocument();
-    expect(screen.getByText("Gene constraint")).toBeInTheDocument();
+    // Source attribution lives on the list's accessible label and the row
+    // tooltips; there is no visible caption line above the rows.
+    expect(screen.getByRole("list", { name: /gnomAD v2 population constraint/ })).toBeInTheDocument();
+    expect(container.querySelector(".vh-rail-meta")).not.toBeInTheDocument();
 
     // Compact metric labels — the full names live in the tooltip/sr-only copy
     expect(screen.getByText("Missense Z")).toBeInTheDocument();
