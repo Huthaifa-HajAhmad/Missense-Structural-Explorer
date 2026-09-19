@@ -114,6 +114,56 @@ describe("generateProvenanceManifest — verdict summary", () => {
     expect(manifest.verdictSummary.pendingEngines).toEqual([]);
   });
 
+  it("treats a supplied context as authoritative, including a NULL verdict", () => {
+    /**
+     * F3. The `??` chain made `derivedVerdict: null` indistinguishable from "no context supplied", so a
+     * run with no result to derive from fell through to the STORED snapshot — the export stating a
+     * verdict the screen had no basis for. Reachable: variantCache persists bundles with
+     * `analysisResult: undefined` while keeping `foldingEnergetics`.
+     */
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      analysisResult,
+      undefined,
+      { consensusVerdict: STALE } as never,
+      { derivedVerdict: null }
+    );
+
+    expect(manifest.verdictSummary.stabilityVerdict).toBeNull();
+  });
+
+  it("still uses the stored verdict for a caller that supplies no context", () => {
+    // The fallback's original purpose, pinned so the rule above cannot be "fixed" by deleting it.
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      analysisResult,
+      undefined,
+      { consensusVerdict: STALE } as never
+    );
+
+    expect(manifest.verdictSummary.stabilityVerdict).toBe(STALE);
+  });
+
+  it("does not half-apply a context: the caveat follows the same rule", () => {
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      analysisResult,
+      undefined,
+      { consensusVerdict: STALE, evidenceComplete: false, pendingTools: ["DynaMut2"] } as never,
+      { derivedVerdict: null, evidenceComplete: null, pendingTools: [] }
+    );
+
+    expect(manifest.verdictSummary.stabilityVerdict).toBeNull();
+    expect(manifest.verdictSummary.stabilityEvidenceComplete).toBeNull();
+    expect(manifest.verdictSummary.pendingEngines).toEqual([]);
+  });
+
   it("still carries the rest of the manifest", () => {
     const manifest = generateProvenanceManifest(
       "GENEX",

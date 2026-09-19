@@ -126,12 +126,30 @@ export function generateProvenanceManifest(
     serviceStatuses: status,
     verdictSummary: {
       acmgVerdict: analysisResult?.ruleBasedInsights?.acmgVerdict || null,
-      stabilityVerdict:
-        verdictContext?.derivedVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
-      stabilityEvidenceComplete:
-        verdictContext?.evidenceComplete ?? (foldingEnergetics as any)?.evidenceComplete ?? null,
-      pendingEngines:
-        verdictContext?.pendingTools ?? (foldingEnergetics as any)?.pendingTools ?? []
+      /**
+       * A SUPPLIED context is authoritative — including a `null` verdict.
+       *
+       * The plain `??` chain made `derivedVerdict: null` indistinguishable from "no context supplied",
+       * so a run with no result to derive from fell through to the STORED snapshot: the export stated a
+       * verdict the screen had no basis for. That is the same class this function's derived value
+       * exists to close, and it is reachable — `variantCache` deliberately persists bundles with
+       * `analysisResult: undefined` while keeping `foldingEnergetics` (its persistence guard drops only
+       * preliminary and failed ones).
+       *
+       * The stored field is used ONLY for callers that supply no context at all, which is the case it
+       * was always meant for.
+       */
+      stabilityVerdict: verdictContext
+        ? verdictContext.derivedVerdict ?? null
+        : foldingEnergetics?.consensusVerdict ?? null,
+      // Same rule for the caveat, so a context cannot half-apply: a caller that speaks for the verdict
+      // speaks for the fields that qualify it too.
+      stabilityEvidenceComplete: verdictContext
+        ? verdictContext.evidenceComplete ?? null
+        : (foldingEnergetics as any)?.evidenceComplete ?? null,
+      pendingEngines: verdictContext
+        ? verdictContext.pendingTools ?? []
+        : (foldingEnergetics as any)?.pendingTools ?? []
     }
   };
 }

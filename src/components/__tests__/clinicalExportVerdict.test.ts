@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { deriveConsensus, buildExportVerdictContext } from "../ClinicalInsightsCard";
 import { computeCalibratedConsensus } from "../../shared/thresholds/consensus";
+import { generateProvenanceManifest } from "../../shared/provenance";
 
 /**
  * The EXPORT path's verdict derivation.
@@ -213,5 +214,38 @@ describe("buildExportVerdictContext — what the export actually passes", () => 
   it("returns null only when there is no result to compute from", () => {
     const context = buildExportVerdictContext({ result: null, foldingEnergetics: { foldx: 2.0 } });
     expect(context.derivedVerdict).toBeNull();
+  });
+
+  it("does not let a stored verdict come back through the manifest when there is no result", () => {
+    /**
+     * F3, end to end. The component supplies a context; with no result the derived verdict is null; and
+     * a plain `??` in the manifest then resurrected the STORED snapshot — so the exported report stated
+     * a verdict the screen had no basis for. Reachable, because `variantCache` persists bundles with
+     * `analysisResult: undefined` while keeping `foldingEnergetics`.
+     *
+     * This joins the two halves the earlier tests kept apart: `deriveConsensus` was tested, and the
+     * manifest was tested, but nothing checked what the component actually hands it.
+     */
+    const stored = "Low Misfolding Risk (Neutral Stability)";
+    const context = buildExportVerdictContext({
+      result: null,
+      foldingEnergetics: { consensusVerdict: stored },
+    });
+    expect(context.derivedVerdict).toBeNull();
+
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      null,
+      undefined,
+      { consensusVerdict: stored } as never,
+      context
+    );
+
+    expect(
+      manifest.verdictSummary.stabilityVerdict,
+      "the export resurrected a stored verdict the screen could not have shown"
+    ).toBeNull();
   });
 });
