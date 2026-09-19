@@ -113,8 +113,22 @@ describe("the consensus has a single server-side computation site", () => {
       "a spread in the consensus argument can override the engine set after it is written"
     ).not.toMatch(/\.\.\./);
 
-    /** A value that would silently disable the engine it is bound to. */
-    const DISABLING = /^(null|undefined|false|true|NaN|0)$/;
+    /**
+     * A REAL value, not an expression that can disable the engine.
+     *
+     * The previous form captured only the FIRST identifier of the right-hand side, so it inspected
+     * `void` from `void 0` and `Number` from `Number.NaN` — and a review demonstrated that both
+     * spellings are consensus-identical to `null`, so the exact five-engine defect this guards went
+     * straight through. A blacklist cannot enumerate the ways to write "nothing", so the check is a
+     * whitelist on the whole expression: the value must be a plain local identifier, with no operator,
+     * call, member access or literal.
+     *
+     * A legitimate refactor to a dotted path or a helper call will fail this and have to update the
+     * guard. That friction is the point — it makes someone look at why an engine's value stopped being
+     * a simple binding.
+     */
+    const PLAIN_IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+    const DISABLING = /^(null|undefined|false|true|NaN|Infinity)$/;
 
     for (const engine of [
       "foldxMean",
@@ -126,12 +140,19 @@ describe("the consensus has a single server-side computation site", () => {
       "foldxRepairFailed",
       "foldxBinaryMissing",
     ]) {
-      const explicit = args.match(new RegExp(`\\b${engine}\\s*:\\s*([A-Za-z_$][\\w$]*)`));
+      // The WHOLE right-hand side, up to the next property or the closing brace — not just its first
+      // token, which is what let `void 0` read as the identifier `void`.
+      const explicit = args.match(new RegExp(`\\b${engine}\\s*:\\s*([^,\\n}]+)`));
+      const value = (explicit?.[1] ?? "").trim();
       const shorthand = new RegExp(`(?:[{,\\s])${engine}\\s*(?:,|\\}|$)`);
-      const bound = explicit ? !DISABLING.test(explicit[1]) : shorthand.test(args);
+      const bound = explicit
+        ? PLAIN_IDENTIFIER.test(value) && !DISABLING.test(value)
+        : shorthand.test(args);
       expect(
         bound,
-        `${AUTHORITATIVE_SITE} must pass a real value for ${engine}, not a literal that disables it`
+        `${AUTHORITATIVE_SITE} must bind ${engine} to a plain local value, not to ${
+          value ? `"${value}"` : "a non-identifier expression"
+        }`
       ).toBe(true);
     }
   });

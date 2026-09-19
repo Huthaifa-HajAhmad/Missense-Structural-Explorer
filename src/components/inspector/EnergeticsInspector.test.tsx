@@ -48,18 +48,37 @@ function renderInspector(overrides: Record<string, unknown> = {}) {
 
 describe("EnergeticsInspector — the diagnostics it renders", () => {
   it("renders the low-confidence card even when no engine is missing", () => {
-    // The card used to sit INSIDE the `diagnostics.length > 0` gate, so on a run where every engine
-    // returned a value — the good case — a low-pLDDT template produced an empty array and the warning
-    // vanished. The more complete the run, the less the panel said about its reliability.
+    /**
+     * The card used to sit INSIDE the `diagnostics.length > 0` gate, so on a run where every engine
+     * returned a value — the good case — a low-pLDDT template produced an empty array and the warning
+     * vanished: the more complete the run, the less the panel said about its own reliability.
+     *
+     * ALL SIX engines must carry a value for this test to be about that. A first version left
+     * ThermoMPNN and StabilityOracle absent, so `diagnostics` held two entries and the card rendered
+     * under the fixed gate AND the reverted one — the named defect could not fail it.
+     */
     renderInspector({
       disruptionPredictor: { plddt: 40 },
-      foldingEnergetics: { foldx: 2.0, foldxMean: 2.0, dynamut2: -1.0, ddmut: -1.0, rasp: 1.5 },
+      foldingEnergetics: {
+        foldx: 2.0,
+        foldxMean: 2.0,
+        dynamut2: -1.0,
+        ddmut: -1.0,
+        rasp: 1.5,
+        thermompnn: 1.1,
+        stabilityoracle: 1.3,
+      },
       foldingStatus: "success",
       dynamut2Status: "done",
       ddmutStatus: "done",
+      thermompnnStatus: "done",
     });
 
     expect(screen.getByText(/Low-confidence template/)).toBeInTheDocument();
+    // This is the assertion that makes the test about the GATE: with no engine missing, only
+    // `|| isLowConfidence` can be keeping the section on screen.
+    expect(screen.queryByText(/What Is Missing, And Why/)).toBeInTheDocument();
+    expect(screen.queryByText(/— No result/)).toBeNull();
   });
 
   it("gives that card's text a readable colour, not the warning tone", () => {
