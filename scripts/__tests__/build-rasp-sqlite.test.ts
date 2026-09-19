@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -142,12 +142,34 @@ describe("buildRaspSqliteDatabase", () => {
       "P00439,A,1pdb,A,R408H,1.45,,",
       "P01112,B,2pdb,B,G12V,2.54,,",
     ]);
+
+    /**
+     * Pin the failure to the SWAP, not merely to "something threw".
+     *
+     * `rejects.toThrow()` alone does not prove this test protects atomicity, and a mutation check
+     * proved it: reinstating the removed `if (fs.existsSync(dbPath)) fs.rmSync(dbPath);` makes a
+     * non-recursive unlink throw ERR_FS_EISDIR *before* the swap, and all three assertions still
+     * passed — the occupant was never at risk, and `.building` was absent because it was never
+     * staged. The test looked like it guarded the window and did not.
+     *
+     * Spying on `renameSync` is platform-independent (the raw OS error differs between Windows and
+     * POSIX) and fails for exactly one reason: the build never reached the swap, which is what an
+     * unlink before it means.
+     */
+    const renameSpy = vi.spyOn(fs, "renameSync");
+
     await expect(buildRaspSqliteDatabase(csvPath, dbPath)).rejects.toThrow();
 
-    // The occupant is byte-identical and no half-built file is left behind. With the old
-    // `rmSync(target)` before the rename, the target would already be gone at this point.
+    expect(
+      renameSpy,
+      "the build must fail AT the swap; if the rename was never attempted, an unlink ran before it"
+    ).toHaveBeenCalled();
+
+    // The occupant is byte-identical and no half-built file is left behind.
     expect(fs.readFileSync(occupant, "utf-8")).toBe("the previous index lives here");
     expect(fs.existsSync(`${dbPath}.building`)).toBe(false);
+
+    renameSpy.mockRestore();
   });
 
   it("replaces an existing index in place rather than unlinking it first", async () => {
@@ -158,14 +180,24 @@ describe("buildRaspSqliteDatabase", () => {
     const first = await buildRaspSqliteDatabase(csvPath, dbPath);
     expect(first.rows).toBe(1);
 
-    // Rebuild over the index that is already there — the case the unlink existed for.
+    // Rebuild over the index that is already there — the case the unlink existed for. A spy is the
+    // only way to catch its return: with a FILE at the target the unlink succeeds quietly, so the
+    // build outcome is identical either way and the assertions below cannot tell them apart.
+    const rmSpy = vi.spyOn(fs, "rmSync");
     writeCsv(["P00439,A,1pdb,A,R408H,1.45,,", "P01112,B,2pdb,B,G12V,2.54,,"]);
     const second = await buildRaspSqliteDatabase(csvPath, dbPath);
+
+    expect(
+      rmSpy.mock.calls.some((call: unknown[]) => String(call[0]) === dbPath),
+      "the target index must never be unlinked before the swap; rename replaces it atomically"
+    ).toBe(false);
 
     expect(second.rows).toBe(2);
     // The replacement really took effect: the new content is being served.
     expect(readCounts(dbPath).rows).toBe(2);
     expect(fs.existsSync(`${dbPath}.building`)).toBe(false);
+
+    rmSpy.mockRestore();
   });
 
   it("closes its handle even when the build throws", async () => {

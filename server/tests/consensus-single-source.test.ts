@@ -66,8 +66,32 @@ describe("the consensus has a single server-side computation site", () => {
 
   it("keeps the authoritative computation where all six engines are visible", () => {
     const source = readCode(AUTHORITATIVE_SITE);
-    expect(source).toContain("computeCalibratedConsensus");
-    // All six engines must reach it, or "authoritative" means nothing.
+    const callIndex = source.indexOf("computeCalibratedConsensus(");
+    expect(callIndex, `${AUTHORITATIVE_SITE} must call the consensus`).toBeGreaterThan(-1);
+
+    /**
+     * Inspect the ARGUMENT OBJECT of the call, not the file.
+     *
+     * Asserting `source.toContain(engine)` over a 700-line module was tautological: every engine name
+     * appears many times elsewhere, so replacing the call with `{ foldxMean, rasp }` still "found"
+     * all six — a guard written to protect the engine set that could not detect its loss.
+     */
+    const open = source.indexOf("{", callIndex);
+    let depth = 0;
+    let end = open;
+    for (let i = open; i < source.length; i++) {
+      if (source[i] === "{") depth += 1;
+      else if (source[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const args = source.slice(open, end + 1);
+    expect(args.length, "the extracted argument object looks wrong").toBeGreaterThan(20);
+
     for (const engine of [
       "foldxMean",
       "dynamut2",
@@ -76,11 +100,11 @@ describe("the consensus has a single server-side computation site", () => {
       "thermompnn",
       "stabilityoracle",
     ]) {
-      expect(source, `${AUTHORITATIVE_SITE} must pass ${engine} to the consensus`).toContain(engine);
+      expect(args, `${AUTHORITATIVE_SITE} must pass ${engine} to the consensus CALL`).toContain(engine);
     }
     // ...including both FoldX exclusion flags, which the poll routes omitted.
-    expect(source).toContain("foldxRepairFailed");
-    expect(source).toContain("foldxBinaryMissing");
+    expect(args).toContain("foldxRepairFailed");
+    expect(args).toContain("foldxBinaryMissing");
   });
 
   it("keeps the wire verdict a closed-set value rather than free text", () => {
