@@ -509,12 +509,8 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
           )}
         </div>
 
-        {/* Pushes the identifier line to the bottom edge of the stretched column,
-            so it anchors on the header's baseline instead of floating under the gene. */}
-        <div className="variant-header-spacer" aria-hidden="true" />
-
-        {/* Lineage identifiers stay under the gene rather than being pushed to the far
-            edge of the header, so the header reads as one left-aligned block. */}
+        {/* Lineage identifiers sit directly under the gene — the header centres
+            this whole block against the metric group, so nothing floats. */}
         {hasIdentifiers && (
           <div className="vh-identifiers" aria-label="Lineage and identifiers">
             {displayTranscriptId && (

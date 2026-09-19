@@ -262,7 +262,9 @@
      the content box falls below 285 + 600 + 24 = 909px (an element width of ~949px,
      i.e. a ~1169px viewport at the default sidebar). */
   flex-wrap: wrap;
-  align-items: flex-start;
+  /* Centre both columns on one optical midline. flex-start pinned the rail
+     group to the top edge, which read as the metrics floating high. */
+  align-items: center;
   gap: 8px 24px;
   flex-shrink: 0;
   container-type: inline-size;
@@ -312,35 +314,24 @@
 }
 
 /* ── Left column · the variant's identity, with its lineage identifiers under it ──
-   A column, not a row: pushing the chips to the far edge of the header left the
-   gene stranded in the middle of an otherwise empty band. It stretches to the
-   header's full height and pins the identifier line to the bottom edge, so the
-   meta line sits on the same baseline as the last metric row and the header's
-   border — anchored, not floating in the middle of a taller header. */
+   A compact, vertically-centred block: gene row directly above the identifier
+   meta line, one unit. The header centres this block against the metric group,
+   so the gene is brought down to sit with its identifiers instead of floating
+   at the top while they pinned to the bottom. */
 .variant-header-top {
   flex: 1 1 285px;
   min-width: 0;
-  align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 6px;
 }
 
-/* The identity pair (gene + HGVS) sits on the first metric row's baseline;
-   this is the anchor that keeps them at the top while the meta line drops. */
 .variant-header-identity {
   display: flex;
   align-items: baseline;
   gap: 10px;
   min-width: 0;
-  padding-top: 2px;
-}
-
-/* Absorbs the height difference between the two-row identity block and the
-   three-row metric group, pushing the identifiers to the bottom edge. */
-.variant-header-spacer {
-  flex: 1 1 auto;
 }
 
 .variant-header-gene {

@@ -537,7 +537,7 @@ function VariantSearchPanel({
               Variant Analysis Workspace
             </h1>
           </div>
-          <p className="text-[13px] max-w-3xl leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+          <p className="text-[13px] max-w-3xl leading-relaxed" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
             Enter target gene symbol, HGVS variant notation, and optional UniProt accession to run real-time structural, energetic, and clinical evidence pipelines.
           </p>
         </div>
@@ -707,7 +707,7 @@ function VariantSearchPanel({
                 {/* AI Focus Area / Custom Instructions (Collapsible — nested panel, 16px like Accepted Inputs) */}
                 <div className="cs-nested-panel transition-[border-color]">
                   <details className="group">
-                    <summary className="flex justify-between items-center gap-2 px-3.5 py-2.5 text-xs font-medium select-none cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>
+                    <summary className="flex justify-between items-center gap-2 px-3.5 py-2.5 text-xs font-medium select-none cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
                       <span className="flex items-center gap-2">
                         <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
                         AI Focus Area & Custom Analysis Instructions
@@ -728,7 +728,7 @@ function VariantSearchPanel({
                     <div className="p-3.5 border-t border-[var(--cs-border-subtle)] space-y-2.5">
                       <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] leading-relaxed flex gap-2">
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                        <span style={{ color: "var(--cs-text-secondary)" }}>
+                        <span style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
                           <strong>Privacy Notice:</strong> Filtered workspace. Do not submit patient PII (names, MRNs, dates of birth).
                         </span>
                       </div>
@@ -855,7 +855,7 @@ function VariantSearchPanel({
                 {history.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--cs-text-secondary)" }}>
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
                         <History className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
                         <span>Recent Analyses ({history.length})</span>
                       </div>
@@ -891,7 +891,7 @@ function VariantSearchPanel({
                             <span className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>
                               {item.gene}
                             </span>
-                            <span className="font-mono text-[10.5px]" style={{ color: "var(--cs-text-secondary)" }}>
+                            <span className="font-mono text-[10.5px]" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
                               {item.variant}
                             </span>
                           </button>
@@ -1026,12 +1026,10 @@ function VariantSearchPanel({
                   </div>
 
                   {/* Workflow Live Stages List — same row rhythm as the telemetry rail,
-                      with surplus height distributed between rows rather than inside them.
-                      `overflow-y-auto` matches the telemetry list: rows are `min-h-[46px]` and
-                      cannot shrink, so without a scroll affordance an eighth stage (or a taller
-                      header) would be silently clipped by the card's `overflow-hidden` rather
-                      than becoming reachable. */}
-                  <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col justify-between gap-2 my-0.5">
+                      with surplus height distributed INTO the rows rather than the gaps:
+                      each bar is `flex-1` so the seven stages share the track equally and
+                      fill it edge to edge, instead of pooling dead space between bars. */}
+                  <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-2 my-0.5">
                     {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
                       const info = getStageInfo(key as any);
                       const isClickable = !!result && !!onViewChange;
@@ -1053,7 +1051,7 @@ function VariantSearchPanel({
                               onViewChange?.(targetView);
                             }
                           }}
-                          className={`min-h-[46px] px-3 py-2 rounded-[var(--cs-radius-input)] border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
+                          className={`flex-1 min-h-[46px] px-3 py-2 rounded-[var(--cs-radius-input)] border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
                             isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]" : ""
                           } ${
                             isDone
@@ -1116,8 +1114,8 @@ function VariantSearchPanel({
                     })}
                   </div>
 
-                  {/* ── Right-column status footer — nested-panel rhythm, 16px like Accepted Inputs */}
-                  <div className="cs-nested-panel p-3 px-3.5 text-[11.5px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)" }}>
+                  {/* ── Right-column status footer — same 8px radius as the stage bars above it */}
+                  <div className="cs-nested-panel p-3 px-3.5 text-[11.5px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
                     <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
                     <span className="truncate">
                       {isPipelineActive
