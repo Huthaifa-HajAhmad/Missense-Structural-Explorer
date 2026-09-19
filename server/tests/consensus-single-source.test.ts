@@ -37,6 +37,42 @@ function readCode(relative: string): string {
   return stripComments(fs.readFileSync(path.join(REPO_ROOT, relative), "utf-8"));
 }
 
+/** Any call to the consensus, TOLERATING WHITESPACE before the parenthesis. */
+const CONSENSUS_CALL = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/g;
+const CONSENSUS_CALL_ONE = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/;
+
+function isTestFile(relative: string): boolean {
+  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(relative) || /(^|\/)(__tests__|tests)\//.test(relative);
+}
+
+/** Every server source file, walked rather than listed. */
+function serverSourceFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(ts|tsx|js|mjs|cjs)$/.test(entry.name)) out.push(full);
+    }
+  };
+  walk(path.join(REPO_ROOT, "server"));
+  const rootServer = path.join(REPO_ROOT, "server.ts");
+  if (fs.existsSync(rootServer)) out.push(rootServer);
+  return out;
+}
+
+/**
+ * Blanks string and template literals, PRESERVING LENGTH so every offset stays valid.
+ *
+ * The argument span used to be extracted from raw text, so a `}` INSIDE A STRING ended the object early:
+ * `note: "}"` truncated the span and put a trailing `...overrides` spread outside the check that exists
+ * to catch spreads. A review demonstrated exactly that. Simple templates are handled; a template
+ * containing another template would not be, which is a limit worth knowing rather than trusting.
+ */
+function blankStringLiterals(code: string): string {
+  return code.replace(/(["'`])(?:\\.|(?!\1)[^\\\n])*\1/g, m => " ".repeat(m.length));
+}
+
 /** Server files that must NOT compute a consensus, and why. */
 const MUST_NOT_COMPUTE: Array<[string, string]> = [
   [
@@ -64,7 +100,6 @@ describe("the consensus has a single server-side computation site", () => {
 
   it("keeps the authoritative computation where all six engines are visible", () => {
     const source = readCode(AUTHORITATIVE_SITE);
-    const MARKER = "computeCalibratedConsensus(";
 
     /**
      * This test was tautological, and a review demonstrated three separate ways.
@@ -82,11 +117,15 @@ describe("the consensus has a single server-side computation site", () => {
      * INLINE object literal; and each engine must be bound to a real value, not a literal that
      * switches it off.
      */
-    const callSites = source.split(MARKER).length - 1;
+    const callSites = (source.match(CONSENSUS_CALL) ?? []).length;
     expect(callSites, `${AUTHORITATIVE_SITE} must call the consensus exactly once`).toBe(1);
 
-    const afterParen = source.indexOf(MARKER) + MARKER.length;
-    const tail = source.slice(afterParen);
+    // Braces are matched against a copy with STRING LITERALS BLANKED, so a `}` inside a string cannot
+    // end the argument object early and hide a trailing spread.
+    const blanked = blankStringLiterals(source);
+    const call = CONSENSUS_CALL_ONE.exec(blanked);
+    const afterParen = (call?.index ?? 0) + (call?.[0].length ?? 0);
+    const tail = blanked.slice(afterParen);
     expect(
       tail.trimStart().startsWith("{"),
       `${AUTHORITATIVE_SITE} must pass an inline object literal, or the engine set cannot be checked`
@@ -95,9 +134,9 @@ describe("the consensus has a single server-side computation site", () => {
     const open = afterParen + tail.indexOf("{");
     let depth = 0;
     let end = open;
-    for (let i = open; i < source.length; i++) {
-      if (source[i] === "{") depth += 1;
-      else if (source[i] === "}") {
+    for (let i = open; i < blanked.length; i++) {
+      if (blanked[i] === "{") depth += 1;
+      else if (blanked[i] === "}") {
         depth -= 1;
         if (depth === 0) {
           end = i;
@@ -105,7 +144,7 @@ describe("the consensus has a single server-side computation site", () => {
         }
       }
     }
-    const args = source.slice(open, end + 1);
+    const args = blanked.slice(open, end + 1);
     expect(args.length, "the extracted argument object looks wrong").toBeGreaterThan(20);
 
     expect(
@@ -166,5 +205,32 @@ describe("the consensus has a single server-side computation site", () => {
       /Preliminary - pending/.test(source),
       "the verdict must not be suffixed with free text; use evidenceComplete/pendingTools"
     ).toBe(false);
+  });
+
+  it("has no second computation site ANYWHERE in the server, tests excepted", () => {
+    /**
+     * The count above is per FILE, and MUST_NOT_COMPUTE is three hardcoded paths — so a second
+     * computation in a NEW server file was invisible to every assertion in this file. A review
+     * demonstrated the shape: `const compute = computeCalibratedConsensus;` in a new module, then
+     * `compute({ foldxMean, rasp })`, which contains no call text at all in the files being checked.
+     *
+     * This walks the whole server tree instead of trusting a list. Test files are exempt: a test that
+     * computes a consensus to check the computation is not a second production site.
+     */
+    const offenders: string[] = [];
+
+    for (const file of serverSourceFiles()) {
+      const relative = path.relative(REPO_ROOT, file).replace(/\\/g, "/");
+      if (relative === AUTHORITATIVE_SITE || isTestFile(relative)) continue;
+      const found = (stripComments(fs.readFileSync(file, "utf-8")).match(CONSENSUS_CALL) ?? []).length;
+      if (found > 0) offenders.push(`  ${relative} (${found} call site(s))`);
+    }
+
+    expect(
+      offenders,
+      offenders.length
+        ? `a consensus is computed outside ${AUTHORITATIVE_SITE}:\n${offenders.join("\n")}`
+        : ""
+    ).toEqual([]);
   });
 });
