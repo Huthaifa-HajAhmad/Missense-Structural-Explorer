@@ -181,10 +181,22 @@ export interface NumberingVerdict {
   canonicalAccession?: string;
   /** Isoform id whose numbering `consequence` follows, when known. */
   numberingIsoform?: string;
+  /**
+   * Protein accession whose numbering the ORIGINAL selection followed, when the provider stated
+   * one but no UniProt isoform (VariantValidator reports `NP_…`). Named so an unverifiable
+   * numbering is still checkable by a human.
+   */
+  numberingProteinId?: string;
   /** The isoform the original selection followed (remap only). */
   fromIsoform?: string;
   /** Human-readable reason for `unverified` / `unsupported`. */
   reason?: string;
+}
+
+/** ` (numbered on NP_001032248.1)` when the provider named the numbering basis, else "". */
+function numberingBasisSuffix(tc: ResolvedTranscriptConsequence): string {
+  const proteinId = tc.numbering_protein_id;
+  return proteinId ? ` (numbered on ${proteinId})` : "";
 }
 
 /**
@@ -206,7 +218,10 @@ export function reconcileIsoformNumbering(
       status: "unverified",
       consequence: selected,
       numberingIsoform: numberingIsoformId(selected),
-      reason: "the provider did not report a UniProt accession to verify the numbering against",
+      numberingProteinId: selected.numbering_protein_id,
+      reason:
+        "the provider did not report a UniProt accession to verify the numbering against" +
+        numberingBasisSuffix(selected),
     };
   }
 
@@ -240,8 +255,10 @@ export function reconcileIsoformNumbering(
         consequence: selected,
         canonicalAccession,
         numberingIsoform: numberingIsoformId(selected),
+        numberingProteinId: selected.numbering_protein_id,
         reason:
-          "the provider did not state which UniProt isoform this transcript's numbering follows",
+          "the provider did not state which UniProt isoform this transcript's numbering follows" +
+          numberingBasisSuffix(selected),
       };
     }
     const siblingPositions = canonicalSiblings

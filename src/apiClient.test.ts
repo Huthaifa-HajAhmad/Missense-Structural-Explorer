@@ -189,7 +189,11 @@ describe("useApiClient Domain Methods & Delegation", () => {
   });
 
   it("fetchWithAuth attaches and removes signal abort listeners cleanly without leaking", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    // A NEW Response per call: `mockResolvedValue` would hand every request the same body, and
+    // reading it once (which this test now must do) exhausts the stream.
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true })))
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { result } = renderHook(() => useApiClient(), { wrapper });
@@ -197,13 +201,40 @@ describe("useApiClient Domain Methods & Delegation", () => {
     const addSpy = vi.spyOn(controller.signal, "addEventListener");
     const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
 
-    await result.current.fetchWithAuth("/api/v1/test-signal", {
+    const res = await result.current.fetchWithAuth("/api/v1/test-signal", {
       timeout: 5000,
       signal: controller.signal
     });
 
+    // The listener is released when the BODY settles, not when the response object appears —
+    // that is what keeps `timeout` covering the body read (see the stall test below).
+    await res.text();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(addSpy).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
     expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("bounds the BODY read too, so a header-then-stall response cannot hang the call", async () => {
+    // A real fetch ties the body stream to its signal; this mock reproduces that, then stalls.
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () =>
+            controller.error((init.signal as AbortSignal).reason ?? new Error("aborted"))
+          );
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const res = await result.current.fetchWithAuth("/api/v1/stall", { timeout: 120 });
+
+    // Headers were fine; the watchdog must still fire during the body read.
+    expect(res.ok).toBe(true);
+    await expect(res.text()).rejects.toThrow(/timed out|abort/i);
   });
 
   it("does not attach internal auth tokens to protocol-relative URLs", async () => {

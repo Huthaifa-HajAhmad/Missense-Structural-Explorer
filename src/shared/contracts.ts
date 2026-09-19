@@ -180,11 +180,22 @@ export const translateVariantResponseSchema = z.object({
   transcriptId: z.string().optional(),
   isManeSelect: z.boolean().optional(),
   isManePlusClinical: z.boolean().optional(),
+  /**
+   * ENSEMBL canonical (VEP's `canonical` flag), NOT "numbered on the canonical UniProt isoform".
+   * A MANE Select transcript is routinely the Ensembl canonical one while being numbered on a
+   * different UniProt isoform, so this flag must never be read as a statement about numbering —
+   * `numberingBasis`/`numberingVerified` are the fields that answer that.
+   */
   isCanonical: z.boolean().optional(),
   maneRefSeqId: z.string().optional(),
   transcriptWarning: z.string().optional(),
   /** UniProt isoform the returned `variant` is numbered on (normally the canonical isoform). */
   uniprotIsoform: z.string().optional(),
+  /**
+   * Protein accession the numbering follows when the provider named no UniProt isoform
+   * (VariantValidator reports `NP_…`). Present so an `unverified` basis is still checkable.
+   */
+  numberingProteinId: z.string().optional(),
   /**
    * How the numbering basis was established: `canonical` (verified against the canonical
    * accession), `remapped` (renumbered onto it), or `unverified` (the provider stated no basis,

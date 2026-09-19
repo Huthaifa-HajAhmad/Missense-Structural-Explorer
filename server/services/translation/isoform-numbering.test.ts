@@ -123,6 +123,21 @@ describe("reconcileIsoformNumbering", () => {
     expect(result.consequence).toBe(MANE_CONSEQUENCE);
   });
 
+  it("names the protein the numbering follows when the provider gave no UniProt isoform", () => {
+    // VariantValidator's shape: `NP_…:p.(Lys281Asn)` and no `uniprot_isoform`/`swissprot`.
+    const vvShaped = {
+      ...MANE_CONSEQUENCE,
+      uniprot_isoform: undefined,
+      swissprot: undefined,
+      numbering_protein_id: "NP_001032248.1",
+    };
+    const result = reconcileIsoformNumbering(vvShaped, [vvShaped], undefined);
+
+    expect(result.status).toBe("unverified");
+    expect(result.numberingProteinId).toBe("NP_001032248.1");
+    expect(result.reason).toContain("numbered on NP_001032248.1");
+  });
+
   it("keeps a canonically-numbered selection as canonical", () => {
     const result = reconcileIsoformNumbering(CANONICAL_CONSEQUENCE, [CANONICAL_CONSEQUENCE], "Q9Y305");
     expect(result.status).toBe("canonical");

@@ -115,6 +115,25 @@ export function extractProteinChange(
   return protein || undefined;
 }
 
+/**
+ * The protein accession whose numbering the predicted HGVSp follows
+ * (`NP_060672.2:p.(Glu433Lys)` -> `NP_060672.2`).
+ *
+ * This provider reports no UniProt accession and no isoform ids, so a caller cannot verify that
+ * this numbering matches the canonical UniProt sequence — but naming the protein it DOES follow
+ * turns an otherwise opaque "unverified" state into something a clinician can check.
+ */
+export function extractNumberingProteinId(
+  consequence: VariantValidatorPayload["hgvs_predicted_protein_consequence"]
+): string | undefined {
+  const raw = consequence?.tlr || consequence?.slr;
+  if (!raw) return undefined;
+  const colon = raw.indexOf(":");
+  if (colon < 0) return undefined;
+  const accession = raw.slice(0, colon).trim();
+  return accession || undefined;
+}
+
 /** Finds the transcript-keyed payload inside a VariantValidator response envelope. */
 export function extractPayload(
   body: unknown
@@ -165,6 +184,9 @@ export function mapVariantValidatorResponse(
         mane_select: annotations.mane_select ? true : undefined,
         mane_plus_clinical: annotations.mane_plus_clinical ? true : undefined,
         hgvsp,
+        // The protein whose residue numbering `hgvsp` uses. Surfaced so an answer that cannot be
+        // verified against the canonical UniProt sequence can still say WHICH numbering it uses.
+        numbering_protein_id: extractNumberingProteinId(payload.hgvs_predicted_protein_consequence),
         gene_symbol: payload.gene_symbol,
         // No UniProt accession is available from this provider; the client resolves
         // gene -> UniProt downstream, so an empty value is expected and already handled.

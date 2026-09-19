@@ -26,6 +26,65 @@ export function isGeminiSessionEndpoint(url: string): boolean {
 }
 
 /**
+ * Keeps the caller's `timeout` covering the BODY read, not only time-to-headers.
+ *
+ * The watchdog used to be cleared as soon as the response object came back, so a server that
+ * sent headers and then stalled left the call pending forever — the abort signal never fired
+ * and `res.json()` had no bound at all. Here the timer is released only when the body actually
+ * settles: the stream is piped through a passthrough whose `flush`/`cancel` release it, and the
+ * returned Response carries the same status/headers, so callers are unaffected.
+ *
+ * If the caller never reads the body, the watchdog simply fires later and aborts a finished
+ * request — harmless, and the abort listener is detached by the timer itself.
+ */
+function bindWatchdogToBody(
+  response: Response,
+  onSettled: () => void,
+  onHandedOff: () => void
+): Response {
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    onSettled();
+    return response;
+  }
+  try {
+    const reader = body.getReader();
+    const guarded = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            onSettled();
+            controller.close();
+            return;
+          }
+          controller.enqueue(value);
+        } catch (err) {
+          // Includes the abort raised by the watchdog itself.
+          onSettled();
+          controller.error(err);
+        }
+      },
+      cancel(reason) {
+        onSettled();
+        return reader.cancel(reason);
+      },
+    });
+    onHandedOff();
+    return new Response(guarded, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  } catch {
+    // Streaming is unavailable in this environment: fall back to time-to-headers rather than
+    // breaking the request.
+    onSettled();
+    return response;
+  }
+}
+
+/**
  * Unified helper to extract researcher-friendly error messages from API responses.
  * Gracefully parses standardized { error: { message } }, { message }, { detail },
  * plain text error bodies, and provides clear HTTP status codes without trailing colons.
@@ -102,6 +161,27 @@ export function useAuthSession() {
     const watchdogDeadlineAt = options.timeout ? Date.now() + options.timeout : undefined;
 
     let abortListener: (() => void) | null = null;
+    /**
+     * Releases the watchdog, the forwarding listener and the deadline together.
+     *
+     * Called either as soon as a response without a body is available, or when the body settles
+     * (see {@link bindWatchdogToBody}) — never unconditionally on return, which was the bug that
+     * let a stalled body outlive its own timeout.
+     */
+    const releaseWatchdog = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (options.signal && abortListener) {
+        options.signal.removeEventListener("abort", abortListener);
+        abortListener = null;
+      }
+    };
+    // Set when the watchdog is handed to the response body, so the `finally` below does not
+    // release it prematurely.
+    let watchdogHandedOff = false;
+
     if (controller && options.timeout) {
       if (options.signal) {
         abortListener = () => {
@@ -112,6 +192,11 @@ export function useAuthSession() {
       signal = controller.signal;
       timeoutId = setTimeout(() => {
         controller.abort(new DOMException(`Request timed out after ${options.timeout}ms`, "TimeoutError"));
+        // The request is over: detach the forwarding listener even if no body was ever read.
+        if (options.signal && abortListener) {
+          options.signal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
       }, options.timeout);
     }
 
@@ -342,14 +427,15 @@ export function useAuthSession() {
         }
       }
 
-      return response;
+      // `timeout` must bound the BODY read too — a header-then-stall upstream otherwise keeps
+      // the call (and the UI spinner) alive indefinitely, because the watchdog used to be
+      // released the moment the response object existed.
+      return bindWatchdogToBody(response, releaseWatchdog, () => {
+        watchdogHandedOff = true;
+      });
     } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (options.signal && abortListener) {
-        options.signal.removeEventListener("abort", abortListener);
-      }
+      // Only when the watchdog was NOT handed to a body: otherwise it is released on settlement.
+      if (!watchdogHandedOff) releaseWatchdog();
     }
   }, [
     geminiSessionId, 

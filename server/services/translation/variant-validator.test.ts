@@ -137,6 +137,10 @@ describe("VariantValidator response mapping", () => {
       expect(tc.hgvsp).toBe("p.(Glu433Lys)");
       expect(tc.mane_select).toBe(true);
       expect(tc.transcript_id).toBe("NM_018202.6");
+      // This provider reports no UniProt accession, so the numbering cannot be VERIFIED — but the
+      // protein it is numbered on must be retained, or the unverified state is unactionable.
+      expect(tc.swissprot).toBeUndefined();
+      expect(tc.numbering_protein_id).toBe("NP_060672.2");
     });
 
     it("selects the locus matching the requested assembly", () => {

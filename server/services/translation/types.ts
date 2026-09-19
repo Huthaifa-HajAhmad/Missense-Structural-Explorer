@@ -38,6 +38,12 @@ export interface ResolvedTranscriptConsequence {
   mane_plus_clinical?: unknown;
   hgvsp?: string;
   /**
+   * Protein accession whose residue numbering `hgvsp` follows, when the provider states one
+   * (VariantValidator reports `NP_…` inside the predicted consequence). Providers that report no
+   * UniProt accession still give us this, so an unverifiable numbering can at least name itself.
+   */
+  numbering_protein_id?: string;
+  /**
    * Transcript-level HGVS (VEP returns it with `hgvs=1`). It exists for many
    * non-protein-changing consequences (intronic, UTR) where `hgvsp` cannot, and is
    * the single most useful identifier to show a clinician when no HGVSp is possible.

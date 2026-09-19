@@ -414,6 +414,9 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         // states in which the residue numbers are safe to model; `unverified` is disclosed and
         // re-resolved rather than cached.
         ...(verdict.numberingIsoform ? { uniprotIsoform: verdict.numberingIsoform } : {}),
+        // …and, when the provider named the protein the numbering follows without naming a
+        // UniProt isoform, that accession too — an unverifiable basis that can still be checked.
+        ...(verdict.numberingProteinId ? { numberingProteinId: verdict.numberingProteinId } : {}),
         numberingBasis: verdict.status,
         numberingVerified: verdict.status !== "unverified",
         ...(verdict.status === "unverified" && verdict.reason
