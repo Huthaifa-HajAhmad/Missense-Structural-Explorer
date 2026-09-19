@@ -36,7 +36,7 @@ RUN npm test
 # the build context, and deleting it would break that case silently.
 #
 # CI never builds this image, so the gates below (`npm run lint`, `npm test`) run only on a local or
-# deploy-time build — a Dockerfile-only break surfaces at deploy rather than in CI.
+# deploy-time build â€” a Dockerfile-only break surfaces at deploy rather than in CI.
 RUN if [ -f data/df_rasp_gnomad_clinvar.csv ]; then npm run migrate:rasp; fi
 
 RUN npm run build

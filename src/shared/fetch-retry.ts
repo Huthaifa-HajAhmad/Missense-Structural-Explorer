@@ -1,5 +1,5 @@
-/**
- * fetch-retry.ts — Consolidated client-side fetch retry utility.
+﻿/**
+ * fetch-retry.ts â€” Consolidated client-side fetch retry utility.
  *
  * Provides:
  *   - Exponential backoff with jitter
@@ -16,12 +16,12 @@
  * the server correctly answered `503 Retry-After: 60` after exhausting its provider ladder;
  * this utility retried 430ms later (ignoring the hint), the second attempt began a FRESH ladder,
  * the caller's 45s watchdog fired inside it, and the user was shown the bare
- * "Analysis query error: Request timed out after 45000ms" — the server's actionable guidance
+ * "Analysis query error: Request timed out after 45000ms" â€” the server's actionable guidance
  * ("enter the protein-level substitution directly") destroyed by a scheduling bug.
  *
  * Three rules fix that:
  *   1. A `Retry-After` longer than {@link MAX_IN_REQUEST_RETRY_AFTER_MS} is not waited out
- *      in-request — the server already said when to come back, so its response is returned.
+ *      in-request â€” the server already said when to come back, so its response is returned.
  *   2. When the caller supplies a `deadlineAt`, no attempt is started that cannot finish inside
  *      it, and every attempt's own timeout is CAPPED by the time that remains. This is what
  *      makes "no attempt the caller's watchdog can abort" a real invariant rather than an
@@ -33,12 +33,13 @@
  *      the returned response.
  */
 
+import { readTextWithTimeout } from "./httpBody.ts";
 export interface FetchRetryOptions extends RequestInit {
   timeout?: number;
   /** Whole-call budget (ms from now) the caller's watchdog enforces. */
   totalTimeoutMs?: number;
   /**
-   * Absolute epoch-ms instant by which this call must be finished — the caller's watchdog
+   * Absolute epoch-ms instant by which this call must be finished â€” the caller's watchdog
    * deadline. Preferred over `totalTimeoutMs`, which necessarily starts counting from inside
    * this function and therefore ignores time already spent (session handshake, re-auth).
    */
@@ -126,7 +127,7 @@ function backoffDelay(attempt: number, initialDelay: number, backoffFactor: numb
  *
  * BOUNDED by the caller's remaining deadline when there is one. This read runs after the attempt
  * timer has been cleared, so unbounded it let a server that sent headers and then stalled the body
- * hold the call past `deadlineAt` — at which point the caller's watchdog replaced the response we
+ * hold the call past `deadlineAt` â€” at which point the caller's watchdog replaced the response we
  * already had with a bare timeout, losing the message the whole fix exists to preserve.
  * A body that cannot be read in time is not a configuration error: the caller retries.
  */
@@ -134,27 +135,17 @@ async function isUnrecoverableConfigError(
   response: Response,
   budgetMs: number | null
 ): Promise<boolean> {
-  const read = response
-    .clone()
-    .text()
-    .catch(() => "");
-
-  if (budgetMs === null) {
-    const text = await read;
-    return text.includes("API_KEY_MISSING") || text.includes("isConfigError");
-  }
-  if (budgetMs <= 0) return false;
-
-  let timer: any = null;
-  const expired = new Promise<string>((resolve) => {
-    timer = setTimeout(() => resolve(""), budgetMs);
-  });
-  try {
-    const text = await Promise.race([read, expired]);
-    return text.includes("API_KEY_MISSING") || text.includes("isConfigError");
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  /**
+   * Built on the SHARED body-deadline primitive, not a second race of its own.
+   *
+   * This module and `httpBody.ts` had each grown a "read a body under a deadline" mechanism, which is
+   * how two implementations of one rule drift apart. A body that cannot be read in time is not a
+   * configuration error, so a deadline rejection folds to the empty string -- the same outcome the
+   * local race produced, with one implementation instead of two. The response is CLONED because
+   * reading a body consumes it and the caller still needs the original.
+   */
+  const text = await readTextWithTimeout(response.clone(), budgetMs).catch(() => "");
+  return text.includes("API_KEY_MISSING") || text.includes("isConfigError");
 }
 
 export async function fetchWithRetry(
@@ -221,7 +212,7 @@ export async function fetchWithRetry(
       }
     }
 
-    /** Detach the forwarding listener (retry paths only — see rule 3 in the header). */
+    /** Detach the forwarding listener (retry paths only â€” see rule 3 in the header). */
     const detachForwarding = () => {
       if (options.signal) {
         options.signal.removeEventListener("abort", onSignalAbort);
@@ -250,7 +241,7 @@ export async function fetchWithRetry(
         if (retryAfterMs !== null && retryAfterMs > MAX_IN_REQUEST_RETRY_AFTER_MS) {
           console.warn(
             `[Client Retry] ${url} answered ${response.status} with Retry-After ${retryAfterMs}ms, ` +
-              `longer than a single request can wait (limit ${MAX_IN_REQUEST_RETRY_AFTER_MS}ms) — ` +
+              `longer than a single request can wait (limit ${MAX_IN_REQUEST_RETRY_AFTER_MS}ms) â€” ` +
               "returning the response so its message reaches the user instead of retrying."
           );
           return response;
@@ -266,7 +257,7 @@ export async function fetchWithRetry(
           // hole the body-bound watchdog exists to close).
           console.warn(
             `[Client Retry] Skipping retry of ${url} (status ${response.status}): a ${delay}ms delay ` +
-              "leaves no meaningful attempt inside the caller's deadline — returning the response instead."
+              "leaves no meaningful attempt inside the caller's deadline â€” returning the response instead."
           );
           return response;
         }
@@ -295,7 +286,7 @@ export async function fetchWithRetry(
         if (!canAffordAttempt(delay)) {
           console.warn(
             `[Client Retry] Skipping retry of ${url} after "${err.message || err}": a ${delay}ms delay ` +
-              "leaves no meaningful attempt inside the caller's deadline — surfacing the error instead."
+              "leaves no meaningful attempt inside the caller's deadline â€” surfacing the error instead."
           );
           throw err;
         }

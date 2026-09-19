@@ -325,6 +325,38 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
     }
   });
 
+  it("seeds the settle with the RESOLVED status, not the raw cached one", async () => {
+    /**
+     * R8, and the reason the seed is resolved once at function scope.
+     *
+     * The seed carried the RAW cached status, so a bundle holding a dynamut2 score AND a stale "pending"
+     * status offered the settle a `pending`-with-no-id — a state it is entitled to clear, for an engine
+     * that is finished. The resolver is the same one the sink restore uses, so the store and the seed
+     * cannot disagree by construction.
+     */
+    await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      analysisResult: undefined,
+      foldingStatus: "failed",
+      biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000,
+      // A score is present, so the resolver reports "done" — while the stored status still says
+      // "pending" and there is no job id to poll.
+      foldingEnergetics: { ...(HEALTHY_SNAPSHOT as any).foldingEnergetics, dynamut2: -1.2 },
+      dynamut2Status: "pending",
+      dynamut2JobId: null,
+    });
+
+    const calls = (executeFoldxPipeline as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls.length, "the fixture must actually dispatch").toBeGreaterThan(0);
+
+    for (const [options] of calls as Array<[{ initialRemoteState?: { dynamut2Status?: string | null } }]>) {
+      expect(
+        options.initialRemoteState?.dynamut2Status,
+        "the raw cached 'pending' was seeded for an engine that already has a score"
+      ).toBe("done");
+    }
+  });
+
   it("restores a pending engine as pending only when a job id can still resolve it", async () => {
     const sinks = await runWithCache({
       ...HEALTHY_SNAPSHOT,

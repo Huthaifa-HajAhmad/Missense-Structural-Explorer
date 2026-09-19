@@ -25,7 +25,7 @@ export interface EngineCapability {
   id: string;
   name: string;
   category: "biophysical" | "language_model" | "runtime";
-  status: "ready" | "warming_up" | "standby" | "unavailable";
+  status: "ready" | "warming_up" | "standby" | "unverified" | "unavailable";
   details: Record<string, any>;
 }
 
@@ -215,7 +215,16 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         id: "rasp",
         name: "RaSP (Rapid Stability Prediction)",
         category: "biophysical",
-        status: raspReady ? "ready" : "unavailable",
+        /**
+         * THREE outcomes, not two.
+         *
+         * `unverified` is where a healthy index sits until something has counted it: the record says it is
+         * usable, but nothing has verified that. Reporting it as `unavailable` reads as "down" and invites
+         * someone to rebuild a perfectly good 725 MB index; reporting it as `ready` is the false
+         * endorsement this route was fixed to stop giving. `indexCountsVerified` carries the same
+         * distinction in machine-readable form.
+         */
+        status: raspReady ? "ready" : raspVerdict.usable ? "unverified" : "unavailable",
         details: {
           databaseIndexed: raspReady,
           sqlitePath: raspDbPath,

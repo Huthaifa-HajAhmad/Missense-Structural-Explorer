@@ -132,6 +132,35 @@ export async function executeFullAnalysisWorkflow({
 
     // Check high-fidelity client variant snapshot cache
     const cached = getCachedVariant(targetGene, targetVariant);
+
+    /**
+     * The store's view of the remote engines, RESOLVED — one value, shared by BOTH dispatch sites.
+     *
+     * The seeds used to be built independently from the RAW cached statuses, which meant the settle could
+     * be told `pending` for an engine the restore had already resolved to `done` (its score is present,
+     * so nothing will ever poll it) — a status the settle is entitled to clear, for an engine that is
+     * finished. Resolving once, with the same function the sink restore uses, makes the store and the
+     * seed agree by construction rather than by both being written carefully.
+     *
+     * It lives at function scope because the resolver is declared inside the cached branch while the
+     * Stage-3 dispatch is outside it — the shape that let the two sites drift apart in the first place.
+     */
+    let restoredRemoteState: {
+      dynamut2Status: string | null;
+      dynamut2JobId: string | null;
+      ddmutStatus: string | null;
+      ddmutJobId: string | null;
+      thermompnnStatus: string | null;
+      thermompnnJobId: string | null;
+    } = {
+      dynamut2Status: null,
+      dynamut2JobId: null,
+      ddmutStatus: null,
+      ddmutJobId: null,
+      thermompnnStatus: null,
+      thermompnnJobId: null
+    };
+
     if (cached) {
       if (cached.analysisResult) {
         analysisSink.setAnalysisState({
@@ -184,6 +213,28 @@ export async function executeFullAnalysisWorkflow({
       biophysicalSink.setThermompnnJobId(cached.thermompnnJobId ?? null);
       biophysicalSink.setThermompnnStatus(resolveRestoredStatus(cached.thermompnnStatus, cached.foldingEnergetics?.thermompnn, cached.thermompnnJobId) as any);
       biophysicalSink.setThermompnnError(cached.thermompnnError ?? null);
+
+      // The SAME resolution the sink just received, captured for the settle's seed.
+      restoredRemoteState = {
+        dynamut2Status: (resolveRestoredStatus(
+          cached.dynamut2Status,
+          cached.foldingEnergetics?.dynamut2,
+          cached.dynamut2JobId
+        ) ?? null) as string | null,
+        dynamut2JobId: cached.dynamut2JobId ?? null,
+        ddmutStatus: (resolveRestoredStatus(
+          cached.ddmutStatus,
+          cached.foldingEnergetics?.ddmut,
+          cached.ddmutJobId
+        ) ?? null) as string | null,
+        ddmutJobId: cached.ddmutJobId ?? null,
+        thermompnnStatus: (resolveRestoredStatus(
+          cached.thermompnnStatus,
+          cached.foldingEnergetics?.thermompnn,
+          cached.thermompnnJobId
+        ) ?? null) as string | null,
+        thermompnnJobId: cached.thermompnnJobId ?? null
+      };
       if (cached.computedPocket) {
         structureSink.setComputedPocket(cached.computedPocket);
       }
@@ -314,14 +365,7 @@ export async function executeFullAnalysisWorkflow({
             // This variant's own restored state, so a failure settles against what the STORE holds
             // rather than only against what this run has seen so far. Without it an engine the store
             // is already polling for can be marked unavailable, which tears that poller down.
-            initialRemoteState: {
-              dynamut2Status: cached.dynamut2Status ?? null,
-              dynamut2JobId: cached.dynamut2JobId ?? null,
-              ddmutStatus: cached.ddmutStatus ?? null,
-              ddmutJobId: cached.ddmutJobId ?? null,
-              thermompnnStatus: cached.thermompnnStatus ?? null,
-              thermompnnJobId: cached.thermompnnJobId ?? null
-            }
+            initialRemoteState: restoredRemoteState
           }).catch(err => {
             // This path has no watchdog and no caller awaiting it, so a failure must be reported
             // here or the user is left with a spinner that never resolves and no explanation.
@@ -422,14 +466,7 @@ export async function executeFullAnalysisWorkflow({
          * is already polling is marked unavailable and its live poller is torn down — the defect F4
          * fixed, re-opened by my own "refutation".
          */
-        initialRemoteState: {
-          dynamut2Status: cached?.dynamut2Status ?? null,
-          dynamut2JobId: cached?.dynamut2JobId ?? null,
-          ddmutStatus: cached?.ddmutStatus ?? null,
-          ddmutJobId: cached?.ddmutJobId ?? null,
-          thermompnnStatus: cached?.thermompnnStatus ?? null,
-          thermompnnJobId: cached?.thermompnnJobId ?? null
-        }
+        initialRemoteState: restoredRemoteState
       }).finally(() => {
         activeSignal.removeEventListener("abort", onParentAbort);
       });

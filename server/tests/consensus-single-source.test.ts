@@ -161,8 +161,26 @@ describe("the consensus has a single server-side computation site", () => {
     const args = blanked.slice(open, end + 1);
     expect(args.length, "the extracted argument object looks wrong").toBeGreaterThan(20);
 
+    /**
+     * The spread check runs over the whole CALL, not the brace-matched span — deliberately.
+     *
+     * A review defeated the blanker with a regex literal carrying a quote
+     * (`note: /"/.test(String(foldxMean)) ? "}" : "x"`), after which the span ended early, a trailing
+     * `...overrides` fell outside it, and every assertion still passed with the spread present: the check
+     * failed OPEN, and an admitted "limit worth knowing" silently disabled the guarantee.
+     *
+     * Comparing the blanked and raw brace readings to catch that does NOT work: they legitimately differ
+     * whenever a string contains a brace, which is the case blanking exists for. So the region is
+     * delimited by the call's own closing `});` instead of by braces — whatever a string, template or
+     * regex literal does to the pairing, a spread inside the call cannot escape this.
+     */
+    const callCloser = /\n\s*\}\);/.exec(blanked.slice(afterParen));
+    const checkedCall = callCloser
+      ? blanked.slice(afterParen, afterParen + callCloser.index + callCloser[0].length)
+      : blanked.slice(afterParen, afterParen + 4000);
+
     expect(
-      args,
+      checkedCall,
       "a spread in the consensus argument can override the engine set after it is written"
     ).not.toMatch(/\.\.\./);
 

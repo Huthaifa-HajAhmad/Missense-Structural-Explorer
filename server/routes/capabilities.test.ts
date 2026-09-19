@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import express from "express";
 import type { Server } from "http";
 import type { AddressInfo } from "net";
@@ -8,7 +8,7 @@ import { hasLoaderVerifiedRaspIndex, RASP_SQLITE_PATH } from "../services/stabil
 
 /**
  * `/capabilities` had no test at all, and the gap showed in production terms: the route reported RaSP
- * as `ready` on the strength of the index's OWN completeness record — and that record endorses a
+ * as `ready` on the strength of the index's OWN completeness record â€” and that record endorses a
  * truncated index whose `rasp_index_meta` row survived the truncation. The shipped index was a
  * 35,000-of-8,770,220-row prefix. So the diagnostics screen called "ready" an index the loader
  * rejects, corroborating the very bug the screen exists to reveal.
@@ -45,15 +45,27 @@ async function raspEntry(): Promise<any> {
   return entry;
 }
 
-describe("GET /capabilities — RaSP readiness", () => {
+describe("GET /capabilities â€” RaSP readiness", () => {
   it("does not call an uncounted index ready", async () => {
-    // Nothing has performed a RaSP lookup in this process, so nothing has counted the index — whatever
+    // Nothing has performed a RaSP lookup in this process, so nothing has counted the index â€” whatever
     // happens to be on disk. This is the state the route used to misreport.
     expect(hasLoaderVerifiedRaspIndex()).toBe(false);
 
     const rasp = await raspEntry();
 
-    expect(rasp.status).toBe("unavailable");
+    /**
+     * THREE states, and unverified is the one a healthy-but-uncounted index sits in.
+     *
+     * It used to be unavailable, which reads as 'down' on a diagnostics screen and invites someone
+     * to rebuild a perfectly good 725 MB index. The distinction the route now draws: eady only when
+     * the loader has counted THIS file, unverified when the record claims usable but nothing has
+     * counted it, unavailable when the record itself refuses.
+     *
+     * The unavailable branch is not covered here, because reaching it needs an index whose own record
+     * is unusable and this repository ships a good one -- stated rather than implied.
+     */
+    expect(rasp.status, 'an uncounted index must not read as down').toBe('unverified');
+    expect(rasp.status).not.toBe('ready');
     expect(rasp.details.indexCountsVerified).toBe(false);
     expect(rasp.details.databaseIndexed).toBe(false);
   });
@@ -64,8 +76,8 @@ describe("GET /capabilities — RaSP readiness", () => {
     expect(rasp.details.unavailableReason, "a not-ready entry must say why").toBeTruthy();
 
     if (fs.existsSync(RASP_SQLITE_PATH)) {
-      // The record may well claim `usable: true` — that is exactly the claim the route no longer
-      // trusts — so the reason must be the "unconfirmed" one, not a bare null and not a message
+      // The record may well claim `usable: true` â€” that is exactly the claim the route no longer
+      // trusts â€” so the reason must be the "unconfirmed" one, not a bare null and not a message
       // implying the index is missing or corrupt.
       expect(String(rasp.details.unavailableReason)).toMatch(/unconfirmed|not been verified/);
     }
