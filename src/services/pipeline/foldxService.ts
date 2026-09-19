@@ -258,11 +258,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         foldingDdG: data.ddG ?? null,
         foldingEnergetics: data.energetics ?? null,
         foldingStatus: effectiveFoldingStatus,
-        dynamut2JobId: data.dynamut2JobId ?? null,
-        dynamut2Status: data.dynamut2Status ?? null,
-        ddmutJobId: data.ddmutJobId ?? null,
-        ddmutStatus: data.ddmutStatus ?? null,
-        thermompnnJobId: data.thermompnnJobId ?? null,
+        dynamut2JobId: data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
+        dynamut2Status: data.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
+        ddmutJobId: data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
+        ddmutStatus: data.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
+        thermompnnJobId: data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
         thermompnnStatus: data.thermompnnStatus ?? null,
         thermompnnError: data.thermompnnError ?? null
       });
@@ -417,11 +417,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
                 foldingDdG: resResult.ddG ?? null,
                 foldingEnergetics: resResult.energetics ?? null,
                 foldingStatus: effectiveFoldingStatus,
-                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
+                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
                 dynamut2Status: d2Status,
-                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
+                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
                 ddmutStatus: ddmStatus,
-                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null,
+                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
                 thermompnnStatus: tmStatus,
                 thermompnnError: pollData.thermompnnError ?? data.thermompnnError ?? null
               });

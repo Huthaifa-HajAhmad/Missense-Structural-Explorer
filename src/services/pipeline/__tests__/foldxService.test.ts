@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { executeFoldxPipeline } from "../foldxService";
+import { getCachedVariant, clearClientVariantCache } from "../variantCache";
 
 /** The biophysical sink surface `executeFoldxPipeline` is allowed to write to. */
 const makeSink = () => ({
@@ -381,6 +382,50 @@ describe("foldxService", () => {
     expect(sink.setDynamut2Status).not.toHaveBeenCalledWith(null);
     // ...the one without is settled, because nothing can ever resolve it.
     expect(sink.setDdmutStatus).toHaveBeenCalledWith(null);
+  });
+
+  it("does not let a response that omits a job id erase one the variant already had", async () => {
+    /**
+     * R3-2. The persisted bundle is what the restore path seeds `initialRemoteState` from, so a cache
+     * write that REPLACES instead of merging loses the id the settle then needs — and the live poller
+     * that id belongs to is torn down. The sink writes already guarded with
+     * `if (data.xJobId != null)`, which is the evidence that omitted ids are expected.
+     */
+    clearClientVariantCache();
+
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM 1 N ...",
+        ddG: 1.5,
+        energetics: { foldx: 1.5 },
+        dynamut2Status: "pending",
+        dynamut2JobId: null,
+        ddmutStatus: "pending",
+        ddmutJobId: null,
+      }),
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      initialRemoteState: { dynamut2Status: "pending", dynamut2JobId: "dyn-live-1" },
+    });
+
+    const cached = getCachedVariant("P00439", "p.Arg408Trp");
+    expect(
+      cached?.dynamut2JobId,
+      "the cache write replaced the id instead of merging, so the settle can no longer see it"
+    ).toBe("dyn-live-1");
   });
 
   it("settles engines the variant already had pending, even on an exit that throws before the POST returns", async () => {

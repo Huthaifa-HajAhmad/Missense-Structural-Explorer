@@ -289,6 +289,34 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
     expect(executeFoldxPipeline).toHaveBeenCalledTimes(1);
   });
 
+  it("seeds EVERY dispatch with the variant's restored remote state", async () => {
+    /**
+     * R1. A review's check was that deleting `initialRemoteState` from the real caller failed NOTHING:
+     * both new foldxService tests drive the function directly, so the wiring was untested and one of
+     * the two dispatch sites was left unseeded — which reproduces the live-poller teardown on that
+     * path. This asserts the invariant over the caller instead of over one call site: when the variant
+     * has a restored job id, no dispatch may go out unseeded.
+     */
+    await runWithCache({
+      ...HEALTHY_SNAPSHOT,
+      foldingStatus: "failed",
+      biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000,
+      dynamut2Status: "pending",
+      dynamut2JobId: "dyn-live-7",
+    });
+
+    const calls = (executeFoldxPipeline as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls.length, "the fixture must actually dispatch").toBeGreaterThan(0);
+
+    for (const [options] of calls as Array<[{ initialRemoteState?: { dynamut2JobId?: string | null } }]>) {
+      expect(
+        options.initialRemoteState,
+        "a dispatch went out unseeded, so it can settle an engine whose poller is live"
+      ).toBeDefined();
+      expect(options.initialRemoteState?.dynamut2JobId).toBe("dyn-live-7");
+    }
+  });
+
   it("restores a pending engine as pending only when a job id can still resolve it", async () => {
     const sinks = await runWithCache({
       ...HEALTHY_SNAPSHOT,
