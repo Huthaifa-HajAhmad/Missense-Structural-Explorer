@@ -56,8 +56,16 @@ defaultCacheRegistry.registerCache("raspCache", raspCache, { ttlDesc: "none" });
  */
 export const RASP_SQLITE_PATH = process.env.RASP_SQLITE_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.sqlite");
 const RASP_CSV_PATH = process.env.RASP_CSV_PATH ?? path.join(process.cwd(), "data", "df_rasp_gnomad_clinvar.csv");
+
+/**
+ * The reason a lookup returns when the STORE is unusable, rather than when the variant is uncovered.
+ *
+ * Exported and compared by identity below: a miss with this reason is a fact about the deployment,
+ * not about the variant, so it must never be memoised — see `runRaspLocal`.
+ */
+export const RASP_STORE_UNAVAILABLE_REASON = "Pre-computed RaSP database unavailable";
+
 let raspSqliteDb: DatabaseSync | null = null;
-let raspSqliteChecked = false;
 
 /** Reads the counts an index actually contains. */
 function readRaspIndexCounts(db: DatabaseSync): { rows: number; proteins: number } {
@@ -169,13 +177,73 @@ export function inspectRaspIndexFile(dbPath: string = RASP_SQLITE_PATH): RaspInd
   }
 }
 
-function getRaspSqliteDb(): DatabaseSync | null {
-  if (raspSqliteChecked) return raspSqliteDb;
-  raspSqliteChecked = true;
+/**
+ * Identity of the index the cached verdict belongs to: `"<size>:<mtimeMs>"`.
+ *
+ * The verdict is cached against this rather than against a one-shot `checked` boolean, because a
+ * boolean conflated two different situations: "this file is bad" (a fact about the file, safe to
+ * remember) and "there is no usable file" (a fact about the *deployment*, which changes the moment
+ * somebody rebuilds the index). The old flag latched on both, so a rejected or absent index stayed
+ * rejected for the life of the process even after a correct one was put in its place.
+ */
+let raspSqliteKey: string | null = null;
+/** Whether the index identified by `raspSqliteKey` verified. Meaningless when the key is null. */
+let raspSqliteUsable = false;
+
+/** Closes the cached handle, if any, without touching the cached verdict. */
+function closeRaspSqliteHandle(): void {
+  if (raspSqliteDb) {
+    try {
+      raspSqliteDb.close();
+    } catch {}
+    raspSqliteDb = null;
+  }
+}
+
+/** Forgets the cached verdict so the next lookup re-verifies whatever is on disk now. */
+function resetRaspIndexVerdict(): void {
+  closeRaspSqliteHandle();
+  raspSqliteKey = null;
+  raspSqliteUsable = false;
+}
+
+function raspIndexIdentity(): string | null {
   try {
     const stat = fs.statSync(RASP_SQLITE_PATH);
     if (stat.size < 1024) return null; // placeholder / empty
+    /**
+     * `ino` is included because size+mtime alone can collide: a rebuild that produces an index of
+     * the same size within the same millisecond would look like the file already judged — and if
+     * that judgement was "unusable", RaSP would stay off despite a perfectly good replacement.
+     * A replaced file gets a new inode/file-id even when both of those match.
+     */
+    return `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
 
+function getRaspSqliteDb(): DatabaseSync | null {
+  const key = raspIndexIdentity();
+
+  if (key === null) {
+    // Absent or a placeholder. Drop any handle to a file that has gone away, but keep retrying on
+    // the next call — this is the state a rebuild is about to change.
+    resetRaspIndexVerdict();
+    return null;
+  }
+
+  // Same file we already judged: reuse the verdict rather than re-counting 8.3 M rows per lookup.
+  if (key === raspSqliteKey) return raspSqliteUsable ? raspSqliteDb : null;
+
+  // A different file — first sight, or it has just been replaced. Re-verify, and close the handle
+  // to the previous inode so a swapped index cannot be served from a stale descriptor.
+  closeRaspSqliteHandle();
+  raspSqliteKey = key;
+  raspSqliteUsable = false;
+
+  try {
+    const stat = fs.statSync(RASP_SQLITE_PATH);
     const db = new DatabaseSync(RASP_SQLITE_PATH, { open: true });
     const verdict = inspectRaspIndex(db);
 
@@ -189,6 +257,7 @@ function getRaspSqliteDb(): DatabaseSync | null {
     }
 
     raspSqliteDb = db;
+    raspSqliteUsable = true;
     console.log(
       `[RaSP SQLite] Index verified: ${verdict.rows.toLocaleString()} rows across ` +
         `${verdict.proteins.toLocaleString()} proteins (schema v${verdict.meta?.schemaVersion}, ` +
@@ -284,7 +353,12 @@ export async function initializeRaspDatabase(): Promise<void> {
     console.log("[RaSP] CSV present and no verified SQLite index. Rebuilding the index...");
     try {
       await buildRaspSqliteDatabase(RASP_CSV_PATH, RASP_SQLITE_PATH);
-      raspSqliteChecked = false;
+      // Forget the previous verdict, and drop memoised misses: a lookup that failed while the store
+      // was unusable was cached without a TTL, so RaSP stayed silently missing for the rest of the
+      // process even after the index had been repaired. Losing an engine that produced nothing is
+      // the failure this whole contract exists to prevent, so the cache is cleared with the verdict.
+      resetRaspIndexVerdict();
+      raspCache.clear();
       getRaspSqliteDb();
       return;
     } catch (err: any) {
@@ -303,7 +377,8 @@ export async function initializeRaspDatabase(): Promise<void> {
       .then(async () => {
         console.log("[RaSP] Building SQLite index from downloaded database...");
         await buildRaspSqliteDatabase(RASP_CSV_PATH, RASP_SQLITE_PATH);
-        raspSqliteChecked = false;
+        resetRaspIndexVerdict();
+        raspCache.clear();
         getRaspSqliteDb();
       })
       .catch(err => {
@@ -323,20 +398,14 @@ export async function lookupPrecomputedRaspScore(
     return lookupRaspSqlite(sqliteDb, uniprotId, pos, wt, mut);
   }
 
-  return { score: null, reason: "Pre-computed RaSP database unavailable" };
+  return { score: null, reason: RASP_STORE_UNAVAILABLE_REASON };
 }
 
 /**
  * Release any open RaSP database file descriptors and reset in-memory caches.
  */
 export function closeRaspResources(): void {
-  if (raspSqliteDb) {
-    try {
-      raspSqliteDb.close();
-    } catch {}
-    raspSqliteDb = null;
-  }
-  raspSqliteChecked = false;
+  resetRaspIndexVerdict();
   raspCache.clear();
 }
 
@@ -363,7 +432,18 @@ export async function runRaspLocal(
   if (uniprotId) {
     try {
       const resObj = await lookupPrecomputedRaspScore(uniprotId, pos, wtAa, mutAa);
-      raspCache.set(cacheKey, resObj);
+      /**
+       * A miss caused by the STORE being unusable is a property of the deployment, not of this
+       * variant, so it must not be memoised.
+       *
+       * This LRU has no TTL. Caching "the database is unavailable" meant that a run which happened
+       * while the index was missing or mid-rebuild kept returning that answer for the life of the
+       * process — RaSP (a weight-1.5 consensus engine) silently absent from those variants with no
+       * log line, even after the index had been repaired.
+       */
+      if (resObj.reason !== RASP_STORE_UNAVAILABLE_REASON) {
+        raspCache.set(cacheKey, resObj);
+      }
       return resObj;
     } catch (err: any) {
       console.warn(`[RaSP] Precomputed database lookup failed for ${uniprotId}:`, err.message);

@@ -90,8 +90,17 @@ export async function buildRaspSqliteDatabase(
   const startedAt = Date.now();
   const csvStat = fs.statSync(csvPath);
 
+  /**
+   * Tracked outside the `try` so the `finally` can close it while `db` keeps its strong type inside.
+   *
+   * Every throw between `new DatabaseSync` and the success path used to leak this handle — and on
+   * Windows an open SQLite file commonly refuses deletion, so the staging cleanup would fail too.
+   */
+  let openDb: DatabaseSync | null = null;
+
   try {
     const db = new DatabaseSync(tempPath, { open: true });
+    openDb = db;
 
     db.exec(`
       DROP TABLE IF EXISTS rasp_variants;
@@ -231,13 +240,19 @@ export async function buildRaspSqliteDatabase(
     }
 
     db.close();
+    openDb = null;
 
     // ── Swap in, only now ──
+    //
+    // Rename straight over the target. The previous version unlinked the target first, which opened
+    // a window with NO index at all: a kill (or a failed rename — EBUSY on Windows, ENOSPC) inside
+    // it left nothing behind, and that is worse than the truncated index this work set out to fix.
+    // `rename` replaces atomically on POSIX and maps to MoveFileExW(REPLACE_EXISTING) on Windows, so
+    // the unlink was both unnecessary and the source of the hazard.
     const builtStat = fs.statSync(tempPath);
     if (builtStat.size < MIN_INDEX_BYTES) {
       throw new Error(`[RaSP SQLite] Built index is implausibly small (${builtStat.size} bytes).`);
     }
-    if (fs.existsSync(dbPath)) fs.rmSync(dbPath);
     fs.renameSync(tempPath, dbPath);
 
     const seconds = (Date.now() - startedAt) / 1000;
@@ -251,6 +266,14 @@ export async function buildRaspSqliteDatabase(
       if (fs.existsSync(tempPath)) fs.rmSync(tempPath);
     } catch (_) {}
     throw err;
+  } finally {
+    // Every throw between `new DatabaseSync` and the success path used to leak the handle — and on
+    // Windows an open SQLite file commonly refuses deletion, so the cleanup above would fail too.
+    if (openDb) {
+      try {
+        openDb.close();
+      } catch (_) {}
+    }
   }
 }
 

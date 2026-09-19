@@ -1373,16 +1373,18 @@ The verdict is also now a **literal union type** (`ConsensusVerdict`), so an imp
 TypeScript error rather than something a regex must catch — proven by a `@ts-expect-error` probe that
 fails if the union ever widens back to `string`.
 
+| **A8** RaSP stays silent after repair | A lookup that missed because the **store** was unusable was memoised in an LRU with no TTL, so a run that happened while the index was missing or mid-rebuild kept returning that miss for the life of the process — RaSP (a weight-1.5 engine) silently absent from those variants, with no log line, even after a correct index was in place. A store failure is a fact about the *deployment*, not the variant, so it is no longer cached; the cache is also cleared when a rebuild succeeds, and a genuine coverage miss is still cached (pinned, so the fix cannot be "solved" by disabling the cache). | `energy-models.test.ts` — "does not memoise a store-unavailable miss" plus its converse. |
+| **A9** index can vanish, or stay dead | Three separate ways RaSP could be lost for the life of a process: (a) the swap did `rmSync(target)` **then** `renameSync`, so a kill or a failed rename inside that window left **no index at all** — worse than the truncated index this work set out to fix; (b) the loader latched a one-shot `checked` boolean, conflating "this file is bad" with "there is no usable file", so a rejected index stayed rejected even after a correct one appeared; (c) `db.close()` existed only on the build's success path, leaking a handle and — on Windows, where an open SQLite file commonly refuses deletion — blocking the staging cleanup. Fixed by renaming straight over the target (atomic on POSIX, `MoveFileExW(REPLACE_EXISTING)` on Windows), caching the verdict against the file's **identity** (`ino:size:mtimeMs`, so a replacement is always re-verified and a stale descriptor is never served), and closing in a `finally`. | `energy-models.test.ts` — absent→present and truncated→rebuilt with **no restart or reset**; `build-rasp-sqlite.test.ts` — a failure *after every row is written* leaves the target byte-identical, rebuilding over an existing index really replaces it, and the handle is released on the failure path. |
+
 **Still open from the review** — the next phases, in the order given in §11.6: **A5** (cooldown
 written through a path that survives the persistence filter), **A6** (settle reads a ~1.5 s stale
-snapshot), **A7** (pass `foldingDdG` and `hidePending` to both builders), **A8/A9** (RaSP durability:
-clear the negative cache after a rebuild, atomic replace without `rmSync`, do not latch on ENOENT,
-close on failure paths), **A10** (a 2-engine *High* verdict is not provisional), **P1-3** (prewarm
-dedupe), **P1-4** (`isFolding` reset), the rest of **P2** (atomicity and rejection tests, non-zero
-harness exit codes), and **P3** (R5's information-loss regressions and the measured contrast
-failures). One item from §4.1 also remains: the server and the client still compute the verdict with
-different *context* (the server has no residue features and defaults pLDDT to 100), which is a smaller
-divergence than the engine-set one just fixed but is the same class.
+snapshot), **A7** (pass `foldingDdG` and `hidePending` to both builders), **A10** (a 2-engine *High*
+verdict is not provisional), **P1-3** (prewarm dedupe), **P1-4** (`isFolding` reset), the rest of
+**P2** (non-zero harness exit codes, JSX-text and `server/` coverage in the label guard), and **P3**
+(R5's information-loss regressions and the measured contrast failures). One item from §4.1 also
+remains: the server and the client still compute the verdict with different *context* (the server has
+no residue features and defaults pLDDT to 100), which is a smaller divergence than the engine-set one
+just fixed but is the same class.
 
 ---
 

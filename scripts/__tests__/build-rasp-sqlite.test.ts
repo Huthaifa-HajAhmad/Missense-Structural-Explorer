@@ -129,6 +129,60 @@ describe("buildRaspSqliteDatabase", () => {
     expect(fs.existsSync(`${dbPath}.building`)).toBe(false);
   });
 
+  it("leaves the existing target intact when the build fails AFTER writing every row", async () => {
+    // The sentinel test above fails at the missing-CSV precondition, before staging is even opened,
+    // so it cannot tell an atomic build from a direct-write one. This forces the failure at the
+    // LAST step — the swap — by making the target un-replaceable: a non-empty directory occupies
+    // the path, so `renameSync` throws with a fully written, verified index in staging.
+    const occupant = path.join(dbPath, "occupant.txt");
+    fs.mkdirSync(dbPath, { recursive: true });
+    fs.writeFileSync(occupant, "the previous index lives here");
+
+    writeCsv([
+      "P00439,A,1pdb,A,R408H,1.45,,",
+      "P01112,B,2pdb,B,G12V,2.54,,",
+    ]);
+    await expect(buildRaspSqliteDatabase(csvPath, dbPath)).rejects.toThrow();
+
+    // The occupant is byte-identical and no half-built file is left behind. With the old
+    // `rmSync(target)` before the rename, the target would already be gone at this point.
+    expect(fs.readFileSync(occupant, "utf-8")).toBe("the previous index lives here");
+    expect(fs.existsSync(`${dbPath}.building`)).toBe(false);
+  });
+
+  it("replaces an existing index in place rather than unlinking it first", async () => {
+    // The swap used to be `rmSync(target)` then `renameSync`, which opened a window with NO index at
+    // all — worse than the truncated index this work set out to fix, because a kill inside it left
+    // nothing to fall back on. `rename` replaces atomically, so the unlink was pure hazard.
+    writeCsv(["P00439,A,1pdb,A,R408H,1.45,,"]);
+    const first = await buildRaspSqliteDatabase(csvPath, dbPath);
+    expect(first.rows).toBe(1);
+
+    // Rebuild over the index that is already there — the case the unlink existed for.
+    writeCsv(["P00439,A,1pdb,A,R408H,1.45,,", "P01112,B,2pdb,B,G12V,2.54,,"]);
+    const second = await buildRaspSqliteDatabase(csvPath, dbPath);
+
+    expect(second.rows).toBe(2);
+    // The replacement really took effect: the new content is being served.
+    expect(readCounts(dbPath).rows).toBe(2);
+    expect(fs.existsSync(`${dbPath}.building`)).toBe(false);
+  });
+
+  it("closes its handle even when the build throws", async () => {
+    // An open handle both leaks and, on Windows, blocks the staging cleanup — an open SQLite file
+    // commonly refuses deletion. If the handle leaked, removing the staging directory fails.
+    const occupant = path.join(dbPath, "occupant.txt");
+    fs.mkdirSync(dbPath, { recursive: true });
+    fs.writeFileSync(occupant, "occupied");
+    writeCsv(["P00439,A,1pdb,A,R408H,1.45,,"]);
+
+    await expect(buildRaspSqliteDatabase(csvPath, dbPath)).rejects.toThrow();
+
+    // No staging file and no lock: the path can be removed straight away.
+    expect(fs.existsSync(`${dbPath}.building`)).toBe(false);
+    expect(() => fs.rmSync(dbPath, { recursive: true, force: true })).not.toThrow();
+  });
+
   it("does not create the target until the build has succeeded", async () => {
     writeCsv(["P00439,A,1pdb,A,R408H,1.45,,",]);
 
