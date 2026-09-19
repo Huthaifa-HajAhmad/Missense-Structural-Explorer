@@ -151,7 +151,8 @@ describe("resolveAccessionedProteinNotation", () => {
       proteinNotation: "p.Gly59Ala",
     });
     expect(unknownAccession.status).toBe("unresolved");
-    expect(unknownAccession.reason).toContain("no reviewed human entry");
+    expect(unknownAccession.reason).toContain("no entry cross-referenced");
+    expect(unknownAccession.reason).toContain("reviewed, human");
 
     fetchSpy.mockRestore();
     fetchSpy = installFetch();
@@ -159,8 +160,112 @@ describe("resolveAccessionedProteinNotation", () => {
       accession: "P00001-9",
       proteinNotation: "p.Gly49Ala",
     });
-    expect(unknownIsoform.status).toBe("unresolved");
-    expect(unknownIsoform.reason).toContain("does not list an isoform P00001-9");
+    // UNVERIFIED, not unresolved: nothing establishes the numbering, so the caller must refuse
+    // rather than convert — and must not be told the protein simply lacks that residue.
+    expect(unknownIsoform.status).toBe("unverified");
+    expect(unknownIsoform.reason).toContain("lists no isoform P00001-9");
+  });
+
+  /**
+   * Regressions from the review panel, each demonstrated live against the previous version:
+   *   - `<acc>-1` is how UniProt writes the CANONICAL isoform (measured: ~15 of 70 RefSeq xrefs,
+   *     and 59 of 130 sampled MANE proteins). Comparing it literally refused the
+   *     canonical-numbered notation — the one case needing no conversion — with a false "no such
+   *     isoform" claim (CFTR `NP_000483.3` was the reported example).
+   *   - a RefSeq record with NO isoformId was assumed canonical, so an isoform-numbered position
+   *     was applied to the canonical sequence whenever the letters coincided (RHOT1
+   *     `NP_001028739.2`: isoform 4, 491 aa, against 618 aa canonical) and reported as verified.
+   */
+  it("treats a `<acc>-1` declared isoform as the canonical sequence", async () => {
+    fetchSpy = installFetch({
+      search: {
+        results: [
+          {
+            primaryAccession: "P00001",
+            uniProtKBCrossReferences: [
+              {
+                database: "RefSeq",
+                id: "NP_000001.1",
+                properties: [{ key: "NucleotideSequenceId", value: "NM_000001.2" }],
+                isoformId: "P00001-1",
+              },
+            ],
+            genes: [{ geneName: { value: "TESTGENE" } }],
+          },
+        ],
+      },
+    });
+
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "NP_000001.1",
+      proteinNotation: "p.Gly49Ala",
+    });
+
+    expect(outcome.status).toBe("canonical");
+    expect(outcome.canonicalVariant).toBe("p.Gly49Ala");
+    expect(outcome.basisId).toBe("P00001");
+  });
+
+  it("REFUSES a RefSeq record with no isoformId instead of assuming canonical", async () => {
+    fetchSpy = installFetch({
+      search: {
+        results: [
+          {
+            primaryAccession: "P00001",
+            uniProtKBCrossReferences: [{ database: "RefSeq", id: "NP_000001.1", properties: [] }],
+            genes: [{ geneName: { value: "TESTGENE" } }],
+          },
+        ],
+      },
+    });
+
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "NP_000001.1",
+      proteinNotation: "p.Gly61Ala",
+    });
+
+    // Never a canonical 200: without the isoformId nothing ties those numbers to a protein.
+    expect(outcome.status).toBe("unverified");
+    expect(outcome.reason).toContain("does not state which isoform");
+  });
+
+  it("filters the RefSeq search to reviewed human entries", async () => {
+    fetchSpy = installFetch();
+    await resolveAccessionedProteinNotation({
+      accession: "NP_000001.1",
+      proteinNotation: "p.Gly59Ala",
+    });
+
+    const searchCall = fetchSpy.mock.calls.find((c: any[]) =>
+      String(c[0]).includes("/uniprotkb/search")
+    );
+    expect(searchCall).toBeDefined();
+    // Without both filters the first ranked hit is frequently an unreviewed TrEMBL record
+    // (measured: 9 of 12 sampled accessions), and the caller would number against that protein.
+    expect(String(searchCall![0])).toContain("reviewed:true");
+    expect(String(searchCall![0])).toContain("organism_id:9606");
+  });
+
+  it("reports a FAILED RefSeq lookup as upstream-unavailable, and caches no verdict", async () => {
+    fetchSpy = installFetch({ search: new Error("network down") });
+
+    const error: any = await resolveAccessionedProteinNotation({
+      accession: "NP_000001.1",
+      proteinNotation: "p.Gly59Ala",
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(CoordinateResolutionError);
+    expect(error.kind).toBe("upstream_unavailable");
+
+    // The failure must not have been stored as "this accession does not exist": with the provider
+    // healthy again the same accession must resolve (previously a 30-day L1+L2 poison).
+    fetchSpy.mockRestore();
+    fetchSpy = installFetch();
+    const recovered = await resolveAccessionedProteinNotation({
+      accession: "NP_000001.1",
+      proteinNotation: "p.Gly59Ala",
+    });
+    expect(recovered.status).toBe("remapped");
+    expect(recovered.canonicalVariant).toBe("p.Gly49Ala");
   });
 
   it("surfaces a provider outage as an upstream-unavailable resolution error", async () => {

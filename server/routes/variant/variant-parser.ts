@@ -13,7 +13,7 @@ import {
 } from "../../services/external.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
-import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
+import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
@@ -186,6 +186,24 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     }
   } catch (err: any) {
     sendError(res, 400, "BAD_REQUEST", err.message);
+    return null;
+  }
+
+  // An accession-qualified notation names the protein its residue numbers belong to, so it MUST be
+  // resolved (and converted onto canonical numbering) by the translation service — never read by
+  // index here. The protein parser strips the accession and would apply the position to the
+  // CANONICAL sequence: `NP_001032248.1:Arg64Ala` would silently mutate canonical residue 64,
+  // which is a different residue (the MANE letter coincides at ~3.6% of positions), while the
+  // `p.`-prefixed form would be reported as a malformed notation instead.
+  if (classifyNotation(variant).kind === "protein-accessioned") {
+    sendError(
+      res,
+      422,
+      "UNPROCESSABLE_ENTITY",
+      `"${variant}" states the protein its numbering belongs to, so it must be resolved before analysis: ` +
+        "POST /api/v1/translate-variant returns the canonical-numbered substitution (the UI does this automatically). " +
+        "Alternatively enter the substitution in canonical numbering, or use the genomic/cDNA coordinate."
+    );
     return null;
   }
 

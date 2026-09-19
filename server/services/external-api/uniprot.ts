@@ -1,7 +1,13 @@
 import { LRUCache } from "lru-cache";
 import { uniprotCache, uniprotFeaturesCache, getCachedOrFetch, defaultCacheRegistry } from "../infra/cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
-import { buildUniprotFeaturesKey, buildUniprotSequenceKey, buildUniprotIdKey } from "../infra/cache-keys.ts";
+import {
+  buildUniprotFeaturesKey,
+  buildUniprotSequenceKey,
+  buildUniprotIdKey,
+  buildRefSeqProteinKey,
+  buildUniprotIsoformKey,
+} from "../infra/cache-keys.ts";
 
 export interface UniprotCacheOptions {
   l1Cache?: LRUCache<string, any>;
@@ -92,11 +98,16 @@ export async function fetchUniprotIsoforms(
   const cache = options?.l1Cache ?? uniprotIsoformsCache;
 
   return getCachedOrFetch({
-    key: `uniprot_isoforms_${key}`,
+    key: buildUniprotIsoformKey(key),
     source: "UniProt FASTA (isoforms)",
     l1Cache: cache,
     ttlSeconds: 30 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
+    // An EMPTY record set is not a fact about the protein: this endpoint answers HTTP 200 with a
+    // zero-byte body for accessions it cannot serve (verified live for `Q00000`, `Q9Y305-9`).
+    // Caching that as "this entry has no sequences" bricked the accession for 30 days in L1+L2.
+    shouldCache: (isoforms) => isoforms.length > 0,
+    isUsable: (isoforms) => Array.isArray(isoforms) && isoforms.length > 0,
     fetcher: async () => {
       // MUST use the `stream` resolver: the single-entry `/uniprotkb/{acc}.fasta` endpoint
       // silently IGNORES `includeIsoform=true` and returns only the canonical record, which made
@@ -125,7 +136,13 @@ export async function fetchUniprotIsoforms(
         }
         if (current) current.sequence += line;
       }
-      return isoforms.filter((iso) => iso.sequence.length > 0);
+      const usable = isoforms.filter((iso) => iso.sequence.length > 0);
+      if (usable.length === 0) {
+        throw new Error(
+          `UniProt returned no sequence records for ${key}; treating as a provider failure rather than an empty entry`
+        );
+      }
+      return usable;
     },
   });
 }
@@ -155,43 +172,67 @@ defaultCacheRegistry.registerCache("refSeqProteinCache", refSeqProteinCache, {
 });
 
 /**
+ * Result of a RefSeq-protein lookup.
+ *
+ * A DEFINITIVE negative ("UniProt reviewed-human has no such entry") and a PROVIDER FAILURE must
+ * not be the same value: the first is a fact about the user's accession and may be cached; the
+ * second is a fact about our connection and must never be. Collapsing them (returning `null` for
+ * both) once cached a single transient 4xx as "this accession does not exist" for 30 days, in L1
+ * and in SQLite, with a message that blamed the user's input.
+ */
+export type RefSeqLookupResult =
+  | { kind: "found"; mapping: RefSeqProteinMapping }
+  | { kind: "absent" };
+
+/**
  * Maps a RefSeq protein accession (`NP_001032248.1`) to its UniProt entry AND isoform.
  *
- * UniProt's RefSeq cross-references carry `isoformId`, so this is exact — no sequence comparison
- * and no second provider. Without it, a lab notation like `NP_001032248.1:p.Lys281Asn` has no
- * route into the pipeline at all: the numbering basis is the whole point of the notation.
+ * The query is filtered to `reviewed:true` + human on purpose. Without that filter the FIRST
+ * ranked hit for an accession is frequently an unreviewed TrEMBL record (measured: 9 of 12
+ * sampled accessions, e.g. `NP_005219.2` → `F2YGG7` instead of reviewed `P00533`), and the caller
+ * — which must pick a sequence to number against — would model an unreviewed protein while
+ * reporting `numberingVerified: true`.
  *
- * Returns null (cached) when UniProt has no reviewed entry carrying that accession.
+ * Throws on provider failure; 4xx request errors and definitive negatives are reported as
+ * `absent`. Callers convert a throw into an upstream-unavailable answer.
  */
 export async function resolveRefSeqProtein(
   proteinAccession: string,
   options?: UniprotCacheOptions
-): Promise<RefSeqProteinMapping | null> {
+): Promise<RefSeqLookupResult> {
   const key = proteinAccession.trim().toUpperCase();
   const cache = options?.l1Cache ?? refSeqProteinCache;
-  if (!/^NP_\d+(\.\d+)?$/.test(key)) return null;
+  if (!/^NP_\d+(\.\d+)?$/.test(key)) return { kind: "absent" };
 
-  // Wrapped so the (definitive) "no such accession" answer is cacheable: the cache helper's
-  // generic rejects `null`, and caching a negative here saves a lookup per query.
-  const lookup = await getCachedOrFetch<{ mapping: RefSeqProteinMapping | null }>({
-    key: `refseq_protein_${key}`,
+  return getCachedOrFetch<RefSeqLookupResult>({
+    key: buildRefSeqProteinKey(key),
     source: "UniProt Search API (RefSeq xref)",
     l1Cache: cache,
     ttlSeconds: 30 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
+    // Only a definitive negative is worth remembering; failures throw and are never cached.
+    shouldCache: (result) => result.kind === "absent",
     fetcher: async () => {
       const url =
-        `https://rest.uniprot.org/uniprotkb/search?query=xref:refseq-${encodeURIComponent(key)}` +
+        `https://rest.uniprot.org/uniprotkb/search?query=` +
+        `xref:refseq-${encodeURIComponent(key)}+AND+reviewed:true+AND+organism_id:9606` +
         `&fields=xref_refseq,gene_primary&format=json&size=1`;
       const response = await fetchWithRetry(url, {
         headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
         timeout: 15000,
       });
-      if (!response.ok) return { mapping: null };
+
+      if (response.status === 400 || response.status === 404) {
+        // The provider answered about the REQUEST: this accession is not one it knows.
+        return { kind: "absent" };
+      }
+      if (!response.ok) {
+        throw new Error(`UniProt RefSeq lookup failed with status ${response.status}`);
+      }
 
       const data = (await response.json()) as any;
       const entry = data?.results?.[0];
-      if (!entry?.primaryAccession) return { mapping: null };
+      if (!entry?.primaryAccession) return { kind: "absent" };
 
       const xrefs: any[] = entry.uniProtKBCrossReferences ?? [];
       const versionless = key.split(".")[0];
@@ -206,6 +247,7 @@ export async function resolveRefSeqProtein(
       )?.value;
 
       return {
+        kind: "found",
         mapping: {
           accession: String(entry.primaryAccession).toUpperCase(),
           proteinId: match?.id ?? key,
@@ -216,8 +258,51 @@ export async function resolveRefSeqProtein(
       };
     },
   });
+}
 
-  return lookup.mapping;
+/**
+ * The isoform UniProt DISPLAYS as the entry's canonical sequence (from the ALTERNATIVE PRODUCTS
+ * comment: the isoform with `isoformSequenceStatus: "Displayed"`).
+ *
+ * Needed for entries whose displayed canonical is isoform N≠1 (e.g. `P02458-2` for COL2A1):
+ * UniProt's RefSeq xref then names that id, while the FASTA record is labelled with the bare
+ * accession — so the id looks unknown unless the two are reconciled. Only consulted when a
+ * declared isoform id had no matching record, so the common path pays nothing.
+ */
+export async function fetchDisplayedIsoformId(
+  uniprotId: string,
+  options?: UniprotCacheOptions
+): Promise<string | undefined> {
+  const key = uniprotId.trim().toUpperCase();
+  const result = await getCachedOrFetch<{ isoformId: string | null }>({
+    key: `uniprot_displayed_isoform_${key}`,
+    source: "UniProt entry (alternative products)",
+    l1Cache: options?.l1Cache ?? uniprotIsoformsCache,
+    ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
+    fetcher: async () => {
+      const response = await fetchWithRetry(
+        `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(key)}.json?fields=cc_alternative_products`,
+        { headers: { Accept: "application/json" }, timeout: 15000 }
+      );
+      if (!response.ok) {
+        throw new Error(`UniProt entry lookup failed with status ${response.status}`);
+      }
+      const data = (await response.json()) as any;
+      const comment = (data?.comments ?? []).find(
+        (c: any) => c?.commentType === "ALTERNATIVE PRODUCTS"
+      );
+      const displayed = (comment?.isoforms ?? []).find(
+        (iso: any) => iso?.isoformSequenceStatus === "Displayed"
+      );
+      return {
+        isoformId: displayed?.isoformIds?.[0]
+          ? String(displayed.isoformIds[0]).toUpperCase()
+          : null,
+      };
+    },
+  });
+  return result.isoformId ?? undefined;
 }
 
 export async function fetchUniprotSequence(uniprotId: string, options?: UniprotCacheOptions): Promise<string> {

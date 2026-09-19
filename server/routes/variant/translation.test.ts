@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { apiRouter } from "../../routes.ts";
 import { clearAllCaches } from "../../services/infra/cache.ts";
 import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
+import { translateVariantResponseSchema } from "../../../src/shared/contracts.ts";
 
 /**
  * Route-level tests for POST /api/v1/translate-variant.
@@ -840,6 +841,11 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     expect(body.transcriptWarning).toContain("NP_001032248.1");
     expect(body.transcriptWarning).toContain("p.Lys281Asn");
     expect(body.transcriptWarning).toContain("p.Lys272Asn");
+
+    // …and it must survive the CLIENT CONTRACT too: asserting the raw Express body hid a Zod
+    // schema that omitted `from.accession`, silently deleting it on the client.
+    const parsed = translateVariantResponseSchema.parse(body);
+    expect(parsed.numberingRemap?.from.accession).toBe("NP_001032248.1");
   });
 
   it("accepts a UniProt isoform accession without a RefSeq lookup", async () => {
@@ -878,7 +884,9 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     );
 
     expect(statusCode).toBe(422);
-    expect(body.error.message).toContain("no reviewed human entry");
+    // The reason must be accurate about WHAT was searched: reviewed, human entries only.
+    expect(body.error.message).toContain("no entry cross-referenced");
+    expect(body.error.message).toContain("reviewed, human");
     expect(body.error.details.accession).toBe("NP_999999.9");
   });
 });

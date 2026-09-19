@@ -25,10 +25,13 @@
  */
 
 import {
+  fetchDisplayedIsoformId,
   fetchUniprotIsoforms,
   resolveRefSeqProtein,
+  type RefSeqLookupResult,
   type UniprotIsoform,
 } from "../external-api/uniprot.ts";
+import { isCanonicalIsoformId } from "./isoform-numbering.ts";
 import {
   mapPositionAcrossSequences,
   parseSubstitution,
@@ -41,7 +44,13 @@ import { buildResolutionUnavailableMessage } from "./coordinate-resolver.ts";
 import { CoordinateResolutionError } from "./types.ts";
 
 export interface ProteinNumberingOutcome {
-  status: "canonical" | "remapped" | "ambiguous" | "unresolved";
+  /**
+   * `unverified` means the numbering basis could NOT be established, so no conversion is
+   * possible: callers must refuse and point at the coordinate/cDNA route. It is deliberately
+   * distinct from `unresolved` (a definitive "that protein/accession does not have this residue"),
+   * because conflating the two is how a missing metadata field became a confident wrong answer.
+   */
+  status: "canonical" | "remapped" | "unverified" | "ambiguous" | "unresolved";
   /** HGNC symbol when UniProt reports one (from the RefSeq xref or the FASTA mnemonic). */
   geneSymbol?: string;
   /** Canonical UniProt accession the returned variant is numbered on. */
@@ -100,17 +109,46 @@ export async function resolveAccessionedProteinNotation(
   let transcriptId: string | undefined;
 
   if (/^NP_\d/.test(accession)) {
-    const mapping = await resolveRefSeqProtein(accession, options);
-    if (!mapping) {
+    let lookup: RefSeqLookupResult;
+    try {
+      lookup = await resolveRefSeqProtein(accession, options);
+    } catch {
+      // A provider failure is NOT a fact about the accession: answer "try again" (503), never a
+      // 422 that tells the user their accession does not exist.
+      throw new CoordinateResolutionError(
+        "upstream_unavailable",
+        buildResolutionUnavailableMessage("upstream_unavailable"),
+        []
+      );
+    }
+
+    if (lookup.kind === "absent") {
       return {
         status: "unresolved",
-        reason: `UniProt has no reviewed human entry cross-referenced to ${accession}`,
+        reason: `UniProt (reviewed, human) has no entry cross-referenced to ${accession}`,
       };
     }
+
+    const mapping = lookup.mapping;
     canonicalAccession = mapping.accession;
-    basisId = mapping.isoformId ?? mapping.accession;
     geneSymbol = mapping.geneSymbol;
     transcriptId = mapping.transcriptId;
+
+    // A MISSING isoformId is not evidence of canonical numbering. Assuming it was, and returning
+    // the canonical sequence unchanged, modelled a different residue whenever the letters
+    // happened to coincide at the same index (RHOT1 `NP_001028739.2`: isoform 4, 491 aa, versus
+    // 618 aa canonical). Refuse instead: the coordinate/cDNA route settles the numbering.
+    if (!mapping.isoformId) {
+      return {
+        status: "unverified",
+        canonicalAccession,
+        basisAccession: accession,
+        geneSymbol,
+        transcriptId,
+        reason: `UniProt does not state which isoform ${accession} is, so the numbering basis cannot be established`,
+      };
+    }
+    basisId = mapping.isoformId;
   } else {
     canonicalAccession = accession.split("-")[0];
     basisId = accession;
@@ -132,24 +170,56 @@ export async function resolveAccessionedProteinNotation(
   const canonical = bases.find((b) => b.kind === "canonical");
   if (!canonical) {
     return {
-      status: "unresolved",
+      status: "unverified",
       canonicalAccession,
+      basisAccession: accession,
+      geneSymbol,
       reason: `UniProt returned no canonical sequence for ${canonicalAccession}`,
     };
   }
 
-  const declared = bases.find((b) => b.id.toUpperCase() === basisId.toUpperCase());
+  /**
+   * Isoform identity as UniProt MEANS it: `<acc>-1` and the bare accession are the same protein.
+   *
+   * The FASTA labels the canonical record with the bare accession, while RefSeq xrefs routinely
+   * write `<acc>-1` (measured: 15 of 70 xrefs in a 25-entry sample, and 59 of 130 sampled MANE
+   * proteins). Comparing those literally refused the *canonical-numbered* notation — the one case
+   * needing no conversion — with the false claim that the isoform does not exist.
+   */
+  const basisKey = (id: string): string =>
+    isCanonicalIsoformId(id, canonicalAccession) ? "CANONICAL" : id.toUpperCase();
+
+  let declared = bases.find((b) => basisKey(b.id) === basisKey(basisId));
+  let declaredLabel = declared?.id;
+
+  if (!declared) {
+    // UniProt labels the DISPLAYED isoform's sequence with the bare accession. When the declared
+    // id is a different isoform number, reconcile through the entry's ALTERNATIVE PRODUCTS
+    // comment before declaring it unknown.
+    try {
+      const displayedId = await fetchDisplayedIsoformId(canonicalAccession, options);
+      if (displayedId && basisKey(displayedId) === basisKey(basisId)) {
+        declared = canonical;
+        declaredLabel = displayedId;
+      }
+    } catch {
+      // Best effort: an unreachable entry endpoint must not turn into a numbering verdict.
+    }
+  }
+
   if (!declared) {
     return {
-      status: "unresolved",
+      status: "unverified",
       canonicalAccession,
       basisAccession: accession,
+      basisId,
       geneSymbol,
-      reason: `UniProt does not list an isoform ${basisId} for ${canonicalAccession}`,
+      transcriptId,
+      reason: `UniProt lists no isoform ${basisId} for ${canonicalAccession}, so the numbering basis cannot be established`,
     };
   }
 
-  geneSymbol = geneSymbol ?? geneSymbolFromEntryName(isoforms.find((i) => i.id === declared.id)?.entryName);
+  geneSymbol = geneSymbol ?? geneSymbolFromEntryName(isoforms.find((i) => i.id === declared!.id)?.entryName);
 
   // The declared protein must actually carry the stated wild-type residue.
   if (declared.sequence[substitution.position - 1] !== substitution.wt1) {
@@ -158,10 +228,10 @@ export async function resolveAccessionedProteinNotation(
       status: "unresolved",
       canonicalAccession,
       basisAccession: accession,
-      basisId: declared.id,
+      basisId: declaredLabel,
       basisKind: declared.kind,
       geneSymbol,
-      reason: `${declared.id} has ${actual} at position ${substitution.position}, not ${substitution.wt1}`,
+      reason: `${declaredLabel} has ${actual} at position ${substitution.position}, not ${substitution.wt1}`,
     };
   }
 
@@ -170,7 +240,7 @@ export async function resolveAccessionedProteinNotation(
       status: "canonical",
       canonicalAccession,
       canonicalVariant: `p.${substitution.wt3}${substitution.position}${substitution.mut3}`,
-      basisId: declared.id,
+      basisId: declaredLabel,
       basisKind: "canonical",
       basisAccession: accession,
       geneSymbol,
@@ -188,9 +258,10 @@ export async function resolveAccessionedProteinNotation(
       status: "unresolved",
       canonicalAccession,
       basisAccession: accession,
-      basisId: declared.id,
+      basisId: declaredLabel,
       basisKind: declared.kind,
       geneSymbol,
+      transcriptId,
       reason: mapped.reason,
     };
   }
@@ -199,7 +270,7 @@ export async function resolveAccessionedProteinNotation(
     status: "remapped",
     canonicalAccession,
     canonicalVariant: renameSubstitution(parsed.proteinNotation, substitution, mapped.mapping.canonicalPosition),
-    basisId: declared.id,
+    basisId: declaredLabel,
     basisKind: "isoform",
     basisAccession: accession,
     geneSymbol,

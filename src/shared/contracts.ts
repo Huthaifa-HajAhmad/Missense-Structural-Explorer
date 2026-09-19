@@ -219,6 +219,13 @@ export const translateVariantResponseSchema = z.object({
         transcriptId: z.string().optional(),
         isoform: z.string().optional(),
         maneRefSeqId: z.string().optional(),
+        /**
+         * Protein accession the ORIGINAL notation was numbered on, when it named one
+         * (`NP_001032248.1`). Distinct from `isoform` (`Q9Y305-4`): for an accession-qualified
+         * input it is the identifier a lab report used, and dropping it from this schema silently
+         * removed it from the audit record on the client.
+         */
+        accession: z.string().optional(),
       }),
       to: z.object({
         hgvsp: z.string().optional(),
@@ -891,6 +898,7 @@ export const analyzeVariantResponseSchema = z.object({
         transcriptId: z.string().optional(),
         isoform: z.string().optional(),
         maneRefSeqId: z.string().optional(),
+        accession: z.string().optional(),
       }),
       to: z.object({
         hgvsp: z.string().optional(),

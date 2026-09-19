@@ -143,3 +143,19 @@ export function buildAlphaGenomeKey(chrom: string, pos: number, ref: string, alt
 export function buildCoordinateTranslationKey(assembly: string, normalizedNotation: string): string {
   return `coord_translation_${assembly.toUpperCase()}_${normalizedNotation.trim().toLowerCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
+
+/**
+ * Cache key for a RefSeq protein accession -> UniProt entry + isoform mapping.
+ *
+ * Schema-suffixed like every other key here: the payload shape changed once already (the
+ * mapping gained an isoform basis), and a key without the suffix would serve the old shape for
+ * the full 30-day TTL after the next change.
+ */
+export function buildRefSeqProteinKey(proteinAccession: string): string {
+  return `refseq_protein_${proteinAccession.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
+/** Cache key for a UniProt entry's isoform sequences (immutable reference data). */
+export function buildUniprotIsoformKey(uniprotId: string): string {
+  return `uniprot_isoforms_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}

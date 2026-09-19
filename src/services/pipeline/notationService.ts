@@ -90,6 +90,7 @@ export async function translateVariantNotation(
         // surfaces can disclose it instead of quietly reporting a different residue number.
         uniprotIsoform: data.uniprotIsoform,
         numberingBasis: data.numberingBasis,
+        numberingUnverifiedReason: data.numberingUnverifiedReason,
         numberingRemap: data.numberingRemap,
         // Preserved so callers/reports can state which build the coordinate resolved against.
         assembly: data.assembly,

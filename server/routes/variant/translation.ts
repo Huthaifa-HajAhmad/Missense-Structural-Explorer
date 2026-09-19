@@ -312,6 +312,25 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
             return;
           }
 
+          // The basis could not be established: refuse rather than guess. Guessing here IS the
+          // silent wrong-residue case, so the message names the reliable routes instead.
+          if (outcome.status === "unverified") {
+            sendError(
+              res,
+              422,
+              "UNPROCESSABLE_ENTITY",
+              `Could not establish the numbering basis for ${accessionedProtein.accession}: ${outcome.reason}. ` +
+                "Enter the genomic/cDNA coordinate (it resolves the numbering against the reference " +
+                "annotation), or qualify the notation with a UniProt isoform (e.g. Q9Y305-4:p.Lys281Asn).",
+              compactDetails({
+                accession: accessionedProtein.accession,
+                notation: accessionedProtein.proteinNotation,
+                reason: outcome.reason,
+              })
+            );
+            return;
+          }
+
           sendError(
             res,
             422,

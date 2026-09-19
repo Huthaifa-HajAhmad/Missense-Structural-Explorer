@@ -3,7 +3,7 @@ import { Search, Sparkles, History, Trash2, Loader2, Clipboard, ShieldAlert, X, 
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
-import { isGenomicOrCdnaNotation } from "../shared/variantNotation.ts";
+import { needsNotationResolution } from "../shared/variantNotation.ts";
 
 interface QueryStripProps {
   isDark: boolean;
@@ -93,7 +93,7 @@ export const QueryStrip: React.FC<QueryStripProps> = ({
     e.preventDefault();
   });
   const isGenomicVariant =
-    (!!customVariant && isGenomicOrCdnaNotation(customVariant)) || !!customGenomic.trim();
+    (!!customVariant && needsNotationResolution(customVariant)) || !!customGenomic.trim();
   const isGeneRequired = !isGenomicVariant;
   const isVariantRequired = !customGenomic.trim();
 
