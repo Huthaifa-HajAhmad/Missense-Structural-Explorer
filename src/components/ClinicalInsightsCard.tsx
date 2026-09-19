@@ -358,6 +358,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             residueIndex: selectedResidueIndex,
             plddt: disruptionPredictor?.plddt
           })?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
+        // The JSON export carries the caveat too, so a downstream reader of the report knows the
+        // verdict can still move. This replaced the " (Preliminary - pending: …)" suffix.
+        consensusEvidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
+        consensusPendingTools: foldingEnergetics?.pendingTools ?? [],
         consensusProbability:
           deriveConsensus({
             result: analysisState.result,
@@ -392,13 +396,21 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       analysisState.result,
       settings,
       foldingEnergetics,
-      // The live value, so the manifest cannot contradict the screen.
-      deriveConsensus({
-        result: analysisState.result,
-        foldingEnergetics,
-        residueIndex: selectedResidueIndex,
-        plddt: disruptionPredictor?.plddt
-      })?.consensusVerdict ?? null
+      {
+        // The live value, so the manifest cannot contradict the screen...
+        derivedVerdict:
+          deriveConsensus({
+            result: analysisState.result,
+            foldingEnergetics,
+            residueIndex: selectedResidueIndex,
+            plddt: disruptionPredictor?.plddt
+          })?.consensusVerdict ?? null,
+        // ...and the caveat that used to travel inside the verdict string as a " (Preliminary -
+        // pending: …)" suffix. Removing that suffix was right; leaving nothing in its place meant an
+        // export could state an incomplete run's verdict with no indication it was partial.
+        evidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
+        pendingTools: foldingEnergetics?.pendingTools ?? []
+      }
     );
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);

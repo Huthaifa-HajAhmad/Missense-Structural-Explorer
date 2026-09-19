@@ -2,14 +2,21 @@ import { describe, it, expect } from "vitest";
 import { generateProvenanceManifest } from "../provenance";
 
 /**
- * The exported manifest must not contradict the screen.
+ * The exported manifest must not contradict the screen, and must not hide a partial run.
  *
- * `foldingEnergetics.consensusVerdict` is a snapshot from when the server committed the FoldX job.
- * Remote engines keep resolving for up to ten minutes after that, and the on-screen badge recomputes
- * as they do — so a manifest built from the stored field could state a verdict the screen
- * contradicts. Measured: foldx +0.5 and rasp +0.6 at commit time gave "Low Misfolding Risk (Neutral
- * Stability)", and a ThermoMPNN result arriving later put "High Misfolding Risk (Destabilizing
- * Consensus)" on screen while the export still said Low.
+ * Two defects, both introduced by changing how the verdict is carried:
+ *
+ *   1. `foldingEnergetics.consensusVerdict` is a snapshot from when the server committed the FoldX
+ *      job. Remote engines keep resolving for up to ten minutes after that and the on-screen badge
+ *      recomputes as they do, so a manifest built from the stored field could state a verdict the
+ *      screen contradicts — measured: foldx +0.5 and rasp +0.6 at commit time gave "Low Misfolding
+ *      Risk (Neutral Stability)", and a ThermoMPNN result arriving later put "High Misfolding Risk
+ *      (Destabilizing Consensus)" on screen while the export still said Low.
+ *
+ *   2. The provisionality marker used to live INSIDE the verdict as a " (Preliminary - pending: …)"
+ *      suffix. Removing it was right — free text in a verdict cannot be compared or typed — but
+ *      nothing replaced it, so for a while an export stated an incomplete run's verdict with no
+ *      caveat at all.
  *
  * A stored verdict is a fact about the past; a manifest is a claim about this variant.
  */
@@ -19,7 +26,7 @@ const LIVE = "High Misfolding Risk (Destabilizing Consensus)";
 
 const analysisResult = { metadata: { gene: "GENEX", variant: "p.Ala1Val" } } as never;
 
-describe("generateProvenanceManifest — stability verdict", () => {
+describe("generateProvenanceManifest — verdict summary", () => {
   it("prefers the verdict derived from the final state over the stored snapshot", () => {
     const manifest = generateProvenanceManifest(
       "GENEX",
@@ -28,7 +35,7 @@ describe("generateProvenanceManifest — stability verdict", () => {
       analysisResult,
       undefined,
       { consensusVerdict: STALE } as never,
-      LIVE
+      { derivedVerdict: LIVE }
     );
 
     expect(manifest.verdictSummary.stabilityVerdict).toBe(LIVE);
@@ -55,10 +62,56 @@ describe("generateProvenanceManifest — stability verdict", () => {
       analysisResult,
       undefined,
       null,
-      null
+      { derivedVerdict: null }
     );
 
     expect(manifest.verdictSummary.stabilityVerdict).toBeNull();
+  });
+
+  it("carries the provisionality caveat as its own fields, not inside the verdict", () => {
+    // The caveat must be readable, and the verdict itself must stay a closed-set value.
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      analysisResult,
+      undefined,
+      { consensusVerdict: LIVE, evidenceComplete: false, pendingTools: ["DynaMut2", "DDMut"] } as never
+    );
+
+    expect(manifest.verdictSummary.stabilityVerdict).toBe(LIVE);
+    expect(manifest.verdictSummary.stabilityVerdict).not.toContain("Preliminary");
+    expect(manifest.verdictSummary.stabilityEvidenceComplete).toBe(false);
+    expect(manifest.verdictSummary.pendingEngines).toEqual(["DynaMut2", "DDMut"]);
+  });
+
+  it("takes the caller's provisionality when supplied, in preference to the stored bundle", () => {
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      analysisResult,
+      undefined,
+      { consensusVerdict: STALE, evidenceComplete: false, pendingTools: ["RaSP"] } as never,
+      { derivedVerdict: LIVE, evidenceComplete: true, pendingTools: [] }
+    );
+
+    expect(manifest.verdictSummary.stabilityEvidenceComplete).toBe(true);
+    expect(manifest.verdictSummary.pendingEngines).toEqual([]);
+  });
+
+  it("defaults to no pending engines when nothing is known", () => {
+    const manifest = generateProvenanceManifest(
+      "GENEX",
+      "p.Ala1Val",
+      "P00001",
+      analysisResult,
+      undefined,
+      null
+    );
+
+    expect(manifest.verdictSummary.stabilityEvidenceComplete).toBeNull();
+    expect(manifest.verdictSummary.pendingEngines).toEqual([]);
   });
 
   it("still carries the rest of the manifest", () => {
@@ -69,7 +122,7 @@ describe("generateProvenanceManifest — stability verdict", () => {
       analysisResult,
       { acmgWeighting: "standard" },
       null,
-      LIVE
+      { derivedVerdict: LIVE }
     );
 
     expect(manifest.queryCoordinate.gene).toBe("GENEX");

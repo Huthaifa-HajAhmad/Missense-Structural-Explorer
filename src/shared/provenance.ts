@@ -57,6 +57,18 @@ export interface ProvenanceManifest {
   verdictSummary: {
     acmgVerdict: string | null;
     stabilityVerdict: string | null;
+    /**
+     * False when engines were still resolving, so the verdict rests on a partial engine set.
+     *
+     * The provisionality marker used to live INSIDE `stabilityVerdict` as a
+     * " (Preliminary - pending: DynaMut2)" suffix. That suffix was removed to make the field a
+     * closed-set value — correctly, since free text in a verdict cannot be compared or typed — but
+     * nothing replaced it, so for a while the export carried an incomplete run's verdict with no
+     * caveat at all. The caveat belongs in its own fields, where it can be read.
+     */
+    stabilityEvidenceComplete: boolean | null;
+    /** Engines that had not resolved when this manifest was generated, by display name. */
+    pendingEngines: string[];
   };
 }
 
@@ -68,19 +80,23 @@ export function generateProvenanceManifest(
   settings?: { acmgWeighting?: string },
   foldingEnergetics?: EnergeticsData | null,
   /**
-   * The verdict DERIVED from the final run state, when the caller can compute one.
+   * Everything about the verdict that only the caller can know.
    *
-   * `foldingEnergetics.consensusVerdict` is a snapshot taken when the server committed the FoldX job.
-   * Remote engines keep resolving for up to ten minutes after that, and the on-screen badge
-   * recomputes as they do — so an exported report built from the stored field could state a verdict
-   * the screen contradicts. It is not a hypothetical: a run with foldx +0.5 and rasp +0.6 exports
-   * "Low Misfolding Risk (Neutral Stability)" while a ThermoMPNN result arriving later puts
-   * "High Misfolding Risk (Destabilizing Consensus)" on screen.
+   * An options object rather than more positional parameters: this started as a single
+   * `derivedStabilityVerdict` argument and immediately needed the provisionality facts too, and a
+   * nine-parameter function is a signature nobody can call correctly from memory.
    *
-   * A stored verdict is a fact about the past; a manifest is a claim about this variant. Callers that
-   * have the inputs pass the live value here, and it wins.
+   * `derivedVerdict` is the value computed from the CURRENT run state. `foldingEnergetics
+   * .consensusVerdict` is a snapshot from when the server committed the FoldX job, and remote engines
+   * keep resolving for up to ten minutes after that while the on-screen badge recomputes — so an
+   * export built from the stored field could state a verdict the screen contradicts. A stored verdict
+   * is a fact about the past; a manifest is a claim about this variant.
    */
-  derivedStabilityVerdict?: string | null
+  verdictContext?: {
+    derivedVerdict?: string | null;
+    evidenceComplete?: boolean | null;
+    pendingTools?: string[];
+  }
 ): ProvenanceManifest {
   const meta = (analysisResult as any)?.metadata || {};
   const status = (analysisResult as any)?.serviceStatus || meta?.serviceStatus || {};
@@ -110,7 +126,12 @@ export function generateProvenanceManifest(
     serviceStatuses: status,
     verdictSummary: {
       acmgVerdict: analysisResult?.ruleBasedInsights?.acmgVerdict || null,
-      stabilityVerdict: derivedStabilityVerdict ?? foldingEnergetics?.consensusVerdict ?? null
+      stabilityVerdict:
+        verdictContext?.derivedVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
+      stabilityEvidenceComplete:
+        verdictContext?.evidenceComplete ?? (foldingEnergetics as any)?.evidenceComplete ?? null,
+      pendingEngines:
+        verdictContext?.pendingTools ?? (foldingEnergetics as any)?.pendingTools ?? []
     }
   };
 }

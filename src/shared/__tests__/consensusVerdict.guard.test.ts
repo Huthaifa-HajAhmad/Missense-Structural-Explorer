@@ -130,6 +130,21 @@ describe("no surface compares the verdict to an impossible literal", () => {
     expect(files.length).toBeGreaterThan(50);
   });
 
+  /**
+   * A line is a candidate only when the identifier actually takes part in a comparison.
+   *
+   * The previous gate was a bare `line.includes("consensusVerdict")`, which is both too wide and too
+   * narrow:
+   *   • too wide — it flagged ANY quoted literal sharing a line with the identifier, so an ordinary
+   *     object literal such as `{ consensusVerdict: LIVE, pendingTools: ["DynaMut2"] }` produced
+   *     violations for two strings that are not comparisons at all. A guard that accuses correct code
+   *     is one people learn to route around.
+   *   • too narrow — a renamed local, or a `switch` whose `case` lines carry the literals, is not
+   *     seen. That hole is why the verdict is ALSO a literal union in `consensus.ts`: the type rejects
+   *     an impossible comparison at compile time, which no line scan can guarantee.
+   */
+  const COMPARISON = /===|!==|==|!=|\.includes\(|\.startsWith\(|\.endsWith\(|switch\s*\(|\bcase\s/;
+
   it("only ever compares it against a fragment of a real verdict", () => {
     const violations: string[] = [];
 
@@ -139,8 +154,8 @@ describe("no surface compares the verdict to an impossible literal", () => {
       const lines = stripComments(fs.readFileSync(file, "utf-8")).split("\n");
 
       lines.forEach((line, index) => {
-        // Only lines that both mention the verdict and quote a literal can be a comparison.
         if (!line.includes("consensusVerdict")) return;
+        if (!COMPARISON.test(line)) return;
 
         for (const literal of quotedLiterals(line)) {
           if (isConsensusVerdictFragment(literal)) continue;
