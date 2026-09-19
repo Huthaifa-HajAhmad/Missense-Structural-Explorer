@@ -413,7 +413,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
         <div className="flex items-center gap-1.5">
           <span
-            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1.5 ${
+            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-[var(--cs-radius-badge)] border flex items-center gap-1.5 ${
               !isLoaded && loading
                 ? "bg-cs-surface-2 text-cs-text-muted border-cs-border-subtle"
                 : uncoveredServices.length > 0
@@ -485,7 +485,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   svc.onAction?.();
                 }
               }}
-              className={`min-h-[46px] px-3 py-2 rounded-lg border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
+              className={`min-h-[46px] px-3 py-2 rounded-[var(--cs-radius-input)] border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
                 svc.isDown
                   ? "border-rose-500/30 bg-rose-500/5 dark:bg-rose-950/10"
                   : svc.isDegraded
@@ -509,7 +509,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       {svc.name}
                     </span>
                     {svc.tag && (
-                      <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">
+                      <span className="text-[9px] font-mono px-1 py-0.5 rounded-[var(--cs-radius-badge)] bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">
                         {svc.tag}
                       </span>
                     )}
@@ -526,13 +526,13 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
               {/* Right: Latency & Status Pill */}
               <div className="flex items-center gap-1.5 shrink-0">
                 {svc.latency && (
-                  <span className="text-[9px] font-mono text-cs-text-muted px-1.5 py-0.5 rounded bg-cs-surface-2 border border-cs-border-subtle flex items-center gap-1">
+                  <span className="text-[9px] font-mono text-cs-text-muted px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-cs-surface-2 border border-cs-border-subtle flex items-center gap-1">
                     <Clock className="w-2.5 h-2.5 opacity-60" />
                     {svc.latency}
                   </span>
                 )}
                 <span
-                  className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${statusPillClass(svc)}`}
+                  className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] border ${statusPillClass(svc)}`}
                 >
                   {svc.statusText}
                 </span>

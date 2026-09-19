@@ -36,6 +36,29 @@
   box-shadow: none;
 }
 
+/* Panel surface — outer workspace containers (e.g. Search Workspace card,
+   Accepted Inputs). 16px reads softer than --cs-radius-card at large sizes;
+   inputs/buttons stay on --cs-radius-input (8px) since a 16px radius on a
+   40px-high field collapses toward a capsule and breaks the text line-box. */
+.cs-panel {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-panel);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+/* Nested panel — sits inside a .cs-panel on --cs-surface-2 with the subtler
+   border, so the layering reads outer-strong / inner-subtle. Same 16px outer
+   radius keeps the family homogenous; padding >24px means concentric math no
+   longer applies (separate surfaces per the polish rule). */
+.cs-nested-panel {
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-panel);
+  overflow: hidden;
+}
+
 /* Card section header */
 .cs-card-header {
   font-size: 11px;

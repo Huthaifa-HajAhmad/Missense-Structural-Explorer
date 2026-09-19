@@ -40,4 +40,17 @@ describe("HeaderBar Component Tests (C-7)", () => {
     );
     expect(screen.getByText(/Unauthorized: API Key Missing/i)).toBeInTheDocument();
   });
+
+  it("should render theme toggle and settings actions in the header", () => {
+    render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={false} isSearchOpen={false} setIsSearchOpen={() => {}} />);
+    expect(screen.getByRole("button", { name: /switch to (light|dark) mode/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open settings/i })).toBeInTheDocument();
+  });
+
+  it("should reflect the dark theme state on the toggle", () => {
+    const { rerender } = render(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={false} isSearchOpen={false} setIsSearchOpen={() => {}} isDark={false} />);
+    expect(screen.getByRole("button", { name: /switch to dark mode/i })).toBeInTheDocument();
+    rerender(<HeaderBar masterView="evidence" isBiophysicalLoading={false} isOffline={false} isSearchOpen={false} setIsSearchOpen={() => {}} isDark={true} />);
+    expect(screen.getByRole("button", { name: /switch to light mode/i })).toBeInTheDocument();
+  });
 });

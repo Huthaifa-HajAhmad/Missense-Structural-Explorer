@@ -39,6 +39,10 @@
   --cs-plddt-vlow:    #FF7D45;   /* <50 — orange */
 
   --cs-radius-card:   12px;
+  /* Panel radius (16px) — outer + nested workspace panels only (e.g. Search
+     Workspace card, Accepted Inputs). Inputs/buttons stay on --cs-radius-input:
+     a 16px radius on a 40px-high field collapses toward a capsule. */
+  --cs-radius-panel:  16px;
   --cs-radius-input:  8px;
   --cs-radius-badge:  6px;
   --cs-radius-pill:   999px;

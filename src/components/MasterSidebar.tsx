@@ -2,7 +2,6 @@ import React, { useRef, useCallback } from "react";
 import {
   Dna, BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
-  Settings, Sun, Moon,
   PanelLeftClose, PanelLeftOpen,
   CheckCircle2, Circle, BookOpen,
 } from "lucide-react";
@@ -26,9 +25,6 @@ export type MasterView =
 interface MasterSidebarProps {
   activeView: MasterView;
   onViewChange: (view: MasterView) => void;
-  isDark: boolean;
-  toggleTheme: () => void;
-  onOpenSettings: () => void;
   sidebarWidth: number;
   setSidebarWidth: (w: number) => void;
   isCollapsed: boolean;
@@ -158,9 +154,6 @@ function StepIcon({ status }: { status: WorkflowStatusType }) {
 function MasterSidebar({
   activeView,
   onViewChange,
-  isDark,
-  toggleTheme,
-  onOpenSettings,
   sidebarWidth,
   setSidebarWidth,
   isCollapsed,
@@ -323,9 +316,7 @@ function MasterSidebar({
                       padding: isCollapsed ? "9px 0" : "8px 10px",
                       justifyContent: isCollapsed ? "center" : "flex-start",
                       background: isActive
-                        ? isDark
-                          ? "rgba(196,104,73,0.13)"
-                          : "rgba(196,104,73,0.08)"
+                        ? "rgba(196,104,73,0.08)"
                         : "transparent",
                       border: isActive
                         ? "1px solid rgba(196,104,73,0.22)"
@@ -572,66 +563,6 @@ function MasterSidebar({
           </div>
         ))}
       </nav>
-
-      {/* ── Footer actions ── */}
-      <div
-        className="flex flex-col flex-shrink-0"
-        style={{
-          borderTop: "1px solid var(--cs-border)",
-          padding: "6px",
-          gap: 2,
-        }}
-      >
-        {/* Settings */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="flex items-center gap-2.5 rounded-lg cursor-pointer w-full transition-all duration-150 active:scale-[0.98]"
-          style={{
-            padding: isCollapsed ? "8px 0" : "7px 10px",
-            justifyContent: isCollapsed ? "center" : "flex-start",
-            color: "var(--cs-text-muted)",
-            background: "transparent",
-            border: "1px solid transparent",
-          }}
-          title="Settings"
-          aria-label="Open settings"
-        >
-          <Settings className="w-4 h-4 flex-shrink-0" />
-          {!isCollapsed && (
-            <span style={{ fontSize: 13, fontWeight: 400, color: "var(--cs-text-muted)" }}>
-              Settings
-            </span>
-          )}
-        </button>
-
-        {/* Theme toggle */}
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="flex items-center gap-2.5 rounded-lg cursor-pointer w-full transition-all duration-150 active:scale-[0.98]"
-          style={{
-            padding: isCollapsed ? "8px 0" : "7px 10px",
-            justifyContent: isCollapsed ? "center" : "flex-start",
-            color: "var(--cs-text-muted)",
-            background: "transparent",
-            border: "1px solid transparent",
-          }}
-          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-        >
-          {isDark ? (
-            <Sun className="w-4 h-4 flex-shrink-0" />
-          ) : (
-            <Moon className="w-4 h-4 flex-shrink-0" />
-          )}
-          {!isCollapsed && (
-            <span style={{ fontSize: 13, fontWeight: 400, color: "var(--cs-text-muted)" }}>
-              {isDark ? "Light mode" : "Dark mode"}
-            </span>
-          )}
-        </button>
-      </div>
 
       {/* ── Resize drag handle ── */}
       {!isCollapsed && (

@@ -218,7 +218,7 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
  * header means the badge drops to its own line rather than being clipped.
  */
 const RAIL_BADGE_BASE =
-  "flex items-center gap-1.5 text-[10.5px] font-semibold px-2 py-0.5 rounded border shrink-0 whitespace-nowrap";
+  "flex items-center gap-1.5 text-[10.5px] font-semibold px-2 py-0.5 rounded-[var(--cs-radius-badge)] border shrink-0 whitespace-nowrap";
 
 /**
  * One segment of the rail switcher. Both segments are rendered from this so the
@@ -246,7 +246,7 @@ const RailTab: React.FC<{
     aria-controls={active ? `panel-${id}` : undefined}
     tabIndex={tabIndex}
     onClick={onSelect}
-    className={`px-3 py-1.5 rounded-md text-[12px] flex items-center gap-1.5 cursor-pointer border active:scale-[0.96] transition-[background-color,border-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
+    className={`px-3 py-1.5 rounded-[var(--cs-radius-input)] text-[12px] flex items-center gap-1.5 cursor-pointer border active:scale-[0.96] transition-[background-color,border-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
       active
         ? "bg-[var(--cs-surface)] text-[var(--cs-accent-clay)] font-semibold border-[var(--cs-accent-clay)]/40 shadow-xs ring-1 ring-[var(--cs-accent-clay)]/20"
         : "text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-surface)]/60 font-medium border-transparent"
@@ -544,15 +544,15 @@ function VariantSearchPanel({
         </div>
       </div>
 
-      {/* ── Main Workspace Card (Flat 1px Hairline Border, No Elevation Shadow) ── */}
-      <div 
-        className="rounded-xl border border-[var(--cs-border)] bg-[var(--cs-surface)] shadow-none overflow-hidden"
+      {/* ── Main Workspace Card (outer panel — 16px, matches Accepted Inputs) ── */}
+      <div
+        className="cs-panel"
       >
         <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--cs-border-subtle)]">
           {/* ── LEFT COLUMN: Search Variant Form (col-span-7) ── */}
           <div className="lg:col-span-7 p-6 lg:p-7 flex flex-col">
             <div>
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-[var(--cs-border-subtle)]">
                 <h2 className="text-[14px] font-semibold flex items-center gap-2" style={{ color: "var(--cs-text-primary)" }}>
                   <Search className="w-4 h-4 text-[var(--cs-accent-clay)]" />
                   Search Variant
@@ -691,8 +691,8 @@ function VariantSearchPanel({
                   </div>
                 </div>
 
-                {/* AI Focus Area / Custom Instructions (Collapsible) */}
-                <div className="border border-[var(--cs-border)] rounded-lg overflow-hidden bg-[var(--cs-surface-2)] transition-[border-color]">
+                {/* AI Focus Area / Custom Instructions (Collapsible — nested panel, 16px like Accepted Inputs) */}
+                <div className="cs-nested-panel transition-[border-color]">
                   <details className="group">
                     <summary className="flex justify-between items-center gap-2 px-3.5 py-2.5 text-xs font-medium select-none cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>
                       <span className="flex items-center gap-2">
@@ -713,7 +713,7 @@ function VariantSearchPanel({
                       </span>
                     </summary>
                     <div className="p-3.5 border-t border-[var(--cs-border-subtle)] space-y-2.5">
-                      <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] leading-relaxed flex gap-2">
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] leading-relaxed flex gap-2">
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                         <span style={{ color: "var(--cs-text-secondary)" }}>
                           <strong>Privacy Notice:</strong> Filtered workspace. Do not submit patient PII (names, MRNs, dates of birth).
@@ -729,7 +729,7 @@ function VariantSearchPanel({
                           setUserDirections(text);
                         }}
                         maxLength={2000}
-                        className="w-full h-20 rounded-md border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)] select-text transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
+                        className="w-full h-20 rounded-lg border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)] select-text transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
                         style={{ color: "var(--cs-text-primary)" }}
                       />
                       <div className="flex justify-between items-center text-[10px]" style={{ color: "var(--cs-text-muted)" }}>
@@ -747,7 +747,7 @@ function VariantSearchPanel({
                       type="button"
                       onClick={() => openSettingsTab("api")}
                       aria-label="API Key Required — Open Settings"
-                      className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[13.5px] font-semibold transition-[background-color,scale] duration-150 ease-out cursor-pointer shadow-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
+                      className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13.5px] font-semibold transition-[background-color,scale] duration-150 ease-out cursor-pointer shadow-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
                     >
                       <KeyRound className="w-4 h-4 text-amber-500" />
                       <span>API Key Required · Configure to Analyze</span>
@@ -762,7 +762,7 @@ function VariantSearchPanel({
                     type="submit"
                     disabled={isPipelineActive}
                     aria-label="Analyze Variant"
-                    className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-[background-color,filter,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 disabled:hover:brightness-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)]"
+                    className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[14px] font-semibold text-white transition-[background-color,filter,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 disabled:hover:brightness-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)]"
                     style={{ background: "var(--cs-accent-clay)" }}
                   >
                     {isPipelineActive ? (
@@ -797,7 +797,7 @@ function VariantSearchPanel({
                 in meaning — the Variant field accepts both protein and cDNA — and grouping
                 the examples by destination field is what makes that split self-evident.
               */}
-              <div className="mt-4 rounded-2xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] overflow-hidden">
+              <div className="cs-nested-panel mt-4">
                 <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-[var(--cs-border-subtle)]">
                   <span className="flex items-center gap-2 text-[11.5px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
                     <HelpCircle className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
@@ -867,7 +867,7 @@ function VariantSearchPanel({
                             type="button"
                             onClick={() => handleSelectHistoryItem(item)}
                             aria-pressed={isActive}
-                            className={`px-2.5 py-1 rounded-md text-[11px] cursor-pointer flex items-center gap-1.5 border shadow-xs transition-[background-color,border-color,scale] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)] ${
+                            className={`px-2.5 py-1 rounded-lg text-[11px] cursor-pointer flex items-center gap-1.5 border shadow-xs transition-[background-color,border-color,scale] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)] ${
                               isActive
                                 ? "border-[var(--cs-accent-clay)] bg-[var(--cs-accent-mag-soft)]"
                                 : "border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-surface-2)]"
@@ -888,7 +888,7 @@ function VariantSearchPanel({
                   </div>
                 ) : (
                   /* Zero-History Empty State Placeholder */
-                  <div className="p-4 rounded-xl border border-dashed border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)]/40 flex flex-col items-center justify-center text-center gap-2 select-none">
+                  <div className="cs-nested-panel border-dashed p-4 flex flex-col items-center justify-center text-center gap-2 select-none" style={{ background: "color-mix(in srgb, var(--cs-surface-2) 40%, transparent)" }}>
                     <div className="w-8 h-8 rounded-full bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] flex items-center justify-center text-[var(--cs-accent-clay)] shadow-xs">
                       <History className="w-4 h-4" />
                     </div>
@@ -900,7 +900,7 @@ function VariantSearchPanel({
                         Analyzed variants in this session will appear here for instant 1-click re-querying and review.
                       </p>
                     </div>
-                    <div className="pt-0.5 flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
+                    <div className="pt-0.5 flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
                       <span>💡 Paste HGVS, cDNA, or genomic coordinates to start</span>
                     </div>
                   </div>
@@ -932,7 +932,7 @@ function VariantSearchPanel({
                   role="tablist"
                   aria-label="Analysis sidebar view switcher"
                   onKeyDown={handleRailKeyDown}
-                  className="flex items-center gap-1 p-1 rounded-[10px] bg-[var(--cs-bg-subtle)] border border-[var(--cs-border)] shadow-xs min-w-0"
+                  className="flex items-center gap-1 p-1 rounded-xl bg-[var(--cs-bg-subtle)] border border-[var(--cs-border)] shadow-xs min-w-0"
                 >
                   <RailTab
                     id="telemetry"
@@ -1040,7 +1040,7 @@ function VariantSearchPanel({
                               onViewChange?.(targetView);
                             }
                           }}
-                          className={`min-h-[46px] px-3 py-2 rounded-lg border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
+                          className={`min-h-[46px] px-3 py-2 rounded-[var(--cs-radius-input)] border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
                             isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]" : ""
                           } ${
                             isDone
@@ -1080,7 +1080,7 @@ function VariantSearchPanel({
 
                           {/* Right Action / Status Badge */}
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+                            <span className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] border ${
                               isDone
                                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                                 : isRunning
@@ -1103,8 +1103,8 @@ function VariantSearchPanel({
                     })}
                   </div>
 
-                  {/* Pipeline Live Status Footer */}
-                  <div className="p-3 px-3.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] text-[11.5px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)" }}>
+                  {/* ── Right-column status footer — nested-panel rhythm, 16px like Accepted Inputs */}
+                  <div className="cs-nested-panel p-3 px-3.5 text-[11.5px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)" }}>
                     <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
                     <span className="truncate">
                       {isPipelineActive

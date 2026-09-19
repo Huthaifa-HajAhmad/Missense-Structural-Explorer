@@ -1,6 +1,6 @@
 import React from "react";
 import { MasterView } from "./MasterSidebar";
-import { Search, AlertTriangle, KeyRound, X, ChevronRight, Settings } from "lucide-react";
+import { Search, AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon } from "lucide-react";
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 
 interface HeaderBarProps {
@@ -11,6 +11,10 @@ interface HeaderBarProps {
   setIsSearchOpen: (open: boolean) => void;
   error?: string | null;
   onDismissError?: () => void;
+  /** Optional overrides — when omitted the bar reads SettingsContext directly. */
+  isDark?: boolean;
+  onToggleTheme?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export function HeaderBar({
@@ -20,15 +24,24 @@ export function HeaderBar({
   isSearchOpen,
   setIsSearchOpen,
   error,
-  onDismissError
+  onDismissError,
+  isDark: isDarkProp,
+  onToggleTheme,
+  onOpenSettings
 }: HeaderBarProps) {
   let hasConfiguredGeminiKey = true;
   let openSettingsTab = (_tab?: SettingsTabId | LegacySettingsTabId) => {};
+  let isDark = isDarkProp ?? false;
+  let toggleTheme = onToggleTheme ?? (() => {});
 
   try {
     const settings = useSettings();
     hasConfiguredGeminiKey = settings.hasConfiguredGeminiKey;
     openSettingsTab = settings.openSettingsTab;
+    // Props win when provided (e.g. isolated tests); context is the live source otherwise.
+    if (isDarkProp === undefined) isDark = settings.isDark;
+    if (onToggleTheme === undefined) toggleTheme = settings.toggleTheme;
+    if (onOpenSettings === undefined) onOpenSettings = () => settings.setIsSettingsOpen(true);
   } catch {
     // Gracefully handle rendering when outside of SettingsProvider (e.g. isolated test environments)
   }
@@ -135,11 +148,14 @@ export function HeaderBar({
         )}
       </div>
 
-      {/* Right-side system status */}
-      <div className="ml-auto flex items-center gap-2 shrink-0">
+      {/* Right-side system status + global chrome actions.
+          Icon buttons mirror the rail icon-button rhythm (`rounded-[var(--cs-radius-input)]`,
+          same muted → primary hover, same 0.96 press) so the header reads as one family
+          with the workspace rather than a separate chrome language. */}
+      <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {isBiophysicalLoading && (
           <span
-            className="text-[10px] font-mono px-2 py-0.5 rounded border flex items-center gap-1.5"
+            className="text-[10px] font-mono px-2 py-0.5 rounded border flex items-center gap-1.5 mr-1"
             style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}
           >
             <span className="cs-spinner cs-spinner-sm" />
@@ -148,12 +164,32 @@ export function HeaderBar({
         )}
         {isOffline && (
           <span
-            className="text-[10px] font-mono font-medium shrink-0"
+            className="text-[10px] font-mono font-medium shrink-0 mr-1"
             style={{ color: "var(--cs-warn)" }}
           >
             OFFLINE
           </span>
         )}
+        {/* Divider before chrome actions */}
+        <div style={{ width: 1, height: 16, background: "var(--cs-border)", flexShrink: 0 }} />
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="p-1.5 rounded-lg border border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer flex items-center justify-center active:scale-[0.96]"
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenSettings?.()}
+          className="p-1.5 rounded-lg border border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer flex items-center justify-center active:scale-[0.96]"
+          title="Settings"
+          aria-label="Open settings"
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
       </div>
     </header>
   );

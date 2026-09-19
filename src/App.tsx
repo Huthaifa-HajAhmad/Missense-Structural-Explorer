@@ -95,9 +95,6 @@ export default function App() {
         <MasterSidebar
           activeView={masterView}
           onViewChange={setMasterView}
-          isDark={isDark}
-          toggleTheme={toggleTheme}
-          onOpenSettings={() => setIsSettingsOpen(true)}
           sidebarWidth={sidebarWidth}
           setSidebarWidth={setSidebarWidth}
           isCollapsed={isSidebarCollapsed}
@@ -120,7 +117,7 @@ export default function App() {
         {/* ── App Main Viewport ── */}
         <div className="app-main flex flex-col flex-1 relative overflow-hidden">
 
-          {/* ── Slim Header Bar with integrated alerts ── */}
+          {/* ── Slim Header Bar with integrated alerts + global chrome actions ── */}
           <HeaderBar
             masterView={masterView}
             isBiophysicalLoading={isBiophysicalLoading}
@@ -129,6 +126,9 @@ export default function App() {
             setIsSearchOpen={setIsSearchOpen}
             error={analysisState.error}
             onDismissError={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
+            isDark={isDark}
+            onToggleTheme={toggleTheme}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
 
           {/* ── Quick Search Dropdown ── */}
