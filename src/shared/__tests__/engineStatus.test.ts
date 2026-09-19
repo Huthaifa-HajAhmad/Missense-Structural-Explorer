@@ -580,3 +580,45 @@ describe("engineStatus — review regressions", () => {
     });
   });
 });
+
+/**
+ * The exclusion, stated on the outcome rather than inferred by each renderer.
+ *
+ * Plan item 6. `EngineOutcome.excluded` was asserted by no test, and neither was its absence: a
+ * review demonstrated that mutating the returned object to `excluded: false` passed every test — the
+ * "Not counted" badge, the muted dot and the attention filter could all silently vanish — and that
+ * dropping `&& excluded` from the reason gate passed all three FoldX-copy tests while rendering
+ * "excluded from the consensus" for a value that IS counted, a row contradicting itself.
+ */
+describe("engineStatus — the exclusion is stated, not inferred", () => {
+  it("marks an excluded value, and does not mark a counted one", () => {
+    const excluded = resolveEngineOutcome({ id: "foldx", value: 2.0, problem: "repair-failed" });
+    expect(excluded.excluded).toBe(true);
+    expect(excluded.contributesToConsensus).toBe(false);
+    expect(excluded.risk).toBeNull();
+
+    const counted = resolveEngineOutcome({ id: "foldx", value: 2.0 });
+    expect(counted.excluded).toBe(false);
+    expect(counted.contributesToConsensus).toBe(true);
+    expect(counted.risk).not.toBeNull();
+  });
+
+  it("does NOT describe a counted value as excluded", () => {
+    // The negative. Without it, the gate could lose `&& excluded` and every existing test would still
+    // pass while the row asserted an exclusion that did not happen.
+    const counted = resolveEngineOutcome({ id: "foldx", value: 2.0 });
+    expect(counted.reason).not.toContain("excluded from the consensus");
+    expect(counted.reason).not.toContain("reference only");
+  });
+
+  it("states the exclusion through the builder for every excluding cause", () => {
+    for (const facts of [
+      { foldxMean: 2.0, foldxRepairFailed: true },
+      { foldxMean: 2.0, foldxBinaryMissing: true },
+    ]) {
+      const outcome = buildEngineOutcomes(facts).find(o => o.id === "foldx")!;
+      expect(outcome.excluded, JSON.stringify(facts)).toBe(true);
+      expect(outcome.reason).toContain("excluded from the consensus");
+    }
+  });
+});

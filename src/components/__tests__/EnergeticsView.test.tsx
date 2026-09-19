@@ -253,4 +253,13 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(text).toContain("2.00 kcal/mol");
     expect(text).not.toContain("± 0.00");
   });
+
+  it("puts the Type and Risk headers over their own columns", () => {
+    // 36aecc4 changed the body cells to w-[30%]/w-[20%] while the header still declared
+    // w-[35%]/w-[15%], so the labels no longer sat over their columns. That commit touched no test
+    // file, so any width mutation passed the whole suite.
+    renderView();
+    expect(screen.getByRole("columnheader", { name: "Type" }).className).toContain("w-[30%]");
+    expect(screen.getByRole("columnheader", { name: "Risk" }).className).toContain("w-[20%]");
+  });
 });
