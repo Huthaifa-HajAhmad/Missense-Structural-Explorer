@@ -8,7 +8,7 @@ import {
   runRaspLocal,
   RASP_STORE_UNAVAILABLE_REASON,
 } from "./energy-models.ts";
-import { buildRaspSqliteDatabase } from "../../../scripts/build-rasp-sqlite.ts";
+import { buildRaspSqliteDatabase } from "./build-rasp-sqlite.ts";
 
 describe("RaSP SQLite Database & Lookups Unit Tests", () => {
   // These resolve to the OS temp directory under test (setup.ts sets RASP_CSV_PATH /

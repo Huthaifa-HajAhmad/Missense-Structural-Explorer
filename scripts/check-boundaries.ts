@@ -6,7 +6,7 @@ export interface BoundaryViolation {
   file: string;
   line: number;
   importPath: string;
-  rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT" | "CLIENT_CANNOT_IMPORT_SERVER" | "SHARED_CANNOT_IMPORT_OUTSIDE";
+  rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT" | "CLIENT_CANNOT_IMPORT_SERVER" | "SHARED_CANNOT_IMPORT_OUTSIDE" | "SERVER_CANNOT_IMPORT_SCRIPTS";
   message: string;
 }
 
@@ -86,6 +86,9 @@ export function checkBoundaries(rootDir: string = process.cwd(), customFiles?: M
   const srcDir = path.resolve(rootDir, "src");
   const sharedDir = path.resolve(rootDir, "src", "shared");
   const rootServerFile = path.resolve(rootDir, "server.ts");
+  const scriptsDir = path.resolve(rootDir, "scripts");
+  /** A TEST file: not in the server bundle, so its imports are not a runtime dependency. */
+  const isTestFile = (p: string) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) || /[\\/](__tests__|tests?)[\\/]/.test(p);
 
   let serverFiles: string[];
   let srcFiles: string[];
@@ -117,6 +120,29 @@ export function checkBoundaries(rootDir: string = process.cwd(), customFiles?: M
           importPath: specifier,
           rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT",
           message: `Server file imports from client outside of src/shared: "${specifier}". Move shared primitives to src/shared/.`
+        });
+      }
+
+      /**
+       * Rule 1b: the server may not depend on `scripts/`, which is tooling.
+       *
+       * This is the rule that was MISSING. The check above only fires for targets inside `src/`, so
+       * `energy-models.ts` importing `scripts/build-rasp-sqlite.ts` was a live server→tooling edge that
+       * the checker reported clean — an invisible violation of the documented rule, which is worse than
+       * a noisy one. That import has since moved into the server; this keeps the next one visible.
+       *
+       * `scripts/` itself stays unscanned on purpose: a script importing `server/` or `src/` is
+       * legitimate tooling use, and the CLI wrapper for this very builder does exactly that. TEST files
+       * are exempt too � `server/tests/architectural-boundaries.test.ts` imports this checker, which is
+       * a test exercising tooling, not a runtime dependency of the server.
+       */
+      if (isInsideDir(resolved, scriptsDir) && !isTestFile(filePath)) {
+        violations.push({
+          file: path.relative(rootDir, filePath).replace(/\\/g, "/"),
+          line,
+          importPath: specifier,
+          rule: "SERVER_CANNOT_IMPORT_SCRIPTS",
+          message: `Server file imports from scripts/, which is tooling: "${specifier}". Move the implementation into server/ and leave a thin CLI wrapper in scripts/.`
         });
       }
     }

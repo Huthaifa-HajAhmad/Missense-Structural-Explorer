@@ -344,7 +344,7 @@ async function downloadRaspDatabase(csvPath: string): Promise<void> {
 export async function initializeRaspDatabase(): Promise<void> {
   if (getRaspSqliteDb()) return;
 
-  const { buildRaspSqliteDatabase } = await import("../../../scripts/build-rasp-sqlite.ts");
+  const { buildRaspSqliteDatabase } = await import("./build-rasp-sqlite.ts");
 
   if (fs.existsSync(RASP_CSV_PATH)) {
     // Reached both when no index exists AND when one exists but failed verification (truncated,

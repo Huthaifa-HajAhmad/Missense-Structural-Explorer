@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   buildRaspSqliteDatabase,
   RASP_INDEX_SCHEMA_VERSION,
-} from "../build-rasp-sqlite.ts";
+} from "../../server/services/stability/build-rasp-sqlite.ts";
 import { verifyRaspIndex, type RaspIndexMeta } from "../../src/shared/raspIndex.ts";
 
 /**
