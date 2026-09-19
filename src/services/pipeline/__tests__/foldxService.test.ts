@@ -339,6 +339,86 @@ describe("foldxService", () => {
     expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
   });
 
+  it("does not settle an engine whose job id the variant ALREADY had", async () => {
+    /**
+     * Item 5 of the plan. The store can hold a live poller's id from a restored bundle while this
+     * run's POST omits it — the 1.5 s submission race the settle's own comment describes. Settling
+     * would write a terminal status, and `useJobPoller` is gated on `status === "pending"`, so it
+     * would tear the LIVE poller down and discard the result it was about to deliver.
+     */
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "queued",
+        foldxJobId: null,
+        dynamut2Status: "pending",
+        dynamut2JobId: null,
+        ddmutStatus: "pending",
+        ddmutJobId: null,
+      }),
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      initialRemoteState: {
+        dynamut2Status: "pending",
+        dynamut2JobId: "dyn-live-9",
+        ddmutStatus: "pending",
+        ddmutJobId: null,
+      },
+    });
+
+    // The engine with a live id is left to its poller...
+    expect(sink.setDynamut2Status).not.toHaveBeenCalledWith(null);
+    // ...the one without is settled, because nothing can ever resolve it.
+    expect(sink.setDdmutStatus).toHaveBeenCalledWith(null);
+  });
+
+  it("settles engines the variant already had pending, even on an exit that throws before the POST returns", async () => {
+    /**
+     * Item 4 of the plan. A non-ok response throws before the POST's statuses can be captured, so
+     * without the seeded state the catch settled an empty object and the engines stayed `pending`
+     * with no poller — the original stuck-"Running" defect, still live on this path.
+     */
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: "bad gateway" }),
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      initialRemoteState: {
+        dynamut2Status: "pending",
+        dynamut2JobId: null,
+        thermompnnStatus: "pending",
+        thermompnnJobId: null,
+      },
+    });
+
+    expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
+  });
+
   it("settles pending engines when the queued job fails before they resolve", async () => {
     const mockFetchWithAuth = vi.fn().mockImplementation(async (url: string) => {
       if (url === "/api/v1/generate-mutant") {

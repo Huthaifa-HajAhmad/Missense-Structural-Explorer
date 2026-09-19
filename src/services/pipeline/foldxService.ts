@@ -23,6 +23,27 @@ export interface FoldxExecutionOptions {
   signal: AbortSignal;
   requestId: number;
   getActiveRequestId: () => number;
+  /**
+   * The remote-engine state this variant ALREADY has, as restored from its cached bundle.
+   *
+   * The settle at the end of a failed run used to reason from the run's own belief alone, which is
+   * empty until the POST returns — so (a) an exit that throws before that, such as a non-ok response
+   * or a stalled body, settled nothing and left the engines `pending` with no poller, the original
+   * stuck-"Running" defect; and (b) it could not see a job id the STORE was holding from a previous
+   * attempt, so it marked an engine unavailable that `useJobPoller` was at that moment polling —
+   * tearing the live poller down and discarding the result it was about to deliver.
+   *
+   * Supplied only where it is unambiguously this variant's state (the backfill dispatch, which has the
+   * restored bundle in hand). A fresh run passes nothing, which is correct: nothing is pending yet.
+   */
+  initialRemoteState?: {
+    dynamut2Status?: string | null;
+    dynamut2JobId?: string | null;
+    ddmutStatus?: string | null;
+    ddmutJobId?: string | null;
+    thermompnnStatus?: string | null;
+    thermompnnJobId?: string | null;
+  };
 }
 
 export async function executeFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
@@ -53,16 +74,8 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
   sink.setFoldingStatus(null);
 
   /**
-   * The latest remote-engine state seen, so the ERROR exits can settle what the run leaves behind.
-   *
-   * `settleUnreachableRemoteEngines` used to run only on the three terminal commits. Every throw
-   * exit — the missing/queued job id, the queue and execution budget throws, and both
-   * three-strikes poll failures — left remote engines at "pending" with a null job id. The POST
-   * seeds exactly that state while the submission race is still in flight, so the store then
-   * asserted "pending" for engines with no poller (useJobPoller refuses to start without a job id)
-   * and the UI read "Calculation in progress" with no route to a result.
-   *
-   * Declared outside the `try` because a `const` bound inside it is not in scope in the `catch`.
+   * The latest remote-engine state seen — seeded with what this variant ALREADY had, so the error
+   * exits can settle from the store's view rather than only from this run's.
    */
   let lastRemoteState: {
     dynamut2Status?: string | null;
@@ -71,7 +84,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     ddmutJobId?: string | null;
     thermompnnStatus?: string | null;
     thermompnnJobId?: string | null;
-  } = {};
+  } = { ...(options.initialRemoteState ?? {}) };
 
   /**
    * Settles remote engines that reported "pending" with no job id.
@@ -173,13 +186,16 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
     // Remember what the run has told us, so a later error exit can settle the engines it left
     // "pending" without a job id. Engines WITH a live id are left alone by the helper.
+    //
+    // MERGED, not replaced: a POST that omits an id must not erase one this variant already had, or
+    // the settle would mark an engine unavailable while its poller is live.
     lastRemoteState = {
-      dynamut2Status: data.dynamut2Status ?? null,
-      dynamut2JobId: data.dynamut2JobId ?? null,
-      ddmutStatus: data.ddmutStatus ?? null,
-      ddmutJobId: data.ddmutJobId ?? null,
-      thermompnnStatus: data.thermompnnStatus ?? null,
-      thermompnnJobId: data.thermompnnJobId ?? null,
+      dynamut2Status: data.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
+      dynamut2JobId: data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
+      ddmutStatus: data.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
+      ddmutJobId: data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
+      thermompnnStatus: data.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
+      thermompnnJobId: data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
     };
 
     // Helper to update energetics with structure provenance

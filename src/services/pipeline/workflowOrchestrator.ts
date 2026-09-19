@@ -307,7 +307,18 @@ export async function executeFullAnalysisWorkflow({
             sink: biophysicalSink,
             signal: activeSignal,
             requestId,
-            getActiveRequestId
+            getActiveRequestId,
+            // This variant's own restored state, so a failure settles against what the STORE holds
+            // rather than only against what this run has seen so far. Without it an engine the store
+            // is already polling for can be marked unavailable, which tears that poller down.
+            initialRemoteState: {
+              dynamut2Status: cached.dynamut2Status ?? null,
+              dynamut2JobId: cached.dynamut2JobId ?? null,
+              ddmutStatus: cached.ddmutStatus ?? null,
+              ddmutJobId: cached.ddmutJobId ?? null,
+              thermompnnStatus: cached.thermompnnStatus ?? null,
+              thermompnnJobId: cached.thermompnnJobId ?? null
+            }
           }).catch(err => {
             // This path has no watchdog and no caller awaiting it, so a failure must be reported
             // here or the user is left with a spinner that never resolves and no explanation.
