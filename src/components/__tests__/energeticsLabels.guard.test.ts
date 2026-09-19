@@ -6,6 +6,7 @@ import {
   ENGINE_STATE_LABELS,
   LEGACY_ENGINE_LABELS,
   findLegacyLabels,
+  stripCommentsForScan,
 } from "../../shared/engineStatus.ts";
 import { METRIC_EXPLANATIONS } from "../evidence/MetricExplanations.ts";
 
@@ -40,27 +41,69 @@ const CANONICAL_MODULE = "shared/engineStatus";
 /**
  * Removes comments while preserving line numbers.
  *
- * The rules below are about *code*: a surface may not declare its own status vocabulary. Prose is
- * not a violation — and these files document the vocabulary they removed, so scanning raw text made
- * the guard fail on its own documentation. That happened four times across this work (a watchdog
- * comment, a "Preliminary" suffix comment, a "Computed" label comment), always in the direction of a
- * false accusation, which is how a guard teaches people to route around it.
+ * Uses the scanner's OWN string-aware stripper rather than a local regex. The local regex this
+ * replaced (`/\/\/.*$/gm`) truncated a line at the first `//` anywhere — including inside a URL
+ * string literal — so the guard became blind to any label sharing a line with a link. Sharing the
+ * implementation also means the guard and the scanner it calls can never disagree about what a
+ * comment is.
  */
-function stripComments(source: string): string {
-  const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, match =>
-    "\n".repeat(match.split("\n").length - 1)
-  );
-  // Line comments, but not the `//` inside a string like "https://…".
-  return withoutBlock.replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
-}
-
 function readSurface(relativePath: string): string {
   const absolute = path.join(REPO_ROOT, relativePath);
   expect(fs.existsSync(absolute), `${relativePath} should exist`).toBe(true);
-  return stripComments(fs.readFileSync(absolute, "utf-8"));
+  return stripCommentsForScan(fs.readFileSync(absolute, "utf-8"));
 }
 
 describe("Energetics label guardrail", () => {
+  /**
+   * The scanner's own anti-blindness pin, written as a permanent mutation test.
+   *
+   * A source scanner can fail in two directions, and they are not equally bad. Over-reporting
+   * produces noise a developer routes around — visible. Under-reporting produces silence that looks
+   * exactly like compliance. This guard previously under-reported: its comment stripper truncated a
+   * line at the first `//` anywhere, so a legacy label on any line containing a URL was invisible.
+   * Injecting "Not in Zenodo DB" onto EnergeticsView.tsx's `paperUrl: "https://doi.org/…"` line
+   * yielded zero hits; the same literal one line lower yielded one.
+   *
+   * These three assertions walk the scanner across that exact shape. If someone reintroduces a
+   * regex-based stripper, the first fails.
+   */
+  describe("the scanner is string-aware, not regex-based", () => {
+    it("sees a legacy label that FOLLOWS a URL on the same line", () => {
+      // ORDER IS THE WHOLE POINT, and getting it wrong makes this test worthless.
+      //
+      // A `//`-based stripper truncates the line at the first `//`. If the label sits BEFORE the
+      // URL, truncation leaves the label intact and the test passes even with the broken stripper —
+      // which is exactly how the first version of this test was written, and how the mutation check
+      // caught it. The label must come AFTER the `//` for this to discriminate.
+      const source = `const x = { href: "https://doi.org/10.1093/nar/gki387", label: "Not in Zenodo DB" };`;
+      expect(findLegacyLabels(source).map(h => h.label)).toEqual(["Not in Zenodo DB"]);
+    });
+
+    it("sees a label between an unclosed-looking /* and a later */ inside strings", () => {
+      // The old block-comment regex ran before the string-aware pass, so a `/*` inside one string
+      // and a `*/` inside a later string made it swallow everything between them — including a real
+      // label on the line in the middle.
+      const source = [
+        `const note = "a /* b";`,
+        `const y = "Standby";`,
+        `const z = "c */ d";`,
+      ].join("\n");
+      expect(findLegacyLabels(source).map(h => h.label)).toEqual(["Standby"]);
+    });
+
+    it("still ignores a real comment that documents the migration", () => {
+      // The reason stripping exists at all: prose describing the old vocabulary is not a violation.
+      expect(findLegacyLabels(`// this used to render "Not in Zenodo DB"`)).toEqual([]);
+      expect(findLegacyLabels(`/* was "Upstream Congested", now a canonical state */`)).toEqual([]);
+      expect(findLegacyLabels(`/**\n * "Standby" implied waiting; it is gone.\n */`)).toEqual([]);
+    });
+
+    it("keeps line numbers usable after stripping", () => {
+      const source = `line one\n/* two\nthree */\nconst x = "Standby";`;
+      expect(findLegacyLabels(source)).toEqual([{ label: "Standby", line: 4 }]);
+    });
+  });
+
   it("declares a non-trivial legacy label list to scan for", () => {
     // Guards against the scanner silently becoming a no-op.
     expect(LEGACY_ENGINE_LABELS.length).toBeGreaterThan(10);

@@ -18,7 +18,10 @@
  * The rules that follow from that:
  *
  *   • NO surface may invent a status string. Call `resolveEngineState()` and render what it
- *     returns. `engineStatus.guard.test.ts` fails the build if a legacy literal reappears.
+ *     returns. `src/components/__tests__/energeticsLabels.guard.test.ts` fails the build if a legacy
+ *     literal reappears in a guarded surface; `src/shared/__tests__/consensusVerdict.guard.test.ts`
+ *     does the same for verdict literals. (This comment previously named an
+ *     `engineStatus.guard.test.ts` that has never existed — a trap for anyone who went looking.)
  *   • NO surface may format a ΔΔG itself. Call `formatDdg()` / `toCanonicalDdg()`. Positive
  *     canonical ΔΔG ALWAYS means destabilizing, whatever the provider's native convention is.
  *   • NO surface may count engines itself. Call `summarizeCoverage()`.
@@ -571,19 +574,32 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
       obs.problem === "repair-failed" ||
       obs.problem === "binary-missing");
   /**
-   * FoldX's two structural failures get their own copy.
+   * FoldX's two structural failures get their own copy, and it is COMPOSED with the exclusion note
+   * rather than replaced by it.
    *
-   * The generic state reasons are useless here: "Not available in this deployment" gives an operator
-   * nothing to act on when the real cause is a missing binary, and the repair-failed case used to be
-   * unreachable whenever a value existed — the value took the `computed` branch, whose reason is
-   * empty, so the caveat about *why that number is not trusted* was simply absent.
+   * The previous version had two defects, both confirmed by review:
+   *   • the reason was overwritten by the generic exclusion sentence whenever a value existed, so the
+   *     repair cause rendered only in the case it was NOT written for — and never explained why a
+   *     visible number was untrusted;
+   *   • in that one reachable case it asserted "this estimate was produced from an unminimised
+   *     model" while `canonicalDdg` was null, i.e. it claimed an estimate that does not exist.
+   *
+   * The cause now depends on whether a value is actually present, and the caller appends the
+   * exclusion note instead of discarding the cause.
    */
-  const baseReason =
-    obs.id === "foldx" && obs.problem === "binary-missing"
-      ? "The FoldX binary is not installed, so no force-field estimate could be computed. Install it and re-run to include FoldX in the consensus."
-      : obs.id === "foldx" && obs.problem === "repair-failed"
-        ? "Structure repair failed, so this estimate was produced from an unminimised model and is excluded from the consensus."
-        : reasonFor(state, engine, detail);
+  const foldxCause =
+    obs.id !== "foldx"
+      ? null
+      : obs.problem === "binary-missing"
+        ? "The FoldX binary is not installed, so no force-field estimate could be computed. Install it and re-run to include FoldX in the consensus."
+        : obs.problem === "repair-failed"
+          ? canonicalDdg !== null
+            ? "Structure repair failed, so this estimate came from an unminimised model."
+            : "Structure repair failed and no estimate could be produced."
+          : null;
+
+  const exclusionNote = "Shown for reference only — excluded from the consensus.";
+  const baseReason = foldxCause ?? reasonFor(state, engine, detail);
 
   return {
     id: obs.id,
@@ -592,7 +608,9 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
     label: ENGINE_STATE_LABELS[state],
     tone: STATE_TONES[state],
     reason: state === "computed" && excluded
-      ? "Shown for reference only — excluded from the consensus."
+      ? foldxCause
+        ? `${foldxCause} ${exclusionNote}`
+        : exclusionNote
       : baseReason,
     detail,
     canonicalDdg,
@@ -946,12 +964,73 @@ export interface LegacyLabelHit {
 /**
  * Removes comments while preserving line numbering, so a hit reports a usable line and a
  * comment that *documents* a legacy label is not itself a violation.
+ *
+ * MUST be string-aware. The previous implementation was two regexes — `/\/\*[\s\S]*?\*\//g` then
+ * `/\/\/.*$/gm` — and both were wrong in ways that made this scanner **blind** rather than noisy:
+ *
+ *   • `/\/\/.*$/gm` truncates a line at the first `//` *anywhere*, including inside a string
+ *     literal. `{ label: "Not in Zenodo DB", href: "https://doi.org/…" }` therefore lost its label
+ *     before the scan ran. A mutation test proved it: injecting a legacy label onto a line
+ *     containing a DOI URL produced zero hits, while the same literal one line down produced one.
+ *     This file's own surface (EnergeticsView) contains ten `//`-bearing string literals.
+ *   • the block-comment pass could swallow code following a string containing `/*`.
+ *
+ * A guard that misses violations is worse than one that over-reports: noise is visible and gets
+ * fixed, blindness looks like compliance. So the scan walks the source and copies string literals
+ * verbatim before it ever considers a comment.
+ *
+ * Exported because the source-scanning guards need the same treatment; anything less means the
+ * guards disagree with the scanner they call.
  */
-function stripComments(source: string): string {
-  const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, match =>
-    "\n".repeat(match.split("\n").length - 1)
-  );
-  return withoutBlock.replace(/\/\/.*$/gm, "");
+export function stripCommentsForScan(source: string): string {
+  let out = "";
+  let i = 0;
+  const n = source.length;
+
+  while (i < n) {
+    const c = source[i];
+    const next = source[i + 1];
+
+    // A string-like literal is copied verbatim, so a `//` or `/*` inside it is never a comment.
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      out += c;
+      i += 1;
+      while (i < n) {
+        const ch = source[i];
+        if (ch === "\\") {
+          out += ch + (source[i + 1] ?? "");
+          i += 2;
+          continue;
+        }
+        out += ch;
+        i += 1;
+        if (ch === quote) break;
+      }
+      continue;
+    }
+
+    if (c === "/" && next === "/") {
+      // Line comment: drop to the newline, which the fall-through copies.
+      while (i < n && source[i] !== "\n") i += 1;
+      continue;
+    }
+
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < n && !(source[i] === "*" && source[i + 1] === "/")) {
+        if (source[i] === "\n") out += "\n"; // preserve line numbering
+        i += 1;
+      }
+      i += 2; // consume the closing */
+      continue;
+    }
+
+    out += c;
+    i += 1;
+  }
+
+  return out;
 }
 
 function escapeRegExp(value: string): string {
@@ -971,7 +1050,7 @@ function escapeRegExp(value: string): string {
  * badge/status object, which is what the guard is designed to protect.
  */
 export function findLegacyLabels(source: string): LegacyLabelHit[] {
-  const clean = stripComments(source);
+  const clean = stripCommentsForScan(source);
   const hits: LegacyLabelHit[] = [];
   clean.split("\n").forEach((line, index) => {
     for (const label of LEGACY_ENGINE_LABELS) {

@@ -541,4 +541,42 @@ describe("engineStatus — review regressions", () => {
       }
     });
   });
+
+  describe("FoldX's cause is composed with the exclusion, not replaced by it", () => {
+    const foldxOf = (facts: Parameters<typeof buildEngineOutcomes>[0]) =>
+      buildEngineOutcomes(facts).find(o => o.id === "foldx")!;
+
+    it("explains WHY a visible value is untrusted, and that it is not counted", () => {
+      // The defect this replaces: whenever a value existed the reason was overwritten by the generic
+      // exclusion sentence, so the repair cause never rendered — and the cause rendered only in the
+      // case it was not written for.
+      const outcome = foldxOf({ foldxMean: 2.0, foldxRepairFailed: true });
+      expect(outcome.state).toBe("computed");
+      expect(outcome.canonicalDdg).toBe(2.0);
+      expect(outcome.contributesToConsensus).toBe(false);
+      expect(outcome.reason).toContain("Structure repair failed");
+      expect(outcome.reason).toContain("excluded from the consensus");
+    });
+
+    it("does not claim an estimate exists when none does", () => {
+      // The reachable counterpart was factually wrong: it said the estimate "was produced from an
+      // unminimised model" while canonicalDdg was null.
+      const outcome = foldxOf({ foldxMean: null, foldxRepairFailed: true });
+      expect(outcome.state).toBe("failed");
+      expect(outcome.canonicalDdg).toBeNull();
+      expect(outcome.reason).toContain("no estimate could be produced");
+      expect(outcome.reason).not.toContain("unminimised model");
+    });
+
+    it("keeps the binary-missing remediation actionable in both cases", () => {
+      for (const withValue of [true, false]) {
+        const outcome = foldxOf({
+          foldxMean: withValue ? 2.0 : null,
+          foldxBinaryMissing: true,
+        });
+        expect(outcome.reason, String(withValue)).toContain("FoldX binary is not installed");
+        expect(outcome.reason, String(withValue)).toContain("Install it and re-run");
+      }
+    });
+  });
 });

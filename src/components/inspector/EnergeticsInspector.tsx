@@ -98,9 +98,12 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         rasp: energetics?.rasp,
         thermompnn: energetics?.thermompnn,
         stabilityoracle: energetics?.stabilityoracle,
-        dynamut2Status: dynamut2Status as RemoteStatus,
-        ddmutStatus: ddmutStatus as RemoteStatus,
-        thermompnnStatus: thermompnnStatus as RemoteStatus,
+        // No casts needed: these prop unions are already subsets of `RemoteStatus`. The three
+        // `as RemoteStatus` casts that used to sit here implied the props were looser than they are,
+        // and hid that `upstream-error` is simply not expressible for DynaMut2/DDMut.
+        dynamut2Status,
+        ddmutStatus,
+        thermompnnStatus,
         raspReason: energetics?.raspReason ?? null,
         thermompnnError,
         foldingError,
@@ -110,7 +113,10 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         isFolding,
       }),
     [
-      energetics, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError,
+      // `foldingDdG` MUST be here. Without it the memo never recomputes when only the FoldX
+      // fallback changes — which is precisely the bundle shape the prop was added to repair, so the
+      // fix was inert and the two surfaces could still disagree on the exact run it targeted.
+      energetics, foldingDdG, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError,
       foldingError, foldingStatus, isFolding,
     ]
   );
