@@ -28,8 +28,13 @@ import {
   CoordinateResolutionError,
   TRANSLATION_PROVIDER_LABELS,
   resolutionFailureToHttp,
+  type ProteinAlteringConsequence,
   type ResolvedTranscriptConsequence,
 } from "../../services/translation/types.ts";
+import {
+  buildIsoformRemapWarning,
+  reconcileIsoformNumbering,
+} from "../../services/translation/isoform-numbering.ts";
 
 const translateVariantSchema = z.object({
   variant: z.string().min(1).max(200),
@@ -163,15 +168,20 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       }
 
       const consequences = consequence.transcript_consequences;
-      let selectedTc = consequences.find((t) => t.mane_select && !!t.hgvsp);
-      if (!selectedTc) {
-        selectedTc = consequences.find((t) => (t.canonical === 1 || t.canonical === true) && !!t.hgvsp);
-      }
-      if (!selectedTc) {
-        selectedTc = consequences.find((t) => !!t.hgvsp);
-      }
+      // Type predicates carry the invariant into the type system: any consequence that reaches
+      // the missense path is known to have an `hgvsp`, so the later reassignment onto a
+      // reconciled consequence cannot widen it back to `string | undefined`.
+      let selectedTc =
+        consequences.find(
+          (t): t is ProteinAlteringConsequence => Boolean(t.mane_select && t.hgvsp)
+        ) ??
+        consequences.find(
+          (t): t is ProteinAlteringConsequence =>
+            Boolean((t.canonical === 1 || t.canonical === true) && t.hgvsp)
+        ) ??
+        consequences.find((t): t is ProteinAlteringConsequence => Boolean(t.hgvsp));
 
-      if (!selectedTc || !selectedTc.hgvsp) {
+      if (!selectedTc) {
         // The coordinate resolved, but no transcript consequence describes a
         // protein-altering change (intronic / UTR / splice-region / non-coding gene).
         // That is a property of the VARIANT, not a system failure — no reference
@@ -193,15 +203,66 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         return;
       }
 
+      // ── Isoform-numbering reconciliation ────────────────────────────────────────
+      // `hgvsp` is numbered on the SELECTED transcript's protein, while `swissprot` names
+      // the CANONICAL accession. When a MANE Select transcript maps to a non-canonical
+      // UniProt isoform (ACOT9: MANE → Q9Y305-4 vs canonical Q9Y305-1, offset 9 residues)
+      // those disagree, and the old code handed the mismatch downstream where FoldX and the
+      // biophysics guard rejected it as a "wild-type residue mismatch" — an upstream
+      // numbering error surfacing as three fatal console entries. Reconcile here, where the
+      // sibling consequences that carry the canonical numbering are still available.
+      const canonicalAccession = selectedTc.swissprot?.[0]?.split(".")[0];
+      const reconciliation = reconcileIsoformNumbering(selectedTc, consequences, canonicalAccession);
+      if (reconciliation.action === "unresolved") {
+        const isoformLabel = reconciliation.isoform ? ` (UniProt isoform ${reconciliation.isoform})` : "";
+        sendError(
+          res,
+          422,
+          "ISOFORM_NUMBERING_MISMATCH",
+          `"${trimmed}" resolves to ${selectedTc.gene_symbol || "a transcript"} ` +
+            `${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}${isoformLabel}, but that numbering ` +
+            `does not match the canonical sequence of ${canonicalAccession}, and ` +
+            `${reconciliation.reason}. Structural modelling needs the variant numbered on the ` +
+            "canonical sequence — enter the canonical-equivalent protein substitution.",
+          {
+            gene: selectedTc.gene_symbol,
+            hgvsp: selectedTc.hgvsp,
+            transcriptId: selectedTc.transcript_id,
+            isoform: reconciliation.isoform,
+            uniprotId: canonicalAccession,
+            reason: reconciliation.reason,
+            notation: trimmed,
+            assembly,
+          }
+        );
+        return;
+      }
+
+      // The remap is disclosed below rather than applied silently: the analysed variant is no
+      // longer the one a MANE-based clinical report would name.
+      const remap = reconciliation.action === "remap" ? reconciliation : null;
+      // Captured BEFORE the swap so the disclosure can name the notation that was replaced.
+      const originalSelection = selectedTc;
+      if (remap) selectedTc = remap.consequence;
+
       let geneSymbol: string;
       let proteinPart: string;
       let uniprotId = "";
 
+      // A remapped consequence annotates the SAME gene, so gene-level metadata is inherited
+      // when the replacement transcript's record omits it. Without this, a sparse sibling
+      // (no gene_symbol / no swissprot) would turn a valid remap into "Gene symbol must be a
+      // non-empty string", or silently drop the UniProt accession the client resolves against.
+      const geneSymbolSource = selectedTc.gene_symbol || originalSelection.gene_symbol;
+      const swissprotSource = selectedTc.swissprot?.length
+        ? selectedTc.swissprot
+        : originalSelection.swissprot;
+
       try {
-        geneSymbol = validateGene(selectedTc.gene_symbol || "");
+        geneSymbol = validateGene(geneSymbolSource || "");
         proteinPart = validateVariant(selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp);
-        if (selectedTc.swissprot && selectedTc.swissprot.length > 0) {
-          uniprotId = validateUniProt(selectedTc.swissprot[0].split(".")[0]);
+        if (swissprotSource && swissprotSource.length > 0) {
+          uniprotId = validateUniProt(swissprotSource[0].split(".")[0]);
         }
       } catch (valErr: any) {
         // `valErr` is an Error; interpolating it directly yields "Error: ..." and loses the
@@ -253,7 +314,18 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       }
 
       let transcriptWarning: string | undefined = undefined;
-      if (!isManeSelect && !isManePlusClinical && !isCanonical) {
+      if (remap) {
+        // A remap note REPLACES the generic transcript warnings: it already explains which
+        // transcripts/isoforms are involved, and appending "Ensembl canonical transcript used
+        // (not explicitly tagged MANE Select)" beside it would read as two unrelated caveats.
+        transcriptWarning = buildIsoformRemapWarning(
+          originalSelection.hgvsp ?? "",
+          remap.consequence.hgvsp ?? "",
+          remap.fromIsoform,
+          remap.toIsoform,
+          typeof originalSelection.mane_select === "string" ? originalSelection.mane_select : undefined
+        );
+      } else if (!isManeSelect && !isManePlusClinical && !isCanonical) {
         transcriptWarning = "Non-canonical transcript used — disease isoform may differ. Verify transcript against MANE Select or RefSeq clinical.";
       } else if (!isManeSelect && !isManePlusClinical && isCanonical) {
         transcriptWarning = "Ensembl canonical transcript used (not explicitly tagged MANE Select). Verify isoform against clinical databases.";
@@ -277,6 +349,33 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         genomicCoordinates,
         assembly,
         notationNormalized: trimmed,
+        // Which UniProt isoform `variant` is numbered on. AlphaFold DB models only canonical
+        // sequences, so this is normally the canonical isoform — recorded so a reader can tell
+        // which numbering the analysed residues belong to.
+        ...(selectedTc.uniprot_isoform?.[0] ? { uniprotIsoform: selectedTc.uniprot_isoform[0] } : {}),
+        // Present only when the MANE-resolved notation had to be renumbered to the canonical
+        // isoform. Machine-readable so reports and audit trails can state both notations.
+        ...(remap
+          ? {
+              numberingRemap: {
+                reason:
+                  "MANE Select protein numbering differs from the canonical UniProt isoform",
+                from: {
+                  hgvsp: originalSelection.hgvsp,
+                  transcriptId: originalSelection.transcript_id,
+                  isoform: remap.fromIsoform,
+                  ...(typeof originalSelection.mane_select === "string"
+                    ? { maneRefSeqId: originalSelection.mane_select }
+                    : {}),
+                },
+                to: {
+                  hgvsp: remap.consequence.hgvsp,
+                  transcriptId: remap.consequence.transcript_id,
+                  isoform: remap.toIsoform,
+                },
+              },
+            }
+          : {}),
         // Provenance: which provider actually answered, whether a fallback was used, and
         // what else was attempted. Cache hits report one synthetic attempt with 0ms.
         provenance: {

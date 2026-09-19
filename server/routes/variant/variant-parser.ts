@@ -228,7 +228,10 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
       res,
       422,
       "UNPROCESSABLE_ENTITY",
-      `Wild-type residue mismatch at position ${pos} for ${uniprotId}. Expected ${actualWt}, but query specified ${wt1Letter} (${wildType}).`
+      `Wild-type residue mismatch at position ${pos} for ${uniprotId}. Expected ${actualWt}, but query specified ${wt1Letter} (${wildType}). ` +
+        `This usually means the notation was numbered on a different protein isoform than ${uniprotId}` +
+        " (canonical): re-enter the substitution in canonical numbering — e.g. a MANE Select" +
+        " notation such as p.Lys281Asn can be p.Lys272Asn on the canonical isoform."
     );
     return null;
   }

@@ -26,8 +26,14 @@ const MISSENSE_CONSEQUENCE = {
   swissprot: ["Q8N5G0.1"]
 };
 
-/** Builds a VEP HGVS payload carrying the supplied transcript consequence. */
-const vepPayload = (consequence: Record<string, any>) => ({
+/**
+ * Builds a VEP HGVS payload carrying the supplied transcript consequence(s).
+ *
+ * Accepts an array so a test can reproduce a real multi-transcript VEP answer — which is what
+ * makes isoform reconciliation possible (the canonically-numbered sibling is reported alongside
+ * the MANE Select consequence).
+ */
+const vepPayload = (consequence: Record<string, any> | Record<string, any>[]) => ({
   ok: true,
   json: async () => [
     {
@@ -35,7 +41,7 @@ const vepPayload = (consequence: Record<string, any>) => ({
       start: 25484258,
       allele_string: "G/A",
       assembly_name: "GRCh38",
-      transcript_consequences: [consequence]
+      transcript_consequences: Array.isArray(consequence) ? consequence : [consequence]
     }
   ]
 });
@@ -55,7 +61,7 @@ const vepPayload = (consequence: Record<string, any>) => ({
  */
 async function invokeTranslate(
   variant: string,
-  consequence: Record<string, any> = MISSENSE_CONSEQUENCE,
+  consequence: Record<string, any> | Record<string, any>[] = MISSENSE_CONSEQUENCE,
   fetchImpl?: (url: string) => any
 ) {
   const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(
@@ -473,5 +479,155 @@ describe("POST /translate-variant — missense-only scope enforcement", () => {
     expect(statusCode).toBe(200);
     expect(body.variant).toBe("p.Glu433Lys");
     expect(body.uniprotId).toBe("Q8N5G0");
+  });
+});
+
+/**
+ * Isoform-numbering reconciliation.
+ *
+ * Production fatal (ACOT9, chrX:g.23705858C>A): VEP numbers the MANE Select consequence on
+ * UniProt isoform Q9Y305-4 (p.Lys281Asn) while naming the canonical accession Q9Y305
+ * (isoform Q9Y305-1, where that residue is K272 and position 281 is L). Forwarding the MANE
+ * notation with the canonical accession made FoldX and the biophysics guard reject the
+ * variant as a "wild-type residue mismatch" — three fatal console entries from one upstream
+ * numbering error, and a silent wrong-residue analysis whenever the letters coincided.
+ */
+describe("POST /translate-variant — isoform numbering reconciliation", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+  });
+
+  /** MANE Select consequence as VEP reports it: numbered on isoform Q9Y305-4. */
+  const ACOT9_MANE_CONSEQUENCE = {
+    transcript_id: "ENST00000379303",
+    canonical: 1,
+    mane_select: "NM_001037171.2",
+    gene_symbol: "ACOT9",
+    hgvsp: "ENSP00000368605.5:p.Lys281Asn",
+    hgvsc: "ENST00000379303.10:c.843G>T",
+    amino_acids: "K/N",
+    uniprot_isoform: ["Q9Y305-4"],
+    swissprot: ["Q9Y305.179"],
+  };
+
+  /** The SAME substitution as VEP reports it on a canonically-numbered transcript. */
+  const ACOT9_CANONICAL_CONSEQUENCE = {
+    transcript_id: "ENST00000336430",
+    canonical: 1,
+    gene_symbol: "ACOT9",
+    hgvsp: "ENSP00000336580.7:p.Lys272Asn",
+    hgvsc: "ENST00000336430.12:c.816G>T",
+    amino_acids: "K/N",
+    uniprot_isoform: ["Q9Y305-1"],
+    swissprot: ["Q9Y305.179"],
+  };
+
+  it("remaps the ACOT9 MANE notation onto canonical numbering and discloses the remap", async () => {
+    const { statusCode, body } = await invokeTranslate("chrX:g.23705858C>A", [
+      ACOT9_MANE_CONSEQUENCE,
+      ACOT9_CANONICAL_CONSEQUENCE,
+    ]);
+
+    expect(statusCode).toBe(200);
+    expect(body.gene).toBe("ACOT9");
+    // Canonical numbering — the only sequence with a modellable structure.
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.uniprotId).toBe("Q9Y305");
+    expect(body.uniprotIsoform).toBe("Q9Y305-1");
+    expect(body.transcriptId).toBe("ENST00000336430");
+    // The MANE notation the clinician would recognise is preserved in the remap record.
+    expect(body.numberingRemap).toMatchObject({
+      from: {
+        hgvsp: "ENSP00000368605.5:p.Lys281Asn",
+        transcriptId: "ENST00000379303",
+        isoform: "Q9Y305-4",
+        maneRefSeqId: "NM_001037171.2",
+      },
+      to: {
+        hgvsp: "ENSP00000336580.7:p.Lys272Asn",
+        transcriptId: "ENST00000336430",
+        isoform: "Q9Y305-1",
+      },
+    });
+    // Silent renumbering would be worse than the crash: the note must reach the UI.
+    expect(body.transcriptWarning).toContain("p.Lys281Asn");
+    expect(body.transcriptWarning).toContain("p.Lys272Asn");
+    expect(body.transcriptWarning).toContain("canonical numbering");
+  });
+
+  it("leaves a canonically-numbered consequence untouched (no remap, no note)", async () => {
+    const { statusCode, body } = await invokeTranslate("chrX:g.23705858C>A", [
+      ACOT9_CANONICAL_CONSEQUENCE,
+    ]);
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.uniprotIsoform).toBe("Q9Y305-1");
+    expect(body.numberingRemap).toBeUndefined();
+  });
+
+  it("refuses with 422 ISOFORM_NUMBERING_MISMATCH when no canonical-numbered sibling exists", async () => {
+    const { statusCode, body, calledUrl } = await invokeTranslate("chrX:g.23705858C>A", [
+      ACOT9_MANE_CONSEQUENCE,
+    ]);
+
+    expect(calledUrl).toContain("chrX:g.23705858C>A");
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("ISOFORM_NUMBERING_MISMATCH");
+    expect(body.error.message).toContain("p.Lys281Asn");
+    expect(body.error.message).toContain("Q9Y305-4");
+    expect(body.error.message).toContain("Q9Y305");
+    expect(body.error.details).toMatchObject({
+      gene: "ACOT9",
+      hgvsp: "ENSP00000368605.5:p.Lys281Asn",
+      isoform: "Q9Y305-4",
+      uniprotId: "Q9Y305",
+      notation: "chrX:g.23705858C>A",
+      assembly: "GRCh38",
+    });
+  });
+
+  it("never remaps onto a sibling reporting a different substitution", async () => {
+    const { statusCode, body } = await invokeTranslate("chrX:g.23705858C>A", [
+      ACOT9_MANE_CONSEQUENCE,
+      { ...ACOT9_CANONICAL_CONSEQUENCE, hgvsp: "ENSP00000336580.7:p.Lys272Glu", amino_acids: "K/E" },
+    ]);
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("ISOFORM_NUMBERING_MISMATCH");
+  });
+
+  it("inherits gene-level metadata when the remap target's record is sparse", async () => {
+    // A canonically-numbered sibling that carries only the substitution must not lose the
+    // UniProt accession (which the client resolves the sequence/structure against) or fail on
+    // the missing gene symbol.
+    const { statusCode, body } = await invokeTranslate("chrX:g.23705858C>A", [
+      ACOT9_MANE_CONSEQUENCE,
+      {
+        transcript_id: "ENST00000336430",
+        canonical: 1,
+        hgvsp: "ENSP00000336580.7:p.Lys272Asn",
+        uniprot_isoform: ["Q9Y305-1"],
+      },
+    ]);
+
+    expect(statusCode).toBe(200);
+    expect(body.gene).toBe("ACOT9");
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.uniprotId).toBe("Q9Y305");
+    expect(body.numberingRemap).toBeDefined();
+  });
+
+  it("keeps prior behaviour when the provider carries no isoform metadata", async () => {
+    // VariantValidator-shaped consequences have no uniprot_isoform; reconciliation must not
+    // invent a mismatch from missing data.
+    const { statusCode, body } = await invokeTranslate("chr1:g.25484258G>A", {
+      ...MISSENSE_CONSEQUENCE,
+      uniprot_isoform: undefined,
+    });
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Glu433Lys");
+    expect(body.numberingRemap).toBeUndefined();
   });
 });

@@ -183,6 +183,29 @@ export const translateVariantResponseSchema = z.object({
   isCanonical: z.boolean().optional(),
   maneRefSeqId: z.string().optional(),
   transcriptWarning: z.string().optional(),
+  /** UniProt isoform the returned `variant` is numbered on (normally the canonical isoform). */
+  uniprotIsoform: z.string().optional(),
+  /**
+   * Present when the MANE-resolved notation was renumbered onto the canonical UniProt
+   * isoform, because the upstream structural pipeline (AlphaFold DB / PDB) models only
+   * canonical sequences. Records both notations so a report can state what changed.
+   */
+  numberingRemap: z
+    .object({
+      reason: z.string(),
+      from: z.object({
+        hgvsp: z.string().optional(),
+        transcriptId: z.string().optional(),
+        isoform: z.string().optional(),
+        maneRefSeqId: z.string().optional(),
+      }),
+      to: z.object({
+        hgvsp: z.string().optional(),
+        transcriptId: z.string().optional(),
+        isoform: z.string().optional(),
+      }),
+    })
+    .optional(),
   genomicCoordinates: z.string().nullable().optional(),
   /** Genome build the notation was resolved against, from an inline "(GRCh38)" annotation. */
   assembly: z.enum(["GRCh37", "GRCh38"]).optional(),

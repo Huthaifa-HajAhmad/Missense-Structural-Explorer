@@ -74,6 +74,13 @@ const ensemblResponseSchema = z.array(
             mane_select: z.any().optional(),
             mane_plus_clinical: z.any().optional(),
             hgvsp: z.string().optional(),
+            hgvsc: z.string().optional(),
+            amino_acids: z.string().optional(),
+            // Isoform the consequence's protein numbering belongs to. Named explicitly (rather
+            // than left to `.passthrough()`) because isoform reconciliation reads it and a
+            // future schema tightening must not silently drop the field that prevents
+            // numbering mismatches.
+            uniprot_isoform: z.array(z.string()).optional(),
             gene_symbol: z.string().optional(),
             consequence_terms: z.array(z.string()).optional(),
             swissprot: z.array(z.string()).optional(),

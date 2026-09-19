@@ -83,6 +83,11 @@ export async function translateVariantNotation(
         isCanonical: data.isCanonical,
         maneRefSeqId: data.maneRefSeqId,
         transcriptWarning: data.transcriptWarning,
+        // Numbering basis of the returned variant, and — when the MANE notation had to be
+        // renumbered onto the canonical isoform — the record of what changed, so downstream
+        // surfaces can disclose it instead of quietly reporting a different residue number.
+        uniprotIsoform: data.uniprotIsoform,
+        numberingRemap: data.numberingRemap,
         // Preserved so callers/reports can state which build the coordinate resolved against.
         assembly: data.assembly,
         assemblyNote: data.assemblyNote

@@ -322,7 +322,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             res,
             422,
             "UNPROCESSABLE_ENTITY",
-            `Wild-type residue mismatch: mutation expects wild-type ${wt1} (${expectedWt3}) at position ${posNum}, but PDB structure contains ${targetPdbRes.resName3} on chain ${resolvedChainUpper}.`
+            `Wild-type residue mismatch: mutation expects wild-type ${wt1} (${expectedWt3}) at position ${posNum}, but PDB structure contains ${targetPdbRes.resName3} on chain ${resolvedChainUpper}. ` +
+              "The structure follows this protein's canonical sequence numbering — if the notation" +
+              " came from a different isoform (e.g. MANE Select), re-enter it in canonical numbering."
           );
           return;
         }

@@ -93,6 +93,18 @@ export interface TranslatedVariantResult {
     isCanonical?: boolean;
     maneRefSeqId?: string;
     transcriptWarning?: string;
+    /** UniProt isoform the analysed `variant` is numbered on (normally the canonical isoform). */
+    uniprotIsoform?: string;
+    /**
+     * Set when the MANE-resolved notation was renumbered onto the canonical UniProt isoform
+     * (the only sequence with a modellable structure). Carried through so reports can disclose
+     * both notations rather than silently presenting a different residue number.
+     */
+    numberingRemap?: {
+      reason: string;
+      from: { hgvsp?: string; transcriptId?: string; isoform?: string; maneRefSeqId?: string };
+      to: { hgvsp?: string; transcriptId?: string; isoform?: string };
+    };
     /** Genome build the notation was resolved against (from an inline "(GRCh38)" annotation). */
     assembly?: string;
     /** Explanation emitted when an inline assembly annotation redirected the query. */
