@@ -290,6 +290,55 @@ describe("foldxService", () => {
     expect(sink.setDdmutStatus).not.toHaveBeenCalledWith("unavailable");
   });
 
+  it("settles pending engines on the ERROR exits, not only on the terminal commits", async () => {
+    /**
+     * The defect: the settle helper ran on the three terminal commits only, and it was defined
+     * INSIDE the `try`, so the `catch` could not reach it at all.
+     *
+     * That matters because the error exits are exactly the paths that leave a remote engine at
+     * "pending" with a null job id — the POST seeds that state before its submission race resolves,
+     * so the id is genuinely unknown when the run dies. `useJobPoller` refuses to start without an
+     * id, so nothing could ever resolve it, and the UI read "Calculation in progress" indefinitely
+     * while `summarizeCoverage` kept counting the engine as running.
+     *
+     * This uses the queued-with-no-jobId branch, which throws immediately — no poll backoff.
+     */
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "queued",
+        foldxJobId: null,
+        dynamut2Status: "pending",
+        dynamut2JobId: null,
+        ddmutStatus: "pending",
+        ddmutJobId: "ddm-live-2",
+        thermompnnStatus: "pending",
+        thermompnnJobId: null,
+      }),
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+    });
+
+    // The run failed...
+    expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
+    // ...and the engines it left behind are terminal rather than stuck at "pending".
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith("unavailable");
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("unavailable");
+    // An engine whose poller is live is still left alone.
+    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith("unavailable");
+  });
+
   it("settles pending engines when the queued job fails before they resolve", async () => {
     const mockFetchWithAuth = vi.fn().mockImplementation(async (url: string) => {
       if (url === "/api/v1/generate-mutant") {

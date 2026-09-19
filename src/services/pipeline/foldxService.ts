@@ -52,6 +52,62 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
   sink.setFoldingError(null);
   sink.setFoldingStatus(null);
 
+  /**
+   * The latest remote-engine state seen, so the ERROR exits can settle what the run leaves behind.
+   *
+   * `settleUnreachableRemoteEngines` used to run only on the three terminal commits. Every throw
+   * exit — the missing/queued job id, the queue and execution budget throws, and both
+   * three-strikes poll failures — left remote engines at "pending" with a null job id. The POST
+   * seeds exactly that state while the submission race is still in flight, so the store then
+   * asserted "pending" for engines with no poller (useJobPoller refuses to start without a job id)
+   * and the UI read "Calculation in progress" with no route to a result.
+   *
+   * Declared outside the `try` because a `const` bound inside it is not in scope in the `catch`.
+   */
+  let lastRemoteState: {
+    dynamut2Status?: string | null;
+    dynamut2JobId?: string | null;
+    ddmutStatus?: string | null;
+    ddmutJobId?: string | null;
+    thermompnnStatus?: string | null;
+    thermompnnJobId?: string | null;
+  } = {};
+
+  /**
+   * Settles remote engines that reported "pending" with no job id.
+   *
+   * `useJobPoller` requires a job id before it will start, and the SSE channel for these engines is
+   * only ever emitted from inside that poller's own handler — so an engine left at "pending" with no
+   * id has no route to a result, and the store carries that non-terminal status forever. The FoldX
+   * run ending is the last moment anything could resolve it, which is why this is called on the
+   * terminal commits AND on every error exit.
+   *
+   * Defined above the `try` on purpose: it previously lived inside it, so the `catch` could not
+   * reach it and the error exits — exactly the paths that leave `pending` with a null id, because
+   * the POST seeds that state before its submission race resolves — never settled anything.
+   *
+   * Engines that DO have a job id are deliberately left alone: their poller is live and will report
+   * the real outcome.
+   */
+  const settleUnreachableRemoteEngines = (payload: {
+    dynamut2Status?: string | null;
+    dynamut2JobId?: string | null;
+    ddmutStatus?: string | null;
+    ddmutJobId?: string | null;
+    thermompnnStatus?: string | null;
+    thermompnnJobId?: string | null;
+  }) => {
+    if (payload.dynamut2Status === "pending" && !payload.dynamut2JobId) {
+      sink.setDynamut2Status("unavailable");
+    }
+    if (payload.ddmutStatus === "pending" && !payload.ddmutJobId) {
+      sink.setDdmutStatus("unavailable");
+    }
+    if (payload.thermompnnStatus === "pending" && !payload.thermompnnJobId) {
+      sink.setThermompnnStatus("unavailable");
+    }
+  };
+
   try {
     const res = await fetchWithAuth("/api/v1/generate-mutant", {
       method: "POST",
@@ -100,6 +156,17 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     if (data.thermompnnStatus != null) sink.setThermompnnStatus(data.thermompnnStatus as any);
     if (data.thermompnnError != null) sink.setThermompnnError(data.thermompnnError);
 
+    // Remember what the run has told us, so a later error exit can settle the engines it left
+    // "pending" without a job id. Engines WITH a live id are left alone by the helper.
+    lastRemoteState = {
+      dynamut2Status: data.dynamut2Status ?? null,
+      dynamut2JobId: data.dynamut2JobId ?? null,
+      ddmutStatus: data.ddmutStatus ?? null,
+      ddmutJobId: data.ddmutJobId ?? null,
+      thermompnnStatus: data.thermompnnStatus ?? null,
+      thermompnnJobId: data.thermompnnJobId ?? null,
+    };
+
     // Helper to update energetics with structure provenance
     const applyEnergetics = (energeticsData: any, prov: any) => {
       if (!energeticsData) return;
@@ -134,35 +201,8 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       });
     };
 
-    /**
-     * Settles remote engines that reported "pending" with no job id.
-     *
-     * `useJobPoller` requires a job id before it will start, and the SSE channel for these engines
-     * is only ever emitted from inside that poller's own handler — so an engine left at "pending"
-     * with no id has no route to a result, and the store carries that non-terminal status forever.
-     * The FoldX run ending is the last moment anything could resolve it.
-     *
-     * Engines that DO have a job id are deliberately left alone: their poller is live and will
-     * report the real outcome.
-     */
-    const settleUnreachableRemoteEngines = (payload: {
-      dynamut2Status?: string | null;
-      dynamut2JobId?: string | null;
-      ddmutStatus?: string | null;
-      ddmutJobId?: string | null;
-      thermompnnStatus?: string | null;
-      thermompnnJobId?: string | null;
-    }) => {
-      if (payload.dynamut2Status === "pending" && !payload.dynamut2JobId) {
-        sink.setDynamut2Status("unavailable");
-      }
-      if (payload.ddmutStatus === "pending" && !payload.ddmutJobId) {
-        sink.setDdmutStatus("unavailable");
-      }
-      if (payload.thermompnnStatus === "pending" && !payload.thermompnnJobId) {
-        sink.setThermompnnStatus("unavailable");
-      }
-    };
+    // `settleUnreachableRemoteEngines` is defined above the `try`, so the catch can reach it.
+    // It used to live here, inside the try, which is why the error exits never settled anything.
 
     if (data.status !== "queued" && data.status !== "running") {
       const isFoldxSuccess = (data.status === "success" || data.status === "completed") && data.ddG !== null;
@@ -279,6 +319,17 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         if (pollData.ddmutJobId != null) sink.setDdmutJobId(pollData.ddmutJobId);
         if (pollData.thermompnnJobId != null) sink.setThermompnnJobId(pollData.thermompnnJobId);
 
+        // Keep the error paths' view of the run current: a job id learned from polling must not be
+        // forgotten, or a later failure would settle an engine whose poller is live.
+        lastRemoteState = {
+          dynamut2Status: pollData.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
+          dynamut2JobId: pollData.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
+          ddmutStatus: pollData.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
+          ddmutJobId: pollData.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
+          thermompnnStatus: pollData.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
+          thermompnnJobId: pollData.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
+        };
+
         // Only propagate terminal failures/errors from backend snapshot; never clobber client's terminal status back to pending
         if (pollData.dynamut2Status === "unavailable" || pollData.dynamut2Status === "error") {
           sink.setDynamut2Status(pollData.dynamut2Status as any);
@@ -375,6 +426,20 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     if (signal.aborted || err.name === "AbortError" || getActiveRequestId() !== requestId) return;
     const msg = typeof err === "object" && err !== null ? (err.message || (typeof err.error === "object" ? err.error?.message : err.error) || JSON.stringify(err)) : String(err);
     console.error("[FoldxService Error] FoldX pipeline failed:", msg);
+
+    /**
+     * Settle on the ERROR exits too.
+     *
+     * The FoldX run ending is the last moment anything could resolve a remote engine, and these
+     * exits are precisely when the POST has already seeded `pending` with a null job id (the
+     * submission race resolves later, so the id is genuinely unknown here). Without this the store
+     * kept asserting "pending" for engines that have no poller, so the UI read "Calculation in
+     * progress" with no route to a result, and `summarizeCoverage` kept counting them as running.
+     *
+     * Engines that DO have a live job id are left to their poller by the helper.
+     */
+    settleUnreachableRemoteEngines(lastRemoteState);
+
     sink.setFoldingError(msg || "FoldX simulation failed.");
     sink.setFoldingStatus("failed");
   } finally {
