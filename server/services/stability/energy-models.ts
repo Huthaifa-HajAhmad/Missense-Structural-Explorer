@@ -207,6 +207,24 @@ function resetRaspIndexVerdict(): void {
   raspSqliteUsable = false;
 }
 
+/**
+ * Whether the loader has COUNTED and verified the index that is on disk right now.
+ *
+ * This is the question `/capabilities` could not ask. The route reads the index's own completeness
+ * record, and that record endorses a truncated index whose `rasp_index_meta` row survived the
+ * truncation — the shipped 35,000-of-8,770,220-row prefix was exactly that — so a record-based
+ * `usable` is a CLAIM, not a check. The loader's verdict is a check, but only of the file it
+ * actually looked at.
+ *
+ * Hence the identity comparison. If the file has been rebuilt since the verdict was recorded, that
+ * verdict describes a different file, and this returns false until the next lookup re-verifies.
+ * One `statSync`, so it is safe to call from a diagnostics route.
+ */
+export function hasLoaderVerifiedRaspIndex(): boolean {
+  const key = raspIndexIdentity();
+  return key !== null && key === raspSqliteKey && raspSqliteUsable;
+}
+
 function raspIndexIdentity(): string | null {
   try {
     const stat = fs.statSync(RASP_SQLITE_PATH);

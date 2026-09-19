@@ -16,7 +16,7 @@
 import { type Router } from "express";
 import fs from "fs";
 import path from "path";
-import { inspectRaspIndexFile, RASP_SQLITE_PATH } from "../services/stability/energy-models.ts";
+import { inspectRaspIndexFile, hasLoaderVerifiedRaspIndex, RASP_SQLITE_PATH } from "../services/stability/energy-models.ts";
 import { execSync } from "child_process";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
@@ -106,7 +106,21 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     // different file than the one serving lookups.
     const raspDbPath = RASP_SQLITE_PATH;
     const raspVerdict = inspectRaspIndexFile(raspDbPath);
-    const raspReady = raspVerdict.usable;
+    /**
+     * Readiness requires a COUNTED index; the record's own claim is not a count.
+     *
+     * Two ways this route overstated RaSP. A truncated index keeps its `rasp_index_meta` row, so the
+     * record says `usable: true` and the screen said "ready" for an index the loader would reject —
+     * the diagnostics screen corroborating the very bug it exists to reveal. And the converse, which
+     * is why the fix is not simply "gate on `verified`": the record-based path NEVER verifies, so
+     * gating on it alone would mark a healthy index unavailable.
+     *
+     * So readiness is the record's usability AND the loader's own count of this exact file. When the
+     * loader has not looked yet, the counts are reported as unverified instead of being presented as
+     * checked — which is what `indexCountsVerified` has been in the payload for all along.
+     */
+    const raspCountsVerified = hasLoaderVerifiedRaspIndex();
+    const raspReady = raspVerdict.usable && raspCountsVerified;
     let raspSizeBytes = 0;
     try {
       if (fs.existsSync(raspDbPath)) raspSizeBytes = fs.statSync(raspDbPath).size;
@@ -213,10 +227,17 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
           indexedProteins: raspVerdict.proteins,
           indexBuiltAt: raspVerdict.meta?.builtAt ?? null,
           indexSchemaVersion: raspVerdict.meta?.schemaVersion ?? null,
-          // False means the counts came from the index's own record; the loader counts them once at
-          // load. Reported so a recorded figure is never presented as a checked one.
-          indexCountsVerified: Boolean(raspVerdict.verified),
-          ...(raspReady ? {} : { unavailableReason: raspVerdict.reason ?? null })
+          // False means the counts came from the index's own record and nothing has counted them.
+          indexCountsVerified: raspCountsVerified,
+          ...(raspReady
+            ? {}
+            : {
+                unavailableReason: raspVerdict.usable
+                  ? // The record claims the index is fine, but nothing has counted it. Saying
+                    // "unavailable" without this would read as "broken".
+                    "the index's recorded counts have not been verified by the loader, so its readiness is unconfirmed"
+                  : raspVerdict.reason ?? null
+              })
         }
       },
       {
