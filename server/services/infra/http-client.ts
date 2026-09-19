@@ -218,8 +218,13 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         if (!probe) breaker.recordSuccess();
         return res;
       } catch (err: any) {
+        // A CALLER-INITIATED abort (the resolution ladder's window or deadline, or a client
+        // disconnect) is not an upstream failure: our own timer closed the request. Booking it
+        // as a failure ejected a healthy-but-slow provider on the shared per-host breaker for
+        // the whole cooldown, so every subsequent request skipped it — and was then answered by
+        // the metadata-free fallback tier. Only aborts raised by this client's own attempt
+        // timeout, and transport errors, count against the provider.
         if (options.signal?.aborted) {
-          if (!probe) breaker.recordFailure();
           throw err;
         }
         if (i === retries - 1) {

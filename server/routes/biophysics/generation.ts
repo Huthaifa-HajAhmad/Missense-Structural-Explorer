@@ -318,13 +318,23 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           return;
         }
         if (expectedWt3 && targetPdbRes.resName3.toUpperCase() !== expectedWt3.toUpperCase()) {
+          // The numbering note must match where the structure actually came from: asserting
+          // "canonical numbering" for a client-supplied or experimental PDB sends the user
+          // looking for an isoform problem when the real cause may be the structure's own
+          // construct numbering.
+          const structureSource = resolvedStructure?.provenance.source ?? "client-provided";
+          const numberingNote =
+            structureSource === "alphafold"
+              ? "The AlphaFold model follows this protein's canonical sequence numbering — if the" +
+                " notation came from a different isoform (e.g. MANE Select), re-enter it in" +
+                " canonical numbering, and check the wild-type residue."
+              : `The ${structureSource === "client-provided" ? "supplied" : structureSource} structure may use its own construct numbering — verify the structure's residue numbering against the notation, and re-enter the substitution in canonical numbering.`;
           sendError(
             res,
             422,
             "UNPROCESSABLE_ENTITY",
             `Wild-type residue mismatch: mutation expects wild-type ${wt1} (${expectedWt3}) at position ${posNum}, but PDB structure contains ${targetPdbRes.resName3} on chain ${resolvedChainUpper}. ` +
-              "The structure follows this protein's canonical sequence numbering — if the notation" +
-              " came from a different isoform (e.g. MANE Select), re-enter it in canonical numbering."
+              numberingNote
           );
           return;
         }

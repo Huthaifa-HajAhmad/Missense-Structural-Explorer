@@ -29,7 +29,12 @@
 import { z } from "zod";
 import { fetchWithRetry } from "../infra/http-client.ts";
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
-import { CoordinateResolutionError, type ProviderAttempt, type ResolvedConsequence } from "./types.ts";
+import {
+  CoordinateResolutionError,
+  type ProviderAttempt,
+  type ResolutionProviderOptions,
+  type ResolvedConsequence,
+} from "./types.ts";
 
 const VARIANT_VALIDATOR_BASE =
   "https://rest.variantvalidator.org/VariantValidator/variantvalidator";
@@ -210,7 +215,8 @@ const VARIANT_VALIDATOR_RETRY_DELAY_MS = 800;
 export async function fetchVariantValidatorConsequence(
   notation: string,
   assembly: GenomeAssembly,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: ResolutionProviderOptions
 ): Promise<{ consequence: ResolvedConsequence; attempt: ProviderAttempt }> {
   const startedAt = Date.now();
   const url = buildVariantValidatorUrl(assembly, notation);
@@ -231,11 +237,21 @@ export async function fetchVariantValidatorConsequence(
   try {
     response = await fetchWithRetry(
       url,
-      { headers: { Accept: "application/json" }, timeout: VARIANT_VALIDATOR_TIMEOUT_MS, signal },
+      {
+        headers: { Accept: "application/json" },
+        // Capped by the ladder's window, so this provider's tolerance can never outlive the
+        // time it was actually granted.
+        timeout: options?.timeoutMs ?? VARIANT_VALIDATOR_TIMEOUT_MS,
+        signal,
+      },
       VARIANT_VALIDATOR_ATTEMPTS,
       VARIANT_VALIDATOR_RETRY_DELAY_MS
     );
   } catch (err: any) {
+    // A caller- or ladder-initiated abort must propagate UNTOUCHED, exactly as the primary
+    // provider does: wrapping it turned an expired window into "VariantValidator unreachable"
+    // and a caller abort into a 503 instead of the HTTP layer's 504.
+    if (signal?.aborted) throw err;
     throw new CoordinateResolutionError(
       "upstream_unavailable",
       `VariantValidator unreachable: ${err?.message || "network error"}`,
@@ -257,7 +273,9 @@ export async function fetchVariantValidatorConsequence(
   let body: unknown;
   try {
     body = await response.json();
-  } catch {
+  } catch (err: any) {
+    // A body read killed by the ladder's deadline or window is a timeout, not a malformed body.
+    if (signal?.aborted) throw err;
     throw new CoordinateResolutionError("invalid_response", "VariantValidator returned malformed JSON.", [
       attempt(false, "malformed JSON", "invalid_response"),
     ]);

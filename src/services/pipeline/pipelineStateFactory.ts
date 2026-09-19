@@ -19,7 +19,32 @@ export interface PipelineStateBaseParams {
     isCanonical?: boolean;
     maneRefSeqId?: string;
     transcriptWarning?: string;
+    /** UniProt isoform the analysed residue numbers belong to. */
+    uniprotIsoform?: string;
+    /** How that numbering basis was established: canonical | remapped | unverified. */
+    numberingBasis?: string;
+    /** Record of a MANE → canonical renumbering, for reports that must state both notations. */
+    numberingRemap?: {
+      reason: string;
+      from: { hgvsp?: string; transcriptId?: string; isoform?: string; maneRefSeqId?: string };
+      to: { hgvsp?: string; transcriptId?: string; isoform?: string };
+    } | null;
   } | null;
+}
+
+/**
+ * Numbering provenance carried into every analysis result.
+ *
+ * Copied as a group because each factory below previously copied only the pre-existing
+ * transcript fields, silently dropping anything the translation added — which is how the
+ * structured remap record never reached a report while the code claimed it did.
+ */
+function numberingProvenance(transcriptMeta: PipelineStateBaseParams["transcriptMeta"]) {
+  return {
+    uniprotIsoform: transcriptMeta?.uniprotIsoform,
+    numberingBasis: transcriptMeta?.numberingBasis,
+    numberingRemap: transcriptMeta?.numberingRemap,
+  };
 }
 
 /**
@@ -70,6 +95,7 @@ export function createPlaceholderAnalysisState(params: PipelineStateBaseParams) 
       isCanonical: transcriptMeta?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning,
+      ...numberingProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
       esm2: null,
@@ -118,6 +144,7 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       isCanonical: transcriptMeta?.isCanonical ?? resResult.predictorData?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId ?? resResult.predictorData?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning ?? resResult.transcriptWarning,
+      ...numberingProvenance(transcriptMeta),
       gnomadFrequency: resResult.gnomadFrequency || null,
       aouFrequency: resResult.aouFrequency || null,
       esm2: resResult.esm2 || null,
@@ -165,6 +192,7 @@ export function createBiophysicalErrorAnalysisState(errorMessage: string, params
       isCanonical: transcriptMeta?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning,
+      ...numberingProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
       esm2: null,
@@ -251,6 +279,7 @@ export function createDemoFallbackAnalysisState(
       isCanonical: transcriptMeta?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning,
+      ...numberingProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
       esm2: null,

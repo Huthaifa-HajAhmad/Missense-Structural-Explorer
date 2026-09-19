@@ -113,10 +113,15 @@ describe("useApiClient getSidecarHealth", () => {
     const { result } = renderHook(() => useApiClient(), { wrapper });
     const health = await result.current.apiClient.getSidecarHealth();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/sidecar-health",
-      expect.objectContaining({ timeout: 5000 })
-    );
+    // The 5s budget is enforced INSIDE fetchWithRetry (per-attempt timer + abort signal), so it
+    // must NOT be forwarded into RequestInit — the previous assertion pinned exactly that leak.
+    const sidecarCall = fetchMock.mock.calls.find(([url]) => url === "/api/v1/sidecar-health");
+    expect(sidecarCall).toBeDefined();
+    const init = sidecarCall![1] as RequestInit;
+    expect(init).toBeDefined();
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init).not.toHaveProperty("timeout");
+    expect(init).not.toHaveProperty("deadlineAt");
     expect(health.reachable).toBe(true);
     expect(health.status).toBe("healthy");
     expect(health.modelLoaded).toBe(true);

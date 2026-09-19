@@ -50,6 +50,15 @@ const IUPAC_1 = "[ARNDCQEGHILKMFPSTWYV]";
 /** Protein substitution with an optional `p.` prefix. Groups: 1=wt, 2=pos, 3=mut. */
 export const HGVS_PATTERN = new RegExp(`^(?:p\\.)?(${IUPAC_3}|${IUPAC_1})(\\d{1,6})(${IUPAC_3}|${IUPAC_1})$`, "i");
 
+/**
+ * Longest residue position any human protein can have (Titin, TTN, is ~34 350 aa).
+ *
+ * HGVS itself allows six digits, so `p.Lys99999Asn` is well-formed notation for a position that
+ * cannot exist. Without this bound such a notation was accepted, then "reconciled" onto another
+ * isoform's numbering and returned as a valid analysis target for a 439 aa protein.
+ */
+export const MAX_PROTEIN_POSITION = 40_000;
+
 /** FoldX in-silico mutation string: wt1 + chain + pos + mut1 (e.g. RA408W). */
 export const MUTATION_FOLDX_PATTERN = /^[ARNDCQEGHILKMFPSTWYV][A-Z]\d+[ARNDCQEGHILKMFPSTWYV]$/i;
 

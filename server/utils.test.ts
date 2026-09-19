@@ -239,6 +239,22 @@ describe("Input Validation Patterns & Functions", () => {
       expect(() => validateVariant("p.Glu433=")).toThrow("Synonymous / no-change variant detected");
     });
 
+    it("should classify unknown and start-loss protein effects as out of scope, not malformed", () => {
+      // These are real annotations for splice/start-loss coordinates. Falling through to the
+      // generic "Invalid variant format" told the user nothing about why it could not be modelled.
+      expect(() => validateVariant("p.?")).toThrow("Protein effect unknown");
+      expect(() => validateVariant("p.(?)")).toThrow("Protein effect unknown");
+      expect(() => validateVariant("p.Met1?")).toThrow("Start-loss / unknown protein effect");
+      expect(() => validateVariant("p.M1?")).toThrow("Start-loss / unknown protein effect");
+    });
+
+    it("should reject residue positions that cannot exist on any protein", () => {
+      // Six digits are valid HGVS, so `p.Lys99999Asn` used to survive validation, get
+      // "reconciled" onto another isoform's numbering and be returned for a 439 aa protein.
+      expect(() => validateVariant("p.Lys99999Asn")).toThrow("Invalid variant position");
+      expect(validateVariant("p.Lys40000Asn")).toBe("p.Lys40000Asn");
+    });
+
     it("should reject nonsense variants with informative domain error", () => {
       expect(() => validateVariant("p.Glu289Ter")).toThrow("Nonsense / stop-gain variant detected");
       expect(() => validateVariant("p.E289*")).toThrow("Nonsense / stop-gain variant detected");

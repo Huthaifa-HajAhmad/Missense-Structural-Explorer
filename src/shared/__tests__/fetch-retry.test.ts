@@ -1,5 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchWithRetry } from "../fetch-retry";
+import {
+  MIN_RETRY_AFTER_MS,
+  fetchWithRetry,
+  parseRetryAfterMs,
+} from "../fetch-retry";
+
+describe("parseRetryAfterMs", () => {
+  it("accepts a plain delta-seconds value or a parseable HTTP-date", () => {
+    expect(parseRetryAfterMs("60")).toBe(60_000);
+    expect(parseRetryAfterMs(" 5 ")).toBe(5_000);
+    // Floored: `Retry-After: 0` must not become a zero-delay hot retry.
+    expect(parseRetryAfterMs("0")).toBe(MIN_RETRY_AFTER_MS);
+    expect(parseRetryAfterMs(new Date(Date.now() + 3_000).toUTCString())).toBeGreaterThan(2_000);
+  });
+
+  it("rejects malformed or past values so normal backoff applies", () => {
+    // `Number.parseInt("12abc")` used to return 12 — a 12-second delay from a junk header.
+    expect(parseRetryAfterMs("12abc")).toBeNull();
+    expect(parseRetryAfterMs("1e9")).toBeNull();
+    expect(parseRetryAfterMs("-5")).toBeNull();
+    expect(parseRetryAfterMs("")).toBeNull();
+    expect(parseRetryAfterMs(null)).toBeNull();
+    expect(parseRetryAfterMs(new Date(Date.now() - 3_000).toUTCString())).toBeNull();
+  });
+});
 
 describe("fetchWithRetry", () => {
   beforeEach(() => {
@@ -113,6 +137,40 @@ describe("fetchWithRetry", () => {
       // rather than an attempt the watchdog would abort.
       expect(res.status).toBe(503);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("caps a retry's own timeout by the caller's remaining deadline", async () => {
+      // The guard used to check only that the DELAY fitted, so the retry then ran under a fresh
+      // full timeout and the caller's watchdog killed it mid-flight — discarding the server's
+      // message behind "Request timed out after 45000ms". With a deadline the attempt itself is
+      // capped, so the error it produces is the provider's, not the watchdog's.
+      const badGateway = new Response("Bad gateway", { status: 502 });
+      let calls = 0;
+      vi.spyOn(global, "fetch").mockImplementation((_url: any, init: any) => {
+        calls++;
+        if (calls === 1) return Promise.resolve(badGateway.clone());
+        // A retry that black-holes until its own attempt timeout fires.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(Object.assign(new Error("Network request timed out"), { name: "TimeoutError" }))
+          );
+        }) as any;
+      });
+
+      const startedAt = Date.now();
+      const err: any = await fetchWithRetry(
+        "https://example.com/api/test",
+        { timeout: 5000, deadlineAt: Date.now() + 300 },
+        2,
+        10,
+        2
+      ).catch((e) => e);
+      const elapsed = Date.now() - startedAt;
+
+      expect(err).toBeTruthy();
+      expect(calls).toBe(2);
+      // Bounded by the caller's ~300ms deadline, NOT by a fresh 5000ms attempt.
+      expect(elapsed).toBeLessThan(900);
     });
 
     it("still retries when the budget can accommodate another attempt", async () => {

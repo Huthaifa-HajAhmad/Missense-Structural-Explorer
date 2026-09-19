@@ -91,6 +91,15 @@ export function useAuthSession() {
     let timeoutId: any = null;
     let signal = options.signal;
     const controller = options.timeout ? new AbortController() : null;
+    /**
+     * Absolute instant the watchdog below will abort the call.
+     *
+     * Passed to the retry utility so it can refuse to start an attempt that cannot finish
+     * before this instant, and cap each attempt's own timeout by the time that remains. It is
+     * captured HERE rather than inside `fetchWithRetry` because the session handshake and any
+     * re-auth happen before the request and already consume the same budget.
+     */
+    const watchdogDeadlineAt = options.timeout ? Date.now() + options.timeout : undefined;
 
     let abortListener: (() => void) | null = null;
     if (controller && options.timeout) {
@@ -278,14 +287,14 @@ export function useAuthSession() {
         }
       }
 
-      // `totalTimeoutMs` tells the retry utility which whole-call budget the watchdog above is
+      // `deadlineAt` tells the retry utility which whole-call deadline the watchdog above is
       // enforcing, so it never starts an attempt that timer would abort mid-flight — the bug
       // that turned a server `503 Retry-After: 60` into "Request timed out after 45000ms".
       const retryOptions = {
         ...options,
         headers,
         signal,
-        ...(options.timeout ? { totalTimeoutMs: options.timeout } : {}),
+        ...(watchdogDeadlineAt !== undefined ? { deadlineAt: watchdogDeadlineAt } : {}),
       };
 
       let response = await fetchWithRetry(url, retryOptions);

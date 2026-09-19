@@ -12,6 +12,7 @@ import {
   CDNA_PATTERN,
   DASHED_GENOMIC_PATTERN,
   GENOMIC_HGVS_PATTERN,
+  MAX_PROTEIN_POSITION,
   isGenomicOrCdnaNotation,
 } from "../../src/shared/variantNotation.ts";
 
@@ -78,7 +79,28 @@ export function validateVariant(variant: any): string {
       `Synonymous / no-change variant detected: "${trimmed}". The reference translators predict no amino-acid change for this coordinate (e.g. a UTR or synonymous coding change), so no missense analysis is possible.`
     );
   }
+  // Unknown / start-loss protein consequences. These are NOT malformed notations — they are
+  // outside the missense scope — and previously fell through to the generic parse error, which
+  // told the user nothing about why the coordinate could not be modelled.
+  if (/^(?:p\.)?\?$/.test(trimmed)) {
+    throw new Error(
+      `Protein effect unknown: "${trimmed}". The reference annotation does not predict a protein change for this coordinate, so it is not a missense substitution.`
+    );
+  }
+  if (/^(?:p\.)?(?:Met1|M1)\?$/i.test(trimmed)) {
+    throw new Error(
+      `Start-loss / unknown protein effect: "${trimmed}". The initiation codon is affected, which is not a single amino-acid substitution.`
+    );
+  }
   const match = trimmed.match(HGVS_PATTERN);
+  if (match) {
+    const position = Number.parseInt(match[2], 10);
+    if (!Number.isFinite(position) || position < 1 || position > MAX_PROTEIN_POSITION) {
+      throw new Error(
+        `Invalid variant position: "${trimmed}". Residue positions must be between 1 and ${MAX_PROTEIN_POSITION}.`
+      );
+    }
+  }
   if (!match) {
     if (NONSENSE_PATTERN.test(trimmed)) {
       throw new Error(`Nonsense / stop-gain variant detected: "${trimmed}". MissenseResolve specializes in single amino acid substitutions (missense mutations). Truncation and termination variants cannot be modeled with missense biophysical stability predictors (FoldX/DynaMut2).`);

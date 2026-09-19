@@ -172,3 +172,90 @@ describe("CacheRegistry & Dependency Injection Isolation", () => {
     expect(report.budgetWarning).toBe(true);
   });
 });
+
+/**
+ * Read-side cache gate.
+ *
+ * Entry SEMANTICS can change without the key changing: coordinate translations carry a 10-year
+ * TTL, and a payload written before protein numbering was verified is no longer trustworthy even
+ * though its shape is unchanged. `isUsable` lets such an entry be treated as a miss (and, when
+ * `shouldCache` allows, replaced) instead of being served silently — the alternative was bumping
+ * the global schema version, which evicts every other source's warm cache to fix one.
+ */
+describe("getCachedOrFetch — isUsable read gate", () => {
+  const makeCache = () => new LRUCache<string, any>({ max: 10, ttl: 60_000 });
+
+  it("treats an unusable entry as a miss and re-fetches", async () => {
+    const registry = createCacheRegistry();
+    const l1Cache = makeCache();
+    const key = "isusable-unusable-entry";
+    l1Cache.set(key, { verified: false });
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return { verified: true };
+    };
+
+    const result = await registry.getCachedOrFetch({
+      key,
+      source: "test",
+      l1Cache,
+      ttlSeconds: 60,
+      bypassSqlite: true,
+      fetcher,
+      isUsable: (cached: any) => cached.verified === true,
+    });
+
+    expect(calls).toBe(1);
+    expect(result).toEqual({ verified: true });
+  });
+
+  it("serves a usable entry without calling the fetcher", async () => {
+    const registry = createCacheRegistry();
+    const l1Cache = makeCache();
+    const key = "isusable-usable-entry";
+    l1Cache.set(key, { verified: true });
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return { verified: false };
+    };
+
+    const result = await registry.getCachedOrFetch({
+      key,
+      source: "test",
+      l1Cache,
+      ttlSeconds: 60,
+      bypassSqlite: true,
+      fetcher,
+      isUsable: (cached: any) => cached.verified === true,
+    });
+
+    expect(calls).toBe(0);
+    expect(result).toEqual({ verified: true });
+  });
+
+  it("keeps prior behaviour when no gate is supplied", async () => {
+    const registry = createCacheRegistry();
+    const l1Cache = makeCache();
+    const key = "isusable-no-gate";
+    l1Cache.set(key, { any: "value" });
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return { any: "fresh" };
+    };
+
+    const result = await registry.getCachedOrFetch({
+      key,
+      source: "test",
+      l1Cache,
+      ttlSeconds: 60,
+      bypassSqlite: true,
+      fetcher,
+    });
+
+    expect(calls).toBe(0);
+    expect(result).toEqual({ any: "value" });
+  });
+});

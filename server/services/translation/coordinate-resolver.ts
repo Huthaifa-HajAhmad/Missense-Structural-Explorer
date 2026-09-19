@@ -18,13 +18,25 @@
  * Every tier is recorded in `attempts` so the answer stays auditable, and the route
  * reports which provider actually answered.
  *
+ * WHAT "RESOLVED" MEANS HERE
+ * --------------------------
+ * A provider answering is not the same as the question being answered: this platform models
+ * missense substitutions, so a payload whose transcripts carry no HGVSp (intronic, UTR,
+ * non-coding) is a MISS for the ladder, not an answer — another provider's annotation release
+ * may number the coordinate. The ladder therefore requires a protein-altering consequence of
+ * every rung, and only returns a protein-free payload (with `proteinChangeFound: false`) once
+ * every rung has been asked, so the caller can explain why instead of reporting "not found".
+ *
+ * The ladder also owns protein-NUMBERING reconciliation (`isoform-numbering.ts`), because the
+ * cache decision depends on it: an answer whose numbering could not be tied to the canonical
+ * UniProt isoform must never be stored as settled truth for a decade. See {@link isCacheable}.
+ *
  * DELIBERATE SCOPE BOUNDARY
  * -------------------------
  * gnomAD / MyVariant-style databases were evaluated and REJECTED as fallbacks: they only
  * answer for variants already observed by their cohorts, whereas this platform's core use
  * case is rare/novel VUS (a routine missense SNV returned "Variant not found" from gnomAD).
- * Only reference-sequence translators can answer for a novel variant. See doc/FUTURE_WORK.md
- * for the deferred fully-offline (tier 3) resolver.
+ * Only reference-sequence translators can answer for a novel variant.
  */
 
 import { z } from "zod";
@@ -35,12 +47,16 @@ import { buildCoordinateTranslationKey } from "../infra/cache-keys.ts";
 import { anySignal } from "../../utils.ts";
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { fetchVariantValidatorConsequence } from "./variant-validator.ts";
+import { reconcileIsoformNumbering, type NumberingVerdict } from "./isoform-numbering.ts";
 import {
   CoordinateResolutionError,
   type ProviderAttempt,
+  type ProteinAlteringConsequence,
   type ResolutionFailureKind,
   type ResolutionOutcome,
+  type ResolutionProviderOptions,
   type ResolvedConsequence,
+  type ResolvedTranscriptConsequence,
   type TranslationProvider,
 } from "./types.ts";
 
@@ -60,6 +76,9 @@ export const ENSEMBL_HOSTS: Record<GenomeAssembly, string> = {
 /** Ensembl's default host serves GRCh38, so unannotated notations keep their prior behavior. */
 export const DEFAULT_ASSEMBLY: GenomeAssembly = "GRCh38";
 
+/** Ensembl VEP's configured per-attempt tolerance. */
+export const ENSEMBL_VEP_TIMEOUT_MS = 15_000;
+
 const ensemblResponseSchema = z.array(
   z.object({
     seq_region_name: z.string().optional(),
@@ -70,17 +89,19 @@ const ensemblResponseSchema = z.array(
         z
           .object({
             transcript_id: z.string().optional(),
-            canonical: z.union([z.number(), z.boolean()]).optional(),
+            // VEP sends `canonical` as 1/0 or true/false and has been seen sending the string
+            // form. Accepting all three keeps a payload carrying the field reconciliation
+            // depends on from being discarded wholesale.
+            canonical: z.union([z.number(), z.boolean(), z.string()]).optional(),
             mane_select: z.any().optional(),
             mane_plus_clinical: z.any().optional(),
             hgvsp: z.string().optional(),
             hgvsc: z.string().optional(),
             amino_acids: z.string().optional(),
-            // Isoform the consequence's protein numbering belongs to. Named explicitly (rather
-            // than left to `.passthrough()`) because isoform reconciliation reads it and a
-            // future schema tightening must not silently drop the field that prevents
-            // numbering mismatches.
-            uniprot_isoform: z.array(z.string()).optional(),
+            // Isoform the consequence's protein numbering belongs to. Accepts the string form
+            // for the same reason: rejecting it silently degraded a resolution to the
+            // metadata-free fallback provider.
+            uniprot_isoform: z.union([z.array(z.string()), z.string()]).optional(),
             gene_symbol: z.string().optional(),
             consequence_terms: z.array(z.string()).optional(),
             swissprot: z.array(z.string()).optional(),
@@ -91,6 +112,67 @@ const ensemblResponseSchema = z.array(
   })
 );
 
+/** Canonical UniProt accession reported for a consequence (`Q9Y305.179` -> `Q9Y305`). */
+export function canonicalAccessionOf(
+  consequence: ResolvedTranscriptConsequence
+): string | undefined {
+  const accession = consequence.swissprot?.[0]?.split(".")[0]?.trim();
+  return accession || undefined;
+}
+
+/** MANE Select, else Ensembl canonical, else any consequence that reports a protein change. */
+export function selectProteinConsequence(
+  consequences: ResolvedTranscriptConsequence[]
+): ProteinAlteringConsequence | undefined {
+  const mane = consequences.find(
+    (t): t is ProteinAlteringConsequence => Boolean(t.mane_select && t.hgvsp)
+  );
+  const canonical = consequences.find(
+    (t): t is ProteinAlteringConsequence =>
+      Boolean((t.canonical === 1 || t.canonical === true || t.canonical === "1") && t.hgvsp)
+  );
+  const anyProtein = consequences.find(
+    (t): t is ProteinAlteringConsequence => Boolean(t.hgvsp)
+  );
+  return mane ?? canonical ?? anyProtein;
+}
+
+/** Most informative consequence for explaining why no protein change exists. */
+export function pickInformativeConsequence(
+  consequences: ResolvedTranscriptConsequence[]
+): ResolvedTranscriptConsequence | undefined {
+  return (
+    consequences.find((t) => t.mane_select) ??
+    consequences.find((t) => t.canonical === 1 || t.canonical === true || t.canonical === "1") ??
+    consequences[0]
+  );
+}
+
+export interface ProteinTarget {
+  proteinChangeFound: boolean;
+  numbering?: NumberingVerdict;
+}
+
+/**
+ * Turns a provider's consequence list into the reconciled protein target.
+ *
+ * Pure, so it can be re-run on a cached payload: entries written by earlier versions
+ * (including protein-free ones) are interpreted correctly instead of being trusted
+ * field-by-field, and the cache payload itself stays slim.
+ */
+export function resolveProteinTarget(
+  consequences: ResolvedTranscriptConsequence[]
+): ProteinTarget {
+  const selected = selectProteinConsequence(consequences);
+  if (!selected) return { proteinChangeFound: false };
+
+  const canonicalAccession = canonicalAccessionOf(selected);
+  return {
+    proteinChangeFound: true,
+    numbering: reconcileIsoformNumbering(selected, consequences, canonicalAccession),
+  };
+}
+
 /**
  * Queries Ensembl VEP for a coordinate notation.
  * Throws {@link CoordinateResolutionError} on transport failure or unusable payload.
@@ -98,7 +180,8 @@ const ensemblResponseSchema = z.array(
 export async function fetchEnsemblVepConsequence(
   notation: string,
   assembly: GenomeAssembly,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: ResolutionProviderOptions
 ): Promise<{ consequence: ResolvedConsequence; attempt: ProviderAttempt }> {
   const startedAt = Date.now();
   const url =
@@ -119,7 +202,11 @@ export async function fetchEnsemblVepConsequence(
 
   let response: Response;
   try {
-    response = await fetchWithRetry(url, { headers: { Accept: "application/json" }, timeout: 15000, signal });
+    response = await fetchWithRetry(url, {
+      headers: { Accept: "application/json" },
+      timeout: options?.timeoutMs ?? ENSEMBL_VEP_TIMEOUT_MS,
+      signal,
+    });
   } catch (err: any) {
     // A caller-initiated abort must propagate untouched so the HTTP layer can answer 504.
     if (signal?.aborted) throw err;
@@ -144,7 +231,9 @@ export async function fetchEnsemblVepConsequence(
   let raw: unknown;
   try {
     raw = await response.json();
-  } catch {
+  } catch (err: any) {
+    // A body read killed by our own deadline or window is a timeout, not a malformed payload.
+    if (signal?.aborted) throw err;
     throw new CoordinateResolutionError("invalid_response", "Ensembl VEP returned malformed JSON.", [
       attempt(false, "malformed JSON", "invalid_response"),
     ]);
@@ -223,38 +312,66 @@ defaultCacheRegistry.registerCache("coordinateTranslationCache", coordinateTrans
 const COORDINATE_TRANSLATION_TTL_SECONDS = 315_360_000;
 
 /**
+ * Whether a resolved payload may be stored as settled truth.
+ *
+ * EXCLUDES two shapes that must stay re-resolvable:
+ *   - payloads with no protein change at all (another provider's annotation release may number
+ *     the coordinate tomorrow), and
+ *   - payloads whose numbering could not be verified against the canonical isoform — caching
+ *     one pinned the ACOT9 mis-numbering for ten years, so it kept being served even after the
+ *     primary provider (the one carrying the isoform metadata) had recovered.
+ */
+function isCacheable(outcome: { consequence: ResolvedConsequence }): boolean {
+  if (!outcome?.consequence?.transcript_consequences?.length) return false;
+  const target = resolveProteinTarget(outcome.consequence.transcript_consequences);
+  if (!target.proteinChangeFound) return false;
+  return target.numbering?.status === "canonical" || target.numbering?.status === "remapped";
+}
+
+/**
  * Total wall-clock budget for the whole provider ladder.
  *
- * Without this, the worst case is the sum of every provider's retries and timeouts (tens of
- * seconds), which is unacceptable in a clinical UI. The budget is enforced with a single
- * deadline signal shared by all providers, so the ladder always answers in bounded time.
+ * A ladder of N providers must be able to give EACH rung one full attempt at its own
+ * configured tolerance, or a rung is killed by arithmetic rather than by the provider being
+ * slow. The previous 25s budget could not fit two 15s providers, and giving the primary the
+ * whole budget starved the fallback entirely (see the window logic in {@link resolveCoordinate}).
+ *
+ * The client's per-request budget for this call is 45s (`src/api/structureApi.ts`), which must
+ * stay above this value.
  */
-export const DEFAULT_RESOLUTION_BUDGET_MS = 25_000;
+export const DEFAULT_RESOLUTION_BUDGET_MS = 32_000;
 
 /** Ordered provider chain: primary first, then independent fallbacks. */
 const PROVIDER_CHAIN: Array<{
   provider: TranslationProvider;
+  /** This provider's configured per-attempt tolerance (before the ladder caps it). */
+  timeoutMs: number;
   resolve: (
     notation: string,
     assembly: GenomeAssembly,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: ResolutionProviderOptions
   ) => Promise<{ consequence: ResolvedConsequence; attempt: ProviderAttempt }>;
 }> = [
-  { provider: "ensembl-vep", resolve: fetchEnsemblVepConsequence },
-  { provider: "variant-validator", resolve: fetchVariantValidatorConsequence },
+  { provider: "ensembl-vep", timeoutMs: ENSEMBL_VEP_TIMEOUT_MS, resolve: fetchEnsemblVepConsequence },
+  { provider: "variant-validator", timeoutMs: 15_000, resolve: fetchVariantValidatorConsequence },
 ];
 
 /**
  * Collapses per-provider failures into a single machine-readable cause.
- * All-unreachable ⇒ upstream outage (503); any definitive "not found" ⇒ 404.
+ *
+ * Order matters. `invalid_response` is checked BEFORE `not_found`: when one provider answers
+ * "nothing here" and another returns an unusable payload, "no transcript consequence was found
+ * in any provider" is untrue — the honest report is that a provider was unusable, and the client
+ * should retry rather than rewrite a coordinate that may be perfectly valid.
  */
 function classifyTotalFailure(attempts: ProviderAttempt[]): ResolutionFailureKind {
   const kinds = attempts.map((a) => a.failureKind).filter(Boolean) as ResolutionFailureKind[];
   if (kinds.length > 0 && kinds.every((k) => k === "upstream_unavailable")) {
     return "upstream_unavailable";
   }
-  if (kinds.includes("not_found")) return "not_found";
   if (kinds.includes("invalid_response")) return "invalid_response";
+  if (kinds.includes("not_found")) return "not_found";
   return "upstream_unavailable";
 }
 
@@ -288,6 +405,20 @@ export function buildResolutionUnavailableMessage(kind: ResolutionFailureKind): 
   );
 }
 
+/** Rebuilds the outcome fields that are DERIVED (not stored) from a resolved payload. */
+function buildOutcome(
+  consequence: ResolvedConsequence,
+  base: Omit<ResolutionOutcome, "consequence" | "proteinChangeFound" | "numbering">
+): ResolutionOutcome {
+  const target = resolveProteinTarget(consequence.transcript_consequences ?? []);
+  return {
+    ...base,
+    consequence,
+    proteinChangeFound: target.proteinChangeFound,
+    ...(target.numbering ? { numbering: target.numbering } : {}),
+  };
+}
+
 /**
  * Resolves a genomic/cDNA coordinate notation to a protein-level consequence.
  *
@@ -306,7 +437,6 @@ export async function resolveCoordinate(
 
   // Enforce a single wall-clock deadline across every provider.
   const deadline = new AbortController();
-  const ladderStartedAt = Date.now();
   const timer = setTimeout(
     () => deadline.abort(new Error(`Coordinate resolution exceeded its ${budgetMs}ms budget`)),
     budgetMs
@@ -325,29 +455,38 @@ export async function resolveCoordinate(
       source: "coordinate_translation",
       l1Cache: coordinateTranslationCache,
       ttlSeconds: COORDINATE_TRANSLATION_TTL_SECONDS,
-      // Never persist failures: an outage must not poison the immutable cache.
-      shouldCache: (result) => Boolean(result?.consequence?.transcript_consequences?.length),
+      // Never persist failures, protein-free answers, or unverified numbering.
+      shouldCache: isCacheable,
+      // …and never SERVE one either. Translations are cached for ~10 years, so a payload written
+      // before numbering was verified (or one written by another deployment) would otherwise keep
+      // being returned un-reconciled even though a metadata-carrying provider is reachable again.
+      isUsable: (cached) => isCacheable(cached),
       fetcher: async () => {
         fetchedFresh = true;
         const attempts: ProviderAttempt[] = [];
+        // Started AFTER the cache lookup: a slow L2 read must not consume the ladder's budget
+        // and leave the loop with nothing to try.
+        const ladderStartedAt = Date.now();
+        // Kept so a fully protein-free outcome can still explain itself.
+        let informative: ResolvedConsequence | null = null;
+        let informativeProvider: TranslationProvider | null = null;
 
         for (let i = 0; i < PROVIDER_CHAIN.length; i++) {
-          const { provider, resolve } = PROVIDER_CHAIN[i];
+          const { provider, timeoutMs, resolve } = PROVIDER_CHAIN[i];
           // A caller-initiated abort propagates untouched so the HTTP layer can answer 504.
           if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
           if (deadline.signal.aborted) break; // budget exhausted; stop trying providers
 
           // ── Fair share of the remaining budget ──────────────────────────────────────
-          // The ladder used to hand its ENTIRE budget to the primary. Ensembl VEP's own retry
-          // envelope is 3 attempts x 15s, so a VEP that was slow or unreachable consumed all
-          // 25s, the deadline fired, and the loop broke BEFORE VariantValidator — the tier that
-          // exists precisely for a degraded primary — was ever called. The clinician was then
-          // told "all reference providers are unreachable" for an outage that affected only the
-          // primary, and the independent fallback never received the chance the ladder promises.
+          // Handing the primary the WHOLE budget let a slow Ensembl VEP (whose own retry
+          // envelope is several attempts long) consume all of it, so the loop broke before
+          // VariantValidator — the tier that exists for a degraded primary — was ever called,
+          // and the clinician was told "all reference providers are unreachable" for a
+          // primary-only problem.
           //
-          // Each provider now gets an even share of whatever remains, so every rung is
-          // guaranteed a window. When the primary answers or fails fast (the common case)
-          // nothing has been consumed, so the fallback still inherits nearly the whole budget.
+          // Each provider now gets an even share of what remains, so every rung is guaranteed
+          // a window. When the primary answers or fails fast (the common case) nothing has
+          // been consumed, so the fallback still inherits nearly the whole budget.
           const providersLeft = PROVIDER_CHAIN.length - i;
           const remainingMs = budgetMs - (Date.now() - ladderStartedAt);
           const windowMs = Math.floor(remainingMs / providersLeft);
@@ -379,8 +518,32 @@ export async function resolveCoordinate(
 
           const providerStartedAt = Date.now();
           try {
-            const { consequence, attempt } = await resolve(notation, assembly, providerSignal);
+            // The provider's own attempt timeout is CAPPED by the window, so its tolerance can
+            // never exceed the time the ladder actually granted it: the provider reports a
+            // clean timeout instead of being killed by our timer and then called "unreachable".
+            const { consequence, attempt } = await resolve(notation, assembly, providerSignal, {
+              timeoutMs: Math.min(timeoutMs, windowMs),
+            });
             clearTimeout(windowTimer);
+
+            const target = resolveProteinTarget(consequence.transcript_consequences ?? []);
+            if (!target.proteinChangeFound) {
+              // A provider that maps the coordinate only to non-coding consequences has not
+              // answered this platform's question. Record the miss, keep the payload for the
+              // explanation, and let the next rung try — its annotation release may differ.
+              attempts.push({
+                ...attempt,
+                ok: false,
+                reason: "no protein-altering consequence reported",
+                failureKind: "not_found",
+              });
+              if (!informative) {
+                informative = consequence;
+                informativeProvider = provider;
+              }
+              continue;
+            }
+
             lastAttempts = [...attempts, attempt];
             // Persist fallback provenance with the payload so a later cache read does
             // not silently upgrade a degraded answer to a first-choice one.
@@ -420,6 +583,20 @@ export async function resolveCoordinate(
           }
         }
 
+        // Every rung was asked and none reported a protein change. Return the payload anyway —
+        // the caller can then explain what the coordinate actually is (422 carrying the gene,
+        // consequence terms and HGVSc) instead of a bare "not found".
+        if (informative) {
+          lastAttempts = attempts;
+          const provider = informativeProvider ?? PROVIDER_CHAIN[0].provider;
+          return {
+            consequence: informative,
+            assembly,
+            resolvedBy: provider,
+            usedFallback: provider !== PROVIDER_CHAIN[0].provider,
+          };
+        }
+
         const kind = classifyTotalFailure(attempts);
         throw new CoordinateResolutionError(kind, buildResolutionUnavailableMessage(kind), attempts);
       },
@@ -430,8 +607,7 @@ export async function resolveCoordinate(
       ? [{ provider: cached.resolvedBy, ok: true, durationMs: 0, reason: "cache_hit" }]
       : lastAttempts;
 
-    return {
-      consequence: cached.consequence,
+    return buildOutcome(cached.consequence, {
       assembly: cached.assembly,
       attempts,
       // Prefer the provenance stored with the payload; fall back to deriving it for
@@ -440,7 +616,7 @@ export async function resolveCoordinate(
         cached.usedFallback ??
         (!cacheHit && cached.resolvedBy !== PROVIDER_CHAIN[0].provider),
       cacheHit,
-    };
+    });
   } finally {
     clearTimeout(timer);
   }

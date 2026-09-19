@@ -154,7 +154,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     "variant": "Chr1(GRCh38):g.25484258G>A"
   }
   ```
-* **Description**: Uses Ensembl VEP endpoints to translate genomic / cDNA coordinate inputs into IUPAC protein-level **missense** variant notations and UniProt accessions.
+* **Description**: Uses Ensembl VEP endpoints to translate genomic / cDNA coordinate inputs into IUPAC protein-level **missense** variant notations and UniProt accessions. Resolution runs as a provider ladder — L2 cache → Ensembl VEP → VariantValidator — and the response reports which provider answered (`provenance`). Every rung is asked for a **protein-altering** consequence; a payload with none is a miss, not an answer, so another provider's annotation release gets its chance before the coordinate is refused.
 * **Accepted Notations** (see `src/shared/variantNotation.ts` — the single source of truth):
   | Family | Example |
   | --- | --- |
@@ -164,10 +164,11 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   | Dashed genomic coordinates | `20-23365054-G-A` |
   | Transcript cDNA HGVS | `NM_004333.6:c.1799T>A` |
 * **Assembly Routing**: An inline `(GRCh38)` / `(GRCh37)` / `(hg38)` / `(hg19)` annotation selects the Ensembl host — `rest.ensembl.org` for GRCh38 and `grch37.rest.ensembl.org` for GRCh37. The annotation is stripped before the query, and the resolved build is echoed back as `assembly`. Notations without an annotation default to GRCh38 (the Ensembl default host).
-* **Isoform Numbering Reconciliation**: `hgvsp` is numbered on the *selected transcript's* protein, while `swissprot` names the *canonical* UniProt accession. When a MANE Select transcript maps to a non-canonical UniProt isoform these disagree (e.g. ACOT9: MANE `NM_001037171.2` → isoform `Q9Y305-4` `p.Lys281Asn`, canonical `Q9Y305`/`Q9Y305-1` → `p.Lys272Asn`). Because AlphaFold DB / PDB structures follow canonical numbering, the route reconciles before returning:
-  - numbering already canonical → returned unchanged;
-  - numbering on another isoform → the same substitution is returned as numbered on a canonical transcript, with `numberingRemap` and a `transcriptWarning` stating both notations;
-  - no canonically-numbered sibling exists → `422 ISOFORM_NUMBERING_MISMATCH` instead of a numbering the modelling pipeline cannot honour.
+* **Isoform Numbering Reconciliation**: `hgvsp` is numbered on the *selected transcript's* protein, while `swissprot` names the *canonical* UniProt accession. When a MANE Select transcript maps to a non-canonical UniProt isoform these disagree (e.g. ACOT9: MANE `NM_001037171.2` → isoform `Q9Y305-4` `p.Lys281Asn`, canonical `Q9Y305`/`Q9Y305-1` → `p.Lys272Asn`). Because AlphaFold DB / PDB structures follow canonical numbering, resolution reconciles the numbering before returning — there are **four** outcomes, reported as `numberingBasis`:
+  - `canonical` — numbering proven to follow the canonical accession (either stated by the provider, or inferred when an unannotated consequence sits at the same residue position as a canonically-numbered sibling) → returned unchanged, `numberingVerified: true`;
+  - `remapped` — numbering follows another isoform, and the same substitution is reported by a canonically-numbered sibling → that sibling's HGVSp is returned, with `numberingRemap` and a `transcriptWarning` stating both notations. A remap requires the same gene, the same amino-acid change (VEP `amino_acids`, else the letters in `hgvsp`), a residue position inside a biologically possible range, and unanimous agreement on the numbering offset across every canonically-numbered sibling; any disagreement refuses instead;
+  - `unverified` — the basis cannot be established (the provider reported no UniProt accession, as VariantValidator never does, or stated no isoform and offered nothing to compare against). The notation is returned **with a `transcriptWarning` and `numberingVerified: false`**, and the result is deliberately **not cached**, so it can be re-resolved once a metadata-carrying provider is reachable. Residue numbers in this state may not match the canonical sequence;
+  - `unsupported` — the numbering is known to be non-canonical and no safe sibling exists → `422 ISOFORM_NUMBERING_MISMATCH` rather than a numbering the modelling pipeline cannot honour.
 * **Response (additions)**:
   ```json
   {
@@ -175,6 +176,8 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     "variant": "p.Glu433Lys",
     "uniprotId": "Q8N5G0",
     "uniprotIsoform": "Q8N5G0-1",
+    "numberingBasis": "canonical",
+    "numberingVerified": true,
     "assembly": "GRCh38",
     "notationNormalized": "chr1:g.25484258G>A",
     "assemblyNote": "Notation annotated \"(GRCh38)\" — resolved against the GRCh38 reference assembly."
@@ -191,13 +194,15 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     "transcriptWarning": "Protein numbering remapped for structural analysis: …"
   }
   ```
+  `numberingBasis: "unverified"` instead carries `numberingUnverifiedReason` and a `transcriptWarning` beginning "Protein numbering could not be verified against …".
 * **Error Codes**:
   - `400 BAD_REQUEST`: Notation is not a recognized coordinate format. The message enumerates every accepted family.
-  - `422 NON_MISSENSE_VARIANT`: The notation is a recognized coordinate but is **not a single-nucleotide substitution** (deletion, insertion, duplication, inversion, delins, `=`), **or** it resolved to a non-missense protein consequence (stop-gain, frameshift, protein indel, synonymous / no-change `p.(=)`), **or** it resolved to transcript consequences that carry **no protein change at all** (intronic, UTR, splice-region, non-coding gene) so no HGVSp can exist. For the no-HGVSp case the response `details` carries `gene`, `transcriptId`, `hgvsc`, `consequence`, `notation` and `assembly` so the coordinate can be cross-checked. MissenseResolve models single amino-acid substitutions only.
-  - `422 ISOFORM_NUMBERING_MISMATCH`: The resolved notation is numbered on a non-canonical UniProt isoform and no canonically-numbered transcript reports the same substitution, so no structure can be modelled for it. `details` carries `gene`, `hgvsp`, `transcriptId`, `isoform`, `uniprotId` and `reason`; re-enter the substitution in canonical numbering.
+  - `422 NON_MISSENSE_VARIANT`: The notation is a recognized coordinate but is **not a single-nucleotide substitution** (deletion, insertion, duplication, inversion, delins, `=`), **or** it resolved to a non-missense protein consequence (stop-gain, frameshift, protein indel, synonymous / no-change `p.(=)`, unknown effect `p.?`, start-loss `p.Met1?`), **or** every provider returned transcript consequences carrying **no protein change at all** (intronic, UTR, splice-region, non-coding gene) so no HGVSp can exist. For the no-HGVSp case the response `details` carries `gene`, `transcriptId`, `hgvsc`, `consequence`, `notation` and `assembly` where known — keys with no value are omitted, so `details` may be absent (a consequence with protein-altering terms and no HGVSp is reported as an annotation gap, never as proof the protein is unaffected). MissenseResolve models single amino-acid substitutions only.
+  - `422 ISOFORM_NUMBERING_MISMATCH`: The resolved notation is numbered on a non-canonical UniProt isoform and no canonically-numbered transcript reports the same substitution (or the canonically-numbered transcripts disagree on its position), so no structure can be modelled for it. `details` carries `gene`, `hgvsp`, `transcriptId`, `isoform`, `uniprotId`, `reason`, `notation` and `assembly`; re-enter the substitution in canonical numbering.
   - `404 NOT_FOUND`: No reference provider produced any transcript consequence for the coordinate (unknown coordinate or wrong genome build); the message also names the non-coding possibility.
-  - `502 BAD_GATEWAY`: Ensembl VEP returned a malformed response.
-  - `504 TIMEOUT`: Ensembl VEP query timed out.
+  - `502 BAD_GATEWAY`: A provider returned a malformed or structurally unusable response.
+  - `503 TRANSLATION_UNAVAILABLE`: Every provider was unreachable or failed to answer in time. Sent with **`Retry-After: 60`**; the message tells the clinician to enter the protein-level substitution directly, which skips coordinate translation entirely. Clients should **return** this response rather than retrying inside the request: the advertised cooldown outlasts any interactive budget (the client utility does exactly that for any `Retry-After` above 2s).
+  - `504 TIMEOUT`: The coordinate-translation call was aborted by the caller (client disconnect).
 
 ### 7. Sequence Fetcher
 * **Route**: `GET /api/v1/sequence/:uniprotId`

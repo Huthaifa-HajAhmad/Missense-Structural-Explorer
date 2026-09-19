@@ -15,6 +15,7 @@
  */
 
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
+import type { NumberingVerdict } from "./isoform-numbering.ts";
 
 /** Identifier of a coordinate-resolution provider. */
 export type TranslationProvider = "ensembl-vep" | "variant-validator";
@@ -31,7 +32,8 @@ export const TRANSLATION_PROVIDER_LABELS: Record<TranslationProvider, string> = 
  */
 export interface ResolvedTranscriptConsequence {
   transcript_id?: string;
-  canonical?: number | boolean;
+  /** VEP sends this as 1/0, true/false, or occasionally the string form. */
+  canonical?: number | boolean | string;
   mane_select?: unknown;
   mane_plus_clinical?: unknown;
   hgvsp?: string;
@@ -51,12 +53,16 @@ export interface ResolvedTranscriptConsequence {
    * UniProt isoform identifiers this consequence's protein numbering belongs to
    * (VEP `uniprot_isoform`, e.g. `["Q9Y305-4"]`).
    *
+   * Typed as either shape because VEP has been observed sending a bare string, and rejecting it
+   * discarded the whole payload — silently degrading a resolution to the metadata-free fallback
+   * provider. Consumers must normalise with `normalizeIsoformIds`.
+   *
    * CRITICAL: `hgvsp` is numbered on the SELECTED TRANSCRIPT's protein product, while
    * `swissprot` names the CANONICAL accession. When a MANE Select transcript maps to a
    * non-canonical isoform these disagree — see `isoform-numbering.ts`. Never pair an
    * un-reconciled `hgvsp` with a canonical accession downstream.
    */
-  uniprot_isoform?: string[];
+  uniprot_isoform?: string[] | string;
   gene_symbol?: string;
   consequence_terms?: string[];
   swissprot?: string[];
@@ -110,6 +116,34 @@ export interface ResolutionOutcome {
   usedFallback: boolean;
   /** True when the mapping was served from cache, so no provider was contacted. */
   cacheHit: boolean;
+  /**
+   * True when at least one transcript consequence reports a protein change.
+   *
+   * The ladder requires this of EVERY rung: a provider that maps a coordinate only to
+   * intronic/UTR consequences has not answered the question this platform asks, and another
+   * provider's annotation release may well number it. When no rung reports a protein change
+   * the payload is still returned (`consequence` carries the most informative consequences)
+   * so the caller can explain WHY — instead of a bare "not found".
+   */
+  proteinChangeFound: boolean;
+  /**
+   * Protein-numbering verdict for the returned consequence (see `isoform-numbering.ts`).
+   * Present only when `proteinChangeFound` is true. Callers MUST refuse
+   * `status === "unsupported"` and must disclose `status === "unverified"`.
+   */
+  numbering?: NumberingVerdict;
+}
+
+/**
+ * Per-provider transport overrides supplied by the ladder.
+ *
+ * `timeoutMs` is the window the ladder has actually granted this provider, so the provider's
+ * own attempt timeout fires BEFORE the window does. Previously the window (a share of the
+ * ladder budget) could be shorter than the provider's configured tolerance, which killed
+ * answers the provider considered valid and mislabelled them as unreachable.
+ */
+export interface ResolutionProviderOptions {
+  timeoutMs?: number;
 }
 
 /**

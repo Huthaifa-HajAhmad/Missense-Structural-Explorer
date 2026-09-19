@@ -38,16 +38,18 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ variant }),
-        // This budget must cover ONE server resolution: the ladder allots 25s, and the budget
-        // must exceed it or the client aborts a resolution that is about to succeed via the
-        // fallback provider.
+        // This budget must cover ONE server resolution: the ladder allots 32s across its rungs
+        // (each rung gets a share, and each provider's own attempt timeout is capped by its
+        // share), and the budget must exceed that or the client aborts a resolution that is
+        // about to succeed via the fallback provider.
         //
-        // It is deliberately NOT sized for a client-side retry. The server's own ladder already
-        // retries each provider (3 attempts for VEP), and on total failure it answers
-        // `503 Retry-After: 60` — a cooldown no interactive request can wait out. `fetchWithRetry`
-        // therefore returns that response instead of retrying, which is what keeps the server's
-        // actionable message ("enter the protein-level substitution directly") in front of the
-        // user instead of a bare "Request timed out after 45000ms" from a second, aborted attempt.
+        // It is deliberately NOT sized for a client-side retry. The server's ladder already
+        // retries each provider, and on total failure it answers `503 Retry-After: 60` — a
+        // cooldown no interactive request can wait out. `fetchWithRetry` therefore returns that
+        // response instead of retrying, and any retry it does start is capped by this deadline,
+        // which is what keeps the server's actionable message ("enter the protein-level
+        // substitution directly") in front of the user instead of a bare
+        // "Request timed out after 45000ms" from a second, aborted attempt.
         timeout: 45000,
         signal
       });

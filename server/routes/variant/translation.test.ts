@@ -18,10 +18,19 @@ const getTranslateHandler = () => {
   return route.route.stack[route.route.stack.length - 1].handle;
 };
 
+/**
+ * Canonically-numbered missense consequence.
+ *
+ * `uniprot_isoform` is what makes the numbering provable, and therefore what makes an answer
+ * cacheable and free of numbering warnings: without it the route now (correctly) reports an
+ * `unverified` numbering basis.
+ */
 const MISSENSE_CONSEQUENCE = {
   transcript_id: "ENST00000374343",
   canonical: 1,
   hgvsp: "ENSP00000363463.4:p.Glu433Lys",
+  amino_acids: "E/K",
+  uniprot_isoform: ["Q8N5G0-1"],
   gene_symbol: "MACO1",
   swissprot: ["Q8N5G0.1"]
 };
@@ -618,9 +627,13 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     expect(body.numberingRemap).toBeDefined();
   });
 
-  it("keeps prior behaviour when the provider carries no isoform metadata", async () => {
-    // VariantValidator-shaped consequences have no uniprot_isoform; reconciliation must not
-    // invent a mismatch from missing data.
+  /**
+   * A review showed the first version treated "no isoform metadata" as "canonical": the MANE
+   * numbering was returned unchanged, with no warning, and then cached. Every VariantValidator
+   * answer and every unannotated VEP consequence took that path, which is exactly how the ACOT9
+   * mis-numbering survived the fix. It must now be disclosed instead.
+   */
+  it("discloses an UNVERIFIABLE numbering basis instead of assuming canonical", async () => {
     const { statusCode, body } = await invokeTranslate("chr1:g.25484258G>A", {
       ...MISSENSE_CONSEQUENCE,
       uniprot_isoform: undefined,
@@ -628,6 +641,130 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
 
     expect(statusCode).toBe(200);
     expect(body.variant).toBe("p.Glu433Lys");
+    expect(body.numberingBasis).toBe("unverified");
+    expect(body.numberingVerified).toBe(false);
+    expect(body.numberingUnverifiedReason).toContain("which UniProt isoform");
+    expect(body.transcriptWarning).toContain("could not be verified");
     expect(body.numberingRemap).toBeUndefined();
+  });
+
+  it("discloses an unverified basis when the provider reports no accession at all", async () => {
+    // VariantValidator's shape: an HGVSp and no UniProt metadata whatsoever.
+    const fetchImpl = async (url: string) =>
+      url.includes("rest.ensembl.org")
+        ? {
+            ok: false,
+            status: 503,
+            headers: { get: (name: string) => (name.toLowerCase() === "retry-after" ? "0" : null) },
+            json: async () => ({ error: "service unavailable" }),
+            text: async () => "service unavailable",
+          }
+        : {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              "NM_018202.6:c.1297G>A": {
+                gene_symbol: "MACO1",
+                hgvs_predicted_protein_consequence: { tlr: "NP_060672.2:p.(Glu433Lys)" },
+                annotations: { chromosome: "1", mane_select: true, ensembl_select: false },
+                primary_assembly_loci: {
+                  grch38: { vcf: { alt: "A", chr: "1", pos: "25484258", ref: "G" } },
+                },
+              },
+            }),
+            text: async () => "",
+          };
+
+    const { statusCode, body } = await invokeTranslate(
+      "chr1:g.25484258G>A",
+      MISSENSE_CONSEQUENCE,
+      fetchImpl as any
+    );
+
+    expect(statusCode).toBe(200);
+    expect(body.gene).toBe("MACO1");
+    expect(body.numberingBasis).toBe("unverified");
+    expect(body.numberingVerified).toBe(false);
+    expect(body.transcriptWarning).toContain("did not report a UniProt accession");
+    expect(body.provenance.usedFallback).toBe(true);
+  });
+
+  /**
+   * Regression: a provider that maps the coordinate only to non-coding consequences used to
+   * end the ladder, so a 422 asserted "no protein variant exists" without the fallback — whose
+   * annotation release may number the coordinate — ever being asked.
+   */
+  it("asks the fallback when the primary reports no protein change", async () => {
+    const fetchImpl = async (url: string) =>
+      url.includes("rest.ensembl.org")
+        ? {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                seq_region_name: "1",
+                start: 25484258,
+                allele_string: "G/A",
+                transcript_consequences: [
+                  {
+                    transcript_id: "ENST00000374343",
+                    canonical: 1,
+                    gene_symbol: "MACO1",
+                    consequence_terms: ["intron_variant"],
+                    hgvsc: "ENST00000374343.5:c.1297+5G>A",
+                  },
+                ],
+              },
+            ],
+            text: async () => "",
+          }
+        : {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              "NM_018202.6:c.1297G>A": {
+                gene_symbol: "MACO1",
+                hgvs_predicted_protein_consequence: { tlr: "NP_060672.2:p.(Glu433Lys)" },
+                annotations: { chromosome: "1", mane_select: true, ensembl_select: false },
+                primary_assembly_loci: {
+                  grch38: { vcf: { alt: "A", chr: "1", pos: "25484258", ref: "G" } },
+                },
+              },
+            }),
+            text: async () => "",
+          };
+
+    const { statusCode, body } = await invokeTranslate(
+      "chr1:g.25484258G>A",
+      MISSENSE_CONSEQUENCE,
+      fetchImpl as any
+    );
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Glu433Lys");
+    expect(body.provenance.usedFallback).toBe(true);
+    expect(body.provenance.attempts[0].reason).toBe("no protein-altering consequence reported");
+  });
+
+  it("classifies an unknown protein effect (p.?) as non-missense rather than malformed", async () => {
+    const { statusCode, body } = await invokeTranslate("chr1:g.25484258G>A", {
+      ...MISSENSE_CONSEQUENCE,
+      hgvsp: "ENSP00000363463.4:p.?",
+    });
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
+    expect(body.error.message).toContain("Protein effect unknown");
+  });
+
+  it("classifies a start-loss (p.Met1?) as non-missense rather than malformed", async () => {
+    const { statusCode, body } = await invokeTranslate("chr1:g.25484258G>A", {
+      ...MISSENSE_CONSEQUENCE,
+      hgvsp: "ENSP00000363463.4:p.Met1?",
+    });
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
+    expect(body.error.message).toContain("Start-loss");
   });
 });

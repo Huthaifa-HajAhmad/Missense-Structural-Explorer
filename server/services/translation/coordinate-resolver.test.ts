@@ -1,10 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { resolveCoordinate, buildResolutionUnavailableMessage } from "./coordinate-resolver.ts";
+import {
+  DEFAULT_RESOLUTION_BUDGET_MS,
+  ENSEMBL_VEP_TIMEOUT_MS,
+  resolveCoordinate,
+  buildResolutionUnavailableMessage,
+} from "./coordinate-resolver.ts";
 import { CoordinateResolutionError } from "./types.ts";
 import { clearAllCaches } from "../infra/cache.ts";
+import { resetHostStateForTests } from "../infra/http-client.ts";
 
 const NOTATION = "chr1:g.25484258G>A";
 
+/**
+ * Canonically-numbered consequence: `uniprot_isoform` matching the reported accession is what
+ * makes the numbering verifiable, and therefore what makes a resolution cacheable. Without it
+ * the answer is `unverified` and deliberately NOT cached (see the cache tests below).
+ */
 const VEP_PAYLOAD = [
   {
     seq_region_name: "1",
@@ -15,8 +26,28 @@ const VEP_PAYLOAD = [
         transcript_id: "ENST00000374343",
         canonical: 1,
         hgvsp: "ENSP00000363463.4:p.Glu433Lys",
+        amino_acids: "E/K",
+        uniprot_isoform: ["Q8N5G2-1"],
         gene_symbol: "MACO1",
         swissprot: ["Q8N5G2.1"],
+      },
+    ],
+  },
+];
+
+/** Non-coding consequences only: no HGVSp anywhere, so no rung can serve a protein target. */
+const VEP_INTRONIC_PAYLOAD = [
+  {
+    seq_region_name: "1",
+    start: 25484258,
+    allele_string: "G/A",
+    transcript_consequences: [
+      {
+        transcript_id: "ENST00000374343",
+        canonical: 1,
+        gene_symbol: "MACO1",
+        consequence_terms: ["intron_variant"],
+        hgvsc: "ENST00000374343.5:c.1297+5G>A",
       },
     ],
   },
@@ -39,11 +70,20 @@ const jsonResponse = (body: unknown, status = 200) =>
     text: async () => JSON.stringify(body),
   }) as any;
 
+/** A provider that never answers and honours the abort its window eventually sends. */
+const hangingFetch = (_url: any, init: any) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+  }) as any;
+
 describe("coordinate-resolver provider ladder", () => {
   let fetchSpy: any;
 
   beforeEach(() => {
     clearAllCaches(true);
+    // Breakers and semaphores are module-global per host; without this a suite that drives a
+    // host to its failure threshold leaves the breaker open for later tests (and files).
+    resetHostStateForTests();
     vi.restoreAllMocks();
   });
 
@@ -60,6 +100,8 @@ describe("coordinate-resolver provider ladder", () => {
     expect(outcome.consequence.transcript_consequences[0].hgvsp).toBe("ENSP00000363463.4:p.Glu433Lys");
     expect(outcome.usedFallback).toBe(false);
     expect(outcome.cacheHit).toBe(false);
+    expect(outcome.proteinChangeFound).toBe(true);
+    expect(outcome.numbering?.status).toBe("canonical");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(String(fetchSpy.mock.calls[0][0])).toContain("rest.ensembl.org");
   });
@@ -94,6 +136,7 @@ describe("coordinate-resolver provider ladder", () => {
     expect(first.cacheHit).toBe(false);
     expect(second.cacheHit).toBe(true);
     expect(second.consequence.provider).toBe("ensembl-vep");
+    expect(second.numbering?.status).toBe("canonical");
     expect(second.attempts).toEqual([
       { provider: "ensembl-vep", ok: true, durationMs: 0, reason: "cache_hit" },
     ]);
@@ -101,10 +144,13 @@ describe("coordinate-resolver provider ladder", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps reporting usedFallback=true when a fallback answer is served from cache", async () => {
-    // The first call fails over to VariantValidator, and that DEGRADED answer (no
-    // transcript_id / UniProt) is cached for ~10 years. A later cache read previously
-    // reported usedFallback:false, presenting the fallback result as a first-choice one.
+  /**
+   * A review found the previous cache policy stored an UNVERIFIED numbering for ten years: the
+   * VariantValidator tier reports no UniProt accession, so its answers were cached and re-served
+   * as settled truth long after the primary provider (which carries the isoform metadata) had
+   * recovered — pinning the ACOT9 mis-numbering in place.
+   */
+  it("does not cache an answer whose numbering could not be verified", async () => {
     fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) =>
       String(url).includes("rest.ensembl.org")
         ? jsonResponse({ error: "reference allele mismatch" }, 400)
@@ -112,15 +158,13 @@ describe("coordinate-resolver provider ladder", () => {
     );
 
     const first = await resolveCoordinate(NOTATION, "GRCh38");
-    expect(first.consequence.provider).toBe("variant-validator");
-    expect(first.cacheHit).toBe(false);
     expect(first.usedFallback).toBe(true);
+    expect(first.numbering?.status).toBe("unverified");
 
     const second = await resolveCoordinate(NOTATION, "GRCh38");
-    expect(second.cacheHit).toBe(true);
-    expect(second.consequence.provider).toBe("variant-validator");
-    // Provenance must survive the cache round-trip.
-    expect(second.usedFallback).toBe(true);
+    // Re-resolved, not served from cache: the answer can improve once VEP is reachable again.
+    expect(second.cacheHit).toBe(false);
+    expect(fetchSpy.mock.calls.length).toBeGreaterThan(2);
   });
 
   it("keys the cache by assembly so GRCh37 and GRCh38 never collide", async () => {
@@ -148,12 +192,7 @@ describe("coordinate-resolver provider ladder", () => {
 
   it("reports an unreachable provider as upstream_unavailable within the budget", async () => {
     // Never-resolving fetch: the ladder's deadline must abort it rather than hang.
-    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(
-      (_url: any, init: any) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }) as any
-    );
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(hangingFetch);
 
     const error: any = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 300 }).catch((e) => e);
 
@@ -167,20 +206,16 @@ describe("coordinate-resolver provider ladder", () => {
 
   /**
    * Regression: the ladder handed its WHOLE budget to the primary provider, so an Ensembl VEP
-   * that was slow (rather than failing fast) consumed all of it — VEP's own retry envelope is
-   * 3 attempts x 15s — and the loop broke before VariantValidator was ever called. Clinicians
-   * were told "all reference providers are unreachable" for a primary-only problem, while the
-   * independent fallback the ladder exists to provide never ran.
+   * that was slow (rather than failing fast) consumed all of it and the loop broke before
+   * VariantValidator was ever called. Clinicians were told "all reference providers are
+   * unreachable" for a primary-only problem.
    */
   it("still attempts the fallback when the primary hangs instead of failing", async () => {
     const vepCalls: string[] = [];
     fetchSpy = vi.spyOn(global, "fetch").mockImplementation((url: any, init: any) => {
       if (String(url).includes("rest.ensembl.org")) {
         vepCalls.push(String(url));
-        // A hanging primary: never answers, honours the abort its window eventually sends.
-        return new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }) as any;
+        return hangingFetch(url, init);
       }
       return Promise.resolve(jsonResponse(VV_PAYLOAD));
     });
@@ -202,18 +237,116 @@ describe("coordinate-resolver provider ladder", () => {
 
   it("gives every remaining rung a positive window even on a tiny budget", async () => {
     // Before the split, the primary consumed this entire budget and the fallback was never
-    // reached; now each rung gets a share, so both are at least attempted and recorded.
-    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(
-      (_url: any, init: any) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }) as any
-    );
+    // reached; now each rung gets a share, so both are attempted — and the assertions below
+    // reject a run in which a rung was merely recorded as SKIPPED (durationMs 0).
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(hangingFetch);
 
     const error: any = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 200 }).catch((e) => e);
 
     expect(error).toBeInstanceOf(CoordinateResolutionError);
     expect(error.attempts.map((a: any) => a.provider)).toEqual(["ensembl-vep", "variant-validator"]);
+    expect(error.attempts.every((a: any) => a.durationMs > 0)).toBe(true);
+    expect(error.attempts.every((a: any) => !String(a.reason).startsWith("skipped"))).toBe(true);
+  });
+
+  /**
+   * The budget must be able to fit one full attempt at EVERY rung's own tolerance, or a rung is
+   * killed by arithmetic rather than by the provider being slow. A review found the previous
+   * 25s split (12.5s per rung) was smaller than every provider's 15s timeout, so the window —
+   * not the provider — was always the binding constraint.
+   */
+  it("allots each rung at least its provider's configured tolerance", () => {
+    const rungs = 2;
+    expect(DEFAULT_RESOLUTION_BUDGET_MS / rungs).toBeGreaterThanOrEqual(ENSEMBL_VEP_TIMEOUT_MS);
+  });
+
+  /**
+   * Regression: the ladder's own window abort was booked as an upstream failure, so five
+   * slow-but-served resolutions ejected a healthy provider on the shared circuit breaker for
+   * the whole cooldown, pushing every later request onto the fallback tier.
+   */
+  it("does not trip the circuit breaker when a provider misses its window", async () => {
+    let vepAnswersInstantly = false;
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation((url: any, init: any) => {
+      if (String(url).includes("rest.ensembl.org")) {
+        return vepAnswersInstantly
+          ? Promise.resolve(jsonResponse(VEP_PAYLOAD))
+          : hangingFetch(url, init);
+      }
+      return Promise.resolve(jsonResponse(VV_PAYLOAD));
+    });
+
+    // Six consecutive resolutions where the primary misses its window every time.
+    for (let i = 0; i < 6; i++) {
+      clearAllCaches(true);
+      const outcome = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 200 });
+      expect(outcome.consequence.provider).toBe("variant-validator");
+    }
+
+    // The primary is healthy again and MUST still be consulted (an open breaker would skip it).
+    clearAllCaches(true);
+    vepAnswersInstantly = true;
+    const recovered = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 400 });
+
+    expect(recovered.consequence.provider).toBe("ensembl-vep");
+    expect(recovered.attempts[0].provider).toBe("ensembl-vep");
+    expect(recovered.attempts[0].ok).toBe(true);
+  });
+
+  /**
+   * Regression: a provider that maps the coordinate only to non-coding consequences was treated
+   * as having ANSWERED, so the ladder stopped and the user got a 422 asserting no protein change
+   * exists — without the fallback ever being asked, even though its annotation release may
+   * number the coordinate.
+   */
+  it("keeps asking the ladder when a provider reports no protein change", async () => {
+    const calls: string[] = [];
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) => {
+      const target = String(url);
+      calls.push(target);
+      return target.includes("rest.ensembl.org")
+        ? jsonResponse(VEP_INTRONIC_PAYLOAD)
+        : jsonResponse(VV_PAYLOAD);
+    });
+
+    const outcome = await resolveCoordinate(NOTATION, "GRCh38");
+
+    expect(calls.some((u) => u.includes("rest.ensembl.org"))).toBe(true);
+    expect(calls.some((u) => u.includes("variantvalidator.org"))).toBe(true);
+    expect(outcome.proteinChangeFound).toBe(true);
+    expect(outcome.consequence.provider).toBe("variant-validator");
+    // The miss is recorded rather than reported as a provider failure.
+    expect(outcome.attempts[0].reason).toBe("no protein-altering consequence reported");
+  });
+
+  it("returns the informative payload once EVERY rung reports no protein change", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) =>
+      String(url).includes("rest.ensembl.org")
+        ? jsonResponse(VEP_INTRONIC_PAYLOAD)
+        : jsonResponse({ error: "not a transcript envelope" }, 400)
+    );
+
+    const outcome = await resolveCoordinate(NOTATION, "GRCh38");
+
+    expect(outcome.proteinChangeFound).toBe(false);
+    expect(outcome.numbering).toBeUndefined();
+    expect(outcome.consequence.transcript_consequences[0].consequence_terms).toEqual(["intron_variant"]);
+  });
+
+  it("reports a MIXED failure as unusable-provider, not as 'nothing found anywhere'", async () => {
+    // One provider says "nothing here"; the other returns something unusable. Claiming no
+    // transcript consequence exists in ANY provider would be false.
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) =>
+      String(url).includes("rest.ensembl.org")
+        ? jsonResponse({ not: "a vep array" }, 200)
+        : jsonResponse({ error: "not a transcript envelope" }, 400)
+    );
+
+    const error: any = await resolveCoordinate(NOTATION, "GRCh38").catch((e) => e);
+
+    expect(error).toBeInstanceOf(CoordinateResolutionError);
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toContain("unusable responses");
   });
 });
 

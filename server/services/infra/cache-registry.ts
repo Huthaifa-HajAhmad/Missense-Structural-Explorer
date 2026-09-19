@@ -12,6 +12,17 @@ export interface CachedFetchOptions<T> {
   fetcher: () => Promise<T>;
   bypassSqlite?: boolean;
   shouldCache?: (result: T) => boolean;
+  /**
+   * Read-side gate: an entry for which this returns false is treated as a MISS, so the fetcher
+   * runs again (and, if `shouldCache` allows, replaces it).
+   *
+   * Needed because entry SEMANTICS can change without the key changing: coordinate translations
+   * are cached under a 10-year TTL, and a payload written before protein numbering was verified
+   * is no longer trustworthy even though it is byte-identical in shape. Without this gate the
+   * only alternatives were serving it (silently) or bumping the global schema version, which
+   * would evict every other source's warm cache to fix one.
+   */
+  isUsable?: (cached: T) => boolean;
 }
 
 export interface CacheDescriptor {
@@ -180,12 +191,12 @@ export class CacheRegistry {
    * 3. On miss, runs singleFlight(key, fetcher) and writes result to both L1 and L2 upon resolution.
    */
   public async getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promise<T> {
-    const { key, source, l1Cache, ttlSeconds, fetcher, bypassSqlite, shouldCache } = options;
+    const { key, source, l1Cache, ttlSeconds, fetcher, bypassSqlite, shouldCache, isUsable } = options;
 
     // 1. Check L1 Memory Cache
     if (l1Cache && l1Cache.has(key)) {
       const memVal = l1Cache.get(key);
-      if (memVal !== undefined) return memVal;
+      if (memVal !== undefined && (!isUsable || isUsable(memVal))) return memVal;
     }
 
     // 2. Check L2 Persistent SQLite Cache
@@ -194,10 +205,14 @@ export class CacheRegistry {
         const db = AnalysisDatabase.getInstance();
         const sqliteEntry = await db.getExternalCacheAsync<T>(key);
         if (sqliteEntry && sqliteEntry.data !== undefined) {
-          if (l1Cache) {
-            l1Cache.set(key, sqliteEntry.data);
+          // An entry this caller cannot use is left in place (it may still serve another
+          // caller) but is NOT promoted or returned: the fetcher below decides the outcome.
+          if (!isUsable || isUsable(sqliteEntry.data)) {
+            if (l1Cache) {
+              l1Cache.set(key, sqliteEntry.data);
+            }
+            return sqliteEntry.data;
           }
-          return sqliteEntry.data;
         }
       } catch (dbErr: any) {
         console.warn(`[L2 Cache Read Warning] Failed reading external_cache for ${key}:`, dbErr.message);

@@ -22,18 +22,19 @@ import {
 } from "../../../src/shared/variantNotation.ts";
 import {
   resolveCoordinate,
+  selectProteinConsequence,
+  pickInformativeConsequence,
   DEFAULT_ASSEMBLY,
 } from "../../services/translation/coordinate-resolver.ts";
 import {
   CoordinateResolutionError,
   TRANSLATION_PROVIDER_LABELS,
   resolutionFailureToHttp,
-  type ProteinAlteringConsequence,
   type ResolvedTranscriptConsequence,
 } from "../../services/translation/types.ts";
 import {
   buildIsoformRemapWarning,
-  reconcileIsoformNumbering,
+  buildUnverifiedNumberingWarning,
 } from "../../services/translation/isoform-numbering.ts";
 
 const translateVariantSchema = z.object({
@@ -41,15 +42,36 @@ const translateVariantSchema = z.object({
 });
 
 /**
- * Explains why a coordinate cannot start the missense pipeline when it resolved to
- * transcript consequences but none carries an HGVSp.
+ * Sequence Ontology terms that DO change (or may change) the encoded protein.
  *
- * This is a property of the VARIANT, not a system failure: intronic / UTR /
- * splice-region / non-coding coordinates have no protein change on ANY reference
- * translator — Ensembl VEP, VariantValidator, or a cached copy of either — so
- * "falling back" to another provider could never succeed. The message therefore names
- * the gene, the actual consequence terms and the transcript-level HGVS (the identifiers
- * a clinician needs to cross-check the coordinate), and states what input WOULD work.
+ * Used to keep the no-HGVSp explanation honest: the previous wording asserted the coordinate
+ * "does not alter the encoded protein sequence" for whatever consequence happened to be the
+ * most informative one, which is a conclusion the payload does not establish when that
+ * consequence is itself protein-altering (an annotation gap, not a non-coding variant).
+ */
+const PROTEIN_ALTERING_TERMS = new Set([
+  "missense_variant",
+  "stop_gained",
+  "stop_lost",
+  "start_lost",
+  "frameshift_variant",
+  "inframe_insertion",
+  "inframe_deletion",
+  "protein_altering_variant",
+  "splice_acceptor_variant",
+  "splice_donor_variant",
+  "transcript_amplification",
+]);
+
+/**
+ * Explains why a coordinate cannot start the missense pipeline when no transcript consequence
+ * carries an HGVSp.
+ *
+ * This is a property of the VARIANT, not a system failure: intronic / UTR / splice-region /
+ * non-coding coordinates have no protein change on ANY reference translator, so the ladder has
+ * already asked every provider before this is emitted. The message names the gene, the actual
+ * consequence terms and the transcript-level HGVS (the identifiers a clinician needs to
+ * cross-check the coordinate), and states what input WOULD work.
  *
  * Kept pure and exported so the wording is unit-testable without network mocks.
  */
@@ -75,6 +97,18 @@ export function buildNoProteinChangeMessage(
   if (tc.hgvsc) identifiers.push(tc.hgvsc);
   const idPart = identifiers.length > 0 ? ` (${identifiers.join(", ")})` : "";
 
+  // Protein-altering terms with no HGVSp mean the annotation did not resolve to a protein
+  // consequence — NOT that the protein is unaffected. Say only what is established.
+  if (terms.some((term) => PROTEIN_ALTERING_TERMS.has(term))) {
+    return (
+      `"${notation}" resolves on ${assembly} to ${effect}${genePart}${idPart}, but no reference ` +
+      "provider could compute a protein variant (HGVSp) for it. Because those consequences can " +
+      "alter the protein, this is an annotation gap rather than proof that the protein is " +
+      "unaffected — verify the transcript and coordinate, or enter the protein-level " +
+      "substitution directly (e.g. p.Gly380Arg)."
+    );
+  }
+
   return (
     `"${notation}" resolves on ${assembly} to ${effect}${genePart}${idPart}, which does not ` +
     "alter the encoded protein sequence, so no protein variant (HGVSp) exists for it. " +
@@ -93,6 +127,35 @@ export function buildNoProteinChangeMessage(
  */
 function asObjectMap(value: any): Record<string, any> | null {
   return value && typeof value === "object" ? (value as Record<string, any>) : null;
+}
+
+/** RefSeq id of a MANE field in either of the shapes VEP uses. */
+function maneRefSeqIdOf(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  const map = asObjectMap(value);
+  if (map) return map.refseq_match || map.id || undefined;
+  return undefined;
+}
+
+/** Drops undefined entries so an error payload never carries an empty `details` object. */
+function compactDetails(details: Record<string, unknown>): Record<string, unknown> | undefined {
+  const compact: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(details)) {
+    if (value !== undefined) compact[key] = value;
+  }
+  return Object.keys(compact).length > 0 ? compact : undefined;
+}
+
+/** Classifies a `validateVariant` failure as out-of-scope rather than a malformed request. */
+function isNonMissenseMessage(message: string): boolean {
+  return (
+    message.includes("Nonsense") ||
+    message.includes("Frameshift") ||
+    message.includes("Insertion/deletion") ||
+    message.includes("Synonymous") ||
+    message.includes("Start-loss") ||
+    message.includes("Protein effect unknown")
+  );
 }
 
 export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: any): void {
@@ -151,6 +214,8 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       });
 
       // Tier 0 (immutable cache) -> Tier 1 (Ensembl VEP) -> Tier 2 (VariantValidator).
+      // The ladder owns transcript selection AND protein-numbering reconciliation, because the
+      // cache decision depends on the latter (an unverified numbering must stay re-resolvable).
       // Throws CoordinateResolutionError so the catch block below can answer 503/404/502
       // honestly instead of a blanket 500.
       const resolution = await resolveCoordinate(trimmed, assembly);
@@ -167,125 +232,102 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         }
       }
 
-      const consequences = consequence.transcript_consequences;
-      // Type predicates carry the invariant into the type system: any consequence that reaches
-      // the missense path is known to have an `hgvsp`, so the later reassignment onto a
-      // reconciled consequence cannot widen it back to `string | undefined`.
-      let selectedTc =
-        consequences.find(
-          (t): t is ProteinAlteringConsequence => Boolean(t.mane_select && t.hgvsp)
-        ) ??
-        consequences.find(
-          (t): t is ProteinAlteringConsequence =>
-            Boolean((t.canonical === 1 || t.canonical === true) && t.hgvsp)
-        ) ??
-        consequences.find((t): t is ProteinAlteringConsequence => Boolean(t.hgvsp));
+      const transcriptConsequences = consequence.transcript_consequences ?? [];
 
-      if (!selectedTc) {
-        // The coordinate resolved, but no transcript consequence describes a
-        // protein-altering change (intronic / UTR / splice-region / non-coding gene).
-        // That is a property of the VARIANT, not a system failure — no reference
-        // translator can produce an HGVSp for it, so answer with the actual consequence
-        // instead of a bare "not found" that reads like a bug and dead-ends the UI.
-        const informativeTc =
-          consequences.find((t) => t.mane_select) ??
-          consequences.find((t) => t.canonical === 1 || t.canonical === true) ??
-          consequences[0];
+      if (!resolution.proteinChangeFound || !resolution.numbering) {
+        // Every rung was asked and none reported a protein change: this is a property of the
+        // VARIANT, not a system failure, so answer with what the coordinate actually is instead
+        // of a bare "not found" that reads like a bug and dead-ends the UI.
+        const informativeTc = pickInformativeConsequence(transcriptConsequences);
 
-        sendError(res, 422, "NON_MISSENSE_VARIANT", buildNoProteinChangeMessage(trimmed, assembly, informativeTc), {
-          gene: informativeTc?.gene_symbol,
-          transcriptId: informativeTc?.transcript_id,
-          hgvsc: informativeTc?.hgvsc,
-          consequence: informativeTc?.consequence_terms,
-          notation: trimmed,
-          assembly,
-        });
+        sendError(
+          res,
+          422,
+          "NON_MISSENSE_VARIANT",
+          buildNoProteinChangeMessage(trimmed, assembly, informativeTc),
+          compactDetails({
+            gene: informativeTc?.gene_symbol,
+            transcriptId: informativeTc?.transcript_id,
+            hgvsc: informativeTc?.hgvsc,
+            consequence: informativeTc?.consequence_terms,
+            notation: trimmed,
+            assembly,
+          })
+        );
         return;
       }
 
-      // ── Isoform-numbering reconciliation ────────────────────────────────────────
-      // `hgvsp` is numbered on the SELECTED transcript's protein, while `swissprot` names
-      // the CANONICAL accession. When a MANE Select transcript maps to a non-canonical
-      // UniProt isoform (ACOT9: MANE → Q9Y305-4 vs canonical Q9Y305-1, offset 9 residues)
-      // those disagree, and the old code handed the mismatch downstream where FoldX and the
-      // biophysics guard rejected it as a "wild-type residue mismatch" — an upstream
-      // numbering error surfacing as three fatal console entries. Reconcile here, where the
-      // sibling consequences that carry the canonical numbering are still available.
-      const canonicalAccession = selectedTc.swissprot?.[0]?.split(".")[0];
-      const reconciliation = reconcileIsoformNumbering(selectedTc, consequences, canonicalAccession);
-      if (reconciliation.action === "unresolved") {
-        const isoformLabel = reconciliation.isoform ? ` (UniProt isoform ${reconciliation.isoform})` : "";
+      const verdict = resolution.numbering;
+      // The pre-reconciliation selection is deterministic (MANE → canonical → any), so the
+      // notation the translator originally reported can be recovered for the disclosure.
+      const originalSelection = selectProteinConsequence(transcriptConsequences);
+      const selectedTc = verdict.consequence;
+
+      if (verdict.status === "unsupported") {
+        const isoformLabel = verdict.numberingIsoform
+          ? ` (UniProt isoform ${verdict.numberingIsoform})`
+          : "";
         sendError(
           res,
           422,
           "ISOFORM_NUMBERING_MISMATCH",
           `"${trimmed}" resolves to ${selectedTc.gene_symbol || "a transcript"} ` +
             `${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}${isoformLabel}, but that numbering ` +
-            `does not match the canonical sequence of ${canonicalAccession}, and ` +
-            `${reconciliation.reason}. Structural modelling needs the variant numbered on the ` +
+            `does not match the canonical sequence of ${verdict.canonicalAccession}, and ` +
+            `${verdict.reason}. Structural modelling needs the variant numbered on the ` +
             "canonical sequence — enter the canonical-equivalent protein substitution.",
-          {
+          compactDetails({
             gene: selectedTc.gene_symbol,
             hgvsp: selectedTc.hgvsp,
             transcriptId: selectedTc.transcript_id,
-            isoform: reconciliation.isoform,
-            uniprotId: canonicalAccession,
-            reason: reconciliation.reason,
+            isoform: verdict.numberingIsoform,
+            uniprotId: verdict.canonicalAccession,
+            reason: verdict.reason,
             notation: trimmed,
             assembly,
-          }
+          })
         );
         return;
       }
-
-      // The remap is disclosed below rather than applied silently: the analysed variant is no
-      // longer the one a MANE-based clinical report would name.
-      const remap = reconciliation.action === "remap" ? reconciliation : null;
-      // Captured BEFORE the swap so the disclosure can name the notation that was replaced.
-      const originalSelection = selectedTc;
-      if (remap) selectedTc = remap.consequence;
 
       let geneSymbol: string;
       let proteinPart: string;
       let uniprotId = "";
 
+      // After a remap the accession that was VERIFIED is the reconciliation one — never the
+      // sibling's own `swissprot`, which nothing cross-checked (a sibling claiming a different
+      // accession previously produced `uniprotId: P99999` beside `uniprotIsoform: Q9Y305-1`).
+      // For an unverified answer the reported accession is kept so the client can still resolve
+      // the sequence it is about to model against.
+      const accessionSource =
+        verdict.canonicalAccession ?? selectedTc.swissprot?.[0]?.split(".")[0];
       // A remapped consequence annotates the SAME gene, so gene-level metadata is inherited
-      // when the replacement transcript's record omits it. Without this, a sparse sibling
-      // (no gene_symbol / no swissprot) would turn a valid remap into "Gene symbol must be a
-      // non-empty string", or silently drop the UniProt accession the client resolves against.
-      const geneSymbolSource = selectedTc.gene_symbol || originalSelection.gene_symbol;
-      const swissprotSource = selectedTc.swissprot?.length
-        ? selectedTc.swissprot
-        : originalSelection.swissprot;
+      // when the replacement transcript's record omits it.
+      const geneSymbolSource = selectedTc.gene_symbol || originalSelection?.gene_symbol;
 
       try {
         geneSymbol = validateGene(geneSymbolSource || "");
         proteinPart = validateVariant(selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp);
-        if (swissprotSource && swissprotSource.length > 0) {
-          uniprotId = validateUniProt(swissprotSource[0].split(".")[0]);
+        if (accessionSource) {
+          uniprotId = validateUniProt(accessionSource);
         }
       } catch (valErr: any) {
         // `valErr` is an Error; interpolating it directly yields "Error: ..." and loses the
         // message, so the classifier and the surfaced text both read `.message`.
         const valErrMessage: string = valErr?.message ?? String(valErr);
-
-        const isNonMissense = valErrMessage.includes("Nonsense") ||
-          valErrMessage.includes("Frameshift") ||
-          valErrMessage.includes("Insertion/deletion") ||
-          valErrMessage.includes("Synonymous");
+        const isNonMissense = isNonMissenseMessage(valErrMessage);
 
         const errorCode = isNonMissense ? "NON_MISSENSE_VARIANT" : "UNPROCESSABLE_ENTITY";
         const errorMsg = isNonMissense
           ? `Genomic coordinate translated to non-missense consequence (${selectedTc.gene_symbol || "Gene"} ${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}): ${valErrMessage}`
           : `Resolved variant values are invalid: ${valErrMessage}`;
 
-        sendError(res, 422, errorCode, errorMsg, {
+        sendError(res, 422, errorCode, errorMsg, compactDetails({
           gene: selectedTc.gene_symbol,
           hgvsp: selectedTc.hgvsp,
-          consequence: (selectedTc as any).consequence_terms,
-          // Strip the Swiss-Prot version suffix for consistency with the success path.
-          uniprotId: selectedTc.swissprot?.[0]?.split(".")[0] ?? ""
-        });
+          consequence: selectedTc.consequence_terms,
+          uniprotId: verdict.canonicalAccession,
+        }));
         return;
       }
 
@@ -295,35 +337,53 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         console.log("[VEP Translator] Resolved VCF/cDNA successfully.");
       }
 
+      // Recorded AFTER resolution so the audit trail states the numbering basis that was
+      // actually analysed, not only the notation that was requested.
+      await AuditLogger.log("TRANSLATE_VARIANT_RESOLVED", {
+        variant: trimmed,
+        assembly,
+        numberingBasis: verdict.status,
+        provider: resolution.consequence.provider,
+        usedFallback: resolution.usedFallback,
+        cacheHit: resolution.cacheHit,
+      });
+
       const transcriptId: string = selectedTc.transcript_id || "";
       const isManeSelect: boolean = !!selectedTc.mane_select;
       const isManePlusClinical: boolean = !!selectedTc.mane_plus_clinical;
-      const isCanonical: boolean = !!(selectedTc.canonical === 1 || selectedTc.canonical === true);
+      const isCanonical: boolean = !!(
+        selectedTc.canonical === 1 ||
+        selectedTc.canonical === true ||
+        selectedTc.canonical === "1"
+      );
 
-      let maneRefSeqId: string | undefined = undefined;
-      const maneSelectObject = asObjectMap(selectedTc.mane_select);
-      const manePlusObject = asObjectMap(selectedTc.mane_plus_clinical);
-      if (typeof selectedTc.mane_select === "string") {
-        maneRefSeqId = selectedTc.mane_select;
-      } else if (maneSelectObject) {
-        maneRefSeqId = maneSelectObject.refseq_match || maneSelectObject.id || undefined;
-      } else if (typeof selectedTc.mane_plus_clinical === "string") {
-        maneRefSeqId = selectedTc.mane_plus_clinical;
-      } else if (manePlusObject) {
-        maneRefSeqId = manePlusObject.refseq_match || manePlusObject.id || undefined;
-      }
+      const maneRefSeqId =
+        maneRefSeqIdOf(selectedTc.mane_select) ?? maneRefSeqIdOf(selectedTc.mane_plus_clinical);
+      // The MANE identifier of the ORIGINAL selection, for the remap record: after a remap the
+      // analysed transcript is no longer the MANE one, so its own fields cannot supply it.
+      const originalManeRefSeqId =
+        maneRefSeqIdOf(originalSelection?.mane_select) ??
+        maneRefSeqIdOf(originalSelection?.mane_plus_clinical);
 
       let transcriptWarning: string | undefined = undefined;
-      if (remap) {
+      if (verdict.status === "remapped" && originalSelection) {
         // A remap note REPLACES the generic transcript warnings: it already explains which
         // transcripts/isoforms are involved, and appending "Ensembl canonical transcript used
         // (not explicitly tagged MANE Select)" beside it would read as two unrelated caveats.
         transcriptWarning = buildIsoformRemapWarning(
           originalSelection.hgvsp ?? "",
-          remap.consequence.hgvsp ?? "",
-          remap.fromIsoform,
-          remap.toIsoform,
-          typeof originalSelection.mane_select === "string" ? originalSelection.mane_select : undefined
+          selectedTc.hgvsp ?? "",
+          verdict.fromIsoform,
+          verdict.numberingIsoform,
+          originalManeRefSeqId
+        );
+      } else if (verdict.status === "unverified") {
+        // Never silent: an un-verified numbering is exactly the state in which a prediction can
+        // describe a different residue than the one that was requested.
+        transcriptWarning = buildUnverifiedNumberingWarning(
+          selectedTc.hgvsp,
+          verdict.canonicalAccession,
+          verdict.reason ?? "the reference provider did not state the numbering basis"
         );
       } else if (!isManeSelect && !isManePlusClinical && !isCanonical) {
         transcriptWarning = "Non-canonical transcript used — disease isoform may differ. Verify transcript against MANE Select or RefSeq clinical.";
@@ -349,13 +409,19 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         genomicCoordinates,
         assembly,
         notationNormalized: trimmed,
-        // Which UniProt isoform `variant` is numbered on. AlphaFold DB models only canonical
-        // sequences, so this is normally the canonical isoform — recorded so a reader can tell
-        // which numbering the analysed residues belong to.
-        ...(selectedTc.uniprot_isoform?.[0] ? { uniprotIsoform: selectedTc.uniprot_isoform[0] } : {}),
-        // Present only when the MANE-resolved notation had to be renumbered to the canonical
+        // Which UniProt isoform `variant` is numbered on, and how that basis was established.
+        // AlphaFold DB models only canonical sequences, so `canonical`/`remapped` are the only
+        // states in which the residue numbers are safe to model; `unverified` is disclosed and
+        // re-resolved rather than cached.
+        ...(verdict.numberingIsoform ? { uniprotIsoform: verdict.numberingIsoform } : {}),
+        numberingBasis: verdict.status,
+        numberingVerified: verdict.status !== "unverified",
+        ...(verdict.status === "unverified" && verdict.reason
+          ? { numberingUnverifiedReason: verdict.reason }
+          : {}),
+        // Present only when the reported notation had to be renumbered onto the canonical
         // isoform. Machine-readable so reports and audit trails can state both notations.
-        ...(remap
+        ...(verdict.status === "remapped" && originalSelection
           ? {
               numberingRemap: {
                 reason:
@@ -363,15 +429,13 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
                 from: {
                   hgvsp: originalSelection.hgvsp,
                   transcriptId: originalSelection.transcript_id,
-                  isoform: remap.fromIsoform,
-                  ...(typeof originalSelection.mane_select === "string"
-                    ? { maneRefSeqId: originalSelection.mane_select }
-                    : {}),
+                  isoform: verdict.fromIsoform,
+                  ...(originalManeRefSeqId ? { maneRefSeqId: originalManeRefSeqId } : {}),
                 },
                 to: {
-                  hgvsp: remap.consequence.hgvsp,
-                  transcriptId: remap.consequence.transcript_id,
-                  isoform: remap.toIsoform,
+                  hgvsp: selectedTc.hgvsp,
+                  transcriptId: selectedTc.transcript_id,
+                  isoform: verdict.numberingIsoform,
                 },
               },
             }
@@ -397,7 +461,7 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         const { status, code } = resolutionFailureToHttp(err.kind);
 
         if (status === 503) {
-          // The per-host circuit breaker cools down for 60s, so advise the same window.
+          // The per-host circuit breaker cools down for ~60s (jittered), so advise that window.
           try {
             res.setHeader?.("Retry-After", "60");
           } catch { /* headers already sent */ }

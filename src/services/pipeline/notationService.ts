@@ -87,6 +87,7 @@ export async function translateVariantNotation(
         // renumbered onto the canonical isoform — the record of what changed, so downstream
         // surfaces can disclose it instead of quietly reporting a different residue number.
         uniprotIsoform: data.uniprotIsoform,
+        numberingBasis: data.numberingBasis,
         numberingRemap: data.numberingRemap,
         // Preserved so callers/reports can state which build the coordinate resolved against.
         assembly: data.assembly,

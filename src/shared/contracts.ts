@@ -186,6 +186,16 @@ export const translateVariantResponseSchema = z.object({
   /** UniProt isoform the returned `variant` is numbered on (normally the canonical isoform). */
   uniprotIsoform: z.string().optional(),
   /**
+   * How the numbering basis was established: `canonical` (verified against the canonical
+   * accession), `remapped` (renumbered onto it), or `unverified` (the provider stated no basis,
+   * so residue numbers may not match the canonical sequence). `unsupported` is never returned
+   * with 200 — it is a 422 `ISOFORM_NUMBERING_MISMATCH`.
+   */
+  numberingBasis: z.enum(["canonical", "remapped", "unverified"]).optional(),
+  /** False only for `unverified`; mirrored as a boolean so callers can gate on it directly. */
+  numberingVerified: z.boolean().optional(),
+  numberingUnverifiedReason: z.string().optional(),
+  /**
    * Present when the MANE-resolved notation was renumbered onto the canonical UniProt
    * isoform, because the upstream structural pipeline (AlphaFold DB / PDB) models only
    * canonical sequences. Records both notations so a report can state what changed.
@@ -856,6 +866,29 @@ export const analyzeVariantResponseSchema = z.object({
   isCanonical: z.boolean().optional(),
   maneRefSeqId: z.string().nullable().optional(),
   transcriptWarning: z.string().nullable().optional(),
+  /**
+   * Numbering basis of `metadata.variant`, carried into the analysis result so a report can
+   * state which isoform's residue numbers a prediction refers to (and that a remap happened).
+   */
+  uniprotIsoform: z.string().nullable().optional(),
+  numberingBasis: z.enum(["canonical", "remapped", "unverified"]).nullable().optional(),
+  numberingRemap: z
+    .object({
+      reason: z.string(),
+      from: z.object({
+        hgvsp: z.string().optional(),
+        transcriptId: z.string().optional(),
+        isoform: z.string().optional(),
+        maneRefSeqId: z.string().optional(),
+      }),
+      to: z.object({
+        hgvsp: z.string().optional(),
+        transcriptId: z.string().optional(),
+        isoform: z.string().optional(),
+      }),
+    })
+    .nullable()
+    .optional(),
   gnomadFrequency: z.object({
     maxAF: z.number().nullable(),
     groupMaxAF: z.number().nullable().optional(),

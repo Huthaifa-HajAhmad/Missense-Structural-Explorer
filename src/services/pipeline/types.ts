@@ -95,6 +95,10 @@ export interface TranslatedVariantResult {
     transcriptWarning?: string;
     /** UniProt isoform the analysed `variant` is numbered on (normally the canonical isoform). */
     uniprotIsoform?: string;
+    /** canonical | remapped | unverified — how that numbering basis was established. */
+    numberingBasis?: string;
+    /** Present only for `unverified`: why the basis could not be tied to the canonical isoform. */
+    numberingUnverifiedReason?: string;
     /**
      * Set when the MANE-resolved notation was renumbered onto the canonical UniProt isoform
      * (the only sequence with a modellable structure). Carried through so reports can disclose
