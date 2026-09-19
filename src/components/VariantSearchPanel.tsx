@@ -70,7 +70,11 @@ interface VariantSearchPanelProps {
   onViewChange?: (view: MasterView) => void;
 }
 
-const WORKFLOW_STAGES = [
+/**
+ * The pipeline stages, in order. Exported so the rail's stage count is derived from this list
+ * instead of a literal, and so a test can assert the rendered list against it.
+ */
+export const WORKFLOW_STAGES = [
   { key: "evidence", title: "Evidence Pipeline", Icon: BarChart2, targetView: "evidence" as MasterView },
   { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
   { key: "energetics", title: "Energetics Engine", Icon: Activity, targetView: "energetics" as MasterView },
@@ -87,8 +91,10 @@ type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
 
 const FIELD_BADGE_TONES: Record<FieldBadgeTone, string> = {
   neutral: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)]",
-  ok: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-  warn: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+  // -700 rather than -600: this text is 9.5px bold, where AA needs 4.5:1, and the -600 shades
+  // measure 3.0-3.7:1 on the light surfaces. See the contrast note in styles/variables.css.
+  ok: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25",
+  warn: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
   clay: "bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)] border-[var(--cs-accent-clay)]/30",
 };
 
@@ -108,7 +114,7 @@ const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; children: Re
 }) => (
   <span
     title={title}
-    className={`text-[9.5px] font-mono font-bold uppercase leading-none px-1.5 py-[3px] rounded border shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
+    className={`text-[9.5px] font-mono font-bold uppercase leading-none px-1.5 py-[3px] rounded-[var(--cs-radius-badge)] border shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
   >
     {children}
   </span>
@@ -164,8 +170,15 @@ const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTon
   },
 };
 
-/** Loose UniProtKB accession shape (6 or 10 alphanumerics) — a typo guard, not a validator. */
-const UNIPROT_ACCESSION_PATTERN = /^[A-Z0-9]{6}(?:[A-Z0-9]{4})?$/i;
+/**
+ * UniProtKB accession shape, from UniProt's own documented pattern.
+ *
+ * The previous `^[A-Z0-9]{6}(?:[A-Z0-9]{4})?$` accepted any six alphanumerics, so a `123456`
+ * typo read "Format OK" under a feature advertised as typo detection. This form is exact:
+ * the O/P/Q prefix has its own alternative (they are real first letters — P51587, Q9H8M5)
+ * and the alphanumeric-prefix form requires a letter in the third position.
+ */
+const UNIPROT_ACCESSION_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/i;
 
 /** The examples are grouped by the field they belong in, which is also the fix for the two notation fields overlapping. */
 const NOTATION_EXAMPLE_GROUPS: Array<{
@@ -195,7 +208,14 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
 
 /**
  * Shared geometry for the outcome badge on the far right of the rail header.
- * Both tabs use it so the header never changes colour system or box size on switch.
+ *
+ * Both tabs use it so the header never changes colour system on switch — including weight, since
+ * a `font-bold` on one variant and not the other changed the badge's measured width and broke
+ * the "never changes box size" guarantee. `min-w-0` plus an allowed shrink lets the badge yield
+ * space instead of overflowing: it is `shrink-0 whitespace-nowrap`, and measured against the
+ * shipped font the header needs ~404px, so below ~1440px in a two-column layout the badge was
+ * pushed past the card's `overflow-hidden` edge — entirely hidden at 1024px. `flex-wrap` on the
+ * header means the badge drops to its own line rather than being clipped.
  */
 const RAIL_BADGE_BASE =
   "flex items-center gap-1.5 text-[10.5px] font-semibold px-2 py-0.5 rounded border shrink-0 whitespace-nowrap";
@@ -203,6 +223,9 @@ const RAIL_BADGE_BASE =
 /**
  * One segment of the rail switcher. Both segments are rendered from this so the
  * two states can never drift apart in padding, radius or motion.
+ *
+ * The label may wrap and the segment may shrink: `whitespace-nowrap` here was the other half of
+ * the header overflow, because two unshrinkable children cannot fit a ~350px track.
  */
 const RailTab: React.FC<{
   id: RailTabId;
@@ -218,17 +241,22 @@ const RailTab: React.FC<{
     role="tab"
     id={`tab-${id}`}
     aria-selected={active}
-    aria-controls={`panel-${id}`}
+    // Only the active tab references a panel, because only the active panel is mounted: the
+    // inactive tab's `aria-controls` was a dangling IDREF (axe: aria-valid-attr-value, serious).
+    aria-controls={active ? `panel-${id}` : undefined}
     tabIndex={tabIndex}
     onClick={onSelect}
-    className={`px-3 py-1.5 rounded-md text-[12px] flex items-center gap-1.5 whitespace-nowrap cursor-pointer border active:scale-[0.96] transition-[background-color,border-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]/45 ${
+    className={`px-3 py-1.5 rounded-md text-[12px] flex items-center gap-1.5 cursor-pointer border active:scale-[0.96] transition-[background-color,border-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
       active
-        ? "bg-[var(--cs-surface)] text-[var(--cs-accent-clay)] font-bold border-[var(--cs-accent-clay)]/40 shadow-xs ring-1 ring-[var(--cs-accent-clay)]/20"
+        ? "bg-[var(--cs-surface)] text-[var(--cs-accent-clay)] font-semibold border-[var(--cs-accent-clay)]/40 shadow-xs ring-1 ring-[var(--cs-accent-clay)]/20"
         : "text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-surface)]/60 font-medium border-transparent"
     }`}
   >
     {icon}
-    <span>{label}</span>
+    {/* Allowed to wrap rather than being pinned to one line: at the narrowest two-column
+        width the tablist still needed ~32px more than the track affords, and a nowrap label
+        pushed that overflow past the card's clipping edge. */}
+    <span className="text-left">{label}</span>
     {badge}
   </button>
 );
@@ -336,9 +364,28 @@ function VariantSearchPanel({
 
   const [activeRightTab, setActiveRightTab] = useState<"pipeline" | "telemetry">(result ? "pipeline" : "telemetry");
 
+  /**
+   * Set once the reader picks a tab themselves, and cleared when a run finishes.
+   *
+   * The auto-switch below keys off an aggregate of six loading flags which is not a run
+   * identity: `isLoading` goes false when the analysis completes while background fold and
+   * pocket work continues, so a later flag flip re-triggered it and yanked the reader off the
+   * tab they had deliberately chosen. An explicit choice now wins for the rest of that run.
+   */
+  const userChoseTabRef = useRef(false);
+  const selectRailTab = useCallback((tab: "pipeline" | "telemetry") => {
+    userChoseTabRef.current = true;
+    setActiveRightTab(tab);
+  }, []);
+
   useEffect(() => {
     if (isPipelineActive) {
-      setActiveRightTab("pipeline");
+      if (!userChoseTabRef.current) {
+        setActiveRightTab("pipeline");
+      }
+    } else {
+      // Between runs the reader's choice no longer applies, so the next run auto-focuses again.
+      userChoseTabRef.current = false;
     }
   }, [isPipelineActive]);
 
@@ -355,28 +402,54 @@ function VariantSearchPanel({
     if (next === null) return;
 
     e.preventDefault();
-    setActiveRightTab(RAIL_TAB_ORDER[next]);
+    // Arrow-key selection is a user choice too, so it pins the tab for the rest of the run.
+    selectRailTab(RAIL_TAB_ORDER[next]);
     railTabListRef.current
       ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       ?.[next]?.focus();
-  }, [activeRightTab]);
+  }, [activeRightTab, selectRailTab]);
 
   const onFormSubmit = (e: React.FormEvent) => {
     setActiveRightTab("pipeline");
     handleSearchSubmit(e);
   };
 
-  const isGenomicVariant =
-    (!!customVariant && isGenomicOrCdnaNotation(customVariant)) || !!customGenomic.trim();
-  const isGeneRequired = !isGenomicVariant;
-  const isVariantRequired = !customGenomic.trim();
-
   // Parsed verdicts, shown so the routing the form already performs is visible rather than
   // implied. Routing itself still goes through `isGenomicOrCdnaNotation`, so the badge can
   // describe the parser but can never disagree with it.
   const variantNotation = customVariant.trim() ? classifyNotation(customVariant) : null;
   const genomicNotation = customGenomic.trim() ? classifyNotation(customGenomic) : null;
-  const genomicAssemblyLabel = genomicNotation
+  /**
+   * Only a genuine coordinate notation gets an assembly claim.
+   *
+   * This previously asserted "GRCh38 default" for ANY non-empty content — including
+   * `p.Gly380Arg` or `asdf` — while simultaneously marking the Gene field "Derived", so the
+   * panel claimed a resolution that would never happen, in the one place it exists to be
+   * trusted. The kind is the same value that drives routing, so the badge cannot disagree
+   * with what the pipeline will actually do.
+   */
+  const genomicIsCoordinate = Boolean(
+    genomicNotation &&
+      (genomicNotation.kind === "genomic-hgvs" ||
+        genomicNotation.kind === "genomic-dashed" ||
+        genomicNotation.kind === "genomic-bare" ||
+        // A recognised coordinate that is out of missense scope still routes to the resolver,
+        // which explains the scope rather than pretending it is a protein substitution.
+        genomicNotation.kind === "non-substitution")
+  );
+  /**
+   * Routing, gated on the parsed kind rather than on "the field is non-empty".
+   *
+   * `!!customGenomic.trim()` meant ANY text in this field counted as a coordinate: junk relaxed
+   * the Variant field to optional and marked the Gene "Derived", so a form could be submitted
+   * with no usable notation at all and fail server-side instead of at the field.
+   */
+  const isGenomicVariant =
+    (!!customVariant && isGenomicOrCdnaNotation(customVariant)) || genomicIsCoordinate;
+  const isGeneRequired = !isGenomicVariant;
+  const isVariantRequired = !genomicIsCoordinate;
+
+  const genomicAssemblyLabel = genomicIsCoordinate && genomicNotation
     ? genomicNotation.assembly
       ? `${genomicNotation.assembly} annotated`
       : "GRCh38 default"
@@ -402,7 +475,10 @@ function VariantSearchPanel({
     }
   };
 
-  const inputBase = `w-full h-10 rounded-lg px-3 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out font-medium select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)]/25 ${classInput}`;
+  // Solid clay, not clay/25: an alpha ring composites to ~1.35:1 on white, far under the 3:1
+  // WCAG 2.2 SC 1.4.11 requires of a focus indicator, and `outline-none` removes the native
+  // one, so this ring is the only cue. Solid clay measures 3.87:1 on white.
+  const inputBase = `w-full h-10 rounded-lg px-3 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out font-medium select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)] ${classInput}`;
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "literature" | "report") => {
@@ -459,7 +535,7 @@ function VariantSearchPanel({
               type="button"
               onClick={() => openSettingsTab("api")}
               title="API key is not configured — click to open Settings"
-              className="badge-data-source text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-all active:scale-95 shadow-xs"
+              className="badge-data-source text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 shadow-xs"
             >
               <AlertTriangle className="w-3 h-3 text-amber-500" />
               API Key Required
@@ -555,9 +631,18 @@ function VariantSearchPanel({
                     style={{ color: "var(--cs-text-secondary)" }}
                   >
                     <span>Genomic Coordinates</span>
-                    <FieldBadge title={genomicAssemblyLabel ? "Genome build this coordinate will be resolved against." : "Optional: protein-level notation alone is enough to run the analysis."}>
-                      {genomicAssemblyLabel ?? "Optional"}
-                    </FieldBadge>
+                    {genomicNotation && !genomicIsCoordinate ? (
+                      <FieldBadge
+                        tone={NOTATION_BADGES[genomicNotation.kind].tone}
+                        title={`${NOTATION_BADGES[genomicNotation.kind].title} This field only accepts genomic coordinates.`}
+                      >
+                        {NOTATION_BADGES[genomicNotation.kind].label}
+                      </FieldBadge>
+                    ) : (
+                      <FieldBadge title={genomicAssemblyLabel ? "Genome build this coordinate will be resolved against." : "Optional: protein-level notation alone is enough to run the analysis."}>
+                        {genomicAssemblyLabel ?? "Optional"}
+                      </FieldBadge>
+                    )}
                   </label>
                   <div className="relative">
                     <input
@@ -644,7 +729,7 @@ function VariantSearchPanel({
                           setUserDirections(text);
                         }}
                         maxLength={2000}
-                        className="w-full h-20 rounded-md border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)] select-text"
+                        className="w-full h-20 rounded-md border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)] select-text transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
                         style={{ color: "var(--cs-text-primary)" }}
                       />
                       <div className="flex justify-between items-center text-[10px]" style={{ color: "var(--cs-text-muted)" }}>
@@ -662,7 +747,7 @@ function VariantSearchPanel({
                       type="button"
                       onClick={() => openSettingsTab("api")}
                       aria-label="API Key Required — Open Settings"
-                      className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[13.5px] font-semibold transition-[background-color,scale] duration-150 ease-out cursor-pointer shadow-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/45"
+                      className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[13.5px] font-semibold transition-[background-color,scale] duration-150 ease-out cursor-pointer shadow-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
                     >
                       <KeyRound className="w-4 h-4 text-amber-500" />
                       <span>API Key Required · Configure to Analyze</span>
@@ -677,7 +762,7 @@ function VariantSearchPanel({
                     type="submit"
                     disabled={isPipelineActive}
                     aria-label="Analyze Variant"
-                    className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-[background-color,filter,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 disabled:hover:brightness-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]/50 focus-visible:ring-offset-0"
+                    className="w-full flex items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold text-white transition-[background-color,filter,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 disabled:hover:brightness-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)]"
                     style={{ background: "var(--cs-accent-clay)" }}
                   >
                     {isPipelineActive ? (
@@ -712,7 +797,7 @@ function VariantSearchPanel({
                 in meaning — the Variant field accepts both protein and cDNA — and grouping
                 the examples by destination field is what makes that split self-evident.
               */}
-              <div className="mt-4 rounded-lg border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] overflow-hidden">
+              <div className="mt-4 rounded-2xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] overflow-hidden">
                 <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-[var(--cs-border-subtle)]">
                   <span className="flex items-center gap-2 text-[11.5px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
                     <HelpCircle className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
@@ -740,7 +825,7 @@ function VariantSearchPanel({
                             onClick={() => applyNotationExample(group.target, value)}
                             title={`${group.hint} Fills "${value}" and clears the other notation field.`}
                             aria-label={`Use example ${value} in the ${group.label} field`}
-                            className="px-1.5 py-[3px] rounded border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] font-mono text-[10px] transition-[background-color,border-color,scale] duration-150 ease-out hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-accent-mag-soft)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+                            className="px-1.5 py-[3px] rounded-[var(--cs-radius-badge)] border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] font-mono text-[10px] transition-[background-color,border-color,scale] duration-150 ease-out hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-accent-mag-soft)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
                             style={{ color: "var(--cs-text-secondary)" }}
                           >
                             {value}
@@ -825,26 +910,35 @@ function VariantSearchPanel({
           </div>
 
           {/* ── RIGHT COLUMN: Segmented Workflow Pipeline & Telemetry Rail (col-span-5) ──
-              Height-locked to the left column. At `lg` the rail's inner layout is taken
-              out of flow (absolute fill) so neither tab's content can contribute to the
-              grid row height: the card is sized by the form column plus `min-h` alone, and
-              both panels distribute/scroll inside a fixed track instead of resizing it. */}
-          <div className="lg:col-span-5 lg:relative lg:min-h-[690px] bg-[var(--cs-surface-2)]">
+              Height-locked to the left column. From `lg` up the rail's inner layout is taken out
+              of flow (absolute fill) so neither tab's content can contribute to the grid row
+              height: the card is sized by the form column plus a floor, and both panels
+              distribute/scroll inside a fixed track instead of resizing it.
+
+              The floor is NOT breakpoint-qualified. Below `lg` the columns stack, and with the
+              floor behind `lg:` the rail went back to sizing its own row, so switching tabs
+              still resized the card (by ~100px, more than the 14px this fixed). A floor at every
+              width keeps the stacked track stable too. */}
+          <div className="lg:col-span-5 lg:relative min-h-[690px] bg-[var(--cs-surface-2)]">
             <div className="flex flex-col gap-4 p-6 lg:p-7 lg:absolute lg:inset-0">
-              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-[var(--cs-border-subtle)] shrink-0">
+              {/* `flex-wrap` + `min-w-0`: two unshrinkable children need ~404px and the 5/12
+                  track only affords ~350px at the breakpoint, so without wrapping the status
+                  badge was pushed past the card's overflow-hidden edge — fully hidden at
+                  1024px and still clipped at 1280px. */}
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pb-2.5 border-b border-[var(--cs-border-subtle)] shrink-0">
                 {/* Segmented Switcher */}
                 <div
                   ref={railTabListRef}
                   role="tablist"
                   aria-label="Analysis sidebar view switcher"
                   onKeyDown={handleRailKeyDown}
-                  className="flex items-center gap-1 p-1 rounded-[10px] bg-[var(--cs-bg-subtle)] border border-[var(--cs-border)] shadow-xs shrink-0"
+                  className="flex items-center gap-1 p-1 rounded-[10px] bg-[var(--cs-bg-subtle)] border border-[var(--cs-border)] shadow-xs min-w-0"
                 >
                   <RailTab
                     id="telemetry"
                     active={activeRightTab === "telemetry"}
                     tabIndex={activeRightTab === "telemetry" ? 0 : -1}
-                    onSelect={() => setActiveRightTab("telemetry")}
+                    onSelect={() => selectRailTab("telemetry")}
                     icon={<Activity className={`w-3.5 h-3.5 ${activeRightTab === "telemetry" ? "text-[var(--cs-accent-clay)]" : "text-[var(--cs-text-muted)]"}`} />}
                     label="Service Telemetry"
                   />
@@ -853,7 +947,7 @@ function VariantSearchPanel({
                     id="pipeline"
                     active={activeRightTab === "pipeline"}
                     tabIndex={activeRightTab === "pipeline" ? 0 : -1}
-                    onSelect={() => setActiveRightTab("pipeline")}
+                    onSelect={() => selectRailTab("pipeline")}
                     icon={<Layers className={`w-3.5 h-3.5 ${activeRightTab === "pipeline" ? "text-[var(--cs-accent-clay)]" : "text-[var(--cs-text-muted)]"}`} />}
                     label="Workflow Pipeline"
                     badge={
@@ -866,18 +960,20 @@ function VariantSearchPanel({
                   />
                 </div>
 
-                {/* Ready Status Badge on the far right above separator */}
-                {activeRightTab === "telemetry" ? (
-                  <span className={`${RAIL_BADGE_BASE} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20`}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    Pre-flight Ready
-                  </span>
-                ) : (
+                {/* Outcome badge.
+                    The telemetry tab used to carry an unconditional emerald "Pre-flight Ready"
+                    chip. It read no diagnostics state at all, so it asserted readiness while the
+                    panel directly beneath it rendered "Checking…", "0/10 Online" in rose, or
+                    "9/10 Online" in amber — a claim contradicted 20px below itself, and redundant
+                    with that panel's own counter. It is gone rather than re-derived, because a
+                    second status indicator for the same fact is the thing that drifted.
+                    The pipeline chip IS derived, from real run state. */}
+                {activeRightTab === "pipeline" && (
                   <span className={`${RAIL_BADGE_BASE} ${
                     isPipelineActive
-                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                      ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
                       : result
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-bold"
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25"
                       : "bg-[var(--cs-surface)] text-[var(--cs-text-secondary)] border-[var(--cs-border)]"
                   }`}>
                     {isPipelineActive ? (
@@ -904,15 +1000,25 @@ function VariantSearchPanel({
                       <span className="text-[12px] font-semibold text-cs-text-primary">
                         Workflow Pipeline Execution
                       </span>
-                      <span className="text-[10px] font-mono text-[var(--cs-text-muted)] px-1.5 py-0.5 rounded bg-[var(--cs-surface-2)] border border-[var(--cs-border-subtle)]">
-                        {isPipelineActive ? "Running" : result ? "7/7 Complete" : "7 Stages"}
+                      <span className="text-[10px] font-mono text-[var(--cs-text-muted)] px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-surface-2)] border border-[var(--cs-border-subtle)]">
+                        {/* Derived from the list, never a literal: an eighth stage previously
+                            still read "7/7 Complete" on a pipeline that ran eight. */}
+                        {isPipelineActive
+                          ? "Running"
+                          : result
+                          ? `${WORKFLOW_STAGES.length}/${WORKFLOW_STAGES.length} Complete`
+                          : `${WORKFLOW_STAGES.length} Stages`}
                       </span>
                     </div>
                   </div>
 
                   {/* Workflow Live Stages List — same row rhythm as the telemetry rail,
-                      with surplus height distributed between rows rather than inside them. */}
-                  <div className="flex-1 min-h-0 flex flex-col justify-between gap-2 my-0.5">
+                      with surplus height distributed between rows rather than inside them.
+                      `overflow-y-auto` matches the telemetry list: rows are `min-h-[46px]` and
+                      cannot shrink, so without a scroll affordance an eighth stage (or a taller
+                      header) would be silently clipped by the card's `overflow-hidden` rather
+                      than becoming reachable. */}
+                  <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col justify-between gap-2 my-0.5">
                     {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
                       const info = getStageInfo(key as any);
                       const isClickable = !!result && !!onViewChange;

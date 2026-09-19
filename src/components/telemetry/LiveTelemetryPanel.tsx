@@ -5,7 +5,7 @@ import {
   Settings,
   Clock
 } from "lucide-react";
-import { useDiagnostics } from "../../hooks/useDiagnostics";
+import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
 
 interface LiveTelemetryPanelProps {
@@ -23,10 +23,16 @@ interface ServiceStatusCard {
   isWarning?: boolean;
   /** Primary unreachable but its fallback tier is live: degraded, not broken. */
   isDegraded?: boolean;
-  /** Every tier of this service's ladder is unreachable. */
+  /** Every tier of this service's ladder answered that it cannot serve. */
   isDown?: boolean;
+  /** Primary unreachable and coverage could not be determined — explicitly not an outage. */
+  isUnknown?: boolean;
   latency?: number | string | null;
   tag?: string;
+  /** Extra detail for the row's tooltip, e.g. how old a coverage verdict is. */
+  detail?: string;
+  /** Visible affordance for clickable rows, so the action is not discoverable only via AT. */
+  actionIcon?: React.ReactNode;
   /** Overrides the default "Configure <name> settings" accessible label. */
   actionLabel?: string;
   onAction?: () => void;
@@ -34,24 +40,28 @@ interface ServiceStatusCard {
 
 /**
  * Leading status dot. `isWarning` pulses because it marks a state the operator must act on
- * (a missing key); `isDegraded` deliberately does not, because it marks a state that needs
- * no action at all.
+ * (a missing key); `isDegraded` and `isUnknown` deliberately do not, because neither needs
+ * action — and a permanently pulsing dot beside a steady state competes with the one pulse
+ * that means something.
  */
 function statusDotClass(svc: ServiceStatusCard): string {
   if (svc.isDown) return "bg-rose-500";
   if (svc.isWarning) return "bg-amber-500 animate-pulse";
   if (svc.isDegraded) return "bg-amber-500";
+  if (svc.isUnknown) return "bg-slate-400";
   if (svc.isReady) return "bg-emerald-500";
   return "bg-slate-400";
 }
 
 function statusPillClass(svc: ServiceStatusCard): string {
-  if (svc.isDown) return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30";
+  if (svc.isDown) return "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30";
   if (svc.isWarning || svc.isDegraded) {
-    return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30";
   }
-  if (svc.isReady) return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
-  return "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20";
+  if (svc.isReady) {
+    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20";
+  }
+  return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
 }
 
 export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
@@ -83,13 +93,31 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
    */
   const ensemblHealth = diagnostics?.serviceHealth?.ensembl;
   const ensemblReady = Boolean(ensemblHealth?.healthy);
-  const ensemblFallback = ensemblHealth?.fallback;
-  /** Primary down, tier 2 live: the ladder still answers, so this is degraded, not broken. */
-  const ensemblDegraded = Boolean(ensemblHealth && !ensemblReady && ensemblFallback?.healthy);
-  /** Both tiers down: coordinate queries genuinely fail and the user must switch notation. */
-  const ensemblUncovered = Boolean(
-    ensemblHealth && !ensemblReady && ensemblFallback && !ensemblFallback.healthy
-  );
+  const ensemblFallbackRaw = ensemblHealth?.fallback;
+  /**
+   * Validate the fallback block rather than trusting its shape.
+   *
+   * This is an unvalidated boundary: an older producer, a future one, or a hand-rolled payload
+   * can send `{}`, a missing `name`, or a string `healthy`. Reading those naively turned an
+   * empty block into a definitive "both tiers are unreachable" — the opposite of the truth —
+   * and a missing name into the literal "undefined taking over" in a clinical readout.
+   */
+  const ensemblFallback =
+    ensemblFallbackRaw && typeof ensemblFallbackRaw.healthy === "boolean" ? ensemblFallbackRaw : undefined;
+  const fallbackVerdict: FallbackVerdictKind | null = ensemblFallback
+    ? ensemblFallback.verdict ?? (ensemblFallback.healthy ? "ready" : "unavailable")
+    : null;
+  /** Primary down, tier 2 confirmed live: the ladder still answers, so this is degraded, not broken. */
+  const ensemblDegraded = Boolean(ensemblHealth && !ensemblReady && fallbackVerdict === "ready");
+  /** Primary down and tier 2 answered that it cannot: coordinate queries genuinely fail. */
+  const ensemblUncovered = Boolean(ensemblHealth && !ensemblReady && fallbackVerdict === "unavailable");
+  /**
+   * Primary down and the probe could not tell — a timeout, an abort, a transport error. This is
+   * deliberately NOT rendered as an outage: announcing "no provider reachable" and advising the
+   * clinician to switch notation, on the strength of a probe that merely timed out, is a wrong
+   * instruction about a provider that may answer real queries perfectly well.
+   */
+  const ensemblCoverageUnknown = Boolean(ensemblHealth && !ensemblReady && fallbackVerdict === "unknown");
   // While degraded, the latency that matters is the tier actually answering.
   const ensemblLatency = ensemblDegraded ? ensemblFallback?.latencyMs : ensemblHealth?.latencyMs;
   const ensemblStatusText = !isLoaded && loading
@@ -100,14 +128,31 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     ? "Fallback Ready"
     : ensemblUncovered
     ? "No Fallback"
+    : ensemblCoverageUnknown
+    ? "Coverage Unknown"
     : ensemblHealth
     ? "Offline"
     : "Standby";
+  const ensemblFallbackName = ensemblFallback?.name || "the fallback provider";
   const ensemblDescription = ensemblDegraded
-    ? `${ensemblFallback!.name} taking over`
+    ? `${ensemblFallbackName} taking over`
     : ensemblUncovered
     ? "No provider reachable — use p.Glu433Lys style notation"
+    : ensemblCoverageUnknown
+    ? "Fallback not verified — coordinate queries may still work"
     : "Transcript & consequence mapping";
+  /** Age of the coverage verdict, so an old claim is not presented as a current one. */
+  const ensemblCoverageTitle = ensemblFallback
+    ? [
+        ensemblFallback.message,
+        typeof ensemblFallback.ageMs === "number" && ensemblFallback.ageMs >= 0
+          ? `verified ${Math.round(ensemblFallback.ageMs / 1000)}s ago`
+          : null,
+        ensemblFallback.stale ? "no longer current" : null,
+      ]
+        .filter(Boolean)
+        .join(" — ")
+    : undefined;
 
   // 2. AlphaGenome Atlas
   const alphagenomeHealth = diagnostics?.serviceHealth?.alphagenome;
@@ -237,7 +282,10 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       isReady: ensemblReady,
       isDegraded: ensemblDegraded,
       isDown: ensemblUncovered,
+      isUnknown: ensemblCoverageUnknown,
       latency: formatLatency(ensemblLatency),
+      detail: ensemblCoverageTitle,
+      actionIcon: ensemblReady ? undefined : <RefreshCw className="w-3 h-3" />,
       // Only when the primary has failed: re-probing re-runs the whole ladder, including
       // the conditional fallback check, so the pill can flip back to REST Live.
       actionLabel: "Re-check Ensembl VEP and its fallback",
@@ -335,10 +383,22 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   /** Degraded services are covered by a live fallback, so the header should say so rather than just "not online". */
   const degradedServices = services.filter(s => s.isDegraded);
   const uncoveredServices = services.filter(s => s.isDown);
+  const unknownServices = services.filter(s => s.isUnknown);
   const coverageNote = [
     ...degradedServices.map(s => `${s.name} offline — ${s.description}`),
-    ...uncoveredServices.map(s => `${s.name} and its fallback are both unreachable`)
+    ...uncoveredServices.map(s => `${s.name} and its fallback are both unreachable`),
+    ...unknownServices.map(s => `${s.name} offline and its fallback could not be verified`)
   ].join("; ");
+  /**
+   * A covered outage is degraded, not offline. Showing the plain online count made the header
+   * contradict the row beneath it ("9/10 Online" amber next to "Fallback Ready"), and because
+   * the rose threshold is totalCount - 2, one covered outage plus one unrelated failure flipped
+   * the header to rose — a much louder claim than the facts support.
+   */
+  const coveredCount = services.filter(s => s.isDegraded).length;
+  const counterLabel = coveredCount > 0
+    ? `${onlineCount}/${totalCount} Online · ${coveredCount} on fallback`
+    : `${onlineCount}/${totalCount} Online`;
 
   return (
     <div className={`flex flex-col h-full justify-between gap-3 text-cs-text-primary ${className}`}>
@@ -356,11 +416,11 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1.5 ${
               !isLoaded && loading
                 ? "bg-cs-surface-2 text-cs-text-muted border-cs-border-subtle"
-                : onlineCount === totalCount
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                : onlineCount >= totalCount - 2
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                : uncoveredServices.length > 0
+                ? "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
+                : onlineCount === totalCount || coveredCount > 0 || unknownServices.length > 0
+                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
             }`}
             title={
               !isLoaded && loading
@@ -374,14 +434,14 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
               className={`w-1.5 h-1.5 rounded-full ${
                 !isLoaded && loading
                   ? "bg-cs-accent-clay animate-pulse"
-                  : onlineCount === totalCount
-                  ? "bg-emerald-500"
-                  : onlineCount >= totalCount - 2
+                  : uncoveredServices.length > 0
+                  ? "bg-rose-500"
+                  : onlineCount === totalCount || coveredCount > 0 || unknownServices.length > 0
                   ? "bg-amber-500"
-                  : "bg-rose-500"
+                  : "bg-emerald-500"
               }`}
             />
-            {!isLoaded && loading ? "Checking…" : `${onlineCount}/${totalCount} Online`}
+            {!isLoaded && loading ? "Checking…" : counterLabel}
           </span>
 
           <button
@@ -389,7 +449,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             onClick={() => refresh()}
             disabled={loading}
             title="Ping all services & refresh telemetry"
-            className="p-1 rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+            className="min-w-6 min-h-6 p-1 inline-flex items-center justify-center rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
             aria-label="Ping all services"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-cs-accent-clay" : ""}`} />
@@ -399,7 +459,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             type="button"
             onClick={() => handleConfigure("connections")}
             title="Open Connection Settings"
-            className="p-1 rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+            className="min-w-6 min-h-6 p-1 inline-flex items-center justify-center rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
             aria-label="Configure connection settings"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -433,7 +493,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   : "border-[var(--cs-border-subtle)]"
               } ${
                 isClickable
-                  ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
+                  ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
                   : "hover:border-[var(--cs-border)]"
               }`}
             >
@@ -454,7 +514,10 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       </span>
                     )}
                   </div>
-                  <span className="text-[9.5px] text-cs-text-secondary truncate font-sans leading-tight" title={svc.description}>
+                  <span
+                    className="text-[9.5px] text-cs-text-secondary truncate font-sans leading-tight"
+                    title={svc.detail ?? svc.description}
+                  >
                     {svc.description}
                   </span>
                 </div>
@@ -473,6 +536,14 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                 >
                   {svc.statusText}
                 </span>
+                {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
+                    only cue was its aria-label, so sighted users could not tell a re-check from
+                    the "opens Settings" behaviour every other clickable row has. */}
+                {svc.actionIcon && (
+                  <span className="p-0.5 rounded text-cs-text-muted" aria-hidden="true">
+                    {svc.actionIcon}
+                  </span>
+                )}
               </div>
             </div>
           );

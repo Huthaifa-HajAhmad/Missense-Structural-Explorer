@@ -98,6 +98,22 @@ export interface TranslatedVariantResult {
     /** Explanation emitted when an inline assembly annotation redirected the query. */
     assemblyNote?: string;
   };
+  /**
+   * Which provider actually answered, and whether the ladder fell back.
+   *
+   * The server has always computed this (see the `provenance` block in shared/contracts.ts) and
+   * the client used to drop it, so every surface attributed the translation to Ensembl VEP —
+   * including the progress text and the trace span — even when VariantValidator had answered.
+   * That matters beyond labelling: the fallback tier returns no UniProt accession and no Ensembl
+   * transcript id, so a degraded resolution is materially poorer and was reaching the readout
+   * undisclosed.
+   */
+  provenance?: {
+    provider: string;
+    providerLabel: string;
+    usedFallback: boolean;
+    cacheHit: boolean;
+  };
 }
 
 export interface StructuredPipelineOptions {

@@ -63,21 +63,22 @@
   border-width: 1.5px;
 }
 
-/* Tab Panel Transition — a short cross-fade with a 4px rise.
-   The panel lives inside a fixed-height track, so the offset stays small enough
-   not to be clipped by the card, and scale is left out: scaling a text panel
-   re-rasterises it and softens glyphs for the length of the animation. */
+/* Tab Panel Transition — opacity only, short enough for a high-frequency interaction.
+   Switching rail tabs belongs with list-row hovers and keystrokes, so it gets the subtlest
+   possible transition rather than a staged one (better-ui asks for opacity/background at
+   <=150ms here). The 4px rise went with it: the panels carry a React `key` and are remounted on
+   every switch, so a keyframe restarts from its first frame each time, and holding an arrow key
+   made the panel blink back to invisible between presses. Opacity alone cross-fades and never
+   flashes to nothing. Reduced motion is handled globally in primitives.css. */
 @keyframes cs-tab-transition {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 .cs-tab-transition {
-  animation: cs-tab-transition 0.18s cubic-bezier(0.2, 0, 0, 1) both;
+  animation: cs-tab-transition 0.14s cubic-bezier(0.2, 0, 0, 1) both;
 }
 

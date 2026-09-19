@@ -42,7 +42,7 @@ export async function translateVariantNotation(
     callbacks.setAnalysisState((prev: any) => ({ ...prev, isLoading: true, error: null }));
   }
   if (callbacks?.setLoadingStep) {
-    callbacks.setLoadingStep("Step 1/4: Translating genomic / cDNA variant notation via Ensembl VEP...");
+    callbacks.setLoadingStep("Step 1/4: Translating genomic / cDNA variant notation…");
   }
 
   const startTime = performance.now();
@@ -51,10 +51,18 @@ export async function translateVariantNotation(
     const durationMs = Math.round(performance.now() - startTime);
     const offsetMs = traceContext ? Math.max(0, Math.round(startTime - traceContext.traceStart)) : 0;
 
+    // Name the span after the provider that ACTUALLY answered. Hardcoding "(VEP)" attributed a
+    // VariantValidator fallback resolution to Ensembl, which is wrong in the audit trail and
+    // contradicts the telemetry rail, where the same reader is told the fallback has taken over.
+    const providerLabel = data.provenance?.providerLabel || "Ensembl VEP";
+    const spanName = data.provenance?.usedFallback
+      ? `Genomic & cDNA Notation Translation (${providerLabel} fallback)`
+      : `Genomic & cDNA Notation Translation (${providerLabel})`;
+
     if (traceContext?.activeTraceId) {
       traceContext.addTraceSpan({
         traceId: traceContext.activeTraceId,
-        name: "Genomic & cDNA Notation Translation (VEP)",
+        name: spanName,
         stage: "genomics",
         startTime: Date.now() - durationMs,
         offsetMs,
@@ -78,14 +86,25 @@ export async function translateVariantNotation(
         // Preserved so callers/reports can state which build the coordinate resolved against.
         assembly: data.assembly,
         assemblyNote: data.assemblyNote
-      }
+      },
+      // Carried through rather than dropped, so downstream surfaces can disclose a degraded
+      // provider. VariantValidator returns no UniProt accession and no Ensembl transcript id,
+      // so a fallback resolution is materially poorer and must not look identical to a normal one.
+      provenance: data.provenance
+        ? {
+            provider: data.provenance.provider,
+            providerLabel: data.provenance.providerLabel,
+            usedFallback: data.provenance.usedFallback,
+            cacheHit: data.provenance.cacheHit
+          }
+        : undefined
     };
   } catch (err: any) {
     const durationMs = Math.max(1, Math.round(performance.now() - startTime));
     if (traceContext?.activeTraceId) {
       traceContext.addTraceSpan({
         traceId: traceContext.activeTraceId,
-        name: "Genomic & cDNA Notation Translation (VEP)",
+        name: "Genomic & cDNA Notation Translation",
         stage: "genomics",
         startTime: Date.now(),
         offsetMs: Math.max(0, Math.round(performance.now() - (traceContext.traceStart || performance.now()))),

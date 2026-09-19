@@ -2,9 +2,10 @@
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import VariantSearchPanel from "../VariantSearchPanel";
+import VariantSearchPanel, { WORKFLOW_STAGES } from "../VariantSearchPanel";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { SettingsProvider } from "../../context/SettingsContext";
+import { ACCEPTED_NOTATION_EXAMPLES, classifyNotation } from "../../shared/variantNotation";
 
 function renderPanel() {
   return render(
@@ -257,26 +258,75 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     expect(mockOnViewChange).toHaveBeenCalledWith("structure");
   });
 
-  it("renders ready status badge on the far right of tab switcher and avoids excessive version or settings icon pills", async () => {
+  it("does not claim readiness in the rail header, and shows the derived pipeline badge", async () => {
     renderPanel();
 
-    // Verify Pre-flight Ready is present on the tab switcher header for Telemetry
-    expect(screen.getByText("Pre-flight Ready")).toBeInTheDocument();
+    // The telemetry tab used to carry an unconditional emerald "Pre-flight Ready" chip that read
+    // no diagnostics state, so it asserted readiness while the panel beneath it could render
+    // "Checking…" or "0/10 Online" in rose. It is gone: the telemetry panel's own counter is the
+    // single status indicator for that tab.
+    expect(screen.queryByText("Pre-flight Ready")).not.toBeInTheDocument();
     expect(screen.queryByText("v1.0.0-dev")).not.toBeInTheDocument();
 
-    // Switch to Workflow Pipeline tab
+    // The pipeline badge IS derived from real run state, so it survives.
     const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
     await act(async () => {
       fireEvent.click(pipelineTab);
     });
-
-    // Verify Pipeline Ready is displayed on the tab switcher header for Pipeline
     expect(screen.getByText("Pipeline Ready")).toBeInTheDocument();
 
     // Verify service cards do not render redundant inline settings pills
     expect(screen.queryByTitle(/Configure FoldX Engine settings/i)).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Configure Gemini Clinical AI settings/i)).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Configure P2Rank Pocket Engine settings/i)).not.toBeInTheDocument();
+  });
+
+  it("supports roving focus and arrow-key navigation across the rail switcher", async () => {
+    renderPanel();
+
+    const telemetryTab = screen.getByRole("tab", { name: /Service Telemetry/i });
+    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const tablist = screen.getByRole("tablist", { name: /rail switcher|sidebar view switcher/i });
+
+    // One tab stop, not two: the inactive segment is removed from the tab order.
+    expect(telemetryTab.getAttribute("tabindex")).toBe("0");
+    expect(pipelineTab.getAttribute("tabindex")).toBe("-1");
+
+    await act(async () => {
+      fireEvent.keyDown(tablist, { key: "ArrowRight" });
+    });
+    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Workflow Pipeline/i }).getAttribute("tabindex")).toBe("0");
+    expect(screen.getByRole("tab", { name: /Service Telemetry/i }).getAttribute("tabindex")).toBe("-1");
+
+    await act(async () => {
+      fireEvent.keyDown(tablist, { key: "Home" });
+    });
+    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.keyDown(tablist, { key: "End" });
+    });
+    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+
+    // Arrow keys wrap rather than dead-ending at the edge.
+    await act(async () => {
+      fireEvent.keyDown(tablist, { key: "ArrowRight" });
+    });
+    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+  });
+
+  it("keeps the active tab's aria-controls resolvable and never points at an unmounted panel", async () => {
+    renderPanel();
+
+    const active = screen.getByRole("tab", { name: /Service Telemetry/i });
+    const inactive = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+
+    expect(active.getAttribute("aria-controls")).toBe("panel-telemetry");
+    expect(document.getElementById("panel-telemetry")).not.toBeNull();
+    // A dangling IDREF is an axe "serious" violation, so the inactive tab must not reference a
+    // panel that is not mounted.
+    expect(inactive.getAttribute("aria-controls")).toBeNull();
   });
 
   it("displays Key Ready for AlphaGenome Atlas when configured in client settings", async () => {
@@ -332,24 +382,37 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(screen.getByText("Out of scope")).toBeInTheDocument();
     });
 
-    it("flags a malformed UniProt accession instead of silently accepting it", async () => {
+    it.each([
+      ["Q9H8", false],
+      ["Q9H8M5", true],
+      ["A0A0B4J2F0", true],
+      ["A0A0B4J2F", false],
+      ["Q9H8M5ABCDE", false],
+      ["q9h8m5", true],
+      ["P51587", true],
+      ["O60260", true],
+      // The previous pattern accepted any six alphanumerics, so these read "Format OK".
+      ["123456", false],
+      ["000000", false],
+    ])("validates the UniProt accession boundary %s -> %s", async (value, valid) => {
       renderPanel();
 
       const uniprotInput = screen.getByPlaceholderText("e.g. Q9H8M5 (Auto-resolved if omitted)") as HTMLInputElement;
       await act(async () => {
-        fireEvent.change(uniprotInput, { target: { value: "Q9H8" } });
+        fireEvent.change(uniprotInput, { target: { value } });
       });
-      expect(screen.getByText("Check format")).toBeInTheDocument();
 
-      await act(async () => {
-        fireEvent.change(uniprotInput, { target: { value: "Q9H8M5" } });
-      });
-      expect(screen.getByText("Format OK")).toBeInTheDocument();
+      expect(screen.getByText(valid ? "Format OK" : "Check format")).toBeInTheDocument();
     });
 
-    it("surfaces custom analysis instructions while the disclosure is collapsed", async () => {
+    it("surfaces custom analysis instructions on the still-collapsed disclosure", async () => {
       renderPanel();
 
+      const details = document.querySelector("details");
+      expect(details).not.toBeNull();
+      // The claim is specifically about the CLOSED row, so the state has to be asserted rather
+      // than assumed: jsdom renders and edits controls inside a closed <details>.
+      expect((details as HTMLDetailsElement).open).toBe(false);
       expect(screen.queryByText(/^\d+ chars$/)).not.toBeInTheDocument();
 
       const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions");
@@ -358,23 +421,56 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       });
 
       expect(screen.getByText("26 chars")).toBeInTheDocument();
+      expect((details as HTMLDetailsElement).open).toBe(false);
+    });
+
+    it("does not claim a genome build for text that is not a coordinate", async () => {
+      renderPanel();
+
+      const genomicInput = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
+      await act(async () => {
+        fireEvent.change(genomicInput, { target: { value: "p.Gly380Arg" } });
+      });
+
+      // The badge used to assert "GRCh38 default" for ANY non-empty content while also marking
+      // the Gene field "Derived" — a resolution that could never happen, and a relaxed
+      // required-field rule for input the pipeline cannot use.
+      expect(screen.queryByText("GRCh38 default")).not.toBeInTheDocument();
+      expect(screen.queryByText("Derived")).not.toBeInTheDocument();
+      expect(screen.getByText("Protein HGVS")).toBeInTheDocument();
+    });
+
+    it("still reports the build for a genuine coordinate with an inline annotation", async () => {
+      renderPanel();
+
+      const genomicInput = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
+      await act(async () => {
+        fireEvent.change(genomicInput, { target: { value: "chr1(GRCh37):g.25484258G>A" } });
+      });
+
+      expect(screen.getByText("GRCh37 annotated")).toBeInTheDocument();
+      expect(screen.getByText("Derived")).toBeInTheDocument();
     });
   });
 
   describe("accepted-inputs catalogue", () => {
-    it("draws its examples from the shared notation catalogue", () => {
+    it("sources every example from the shared catalogue, and every one parses", () => {
       renderPanel();
 
-      // Sourced from ACCEPTED_NOTATION_EXAMPLES, so the panel cannot advertise a grammar the
-      // parser rejects. The ClinVar Variation ID the previous hand-written copy listed is
-      // absent because the analysis route has no branch for it.
-      expect(screen.getByText("chr1:g.25484258G>A")).toBeInTheDocument();
-      expect(screen.getByText("Chr1(GRCh38):g.25484258G>A")).toBeInTheDocument();
-      expect(screen.getByText("NC_000001.11:g.25484258G>A")).toBeInTheDocument();
-      expect(screen.getByText("20-23365054-G-A")).toBeInTheDocument();
-      expect(screen.getByText("NM_004333.6:c.1799T>A")).toBeInTheDocument();
-      expect(screen.getByText("p.Arg408Trp")).toBeInTheDocument();
-      expect(screen.queryByText("VCV000013920")).not.toBeInTheDocument();
+      // Asserted against the SOURCE, not against literals: hardcoding the six strings pinned
+      // today's values while leaving the actual claim — that the panel cannot advertise a grammar
+      // `classifyNotation` rejects — completely unasserted. The ClinVar Variation ID the previous
+      // hand-written copy listed is absent because the analysis route has no branch for it.
+      const rendered = new Set(
+        Array.from(document.querySelectorAll("button[aria-label^='Use example ']")).map(
+          (el) => (el.textContent || "").trim()
+        )
+      );
+      const catalogue = Object.values(ACCEPTED_NOTATION_EXAMPLES);
+      expect(rendered).toEqual(new Set(catalogue));
+      for (const example of catalogue) {
+        expect(classifyNotation(example).kind, `catalogue entry ${example} must parse`).not.toBe("unknown");
+      }
     });
 
     it("fills the matching field and clears the competing one", async () => {
@@ -407,6 +503,38 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
       expect((screen.getByPlaceholderText("e.g. p.Gly380Arg") as HTMLInputElement).value).toBe("p.Arg408Trp");
       expect(useVariantAnalysisStore.getState().customVariant).toBe("p.Arg408Trp");
+    });
+  });
+
+  describe("workflow pipeline stage list", () => {
+    const openPipeline = async () => {
+      const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+      await act(async () => {
+        fireEvent.click(pipelineTab);
+      });
+    };
+
+    it("renders every declared stage and derives its badge from the list", async () => {
+      renderPanel();
+      await openPipeline();
+
+      // Derived, not a literal: "7/7 Complete" was hardcoded against a 7-element array, so an
+      // eighth stage would still have reported seven of seven as complete.
+      const expectedCount = WORKFLOW_STAGES.length;
+      expect(screen.getByText(`${expectedCount} Stages`)).toBeInTheDocument();
+
+      for (const stage of WORKFLOW_STAGES) {
+        expect(screen.getByText(stage.title)).toBeInTheDocument();
+      }
+    });
+
+    it("distinguishes the stages by their own icon while they are idle", async () => {
+      renderPanel();
+      await openPipeline();
+
+      // Previously all seven rows shared one grey Circle, so the list had no identity to scan by.
+      const icons = document.querySelectorAll("#panel-pipeline svg.lucide-bar-chart-2, #panel-pipeline svg.lucide-layers");
+      expect(icons.length).toBeGreaterThan(0);
     });
   });
 });

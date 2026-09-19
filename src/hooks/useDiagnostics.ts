@@ -6,6 +6,9 @@ export interface CacheDiagnostic {
   ttl: string;
 }
 
+/** How a fallback tier is doing. Three states, because "could not tell" is not an outage. */
+export type FallbackVerdictKind = "ready" | "unavailable" | "unknown";
+
 /**
  * Health of the tier that takes over when a primary service fails.
  *
@@ -17,9 +20,14 @@ export interface FallbackHealthItem {
   id: string;
   name: string;
   healthy: boolean;
+  /** Absent on a payload from an older server; callers fall back to `healthy`. */
+  verdict?: FallbackVerdictKind;
   latencyMs: number;
   message: string;
   timestamp: string;
+  /** Age of the verdict when it was served, and whether it is past its refresh window. */
+  ageMs?: number;
+  stale?: boolean;
 }
 
 export interface ServiceHealthItem {
@@ -71,6 +79,18 @@ export interface VersionData {
 }
 
 /**
+ * Bounded retry schedule for the degraded-coverage follow-up, in milliseconds.
+ *
+ * A single 1.5s retry was not enough: the server consults the verdict only after its ~10-service
+ * health fan-out, and the probe behind it is allowed a 15s transport budget, so the verdict is
+ * routinely absent on the first follow-up. The guard then latched and nothing else polled —
+ * the row stayed on the neutral "Offline" pill for the whole session, i.e. in exactly the
+ * outage the fallback reporting exists for. These delays span ~30s, which covers the probe's
+ * whole budget, and the count is fixed so this still cannot become a polling loop.
+ */
+const FALLBACK_FOLLOW_UP_DELAYS_MS = [1500, 4000, 8000, 16000];
+
+/**
  * Fetches the server diagnostics, capabilities, and version payloads.
  * Exposes readiness, serviceHealth latency probes, and deep engine capabilities.
  */
@@ -82,8 +102,8 @@ export function useDiagnostics() {
   const [error, setError] = useState<string | null>(null);
   const activeControllerRef = useRef<AbortController | null>(null);
   const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guards the degraded-coverage follow-up so it can fire at most once per episode.
-  const followUpUsedRef = useRef(false);
+  /** How many follow-ups this episode has spent; reset whenever coverage is actually answered. */
+  const followUpAttemptsRef = useRef(0);
   const refreshRef = useRef<(() => void) | null>(null);
 
   const clearFollowUp = useCallback(() => {
@@ -131,22 +151,24 @@ export function useDiagnostics() {
 
         /**
          * The server reports fallback coverage from a probe it deliberately does not block the
-         * response on — waiting on it made /diagnostics slow in exactly the outage it describes.
-         * So the first payload after a primary failure carries no verdict yet: schedule one
-         * follow-up fetch to collect it. Bounded by `followUpUsedRef`, which only clears once a
-         * verdict arrives or the primary recovers, so this cannot become a polling loop.
+         * response on, so the first payload after a primary failure carries no verdict yet.
+         * Walk a fixed, escalating schedule of follow-up fetches until a verdict arrives.
+         * Bounded by the schedule's length, so it can never become a polling loop.
          */
         const ensembl = payload?.serviceHealth?.ensembl;
         if (ensembl && !ensembl.healthy && !ensembl.fallback) {
-          if (!followUpUsedRef.current) {
-            followUpUsedRef.current = true;
+          const attempt = followUpAttemptsRef.current;
+          if (attempt < FALLBACK_FOLLOW_UP_DELAYS_MS.length) {
+            followUpAttemptsRef.current = attempt + 1;
             followUpTimerRef.current = setTimeout(() => {
               followUpTimerRef.current = null;
               refreshRef.current?.();
-            }, 1500);
+            }, FALLBACK_FOLLOW_UP_DELAYS_MS[attempt]);
           }
         } else {
-          followUpUsedRef.current = false;
+          // Coverage was actually answered (or the primary recovered): a later outage gets the
+          // full schedule again rather than inheriting this episode's spent attempts.
+          followUpAttemptsRef.current = 0;
         }
       } else {
         setError(`Diagnostics unavailable${diagRes ? ` (HTTP ${diagRes.status})` : ""}.`);

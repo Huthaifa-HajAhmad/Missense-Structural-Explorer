@@ -4,6 +4,22 @@
 @import "./styles/components.css";
 @import "./styles/molstar.css";
 
+/**
+ * Bind Tailwind's `dark:` variant to the APP's theme, not the operating system's.
+ *
+ * Without this, `dark:` compiles to `@media (prefers-color-scheme: dark)` while the app toggles
+ * a `.dark` class on <html> (SettingsContext), so the two mechanisms disagree in BOTH directions:
+ *
+ *   app dark + OS light -> `.dark` variables apply, every `dark:` utility is dead, and the
+ *                          light-mode status colours land on dark surfaces (3.0-4.1:1, below the
+ *                          AA bar variables.css sets for 9.5px badge text).
+ *   app light + OS dark -> `dark:` utilities apply on light surfaces, so `dark:text-*-400`
+ *                          renders at roughly 1.7-1.9:1 — status text that effectively vanishes.
+ *
+ * Must come after the Tailwind import so it overrides the built-in variant.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Map Tailwind font utilities to the design-system tokens so font-sans,
    font-mono, and font-serif classes resolve to the loaded webfonts. */
 @theme {

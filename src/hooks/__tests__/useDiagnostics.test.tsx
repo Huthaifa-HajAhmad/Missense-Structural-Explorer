@@ -4,9 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useDiagnostics } from "../useDiagnostics";
 
 /**
- * The server reports fallback coverage from a probe it does not block /diagnostics on, so the
- * first payload after a primary outage carries no verdict. These tests cover the one bounded
- * follow-up fetch that collects it — and, just as importantly, that it stays bounded.
+ * The server reports fallback coverage from a probe it deliberately does not block /diagnostics
+ * on, so the first payload after a primary outage carries no verdict. These tests cover the
+ * escalating follow-up fetches that collect it — and, just as importantly, that they stay bounded.
  */
 
 const ensemblDown = { healthy: false, latencyMs: 3802, message: "timeout", timestamp: "t" };
@@ -14,9 +14,12 @@ const fallbackReady = {
   id: "variant-validator",
   name: "VariantValidator",
   healthy: true,
+  verdict: "ready",
   latencyMs: 900,
   message: "Resolved MACO1 probe",
-  timestamp: "t"
+  timestamp: "t",
+  ageMs: 0,
+  stale: false,
 };
 
 const diagPayload = (ensembl: Record<string, unknown>) => ({
@@ -25,11 +28,10 @@ const diagPayload = (ensembl: Record<string, unknown>) => ({
   foldxReady: false,
   geminiReady: false,
   modelServerReady: false,
-  serviceHealth: { ensembl }
+  serviceHealth: { ensembl },
 });
 
-const jsonRes = (body: unknown) =>
-  ({ ok: true, status: 200, json: async () => body }) as any;
+const jsonRes = (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as any;
 
 describe("useDiagnostics — degraded coverage follow-up", () => {
   let diagCalls = 0;
@@ -59,28 +61,52 @@ describe("useDiagnostics — degraded coverage follow-up", () => {
     vi.useRealTimers();
   });
 
-  it("issues exactly one follow-up fetch, then stops", async () => {
-    // First poll: primary down, verdict not known yet. Every later poll: verdict available.
-    ensemblPayer = () => ensemblDown;
+  /**
+   * Advances fake time AND drains the promise chain each timer starts.
+   * `advanceTimersByTime` alone fires the timer but leaves the resulting fetch/schedule work
+   * pending, so only the first follow-up ever appeared to run.
+   */
+  const advance = async (ms: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  };
+
+  it("keeps retrying on the escalating schedule until the verdict lands", async () => {
+    // The one-shot 1.5s retry this replaces fired long before a 15s-budget probe could answer,
+    // then latched — so the row stayed on the neutral "Offline" pill for the whole session, in
+    // exactly the outage the feature exists for. Here coverage only resolves on the fourth poll,
+    // which is past where the old single retry gave up.
     const { result } = renderHook(() => useDiagnostics());
 
     await act(async () => {});
     expect(diagCalls).toBe(1);
     expect(result.current.diagnostics?.serviceHealth?.ensembl.fallback).toBeUndefined();
 
-    ensemblPayer = () => ({ ...ensemblDown, fallback: fallbackReady });
-    await act(async () => {
-      vi.advanceTimersByTime(1600);
-    });
-
+    ensemblPayer = () => (diagCalls >= 4 ? { ...ensemblDown, fallback: fallbackReady } : ensemblDown);
+    await advance(1500);
     expect(diagCalls).toBe(2);
-    expect(result.current.diagnostics?.serviceHealth?.ensembl.fallback).toMatchObject({ healthy: true });
+    await advance(4000);
+    expect(diagCalls).toBe(3);
+    expect(result.current.diagnostics?.serviceHealth?.ensembl.fallback).toBeUndefined();
+    await advance(8000);
 
-    // Must not become a polling loop.
-    await act(async () => {
-      vi.advanceTimersByTime(60_000);
-    });
-    expect(diagCalls).toBe(2);
+    expect(diagCalls).toBe(4);
+    expect(result.current.diagnostics?.serviceHealth?.ensembl.fallback).toMatchObject({ verdict: "ready" });
+  });
+
+  it("never becomes a polling loop", async () => {
+    renderHook(() => useDiagnostics());
+
+    await act(async () => {});
+    // Walk well past the whole schedule in the worst case: no verdict ever arrives.
+    await advance(200_000);
+
+    // One initial fetch plus exactly the four scheduled follow-ups.
+    expect(diagCalls).toBe(5);
+
+    await advance(200_000);
+    expect(diagCalls).toBe(5);
   });
 
   it("does not follow up when the primary is healthy", async () => {
@@ -88,9 +114,7 @@ describe("useDiagnostics — degraded coverage follow-up", () => {
     renderHook(() => useDiagnostics());
 
     await act(async () => {});
-    await act(async () => {
-      vi.advanceTimersByTime(60_000);
-    });
+    await advance(120_000);
 
     expect(diagCalls).toBe(1);
   });
@@ -100,27 +124,21 @@ describe("useDiagnostics — degraded coverage follow-up", () => {
     renderHook(() => useDiagnostics());
 
     await act(async () => {});
-    await act(async () => {
-      vi.advanceTimersByTime(60_000);
-    });
+    await advance(120_000);
 
     expect(diagCalls).toBe(1);
   });
 
-  it("stops after one attempt even if the verdict never arrives", async () => {
-    ensemblPayer = () => ensemblDown;
-    renderHook(() => useDiagnostics());
+  it("cancels the pending follow-up on unmount", async () => {
+    const { unmount } = renderHook(() => useDiagnostics());
 
     await act(async () => {});
-    await act(async () => {
-      vi.advanceTimersByTime(1600);
-    });
-    expect(diagCalls).toBe(2);
+    expect(diagCalls).toBe(1);
 
-    // Second payload still has no verdict, but the guard is spent until coverage changes.
-    await act(async () => {
-      vi.advanceTimersByTime(60_000);
-    });
-    expect(diagCalls).toBe(2);
+    unmount();
+    await advance(120_000);
+
+    // A leaked timer would issue requests from a dead component.
+    expect(diagCalls).toBe(1);
   });
 });

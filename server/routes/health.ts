@@ -7,7 +7,10 @@ import { clearAllCaches, defaultCacheRegistry } from "../services/cache.ts";
 import { getConfiguredGeminiModels, isGeminiApiKeyPlaceholder } from "../services/gemini.ts";
 import { adapterRegistry } from "../services/adapters/service-adapters.ts";
 import type { HealthStatus } from "../services/adapters/types.ts";
-import { checkVariantValidatorHealth } from "../services/translation/variant-validator.ts";
+import {
+  checkVariantValidatorHealth,
+  type VariantValidatorHealth,
+} from "../services/translation/variant-validator.ts";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
 
@@ -22,13 +25,12 @@ function resolveCacheDir(envKey: string, dirName: string): string {
   return process.env[envKey] ?? path.join(process.cwd(), "logs", dirName);
 }
 
-/** The shape `checkVariantValidatorHealth` returns. */
-export type FallbackProbe = (signal?: AbortSignal) => Promise<{
-  healthy: boolean;
-  latencyMs: number;
-  message: string;
-  timestamp: string;
-}>;
+/**
+ * The probe's shape is DERIVED from the probe, never re-declared. A hand-written copy silently
+ * swallows any field added to the real thing, which is exactly how a `verdict` field would go
+ * missing from the response type while being present at runtime.
+ */
+export type FallbackProbe = (signal?: AbortSignal) => Promise<VariantValidatorHealth>;
 
 type FallbackVerdict = Awaited<ReturnType<FallbackProbe>>;
 
@@ -37,34 +39,73 @@ const FALLBACK_VERDICT_REFRESH_MS = 20_000;
 /** Past this, a stale verdict is worse than none: it would claim coverage that may be gone. */
 const FALLBACK_VERDICT_MAX_AGE_MS = 120_000;
 
+/**
+ * Hard wall-clock ceiling for one probe attempt.
+ *
+ * Must exceed the transport timeout, because the transport timer is cleared as soon as
+ * response headers arrive: it bounds time-to-headers, not the body read. This signal is what
+ * actually bounds the probe, and it is also what stops a provider that sends headers and then
+ * stalls from leaving the promise — and therefore the single-flight slot — pending forever.
+ */
+const FALLBACK_PROBE_HARD_CAP_MS = 25_000;
+
+/**
+ * Independent watchdog on the in-flight slot.
+ *
+ * `AbortSignal.timeout` should make a probe always settle, so this is defence in depth: if a
+ * probe is somehow still pending long past its cap, the slot is released rather than wedging
+ * the feature for the lifetime of the process. Before this existed, a permanently-pending
+ * probe meant `currentFallbackVerdict()` returned null forever, silently and with no log.
+ */
+const FALLBACK_PROBE_WATCHDOG_MS = 40_000;
+
 let fallbackVerdict: { result: FallbackVerdict; at: number } | null = null;
 let fallbackProbeInFlight: Promise<void> | null = null;
+let fallbackProbeStartedAt = 0;
 
-/** Test hook: the verdict cache is process-global, so suites must be able to clear it. */
-export function resetFallbackVerdictCache(): void {
+/**
+ * Test hook: the verdict cache is process-global, so suites must be able to clear it.
+ *
+ * Clears, but deliberately does NOT cancel a pending probe — a cleared slot plus an
+ * in-flight probe means the next call may start a second probe. That only matters to tests,
+ * which call this between cases; production never calls it.
+ */
+export function resetFallbackVerdictCacheForTests(): void {
   fallbackVerdict = null;
   fallbackProbeInFlight = null;
+  fallbackProbeStartedAt = 0;
 }
 
 /**
  * Latest known fallback verdict, refreshing in the background.
  *
  * DELIBERATELY SYNCHRONOUS AND NEVER AWAITED BY THE REQUEST PATH. The first implementation
- * awaited the probe, which was wrong for two reasons. `/diagnostics` is a general health poll
- * that fans out to ~10 services; making it wait on an eleventh — one that only matters when
- * the primary is already down, and that a blackholed network holds open for the full timeout —
- * took the endpoint from instant to multi-second in exactly the outage it exists to describe,
- * and timed out the suite's own diagnostics test. So the probe runs off to the side and the
- * response carries whatever verdict is already known.
+ * awaited the probe, which was wrong: `/diagnostics` is a general health poll that fans out to
+ * ~10 services, and making it wait on an eleventh — one that only matters when the primary is
+ * already down, and that a blackholed network holds open for the full timeout — took the
+ * endpoint from instant to multi-second in exactly the outage it exists to describe. So the
+ * probe runs off to the side and the response carries whatever verdict is already known.
  *
- * The client compensates with one bounded follow-up fetch when it sees an unhealthy primary
- * with no verdict yet, which is what makes the answer appear without the user refreshing.
+ * The returned verdict carries `ageMs`; the caller decides whether an old verdict is still
+ * worth showing. The client issues bounded follow-up fetches, which is what makes the answer
+ * appear without the user refreshing.
  */
-export function currentFallbackVerdict(): FallbackVerdict | null {
+export function currentFallbackVerdict(): (FallbackVerdict & { ageMs: number }) | null {
   const now = Date.now();
+
+  // Release a slot that has outlived every reasonable bound. Without this the single-flight
+  // guard is a permanent lock whenever a probe fails to settle.
+  if (fallbackProbeInFlight && now - fallbackProbeStartedAt > FALLBACK_PROBE_WATCHDOG_MS) {
+    console.warn(
+      `[Diagnostics] Fallback probe exceeded its ${FALLBACK_PROBE_WATCHDOG_MS}ms watchdog; releasing the single-flight slot.`
+    );
+    fallbackProbeInFlight = null;
+  }
+
   if (!fallbackVerdict || now - fallbackVerdict.at >= FALLBACK_VERDICT_REFRESH_MS) {
     if (!fallbackProbeInFlight) {
-      fallbackProbeInFlight = checkVariantValidatorHealth()
+      fallbackProbeStartedAt = now;
+      fallbackProbeInFlight = checkVariantValidatorHealth(AbortSignal.timeout(FALLBACK_PROBE_HARD_CAP_MS))
         .then((result) => {
           fallbackVerdict = { result, at: Date.now() };
         })
@@ -78,7 +119,7 @@ export function currentFallbackVerdict(): FallbackVerdict | null {
   }
 
   if (fallbackVerdict && now - fallbackVerdict.at < FALLBACK_VERDICT_MAX_AGE_MS) {
-    return fallbackVerdict.result;
+    return { ...fallbackVerdict.result, ageMs: now - fallbackVerdict.at };
   }
   return null;
 }
@@ -98,7 +139,7 @@ export function currentFallbackVerdict(): FallbackVerdict | null {
  */
 export function attachNotationFallback(
   probedHealth: Record<string, HealthStatus>,
-  verdict: FallbackVerdict | null
+  verdict: (FallbackVerdict & { ageMs: number }) | null
 ): Record<string, HealthStatus> {
   const serviceHealth: Record<string, HealthStatus> = { ...probedHealth };
   const ensemblHealth = serviceHealth.ensembl;
@@ -112,6 +153,10 @@ export function attachNotationFallback(
       id: "variant-validator",
       name: "VariantValidator",
       ...verdict,
+      // Surfaced so the client can say how current the claim is instead of presenting an old
+      // verdict as a live one. A fallback dying while the panel is open previously left
+      // "Fallback Ready" on screen indefinitely.
+      stale: verdict.ageMs >= FALLBACK_VERDICT_REFRESH_MS,
     },
   };
   return serviceHealth;
@@ -187,11 +232,15 @@ export function registerHealthRoutes(apiRouter: Router): void {
 
     const p2rankCap = await checkP2RankCapability();
     const probedHealth = await adapterRegistry.checkAllHealth();
-    // Only consulted (and only refreshed) once the primary has actually failed. `currentFallbackVerdict`
-    // returns immediately — it starts a background refresh rather than waiting on one.
+    // Only consulted (and only refreshed) once the primary has actually FAILED — and only when
+    // there is a primary entry to report on. The optional-chain form used to treat a missing
+    // entry as a failure, spending a real outbound call whose verdict `attachNotationFallback`
+    // then discarded. `currentFallbackVerdict` returns immediately; it starts a background
+    // refresh rather than waiting on one.
+    const ensemblDown = Boolean(probedHealth.ensembl && !probedHealth.ensembl.healthy);
     const serviceHealth = attachNotationFallback(
       probedHealth,
-      probedHealth.ensembl?.healthy ? null : currentFallbackVerdict()
+      ensemblDown ? currentFallbackVerdict() : null
     );
 
     res.json({

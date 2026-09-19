@@ -19,9 +19,22 @@ export interface FallbackHealthStatus {
   id: string;
   name: string;
   healthy: boolean;
+  /**
+   * How the tier is doing, when the probe could tell.
+   *
+   * Three states rather than a boolean because "I could not tell" and "I asked and it cannot"
+   * warrant different advice: an unreachable or slow provider must not render as a definite
+   * outage, which would tell a clinician to abandon coordinate notation for no reason.
+   * Optional, so a payload from an older producer stays readable.
+   */
+  verdict?: "ready" | "unavailable" | "unknown";
   latencyMs: number;
   message: string;
   timestamp: string;
+  /** Age of this verdict at the moment it was served. */
+  ageMs?: number;
+  /** True once the verdict is older than the refresh window: displayable, but no longer current. */
+  stale?: boolean;
 }
 
 export interface HealthStatus {

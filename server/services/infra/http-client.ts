@@ -83,6 +83,17 @@ function getHostSemaphore(hostname: string): Semaphore {
 }
 
 /**
+ * Test hook: breaker and semaphore state is per-host module-global, so it survives between
+ * tests and between files. Without a reset, a suite that drives a host to its failure
+ * threshold leaves the breaker open, and later tests fail for reasons unrelated to what they
+ * assert (an open breaker throws before `fetch` is called).
+ */
+export function resetHostStateForTests(): void {
+  hostBreakers.clear();
+  hostSemaphores.clear();
+}
+
+/**
  * Executes an async operation with per-host concurrency limiting (Semaphore)
  * and failure protection (CircuitBreaker). Useful for non-fetch requests (e.g. native node:https).
  */
@@ -110,17 +121,37 @@ export async function withHostLock<T>(
   }
 }
 
-export async function fetchWithRetry(url: string, options: RequestInit & { timeout?: number } = {}, retries = 3, delay = 1000): Promise<Response> {
+/**
+ * Options for {@link fetchWithRetry}.
+ *
+ * `probe` marks health-check traffic. It is excluded from the per-host circuit breaker on
+ * purpose: a probe deliberately runs with a tighter budget than the traffic it reports on, so
+ * counting its timeouts as upstream failures lets a monitor open the breaker that guards real
+ * user requests — after which those requests fail instantly against a provider that is
+ * actually healthy, for the whole cooldown. A monitor must be able to observe a service
+ * without being able to disable it.
+ */
+export interface FetchWithRetryOptions extends RequestInit {
+  timeout?: number;
+  probe?: boolean;
+}
+
+export async function fetchWithRetry(url: string, options: FetchWithRetryOptions = {}, retries = 3, delay = 1000): Promise<Response> {
   let hostname = "unknown";
   try {
     hostname = new URL(url).hostname;
   } catch (_) {}
 
+  // Never forward our own flag to fetch().
+  const { probe = false, ...init } = options;
+
   const sem = getHostSemaphore(hostname);
   await sem.acquire(120000, options.signal ?? undefined); // Wait up to 120s to acquire hostname lock, respecting signal
   try {
     const breaker = getHostBreaker(hostname);
-    if (!breaker.canExecute()) {
+    // A probe skips the gate as well as the accounting: it must still be able to report that
+    // the provider has recovered while the breaker is open.
+    if (!probe && !breaker.canExecute()) {
       throw new Error(`Upstream service ${hostname} is temporarily unavailable (circuit breaker open).`);
     }
 
@@ -139,7 +170,7 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
           : controller.signal;
 
         const res = await fetch(url, {
-          ...options,
+          ...init,
           signal
         });
         clearTimeout(id);
@@ -184,15 +215,15 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
           continue;
         }
 
-        breaker.recordSuccess();
+        if (!probe) breaker.recordSuccess();
         return res;
       } catch (err: any) {
         if (options.signal?.aborted) {
-          breaker.recordFailure();
+          if (!probe) breaker.recordFailure();
           throw err;
         }
         if (i === retries - 1) {
-          breaker.recordFailure();
+          if (!probe) breaker.recordFailure();
           err.statusCode = lastStatus;
           throw err;
         }
@@ -202,7 +233,7 @@ export async function fetchWithRetry(url: string, options: RequestInit & { timeo
         await abortableSleep(backoff, options.signal);
       }
     }
-    breaker.recordFailure();
+    if (!probe) breaker.recordFailure();
     const errObj = new Error(`Failed to fetch ${url} after ${retries} attempts.`);
     (errObj as any).statusCode = lastStatus;
     throw errObj;

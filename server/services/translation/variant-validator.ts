@@ -169,6 +169,39 @@ export function mapVariantValidatorResponse(
 }
 
 /**
+ * The one place this provider's URL is built.
+ *
+ * Shared by the live resolution path and the readiness probe so the two cannot drift. They did
+ * drift once: the probe requested JSON via a `content-type` query parameter that the live path
+ * lacked, so the probe could report the fallback ready while every real query received XML and
+ * failed at `response.json()`. A probe is only evidence if it makes the request it is
+ * reporting on.
+ *
+ * `content-type` is sent as a parameter *and* as an Accept header, because without either this
+ * endpoint answers XML with HTTP 200 — a status-code check would score that healthy.
+ */
+export function buildVariantValidatorUrl(assembly: GenomeAssembly, notation: string): string {
+  return (
+    `${VARIANT_VALIDATOR_BASE}/${assembly}/${encodeURIComponent(notation)}` +
+    `/${VARIANT_VALIDATOR_SELECT_TRANSCRIPTS}` +
+    `?content-type=application/json`
+  );
+}
+
+/**
+ * Transport settings, shared with the probe.
+ *
+ * VariantValidator can take several seconds on a cold query, so the budget is generous and
+ * retries stay low: this is a fallback path, not the primary. The probe uses the SAME budget
+ * deliberately — a probe on a tighter budget than the traffic it reports on scores a merely
+ * slow provider as dead, and the rail then tells the clinician to abandon coordinate notation
+ * for a provider that would have answered.
+ */
+const VARIANT_VALIDATOR_TIMEOUT_MS = 15000;
+const VARIANT_VALIDATOR_ATTEMPTS = 2;
+const VARIANT_VALIDATOR_RETRY_DELAY_MS = 800;
+
+/**
  * Queries VariantValidator for a coordinate notation.
  *
  * Throws {@link CoordinateResolutionError} on transport failure or unusable payload so the
@@ -180,9 +213,7 @@ export async function fetchVariantValidatorConsequence(
   signal?: AbortSignal
 ): Promise<{ consequence: ResolvedConsequence; attempt: ProviderAttempt }> {
   const startedAt = Date.now();
-  const url =
-    `${VARIANT_VALIDATOR_BASE}/${assembly}/${encodeURIComponent(notation)}` +
-    `/${VARIANT_VALIDATOR_SELECT_TRANSCRIPTS}`;
+  const url = buildVariantValidatorUrl(assembly, notation);
 
   const attempt = (
     ok: boolean,
@@ -198,13 +229,11 @@ export async function fetchVariantValidatorConsequence(
 
   let response: Response;
   try {
-    // VariantValidator can take several seconds on a cold query, so allow a generous
-    // timeout while keeping retries low: this is a fallback path, not the primary.
     response = await fetchWithRetry(
       url,
-      { headers: { Accept: "application/json" }, timeout: 15000, signal },
-      2,
-      800
+      { headers: { Accept: "application/json" }, timeout: VARIANT_VALIDATOR_TIMEOUT_MS, signal },
+      VARIANT_VALIDATOR_ATTEMPTS,
+      VARIANT_VALIDATOR_RETRY_DELAY_MS
     );
   } catch (err: any) {
     throw new CoordinateResolutionError(
@@ -262,6 +291,14 @@ export async function fetchVariantValidatorConsequence(
  * file header cites as verified live, chosen because it exercises the whole parse path —
  * dynamic payload-key discovery, protein-consequence extraction, gene symbol — and not
  * merely the transport.
+ *
+ * `expectedGene` is REPORTING ONLY and must never gate readiness. An earlier version failed
+ * the probe when the symbol differed, which tested upstream annotation stability rather than
+ * liveness: this locus's gene was itself renamed (MACO1, HGNC:25572, formerly TMEM57), the
+ * symbol is derived from HGNC, and the reference database rotates (vvdb/vvta/vvseqrepo are
+ * all versioned). Any of those turns a perfectly healthy provider into a permanent "fallback
+ * is down" in a clinical readout that never self-heals. The mapper already returns null for
+ * the silent-intergenic case, which is the failure mode worth gating on.
  */
 export const VARIANT_VALIDATOR_PROBE = {
   assembly: "GRCh38" as GenomeAssembly,
@@ -270,39 +307,46 @@ export const VARIANT_VALIDATOR_PROBE = {
 } as const;
 
 /**
- * Bound for the readiness probe.
+ * How the fallback tier is doing.
  *
- * Short on purpose: the only caller runs this after the primary has already failed, so the
- * operator is waiting on a payload that has spent at least one primary timeout already.
- * A retry would double that wait for an answer that is already known to be degraded.
+ * Three states, not two, because "I could not tell" and "I asked and it cannot" call for
+ * different clinical advice. Collapsing them makes a slow or unreachable provider render as a
+ * definite outage, and the rail then tells the user to abandon coordinate notation — which is
+ * wrong when the probe merely timed out.
  */
-export const VARIANT_VALIDATOR_PROBE_TIMEOUT_MS = 6000;
+export type FallbackVerdictKind = "ready" | "unavailable" | "unknown";
+
+export interface VariantValidatorHealth {
+  /** Retained for the wire contract and backwards compatibility: true only for `ready`. */
+  healthy: boolean;
+  verdict: FallbackVerdictKind;
+  latencyMs: number;
+  message: string;
+  timestamp: string;
+}
 
 /**
  * Probes whether the fallback tier can actually resolve a coordinate right now.
  *
+ * Readiness is defined as exactly what the live path needs: the shared mapper turning the
+ * response into a usable protein consequence. Anything else about the payload is reported,
+ * never gated on.
+ *
  * Never throws: a fallback that cannot be reached must be reportable, not fatal, because
  * the caller is already rendering a degraded primary.
+ *
+ * `signal` should carry a hard deadline. The transport timeout bounds time-to-headers only —
+ * `fetchWithRetry` clears its timer as soon as headers arrive — so an awaited `response.json()`
+ * is otherwise unbounded, and a provider that sends headers then stalls the body would leave
+ * this promise pending forever.
  */
-export async function checkVariantValidatorHealth(signal?: AbortSignal): Promise<{
-  healthy: boolean;
-  latencyMs: number;
-  message: string;
-  timestamp: string;
-}> {
+export async function checkVariantValidatorHealth(signal?: AbortSignal): Promise<VariantValidatorHealth> {
   const startedAt = Date.now();
-  // JSON is requested both ways on purpose. Without an Accept header this endpoint answers
-  // XML, and `content-type` is also honoured as a query parameter (verified live: it returns
-  // the MACO1 payload as JSON). Sending both means the probe cannot report a healthy provider
-  // as dead merely because one of the two negotiation paths changed.
-  const url =
-    `${VARIANT_VALIDATOR_BASE}/${VARIANT_VALIDATOR_PROBE.assembly}` +
-    `/${encodeURIComponent(VARIANT_VALIDATOR_PROBE.notation)}` +
-    `/${VARIANT_VALIDATOR_SELECT_TRANSCRIPTS}` +
-    `?content-type=application/json`;
+  const url = buildVariantValidatorUrl(VARIANT_VALIDATOR_PROBE.assembly, VARIANT_VALIDATOR_PROBE.notation);
 
-  const result = (healthy: boolean, message: string) => ({
-    healthy,
+  const result = (verdict: FallbackVerdictKind, message: string): VariantValidatorHealth => ({
+    healthy: verdict === "ready",
+    verdict,
     latencyMs: Math.round(Date.now() - startedAt),
     message,
     timestamp: new Date().toISOString(),
@@ -314,37 +358,39 @@ export async function checkVariantValidatorHealth(signal?: AbortSignal): Promise
       url,
       {
         headers: { Accept: "application/json" },
-        timeout: VARIANT_VALIDATOR_PROBE_TIMEOUT_MS,
+        timeout: VARIANT_VALIDATOR_TIMEOUT_MS,
         signal,
+        // Monitoring must not be able to trip the breaker that guards real resolutions.
+        probe: true,
       },
-      1
+      VARIANT_VALIDATOR_ATTEMPTS,
+      VARIANT_VALIDATOR_RETRY_DELAY_MS
     );
   } catch (err: any) {
-    return result(false, err?.message || "VariantValidator unreachable");
+    // Could not determine: a timeout, an abort or a transport error says nothing about whether
+    // the provider would have answered a real query. Reported as `unknown`, never as an outage.
+    return result("unknown", err?.message || "VariantValidator unreachable");
   }
 
   if (!response.ok) {
-    return result(false, `HTTP ${response.status}`);
+    // A 4xx is the provider answering about the request, so it is a definitive verdict; 5xx and
+    // 429 exit through the catch above.
+    return result("unavailable", `HTTP ${response.status}`);
   }
 
-  // Deliberately the same JSON + mapper pair the live resolution path uses, so the probe
-  // cannot report a provider as ready through a code path the real fallback does not take.
   let consequence: ResolvedConsequence | null;
   try {
     consequence = mapVariantValidatorResponse(await response.json(), VARIANT_VALIDATOR_PROBE.assembly);
   } catch (err: any) {
-    return result(false, err?.message || "VariantValidator returned malformed JSON");
+    // The provider answered, but unusably — that is a real, actionable failure.
+    return result("unavailable", "VariantValidator returned malformed JSON");
   }
 
-  const gene = consequence?.transcript_consequences?.[0]?.gene_symbol;
-  if (gene !== VARIANT_VALIDATOR_PROBE.expectedGene) {
-    return result(
-      false,
-      gene
-        ? `Resolved ${gene}, expected ${VARIANT_VALIDATOR_PROBE.expectedGene}`
-        : "No consequence returned for the probe coordinate"
-    );
+  if (!consequence) {
+    return result("unavailable", "No consequence returned for the probe coordinate");
   }
 
-  return result(true, `Resolved ${VARIANT_VALIDATOR_PROBE.expectedGene} probe`);
+  const hgvsp = consequence.transcript_consequences?.[0]?.hgvsp ?? "protein change";
+  const gene = consequence.transcript_consequences?.[0]?.gene_symbol;
+  return result("ready", gene ? `Resolved ${gene} ${hgvsp}` : `Resolved ${hgvsp}`);
 }
