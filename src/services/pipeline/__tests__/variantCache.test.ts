@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   setCachedVariant,
   getCachedVariant,
@@ -134,5 +134,59 @@ describe("biophysics attempt cooldown", () => {
     // Backwards compatibility: bundles persisted before the dedicated store existed carry the field.
     setCachedVariant("GENEH", "p.Ala1Val", "P00001", { foldingDdG: 1.2, biophysicsAttemptedAt: 1_700_000_000_000 });
     expect(getBiophysicsAttemptedAt("GENEH", "p.Ala1Val")).toBe(1_700_000_000_000);
+  });
+});
+
+/**
+ * The reload — which is the store's entire reason to exist.
+ *
+ * The tests above verify the WRITE. `getBiophysicsAttemptedAt` short-circuits on its in-memory map
+ * before touching storage, so no test in this file ever reached the sessionStorage branch: a review
+ * showed that a reader which never reads the store at all, or reads the wrong key prefix, passed every
+ * one of them. The guarantee that actually matters — "pressing F5 does not re-dispatch the
+ * multi-minute FoldX run" — was uncertified.
+ *
+ * A fresh module instance is a faithful reload: module memory is discarded while the storage shim
+ * stands in for the browser's sessionStorage and persists. It also re-runs the module's own
+ * `purgeLegacyCaches()` on import, so these two tests cover BOTH the reader and the purge allowlist —
+ * a purge that deletes the attempt store makes the reloaded read return null, which is exactly the
+ * defect a review found and the reason `ATTEMPT_PREFIX` is spared.
+ */
+describe("biophysics attempt cooldown — across a reload", () => {
+  beforeEach(() => {
+    installSessionStorageShim();
+  });
+
+  it("reads the persisted attempt after the module's memory is discarded", async () => {
+    recordBiophysicsAttempt("RELOADA", "p.Ala1Val", "P00001");
+    const written = getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val");
+    expect(typeof written).toBe("number");
+
+    vi.resetModules();
+    const reloaded = await import("../variantCache");
+
+    expect(
+      reloaded.getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val"),
+      "the cooldown did not survive a reload — the next visit re-dispatches the full FoldX run"
+    ).toBe(written);
+  });
+
+  it("survives a reload for a FAILED attempt, which is the case it exists for", async () => {
+    // `setCachedVariant` refuses to persist a failed or preliminary bundle, so the cooldown must not
+    // depend on one having been stored.
+    setCachedVariant("RELOADB", "p.Ala1Val", "P00001", {
+      foldingStatus: "failed",
+      foldingEnergetics: { foldxError: "FoldX binary not found" } as never,
+    });
+    recordBiophysicsAttempt("RELOADB", "p.Ala1Val", "P00001");
+    const written = getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val");
+    expect(typeof written).toBe("number");
+
+    vi.resetModules();
+    const reloaded = await import("../variantCache");
+
+    expect(reloaded.getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val")).toBe(written);
+    // ...and the failed bundle is still not persisted, before or after the reload.
+    expect(reloaded.getCachedVariant("RELOADB", "p.Ala1Val")).toBeNull();
   });
 });
