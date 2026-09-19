@@ -727,14 +727,19 @@ const EnergeticsView = memo(function EnergeticsView({
                         {detailText}
                       </p>
                     </div>
-                  ) : coverage.computed === 0 ? (
+                  ) : coverage.missing.length + coverage.running.length === coverage.intended ? (
                     <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
                       No engine has returned a value yet.
                     </p>
                   ) : (
-                    // A value exists but none could be counted — the case of a single excluded FoldX
-                    // value. Saying "no engine has returned a value yet" here contradicted the row
-                    // 40px above, which shows the number with a "Not counted" badge.
+                    // A value EXISTS but none could be counted — the single-excluded-FoldX case.
+                    //
+                    // The test has to be value-based. `computed === 0` counts CONTRIBUTIONS and is also
+                    // true here, so branching on it printed "no engine has returned a value yet" while
+                    // the row 40px above displayed the number with a "Not counted" badge. That was this
+                    // copy's second attempt — the first tested `hasValidConsensus`, also true here. An
+                    // engine with no value is either still running or missing, so "no value at all" is
+                    // exactly `missing + running === intended`.
                     <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
                       No returned value could be counted toward a consensus.
                     </p>

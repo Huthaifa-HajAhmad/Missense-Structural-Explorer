@@ -262,4 +262,44 @@ describe("EnergeticsView — a fully populated run", () => {
     expect(screen.getByRole("columnheader", { name: "Type" }).className).toContain("w-[30%]");
     expect(screen.getByRole("columnheader", { name: "Risk" }).className).toContain("w-[20%]");
   });
+
+  it("does not say no engine returned a value when one is displayed but not counted", () => {
+    /**
+     * This copy took TWO attempts and had no test, so a mutation check was the only thing that could
+     * reveal it. The first version branched on `hasValidConsensus` and the second on
+     * `computed === 0` — and BOTH are true for the excluded-FoldX case, because `computed` counts
+     * CONTRIBUTIONS. So each printed "no engine has returned a value yet" directly beneath a row
+     * displaying 3.00 kcal/mol with a "Not counted" badge.
+     *
+     * The test has to be value-based: an engine with no value is either still running or missing, so
+     * "no value at all" is `missing + running === intended`.
+     */
+    renderView({
+      // foldx is EXCLUDED and every other engine is absent, so no engine counts and the consensus is
+      // null — which is the only state in which the copy branch renders at all. (A first attempt
+      // spread MACO1's values in, leaving a countable DynaMut2, so the verdict block rendered instead
+      // and the test could not find the copy.)
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        foldx: 3.0,
+        foldxMean: 3.0,
+        dynamut2: null,
+      },
+      foldingStatus: "success",
+      dynamut2Status: "done",
+    });
+
+    expect(screen.getByText(/No returned value could be counted/)).toBeInTheDocument();
+    expect(screen.queryByText(/No engine has returned a value yet/)).toBeNull();
+    // ...and the row it would have contradicted is on screen.
+    expect(screen.getAllByText("Not counted").length).toBeGreaterThan(0);
+  });
+
+  it("does say no engine returned a value when none did", () => {
+    // The converse, so the branch cannot be hard-coded to the new string.
+    renderView({ foldingEnergetics: {}, foldingStatus: "success" });
+
+    expect(screen.getByText(/No engine has returned a value yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/No returned value could be counted/)).toBeNull();
+  });
 });

@@ -151,17 +151,24 @@ export function buildExportVerdictContext(args: {
 }) {
   const derived = deriveConsensus(args);
   /**
-   * ONE source for the caveat: the live `pendingTools` the client filters as each engine resolves.
+   * The caveat comes from the STORED field — a derivation from `pendingTools` was REVERTED.
    *
-   * `evidenceComplete` is written once by the server at FoldX commit and never recomputed client-side,
-   * so pairing it with a live list made the two fields disagree by construction — an export could
-   * report "incomplete" with nothing pending, for a run the screen shows as complete. That is the same
-   * staleness this function exists to remove from the verdict, one field over.
+   * It looked like the same staleness fix as the verdict, and it was not. A review traced every
+   * producer and reader: both server producers compute `evidenceComplete` and `pendingTools` from one
+   * snapshot with `evidenceComplete === (pendingTools.length === 0)`, and no client code writes
+   * `foldingEnergetics` into the cache — so the stored pair could never disagree, and deriving it
+   * changed nothing for stored data.
+   *
+   * What it did change is that it made the value WRONG in a new way. `pendingTools` is pruned only by
+   * the pollers; `settleUnreachableRemoteEngines` clears STATUSES without removing the name. So after a
+   * terminal commit an engine reads `no-result` on screen, leaves `coverage.running`, and still sits in
+   * `pendingTools` — and the derived caveat then says the run is incomplete for a run the screen shows
+   * as complete. A value that cannot disagree was replaced by one that can.
    */
   const pendingTools = args.foldingEnergetics?.pendingTools ?? [];
   return {
     derivedVerdict: derived?.consensusVerdict ?? null,
-    evidenceComplete: args.foldingEnergetics ? pendingTools.length === 0 : null,
+    evidenceComplete: args.foldingEnergetics?.evidenceComplete ?? null,
     pendingTools
   };
 }
@@ -414,10 +421,9 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           })?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
         // The JSON export carries the caveat too, so a downstream reader of the report knows the
         // verdict can still move. This replaced the " (Preliminary - pending: …)" suffix.
-        // Same single source as the manifest — see `buildExportVerdictContext`.
-        consensusEvidenceComplete: foldingEnergetics
-          ? (foldingEnergetics?.pendingTools ?? []).length === 0
-          : null,
+        // From the stored field, as the manifest does — the derivation was reverted, see
+        // `buildExportVerdictContext`.
+        consensusEvidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
         consensusPendingTools: foldingEnergetics?.pendingTools ?? [],
         consensusProbability:
           deriveConsensus({
