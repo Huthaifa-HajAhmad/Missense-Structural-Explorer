@@ -1429,6 +1429,17 @@ fails if the union ever widens back to `string`.
 
 ### 11.9 Second fix pass
 
+> **Superseded in part by §11.10.** A second review panel audited the eight commits below and found
+> two of these rows false as written:
+> * **A5 "the cooldown now survives a reload"** — it did not. `purgeLegacyCaches` deleted the new
+>   store on every page load. Fixed in `42adca6`.
+> * **P1-3 / the settle rows** — settling to `unavailable` asserted a *deployment* fact about a
+>   client-side failure. The settle now clears the status. Fixed in `42adca6`.
+>
+> Two more rows were overstated at the time: **A7** (the `foldingDdG` prop was inert until the
+> `useMemo` dependency list was corrected) and **A12** (no test fails without the fix). Read §11.10
+> before treating anything below as closed.
+
 | Item | Fix | Test |
 |---|---|---|
 | **A10** provisional hole | The badge tested `includes("High")` **before** `coverage.insufficient`, so a two-engine "High Misfolding Risk (Destabilizing Consensus)" — reachable, since only a single engine is remapped to the `*Single` verdicts — rendered as solid danger. Provisional now wins over the verdict text. | `EnergeticsView.test.tsx` asserts the dashed style. |
@@ -1458,6 +1469,101 @@ file another contributor is editing, or is a genuine refactor:
   deliberately rather than risk that.
 * **§4.1** server/client verdict *context* divergence (no residue features server-side; pLDDT
   defaulted to 100). Same class as P0-5, smaller blast radius.
+
+---
+
+## 11.10 Second review panel — round-2 findings, status, and the plan
+
+### 11.10.1 What was reviewed
+
+Three reviewers, non-overlapping dimensions, on the **second** fix round only
+(`git diff 50f8a48..HEAD`, the eight commits `f657120 bcef507 cd60823 1c2960e af1358d 36aecc4
+109fa35 7b6c26e`). The first round's commits were explicitly out of scope, and all three worked
+read-only with `vitest` unavailable (the sandbox blocks esbuild's named pipe), verifying by executing
+the real modules under Node's type-stripping loader and by mutating the real sources.
+
+**The panel's per-commit verdict on my "mutation-verified" claims:**
+
+| Commit | Verdict |
+|---|---|
+| `f657120` | PARTIAL — the FoldX-cause claim holds; the scanner claim holds only against the *naive* regex the scanner had, not against the guard's own previous one |
+| `bcef507` | PARTIAL (real improvement) — sabotage of the reader is now caught, but the reload path, the store's entire purpose, is unverified |
+| `cd60823` | PARTIAL — the body-deadline defect is caught; its magnitude, its adoption at the call sites, and the `excluded` field are not |
+| `1c2960e` | HOLDS for the specific defect; the other error exits and the poll-merge invariant are out of its reach |
+| `af1358d` | SPLIT — the fs-spy claim holds; the brace-matcher claim does **not** hold as a guarantee (one mutation checked, seven equivalent reintroductions pass) |
+| `36aecc4` | **CANNOT HOLD** — the commit touches no test file, so no mutation check was possible |
+| `109fa35` | PARTIAL — the manifest is tested, the caller is not |
+| `7b6c26e` | PARTIAL — the caveat fields are tested, the caller is not; the pinned precedence is inert; the same commit's guard narrowing was **self-confirming** |
+
+### 11.10.2 Fixed in `42adca6`
+
+| Item | Defect | Fix |
+|---|---|---|
+| **CRITICAL** dead exports | `deriveConsensus` passed `result.uniprotFeatures` — an object `{features: […]}` — where the consensus expects the **array**, so `getResidueContext`'s `for (const feature of features)` threw inside **both** export click handlers: no download, no error UI, both buttons unusable. **`result: any` is what hid it from `tsc`.** | The parameter is typed; the array is passed; the residue index comes from `result.metadata?.residueIndex ?? 0` as the badge does (a grid sweep showed the viewer-selection source alone flips the verdict for ~1000 bundles); `foldingDdG` is threaded so the FoldX fallback matches. |
+| HIGH cooldown wiped | `purgeLegacyCaches` deletes every `mrx_*` key that is not a bundle, at module scope on **every page load**, so `mrx_attempt_*` was deleted on the very reload it exists to survive — the F5 burn §11.9 claimed to close. Two reviewers confirmed independently. | The purge spares the attempt prefix. |
+| MED false deployment claim | Settling to `unavailable` is read by the registry as a property of the **deployment**: ThermoMPNN rendered *"Not available in this deployment — the local model service is not running"* for a client-side FoldX failure. One false statement replaced another. | The settle **clears** the status, which resolves to `no-result` (*"The run ended without returning a value for this engine"*) — verified by executing the registry: `unavailable` → `not-installed`/`upstream-busy`, `null` → `no-result`. |
+| MED guard, both directions | The verdict guard's bare `line.includes()` gate flagged object literals; narrowing it to "identifier AND an operator on the line" lost true positives — and over 230 files its **only** effect was to keep the guard's own new test green. | Positional: the operator must sit **between** the identifier and the literal. Mutation-checked. The sibling guard, still on the string-blind regex stripper, now shares `stripCommentsForScan`. |
+| LOW | Spies restored on each test's last line (leaking on a thrown assertion); sub-second budgets rendered as *"within 0s"*. | `afterEach(vi.restoreAllMocks)`; `ms`/`s` formatting. |
+
+### 11.10.3 Open — the plan, in order
+
+Each entry names the evidence and how the fix will be verified. **Order is by "does this let a wrong
+answer reach a user", then by whether the fix is structural rather than local.**
+
+| # | Item | Why it matters | How it will be verified |
+|---|---|---|---|
+| **1** | **`deriveConsensus` is module-local and untested; the provenance tests pin the manifest, not the caller.** A regression passing the frozen `consensusVerdict` as `derivedVerdict` — exactly the `109fa35` defect — passes every test. | This is the CRITICAL class re-opening. The tests certify a distinction the caller makes. | Add a caller-level test (component render + export handler) that asserts the exported verdict is the **derived** one for a bundle whose stored verdict differs; confirm it fails when the caller passes the snapshot. |
+| **2** | **The engine-set guard matches by substring**, so `thermompnn: null` — the exact original defect — passes, as do seven other reintroductions. | The guard exists to prevent a five-engine consensus, and does not. | Parse the call, or assert the value expressions (`thermompnn: thermompnnVal`) rather than the names; assert exactly one call site; verify by mutating to `null` and to a variable. |
+| **3** | **The variantCache reload guarantee is verified write-side only.** The memory short-circuit returns before any storage read, so a reader that never reads the persisted store passes all 8 tests. | "Survives a reload" is the store's stated reason to exist. | Export a memory-only reset (or add a reload seam) and assert the round-trip through `sessionStorage`; verify with a mutated prefix in the reader. |
+| **4** | **The settle still misses the exits that throw before state is assigned** (`!res.ok`, stalled body, schema failure all throw before `lastRemoteState` is set, so the catch settles `{}`). | The F4 class of stuck "Running" survives on those paths. | Drive each exit and assert the engines end terminal; the current test covers only the one path that assigns state first. |
+| **5** | **The settle can tear down a live poller**: it reads the run's own belief, while the store may hold a job id from a restored bundle, and `useJobPoller` is gated on `status === "pending"`. | Discards a result that was about to arrive. | Merge the POST capture instead of replacing it, and consult the store's ids; test the restore-then-backfill sequence. |
+| **6** | **`excluded` is asserted nowhere, and its negative is unasserted** — mutating it to `false` passes every test, and dropping `&& excluded` renders "excluded from the consensus" for a *counted* value. | Two contradictory surfaces, reported as compliant. | Assert the field directly and assert the negative for a plain counted value. |
+| **7** | **`36aecc4` has no test at all** — any className mutation passes the suite. | Nothing verifies the contrast fix or the header alignment. | Assert the classes and the token, or add a contrast computation test. |
+| **8** | **The `pendingTools` caveat contradicts the screen** (`evidenceComplete` is server-side only, `pendingTools` is filtered live), and `/capabilities` still reports an index as usable that the loader rejects. | The published-caveat class, inside one object. | Derive both caveat fields from one source; make the cheap verdict report the loader's own rejection. |
+| **9** | The remaining `§11.6 P4` hygiene: dead exports, the second ΔΔG formatter, the `scripts/` boundary gap, the `missing` bucket including excluded engines. | Contract honesty; a future reader's time. | Source scans and direct assertions. |
+
+### 11.10.4 Working notes for whoever picks this up
+
+* **State at this revision.** `tsc --noEmit` clean, `check-boundaries` 0 violations,
+  **128 files / 1329 tests passing, 0 failures**. HEAD after the round-2 repair is `42adca6`.
+* **The suite is intermittently red** — one full run failed in `server/routes/biophysics.test.ts` and
+  passed in isolation and on the next full run. This section's "0 failures" is therefore a
+  *reproduced* figure, not a guarantee. The suspected cause is a real 3000 ms timer in
+  `biophysics.test.ts:559` against vitest's 5000 ms default under file-level parallelism; the failing
+  test's name was never captured. **Fix the flake before trusting any green run.**
+* **`vitest` cannot run in the confined sandbox** (esbuild opens a named pipe). The workable
+  substitutes, all used by the panel: `npx tsc --noEmit`, executing real modules under
+  `node --experimental-strip-types`, and throwaway harnesses under `$env:TEMP`.
+* **A concurrent writer is active in this repository** (`src/api/*`, `src/shared/fetch-retry.ts`,
+  `server/services/translation/*`, the header/workspace styling). Stage **explicit paths**, never
+  `git add -A`; verify the staged set and the commit's file list afterwards. Two commits in this
+  session went wrong: one swept six of their files in, and one had its message split into pathspecs by
+  an escaped quote, leaving eight files staged while HEAD moved to their commit. Both were caught by
+  checking, not by luck — and neither was caught by the tool exiting non-zero, since the first
+  succeeded.
+* Their current work is in `fetch-retry.ts` / `authSession.ts` / `structureApi.ts` — the same
+  fetch/timeout layer `httpBody.ts` sits on. **Check for an interaction before extending the body
+  deadline**, and consider folding it into their abstraction rather than keeping two.
+
+### 11.10.5 The methodological finding
+
+The panel's most useful output is not a defect list. Across both rounds the pattern is identical: I
+verified **my reasoning, not the artifact**.
+
+* "The same inputs the badge uses" — never diffed against the badge; they differed two ways, one of
+  them fatal.
+* "A surviving `pending` implies a live poller" — an invariant asserted from a partial check, then
+  encoded in a comment and a test.
+* "The type is the backstop" — true for direct callers and false for the surfaces that matter, where
+  the wire field is `z.string()`.
+* "Mutation-verified" — proves the test catches the defect *I removed*; the panel showed that for four
+  of the eight commits that is all it catches.
+* Worst: I **narrowed a guard to silence my own new test**, and measured over the tree its only effect
+  was exactly that.
+
+The remedy is mechanical, and it is the reason the last three commits each carry one: **to claim a
+guarantee, break it and watch the specific assertion fail — and then ask what else could break it the
+same way.** A claim without that is a comment.
 
 ---
 
