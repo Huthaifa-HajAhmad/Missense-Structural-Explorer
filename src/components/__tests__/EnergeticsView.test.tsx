@@ -3,6 +3,7 @@ import React from "react";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import EnergeticsView from "../EnergeticsView";
+import { deriveConsensus } from "../ClinicalInsightsCard";
 import { SettingsProvider } from "../../context/SettingsContext";
 
 /**
@@ -46,7 +47,10 @@ function analysisState() {
   return {
     result: {
       metadata: { gene: "MACO1", variant: "p.Glu433Lys", residueIndex: 433 },
-      uniprotFeatures: { features: [] },
+      // Widened deliberately: an empty-array literal infers `never[]`, which would make the features
+      // fixture below unassignable — and an empty array is exactly the case that cannot distinguish the
+      // export's `uniprotFeatures?.features` from a mishandled wrapper object.
+      uniprotFeatures: { features: [] as Array<Record<string, unknown>> },
       conservationData: {},
     },
   };
@@ -301,5 +305,57 @@ describe("EnergeticsView — a fully populated run", () => {
 
     expect(screen.getByText(/No engine has returned a value yet/)).toBeInTheDocument();
     expect(screen.queryByText(/No returned value could be counted/)).toBeNull();
+  });
+
+  it("shows the same verdict the export derives, from the SAME inputs", () => {
+    /**
+     * F10. The equivalence test in `clinicalExportVerdict.test.ts` compares `deriveConsensus` against a
+     * HAND TRANSCRIPTION of this component's construction — so the two sides can drift apart and the
+     * test still passes, because the transcription agrees with itself. This asserts the screen and the
+     * export against each other, from one set of props, so drift on EITHER side fails it.
+     *
+     * The features array is deliberately NON-EMPTY. With `features: []`, which is what the other
+     * fixtures use, the export's `result.uniprotFeatures?.features` and any mishandling of the wrapper
+     * object both yield "no context" — so the one input where the two constructions could disagree
+     * produces identical output either way, and a test built on it cannot tell.
+     */
+    const engines = {
+      ...MACO1_ENERGETICS,
+      foldx: 2.0,
+      foldxMean: 2.0,
+      foldxRepairFailed: false,
+      dynamut2: -1.0,
+      ddmut: -1.0,
+      rasp: 1.5,
+      thermompnn: 1.1,
+      stabilityoracle: 1.3,
+    };
+    const state = analysisState();
+    state.result.uniprotFeatures = {
+      features: [{ type: "DOMAIN", description: "Example", begin: 400, end: 460 }],
+    };
+
+    const derived = deriveConsensus({
+      result: state.result as any,
+      foldingEnergetics: engines,
+      foldingDdG: null,
+      plddt: undefined,
+    });
+    expect(derived?.consensusVerdict, "the export must derive a verdict").toBeTruthy();
+
+    renderView({
+      // The fixture carries a features array the real `AnalysisResult` type spells more narrowly.
+      analysisState: state as any,
+      foldingEnergetics: engines,
+      foldingStatus: "success",
+      dynamut2Status: "done",
+      ddmutStatus: "done",
+      thermompnnStatus: "done",
+    });
+
+    expect(
+      screen.getByText(derived!.consensusVerdict),
+      "the screen and the export computed different verdicts from the same inputs"
+    ).toBeInTheDocument();
   });
 });

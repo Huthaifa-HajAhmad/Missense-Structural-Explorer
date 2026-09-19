@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import ClinicalInsightsCard from "../ClinicalInsightsCard";
 import { SettingsProvider } from "../../context/SettingsContext";
@@ -158,5 +158,53 @@ describe("ClinicalInsightsCard biochemical narrative", () => {
     // The degraded state is labelled, and the derived scales still render.
     expect(screen.getByText(/State: Rule-based only/)).toBeInTheDocument();
     expect(screen.getByText(/Hydrophobicity: Kyte & Doolittle/)).toBeInTheDocument();
+  });
+});
+
+describe("ClinicalInsightsCard export handlers", () => {
+  /**
+   * F11. The whole export-verdict fix rests on this component CALLING `buildExportVerdictContext`, and
+   * nothing tested that it does. Rewriting the call site as an inline lookup of the stored verdict — the
+   * exact class the fix closed — passed the entire suite.
+   *
+   * So this drives the real button, captures the Blob the handler builds, and reads the manifest back
+   * out of it. The fixture makes the two sources DISAGREE, which is the only way the test can tell which
+   * one was read: the stored snapshot says low risk, the six engines say otherwise.
+   */
+  it("writes the DERIVED verdict into the provenance manifest, not the stored snapshot", async () => {
+    const stale = "Low Misfolding Risk (Neutral Stability)";
+    const blobs: Blob[] = [];
+    const originalCreate = (URL as any).createObjectURL;
+    (URL as any).createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return "blob:mock";
+    };
+
+    try {
+      renderCard(baseResult(), {
+        foldingEnergetics: {
+          foldx: 3.0,
+          dynamut2: -1.5,
+          ddmut: -1.2,
+          rasp: 1.5,
+          thermompnn: 1.1,
+          stabilityoracle: 1.3,
+          consensusVerdict: stale
+        }
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /Provenance Manifest/i }));
+
+      expect(blobs, "the handler must have produced a download").toHaveLength(1);
+      const manifest = JSON.parse(await blobs[0].text());
+
+      expect(manifest.verdictSummary.stabilityVerdict, "a verdict must be present").toBeTruthy();
+      expect(
+        manifest.verdictSummary.stabilityVerdict,
+        "the export carried the stored snapshot that the engines on screen contradict"
+      ).not.toBe(stale);
+    } finally {
+      (URL as any).createObjectURL = originalCreate;
+    }
   });
 });
