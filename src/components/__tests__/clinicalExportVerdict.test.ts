@@ -63,24 +63,23 @@ describe("deriveConsensus — the export path's verdict", () => {
     expect(deriveConsensus({ result: null, foldingEnergetics: { foldx: 2.0 } })).toBeNull();
   });
 
-  it("takes the residue index from the variant's metadata, not a viewer selection", () => {
-    // There is no parameter for a viewer selection — that is the point. Changing the variant's own
-    // residue must change the answer, which proves which source is read.
-    const at433 = deriveConsensus({
-      result: resultWith(),
-      foldingEnergetics: { foldx: 2.0, dynamut2: -1.0, ddmut: -1.0, rasp: 1.5 },
-    });
-    const at12 = deriveConsensus({
-      result: resultWith({ metadata: { gene: "GENEX", variant: "p.Gly12Val", residueIndex: 12 } }),
-      foldingEnergetics: { foldx: 2.0, dynamut2: -1.0, ddmut: -1.0, rasp: 1.5 },
-    });
-    expect(at433).not.toBeNull();
-    expect(at12).not.toBeNull();
-    // Same engines, different residue context — the consensus is allowed to differ, and the point is
-    // that the metadata is what it varies with.
-    expect(typeof at433!.consensusVerdict).toBe("string");
-    expect(typeof at12!.consensusVerdict).toBe("string");
-  });
+  /**
+   * DELETED: "takes the residue index from the variant's metadata, not a viewer selection".
+   *
+   * It asserted `typeof … === "string"`, and its two fixture calls returned bit-identical results — so
+   * it observed nothing, and a review showed a mutation would pass it. It is not repairable by
+   * choosing a better fixture either: I swept 11 engine sets x 3 pLDDT values x 14 residue indices and
+   * the consensus probability and verdict were IDENTICAL for every index within each set (measured:
+   * `{foldxMean: 0.5, rasp: 0.6}` gives p = 0.19629629629629627 for indices 0, 99, 100, 150, 200, 250,
+   * 300, 350, 400, 433 and 450). An earlier sweep of mine appeared to find a discriminating fixture;
+   * that was the pLDDT difference leaking into the comparison key, not the index.
+   *
+   * So the residue index does not affect any output this function produces, and no test through the
+   * consensus can prove which source it read. A test that cannot fail is worse than none, because it
+   * certifies the sourcing. What remains is the structural fact — `deriveConsensus` takes no viewer
+   * selection, so it cannot read one — and the badge-equivalence test below, which at least pins the
+   * whole input construction on both sides.
+   */
 
   it("applies the FoldX single-value fallback the badge applies", () => {
     // `foldingEnergetics = null` with a FoldX ΔΔG: the badge shows a single-tool estimate. Omitting

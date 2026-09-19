@@ -631,4 +631,23 @@ describe("engineStatus — the exclusion is stated, not inferred", () => {
     expect(missingIds).toContain("dynamut2");
     expect(missingIds).toContain("thermompnn");
   });
+
+  it("lists a RUNNING engine as running, and not as missing", () => {
+    /**
+     * The predicate's `state !== "running"` clause was unpinned: deleting it passed every test, after
+     * which an engine that is still calculating would appear in BOTH buckets — and any copy branching
+     * on them would then contradict the spinner beside it.
+     */
+    const summary = summarizeCoverage(
+      buildEngineOutcomes({ isFolding: true, dynamut2Status: "pending" })
+    );
+
+    expect(summary.running.length).toBeGreaterThan(0);
+    expect(summary.missing).toEqual([]);
+    // The two buckets are disjoint, which is the property the clause exists to hold.
+    const missingIds = summary.missing.map(o => o.id);
+    for (const id of summary.running) {
+      expect(missingIds).not.toContain(id);
+    }
+  });
 });

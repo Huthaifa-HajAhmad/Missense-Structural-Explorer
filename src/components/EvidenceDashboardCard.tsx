@@ -23,7 +23,7 @@ import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
  * ΔΔG formatter was false repo-wide, and the same missing value could render two ways on two
  * surfaces. Wrapping instead of reimplementing is what makes that claim true.
  */
-function formatDdGValue(val: number | null | undefined, unit: "kcal/mol" | "kJ/mol"): string {
+export function formatDdGValue(val: number | null | undefined, unit: "kcal/mol" | "kJ/mol"): string {
   return formatDdg(val ?? null, unit);
 }
 
