@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
+import { stripCommentsForScan } from "../../src/shared/engineStatus.ts";
 
 /**
  * The calibrated consensus is computed in exactly ONE server place.
@@ -23,17 +24,14 @@ import path from "path";
 const REPO_ROOT = process.cwd();
 
 /**
- * Removes comments while preserving line numbers.
+ * Delegates to the scanner's own string-aware stripper.
  *
- * Necessary because these files *document* the defects they fixed — a bare regex over the raw source
- * matches the explanation, which is how the first version of this test failed on its own comment.
+ * This file kept its own regex copy, which truncated a line at the first `//` anywhere — including
+ * inside a string — so the brace counter below walked corrupted text and could unbalance on source
+ * that was perfectly valid. Sharing the implementation means the guards and the scanner they call
+ * cannot disagree about what a comment is.
  */
-function stripComments(source: string): string {
-  const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, match =>
-    "\n".repeat(match.split("\n").length - 1)
-  );
-  return withoutBlock.replace(/\/\/.*$/gm, "");
-}
+const stripComments = stripCommentsForScan;
 
 function readCode(relative: string): string {
   return stripComments(fs.readFileSync(path.join(REPO_ROOT, relative), "utf-8"));
@@ -66,17 +64,35 @@ describe("the consensus has a single server-side computation site", () => {
 
   it("keeps the authoritative computation where all six engines are visible", () => {
     const source = readCode(AUTHORITATIVE_SITE);
-    const callIndex = source.indexOf("computeCalibratedConsensus(");
-    expect(callIndex, `${AUTHORITATIVE_SITE} must call the consensus`).toBeGreaterThan(-1);
+    const MARKER = "computeCalibratedConsensus(";
 
     /**
-     * Inspect the ARGUMENT OBJECT of the call, not the file.
+     * This test was tautological, and a review demonstrated three separate ways.
      *
-     * Asserting `source.toContain(engine)` over a 700-line module was tautological: every engine name
-     * appears many times elsewhere, so replacing the call with `{ foldxMean, rasp }` still "found"
-     * all six — a guard written to protect the engine set that could not detect its loss.
+     *   • it asserted `source.toContain(engine)` over a 700-line module in which every engine name
+     *     appears many times elsewhere — so replacing the call with `{ foldxMean, rasp }` still
+     *     "found" all six.
+     *   • it matched NAMES, so `thermompnn: null` — the exact defect this guards, a five-engine
+     *     consensus — passed, as did `rasp: 0` and `foldxRepairFailed: false`.
+     *   • hoisting the object into a const defeated the brace matcher entirely: `indexOf("{")` then
+     *     measured the next `return { … }` block, which contains every name as a substring, while the
+     *     call itself passed a variable.
+     *
+     * Three changes make it describe the real call: exactly one call site; the argument must be an
+     * INLINE object literal; and each engine must be bound to a real value, not a literal that
+     * switches it off.
      */
-    const open = source.indexOf("{", callIndex);
+    const callSites = source.split(MARKER).length - 1;
+    expect(callSites, `${AUTHORITATIVE_SITE} must call the consensus exactly once`).toBe(1);
+
+    const afterParen = source.indexOf(MARKER) + MARKER.length;
+    const tail = source.slice(afterParen);
+    expect(
+      tail.trimStart().startsWith("{"),
+      `${AUTHORITATIVE_SITE} must pass an inline object literal, or the engine set cannot be checked`
+    ).toBe(true);
+
+    const open = afterParen + tail.indexOf("{");
     let depth = 0;
     let end = open;
     for (let i = open; i < source.length; i++) {
@@ -92,6 +108,14 @@ describe("the consensus has a single server-side computation site", () => {
     const args = source.slice(open, end + 1);
     expect(args.length, "the extracted argument object looks wrong").toBeGreaterThan(20);
 
+    expect(
+      args,
+      "a spread in the consensus argument can override the engine set after it is written"
+    ).not.toMatch(/\.\.\./);
+
+    /** A value that would silently disable the engine it is bound to. */
+    const DISABLING = /^(null|undefined|false|true|NaN|0)$/;
+
     for (const engine of [
       "foldxMean",
       "dynamut2",
@@ -99,12 +123,17 @@ describe("the consensus has a single server-side computation site", () => {
       "rasp",
       "thermompnn",
       "stabilityoracle",
+      "foldxRepairFailed",
+      "foldxBinaryMissing",
     ]) {
-      expect(args, `${AUTHORITATIVE_SITE} must pass ${engine} to the consensus CALL`).toContain(engine);
+      const explicit = args.match(new RegExp(`\\b${engine}\\s*:\\s*([A-Za-z_$][\\w$]*)`));
+      const shorthand = new RegExp(`(?:[{,\\s])${engine}\\s*(?:,|\\}|$)`);
+      const bound = explicit ? !DISABLING.test(explicit[1]) : shorthand.test(args);
+      expect(
+        bound,
+        `${AUTHORITATIVE_SITE} must pass a real value for ${engine}, not a literal that disables it`
+      ).toBe(true);
     }
-    // ...including both FoldX exclusion flags, which the poll routes omitted.
-    expect(args).toContain("foldxRepairFailed");
-    expect(args).toContain("foldxBinaryMissing");
   });
 
   it("keeps the wire verdict a closed-set value rather than free text", () => {
