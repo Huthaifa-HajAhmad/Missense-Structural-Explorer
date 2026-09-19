@@ -97,14 +97,29 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     thermompnnStatus?: string | null;
     thermompnnJobId?: string | null;
   }) => {
+    /**
+     * CLEARS the status rather than writing "unavailable".
+     *
+     * `unavailable` is not a neutral "no result" — the registry reads it as a property of the
+     * DEPLOYMENT, so ThermoMPNN rendered "Not available in this deployment — the local model service
+     * is not running" and DynaMut2/DDMut "provider did not answer in time" for what is actually a
+     * client-side FoldX or poll failure. That replaced one false statement ("Calculation in
+     * progress", forever) with a different false one, which a review caught.
+     *
+     * A cleared status resolves to `no-result` — "The run ended without returning a value for this
+     * engine" — which is exactly what happened, and is verified by executing the registry:
+     *
+     *   unavailable -> thermompnn=not-installed, dynamut2/ddmut=upstream-busy
+     *   null        -> thermompnn/dynamut2/ddmut = no-result
+     */
     if (payload.dynamut2Status === "pending" && !payload.dynamut2JobId) {
-      sink.setDynamut2Status("unavailable");
+      sink.setDynamut2Status(null);
     }
     if (payload.ddmutStatus === "pending" && !payload.ddmutJobId) {
-      sink.setDdmutStatus("unavailable");
+      sink.setDdmutStatus(null);
     }
     if (payload.thermompnnStatus === "pending" && !payload.thermompnnJobId) {
-      sink.setThermompnnStatus("unavailable");
+      sink.setThermompnnStatus(null);
     }
   };
 

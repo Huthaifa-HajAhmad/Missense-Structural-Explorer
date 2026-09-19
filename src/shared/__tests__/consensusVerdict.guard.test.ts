@@ -6,6 +6,7 @@ import {
   computeConsensusVerdict,
   isConsensusVerdictFragment,
 } from "../thresholds/consensus.ts";
+import { stripCommentsForScan } from "../engineStatus.ts";
 
 /**
  * Guardrail: no surface may compare the consensus verdict against a string the consensus cannot
@@ -58,12 +59,19 @@ function collectSourceFiles(dir: string): string[] {
  * Removes comments while preserving line numbers, so a comment *describing* the old bug is not
  * itself treated as a violation — the mistake this guard is about was in code, not prose.
  */
-function stripComments(source: string): string {
-  const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, match =>
-    "\n".repeat(match.split("\n").length - 1)
-  );
-  return withoutBlock.replace(/\/\/.*$/gm, "");
-}
+/**
+ * Delegates to the scanner's own string-aware stripper.
+ *
+ * This file kept its own regex copy, so `f657120`'s promise — that the guards and the scanner they
+ * call cannot disagree about what a comment is — held only for the label guard. Here, an impossible
+ * comparison placed after a URL on one line was invisible:
+ *
+ *   if (href === "https://doi.org/10/x" && consensusVerdict === "destabilizing")
+ *
+ * stripped to `if (href === "https:` and produced no violation, while the reverse word order was
+ * caught. Whether the guard could see the defect depended on which string came first on the line.
+ */
+const stripComments = stripCommentsForScan;
 
 /** Every single/double/backtick-quoted literal on a line. */
 function quotedLiterals(line: string): string[] {
@@ -143,7 +151,41 @@ describe("no surface compares the verdict to an impossible literal", () => {
    *     seen. That hole is why the verdict is ALSO a literal union in `consensus.ts`: the type rejects
    *     an impossible comparison at compile time, which no line scan can guarantee.
    */
-  const COMPARISON = /===|!==|==|!=|\.includes\(|\.startsWith\(|\.endsWith\(|switch\s*\(|\bcase\s/;
+  /**
+   * Literals that are COMPARED WITH the identifier — the operator is between them.
+   *
+   * Two earlier versions of this gate were both wrong, each in a different direction, and a review
+   * measured exactly why:
+   *
+   *   • the bare `line.includes("consensusVerdict")` gate flagged any quoted literal sharing a line
+   *     with the identifier, so `{ consensusVerdict: LIVE, pendingTools: ["DynaMut2"] }` produced
+   *     violations for strings that are not comparisons.
+   *   • narrowing it to "identifier AND some operator on the line" silenced that false positive but
+   *     lost true positives (`Object.is(consensusVerdict, "destabilizing")`,
+   *     `["destabilizing"].indexOf(consensusVerdict)`) — and, measured over the whole tree, its only
+   *     effect was to keep the guard's OWN new test green. That is a guard being edited to suit a
+   *     test rather than the reverse.
+   *
+   * Requiring the operator to sit BETWEEN the identifier and the literal fixes both: no operator, no
+   * match (object literals are ignored); and the literal must be the one being compared, so a
+   * ternary's branch strings are not swept in.
+   *
+   * Known residual, stated rather than implied: a literal that is separated from the comparison by
+   * more than the operator call — `["a","destabilizing"].includes(x)` — is not detected, and the
+   * `switch`/`case` shape never puts the identifier on the `case` line. Those are why the verdict is
+   * ALSO a literal union in `consensus.ts`, which fails the build instead of printing a violation.
+   */
+  const COMPARED_WITH_VERDICT = new RegExp(
+    String.raw`consensusVerdict\s*(?:===|!==|==|!=|\.includes\(|\.startsWith\(|\.endsWith\(|\.indexOf\(|\.match\(|\.search\(|\.localeCompare\(|\.has\()\s*(["'\`])([^"'\`\n]*)\1`,
+    "g"
+  );
+
+  function comparedLiterals(line: string): string[] {
+    const out: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = COMPARED_WITH_VERDICT.exec(line))) out.push(m[2]);
+    return out;
+  }
 
   it("only ever compares it against a fragment of a real verdict", () => {
     const violations: string[] = [];
@@ -155,9 +197,8 @@ describe("no surface compares the verdict to an impossible literal", () => {
 
       lines.forEach((line, index) => {
         if (!line.includes("consensusVerdict")) return;
-        if (!COMPARISON.test(line)) return;
 
-        for (const literal of quotedLiterals(line)) {
+        for (const literal of comparedLiterals(line)) {
           if (isConsensusVerdictFragment(literal)) continue;
           violations.push(`  ${relative}:${index + 1} compares consensusVerdict against "${literal}"`);
         }

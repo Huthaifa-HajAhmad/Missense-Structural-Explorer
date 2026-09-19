@@ -36,9 +36,12 @@ export async function readJsonWithTimeout<T = any>(response: Response, ms: numbe
       response.json() as Promise<T>,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
+          // Sub-second budgets must not render as "within 0s" — a message that reads as though no
+          // time was allowed at all.
+          const budget = ms >= 1000 ? `${Math.round(ms / 1000)}s` : `${ms}ms`;
           reject(
             new Error(
-              `The server sent response headers but its body did not arrive within ${Math.round(ms / 1000)}s.`
+              `The server sent response headers but its body did not arrive within ${budget}.`
             )
           );
         }, ms);

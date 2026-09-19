@@ -284,10 +284,10 @@ describe("foldxService", () => {
     });
 
     // Unreachable engines become terminal...
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith("unavailable");
-    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("unavailable");
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
     // ...while an engine with a live poller is left to report its own outcome.
-    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith("unavailable");
+    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
   });
 
   it("settles pending engines on the ERROR exits, not only on the terminal commits", async () => {
@@ -333,10 +333,10 @@ describe("foldxService", () => {
     // The run failed...
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
     // ...and the engines it left behind are terminal rather than stuck at "pending".
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith("unavailable");
-    expect(sink.setThermompnnStatus).toHaveBeenCalledWith("unavailable");
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
+    expect(sink.setThermompnnStatus).toHaveBeenCalledWith(null);
     // An engine whose poller is live is still left alone.
-    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith("unavailable");
+    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
   });
 
   it("settles pending engines when the queued job fails before they resolve", async () => {
@@ -371,7 +371,7 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    expect(sink.setDynamut2Status).toHaveBeenCalledWith("unavailable");
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
   });
 });

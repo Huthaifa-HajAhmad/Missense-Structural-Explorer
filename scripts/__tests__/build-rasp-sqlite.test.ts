@@ -54,6 +54,18 @@ afterEach(() => {
 });
 
 describe("buildRaspSqliteDatabase", () => {
+  /**
+   * Restore spies structurally rather than at the end of each test body.
+   *
+   * `vi.spyOn(fs, "renameSync")` was restored on the last line of the test, so an assertion failing
+   * before it leaked a call-through spy into every later test in the file — `vite.config.ts` sets no
+   * `restoreMocks` and `src/test/setup.ts` never restores either. No corruption today, but the
+   * restore should not depend on a test reaching its own final line.
+   */
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("records the counts it actually produced", async () => {
     writeCsv([
       "P00439,A,1pdb,A,R408H,1.45,Pathogenic,0.0001",

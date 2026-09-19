@@ -88,7 +88,17 @@ function purgeLegacyCaches() {
     const keysToRemove: string[] = [];
     for (let i = 0; i < sessionStorage.length; i++) {
       const k = sessionStorage.key(i);
-      if (k && (k.startsWith("mre_analysis_") || (k.startsWith("mrx_") && !k.startsWith(CACHE_PREFIX)))) {
+      /**
+       * Spare the cooldown store.
+       *
+       * This purge deletes every `mrx_*` key that is not a bundle, and it runs at module scope on
+       * EVERY page load — so `mrx_attempt_<…>` was being deleted on the reload it exists to survive,
+       * which is precisely the F5 compute burn the cooldown was added to prevent. A reviewer
+       * reproduced it: record an attempt, reload, and `getBiophysicsAttemptedAt` returns null.
+       */
+      const isBundle = Boolean(k && k.startsWith(CACHE_PREFIX));
+      const isAttempt = Boolean(k && k.startsWith(ATTEMPT_PREFIX));
+      if (k && (k.startsWith("mre_analysis_") || (k.startsWith("mrx_") && !isBundle && !isAttempt))) {
         keysToRemove.push(k);
       }
     }

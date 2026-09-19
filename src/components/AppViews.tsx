@@ -543,6 +543,7 @@ export function AppViews({
                   loadingStep={loadingStep}
                   formatEnergyString={formatEnergyString}
                   selectedResidueIndex={selectedResidueIndex}
+                  foldingDdG={foldingDdG}
                   settings={settings}
                   classTextBody={classTextBody}
                   classTextMute={classTextMute}
