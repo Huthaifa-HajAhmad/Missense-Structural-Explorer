@@ -508,9 +508,9 @@ const EnergeticsView = memo(function EnergeticsView({
               <thead>
                 <tr className="table-header-row border-b border-[var(--cs-border)]" style={{ background: "var(--cs-surface-2)" }}>
                   <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-left w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Method</th>
-                  <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-[35%] border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Type</th>
+                  <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-[30%] border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>Type</th>
                   <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center font-mono w-1/4 border-r border-[var(--cs-border-subtle)]" style={{ color: "var(--cs-text-secondary)" }}>ΔΔG</th>
-                  <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-[15%]" style={{ color: "var(--cs-text-secondary)" }}>Risk</th>
+                  <th className="p-3 px-4 text-[11px] font-medium uppercase tracking-wider text-center w-[20%]" style={{ color: "var(--cs-text-secondary)" }}>Risk</th>
                 </tr>
               </thead>
               <tbody>

@@ -221,7 +221,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <div className="space-y-2">
             {isLowConfidence && (
               <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-warning">
+                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-primary">
                   <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                   <span>Low-confidence template (pLDDT {plddt?.toFixed(1)})</span>
                 </div>
