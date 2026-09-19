@@ -150,6 +150,15 @@ describe("deriveConsensus — the export path's verdict", () => {
       expect(keys).not.toContain(forbidden);
     }
 
+    /**
+     * F9: the check above samples an object literal written INSIDE this test, so it proves nothing about
+     * the function's parameter type — adding a `derivedVerdict?: string` parameter would leave it green.
+     * The compiler is what has to hold this line, so the assertion is a type-level one: this call must
+     * not compile, and if the parameter is ever added the directive becomes unused and `tsc` fails.
+     */
+    // @ts-expect-error — `deriveConsensus` takes inputs; it has nowhere to put a pre-computed verdict.
+    void (() => deriveConsensus({ result: null, foldingEnergetics: null, derivedVerdict: "x" }));
+
     // And it derives: a bundle whose stored verdict disagrees must produce the derived one, because
     // the stored one is never read.
     const stale = deriveConsensus({

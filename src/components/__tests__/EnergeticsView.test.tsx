@@ -265,6 +265,25 @@ describe("EnergeticsView — a fully populated run", () => {
     renderView();
     expect(screen.getByRole("columnheader", { name: "Type" }).className).toContain("w-[30%]");
     expect(screen.getByRole("columnheader", { name: "Risk" }).className).toContain("w-[20%]");
+
+    /**
+     * F8: the invariant is TWO-SIDED and only the header half was pinned. The body cells carry the same
+     * widths (EnergeticsView.tsx:579, :581), so a body-only drift back to w-[35%]/w-[15%] would recreate
+     * the misalignment this test is named for with the suite green.
+     */
+    const widthOf = (el: Element) => (el.className.match(/w-\[\d+%\]/) ?? [""])[0];
+    const headerWidths = screen.getAllByRole("columnheader").map(widthOf).filter(Boolean);
+    // The first BODY ROW, not the first N cells of the whole table: cells come back in document order
+    // across every row, so slicing by the header count picked the wrong columns and the assertion failed
+    // for a reason that had nothing to do with widths.
+    const firstBodyRow = screen.getAllByRole("row")[1];
+    const firstRowWidths = within(firstBodyRow).getAllByRole("cell").map(widthOf).filter(Boolean);
+
+    expect(headerWidths.length, "the header must declare widths").toBeGreaterThan(0);
+    expect(
+      firstRowWidths,
+      "body cells must declare the same column widths as their headers"
+    ).toEqual(headerWidths);
   });
 
   it("does not say no engine returned a value when one is displayed but not counted", () => {

@@ -165,6 +165,17 @@ describe("biophysics attempt cooldown — across a reload", () => {
     vi.resetModules();
     const reloaded = await import("../variantCache");
 
+    /**
+     * F14: the load-bearing assumption of the two reload tests, previously unasserted. If
+     * `vi.resetModules()` were a no-op, or the dynamic import resolved to the cached instance, both
+     * tests would pass while certifying nothing — the reader assertions would be satisfied by the very
+     * module whose memory was supposed to have been discarded.
+     */
+    expect(
+      reloaded.getBiophysicsAttemptedAt,
+      "resetModules did not yield a fresh instance, so this test would certify nothing"
+    ).not.toBe(getBiophysicsAttemptedAt);
+
     expect(
       reloaded.getBiophysicsAttemptedAt("RELOADA", "p.Ala1Val"),
       "the cooldown did not survive a reload — the next visit re-dispatches the full FoldX run"
@@ -184,6 +195,17 @@ describe("biophysics attempt cooldown — across a reload", () => {
 
     vi.resetModules();
     const reloaded = await import("../variantCache");
+
+    /**
+     * F14: the load-bearing assumption of the two reload tests, previously unasserted. If
+     * `vi.resetModules()` were a no-op, or the dynamic import resolved to the cached instance, both
+     * tests would pass while certifying nothing — the reader assertions would be satisfied by the very
+     * module whose memory was supposed to have been discarded.
+     */
+    expect(
+      reloaded.getBiophysicsAttemptedAt,
+      "resetModules did not yield a fresh instance, so this test would certify nothing"
+    ).not.toBe(getBiophysicsAttemptedAt);
 
     expect(reloaded.getBiophysicsAttemptedAt("RELOADB", "p.Ala1Val")).toBe(written);
     // ...and the failed bundle is still not persisted, before or after the reload.
