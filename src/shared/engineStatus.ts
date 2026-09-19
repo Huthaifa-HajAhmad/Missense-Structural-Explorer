@@ -228,18 +228,6 @@ export function formatDdg(
     : `${canonicalDdg.toFixed(digits)} kcal/mol`;
 }
 
-/** Same as `formatDdg` but always carries an explicit sign, for badges and deltas. */
-export function formatSignedDdg(
-  canonicalDdg: number | null | undefined,
-  unit: EnergyUnit = "kcal/mol",
-  digits = 2
-): string {
-  if (canonicalDdg === null || canonicalDdg === undefined || !Number.isFinite(canonicalDdg)) {
-    return "—";
-  }
-  return `${canonicalDdg > 0 ? "+" : ""}${formatDdg(canonicalDdg, unit, digits)}`;
-}
-
 /**
  * Formats an ensemble mean with its spread, unit stated once: "1.20 ± 0.30 kcal/mol".
  *
@@ -264,12 +252,6 @@ export function formatDdgPair(
   return `${meanText} ± ${(canonicalSpread * factor).toFixed(digits)} ${unitLabel}`;
 }
 
-/** Converts a canonical value from one display unit to another (used by the kcal/kJ toggle). */
-export function convertEnergy(value: number, from: EnergyUnit, to: EnergyUnit): number {
-  if (from === to) return value;
-  return to === "kJ/mol" ? value * KJ_PER_KCAL : value / KJ_PER_KCAL;
-}
-
 // ---------------------------------------------------------------------------
 // Risk bands — each engine judged on its own scale
 // ---------------------------------------------------------------------------
@@ -289,12 +271,6 @@ const RISK_BANDS: Record<RiskBandId, RiskBand> = {
   neutral: { id: "neutral", label: "Neutral", severity: "neutral" },
   stabilizing: { id: "stabilizing", label: "Stabilizing", severity: "good" },
 };
-
-export function getRiskBand(id: RiskBandId): RiskBand {
-  return RISK_BANDS[id];
-}
-
-export const RISK_BAND_IDS: readonly RiskBandId[] = ["high", "moderate", "neutral", "stabilizing"];
 
 /**
  * Classifies an ALREADY-CANONICAL value using the engine's own cut-points.

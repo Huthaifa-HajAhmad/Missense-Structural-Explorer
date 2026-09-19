@@ -150,13 +150,19 @@ export function buildExportVerdictContext(args: {
   plddt?: number | null;
 }) {
   const derived = deriveConsensus(args);
+  /**
+   * ONE source for the caveat: the live `pendingTools` the client filters as each engine resolves.
+   *
+   * `evidenceComplete` is written once by the server at FoldX commit and never recomputed client-side,
+   * so pairing it with a live list made the two fields disagree by construction — an export could
+   * report "incomplete" with nothing pending, for a run the screen shows as complete. That is the same
+   * staleness this function exists to remove from the verdict, one field over.
+   */
+  const pendingTools = args.foldingEnergetics?.pendingTools ?? [];
   return {
     derivedVerdict: derived?.consensusVerdict ?? null,
-    // The caveat fields still come from the stored bundle: `evidenceComplete` is written only by the
-    // server at FoldX commit, so deriving it here would require the live `pendingTools` the client
-    // filters as engines resolve. Tracked as open in §11.10.3 item 8.
-    evidenceComplete: args.foldingEnergetics?.evidenceComplete ?? null,
-    pendingTools: args.foldingEnergetics?.pendingTools ?? []
+    evidenceComplete: args.foldingEnergetics ? pendingTools.length === 0 : null,
+    pendingTools
   };
 }
 
@@ -408,7 +414,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           })?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
         // The JSON export carries the caveat too, so a downstream reader of the report knows the
         // verdict can still move. This replaced the " (Preliminary - pending: …)" suffix.
-        consensusEvidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
+        // Same single source as the manifest — see `buildExportVerdictContext`.
+        consensusEvidenceComplete: foldingEnergetics
+          ? (foldingEnergetics?.pendingTools ?? []).length === 0
+          : null,
         consensusPendingTools: foldingEnergetics?.pendingTools ?? [],
         consensusProbability:
           deriveConsensus({

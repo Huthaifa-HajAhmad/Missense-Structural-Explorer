@@ -9,13 +9,11 @@ import {
   classifyRawDdg,
   buildEngineOutcomes,
   classifyRaspMissReason,
-  convertEnergy,
   describeCoverage,
   describeProvenance,
   findLegacyLabels,
   formatDdg,
   formatDdgPair,
-  formatSignedDdg,
   getEngine,
   resolveEngineOutcome,
   summarizeCoverage,
@@ -103,13 +101,6 @@ describe("engineStatus — one sign convention (regression: ΔΔG printed as +0.
     expect(formatDdg(1.0, "kJ/mol")).toBe("4.18 kJ/mol");
     expect(formatDdg(1.0, "kJ/mol", 3)).toBe("4.184 kJ/mol");
     expect(formatDdg(null)).toBe("—");
-    expect(formatSignedDdg(0.09)).toBe("+0.09 kcal/mol");
-    expect(formatSignedDdg(-0.09)).toBe("-0.09 kcal/mol");
-    expect(formatSignedDdg(0)).toBe("0.00 kcal/mol");
-    expect(formatSignedDdg(null)).toBe("—");
-    // Round-trips the display-unit toggle.
-    expect(convertEnergy(convertEnergy(2, "kcal/mol", "kJ/mol"), "kJ/mol", "kcal/mol")).toBeCloseTo(2, 10);
-    expect(convertEnergy(1, "kcal/mol", "kJ/mol")).toBeCloseTo(KJ_PER_KCAL, 10);
   });
 
   it("states the unit once for an ensemble mean and never fakes a missing spread", () => {
