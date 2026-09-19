@@ -260,6 +260,33 @@ export function useAnalysisPipeline() {
       structureSink.clearThermoMpnnPoll,
       structureSink.clearThermoMpnnComparePoll
     );
+
+    /**
+     * Clear the run state an abort leaves behind — BEFORE the new run claims its request id.
+     *
+     * `abortAllPendingRequests` bumps the id and aborts, and `foldxService`'s finally is
+     * `!signal.aborted && getActiveRequestId() === requestId`. After an abort BOTH clauses are false, so
+     * the run correctly declines to write and NOTHING owns the flag. If the new run then skips Stage 3 —
+     * which is exactly what the search form does, because `lastFetchedFoldRef` still holds this variant,
+     * the backfill is cooldown-blocked, and the early return needs no FoldX — no dispatch ever sets or
+     * clears it, and `isFolding` stays true while all six engines render "running" with no way back.
+     *
+     * This is the only place in the app that aborts and then starts a run, so it is the one point where
+     * the clear cannot race a newer run. It must NOT move into the abort itself: `workflowOrchestrator`
+     * aborts the old fold controller and then SYNCHRONOUSLY calls `executeFoldxPipeline`, whose
+     * `setIsFolding(true)` runs before its first await, so a run observing its abort late would wipe the
+     * NEW run's flag.
+     */
+    normalizedOptions.sinks.biophysical.setIsFolding(false);
+    /**
+     * The companion, and it is not optional.
+     *
+     * Clearing the flag alone converts a permanent "Running" into a permanent FoldX "no result" that
+     * pressing Search again cannot fix: `lastFetchedFoldRef` still holds this variant, so Stage 3 is
+     * skipped on every retry and nothing re-attempts the fold. Clearing the ref re-arms it.
+     */
+    normalizedOptions.sinks.biophysical.lastFetchedFoldRef.current = "";
+
     const requestId = ++activeRequestIdRef.current;
 
     const controller = new AbortController();

@@ -98,6 +98,50 @@ describe("useAnalysisPipeline Hook Integration", () => {
     };
   });
 
+  it("clears the run state an abort leaves behind, BEFORE the new run claims anything", async () => {
+    /**
+     * The stuck-run fix, and it has to be asserted by ORDER, not by "was it called".
+     *
+     * `setIsFolding(false)` also happens on a normal completion, so `toHaveBeenCalledWith(false)` alone
+     * would pass with the fix removed. What is load-bearing is that the clear comes FIRST — before the
+     * new run can skip Stage 3 and leave the flag set with nobody owning it.
+     *
+     * Mechanism: `abortAllPendingRequests` bumps the request id AND aborts, so `foldxService`'s finally
+     * (`!signal.aborted && getActiveRequestId() === requestId`) is false on BOTH clauses and correctly
+     * declines to write. If the new run then skips Stage 3 — the search form does, because
+     * `lastFetchedFoldRef` still holds the variant, the backfill is cooldown-blocked, and the early
+     * return needs no FoldX — nothing sets or clears the flag again, and all six engines render
+     * "running" forever.
+     */
+    const foldRefWrites: string[] = [];
+    mockOptions.lastFetchedFoldRef = {
+      _value: "PAH_p.Arg408Trp",
+      get current() {
+        return this._value;
+      },
+      set current(next: string) {
+        foldRefWrites.push(next);
+        this._value = next;
+      },
+    };
+
+    const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
+
+    await act(async () => {
+      await result.current.executeAnalysis("PAH", "p.Arg408Trp", "P00439", undefined, mockOptions);
+    });
+
+    expect(
+      mockOptions.setIsFolding.mock.calls[0],
+      "the first thing a new run does must be clearing what the abort left set"
+    ).toEqual([false]);
+
+    expect(
+      foldRefWrites[0],
+      "the fold ref must be cleared too, or the clear turns a permanent Running into a permanent FoldX no-result that re-searching cannot fix"
+    ).toBe("");
+  });
+
   it("orchestrates standard variant analysis end-to-end with legacy flat options", async () => {
     const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
 
