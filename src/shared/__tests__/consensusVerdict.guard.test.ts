@@ -166,26 +166,87 @@ describe("no surface compares the verdict to an impossible literal", () => {
    *     effect was to keep the guard's OWN new test green. That is a guard being edited to suit a
    *     test rather than the reverse.
    *
-   * Requiring the operator to sit BETWEEN the identifier and the literal fixes both: no operator, no
-   * match (object literals are ignored); and the literal must be the one being compared, so a
-   * ternary's branch strings are not swept in.
+   * THE PREDICATE IS FORM-INDEPENDENT ON PURPOSE. It used to require the operator to sit BETWEEN the
+   * identifier and the literal, which meant every other way of writing the same comparison was
+   * invisible: `"destabilizing" === consensusVerdict`, `consensusVerdict?.includes(…)`, `(v as string)
+   * === …`, `String(v) === …`, `v.trim() === …`, `["destabilizing"].includes(v)`, `Object.is(v, …)`, a
+   * `switch`/`case`, and an operator split across lines all passed. Measured at the time: 0 violations
+   * across 232 files while 11 of those 12 shapes went through. A guard that cannot fail is worse than
+   * none, because it certifies the absence of the defect.
    *
-   * Known residual, stated rather than implied: a literal that is separated from the comparison by
-   * more than the operator call — `["a","destabilizing"].includes(x)` — is not detected, and the
-   * `switch`/`case` shape never puts the identifier on the `case` line. Those are why the verdict is
-   * ALSO a literal union in `consensus.ts`, which fails the build instead of printing a violation.
+   * So: if a statement mentions the identifier, contains a comparison or lookup token, AND contains a
+   * string literal, every literal in it is checked. Order does not matter, the call form does not
+   * matter, and the statement — not the line — is the unit, so a split operator and a `switch` body are
+   * both covered. The literal is still the discriminator: a real fragment of a verdict is legitimate,
+   * anything the consensus cannot produce is not.
+   *
+   * Residual, stated rather than implied: a comparison through a RENAMED local (`const v =
+   * consensusVerdict; v === "x"`) is not detectable by any source scan, and neither is a `.includes()`
+   * used for presentation rather than decision. Those are why the verdict is ALSO a literal union in
+   * `consensus.ts`, which fails the build instead of printing a violation.
    */
-  const COMPARED_WITH_VERDICT = new RegExp(
-    String.raw`consensusVerdict\s*(?:===|!==|==|!=|\.includes\(|\.startsWith\(|\.endsWith\(|\.indexOf\(|\.match\(|\.search\(|\.localeCompare\(|\.has\()\s*(["'\`])([^"'\`\n]*)\1`,
-    "g"
-  );
+  const COMPARISON_TOKEN = /(===|!==|==|!=|\.includes\(|\.startsWith\(|\.endsWith\(|\.indexOf\(|\.match\(|\.search\(|\.localeCompare\(|\.has\(|Object\.is\(|\bcase\b)/;
+  const STRING_LITERAL = /(["'`])((?:[^"'`\\\n]|\\.)*)\1/g;
+  /**
+   * An expression CONTINUES onto the next line only when it stops on one of these.
+   *
+   * Deliberately not `{`: that opens a BLOCK. Treating a block as a continuation walked into the
+   * function body of `if (consensusVerdict.includes("Insufficient")) {` and flagged the className
+   * literals of its return value as verdict comparisons — eight false positives, which is how a guard
+   * teaches people to ignore it.
+   */
+  const CONTINUES = /(===|!==|==|!=|&&|\|\||,|\?|:|\+|\(|\[|\\)\s*$/;
 
-  function comparedLiterals(line: string): string[] {
+  function comparedLiterals(statement: string): string[] {
+    if (!COMPARISON_TOKEN.test(statement)) return [];
     const out: string[] = [];
     let m: RegExpExecArray | null;
-    while ((m = COMPARED_WITH_VERDICT.exec(line))) out.push(m[2]);
+    STRING_LITERAL.lastIndex = 0;
+    while ((m = STRING_LITERAL.exec(statement))) {
+      // An EMPTY literal is how code asks "is this set?" — `consensusVerdict !== ""` is not a claim
+      // about which verdict it is, and flagging it is how a guard earns its suppression.
+      if (m[2].length > 0) out.push(m[2]);
+    }
     return out;
   }
+
+  it("catches EVERY shape the comparison can be written in (self-test)", () => {
+    /**
+     * A source-scanning guard is only as strong as its positive cases, and this one has been wrong
+     * twice: first too wide (it flagged object literals), then narrowed until it matched nothing. The
+     * predicate is therefore exercised directly, on crafted sources, so it cannot go inert again
+     * without this failing.
+     */
+    const MUST_FLAG = [
+      `consensusVerdict === "destabilizing"`,
+      `"destabilizing" === consensusVerdict`,
+      `consensusVerdict?.includes("destabilizing")`,
+      `(consensusVerdict as string) === "destabilizing"`,
+      `String(consensusVerdict) === "destabilizing"`,
+      `consensusVerdict.trim() === "destabilizing"`,
+      `consensusVerdict.toUpperCase().includes("DESTABILIZING")`,
+      `Object.is(consensusVerdict, "destabilizing")`,
+      `["destabilizing"].includes(consensusVerdict)`,
+      `switch (calConsensus.consensusVerdict) {\n  case "destabilizing":\n    break;\n}`,
+      `consensusVerdict ===\n  "destabilizing"`,
+    ];
+    const MUST_NOT_FLAG = [
+      `consensusVerdict !== ""`,
+      `consensusVerdict.includes("Insufficient")`,
+      `consensusVerdict.includes("High")`,
+      `<span title={calConsensus.consensusVerdict} className="text-red-500">x</span>`,
+    ];
+
+    for (const source of MUST_FLAG) {
+      const flagged = comparedLiterals(source).filter(l => !isConsensusVerdictFragment(l));
+      expect(flagged, `not caught: ${JSON.stringify(source)}`).not.toEqual([]);
+    }
+
+    for (const source of MUST_NOT_FLAG) {
+      const flagged = comparedLiterals(source).filter(l => !isConsensusVerdictFragment(l));
+      expect(flagged, `false positive: ${JSON.stringify(source)}`).toEqual([]);
+    }
+  });
 
   it("only ever compares it against a fragment of a real verdict", () => {
     const violations: string[] = [];
@@ -198,7 +259,23 @@ describe("no surface compares the verdict to an impossible literal", () => {
       lines.forEach((line, index) => {
         if (!line.includes("consensusVerdict")) return;
 
-        for (const literal of comparedLiterals(line)) {
+        // The STATEMENT, not the line: an operator and its literal are routinely split, and a `switch`
+        // puts the identifier and its `case` labels on different lines entirely.
+        let statement = line;
+        if (/switch\s*\(/.test(line)) {
+          // A switch body IS a set of comparisons against that expression, so its cases belong to it.
+          for (let i = index + 1; i < Math.min(lines.length, index + 12); i += 1) {
+            statement += "\n" + lines[i];
+            if (/^\s*\}/.test(lines[i])) break;
+          }
+        } else if (CONTINUES.test(line.trimEnd())) {
+          for (let i = index + 1; i < Math.min(lines.length, index + 4); i += 1) {
+            statement += "\n" + lines[i];
+            if (!CONTINUES.test(statement.trimEnd())) break;
+          }
+        }
+
+        for (const literal of comparedLiterals(statement)) {
           if (isConsensusVerdictFragment(literal)) continue;
           violations.push(`  ${relative}:${index + 1} compares consensusVerdict against "${literal}"`);
         }
