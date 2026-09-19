@@ -20,9 +20,15 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        # The official action replaces `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+        #
+        # That one-liner masked its own failure: a shell pipeline reports the LAST command's
+        # status, so a failed download exited 0, the step went green while installing nothing, and
+        # the next step died with "uv: command not found" (exit 127) — skipping lint, tests and
+        # the build entirely. Observed on run 35455821450, where every earlier run had passed.
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: "latest"
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
