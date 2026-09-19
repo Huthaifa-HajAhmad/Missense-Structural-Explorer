@@ -230,6 +230,15 @@ describe("Input Validation Patterns & Functions", () => {
       expect(() => validateVariant("Arg215Arg")).toThrow("Synonymous variant detected");
     });
 
+    it("should reject HGVS no-change notation (including VariantValidator's p.(=) form) as synonymous", () => {
+      // VariantValidator answers UTR coordinates with `p.(=)`; parentheses are stripped
+      // by validateVariant before the no-change check, so both spellings must be caught.
+      expect(() => validateVariant("p.(=)")).toThrow("Synonymous / no-change variant detected");
+      expect(() => validateVariant("p.=")).toThrow("Synonymous / no-change variant detected");
+      expect(() => validateVariant("=")).toThrow("Synonymous / no-change variant detected");
+      expect(() => validateVariant("p.Glu433=")).toThrow("Synonymous / no-change variant detected");
+    });
+
     it("should reject nonsense variants with informative domain error", () => {
       expect(() => validateVariant("p.Glu289Ter")).toThrow("Nonsense / stop-gain variant detected");
       expect(() => validateVariant("p.E289*")).toThrow("Nonsense / stop-gain variant detected");

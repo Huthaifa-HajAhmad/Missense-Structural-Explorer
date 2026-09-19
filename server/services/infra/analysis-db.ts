@@ -12,9 +12,9 @@ import {
   executePurgeExpiredExternalCache,
   executePurgeOutdatedSchemaExternalCache,
   executePurgeStaleVariantAnalyses,
-  StoredVariantAnalysis,
-  StoredVariantAnalysisSummary,
-  AnalysisCacheOptions
+  type StoredVariantAnalysis,
+  type StoredVariantAnalysisSummary,
+  type AnalysisCacheOptions
 } from "./analysis-db-core.ts";
 import {
   runSaveVariantAnalysisInWorker,

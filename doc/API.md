@@ -177,8 +177,8 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   ```
 * **Error Codes**:
   - `400 BAD_REQUEST`: Notation is not a recognized coordinate format. The message enumerates every accepted family.
-  - `422 NON_MISSENSE_VARIANT`: The notation is a recognized coordinate but is **not a single-nucleotide substitution** (deletion, insertion, duplication, inversion, delins, `=`), **or** it resolved to a non-missense protein consequence (stop-gain, frameshift, protein indel, synonymous). MissenseResolve models single amino-acid substitutions only.
-  - `404 NOT_FOUND`: VEP returned no transcript consequence mapping to an HGVSp protein change (e.g. intronic / splice-region variants).
+  - `422 NON_MISSENSE_VARIANT`: The notation is a recognized coordinate but is **not a single-nucleotide substitution** (deletion, insertion, duplication, inversion, delins, `=`), **or** it resolved to a non-missense protein consequence (stop-gain, frameshift, protein indel, synonymous / no-change `p.(=)`), **or** it resolved to transcript consequences that carry **no protein change at all** (intronic, UTR, splice-region, non-coding gene) so no HGVSp can exist. For the no-HGVSp case the response `details` carries `gene`, `transcriptId`, `hgvsc`, `consequence`, `notation` and `assembly` so the coordinate can be cross-checked. MissenseResolve models single amino-acid substitutions only.
+  - `404 NOT_FOUND`: No reference provider produced any transcript consequence for the coordinate (unknown coordinate or wrong genome build); the message also names the non-coding possibility.
   - `502 BAD_GATEWAY`: Ensembl VEP returned a malformed response.
   - `504 TIMEOUT`: Ensembl VEP query timed out.
 

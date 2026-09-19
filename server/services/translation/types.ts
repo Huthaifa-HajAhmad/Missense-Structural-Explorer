@@ -35,6 +35,12 @@ export interface ResolvedTranscriptConsequence {
   mane_select?: unknown;
   mane_plus_clinical?: unknown;
   hgvsp?: string;
+  /**
+   * Transcript-level HGVS (VEP returns it with `hgvs=1`). It exists for many
+   * non-protein-changing consequences (intronic, UTR) where `hgvsp` cannot, and is
+   * the single most useful identifier to show a clinician when no HGVSp is possible.
+   */
+  hgvsc?: string;
   gene_symbol?: string;
   consequence_terms?: string[];
   swissprot?: string[];

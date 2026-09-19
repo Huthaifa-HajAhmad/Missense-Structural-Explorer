@@ -266,7 +266,9 @@ export function buildResolutionUnavailableMessage(kind: ResolutionFailureKind): 
   if (kind === "not_found") {
     return (
       "No transcript consequence was found for this coordinate in any reference provider. " +
-      "Verify the chromosome, position, alleles and genome build."
+      "Verify the chromosome, position, alleles and genome build — or the coordinate may lie " +
+      "outside the coding sequence of any transcript, in which case no protein variant (HGVSp) " +
+      "exists and a missense analysis is not possible."
     );
   }
   if (kind === "invalid_response") {

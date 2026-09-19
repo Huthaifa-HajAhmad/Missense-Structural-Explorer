@@ -350,7 +350,7 @@ describe("POST /translate-variant — missense-only scope enforcement", () => {
     expect(body.error.message).toContain("Insertion/deletion");
   });
 
-  it("returns 404 when VEP reports no protein-mapping consequence (e.g. intronic/splice)", async () => {
+  it("explains a coordinate with no protein-mapping consequence instead of a bare 404", async () => {
     const { statusCode, body, calledUrl } = await invokeTranslate("chr1:g.25484258G>A", {
       transcript_id: "ENST00000374343",
       gene_symbol: "MACO1",
@@ -358,9 +358,112 @@ describe("POST /translate-variant — missense-only scope enforcement", () => {
     });
 
     expect(calledUrl).toContain("chr1:g.25484258G>A");
-    expect(statusCode).toBe(404);
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
     expect(body.error.message).toContain("HGVSp");
+    expect(body.error.message).toContain("intron_variant");
+    expect(body.error.message).toContain("MACO1");
+    expect(body.error.details).toMatchObject({
+      gene: "MACO1",
+      transcriptId: "ENST00000374343",
+      consequence: ["intron_variant"],
+      notation: "chr1:g.25484258G>A",
+      assembly: "GRCh38"
+    });
+  });
+
+  /**
+   * Regression: the production fatal logged for "chr20:g.54154759C>T" (GRCh38). VEP (and
+   * VariantValidator alike) resolve it to CYP24A1 MANE Select as a splice_region +
+   * 3_prime_UTR change (c.*13G>A) — a real variant that provably has NO HGVSp, so the
+   * pipeline must say so instead of crashing with an unexplained "not found".
+   */
+  it("names the gene, consequence and HGVSc for a UTR/splice coordinate (CYP24A1 regression)", async () => {
+    const { statusCode, body } = await invokeTranslate("chr20:g.54154759C>T", {
+      transcript_id: "ENST00000216862",
+      mane_select: "NM_000782.5",
+      canonical: 1,
+      gene_symbol: "CYP24A1",
+      consequence_terms: ["splice_region_variant", "3_prime_UTR_variant"],
+      hgvsc: "ENST00000216862.8:c.*13G>A",
+      swissprot: ["Q07973.209"]
+    });
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
+    expect(body.error.message).toContain('"chr20:g.54154759C>T"');
+    expect(body.error.message).toContain("CYP24A1");
+    expect(body.error.message).toContain("splice_region_variant + 3_prime_UTR_variant");
+    expect(body.error.message).toContain("ENST00000216862.8:c.*13G>A");
+    expect(body.error.message).toContain("no protein variant (HGVSp) exists");
+    expect(body.error.details).toMatchObject({
+      gene: "CYP24A1",
+      transcriptId: "ENST00000216862",
+      hgvsc: "ENST00000216862.8:c.*13G>A",
+      consequence: ["splice_region_variant", "3_prime_UTR_variant"],
+      notation: "chr20:g.54154759C>T",
+      assembly: "GRCh38"
+    });
+  });
+
+  it("rejects a VariantValidator no-change protein prediction (p.(=)) as non-missense", async () => {
+    // When VEP is down, the fallback answers UTR coordinates with `p.(=)` — a prediction
+    // of NO amino-acid change. It must read as "no protein change", not as a parse error.
+    const fetchImpl = async (url: string) =>
+      url.includes("rest.ensembl.org")
+        ? ({
+            ok: false,
+            status: 503,
+            headers: { get: (name: string) => (name.toLowerCase() === "retry-after" ? "0" : null) },
+            json: async () => ({ error: "service unavailable" }),
+            text: async () => "service unavailable",
+          } as any)
+        : ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              "NM_000782.5:c.*13G>A": {
+                gene_symbol: "CYP24A1",
+                hgvs_predicted_protein_consequence: { tlr: "NP_000773.2:p.(=)", slr: "NP_000773.2:p.(=)" },
+                annotations: { chromosome: "20", mane_select: true, ensembl_select: false },
+                primary_assembly_loci: {
+                  grch38: { vcf: { alt: "T", chr: "20", pos: "54154759", ref: "C" } },
+                },
+              },
+            }),
+            text: async () => "",
+          } as any);
+
+    const { statusCode, body } = await invokeTranslate("chr20:g.54154759C>T", MISSENSE_CONSEQUENCE, fetchImpl);
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
+    expect(body.error.message).toContain("non-missense consequence (CYP24A1 p.(=))");
+    expect(body.error.message).toContain("Synonymous / no-change variant detected");
+    expect(body.error.message).toContain("no amino-acid change");
+  });
+
+  it("answers 422 with verify-guidance when the coordinate resolved but no transcript overlaps it", async () => {
+    const emptyOverlap = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          seq_region_name: "1",
+          start: 25484258,
+          allele_string: "G/A",
+          assembly_name: "GRCh38",
+          transcript_consequences: []
+        }
+      ]
+    });
+
+    const { statusCode, body } = await invokeTranslate("chr1:g.25484258G>A", MISSENSE_CONSEQUENCE, emptyOverlap);
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
+    expect(body.error.message).toContain("no transcript consequence overlaps it");
+    expect(body.error.message).toContain("Verify the chromosome, position, alleles and genome build");
   });
 
   it("still translates a genuine missense consequence successfully", async () => {

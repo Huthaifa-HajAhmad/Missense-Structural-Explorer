@@ -28,11 +28,55 @@ import {
   CoordinateResolutionError,
   TRANSLATION_PROVIDER_LABELS,
   resolutionFailureToHttp,
+  type ResolvedTranscriptConsequence,
 } from "../../services/translation/types.ts";
 
 const translateVariantSchema = z.object({
   variant: z.string().min(1).max(200),
 });
+
+/**
+ * Explains why a coordinate cannot start the missense pipeline when it resolved to
+ * transcript consequences but none carries an HGVSp.
+ *
+ * This is a property of the VARIANT, not a system failure: intronic / UTR /
+ * splice-region / non-coding coordinates have no protein change on ANY reference
+ * translator — Ensembl VEP, VariantValidator, or a cached copy of either — so
+ * "falling back" to another provider could never succeed. The message therefore names
+ * the gene, the actual consequence terms and the transcript-level HGVS (the identifiers
+ * a clinician needs to cross-check the coordinate), and states what input WOULD work.
+ *
+ * Kept pure and exported so the wording is unit-testable without network mocks.
+ */
+export function buildNoProteinChangeMessage(
+  notation: string,
+  assembly: GenomeAssembly,
+  tc: ResolvedTranscriptConsequence | undefined
+): string {
+  if (!tc) {
+    return (
+      `No protein variant (HGVSp) could be produced for "${notation}" on ${assembly}: the ` +
+      "coordinate resolved, but no transcript consequence overlaps it. Verify the chromosome, " +
+      "position, alleles and genome build, or enter a protein-level substitution " +
+      "(e.g. p.Gly380Arg)."
+    );
+  }
+
+  const terms = Array.isArray(tc.consequence_terms) ? tc.consequence_terms : [];
+  const effect = terms.length > 0 ? terms.join(" + ") : "a non-coding transcript effect";
+  const genePart = tc.gene_symbol ? ` of ${tc.gene_symbol}` : "";
+  const identifiers: string[] = [];
+  if (tc.transcript_id) identifiers.push(`transcript ${tc.transcript_id}`);
+  if (tc.hgvsc) identifiers.push(tc.hgvsc);
+  const idPart = identifiers.length > 0 ? ` (${identifiers.join(", ")})` : "";
+
+  return (
+    `"${notation}" resolves on ${assembly} to ${effect}${genePart}${idPart}, which does not ` +
+    "alter the encoded protein sequence, so no protein variant (HGVSp) exists for it. " +
+    "This platform analyses missense substitutions only — enter a coding coordinate, or a " +
+    "protein-level notation such as p.Gly380Arg."
+  );
+}
 
 /**
  * Narrows an `any` payload field to an object map.
@@ -128,7 +172,24 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       }
 
       if (!selectedTc || !selectedTc.hgvsp) {
-        sendError(res, 404, "NOT_FOUND", "Could not find a transcript mapping to a protein variant (HGVSp).");
+        // The coordinate resolved, but no transcript consequence describes a
+        // protein-altering change (intronic / UTR / splice-region / non-coding gene).
+        // That is a property of the VARIANT, not a system failure — no reference
+        // translator can produce an HGVSp for it, so answer with the actual consequence
+        // instead of a bare "not found" that reads like a bug and dead-ends the UI.
+        const informativeTc =
+          consequences.find((t) => t.mane_select) ??
+          consequences.find((t) => t.canonical === 1 || t.canonical === true) ??
+          consequences[0];
+
+        sendError(res, 422, "NON_MISSENSE_VARIANT", buildNoProteinChangeMessage(trimmed, assembly, informativeTc), {
+          gene: informativeTc?.gene_symbol,
+          transcriptId: informativeTc?.transcript_id,
+          hgvsc: informativeTc?.hgvsc,
+          consequence: informativeTc?.consequence_terms,
+          notation: trimmed,
+          assembly,
+        });
         return;
       }
 

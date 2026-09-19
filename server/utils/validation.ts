@@ -68,6 +68,16 @@ export function validateVariant(variant: any): string {
     throw new Error("Variant must be a non-empty string.");
   }
   const trimmed = variant.replace(/[()]/g, "").trim();
+  // HGVS "no change" notation, e.g. VariantValidator's `p.(=)` for a UTR / synonymous
+  // coordinate. HGVS_PATTERN can never match it, so without this branch it fell through
+  // to the generic "Invalid variant format" message, which hid the real diagnosis: the
+  // reference translators predict NO amino-acid change, so no missense analysis exists.
+  // The word "Synonymous" routes the message to the NON_MISSENSE_VARIANT classifier.
+  if (/^(?:p\.)?(?:[A-Za-z]{1,4}\d{1,6})?=$/.test(trimmed)) {
+    throw new Error(
+      `Synonymous / no-change variant detected: "${trimmed}". The reference translators predict no amino-acid change for this coordinate (e.g. a UTR or synonymous coding change), so no missense analysis is possible.`
+    );
+  }
   const match = trimmed.match(HGVS_PATTERN);
   if (!match) {
     if (NONSENSE_PATTERN.test(trimmed)) {
