@@ -405,7 +405,31 @@ export async function executeFullAnalysisWorkflow({
         sink: biophysicalSink,
         signal: foldController.signal,
         requestId,
-        getActiveRequestId
+        getActiveRequestId,
+        /**
+         * The SAME seed the backfill dispatch passes — and it IS load-bearing, which a correction to an
+         * earlier record needs to state plainly.
+         *
+         * I removed this once, on the strength of a mutation check that dropped the seed and left every
+         * test passing. That inference was wrong, and wrong in the exact way this audit is about: the
+         * fixture used to test it (`HEALTHY_SNAPSHOT`, whose bundle carries a complete analysis) returns
+         * EARLIER, inside `if (hasCompleteAnalysis && !userDirections)` — so the test could never reach
+         * this dispatch, and its silence proved nothing about it. A cached bundle with no
+         * `analysisResult` does fall through to here, and `variantCache` deliberately persists exactly
+         * those bundles.
+         *
+         * Without the seed this path settles from this attempt's responses alone, so an engine the store
+         * is already polling is marked unavailable and its live poller is torn down — the defect F4
+         * fixed, re-opened by my own "refutation".
+         */
+        initialRemoteState: {
+          dynamut2Status: cached?.dynamut2Status ?? null,
+          dynamut2JobId: cached?.dynamut2JobId ?? null,
+          ddmutStatus: cached?.ddmutStatus ?? null,
+          ddmutJobId: cached?.ddmutJobId ?? null,
+          thermompnnStatus: cached?.thermompnnStatus ?? null,
+          thermompnnJobId: cached?.thermompnnJobId ?? null
+        }
       }).finally(() => {
         activeSignal.removeEventListener("abort", onParentAbort);
       });

@@ -2,6 +2,17 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+/**
+ * The repository root, derived from THIS FILE rather than from the process cwd.
+ *
+ * The default used to be `process.cwd()` and nothing verified that cwd was the repository, so running
+ * the checker from anywhere else scanned a directory containing no `server/` and no `src/`, found no
+ * files, and printed "passed: 0 violations found" with exit 0. A guard that passes because it looked at
+ * nothing is precisely the failure this file exists to catch elsewhere; it should not commit it itself.
+ * A review found this by running it from two other directories.
+ */
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 export interface BoundaryViolation {
   file: string;
   line: number;
@@ -80,7 +91,22 @@ export function resolveImportTarget(importSpecifier: string, fromFile: string, r
   return null;
 }
 
-export function checkBoundaries(rootDir: string = process.cwd(), customFiles?: Map<string, string>): BoundaryViolation[] {
+export function checkBoundaries(rootDir: string = REPO_ROOT, customFiles?: Map<string, string>): BoundaryViolation[] {
+  /**
+   * Fail CLOSED when asked to scan something that is not the repository.
+   *
+   * Skipped when `customFiles` is supplied, because callers use that to check a synthetic tree built in
+   * a temp directory — the tests in `server/tests/architectural-boundaries.test.ts` do exactly that.
+   */
+  if (
+    !customFiles &&
+    (!fs.existsSync(path.join(rootDir, "server")) || !fs.existsSync(path.join(rootDir, "src")))
+  ) {
+    throw new Error(
+      `boundary check: "${rootDir}" is not the repository root (no server/ and src/), so scanning it would report success while checking nothing`
+    );
+  }
+
   const violations: BoundaryViolation[] = [];
   const serverDir = path.resolve(rootDir, "server");
   const srcDir = path.resolve(rootDir, "src");
@@ -133,7 +159,7 @@ export function checkBoundaries(rootDir: string = process.cwd(), customFiles?: M
        *
        * `scripts/` itself stays unscanned on purpose: a script importing `server/` or `src/` is
        * legitimate tooling use, and the CLI wrapper for this very builder does exactly that. TEST files
-       * are exempt too � `server/tests/architectural-boundaries.test.ts` imports this checker, which is
+       * are exempt too — `server/tests/architectural-boundaries.test.ts` imports this checker, which is
        * a test exercising tooling, not a runtime dependency of the server.
        */
       if (isInsideDir(resolved, scriptsDir) && !isTestFile(filePath)) {

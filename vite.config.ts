@@ -38,6 +38,18 @@ export default defineConfig(() => {
       environment: 'node',
       globals: true,
       setupFiles: './src/test/setup.ts',
+      /**
+       * A real margin over the retry backoff, because the default is thinner than it looks.
+       *
+       * `fetchWithRetry` sleeps `delay * jitter` per attempt with `jitter = 0.5 + random * 0.5`
+       * (server/services/infra/http-client.ts:205), so a test that drives deliberately-failing providers
+       * spends 1500-3000 ms of REAL wall clock per call. With vitest's unconfigured 5000 ms default, one
+       * such test has under 2x headroom — which is how a suite passes locally and fails in CI. This is
+       * the mechanism behind the intermittent failures observed during the audit; it is a timing bound,
+       * not a network dependency (those tests mock `fetch`).
+       */
+      testTimeout: 20000,
+      hookTimeout: 20000,
       coverage: {
         provider: 'v8' as const,
         reporter: ['text', 'json', 'html'],

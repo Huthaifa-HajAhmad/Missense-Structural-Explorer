@@ -364,6 +364,24 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
 
   const handleExportJSON = () => {
     if (!analysisState.result) return;
+
+    /**
+     * ONE derived consensus for the whole export.
+     *
+     * The three consensus fields used to come from three separate calls, and the interval bounds were
+     * not derived at all — they were read from the stored snapshot. The result was a report whose
+     * interval did not contain its own point estimate: measured on screen as 80.6% with 68.1-89.1,
+     * exported as 80.6% with 2.1-11.3, because the stored snapshot came from an earlier two-engine
+     * commit. A derived value beside a stored one is the same defect class this export already fixed for
+     * the verdict itself.
+     */
+    const derivedConsensus = deriveConsensus({
+      result: analysisState.result,
+      foldingEnergetics,
+      foldingDdG,
+      plddt: disruptionPredictor?.plddt
+    });
+
     const exportData = {
       metadata: {
         gene: gene,
@@ -413,12 +431,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         stabilityoracle: foldingEnergetics?.stabilityoracle ?? analysisState.result.foldingEnergetics?.stabilityoracle ?? null,
         // Derived, not read from the snapshot: see `deriveConsensus`.
         consensusStabilityVerdict:
-          deriveConsensus({
-            result: analysisState.result,
-            foldingEnergetics,
-            foldingDdG,
-            plddt: disruptionPredictor?.plddt
-          })?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
+          derivedConsensus?.consensusVerdict ?? foldingEnergetics?.consensusVerdict ?? null,
         // The JSON export carries the caveat too, so a downstream reader of the report knows the
         // verdict can still move. This replaced the " (Preliminary - pending: …)" suffix.
         // From the stored field, as the manifest does — the derivation was reverted, see
@@ -426,14 +439,19 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         consensusEvidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
         consensusPendingTools: foldingEnergetics?.pendingTools ?? [],
         consensusProbability:
-          deriveConsensus({
-            result: analysisState.result,
-            foldingEnergetics,
-            foldingDdG,
-            plddt: disruptionPredictor?.plddt
-          })?.consensusProbability ?? (foldingEnergetics as any)?.consensusProbability ?? null,
-        consensusConfMin: (foldingEnergetics as any)?.consensusConfMin ?? null,
-        consensusConfMax: (foldingEnergetics as any)?.consensusConfMax ?? null
+          derivedConsensus?.consensusProbability ??
+          (foldingEnergetics as any)?.consensusProbability ??
+          null,
+        // Derived with it, NOT read from the snapshot — otherwise the interval can contradict the
+        // probability it is supposed to bound, which is what the export did before this.
+        consensusConfMin:
+          derivedConsensus?.consensusConfMin ??
+          (foldingEnergetics as any)?.consensusConfMin ??
+          null,
+        consensusConfMax:
+          derivedConsensus?.consensusConfMax ??
+          (foldingEnergetics as any)?.consensusConfMax ??
+          null
       },
       acmgCriteriaSuggestions: {
         ruleBased: analysisState.result.ruleBasedInsights || null,

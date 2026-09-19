@@ -37,9 +37,23 @@ function readCode(relative: string): string {
   return stripComments(fs.readFileSync(path.join(REPO_ROOT, relative), "utf-8"));
 }
 
-/** Any call to the consensus, TOLERATING WHITESPACE before the parenthesis. */
+/** A CALL to the consensus, TOLERATING WHITESPACE before the parenthesis. */
 const CONSENSUS_CALL = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/g;
 const CONSENSUS_CALL_ONE = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/;
+/**
+ * A bare MENTION — no parenthesis required. The whole-server walk uses THIS one.
+ *
+ * The difference is the whole point, and a review measured it: the walk missed the very counterexample
+ * the previous commit message cited, because an alias contains no call text at all —
+ *
+ *     const compute = computeCalibratedConsensus;   // no "(" on this line
+ *     return compute({ foldxMean, rasp });          // no name on this one either
+ *
+ * A mention in a production file outside the authoritative site is a second call site or an alias to
+ * one, so the walk flags the MENTION rather than the call. The authoritative file is exempt along with
+ * its import, and test files are exempt because a test may compute a consensus to check it.
+ */
+const CONSENSUS_MENTION = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\b/g;
 
 function isTestFile(relative: string): boolean {
   return /\.(test|spec)\.[cm]?[jt]sx?$/.test(relative) || /(^|\/)(__tests__|tests)\//.test(relative);
@@ -52,7 +66,7 @@ function serverSourceFiles(): string[] {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (/\.(ts|tsx|js|mjs|cjs)$/.test(entry.name)) out.push(full);
+      else if (/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/.test(entry.name)) out.push(full);
     }
   };
   walk(path.join(REPO_ROOT, "server"));
@@ -222,8 +236,8 @@ describe("the consensus has a single server-side computation site", () => {
     for (const file of serverSourceFiles()) {
       const relative = path.relative(REPO_ROOT, file).replace(/\\/g, "/");
       if (relative === AUTHORITATIVE_SITE || isTestFile(relative)) continue;
-      const found = (stripComments(fs.readFileSync(file, "utf-8")).match(CONSENSUS_CALL) ?? []).length;
-      if (found > 0) offenders.push(`  ${relative} (${found} call site(s))`);
+      const found = (stripComments(fs.readFileSync(file, "utf-8")).match(CONSENSUS_MENTION) ?? []).length;
+      if (found > 0) offenders.push(`  ${relative} (${found} mention(s))`);
     }
 
     expect(

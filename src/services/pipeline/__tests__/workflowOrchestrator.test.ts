@@ -291,14 +291,22 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
 
   it("seeds EVERY dispatch with the variant's restored remote state", async () => {
     /**
-     * R1. A review's check was that deleting `initialRemoteState` from the real caller failed NOTHING:
-     * both new foldxService tests drive the function directly, so the wiring was untested and one of
-     * the two dispatch sites was left unseeded — which reproduces the live-poller teardown on that
-     * path. This asserts the invariant over the caller instead of over one call site: when the variant
-     * has a restored job id, no dispatch may go out unseeded.
+     * R1, and a correction to how this test was first written.
+     *
+     * `analysisResult: undefined` is the point of this fixture, not incidental. The invariant is about
+     * EVERY dispatch, and the one that matters is Stage 3. With a complete analysis the orchestrator
+     * returns at `if (hasCompleteAnalysis && !userDirections)` BEFORE Stage 3 — so a fixture built on
+     * HEALTHY_SNAPSHOT alone can only ever exercise the backfill, and this loop would pass without ever
+     * observing the path it is named for. A record-integrity review caught exactly that: the first
+     * version asserted the invariant with a fixture that could not reach the dispatch whose missing seed
+     * had been deleted on the strength of the same blind spot.
+     *
+     * A cached bundle with no `analysisResult` is what `variantCache` persists mid-run, and it falls
+     * through to Stage 3.
      */
     await runWithCache({
       ...HEALTHY_SNAPSHOT,
+      analysisResult: undefined,
       foldingStatus: "failed",
       biophysicsAttemptedAt: Date.now() - BIOPHYSICS_RETRY_COOLDOWN_MS - 1000,
       dynamut2Status: "pending",

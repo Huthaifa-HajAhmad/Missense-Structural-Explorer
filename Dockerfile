@@ -28,7 +28,15 @@ COPY . .
 RUN npm run lint
 RUN npm test
 
-# Build RaSP SQLite database if raw CSV is present
+# Build the RaSP SQLite database if the raw CSV is present.
+#
+# CURRENTLY UNREACHABLE, and deliberately kept: .dockerignore excludes `data/*.csv`, so this condition is
+# always false and the image never builds an index. The OCI deployment gets its index from the
+# `../data:/app/data` bind mount instead. It stays because it becomes live the moment the CSV is part of
+# the build context, and deleting it would break that case silently.
+#
+# CI never builds this image, so the gates below (`npm run lint`, `npm test`) run only on a local or
+# deploy-time build — a Dockerfile-only break surfaces at deploy rather than in CI.
 RUN if [ -f data/df_rasp_gnomad_clinvar.csv ]; then npm run migrate:rasp; fi
 
 RUN npm run build

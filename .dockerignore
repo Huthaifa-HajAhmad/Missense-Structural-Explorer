@@ -20,3 +20,18 @@ __pycache__
 *.pyd
 .DS_Store
 Thumbs.db
+
+# Tooling, agent and local-analysis leftovers. These are gitignored, but they SURVIVE a
+# `git checkout --force` on the deploy path, and the build context there is the PARENT directory — so
+# without these the daemon is sent hundreds of megabytes of unrelated files. Measured on the audit
+# machine: scratch/ 352.8 MB, .zvec-grep/ 116.4 MB, .antigravity/ 81.7 MB, graphify-out/ 64.5 MB,
+# .kilo/ 49.0 MB, coverage/ 16.7 MB.
+scratch
+.zvec-grep
+.antigravity
+graphify-out
+.kilo
+.gemini
+graft
+coverage
+temp_jobs

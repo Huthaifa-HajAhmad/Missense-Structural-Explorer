@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env tsx
+#!/usr/bin/env tsx
 /**
  * build-rasp-sqlite.ts — CLI entry point for the RaSP index builder.
  *
@@ -18,13 +18,27 @@
  *
  * Requires Node >=22.5.0 (`node:sqlite`).
  *
- * The auto-run guard lives HERE and nowhere else. It matches on the file NAME, so when the
- * implementation also carried it, invoking this wrapper would have fired both — two concurrent builds
- * of the same index, into the same `<dbPath>.building`, with the atomic swap racing itself.
+ * CORRECTION, because the first version of this comment described a guard that did not exist: the
+ * implementation's block was DELETED, not relocated, and this file then called the builder
+ * UNCONDITIONALLY. Importing the wrapper therefore started a 726 MB build, and the only thing
+ * preventing that was an unwritten rule — "nothing imports the wrapper". The check below is the guard
+ * the comment always claimed: importing this module is now inert, and the CLI still runs.
  */
+import { pathToFileURL } from "node:url";
 import { buildRaspSqliteDatabase } from "../server/services/stability/build-rasp-sqlite.ts";
 
-buildRaspSqliteDatabase().catch(err => {
-  console.error("[RaSP SQLite] Fatal:", err);
-  process.exit(1);
-});
+/**
+ * True only when this file is the process ENTRY point.
+ *
+ * Comparing the module URL against the entry path is the ESM idiom, and unlike a filename-suffix match
+ * it cannot be confused with the implementation — which is named `build-rasp-sqlite.ts` as well.
+ */
+const invokedDirectly =
+  Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1] as string).href;
+
+if (invokedDirectly) {
+  buildRaspSqliteDatabase().catch(err => {
+    console.error("[RaSP SQLite] Fatal:", err);
+    process.exit(1);
+  });
+}

@@ -96,7 +96,7 @@ describe("EnergeticsInspector — the diagnostics it renders", () => {
      * CSS order, not on this test. Requiring EXACTLY ONE text-colour token closes that: it fails both
      * for the wrong token and for a second one added alongside.
      */
-    const colourTokens = heading!.className.match(/\btext-cs-text-[a-z-]+/g) ?? [];
+    const colourTokens = heading!.className.match(/(?<![:\w-])text-cs-text-[a-z-]+/g) ?? [];
     expect(
       colourTokens,
       "exactly one text colour may apply, or CSS order decides which one renders"
