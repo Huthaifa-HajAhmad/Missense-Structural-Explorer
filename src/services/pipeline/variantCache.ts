@@ -118,7 +118,20 @@ export function setCachedVariant(
   gene: string,
   variant: string,
   uniprotId: string,
-  bundle: Partial<CachedVariantBundle>
+  bundle: Partial<CachedVariantBundle>,
+  /**
+   * Persist `biophysicsAttemptedAt` even for a bundle the guard below refuses to store.
+   *
+   * The retry cooldown is written at exactly the moment the guard fires — the previous attempt
+   * either failed or is still partial — so the timestamp reached memory only. A reload (or a tab
+   * crash) then restored a snapshot with no record of the attempt, `retryCooldownElapsed` read
+   * `undefined` as "elapsed", and the full multi-minute FoldX run was dispatched again: the compute
+   * burn the cooldown exists to prevent, reachable by pressing F5.
+   *
+   * This writes ONLY the cooldown metadata, never the failed biophysics payload the guard protects
+   * the user from.
+   */
+  options?: { persistAttemptTimestamp?: boolean }
 ): void {
   if (!gene || !variant) return;
   const key = getCacheKey(gene, variant);
@@ -193,6 +206,30 @@ export function setCachedVariant(
   }
 
   if (updated.foldingStatus === "failed" || (updated.foldingEnergetics as any)?.foldxError || isPreliminary) {
+    if (options?.persistAttemptTimestamp && updated.biophysicsAttemptedAt !== undefined) {
+      try {
+        const storageKey = `${CACHE_PREFIX}${key}`;
+        const onDisk = sessionStorage.getItem(storageKey);
+        const base = onDisk ? JSON.parse(onDisk) : {};
+        sessionStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            ...base,
+            version: CACHE_VERSION,
+            gene: updated.gene,
+            variant: updated.variant,
+            uniprotId: updated.uniprotId,
+            // `getCachedVariant` refuses a record without a fresh timestamp (and expires it after
+            // 24h), so a cooldown written without one would be discarded on the very reload it
+            // exists to survive.
+            timestamp: updated.timestamp,
+            biophysicsAttemptedAt: updated.biophysicsAttemptedAt
+          })
+        );
+      } catch (_) {
+        // Storage full or unavailable: the in-memory cooldown still applies to this session.
+      }
+    }
     return;
   }
 

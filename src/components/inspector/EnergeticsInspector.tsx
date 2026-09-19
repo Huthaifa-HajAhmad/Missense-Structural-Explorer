@@ -20,6 +20,15 @@ interface EnergeticsInspectorProps {
   thermompnnError?: string | null;
   disruptionPredictor?: { plddt?: number } | null;
   isFolding?: boolean;
+  /**
+   * Single-value FoldX fallback, the same one the main column uses.
+   *
+   * Without it the two surfaces were not fed the same facts, which falsified the contract's whole
+   * premise: on a bundle where `foldingDdG` is set but `energetics.foldx`/`foldxMean` is absent, the
+   * table rendered its computed state with a value while telemetry rendered "No result" — for one
+   * run.
+   */
+  foldingDdG?: number | null;
 }
 
 /**
@@ -60,7 +69,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   thermompnnStatus,
   thermompnnError,
   disruptionPredictor,
-  isFolding = false
+  isFolding = false,
+  foldingDdG = null
 }) => {
   const { settings, updateSetting } = useSettings();
   const energyUnit = settings.energyUnit || "kcal/mol";
@@ -80,8 +90,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   const outcomes = useMemo(
     () =>
       buildEngineOutcomes({
-        foldxMean: energetics?.foldxMean,
-        foldxDdg: energetics?.foldx,
+        foldxMean: energetics?.foldxMean ?? foldingDdG,
+        foldxDdg: energetics?.foldx ?? foldingDdG,
         foldxSd: energetics?.foldxSd,
         dynamut2: energetics?.dynamut2,
         ddmut: energetics?.ddmut,
@@ -175,7 +185,13 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
       </div>
 
       {/* ── 3. Diagnostics: plain language, one entry per engine that needs attention ── */}
-      {diagnostics.length > 0 && (
+      {/*
+        The low-confidence card is deliberately outside the `diagnostics.length > 0` gate.
+        It used to sit inside it, so on a run where every engine returned a value — the good case —
+        a low-pLDDT template produced an empty diagnostics array and the warning vanished entirely:
+        the more complete the run, the less the panel said about its own reliability.
+      */}
+      {(diagnostics.length > 0 || isLowConfidence) && (
         <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-cs-text-warning" />

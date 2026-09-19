@@ -623,12 +623,23 @@ const EnergeticsView = memo(function EnergeticsView({
               let styleClass = "bg-[var(--cs-bg-success)] text-[var(--cs-text-success)] border border-[var(--cs-border)]";
               if (calConsensus.consensusVerdict.includes("Insufficient")) {
                 styleClass = "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border border-[var(--cs-border)]";
+              } else if (coverage.insufficient) {
+                /**
+                 * Provisional FIRST, whatever the verdict text says.
+                 *
+                 * This branch used to be tested after "High", so a two-engine
+                 * "High Misfolding Risk (Destabilizing Consensus)" — reachable, because only a
+                 * single engine is remapped to the `*Single` verdicts — rendered as solid danger
+                 * with no indication that it rested on two of six engines. Below
+                 * MIN_ENGINES_FOR_CONSENSUS the verdict is an ensemble claim it cannot support, so
+                 * the styling must not depend on how strong that claim sounds.
+                 */
+                styleClass = "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-dashed border-[var(--cs-border)]";
               } else if (calConsensus.consensusVerdict.includes("High")) {
                 styleClass = "bg-[var(--cs-bg-danger)] text-[var(--cs-text-danger-on-soft)] border border-[var(--cs-border)] font-bold";
               } else if (
                 calConsensus.consensusVerdict.includes("Moderate") ||
-                calConsensus.consensusVerdict.includes("Elevated") ||
-                coverage.insufficient
+                calConsensus.consensusVerdict.includes("Elevated")
               ) {
                 styleClass = "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border border-dashed border-[var(--cs-border)]";
               }

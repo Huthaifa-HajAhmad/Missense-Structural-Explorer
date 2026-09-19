@@ -284,11 +284,24 @@ export async function executeFullAnalysisWorkflow({
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
           // Recorded BEFORE dispatch, so an abort or a crash still starts the cooldown rather
           // than leaving the next visit free to launch another full run.
-          setCachedVariant(targetGene, targetVariant, targetUniprot, {
-            biophysicsAttemptedAt: Date.now()
-          });
+          setCachedVariant(
+            targetGene,
+            targetVariant,
+            targetUniprot,
+            { biophysicsAttemptedAt: Date.now() },
+            {
+              // A failed or still-preliminary bundle is exactly the state the cache refuses to
+              // persist, and it is also exactly when this cooldown matters — so ask for the
+              // timestamp explicitly. Without it the cooldown lived in memory only, and a reload
+              // re-dispatched the whole run immediately.
+              persistAttemptTimestamp: true
+            }
+          );
 
-          executeFoldxPipeline({
+          // The dispatch is deliberately not awaited, but it must never be a floating promise: a
+          // rejection here would surface as an unhandled rejection and leave the spinner up with no
+          // deadline and no message.
+          void executeFoldxPipeline({
             gene: targetGene,
             uniprotId: targetUniprot,
             variant: targetVariant,
@@ -299,6 +312,16 @@ export async function executeFullAnalysisWorkflow({
             signal: activeSignal,
             requestId,
             getActiveRequestId
+          }).catch(err => {
+            // This path has no watchdog and no caller awaiting it, so a failure must be reported
+            // here or the user is left with a spinner that never resolves and no explanation.
+            if (getActiveRequestId() !== requestId) return;
+            console.warn("[Backfill] Biophysics backfill failed:", err?.message ?? err);
+            biophysicalSink.setFoldingError(
+              `The background biophysics retry failed: ${err?.message ?? "unknown error"}`
+            );
+            biophysicalSink.setFoldingStatus("failed");
+            biophysicalSink.setIsFolding(false);
           });
         }
 

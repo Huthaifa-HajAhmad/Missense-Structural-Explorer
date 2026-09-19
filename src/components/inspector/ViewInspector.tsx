@@ -460,6 +460,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             thermompnnError={thermompnnError}
             disruptionPredictor={disruptionPredictor}
             isFolding={isFolding}
+            foldingDdG={foldingDdG}
           />
         )}
 

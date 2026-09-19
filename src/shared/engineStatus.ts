@@ -570,7 +570,20 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
     (Boolean(obs.excludeFromConsensus) ||
       obs.problem === "repair-failed" ||
       obs.problem === "binary-missing");
-  const baseReason = reasonFor(state, engine, detail);
+  /**
+   * FoldX's two structural failures get their own copy.
+   *
+   * The generic state reasons are useless here: "Not available in this deployment" gives an operator
+   * nothing to act on when the real cause is a missing binary, and the repair-failed case used to be
+   * unreachable whenever a value existed — the value took the `computed` branch, whose reason is
+   * empty, so the caveat about *why that number is not trusted* was simply absent.
+   */
+  const baseReason =
+    obs.id === "foldx" && obs.problem === "binary-missing"
+      ? "The FoldX binary is not installed, so no force-field estimate could be computed. Install it and re-run to include FoldX in the consensus."
+      : obs.id === "foldx" && obs.problem === "repair-failed"
+        ? "Structure repair failed, so this estimate was produced from an unminimised model and is excluded from the consensus."
+        : reasonFor(state, engine, detail);
 
   return {
     id: obs.id,

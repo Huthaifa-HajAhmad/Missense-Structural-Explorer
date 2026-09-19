@@ -28,15 +28,36 @@ const REPO_ROOT = process.cwd();
 const GUARDED_SURFACES = [
   "src/components/EnergeticsView.tsx",
   "src/components/inspector/EnergeticsInspector.tsx",
+  // A surface this change modified that renders engine status: it still carried the literal
+  // "Standby / Unconfigured", which is in LEGACY_ENGINE_LABELS, and it sat outside the guard
+  // precisely because it had never been added here.
+  "src/components/evidence/SplicingTab.tsx",
 ] as const;
 
 /** The canonical module every guarded surface must consume. */
 const CANONICAL_MODULE = "shared/engineStatus";
 
+/**
+ * Removes comments while preserving line numbers.
+ *
+ * The rules below are about *code*: a surface may not declare its own status vocabulary. Prose is
+ * not a violation — and these files document the vocabulary they removed, so scanning raw text made
+ * the guard fail on its own documentation. That happened four times across this work (a watchdog
+ * comment, a "Preliminary" suffix comment, a "Computed" label comment), always in the direction of a
+ * false accusation, which is how a guard teaches people to route around it.
+ */
+function stripComments(source: string): string {
+  const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, match =>
+    "\n".repeat(match.split("\n").length - 1)
+  );
+  // Line comments, but not the `//` inside a string like "https://…".
+  return withoutBlock.replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+}
+
 function readSurface(relativePath: string): string {
   const absolute = path.join(REPO_ROOT, relativePath);
   expect(fs.existsSync(absolute), `${relativePath} should exist`).toBe(true);
-  return fs.readFileSync(absolute, "utf-8");
+  return stripComments(fs.readFileSync(absolute, "utf-8"));
 }
 
 describe("Energetics label guardrail", () => {

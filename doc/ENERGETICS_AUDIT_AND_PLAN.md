@@ -1376,15 +1376,39 @@ fails if the union ever widens back to `string`.
 | **A8** RaSP stays silent after repair | A lookup that missed because the **store** was unusable was memoised in an LRU with no TTL, so a run that happened while the index was missing or mid-rebuild kept returning that miss for the life of the process — RaSP (a weight-1.5 engine) silently absent from those variants, with no log line, even after a correct index was in place. A store failure is a fact about the *deployment*, not the variant, so it is no longer cached; the cache is also cleared when a rebuild succeeds, and a genuine coverage miss is still cached (pinned, so the fix cannot be "solved" by disabling the cache). | `energy-models.test.ts` — "does not memoise a store-unavailable miss" plus its converse. |
 | **A9** index can vanish, or stay dead | Three separate ways RaSP could be lost for the life of a process: (a) the swap did `rmSync(target)` **then** `renameSync`, so a kill or a failed rename inside that window left **no index at all** — worse than the truncated index this work set out to fix; (b) the loader latched a one-shot `checked` boolean, conflating "this file is bad" with "there is no usable file", so a rejected index stayed rejected even after a correct one appeared; (c) `db.close()` existed only on the build's success path, leaking a handle and — on Windows, where an open SQLite file commonly refuses deletion — blocking the staging cleanup. Fixed by renaming straight over the target (atomic on POSIX, `MoveFileExW(REPLACE_EXISTING)` on Windows), caching the verdict against the file's **identity** (`ino:size:mtimeMs`, so a replacement is always re-verified and a stale descriptor is never served), and closing in a `finally`. | `energy-models.test.ts` — absent→present and truncated→rebuilt with **no restart or reset**; `build-rasp-sqlite.test.ts` — a failure *after every row is written* leaves the target byte-identical, rebuilding over an existing index really replaces it, and the handle is released on the failure path. |
 
-**Still open from the review** — the next phases, in the order given in §11.6: **A5** (cooldown
-written through a path that survives the persistence filter), **A6** (settle reads a ~1.5 s stale
-snapshot), **A7** (pass `foldingDdG` and `hidePending` to both builders), **A10** (a 2-engine *High*
-verdict is not provisional), **P1-3** (prewarm dedupe), **P1-4** (`isFolding` reset), the rest of
-**P2** (non-zero harness exit codes, JSX-text and `server/` coverage in the label guard), and **P3**
-(R5's information-loss regressions and the measured contrast failures). One item from §4.1 also
-remains: the server and the client still compute the verdict with different *context* (the server has
-no residue features and defaults pLDDT to 100), which is a smaller divergence than the engine-set one
-just fixed but is the same class.
+**Still open from the review** — see §11.9.
+
+### 11.9 Second fix pass
+
+| Item | Fix | Test |
+|---|---|---|
+| **A10** provisional hole | The badge tested `includes("High")` **before** `coverage.insufficient`, so a two-engine "High Misfolding Risk (Destabilizing Consensus)" — reachable, since only a single engine is remapped to the `*Single` verdicts — rendered as solid danger. Provisional now wins over the verdict text. | `EnergeticsView.test.tsx` asserts the dashed style. |
+| **A5** cooldown lost on reload | The retry cooldown was written through `setCachedVariant`, whose persistence filter refuses failed/preliminary bundles — exactly the state that triggers a retry — so it reached memory only and pressing F5 re-dispatched the whole run. A `persistAttemptTimestamp` option writes **only** the cooldown metadata (plus the `timestamp` the loader requires, without which the record is discarded on read). | New `src/services/pipeline/__tests__/variantCache.test.ts` — the guarantee R3 found unasserted. |
+| **A7** surfaces fed different facts | `EnergeticsInspector` never received `foldingDdG`, so on a bundle where it is set but `energetics.foldx` is absent, the table showed a value and telemetry showed "No result" for one run. It now takes the same fallback. | (see note) |
+| **R5 F3** pLDDT card suppressed | The low-confidence card sat **inside** `diagnostics.length > 0`, so on a run where every engine returned a value — the good case — a low-pLDDT template produced an empty array and the warning vanished. The more complete the run, the less the panel said about its reliability. It is now outside that gate. | (see note) |
+| **R5 F4/F5** FoldX notices | The generic state reasons said nothing actionable for a missing binary, and the repair-failed caveat was unreachable whenever a value existed (the value took the `computed` branch, whose reason is empty). Both now have their own copy. | `engineStatus.test.ts` |
+| **P1-3** backfill rejection | The background dispatch was a floating promise with no watchdog and no `.catch`, so a rejection left the spinner up with no deadline and no message. | (see note) |
+| **P2** guard coverage | `SplicingTab.tsx` was added to `GUARDED_SURFACES` — which immediately surfaced **two more** `"N/A"` literals it had been hiding, now `"—"`. The guard also strips comments before scanning, after it flagged its own documentation for the fourth time. | `energeticsLabels.guard.test.ts` |
+
+**Still open, and why** — none of these are silent data loss; each is either cosmetic, needs a shared
+file another contributor is editing, or is a genuine refactor:
+
+* **A6** (`settleUnreachableRemoteEngines` reads a ~1.5 s stale snapshot and can mark an engine
+  `unavailable` while its remote job is in flight). The correct fix is a *submission-settled* marker
+  flowing from `generation.ts` through the poll response, so the client can distinguish "never
+  attempted" from "id not yet known". That is a wire change and was not worth half-doing.
+* **hidePending** (A7's other half): `hidePendingEngines` is view-local `useState`, so sharing it with
+  the inspector means lifting it to a store or context. Cosmetic divergence ("Running" vs "Skipped by
+  User"), presentation-only by construction.
+* **P1-3** prewarm dedupe (two concurrent FoldX jobs for one variant) and **P1-4** (`isFolding` stuck
+  after an abort, because `abortAllPendingRequests` bumps the request id so the run's `finally` treats
+  itself as superseded). Both need plumbing through hook interfaces.
+* **R5 F7/F8/F9** contrast (warning badge 2.86:1, gauge trough 1.05:1 light, muted dot 1.24:1, band
+  1.51:1, 9px dark text 3.97:1). These are token values in `src/styles/variables.css`, which another
+  contributor has uncommitted changes in — editing it would sweep their work into my commit. Deferred
+  deliberately rather than risk that.
+* **§4.1** server/client verdict *context* divergence (no residue features server-side; pLDDT
+  defaulted to 100). Same class as P0-5, smaller blast radius.
 
 ---
 

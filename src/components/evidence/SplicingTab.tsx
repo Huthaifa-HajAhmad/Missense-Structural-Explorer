@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { THRESHOLDS } from "../../shared/thresholds";
-import { buildEngineOutcomes } from "../../shared/engineStatus";
+import { buildEngineOutcomes, ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { deriveSplicingEvidence, LOADING_BADGE } from "../../shared/splicingEvidence.ts";
 
 /**
@@ -339,7 +339,7 @@ function SplicingTabComponent({
             <div className="text-[20px] font-semibold font-mono tracking-tight text-cs-text-primary mt-1.5">
               {splicingAttribution !== null
                 ? `${(splicingAttribution * 100).toFixed(1)}%` /* SHAP values are signed */
-                : "N/A"}
+                : "—"}
             </div>
           </div>
           <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${
@@ -348,7 +348,10 @@ function SplicingTabComponent({
             {isSplicingDominant
               ? "Primary Driver"
               : !hasAlphaGenome
-              ? "Standby / Unconfigured"
+              ? // Rendered from the canonical contract rather than a hand-written literal. "Standby /
+                // Unconfigured" implied the app was waiting for something it would receive; the truth
+                // is that this engine has no data source in this deployment.
+                ENGINE_STATE_LABELS["not-installed"]
               : "No Splicing Attribution"}
           </span>
         </div>
@@ -449,7 +452,7 @@ function SplicingTabComponent({
               <div className="flex justify-between">
                 <span>AlphaGenome Splicing SHAP:</span>
                 <span className="font-semibold text-cs-text-primary">
-                  {splicingAttribution !== null ? `${(splicingAttribution * 100).toFixed(1)}%` : "N/A"}
+                  {splicingAttribution !== null ? `${(splicingAttribution * 100).toFixed(1)}%` : "—"}
                 </span>
               </div>
             </div>
