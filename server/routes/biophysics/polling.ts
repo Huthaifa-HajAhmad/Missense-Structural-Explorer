@@ -22,7 +22,9 @@ import {
   enrichBiophysicalResult,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
-import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
+// NOTE: the consensus is deliberately NOT computed in this file. Its one authoritative computation
+// is `enrichBiophysicalResult`, which sees all six engines; recomputing it per remote-engine poll
+// from a five-engine subset produced a verdict that disagreed with the one on screen.
 import { recordJobInRegistry, getRegistryPath, type RegistryJob } from "../shared.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 
@@ -378,18 +380,22 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         }
       }
 
-      const calResult = result.status === "DONE" && result.prediction !== null
-        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2: result.prediction, ddmut, rasp, stabilityoracle, foldxRepairFailed })
-        : null;
-
+      // No consensus here.
+      //
+      // The verdict is a property of the WHOLE run, not of "the DynaMut2 job finished", and its one
+      // authoritative computation is `enrichBiophysicalResult`, which sees all six engines. This
+      // route used to recompute it from FIVE — no ThermoMPNN, no foldxBinaryMissing — and send that
+      // over the top, so the persisted/exported verdict could disagree with the one on screen
+      // (measured: "Insufficient Biophysical Data" exported for a run the tab called "Elevated
+      // Misfolding Risk (Single-Tool Estimate)").
+      //
+      // Consumers already prefer their own value: the client merges with
+      // `data.consensusVerdict ?? prev?.consensusVerdict` and maintains `pendingTools` itself, so
+      // omitting these fields leaves the run's real verdict in place.
       res.json({
         jobId,
         status: result.status,
-        prediction: result.prediction,
-        consensusVerdict: calResult ? calResult.consensusVerdict : null,
-        consensusProbability: calResult ? calResult.consensusProbability : null,
-        consensusConfMin: calResult ? calResult.consensusConfMin : null,
-        consensusConfMax: calResult ? calResult.consensusConfMax : null
+        prediction: result.prediction
       });
     } catch (err: any) {
       console.warn(`[Route Warning] DynaMut2 job polling failed for ${jobId}:`, err.message);
@@ -437,18 +443,11 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         }
       }
 
-      const calResult = result.status === "DONE" && result.prediction !== null
-        ? computeCalibratedConsensus({ foldxMean: foldx, dynamut2, ddmut: result.prediction, rasp, stabilityoracle, foldxRepairFailed })
-        : null;
-
+      // No consensus here either — same reasoning as the DynaMut2 route above.
       res.json({
         jobId,
         status: result.status,
-        prediction: result.prediction,
-        consensusVerdict: calResult ? calResult.consensusVerdict : null,
-        consensusProbability: calResult ? calResult.consensusProbability : null,
-        consensusConfMin: calResult ? calResult.consensusConfMin : null,
-        consensusConfMax: calResult ? calResult.consensusConfMax : null
+        prediction: result.prediction
       });
     } catch (err: any) {
       console.warn(`[Route Warning] DDMut job polling failed for ${jobId}:`, err.message);

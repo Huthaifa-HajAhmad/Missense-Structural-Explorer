@@ -105,7 +105,14 @@ export interface CalibratedConsensusResult {
   consensusProbability: number | null;
   consensusConfMin: number | null;
   consensusConfMax: number | null;
-  consensusVerdict: string;
+  /**
+   * The verdict, typed as the closed set below rather than `string`.
+   *
+   * This is what makes the original defect a *compile* error rather than a silent dead branch: with
+   * the union, `verdict === "destabilizing"` is rejected by TypeScript (TS2367, no overlap), which no
+   * regex-based guard can guarantee.
+   */
+  consensusVerdict: ConsensusVerdict;
 }
 
 /**
@@ -114,7 +121,7 @@ export interface CalibratedConsensusResult {
  * Exported so the verdict is a *closed set* rather than free text. Surfaces used to compare it
  * against literals they had invented — `SplicingTab` tested `consensusVerdict === "destabilizing"`,
  * which the function can never produce, so that branch was dead and a variant whose only evidence
- * was a destabilizing prediction was reported "Thermodynamically Tolerated". A guard test now
+ * was a destabilizing prediction was reported "Thermodynamically Tolerated". A guard test also
  * rejects any literal that is not a fragment of a real verdict.
  */
 export const CONSENSUS_VERDICTS = {
@@ -125,6 +132,9 @@ export const CONSENSUS_VERDICTS = {
   elevatedSingle: "Elevated Misfolding Risk (Single-Tool Estimate)",
   lowSingle: "Low Misfolding Risk (Single-Tool Estimate)"
 } as const;
+
+/** The closed set of verdicts, as a type. */
+export type ConsensusVerdict = (typeof CONSENSUS_VERDICTS)[keyof typeof CONSENSUS_VERDICTS];
 
 /** All verdict strings, for exhaustive iteration in tests and guards. */
 export const CONSENSUS_VERDICT_VALUES: readonly string[] = Object.values(CONSENSUS_VERDICTS);
@@ -237,7 +247,7 @@ export function computeCalibratedConsensus(
   const consensusConfMax = weightedUpperSum / totalWeight;
 
   // Probability-based consensus threshold mapping
-  let consensusVerdict: string = CONSENSUS_VERDICTS.lowNeutral;
+  let consensusVerdict: ConsensusVerdict = CONSENSUS_VERDICTS.lowNeutral;
   if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
     consensusVerdict = CONSENSUS_VERDICTS.high;
   } else if (consensusProbability >= THRESHOLDS.biophysicalConsensus.moderateRiskProbability) {
@@ -280,6 +290,6 @@ export function computeConsensusVerdict(
   uniprotFeatures?: any[],
   residueIndex?: number,
   plddt?: number | null
-): string {
+): ConsensusVerdict {
   return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex, plddt).consensusVerdict;
 }

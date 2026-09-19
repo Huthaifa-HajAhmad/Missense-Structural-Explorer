@@ -41,7 +41,7 @@ import {
 } from "../../services/external.ts";
 import { resolveStructure, type ResolvedStructure } from "../../services/structure-resolver.ts";
 import { type FoldXResult } from "../state.ts";
-import { computeConsensusVerdict, computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
+// (the consensus is computed once, in `enrichBiophysicalResult`, and is no longer recomputed here)
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
 import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
 

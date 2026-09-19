@@ -681,10 +681,17 @@ export function enrichBiophysicalResult(
     foldxRepairFailed,
     foldxBinaryMissing
   });
-  const rawConsensusVerdict = calResult.consensusVerdict;
-  const consensusVerdict = (!evidenceComplete && rawConsensusVerdict)
-    ? `${rawConsensusVerdict} (Preliminary - pending: ${pendingTools.join(", ")})`
-    : rawConsensusVerdict;
+  /**
+   * The verdict is a **closed-set** value; provisionality is a separate typed fact.
+   *
+   * This used to concatenate the caveat into the string —
+   * `"… (Preliminary - pending: DynaMut2)"` — which made the field free text: no consumer could
+   * compare it against a verdict, nothing could type-check it, and the same run's verdict differed
+   * textually between the exported payload and the screen. `evidenceComplete` and `pendingTools`
+   * (emitted below) already carry the caveat, and the client maintains `pendingTools` itself as each
+   * engine resolves.
+   */
+  const consensusVerdict = calResult.consensusVerdict;
 
   return {
     pdb: finalPdb,

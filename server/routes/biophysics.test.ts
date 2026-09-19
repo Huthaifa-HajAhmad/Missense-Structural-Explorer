@@ -609,7 +609,10 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
       expect(jsonVal).toBeDefined();
       expect(jsonVal.dynamut2Status).toBe("pending");
       expect(jsonVal.energetics.pendingTools).toContain("DynaMut2");
-      expect(jsonVal.energetics.consensusVerdict).toContain("Preliminary - pending");
+      // Provisionality is a typed fact now, not a suffix concatenated onto the verdict. The verdict
+      // itself stays a closed-set value, so no consumer has to parse it.
+      expect(jsonVal.energetics.evidenceComplete).toBe(false);
+      expect(jsonVal.energetics.consensusVerdict).not.toContain("Preliminary");
 
       d2Spy.mockRestore();
       ddmutSpy.mockRestore();

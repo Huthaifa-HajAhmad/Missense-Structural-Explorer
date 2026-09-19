@@ -22,7 +22,6 @@ import { type RuleBasedInsights, type ACMGItem } from "../services/acmg.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../src/shared/aminoAcids.ts";
 import { AuditLogger } from "../utils.ts";
 import { GeminiError, getConfiguredGeminiModels } from "../services/gemini.ts";
-import { computeCalibratedConsensus } from "../../src/shared/thresholds.ts";
 import { narrativeCache } from "../services/cache.ts";
 
 // ---------------------------------------------------------------------------

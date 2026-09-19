@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import {
   CONSENSUS_VERDICT_VALUES,
+  computeConsensusVerdict,
   isConsensusVerdictFragment,
 } from "../thresholds/consensus.ts";
 
@@ -98,6 +99,17 @@ describe("consensus verdict is a closed set", () => {
     expect(isConsensusVerdictFragment("destabilised")).toBe(false);
     expect(isConsensusVerdictFragment("Tolerated")).toBe(false);
     expect(isConsensusVerdictFragment("")).toBe(false);
+  });
+
+  it("makes the impossible comparison a COMPILE error, not just a scanning concern", () => {
+    // The durable fix: the verdict is a literal union, so TypeScript rejects a comparison against a
+    // string the consensus cannot return (TS2367, no overlap). A regex guard can be walked past by a
+    // rename or a `switch`; the type cannot.
+    const verdict = computeConsensusVerdict({ foldx: 2.0 });
+    // @ts-expect-error — "destabilizing" is not a member of the verdict union. If the union ever
+    // widens back to `string`, this directive becomes unused and `tsc --noEmit` fails.
+    const impossible = verdict === "destabilizing";
+    expect(impossible).toBe(false);
   });
 
   it("still accepts the capitalised fragment that a verdict really contains", () => {

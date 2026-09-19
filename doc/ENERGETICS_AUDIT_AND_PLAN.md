@@ -1367,16 +1367,22 @@ empty.
 | **A4** live poller read as finished | Activity for the three remote engines is derived from a surviving `pending` (which by the settle rule implies a live poller) rather than from `isFolding`, which clears when the *FoldX* leg ends. | `engineStatus.test.ts` + `EnergeticsView.test.tsx` (live pending ⇒ Running; done-with-no-value ⇒ still No result). |
 | **A12 / P1-2** `/capabilities` | The route resolves the index through `RASP_SQLITE_PATH` (it previously joined `process.cwd()` itself, so it described a different file than the loader — the developer's real index under test) and no longer re-counts 8.3 M rows per call: the **loader** verifies once, expensively, and the route reports the index's own record plus an `indexCountsVerified` flag so a recorded figure is never presented as a checked one. | Caught by an existing test: the count took **> 5 s** cold and timed out `public-endpoints.test.ts`. |
 | **R3 F1/F2** tautological tests | The provisional claim is now asserted on the badge's `border-dashed` class (the words were satisfied by the verdict string itself), and the per-engine cut-point claim is scoped to RaSP's own row via `within(getByRole("row"))`. | both fail if the styling or the Risk column is removed. |
+| **P0-5** two verdicts | The two remote-engine poll routes no longer compute or return a consensus. They recomputed it from a **five-engine subset** (no ThermoMPNN, no `foldxBinaryMissing`) and returned it over the enriched payload, which the client merged into its cache — so the exported verdict could disagree with the one on screen. The single computation is `enrichBiophysicalResult`, where all six engines are visible; the three dead imports that suggested otherwise are gone. Provisionality moved out of the verdict string into the `evidenceComplete`/`pendingTools` fields it already had, so the wire value is a closed-set verdict rather than free text. | New `server/tests/consensus-single-source.test.ts` pins one computation site, requires all six engines plus both FoldX flags there, and forbids the free-text suffix. |
+
+The verdict is also now a **literal union type** (`ConsensusVerdict`), so an impossible comparison is a
+TypeScript error rather than something a regex must catch — proven by a `@ts-expect-error` probe that
+fails if the union ever widens back to `string`.
 
 **Still open from the review** — the next phases, in the order given in §11.6: **A5** (cooldown
 written through a path that survives the persistence filter), **A6** (settle reads a ~1.5 s stale
 snapshot), **A7** (pass `foldingDdG` and `hidePending` to both builders), **A8/A9** (RaSP durability:
 clear the negative cache after a rebuild, atomic replace without `rmSync`, do not latch on ENOENT,
-close on failure paths), **A10** (a 2-engine *High* verdict is not provisional), **P0-5** (the verdict
-is computed twice from different engine sets — the poller routes use five engines), **P1-3** (prewarm
+close on failure paths), **A10** (a 2-engine *High* verdict is not provisional), **P1-3** (prewarm
 dedupe), **P1-4** (`isFolding` reset), the rest of **P2** (atomicity and rejection tests, non-zero
-harness exit codes, the verdict union type), and **P3** (R5's information-loss regressions and the
-measured contrast failures).
+harness exit codes), and **P3** (R5's information-loss regressions and the measured contrast
+failures). One item from §4.1 also remains: the server and the client still compute the verdict with
+different *context* (the server has no residue features and defaults pLDDT to 100), which is a smaller
+divergence than the engine-set one just fixed but is the same class.
 
 ---
 
