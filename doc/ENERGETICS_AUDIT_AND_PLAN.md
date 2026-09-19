@@ -1756,3 +1756,45 @@ verification claim AFTER the evidence; every source-scanning guard needs a posit
 reviewer's counterexample; capture the whole expression and whitelist its shape; check the other direction
 when replacing a stored value with a derived one; a fixture must produce the scenario the test is named
 for; measure observability before repairing an inert test; verify your probe isolates the variable.
+
+---
+
+## §11.12 — The round-3 findings, closed
+
+Every finding from the third panel is now either fixed with a mutation check or recorded as deliberately
+open. Commits, newest last:
+
+| finding | commit | what was actually wrong |
+|---|---|---|
+| **F4 / R3-1** | `4b8cfbf` | The settle's own claim ("it reasons from what the store holds") held at **1 of 4** sites. The other three read this attempt's response, so a POST omitting a live job id looked like "pending with no id" and the settle cleared the status, tearing down the poller about to deliver the result. A third test now drives the terminal path; mutation-verified at both sites. |
+| **F15** | `b0c71ff` | The verdict-comparison gate had been narrowed twice until it certified the absence of the defect: **11 of 12** written forms went through at 0 violations across 232 files. The predicate is now form-independent (identifier + comparison token + literal, in any order), skips empty literals, and is scoped to the STATEMENT so a split operator and a `switch` body are covered. It carries a unit self-test (11 must-flag / 4 must-not) **and** six tree-level shapes are caught, including the `as string` cast. |
+| **F10 / F11** | `6e7e802` | F11: nothing tested that the component *calls* `buildExportVerdictContext`; the test now drives the real Provenance Manifest button and reads the Blob. F10: the equivalence test compared against a hand transcription; it now compares the screen against the export from one set of props. |
+| **F8 / F9 / F14** | `dbbf843` | Body-cell widths (only headers were pinned); the "cannot be handed a verdict" claim (a literal, now a type-level assertion the compiler enforces); the reload's own premise (`vi.resetModules` actually yielding a fresh instance). |
+| **F5 / R4** | `d4b4ad9` | The claim that the reload tests covered "both the reader and the purge allowlist" was false — the purge returns early when `typeof window === "undefined"` and that file runs under `environment: node`, so its body was unreachable. A separate jsdom file now reaches it, and **the mutation the review called inert is caught**. |
+| **F6 (rest)** | `72dff53` | The engine-set guard's three remaining holes: the call-site count was per-file against a hardcoded list, exact-string matched, and brace-matched against raw text. Now a whole-server walk, whitespace-tolerant, and matched against a string-blanked copy. Each verified with its counterfactual — for the third, reverting the blanking makes the same spread mutation invisible again. |
+| **F16 / R9** | `d705ab0` | The contrast assertion accepted a class list carrying the readable token *and* a low-contrast one (CSS order decides); it now requires exactly one. And the `missing` bucket's docstring said "returned nothing", which was untrue for a `skipped` engine. |
+| **F1, F2, F12, F13** | `15f1257`, `3ecb16c` | Recorded in §11.11. |
+
+### Deliberately open, with the reason
+
+- **F17** — two inspector assertions are one-sided negatives that would also pass against a component
+  rendering nothing. Positive assertions in the same tests save them, so this is style, not a gap.
+- **R8** — the restore path seeds the settle with the RAW cached status rather than the store's resolved
+  one, so a stale cached `pending` can be settled even when the restore resolved that engine to `done`.
+  No user-visible harm was found; tightening it changes settle semantics for a case nothing has
+  demonstrated, which is more risk than the defect carries.
+
+### What is NOT testable, measured rather than assumed
+
+Two findings turned out to be **unobservable**, which is a different thing from untested, and both were
+established by measurement:
+
+- **F2** — no fixture can prove which source `deriveConsensus` read for the residue index: 11 engine sets
+  × 3 pLDDT values × 14 indices leave the verdict and probability identical. The inert test was deleted
+  with the measurement recorded in the file.
+- **F10's specific worry** — a sourcing change on the screen side is invisible to the joint test, because
+  setting the features to `undefined`, the residue index to `0`, or pLDDT to `100` leaves the verdict
+  string unchanged. What the joint test DOES cover was measured: mutating the engine set fails four tests.
+
+Also inherent: a comparison through a renamed local is undetectable by any source scan, and a template
+literal nested inside another would defeat the string-blanking regex.
