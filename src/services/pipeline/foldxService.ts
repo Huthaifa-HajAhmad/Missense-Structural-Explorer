@@ -251,7 +251,13 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         applyEnergetics(data.energetics, data.provenance);
       }
       // The run is over: nobody will resolve an engine that is still pending without an id.
-      settleUnreachableRemoteEngines(data);
+      //
+      // Settled from the MERGED view rather than from this response. `data` alone cannot see an id the
+      // store already holds, so a response that omits one — the ordinary submission race — would look
+      // like an engine with no id, and the settle would clear its status and tear down the live poller
+      // that was about to deliver the result. That is the defect this whole change exists to remove, and
+      // this was one of the three sites still feeding the settle a narrower view than the store's.
+      settleUnreachableRemoteEngines(lastRemoteState);
       setCachedVariant(cacheGeneKey, variant, uniprotId, {
         mutantPdb: data.pdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
@@ -404,11 +410,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               // unreachable; one WITH an id is left to its live poller.
               settleUnreachableRemoteEngines({
                 dynamut2Status: d2Status,
-                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
+                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
                 ddmutStatus: ddmStatus,
-                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
+                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
                 thermompnnStatus: tmStatus,
-                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null
+                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null
               });
 
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
@@ -433,11 +439,11 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               // The job failed, so nothing will resolve a still-pending remote engine.
               settleUnreachableRemoteEngines({
                 dynamut2Status: pollData.dynamut2Status ?? data.dynamut2Status ?? null,
-                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? null,
+                dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
                 ddmutStatus: pollData.ddmutStatus ?? data.ddmutStatus ?? null,
-                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? null,
+                ddmutJobId: pollData.ddmutJobId ?? data.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
                 thermompnnStatus: pollData.thermompnnStatus ?? data.thermompnnStatus ?? null,
-                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? null
+                thermompnnJobId: pollData.thermompnnJobId ?? data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null
               });
             }
           }

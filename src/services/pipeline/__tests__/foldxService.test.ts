@@ -384,6 +384,56 @@ describe("foldxService", () => {
     expect(sink.setDdmutStatus).toHaveBeenCalledWith(null);
   });
 
+  it("does not settle an engine whose live job id the store already holds, on the TERMINAL path", async () => {
+    /**
+     * F4/R3-1, and the half of the settle fix that was still missing.
+     *
+     * Three of the four settle sites were fed this attempt's response rather than the merged view, so a
+     * POST that omits an id the store is polling read as "pending with no id" — and the settle cleared
+     * the status, tearing down the `useJobPoller` that was about to deliver the result. The CATCH path
+     * was already correct, which is exactly why the earlier tests could not see this: they drove the
+     * catch, the least important of the four.
+     */
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM MUT ...",
+        ddG: 1.5,
+        energetics: { foldx: 1.5 },
+        // The store holds both engines as pending with live ids; this response omits the ids, which is
+        // the ordinary submission race.
+        dynamut2Status: "pending",
+        ddmutStatus: "pending",
+      }),
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      initialRemoteState: {
+        dynamut2Status: "pending",
+        dynamut2JobId: "dyn-live-9",
+        ddmutStatus: "pending",
+        ddmutJobId: "ddm-live-9",
+      },
+    });
+
+    expect(
+      sink.setDynamut2Status,
+      "the settle cleared a status whose live poller it was about to discard the result of"
+    ).not.toHaveBeenCalledWith(null);
+    expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
+  });
+
   it("does not let a response that omits a job id erase one the variant already had", async () => {
     /**
      * R3-2. The persisted bundle is what the restore path seeds `initialRemoteState` from, so a cache
