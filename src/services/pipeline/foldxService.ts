@@ -6,6 +6,7 @@ import {
   CLIENT_FOLDX_QUEUE_BUDGET_MS,
   CLIENT_FOLDX_SUBMIT_BUDGET_MS,
 } from "../../shared/timeouts";
+import { readJsonWithTimeout } from "../../shared/httpBody";
 import { toFoldxMutation } from "./notationService";
 import { PipelineBiophysicalSink } from "./types";
 import { setCachedVariant } from "./variantCache";
@@ -75,7 +76,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     if (signal.aborted || getActiveRequestId() !== requestId) return;
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
+      const errData = await readJsonWithTimeout(res, CLIENT_FOLDX_POLL_REQUEST_MS).catch(() => ({}));
       const serverErr = errData.error;
       const errorMsg = typeof serverErr === "object" && serverErr !== null
         ? (serverErr.message || serverErr.code || JSON.stringify(serverErr))
@@ -83,7 +84,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       throw new Error(errorMsg);
     }
 
-    const raw = await res.json();
+    const raw = await readJsonWithTimeout(res, CLIENT_FOLDX_SUBMIT_BUDGET_MS);
     const parsed = generateMutantResponseSchema.safeParse(raw);
     type GenerateMutantData = ReturnType<typeof generateMutantResponseSchema.parse>;
     const data: GenerateMutantData = parsed.success ? parsed.data : (raw as GenerateMutantData);
@@ -258,7 +259,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         if (!pollRes.ok) {
           consecutiveErrors++;
           if (consecutiveErrors >= 3) {
-            const pollErrData = await pollRes.json().catch(() => ({}));
+            const pollErrData = await readJsonWithTimeout(pollRes, CLIENT_FOLDX_POLL_REQUEST_MS).catch(() => ({}));
             throw new Error(pollErrData.error || `Polling failed with status ${pollRes.status}`);
           }
           console.warn(`[FoldxService] Polling HTTP ${pollRes.status} (${consecutiveErrors}/3), retrying...`);
@@ -266,7 +267,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         }
 
         consecutiveErrors = 0;
-        const pollData = await pollRes.json();
+        const pollData = await readJsonWithTimeout(pollRes, CLIENT_FOLDX_POLL_REQUEST_MS);
 
         // The job has left the queue: from here the execution budget applies, not the queue budget.
         if (pollData.status === "running" && executionStart === null) {

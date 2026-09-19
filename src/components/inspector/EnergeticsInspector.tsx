@@ -121,7 +121,19 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
     ]
   );
 
-  const diagnostics = useMemo(() => outcomes.filter(o => NEEDS_ATTENTION.has(o.state)), [outcomes]);
+  /**
+   * Rows that need a reason rendered: the ones with something missing, PLUS the ones whose value is
+   * deliberately not counted.
+   *
+   * The second group was absent, so an excluded FoldX value — shown with a value, a green dot and
+   * the label "Computed" — never had its exclusion reason rendered anywhere on this panel, while the
+   * main column said "Not counted". The two surfaces contradicted each other about whether the same
+   * number counted.
+   */
+  const diagnostics = useMemo(
+    () => outcomes.filter(o => NEEDS_ATTENTION.has(o.state) || o.excluded),
+    [outcomes]
+  );
 
   const provenanceRows = useMemo(() => {
     const prov = energetics?.structureProvenance;
@@ -173,12 +185,14 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                 <span
                   aria-hidden="true"
                   className={`w-2 h-2 rounded-full shrink-0 ${outcome.state === "running" ? "animate-ping" : ""}`}
-                  style={{ background: TONE_DOT[outcome.tone] }}
+                  style={{ background: TONE_DOT[outcome.excluded ? "muted" : outcome.tone] }}
                 />
                 <span className="font-semibold text-cs-text-primary truncate">{outcome.engine.name}</span>
               </div>
               <div className="flex flex-col items-end text-right min-w-0">
-                <span className="font-mono text-[10px] text-cs-text-secondary">{outcome.label}</span>
+                <span className="font-mono text-[10px] text-cs-text-secondary">
+                  {outcome.excluded ? "Not counted" : outcome.label}
+                </span>
                 {outcome.canonicalDdg !== null && (
                   <span className="font-mono text-[10px] text-cs-text-muted">
                     {formatDdg(outcome.canonicalDdg, energyUnit)}
@@ -227,7 +241,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                     <Info className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-warning)" }} />
                   )}
                   <span className="text-cs-text-primary">
-                    {outcome.engine.name} — {outcome.label}
+                    {outcome.engine.name} — {outcome.excluded ? "Not counted" : outcome.label}
                   </span>
                 </div>
                 <p className="text-[10px] leading-relaxed text-cs-text-secondary">{outcome.reason}</p>

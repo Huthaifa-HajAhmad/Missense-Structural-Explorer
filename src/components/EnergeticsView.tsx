@@ -727,9 +727,16 @@ const EnergeticsView = memo(function EnergeticsView({
                         {detailText}
                       </p>
                     </div>
-                  ) : (
+                  ) : coverage.computed === 0 ? (
                     <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
                       No engine has returned a value yet.
+                    </p>
+                  ) : (
+                    // A value exists but none could be counted — the case of a single excluded FoldX
+                    // value. Saying "no engine has returned a value yet" here contradicted the row
+                    // 40px above, which shows the number with a "Not counted" badge.
+                    <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
+                      No returned value could be counted toward a consensus.
                     </p>
                   )}
                 </div>

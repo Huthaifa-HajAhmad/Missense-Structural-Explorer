@@ -454,6 +454,17 @@ export interface EngineOutcome {
   risk: RiskBand | null;
   /** Whether this engine contributed a value to the consensus. */
   contributesToConsensus: boolean;
+  /**
+   * True when a value is shown but deliberately not counted.
+   *
+   * Exposed explicitly rather than left for each renderer to infer from
+   * `state === "computed" && !contributesToConsensus`. The inference is easy to miss — the
+   * inspector missed it, and rendered an excluded FoldX value as "Computed" with a green dot while
+   * the view beside it said "Not counted", i.e. the two surfaces certified and discarded the same
+   * number at once. A contract that makes the fact available cannot stop a renderer ignoring it, but
+   * a renderer that has to opt IN to ignoring it is a different proposition from one that never knew.
+   */
+  excluded: boolean;
   /** Whether the user has hidden this row's pending state. */
   hidden: boolean;
 }
@@ -625,6 +636,7 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
      */
     risk: canonicalDdg === null || excluded ? null : classifyCanonicalDdg(obs.id, canonicalDdg),
     contributesToConsensus: canonicalDdg !== null && !excluded,
+    excluded,
     hidden,
   };
 }
