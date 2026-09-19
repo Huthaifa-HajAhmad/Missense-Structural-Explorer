@@ -121,6 +121,42 @@ function backoffDelay(attempt: number, initialDelay: number, backoffFactor: numb
   return Math.round(initialDelay * Math.pow(backoffFactor, attempt - 1) * jitter);
 }
 
+/**
+ * True when a retryable response's body proves a configuration error (`API_KEY_MISSING`).
+ *
+ * BOUNDED by the caller's remaining deadline when there is one. This read runs after the attempt
+ * timer has been cleared, so unbounded it let a server that sent headers and then stalled the body
+ * hold the call past `deadlineAt` — at which point the caller's watchdog replaced the response we
+ * already had with a bare timeout, losing the message the whole fix exists to preserve.
+ * A body that cannot be read in time is not a configuration error: the caller retries.
+ */
+async function isUnrecoverableConfigError(
+  response: Response,
+  budgetMs: number | null
+): Promise<boolean> {
+  const read = response
+    .clone()
+    .text()
+    .catch(() => "");
+
+  if (budgetMs === null) {
+    const text = await read;
+    return text.includes("API_KEY_MISSING") || text.includes("isConfigError");
+  }
+  if (budgetMs <= 0) return false;
+
+  let timer: any = null;
+  const expired = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve(""), budgetMs);
+  });
+  try {
+    const text = await Promise.race([read, expired]);
+    return text.includes("API_KEY_MISSING") || text.includes("isConfigError");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function fetchWithRetry(
   url: string,
   options: FetchRetryOptions = {},
@@ -203,22 +239,15 @@ export async function fetchWithRetry(
 
       const shouldRetryStatus = [502, 503, 504, 429].includes(response.status) || response.status >= 500;
       if (shouldRetryStatus && attempt < maxRetries) {
-        // Fast-path: Check response body for unrecoverable auth/config errors
-        try {
-          const clone = response.clone();
-          const text = await clone.text();
-          if (text.includes("API_KEY_MISSING") || text.includes("isConfigError")) {
-            return response; // Bypass retry for missing/invalid credentials
-          }
-        } catch {
-          // Ignore body read error
+        // Fast-path: a body that proves a configuration error bypasses retry entirely.
+        if (await isUnrecoverableConfigError(response, remainingBudgetMs())) {
+          return response;
         }
 
         const retryAfterMs = parseRetryAfterMs(response.headers?.get?.("Retry-After"));
 
         // Rule 1: an advertised cooldown longer than a request can wait is not waited out.
         if (retryAfterMs !== null && retryAfterMs > MAX_IN_REQUEST_RETRY_AFTER_MS) {
-          detachForwarding();
           console.warn(
             `[Client Retry] ${url} answered ${response.status} with Retry-After ${retryAfterMs}ms, ` +
               `longer than a single request can wait (limit ${MAX_IN_REQUEST_RETRY_AFTER_MS}ms) — ` +
@@ -232,7 +261,9 @@ export async function fetchWithRetry(
           retryAfterMs !== null ? retryAfterMs : backoffDelay(attempt, initialDelay, backoffFactor);
 
         if (!canAffordAttempt(delay)) {
-          detachForwarding();
+          // Returning the response, so the forwarding listener STAYS attached: a later caller
+          // abort must still cancel this body read (detaching here reopened the header-then-stall
+          // hole the body-bound watchdog exists to close).
           console.warn(
             `[Client Retry] Skipping retry of ${url} (status ${response.status}): a ${delay}ms delay ` +
               "leaves no meaningful attempt inside the caller's deadline — returning the response instead."

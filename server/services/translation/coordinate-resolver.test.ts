@@ -249,6 +249,25 @@ describe("coordinate-resolver provider ladder", () => {
     expect(error.attempts.every((a: any) => !String(a.reason).startsWith("skipped"))).toBe(true);
   });
 
+  it("records WHY a rung was never tried when the budget is already spent", async () => {
+    // A budget this small leaves no window for any rung. The trail must SAY so rather than being
+    // empty: an empty trail made `classifyTotalFailure` report an outage that named neither a
+    // provider nor an attempt, which is precisely how the earlier "all providers unreachable"
+    // message came to be printed for a problem that was our own arithmetic.
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(hangingFetch);
+
+    const error: any = await resolveCoordinate(NOTATION, "GRCh38", undefined, { budgetMs: 1 }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(CoordinateResolutionError);
+    expect(error.attempts.length).toBeGreaterThan(0);
+    // Which budget-related reason appears depends on where the 1ms lands (window skipped, tried and
+    // capped, or already spent) — the INVARIANT is that no rung is dropped silently and every
+    // reason names the budget rather than blaming a provider.
+    for (const attempt of error.attempts) {
+      expect(String(attempt.reason)).toMatch(/budget/);
+    }
+  });
+
   /**
    * The budget must be able to fit one full attempt at EVERY rung's own tolerance, or a rung is
    * killed by arithmetic rather than by the provider being slow. A review found the previous

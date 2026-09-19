@@ -134,6 +134,16 @@ export async function withHostLock<T>(
 export interface FetchWithRetryOptions extends RequestInit {
   timeout?: number;
   probe?: boolean;
+  /**
+   * True when `timeout` is the CALLER's cap (e.g. the resolution ladder's share of its budget)
+   * rather than this caller's configured tolerance for the provider.
+   *
+   * Such a timeout is not evidence about the provider's health, so it is exempt from the
+   * per-host breaker — the same reasoning as `probe`, for the same failure mode: otherwise our
+   * own scheduling ejects a healthy provider and pushes traffic to the fallback tier.
+   * Provider-specific timeouts and transport errors still count.
+   */
+  cappedByCaller?: boolean;
 }
 
 export async function fetchWithRetry(url: string, options: FetchWithRetryOptions = {}, retries = 3, delay = 1000): Promise<Response> {
@@ -228,7 +238,14 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
           throw err;
         }
         if (i === retries - 1) {
-          if (!probe) breaker.recordFailure();
+          // A timeout WE imposed — the caller capped this attempt below the provider's configured
+          // tolerance (see ResolutionProviderOptions.cappedByCaller) — is our scheduling, not a
+          // verdict on the provider. Booking it ejected a slow-but-healthy provider for the whole
+          // cooldown. Transport errors and the provider's own timeout still count.
+          const imposedByCaller =
+            options.cappedByCaller === true &&
+            (err?.name === "TimeoutError" || /timed out/i.test(String(err?.message ?? "")));
+          if (!probe && !imposedByCaller) breaker.recordFailure();
           err.statusCode = lastStatus;
           throw err;
         }

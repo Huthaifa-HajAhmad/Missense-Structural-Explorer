@@ -262,9 +262,11 @@ export async function fetchVariantValidatorConsequence(
       {
         headers: { Accept: "application/json" },
         // Capped by the ladder's window, so this provider's tolerance can never outlive the
-        // time it was actually granted.
+        // time it was actually granted — and a cap the ladder imposed is exempt from the shared
+        // breaker, because it says nothing about this provider's health.
         timeout: options?.timeoutMs ?? VARIANT_VALIDATOR_TIMEOUT_MS,
         signal,
+        ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
       },
       VARIANT_VALIDATOR_ATTEMPTS,
       VARIANT_VALIDATOR_RETRY_DELAY_MS

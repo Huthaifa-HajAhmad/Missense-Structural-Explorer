@@ -206,6 +206,7 @@ export async function fetchEnsemblVepConsequence(
       headers: { Accept: "application/json" },
       timeout: options?.timeoutMs ?? ENSEMBL_VEP_TIMEOUT_MS,
       signal,
+      ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
     });
   } catch (err: any) {
     // A caller-initiated abort must propagate untouched so the HTTP layer can answer 504.
@@ -436,7 +437,12 @@ export async function resolveCoordinate(
   const budgetMs = options?.budgetMs ?? DEFAULT_RESOLUTION_BUDGET_MS;
 
   // Enforce a single wall-clock deadline across every provider.
+  //
+  // ONE clock for both the deadline and the per-provider windows: the windows are computed from
+  // `ladderStartedAt`, so measuring them from a later instant (after the L2 read) made them
+  // overstate the budget and let the hard deadline cut a provider mid-answer.
   const deadline = new AbortController();
+  const ladderStartedAt = Date.now();
   const timer = setTimeout(
     () => deadline.abort(new Error(`Coordinate resolution exceeded its ${budgetMs}ms budget`)),
     budgetMs
@@ -464,9 +470,6 @@ export async function resolveCoordinate(
       fetcher: async () => {
         fetchedFresh = true;
         const attempts: ProviderAttempt[] = [];
-        // Started AFTER the cache lookup: a slow L2 read must not consume the ladder's budget
-        // and leave the loop with nothing to try.
-        const ladderStartedAt = Date.now();
         // Kept so a fully protein-free outcome can still explain itself.
         let informative: ResolvedConsequence | null = null;
         let informativeProvider: TranslationProvider | null = null;
@@ -475,7 +478,19 @@ export async function resolveCoordinate(
           const { provider, timeoutMs, resolve } = PROVIDER_CHAIN[i];
           // A caller-initiated abort propagates untouched so the HTTP layer can answer 504.
           if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
-          if (deadline.signal.aborted) break; // budget exhausted; stop trying providers
+          if (deadline.signal.aborted) {
+            // The budget ran out before this rung was tried. Recorded rather than silently
+            // dropped: without it the trail was empty and `classifyTotalFailure` reported an
+            // outage that named no provider and no attempt.
+            attempts.push({
+              provider,
+              ok: false,
+              durationMs: 0,
+              reason: `resolution budget of ${budgetMs}ms exhausted before this provider was tried`,
+              failureKind: "upstream_unavailable",
+            });
+            break;
+          }
 
           // ── Fair share of the remaining budget ──────────────────────────────────────
           // Handing the primary the WHOLE budget let a slow Ensembl VEP (whose own retry
@@ -521,8 +536,14 @@ export async function resolveCoordinate(
             // The provider's own attempt timeout is CAPPED by the window, so its tolerance can
             // never exceed the time the ladder actually granted it: the provider reports a
             // clean timeout instead of being killed by our timer and then called "unreachable".
+            //
+            // `cappedByCaller` records WHEN that cap bound, so a timeout we imposed cannot be
+            // booked against the provider's health: five capped attempts used to open the shared
+            // per-host breaker for ~60s and push every later request onto the fallback tier.
+            const effectiveTimeoutMs = Math.min(timeoutMs, windowMs);
             const { consequence, attempt } = await resolve(notation, assembly, providerSignal, {
-              timeoutMs: Math.min(timeoutMs, windowMs),
+              timeoutMs: effectiveTimeoutMs,
+              cappedByCaller: effectiveTimeoutMs < timeoutMs,
             });
             clearTimeout(windowTimer);
 

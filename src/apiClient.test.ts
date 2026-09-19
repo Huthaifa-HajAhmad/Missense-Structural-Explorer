@@ -232,9 +232,41 @@ describe("useApiClient Domain Methods & Delegation", () => {
     const { result } = renderHook(() => useApiClient(), { wrapper });
     const res = await result.current.fetchWithAuth("/api/v1/stall", { timeout: 120 });
 
-    // Headers were fine; the watchdog must still fire during the body read.
+    // Headers were fine; the stall bound must still fire during the body read.
     expect(res.ok).toBe(true);
-    await expect(res.text()).rejects.toThrow(/timed out|abort/i);
+    await expect(res.text()).rejects.toThrow(/stalled|timed out|abort/i);
+  });
+
+  it("does NOT cap a progressing body: a stream outliving the timeout keeps working", async () => {
+    // The reviewer's counterexample: /analyze-variant/stream drips chunks for far longer than one
+    // timeout, so bounding the whole response broke it. The bound must be per-CHUNK.
+    const fetchMock = vi.fn().mockImplementation(() => {
+      let timer: any = null;
+      let sent = 0;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          timer = setInterval(() => {
+            controller.enqueue(new TextEncoder().encode("x"));
+            if (++sent === 5) {
+              clearInterval(timer);
+              controller.close();
+            }
+          }, 40);
+        },
+        cancel() {
+          clearInterval(timer);
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    const startedAt = Date.now();
+    // 5 chunks at 40ms ≈ 200ms of streaming under a 60ms per-chunk stall bound.
+    const res = await result.current.fetchWithAuth("/api/v1/stream", { timeout: 60 });
+    await expect(res.text()).resolves.toBe("xxxxx");
+    expect(Date.now() - startedAt).toBeGreaterThan(60);
   });
 
   it("does not attach internal auth tokens to protocol-relative URLs", async () => {

@@ -26,21 +26,23 @@ export function isGeminiSessionEndpoint(url: string): boolean {
 }
 
 /**
- * Keeps the caller's `timeout` covering the BODY read, not only time-to-headers.
+ * Keeps the caller's `timeout` covering the BODY read — as a STALL bound, not a total cap.
  *
- * The watchdog used to be cleared as soon as the response object came back, so a server that
- * sent headers and then stalled left the call pending forever — the abort signal never fired
- * and `res.json()` had no bound at all. Here the timer is released only when the body actually
- * settles: the stream is piped through a passthrough whose `flush`/`cancel` release it, and the
+ * A header-then-stall upstream used to leave the call pending forever, because the watchdog was
+ * released as soon as the response object existed. Bounding the whole body instead would break
+ * the streaming caller (`/analyze-variant/stream` drips chunks for far longer than one timeout),
+ * so the bound is re-armed on every chunk: a body that keeps producing is never interrupted, and
+ * one that stops for `timeout` is aborted. `onProgress` is invoked before each read attempt; the
  * returned Response carries the same status/headers, so callers are unaffected.
  *
- * If the caller never reads the body, the watchdog simply fires later and aborts a finished
- * request — harmless, and the abort listener is detached by the timer itself.
+ * If the caller never reads the body, the stall timer fires against a finished request —
+ * harmless, and the timer detaches the abort listener itself.
  */
 function bindWatchdogToBody(
   response: Response,
   onSettled: () => void,
-  onHandedOff: () => void
+  onHandedOff: () => void,
+  onProgress?: () => void
 ): Response {
   const body = response.body;
   if (!body || typeof body.getReader !== "function") {
@@ -51,6 +53,8 @@ function bindWatchdogToBody(
     const reader = body.getReader();
     const guarded = new ReadableStream<Uint8Array>({
       async pull(controller) {
+        // Restart the stall bound for the chunk we are about to wait for.
+        onProgress?.();
         try {
           const { done, value } = await reader.read();
           if (done) {
@@ -161,8 +165,29 @@ export function useAuthSession() {
     const watchdogDeadlineAt = options.timeout ? Date.now() + options.timeout : undefined;
 
     let abortListener: (() => void) | null = null;
+    /** Body-stall bound: re-armed on every chunk, so a progressing stream is never interrupted. */
+    let stallId: any = null;
     /**
-     * Releases the watchdog, the forwarding listener and the deadline together.
+     * (Re)arm the stall bound. Called once when the response is handed off and again before each
+     * chunk is awaited, which is what distinguishes "this stream is still working" from "this
+     * stream has stopped".
+     */
+    const armStall = () => {
+      if (!options.timeout || !controller) return;
+      if (stallId) clearTimeout(stallId);
+      stallId = setTimeout(() => {
+        controller.abort(
+          new DOMException(`Response body stalled for ${options.timeout}ms`, "TimeoutError")
+        );
+        // The request is over: detach the forwarding listener even if no body was ever read.
+        if (options.signal && abortListener) {
+          options.signal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
+      }, options.timeout);
+    };
+    /**
+     * Releases the watchdog, the stall bound and the forwarding listener together.
      *
      * Called either as soon as a response without a body is available, or when the body settles
      * (see {@link bindWatchdogToBody}) — never unconditionally on return, which was the bug that
@@ -172,6 +197,10 @@ export function useAuthSession() {
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
+      }
+      if (stallId) {
+        clearTimeout(stallId);
+        stallId = null;
       }
       if (options.signal && abortListener) {
         options.signal.removeEventListener("abort", abortListener);
@@ -190,6 +219,8 @@ export function useAuthSession() {
         options.signal.addEventListener("abort", abortListener, { once: true });
       }
       signal = controller.signal;
+      // Time-to-headers. Once headers arrive the body is bounded per-chunk instead (armStall),
+      // which keeps long-lived streams alive while still bounding a stall.
       timeoutId = setTimeout(() => {
         controller.abort(new DOMException(`Request timed out after ${options.timeout}ms`, "TimeoutError"));
         // The request is over: detach the forwarding listener even if no body was ever read.
@@ -428,11 +459,16 @@ export function useAuthSession() {
       }
 
       // `timeout` must bound the BODY read too — a header-then-stall upstream otherwise keeps
-      // the call (and the UI spinner) alive indefinitely, because the watchdog used to be
-      // released the moment the response object existed.
+      // the call (and the UI spinner) alive indefinitely. It is applied as a per-chunk STALL
+      // bound, not a whole-response cap, so streaming endpoints keep working.
       return bindWatchdogToBody(response, releaseWatchdog, () => {
         watchdogHandedOff = true;
-      });
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        armStall();
+      }, armStall);
     } finally {
       // Only when the watchdog was NOT handed to a body: otherwise it is released on settlement.
       if (!watchdogHandedOff) releaseWatchdog();

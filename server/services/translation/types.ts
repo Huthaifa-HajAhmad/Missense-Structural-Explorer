@@ -150,6 +150,15 @@ export interface ResolutionOutcome {
  */
 export interface ResolutionProviderOptions {
   timeoutMs?: number;
+  /**
+   * True when `timeoutMs` is OUR cap (the ladder's share of the budget) rather than the provider's
+   * configured tolerance.
+   *
+   * A timeout we imposed says nothing about the provider's health, so transport layers must not
+   * count it against the shared circuit breaker — otherwise a slow-but-healthy provider is ejected
+   * for the cooldown by our own scheduling.
+   */
+  cappedByCaller?: boolean;
 }
 
 /**
