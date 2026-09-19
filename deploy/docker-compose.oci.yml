@@ -13,8 +13,11 @@ services:
       - PORT=3000
       - THERMOMPNN_PROVIDER=${THERMOMPNN_PROVIDER:-local}
       # Revision this image was built from, surfaced by GET /api/v1/version so "did my fix ship?"
-      # is answerable from outside the host. Supplied by the deploy workflow.
+      # is answerable from outside the host. Supplied by the deploy workflow; a hand-built image
+      # reports `unknown` rather than omitting the field, so the API contract stays a string.
       - BUILD_COMMIT=${BUILD_COMMIT:-unknown}
+      # Build instant, so a stale container at the same revision can be told apart from a fresh one.
+      - BUILD_TIME=${BUILD_TIME:-unknown}
     volumes:
       # Persistent SQLite databases (analyses.sqlite, landscape_cache.sqlite, df_rasp_gnomad_clinvar.sqlite)
       - ../data:/app/data

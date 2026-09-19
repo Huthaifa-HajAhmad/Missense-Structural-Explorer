@@ -4,6 +4,10 @@ on:
   # GATED ON CI. This workflow used to run on every push to main, so it deployed commits whose
   # lint/test/build gates had FAILED — observed: commit 4a6a949 was deployed (run 35455821454)
   # while its CI run 35455821450 died in the Python setup step before any gate ran.
+  #
+  # `types: [completed]` also fires for skipped and cancelled runs; the `if` below is what keeps
+  # this to successful PUSH runs of the default branch (a fork PR whose head branch happens to be
+  # named `main` also satisfies `branches`, and must not deploy).
   workflow_run:
     workflows: ["Continuous Integration"]
     types: [completed]
@@ -19,7 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer' &&
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'))
     env:
       OCI_SSH_HOST: ${{ secrets.OCI_SSH_HOST }}
       OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
@@ -27,6 +34,15 @@ jobs:
       # something: a push that lands while CI is still running is not deployed by this run.
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
+      - name: Require deploy credentials
+        # A skipped deploy is indistinguishable from a successful one in the runs list, which is
+        # how an unconfigured secret comes to look like a healthy pipeline. Fail loudly instead.
+        run: |
+          if [ -z "$OCI_SSH_HOST" ] || [ -z "$OCI_SSH_KEY" ]; then
+            echo "::error::OCI_SSH_HOST / OCI_SSH_KEY are not configured; refusing to report success without deploying."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
@@ -34,7 +50,6 @@ jobs:
 
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
-        if: env.OCI_SSH_HOST != '' && env.OCI_SSH_KEY != ''
         with:
           host: ${{ secrets.OCI_SSH_HOST }}
           username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
@@ -52,8 +67,17 @@ jobs:
             # HEAD by design; every run fetches and checks out its own revision.
             git fetch --all --prune
             git checkout --force "$DEPLOY_SHA"
+            # COMMIT ORDERING: CI runs can finish out of order, so an older commit's successful run
+            # could otherwise overwrite a newer deployment. Deploy only while this revision is still
+            # the tip of main; a newer commit's own run deploys it.
+            TIP="$(git rev-parse origin/main)"
+            if [ "$TIP" != "$DEPLOY_SHA" ]; then
+              echo "[CD] $DEPLOY_SHA is superseded by $TIP; skipping — the newer revision deploys itself."
+              exit 0
+            fi
             # Recorded in the image so GET /api/v1/version reports what is actually running.
             export BUILD_COMMIT="$DEPLOY_SHA"
+            export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "[CD] Rebuilding and launching Docker containers..."
             docker compose -f deploy/docker-compose.oci.yml up -d --build
             echo "[CD] Verifying container health..."
