@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { apiRouter } from "../../routes.ts";
 import { clearAllCaches } from "../../services/infra/cache.ts";
+import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
 
 /**
  * Route-level tests for POST /api/v1/translate-variant.
@@ -766,5 +767,118 @@ describe("POST /translate-variant — isoform numbering reconciliation", () => {
     expect(statusCode).toBe(422);
     expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
     expect(body.error.message).toContain("Start-loss");
+  });
+});
+
+/**
+ * Accession-qualified protein notation — how a lab reports a variant.
+ *
+ * Regression context: the lab pipeline's `NP_001032248.1:p.Lys281Asn` (ACOT9) was rejected as an
+ * unrecognised format, and the bare `p.Lys281Asn` failed a wild-type check against canonical
+ * `Q9Y305` (canonical 281 is L; the same residue is K272). UniProt's RefSeq cross-references name
+ * the isoform, so the notation can be mapped onto canonical numbering exactly.
+ */
+describe("POST /translate-variant — accession-qualified protein notation", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+  });
+
+  const ISOFORM_FASTA =
+    `>sp|Q9Y305|ACOT9_HUMAN Acyl-coenzyme A thioesterase 9\n${ACOT9_CANONICAL}\n` +
+    `>sp|Q9Y305-4|ACOT9_HUMAN Isoform 4\n${ACOT9_ISOFORM_4}\n`;
+
+  const REFSEQ_SEARCH = {
+    results: [
+      {
+        primaryAccession: "Q9Y305",
+        uniProtKBCrossReferences: [
+          {
+            database: "RefSeq",
+            id: "NP_001032248.1",
+            properties: [{ key: "NucleotideSequenceId", value: "NM_001037171.2" }],
+            isoformId: "Q9Y305-4",
+          },
+        ],
+        genes: [{ geneName: { value: "ACOT9" } }],
+      },
+    ],
+  };
+
+  const uniprotFetch = (searchBody: unknown = REFSEQ_SEARCH) => async (url: string) => {
+    if (url.includes("/uniprotkb/search")) {
+      return { ok: true, status: 200, json: async () => searchBody, text: async () => "" } as any;
+    }
+    return { ok: true, status: 200, json: async () => ({}), text: async () => ISOFORM_FASTA } as any;
+  };
+
+  it("accepts the lab's NP_-qualified notation and converts it to canonical numbering", async () => {
+    const { statusCode, body } = await invokeTranslate(
+      "NP_001032248.1:p.Lys281Asn",
+      MISSENSE_CONSEQUENCE,
+      uniprotFetch() as any
+    );
+
+    expect(statusCode).toBe(200);
+    expect(body.gene).toBe("ACOT9");
+    // The canonical-equivalent notation, which is what the structures are numbered on.
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.uniprotId).toBe("Q9Y305");
+    expect(body.uniprotIsoform).toBe("Q9Y305-4");
+    expect(body.numberingBasis).toBe("remapped");
+    expect(body.numberingVerified).toBe(true);
+    expect(body.numberingProteinId).toBe("NP_001032248.1");
+    expect(body.numberingRemap).toMatchObject({
+      from: {
+        hgvsp: "p.Lys281Asn",
+        isoform: "Q9Y305-4",
+        accession: "NP_001032248.1",
+        transcriptId: "NM_001037171.2",
+      },
+      to: { hgvsp: "p.Lys272Asn", isoform: "Q9Y305" },
+    });
+    // The lab's notation must survive into the disclosure.
+    expect(body.transcriptWarning).toContain("NP_001032248.1");
+    expect(body.transcriptWarning).toContain("p.Lys281Asn");
+    expect(body.transcriptWarning).toContain("p.Lys272Asn");
+  });
+
+  it("accepts a UniProt isoform accession without a RefSeq lookup", async () => {
+    const fetchImpl = uniprotFetch();
+    const { statusCode, body } = await invokeTranslate(
+      "Q9Y305-4:p.Lys281Asn",
+      MISSENSE_CONSEQUENCE,
+      fetchImpl as any
+    );
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.numberingBasis).toBe("remapped");
+    expect(body.transcriptWarning).toContain("Q9Y305-4");
+  });
+
+  it("returns canonical numbering unchanged when the accession IS the canonical protein", async () => {
+    const { statusCode, body } = await invokeTranslate(
+      "Q9Y305:p.Lys272Asn",
+      MISSENSE_CONSEQUENCE,
+      uniprotFetch() as any
+    );
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Lys272Asn");
+    expect(body.numberingBasis).toBe("canonical");
+    expect(body.numberingRemap).toBeUndefined();
+    expect(body.transcriptWarning).toBeUndefined();
+  });
+
+  it("refuses an accession UniProt does not know, naming the reason", async () => {
+    const { statusCode, body } = await invokeTranslate(
+      "NP_999999.9:p.Lys281Asn",
+      MISSENSE_CONSEQUENCE,
+      uniprotFetch({ results: [] }) as any
+    );
+
+    expect(statusCode).toBe(422);
+    expect(body.error.message).toContain("no reviewed human entry");
+    expect(body.error.details.accession).toBe("NP_999999.9");
   });
 });

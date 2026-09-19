@@ -8,6 +8,8 @@ import {
   classifyNotation,
   isGenomicOrCdnaNotation,
   isProteinNotation,
+  needsNotationResolution,
+  parseAccessionedProteinNotation,
   detectAssemblyAnnotation,
   normalizeGenomicNotation,
   ACCEPTED_NOTATION_SUMMARY,
@@ -165,6 +167,45 @@ describe("Shared variant notation grammar", () => {
       }
       expect(classifyNotation(null as any).kind).toBe("unknown");
       expect(classifyNotation(undefined as any).kind).toBe("unknown");
+    });
+
+    /**
+     * Accession-qualified protein notation: how a lab reports a variant
+     * (`NP_001032248.1:p.Lys281Asn`). The accession names the numbering basis, so it must be
+     * recognised, must NOT be taken for a coordinate, and must be resolved before modelling.
+     */
+    describe("accessioned protein notation", () => {
+      const LAB_NOTATION = "NP_001032248.1:p.Lys281Asn";
+
+      it("classifies RefSeq- and UniProt-qualified substitutions", () => {
+        expect(classifyNotation(LAB_NOTATION).kind).toBe("protein-accessioned");
+        expect(classifyNotation("NP_001032248.1:p.(Lys281Asn)").kind).toBe("protein-accessioned");
+        expect(classifyNotation("Q9Y305-4:p.Lys281Asn").kind).toBe("protein-accessioned");
+        expect(classifyNotation("Q9Y305:p.Lys272Asn").kind).toBe("protein-accessioned");
+      });
+
+      it("is a protein notation, not a coordinate, and is flagged for resolution", () => {
+        expect(isProteinNotation(LAB_NOTATION)).toBe(true);
+        expect(isGenomicOrCdnaNotation(LAB_NOTATION)).toBe(false);
+        expect(needsNotationResolution(LAB_NOTATION)).toBe(true);
+        // A bare protein notation is assumed canonical, so it needs no server-side resolution.
+        expect(needsNotationResolution("p.Lys281Asn")).toBe(false);
+        expect(needsNotationResolution("chr1:g.25484258G>A")).toBe(true);
+      });
+
+      it("splits the accession from the substitution, and rejects other families", () => {
+        expect(parseAccessionedProteinNotation(LAB_NOTATION)).toEqual({
+          accession: "NP_001032248.1",
+          proteinNotation: "p.Lys281Asn",
+        });
+        expect(parseAccessionedProteinNotation("Q9Y305-4:p.Lys281Asn")).toEqual({
+          accession: "Q9Y305-4",
+          proteinNotation: "p.Lys281Asn",
+        });
+        expect(parseAccessionedProteinNotation("p.Lys281Asn")).toBeNull();
+        expect(parseAccessionedProteinNotation("chr1:g.25484258G>A")).toBeNull();
+        expect(parseAccessionedProteinNotation("NP_001032248.1:c.843G>T")).toBeNull();
+      });
     });
   });
 

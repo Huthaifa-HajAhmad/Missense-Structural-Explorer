@@ -18,6 +18,7 @@ import {
   classifyNotation,
   detectAssemblyAnnotation,
   normalizeGenomicNotation,
+  parseAccessionedProteinNotation,
   type GenomeAssembly,
 } from "../../../src/shared/variantNotation.ts";
 import {
@@ -36,6 +37,11 @@ import {
   buildIsoformRemapWarning,
   buildUnverifiedNumberingWarning,
 } from "../../services/translation/isoform-numbering.ts";
+import {
+  buildProteinNumberingRemapWarning,
+  resolveAccessionedProteinNotation,
+} from "../../services/translation/protein-numbering.ts";
+import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 
 const translateVariantSchema = z.object({
   variant: z.string().min(1).max(200),
@@ -199,6 +205,128 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       }
 
       if (!GENOMIC_HGVS_PATTERN.test(trimmed) && !CDNA_PATTERN.test(trimmed)) {
+        // ── Accession-qualified protein notation ──────────────────────────────────────
+        // `NP_001032248.1:p.Lys281Asn` (how a lab reports it) or `Q9Y305-4:p.Lys281Asn`. The
+        // accession IS the numbering basis, so this resolves exactly — UniProt's RefSeq
+        // cross-references name the isoform — and the notation is converted onto canonical
+        // numbering before the modelling pipeline ever sees it. Previously the whole family was
+        // rejected as an unrecognised format.
+        const accessionedProtein = parseAccessionedProteinNotation(trimmed);
+        if (accessionedProtein) {
+          await AuditLogger.log("TRANSLATE_PROTEIN_NOTATION", {
+            accession: accessionedProtein.accession,
+          });
+
+          const outcome = await resolveAccessionedProteinNotation(accessionedProtein);
+
+          if (outcome.status === "canonical" || outcome.status === "remapped") {
+            let proteinGene: string;
+            let canonicalNotation: string;
+            try {
+              proteinGene = validateGene(outcome.geneSymbol || "");
+              canonicalNotation = validateVariant(outcome.canonicalVariant || "");
+            } catch (valErr: any) {
+              const valErrMessage: string = valErr?.message ?? String(valErr);
+              sendError(
+                res,
+                422,
+                isNonMissenseMessage(valErrMessage) ? "NON_MISSENSE_VARIANT" : "UNPROCESSABLE_ENTITY",
+                `${accessionedProtein.accession}:${accessionedProtein.proteinNotation} is not a modellable missense substitution: ${valErrMessage}`,
+                compactDetails({
+                  accession: accessionedProtein.accession,
+                  notation: accessionedProtein.proteinNotation,
+                })
+              );
+              return;
+            }
+
+            await AuditLogger.log("TRANSLATE_PROTEIN_NOTATION_RESOLVED", {
+              accession: accessionedProtein.accession,
+              numberingBasis: outcome.status,
+              basisId: outcome.basisId,
+              canonicalAccession: outcome.canonicalAccession,
+            });
+
+            const proteinWarning = buildProteinNumberingRemapWarning(
+              outcome,
+              accessionedProtein.proteinNotation
+            );
+
+            res.json({
+              gene: proteinGene,
+              variant: canonicalNotation,
+              uniprotId: outcome.canonicalAccession ?? "",
+              ...(outcome.basisKind === "isoform" && outcome.basisId
+                ? { uniprotIsoform: outcome.basisId }
+                : {}),
+              ...(/^NP_/.test(accessionedProtein.accession)
+                ? { numberingProteinId: accessionedProtein.accession }
+                : {}),
+              numberingBasis: outcome.status,
+              numberingVerified: true,
+              ...(outcome.status === "remapped"
+                ? {
+                    numberingRemap: {
+                      reason:
+                        "the notation was numbered on a non-canonical isoform of this protein",
+                      from: {
+                        hgvsp: accessionedProtein.proteinNotation,
+                        transcriptId: outcome.transcriptId,
+                        isoform: outcome.basisId,
+                        accession: outcome.basisAccession,
+                      },
+                      to: {
+                        hgvsp: canonicalNotation,
+                        isoform: outcome.canonicalAccession,
+                      },
+                    },
+                  }
+                : {}),
+              notationNormalized: accessionedProtein.proteinNotation,
+              provenance: {
+                provider: "uniprot-isoform-model",
+                providerLabel: "UniProt (RefSeq ↔ isoform cross-references)",
+                usedFallback: false,
+                cacheHit: false,
+                attempts: [],
+              },
+              ...(proteinWarning ? { transcriptWarning: proteinWarning } : {}),
+            });
+            return;
+          }
+
+          if (outcome.status === "ambiguous") {
+            sendError(
+              res,
+              422,
+              "AMBIGUOUS_PROTEIN_NUMBERING",
+              buildAmbiguousNumberingMessage(
+                accessionedProtein.proteinNotation,
+                outcome.candidates ?? []
+              ),
+              compactDetails({
+                accession: accessionedProtein.accession,
+                candidates: (outcome.candidates ?? []).map((c) => c.variant),
+              })
+            );
+            return;
+          }
+
+          sendError(
+            res,
+            422,
+            "UNPROCESSABLE_ENTITY",
+            `Could not use ${accessionedProtein.accession}:${accessionedProtein.proteinNotation} — ${outcome.reason}. ` +
+              "Check the accession and the residue, or enter the genomic/cDNA coordinate.",
+            compactDetails({
+              accession: accessionedProtein.accession,
+              notation: accessionedProtein.proteinNotation,
+              reason: outcome.reason,
+            })
+          );
+          return;
+        }
+
         sendError(res, 400, "BAD_REQUEST", `Invalid notation format: "${variant}". Must be ${ACCEPTED_NOTATION_SUMMARY}.`);
         return;
       }

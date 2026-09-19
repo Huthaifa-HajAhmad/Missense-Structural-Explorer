@@ -2,7 +2,7 @@ import { parseMutationResidues } from "../../variantAnalysisUtils";
 import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../../data";
 import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../shared/timeouts";
 import {
-  isGenomicOrCdnaNotation,
+  needsNotationResolution,
   translateVariantNotation as translateVariantNotationService
 } from "./notationService";
 import { fetchPdbCoordinates } from "./structureService";
@@ -85,7 +85,10 @@ export async function executeFullAnalysisWorkflow({
 
   try {
     // Stage 1: Notation Resolution
-    if (isGenomicOrCdnaNotation(targetVariant)) {
+    // Covers coordinate/cDNA input (needs coordinate translation) AND accession-qualified protein
+    // notation such as `NP_001032248.1:p.Lys281Asn`, whose residue numbers belong to a possibly
+    // non-canonical isoform and must be mapped onto the canonical sequence before modelling.
+    if (needsNotationResolution(targetVariant)) {
       const transResult = await translateVariantNotationService(
         targetVariant,
         apiClient,

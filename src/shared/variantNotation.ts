@@ -110,6 +110,30 @@ export const CDNA_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
 /** cDNA HGVS, prefix only. */
 export const CDNA_PREFIX_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+/i;
 
+/**
+ * Protein accession a substitution's residue numbers belong to: a RefSeq protein
+ * (`NP_001032248.1`) or a UniProt accession / isoform (`Q9Y305`, `Q9Y305-4`).
+ *
+ * Explicit because the numbering basis is not cosmetic: MANE Select routinely follows a
+ * NON-canonical isoform, so the same variant has different numbers on `NP_001032248.1` and on
+ * canonical `Q9Y305`. Lab/clinical pipelines report the former; structures follow the latter.
+ */
+export const PROTEIN_ACCESSION_GROUP = String.raw`(?:NP_\d+(?:\.\d+)?|[A-Z][A-Z0-9]{5,9}(?:-\d+)?)`;
+
+/** The substitution body shared by the protein patterns (optional `p.`, optional parentheses). */
+const PROTEIN_SUBSTITUTION_BODY = String.raw`(?:p\.)?\(?(${IUPAC_3}|${IUPAC_1})(\d{1,6})(${IUPAC_3}|${IUPAC_1})\)?`;
+
+/**
+ * A protein substitution qualified by the protein it is numbered on:
+ *   `NP_001032248.1:p.Lys281Asn` | `NP_001032248.1:p.(Lys281Asn)`
+ *   `Q9Y305-4:p.Lys281Asn`       | `Q9Y305:p.Lys272Asn`
+ * Groups: 1 = accession, 2 = wt, 3 = position, 4 = mut.
+ */
+export const ACCESSIONED_PROTEIN_PATTERN = new RegExp(
+  `^(${PROTEIN_ACCESSION_GROUP}):${PROTEIN_SUBSTITUTION_BODY}$`,
+  "i"
+);
+
 /** Bare `g.` HGVS without a chromosome context (e.g. `g.25484258G>A`). */
 export const BARE_GENOMIC_PATTERN = /^(?:[A-Z0-9_.]+:)?g\.\d+/i;
 
@@ -150,6 +174,12 @@ export type NotationKind =
   | "genomic-bare"
   | "cdna"
   | "protein-hgvs"
+  /**
+   * A protein substitution qualified by the protein whose numbering it uses
+   * (`NP_001032248.1:p.Lys281Asn`, `Q9Y305-4:p.Lys281Asn`). Needs the isoform model to be turned
+   * into canonical numbering before it can be modelled.
+   */
+  | "protein-accessioned"
   | "protein-foldx"
   /**
    * A recognized `g.` / `c.` coordinate notation that is NOT a single-nucleotide
@@ -233,6 +263,9 @@ export function classifyNotation(input: string): NotationDescriptor {
   if (BARE_GENOMIC_PATTERN.test(trimmed) || CHROM_POS_PATTERN.test(trimmed)) {
     return { kind: "genomic-bare", assembly, canonical };
   }
+  if (ACCESSIONED_PROTEIN_PATTERN.test(trimmed)) {
+    return { kind: "protein-accessioned", assembly: null, canonical: null };
+  }
   if (HGVS_PATTERN.test(trimmed)) {
     return { kind: "protein-hgvs", assembly: null, canonical: null };
   }
@@ -264,7 +297,40 @@ export function isGenomicOrCdnaNotation(input: string): boolean {
 /** True for any protein-level notation the biophysical pipeline can analyze directly. */
 export function isProteinNotation(input: string): boolean {
   const { kind } = classifyNotation(input);
-  return kind === "protein-hgvs" || kind === "protein-foldx";
+  return kind === "protein-hgvs" || kind === "protein-foldx" || kind === "protein-accessioned";
+}
+
+/**
+ * True when a notation must be resolved by the server before the modelling pipeline can run:
+ * coordinate/cDNA input needs coordinate translation, and an accession-qualified protein
+ * notation needs its numbering mapped onto the canonical sequence.
+ *
+ * Kept separate from {@link isGenomicOrCdnaNotation} (which answers a narrower question and is
+ * used by the server's coordinate gate) so callers that must decide "translate first?" have one
+ * place to ask.
+ */
+export function needsNotationResolution(input: string): boolean {
+  return isGenomicOrCdnaNotation(input) || classifyNotation(input).kind === "protein-accessioned";
+}
+
+export interface AccessionedProteinNotation {
+  /** The protein the numbering belongs to: `NP_001032248.1`, `Q9Y305-4`, `Q9Y305`. */
+  accession: string;
+  /** The substitution alone, normalised to HGVSp form: `p.Lys281Asn`. */
+  proteinNotation: string;
+}
+
+/** Splits `NP_001032248.1:p.(Lys281Asn)` into its accession and its substitution. */
+export function parseAccessionedProteinNotation(
+  input: string
+): AccessionedProteinNotation | null {
+  if (!input || typeof input !== "string") return null;
+  const match = input.trim().match(ACCESSIONED_PROTEIN_PATTERN);
+  if (!match) return null;
+  return {
+    accession: match[1].toUpperCase(),
+    proteinNotation: `p.${match[2]}${match[3]}${match[4]}`,
+  };
 }
 
 /**

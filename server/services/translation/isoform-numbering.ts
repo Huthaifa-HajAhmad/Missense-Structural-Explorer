@@ -150,6 +150,11 @@ export function aminoAcidChange(tc: ResolvedTranscriptConsequence): string | und
   return wt1 && mut1 ? `${wt1}>${mut1}` : undefined;
 }
 
+/** HGVS amino-acid token (1- or 3-letter, any case) to its one-letter code. */
+export function oneLetterAminoAcid(token: string | undefined): string | undefined {
+  return toOneLetter(token);
+}
+
 function toOneLetter(token: string | undefined): string | undefined {
   if (!token) return undefined;
   const trimmed = token.trim();

@@ -9,9 +9,11 @@ import { parseVariantCoordinate } from "../../shared/variantCoordinate.ts";
 export {
   isGenomicOrCdnaNotation,
   isProteinNotation,
+  needsNotationResolution,
   classifyNotation,
   detectAssemblyAnnotation,
   normalizeGenomicNotation,
+  parseAccessionedProteinNotation,
   ACCEPTED_NOTATION_EXAMPLES,
   ACCEPTED_NOTATION_SUMMARY,
   type NotationDescriptor,

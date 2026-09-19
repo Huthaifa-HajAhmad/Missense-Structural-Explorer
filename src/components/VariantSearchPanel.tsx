@@ -28,7 +28,7 @@ import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
-import { isGenomicOrCdnaNotation, classifyNotation, ACCEPTED_NOTATION_EXAMPLES, type NotationKind } from "../shared/variantNotation.ts";
+import { needsNotationResolution, classifyNotation, ACCEPTED_NOTATION_EXAMPLES, type NotationKind } from "../shared/variantNotation.ts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
@@ -137,6 +137,12 @@ const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTon
     label: "Protein code",
     tone: "ok",
     title: "FoldX-style substitution code — analysed directly.",
+  },
+  "protein-accessioned": {
+    label: "Protein → canonical",
+    tone: "clay",
+    title:
+      "Accession-qualified protein notation. The accession names the numbering basis (e.g. a MANE Select RefSeq protein), so the substitution is mapped onto canonical UniProt numbering before modelling.",
   },
   cdna: {
     label: "cDNA → resolve",
@@ -415,8 +421,8 @@ function VariantSearchPanel({
   };
 
   // Parsed verdicts, shown so the routing the form already performs is visible rather than
-  // implied. Routing itself still goes through `isGenomicOrCdnaNotation`, so the badge can
-  // describe the parser but can never disagree with it.
+  // implied. Routing itself goes through `needsNotationResolution`, so the badge can describe the
+  // parser but can never disagree with it.
   const variantNotation = customVariant.trim() ? classifyNotation(customVariant) : null;
   const genomicNotation = customGenomic.trim() ? classifyNotation(customGenomic) : null;
   /**
@@ -444,9 +450,16 @@ function VariantSearchPanel({
    * the Variant field to optional and marked the Gene "Derived", so a form could be submitted
    * with no usable notation at all and fail server-side instead of at the field.
    */
-  const isGenomicVariant =
-    (!!customVariant && isGenomicOrCdnaNotation(customVariant)) || genomicIsCoordinate;
-  const isGeneRequired = !isGenomicVariant;
+  /**
+   * Does the app resolve the notation itself before modelling?
+   *
+   * True for coordinate/cDNA input AND for accession-qualified protein notation
+   * (`NP_001032248.1:p.Lys281Asn`), which carries its own protein and is mapped onto canonical
+   * numbering by the server. Both cases derive the gene, so the Gene field is not required.
+   */
+  const notationResolvesItself =
+    (!!customVariant && needsNotationResolution(customVariant)) || genomicIsCoordinate;
+  const isGeneRequired = !notationResolvesItself;
   const isVariantRequired = !genomicIsCoordinate;
 
   const genomicAssemblyLabel = genomicIsCoordinate && genomicNotation
