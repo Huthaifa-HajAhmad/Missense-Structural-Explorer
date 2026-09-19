@@ -14,6 +14,8 @@ import {
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
 import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
+import { resolveGeneProteinNumbering } from "../../services/translation/protein-numbering.ts";
+import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
@@ -155,6 +157,24 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
   let acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard";
   let originalNotation: string | undefined;
 
+  // An accession-qualified notation names the protein its residue numbers belong to, so it MUST be
+  // resolved (and converted onto canonical numbering) by the translation service — never read by
+  // index here. Checked BEFORE `validateVariant`, which rejects the accession as a malformed
+  // substitution (400) and would hide the real problem: the protein parser strips the accession and
+  // applies the position to the CANONICAL sequence, which is a different residue (the MANE letter
+  // coincides at ~3.6% of positions for a 9-residue offset).
+  if (classifyNotation(typeof req.body?.variant === "string" ? req.body.variant : "").kind === "protein-accessioned") {
+    sendError(
+      res,
+      422,
+      "UNPROCESSABLE_ENTITY",
+      `"${req.body.variant}" states the protein its numbering belongs to, so it must be resolved before analysis: ` +
+        "POST /api/v1/translate-variant returns the canonical-numbered substitution (the UI does this automatically). " +
+        "Alternatively enter the substitution in canonical numbering, or use the genomic/cDNA coordinate."
+    );
+    return null;
+  }
+
   try {
     gene = validateGene(req.body.gene);
     variant = validateVariant(req.body.variant);
@@ -189,24 +209,7 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     return null;
   }
 
-  // An accession-qualified notation names the protein its residue numbers belong to, so it MUST be
-  // resolved (and converted onto canonical numbering) by the translation service — never read by
-  // index here. The protein parser strips the accession and would apply the position to the
-  // CANONICAL sequence: `NP_001032248.1:Arg64Ala` would silently mutate canonical residue 64,
-  // which is a different residue (the MANE letter coincides at ~3.6% of positions), while the
-  // `p.`-prefixed form would be reported as a malformed notation instead.
-  if (classifyNotation(variant).kind === "protein-accessioned") {
-    sendError(
-      res,
-      422,
-      "UNPROCESSABLE_ENTITY",
-      `"${variant}" states the protein its numbering belongs to, so it must be resolved before analysis: ` +
-        "POST /api/v1/translate-variant returns the canonical-numbered substitution (the UI does this automatically). " +
-        "Alternatively enter the substitution in canonical numbering, or use the genomic/cDNA coordinate."
-    );
-    return null;
-  }
-
+  // NOTE: the accessioned-family gate above runs before this block on purpose (see there).
   let coord;
   try {
     coord = parseVariantCoordinate(variant, { gene, uniprotId });
@@ -242,15 +245,43 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
 
   const actualWt = sequence[pos - 1];
   if (actualWt !== wt1Letter) {
+    /**
+     * Diagnose WHY, before answering. A MANE Select notation is the common cause and it has a
+     * remedy that works today (the accession-qualified form), so the answer names it — and when
+     * two numberings are equally consistent at DIFFERENT canonical positions it says so instead
+     * of picking one, because choosing here would model an arbitrary residue.
+     *
+     * Best-effort: `resolveGeneProteinNumbering` returns null when UniProt is unreachable, so an
+     * outage leaves the previous message in place rather than failing the request.
+     */
+    const numbering = await resolveGeneProteinNumbering({ gene, notation: variant, canonicalAccession: uniprotId });
+
+    if (numbering?.status === "ambiguous" && numbering.candidates?.length) {
+      sendError(
+        res,
+        422,
+        "AMBIGUOUS_PROTEIN_NUMBERING",
+        buildAmbiguousNumberingMessage(variant, numbering.candidates) +
+          ` (${gene} position ${pos} does not carry ${wt1Letter} in ${uniprotId}.)`
+      );
+      return null;
+    }
+
+    const canonicalEquivalent =
+      numbering?.status === "remapped" ? numbering.canonicalVariant : undefined;
+
     sendError(
       res,
       422,
       "UNPROCESSABLE_ENTITY",
       `Wild-type residue mismatch at position ${pos} for ${uniprotId}. Expected ${actualWt}, but query specified ${wt1Letter} (${wildType}). ` +
-        `This usually means the notation is numbered on a different protein isoform than the canonical ${uniprotId} sequence ` +
-        "(a MANE Select notation can sit at a different position on the canonical isoform), or that the wild-type residue was mistyped. " +
-        "Qualify the notation with the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn, or Q9Y305-4:p.Lys281Asn) and the " +
-        "numbering will be mapped onto the canonical sequence automatically — or enter the genomic/cDNA coordinate."
+        (canonicalEquivalent
+          ? `This notation is numbered on ${numbering?.basisId ?? "another isoform"} of this protein, not the canonical sequence: ` +
+            `enter ${canonicalEquivalent} (the canonical-equivalent substitution) instead, or the genomic/cDNA coordinate.`
+          : `This usually means the notation is numbered on a different protein isoform than the canonical ${uniprotId} sequence ` +
+            "(a MANE Select notation can sit at a different position on the canonical isoform), or that the wild-type residue was mistyped. ") +
+        "Qualify the notation with the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn, or Q9Y305-4:p.Lys281Asn) so the " +
+        "numbering is mapped onto the canonical sequence, or enter the genomic/cDNA coordinate."
     );
     return null;
   }
