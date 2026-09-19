@@ -46,8 +46,12 @@ const FALLBACK_VERDICT_MAX_AGE_MS = 120_000;
  * response headers arrive: it bounds time-to-headers, not the body read. This signal is what
  * actually bounds the probe, and it is also what stops a provider that sends headers and then
  * stalls from leaving the promise — and therefore the single-flight slot — pending forever.
+ *
+ * Exported so the diagnostics test can express "the endpoint did not WAIT for the probe" in terms
+ * of this budget instead of a magic wall-clock literal, which drifted into flakiness: a 2000ms
+ * bound failed at 2068ms on a loaded CI runner while the guarded behaviour was correct.
  */
-const FALLBACK_PROBE_HARD_CAP_MS = 25_000;
+export const FALLBACK_PROBE_HARD_CAP_MS = 25_000;
 
 /**
  * Independent watchdog on the in-flight slot.

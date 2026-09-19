@@ -3,6 +3,7 @@ import express from "express";
 import type { Server } from "http";
 import type { AddressInfo } from "net";
 import {
+  FALLBACK_PROBE_HARD_CAP_MS,
   attachNotationFallback,
   currentFallbackVerdict,
   resetFallbackVerdictCacheForTests,
@@ -285,7 +286,13 @@ describe("GET /api/v1/diagnostics — coverage reporting does not block the endp
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("ok");
-    expect(elapsed).toBeLessThan(2000);
+    /**
+     * "Promptly" means the request path is DECOUPLED from the probe, so the bound is derived from
+     * the probe's own hard cap: waiting for it would take ~25s, answering must take a fraction of
+     * that. A literal 2000ms here flaked at 2068ms on a loaded CI runner while the behaviour it
+     * guards was correct — and a red CI now blocks deployment, so the margin has to be real.
+     */
+    expect(elapsed).toBeLessThan(FALLBACK_PROBE_HARD_CAP_MS / 5);
     expect(json.serviceHealth.ensembl.fallback).toBeUndefined();
     // The probe was still started — it simply was not waited on.
     expect(probeSpy).toHaveBeenCalledTimes(1);
