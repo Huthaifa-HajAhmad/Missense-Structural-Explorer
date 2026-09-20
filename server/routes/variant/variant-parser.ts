@@ -336,7 +336,18 @@ export async function validateAndParseVariantRequest(
         "to settle which protein these residue numbers belong to.",
       {
         notation: variant,
-        candidates: numbering.candidates.map((candidate) => candidate.variant),
+        // Labelled choices, not bare strings: the client renders them as a decision, and each is
+        // already canonical-numbered so submitting one is all that is needed.
+        candidates: numbering.candidates.map((candidate) => ({
+          variant: candidate.variant,
+          basisId: candidate.basisId,
+          basisKind: candidate.basisKind,
+          canonicalPosition: candidate.canonicalPosition,
+          label:
+            candidate.basisKind === "canonical"
+              ? `Canonical numbering (${candidate.basisId})`
+              : `MANE/isoform numbering (${candidate.basisId})`,
+        })),
       }
     );
     return null;

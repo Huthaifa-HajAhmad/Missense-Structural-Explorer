@@ -51,17 +51,33 @@ describe("mapPositionAcrossSequences", () => {
     }
   });
 
-  it("refuses to anchor a window that straddles an insertion", () => {
-    // 10 residues were inserted after position 20, so anything within 25 of it cannot be located
-    // by context: the flanking sequence exists in neither numbering.
+  it("maps a position just past an insertion EXACTLY, and refuses one inside it", () => {
+    // 10 residues were inserted after position 20. Positions beyond the block map by the offset —
+    // this is the fix for the review's blocker: the window anchor found nothing there and reported
+    // the position unmappable, which callers read as "this numbering does not carry the residue" and
+    // turned into a verified answer for the OTHER reading.
     const basis = withInsertion(ACOT9_CANONICAL, 20, ACOT9_INSERTION + "V");
-    const result = mapPositionAcrossSequences({
+
+    const pastTheBlock = mapPositionAcrossSequences({
       basisSequence: basis,
       canonicalSequence: ACOT9_CANONICAL,
       position: 31,
     });
+    expect(pastTheBlock.status).toBe("mapped");
+    if (pastTheBlock.status === "mapped") {
+      expect(pastTheBlock.mapping.canonicalPosition).toBe(21);
+      expect(pastTheBlock.mapping.offset).toBe(-10);
+    }
 
-    expect(result.status).toBe("unmappable");
+    // Inside the block there is genuinely no counterpart, and the reason must say so rather than
+    // implying the basis lacks the residue.
+    const insideTheBlock = mapPositionAcrossSequences({
+      basisSequence: basis,
+      canonicalSequence: ACOT9_CANONICAL,
+      position: 25,
+    });
+    expect(insideTheBlock.status).toBe("unmappable");
+    if (insideTheBlock.status === "unmappable") expect(insideTheBlock.reason).toContain("differ");
   });
 
   it("maps the REAL ACOT9 pair the production case depends on", () => {
@@ -87,7 +103,9 @@ describe("mapPositionAcrossSequences", () => {
     }
   });
 
-  it("refuses a position whose region occurs more than once", () => {
+  it("maps a sequence onto itself by identity, whatever its local repeats", () => {
+    // A repeated motif used to make this unmappable, which was over-refusal: mapping a sequence onto
+    // itself preserves numbering exactly, so local uniqueness is irrelevant.
     const repeated = "ACDEFGHIKL".repeat(6);
     const result = mapPositionAcrossSequences({
       basisSequence: repeated,
@@ -95,8 +113,22 @@ describe("mapPositionAcrossSequences", () => {
       position: 25,
     });
 
+    expect(result.status).toBe("mapped");
+    if (result.status === "mapped") expect(result.mapping.canonicalPosition).toBe(25);
+  });
+
+  it("refuses when a repeated region cannot anchor a non-identical pair", () => {
+    // Substitutions make the pair non-identical and the affix route cannot decide, so anchoring is
+    // required — and a repeated motif cannot anchor.
+    const canonical = "ACDEFGHIKL".repeat(6);
+    const substituted = `${canonical.slice(0, 24)}W${canonical.slice(25)}`;
+    const result = mapPositionAcrossSequences({
+      basisSequence: substituted,
+      canonicalSequence: canonical,
+      position: 25,
+    });
+
     expect(result.status).toBe("unmappable");
-    if (result.status === "unmappable") expect(result.reason).toContain("more than once");
   });
 
   it("refuses when the region does not exist in the canonical sequence", () => {
@@ -109,7 +141,7 @@ describe("mapPositionAcrossSequences", () => {
     expect(result.status).toBe("unmappable");
   });
 
-  it("refuses a position outside the numbering basis and one without enough context", () => {
+  it("refuses a position outside the numbering basis, and maps one onto itself regardless of flank", () => {
     expect(
       mapPositionAcrossSequences({
         basisSequence: ACOT9_CANONICAL,
@@ -118,9 +150,21 @@ describe("mapPositionAcrossSequences", () => {
       }).status
     ).toBe("unmappable");
 
+    // An IDENTICAL basis needs no context to be exact, so the previous "not enough flank" refusal was
+    // over-refusal; a non-identical pair still requires it.
     expect(
       mapPositionAcrossSequences({
         basisSequence: ACOT9_CANONICAL,
+        canonicalSequence: ACOT9_CANONICAL,
+        position: 2,
+        minFlank: 30,
+      }).status
+    ).toBe("mapped");
+
+    const substituted = `${ACOT9_CANONICAL.slice(0, 40)}W${ACOT9_CANONICAL.slice(41)}`;
+    expect(
+      mapPositionAcrossSequences({
+        basisSequence: substituted,
         canonicalSequence: ACOT9_CANONICAL,
         position: 2,
         minFlank: 30,

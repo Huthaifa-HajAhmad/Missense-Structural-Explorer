@@ -7,6 +7,8 @@ import {
   buildUniprotIdKey,
   buildRefSeqProteinKey,
   buildUniprotIsoformKey,
+  buildManeIsoformKey,
+  buildDisplayedIsoformKey,
 } from "../infra/cache-keys.ts";
 
 export interface UniprotCacheOptions {
@@ -274,12 +276,20 @@ export async function fetchManeIsoformId(
   options?: UniprotCacheOptions
 ): Promise<{ proteinId: string; isoformId?: string } | null> {
   const key = uniprotId.trim().toUpperCase();
-  const result = await getCachedOrFetch<{ mane: { proteinId: string; isoformId?: string } | null }>({
-    key: `uniprot_mane_isoform_${key}`,
+  const result = await getCachedOrFetch<{
+    mane: { proteinId: string; isoformId?: string } | null;
+    /** True only when the response was an entry response for THIS accession. */
+    entryConfirmed?: boolean;
+  }>({
+    key: buildManeIsoformKey(key),
     source: "UniProt entry (MANE-Select xref)",
     l1Cache: options?.l1Cache ?? uniprotIsoformsCache,
     ttlSeconds: 30 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
+    // Cache the absence ONLY when the payload positively asserts it (an entry response for THIS
+    // accession that carries cross-references but no MANE-Select one). A truncated or partial 200
+    // cached as "this gene has no MANE protein" produced false ambiguity refusals for a month.
+    shouldCache: (value) => Boolean(value?.mane) || value?.entryConfirmed === true,
     fetcher: async () => {
       // NO `fields` parameter: `fields=xref_mane_select` is not a valid field name and the API
       // answers 400, which silently degraded this lookup to "MANE unknown" and left the ambiguity
@@ -294,9 +304,13 @@ export async function fetchManeIsoformId(
       }
       const data = (await response.json()) as any;
       const xrefs: any[] = data?.uniProtKBCrossReferences ?? [];
+      const entryConfirmed =
+        String(data?.primaryAccession ?? "").toUpperCase() === key && xrefs.length > 0;
       const maneXref = xrefs.find((x) => x?.database === "MANE-Select");
       const proteinId = maneXref?.properties?.find((p: any) => p?.key === "RefSeqProteinId")?.value;
-      if (!proteinId && !maneXref?.isoformId) return { mane: null };
+      if (!proteinId && !maneXref?.isoformId) {
+        return { mane: null, entryConfirmed };
+      }
 
       // The MANE-Select xref states the isoform itself (`isoformId: Q9Y305-4`); the RefSeq
       // cross-reference is the fallback for entries that omit it.
@@ -336,7 +350,7 @@ export async function fetchDisplayedIsoformId(
 ): Promise<string | undefined> {
   const key = uniprotId.trim().toUpperCase();
   const result = await getCachedOrFetch<{ isoformId: string | null }>({
-    key: `uniprot_displayed_isoform_${key}`,
+    key: buildDisplayedIsoformKey(key),
     source: "UniProt entry (alternative products)",
     l1Cache: options?.l1Cache ?? uniprotIsoformsCache,
     ttlSeconds: 30 * 24 * 60 * 60,

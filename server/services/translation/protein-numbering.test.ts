@@ -370,6 +370,38 @@ describe("analysis-path verification bounds", () => {
     fetchSpy?.mockRestore();
   });
 
+  it("decides a repeated check locally from the cached profile (no per-request provider work)", async () => {
+    // The point of the profile cache: the ambiguity question is reference data, so asking it twice
+    // must not ask UniProt twice — otherwise every analysis pays provider latency, and pays it
+    // during an outage too.
+    const shifted = withInsertion(ACOT9_CANONICAL, 20, ACOT9_INSERTION);
+    fetchSpy = installFetch({
+      fasta:
+        `>sp|P00001|TESTGENE_HUMAN\n${ACOT9_CANONICAL}\n` +
+        `>sp|P00001-2|TESTGENE_HUMAN Isoform 2\n${shifted}\n` +
+        `>sp|P00001-3|TESTGENE_HUMAN Isoform 3\n${withInsertion(ACOT9_CANONICAL, 20, `${ACOT9_INSERTION}V`)}\n`,
+      mane: { proteinId: "NP_000001.1", isoformId: "P00001-2" },
+    });
+
+    const first = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Arg64Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+    const callsAfterFirst = fetchSpy.mock.calls.length;
+
+    const second = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Arg64Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+
+    expect(second?.status).toBe(first?.status);
+    expect(fetchSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
   it("gives a verification lookup a budget instead of letting it dominate the request", async () => {
     // Unbounded, a UniProt outage cost up to ~110s BEFORE the analysis started (the isoform fetch
     // retries 3x20s, then the MANE fetch 3x15s). The lookup is advisory, so it must yield.
@@ -383,10 +415,10 @@ describe("analysis-path verification bounds", () => {
   });
 
   it("scopes to MANE even when UniProt spells the canonical isoform `<acc>-1`", async () => {
-    // The MANE xref states `P00001-1` while the FASTA labels canonical as the bare accession, so a
-    // literal comparison matched nothing and silently skipped the scoping — restoring the 14.8%
-    // over-refusal (versus 3.4% for the canonical-vs-MANE pair) on exactly the entries where that
-    // spelling is most likely.
+    // The MANE xref states `P00001-1` while the FASTA labels canonical as the bare accession. With
+    // the scoping, the MANE basis IS the canonical sequence, so nothing can be ambiguous — the old
+    // literal comparison matched nothing and fell back to comparing every isoform, which refused
+    // this position on the strength of an unrelated isoform.
     const shifted = withInsertion(ACOT9_CANONICAL, 20, ACOT9_INSERTION); // 9-residue insertion
     const other = withInsertion(ACOT9_CANONICAL, 20, `${ACOT9_INSERTION}V`); // 10-residue insertion
     fetchSpy = installFetch({
@@ -397,8 +429,8 @@ describe("analysis-path verification bounds", () => {
       mane: { proteinId: "NP_000001.1", isoformId: "P00001-1" },
     });
 
-    // Position 64 collides between canonical and the 9-residue-shifted isoform (the same letter at
-    // two positions), so WITHOUT the scoping this resolves as ambiguous and is refused.
+    // Position 64 collides between canonical and the 9-residue-shifted isoform, so comparing every
+    // isoform would refuse it; canonical-vs-MANE cannot, because the MANE basis IS canonical.
     const outcome = await resolveGeneProteinNumbering({
       gene: "TESTGENE",
       notation: "p.Arg64Ala",
@@ -408,5 +440,30 @@ describe("analysis-path verification bounds", () => {
 
     expect(outcome?.status).toBe("canonical");
     expect(outcome?.canonicalVariant).toBe("p.Arg64Ala");
+  });
+
+  it("refuses a collision the MANE pair really does have", async () => {
+    // Same fixture, but now the MANE basis is the SHIFTED isoform: position 64 is then genuinely
+    // readable two ways (canonical 64 and canonical 55), which must be refused rather than picked.
+    const shifted = withInsertion(ACOT9_CANONICAL, 20, ACOT9_INSERTION);
+    const other = withInsertion(ACOT9_CANONICAL, 20, `${ACOT9_INSERTION}V`);
+    fetchSpy = installFetch({
+      fasta:
+        `>sp|P00001|TESTGENE_HUMAN\n${ACOT9_CANONICAL}\n` +
+        `>sp|P00001-2|TESTGENE_HUMAN Isoform 2\n${shifted}\n` +
+        `>sp|P00001-3|TESTGENE_HUMAN Isoform 3\n${other}\n`,
+      mane: { proteinId: "NP_000001.1", isoformId: "P00001-2" },
+    });
+
+    const outcome = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Arg64Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+
+    expect(outcome?.status).toBe("ambiguous");
+    const positions = (outcome?.candidates ?? []).map((c) => c.canonicalPosition).sort((a, b) => a - b);
+    expect(positions).toEqual([55, 64]);
   });
 });

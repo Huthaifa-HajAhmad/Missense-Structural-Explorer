@@ -41,6 +41,101 @@ export interface PositionMapping {
   anchorLength: number;
 }
 
+/** Sequences normalised for comparison: UniProt records can carry case or whitespace artefacts. */
+export function normaliseSequence(sequence: string): string {
+  return sequence.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * True when `candidate` is `reference` with one contiguous block inserted or deleted, or a
+ * same-length variant of it — the shapes real isoforms have.
+ *
+ * A basis that is neither is not a numbering of the same protein (a reversed or truncated record, a
+ * different protein entirely), and comparing positions against it would invent conclusions.
+ */
+export function sequencesAreComparable(candidate: string, reference: string): boolean {
+  if (!candidate || !reference) return false;
+  if (candidate === reference) return true;
+  const { basisMiddle, canonicalMiddle } = divergentMiddles(candidate, reference);
+  // Pure indel: after the maximal common prefix/suffix, one side's divergent block is empty.
+  if (basisMiddle.length === 0 || canonicalMiddle.length === 0) return true;
+  /**
+   * Anything else is NOT assumed comparable. Equal lengths look harmless — numbering seems 1:1 — but
+   * an insertion plus a compensating deletion in the same pair leaves the lengths equal while the
+   * numbering shifts in between, so identity mapping would be wrong. Substitutions interleaved with
+   * indels are the same problem. Falling back to the conservative comparison costs refusals; guessing
+   * costs a wrong residue.
+   */
+  return false;
+}
+
+function divergentMiddles(basisSequence: string, canonicalSequence: string) {
+  let prefix = 0;
+  const maxPrefix = Math.min(basisSequence.length, canonicalSequence.length);
+  while (prefix < maxPrefix && basisSequence[prefix] === canonicalSequence[prefix]) prefix++;
+
+  let suffix = 0;
+  const maxSuffix = Math.min(basisSequence.length, canonicalSequence.length) - prefix;
+  while (
+    suffix < maxSuffix &&
+    basisSequence[basisSequence.length - 1 - suffix] === canonicalSequence[canonicalSequence.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+
+  return {
+    prefix,
+    suffix,
+    basisMiddle: basisSequence.slice(prefix, basisSequence.length - suffix),
+    canonicalMiddle: canonicalSequence.slice(prefix, canonicalSequence.length - suffix),
+  };
+}
+
+/**
+ * Maps a position through the two sequences' common prefix/suffix.
+ *
+ * This is the PRIMARY strategy, because the ±25-window anchor below can only locate a position whose
+ * neighbourhood survives verbatim in the canonical sequence. A window that reaches an isoform's
+ * insertion finds NOTHING and reports the position unmappable — and callers read an unmappable basis
+ * as "this numbering does not carry the residue", i.e. as proof that only the OTHER numbering fits.
+ * For ACOT9 that silently mis-numbered every position whose window touched the 9-residue insertion
+ * (`p.Arg64Ala` was accepted as canonical R64 while the MANE reading is canonical R55), and it refused
+ * 13% of the MANE protein's positions on the accession route, including identity positions.
+ *
+ * Common affixes are EXACT for the indel shapes isoforms are made of: everything before the first
+ * difference and after the last maps by a constant offset, and only residues inside the divergent
+ * block are genuinely unlocatable.
+ */
+function mapByCommonAffixes(
+  basisSequence: string,
+  canonicalSequence: string,
+  position: number
+): PositionMapping | null {
+  const { prefix, basisMiddle, canonicalMiddle } = divergentMiddles(basisSequence, canonicalSequence);
+  if (basisMiddle.length === 0 && canonicalMiddle.length === 0) {
+    // Identical sequences: the mapping IS the identity, whatever the local repeats say.
+    return { canonicalPosition: position, offset: 0, anchorLength: canonicalSequence.length };
+  }
+  // Only a pure indel is exact by affixes. Every other shape (substitutions, an insertion plus a
+  // compensating deletion) keeps numbering undetermined, so the window anchor decides — and if it
+  // cannot, the position is reported unmappable rather than asserted.
+  const pureIndel = basisMiddle.length === 0 || canonicalMiddle.length === 0;
+  if (!pureIndel) return null;
+
+  const index = position - 1;
+  if (index < prefix) {
+    return { canonicalPosition: position, offset: 0, anchorLength: prefix };
+  }
+  const offset = canonicalMiddle.length - basisMiddle.length; // negative when the basis is longer
+  if (index >= prefix + basisMiddle.length) {
+    const mapped = position + offset;
+    if (mapped < 1 || mapped > canonicalSequence.length) return null;
+    return { canonicalPosition: mapped, offset, anchorLength: canonicalSequence.length - prefix };
+  }
+  // Inside the divergent block itself: those residues exist in only one of the two proteins.
+  return null;
+}
+
 export type PositionMappingOutcome =
   | { status: "mapped"; mapping: PositionMapping }
   | { status: "unmappable"; reason: string };
@@ -73,6 +168,33 @@ export function mapPositionAcrossSequences(params: {
   }
   if (!canonicalSequence.length) {
     return { status: "unmappable", reason: "the canonical sequence is unavailable" };
+  }
+
+  // PRIMARY: exact for indel-shaped differences (see mapByCommonAffixes). Falling straight through to
+  // the window anchor is what let a window spanning an insertion turn "cannot locate" into "this
+  // numbering does not carry the residue" — a wrong residue modelled as verified.
+  const byAffixes = mapByCommonAffixes(basisSequence, canonicalSequence, position);
+  if (byAffixes) return { status: "mapped", mapping: byAffixes };
+
+  /**
+   * Inside the region where the two proteins differ, there is no counterpart to map to — a distinct
+   * answer from "this basis does not carry the residue", which callers are entitled to read as proof
+   * that only the other numbering fits. Saying so prevents both a false refusal and a false verdict.
+   */
+  {
+    const { prefix, basisMiddle, canonicalMiddle } = divergentMiddles(basisSequence, canonicalSequence);
+    if (basisMiddle.length || canonicalMiddle.length) {
+      const insideFrom = prefix + 1;
+      const insideTo = prefix + Math.max(basisMiddle.length, canonicalMiddle.length);
+      if (position >= insideFrom && position <= insideTo) {
+        return {
+          status: "unmappable",
+          reason:
+            `position ${position} lies inside the region where the two proteins differ ` +
+            `(${insideFrom}-${insideTo}), so it has no counterpart in the canonical sequence`,
+        };
+      }
+    }
   }
 
   const index = position - 1;
@@ -169,6 +291,25 @@ export interface NumberingBasis {
   id: string;
   sequence: string;
   kind: "canonical" | "isoform";
+}
+
+/**
+ * Builds the numbering bases (canonical first) from a UniProt isoform set.
+ *
+ * Lives here rather than in the service layer so this stays the pure module for numbering maths:
+ * the profile builder and the resolver both need it, and having it in either one made them import
+ * each other.
+ */
+export function toNumberingBases(
+  isoforms: Array<{ id: string; sequence: string }>,
+  canonicalAccession: string
+): NumberingBasis[] {
+  const canonicalUpper = canonicalAccession.toUpperCase();
+  return isoforms.map((iso) => ({
+    id: iso.id,
+    sequence: iso.sequence,
+    kind: iso.id.toUpperCase() === canonicalUpper ? "canonical" : "isoform",
+  }));
 }
 
 export interface NumberingCandidate {

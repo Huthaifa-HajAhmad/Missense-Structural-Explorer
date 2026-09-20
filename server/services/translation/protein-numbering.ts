@@ -26,18 +26,19 @@
 
 import {
   fetchDisplayedIsoformId,
-  fetchManeIsoformId,
   fetchUniprotIsoforms,
   resolveRefSeqProtein,
   type RefSeqLookupResult,
   type UniprotIsoform,
 } from "../external-api/uniprot.ts";
 import { isCanonicalIsoformId } from "./isoform-numbering.ts";
+import { getNumberingProfile, notationAtCanonicalPosition } from "./numbering-profile.ts";
 import {
   mapPositionAcrossSequences,
   parseSubstitution,
   renameSubstitution,
   resolveNumberingAcrossBases,
+  toNumberingBases,
   type NumberingBasis,
   type NumberingCandidate,
 } from "./isoform-remap.ts";
@@ -76,14 +77,7 @@ function geneSymbolFromEntryName(entryName: string | undefined): string | undefi
 }
 
 /** Builds the numbering bases (canonical first) from a UniProt isoform set. */
-export function toNumberingBases(isoforms: UniprotIsoform[], canonicalAccession: string): NumberingBasis[] {
-  const canonicalUpper = canonicalAccession.toUpperCase();
-  return isoforms.map((iso) => ({
-    id: iso.id,
-    sequence: iso.sequence,
-    kind: iso.id.toUpperCase() === canonicalUpper ? "canonical" : "isoform",
-  }));
-}
+export { toNumberingBases };
 
 /**
  * Resolves a protein notation whose numbering basis is DECLARED by an accession
@@ -338,31 +332,87 @@ export async function resolveGeneProteinNumbering(params: {
   if (!substitution) return null;
 
   try {
-    const isoforms = await fetchUniprotIsoforms(canonicalAccession, options);
-    const bases = toNumberingBases(isoforms, canonicalAccession);
+    if (basisScope === "mane") {
+      /**
+       * Locally decidable from the gene's cached PROFILE — no per-request provider comparison.
+       *
+       * The pair that matters for a bare notation is canonical versus MANE, and both readings are
+       * already enumerated in the profile, so a typed position is resolved by a set lookup:
+       *   - MANE identical to canonical → unambiguous by construction;
+       *   - position in `ambiguous` → two readings fit, refuse with BOTH (never pick one);
+       *   - otherwise → only the canonical reading fits.
+       * A provider failure returns null (the caller discloses "unverified"); an entry whose MANE
+       * could not be identified falls through to the conservative all-isoform comparison.
+       */
+      const profile = await getNumberingProfile(canonicalAccession, options);
+      if (!profile) return null;
 
-    let scopedBases = bases;
-    if (basisScope === "mane" && bases.length > 2) {
-      // Deliberately NOT caught: if the MANE lookup FAILS (provider problem) the whole call reports
-      // "could not verify" and the caller discloses that, rather than falling through to comparing
-      // every isoform — which would refuse ~15% of valid bare notations over an outage. An entry
-      // that simply HAS no MANE xref returns null here and keeps every base, because then the gene
-      // genuinely has several numberings and refusing is the honest answer.
-      const mane = await fetchManeIsoformId(canonicalAccession, options);
-      const canonicalBasis = bases.find((basis) => basis.kind === "canonical");
-      const maneIsoformId = mane?.isoformId;
-      // UniProt spells the canonical isoform BOTH ways (`Q9Y305` in FASTA, `Q9Y305-1` in xrefs), so
-      // comparing literally made a `-1` MANE xref match nothing and silently skipped the scoping —
-      // restoring the very over-refusal this scoping exists to prevent.
-      const maneBasis = maneIsoformId
-        ? isCanonicalIsoformId(maneIsoformId, canonicalAccession)
-          ? canonicalBasis
-          : bases.find((basis) => basis.id.toUpperCase() === maneIsoformId.toUpperCase())
-        : undefined;
-      if (canonicalBasis && maneBasis) scopedBases = [canonicalBasis, maneBasis];
+      if (profile.maneIdentified) {
+        const canonicalOutcome = (): ProteinNumberingOutcome => ({
+          status: "canonical",
+          canonicalAccession,
+          canonicalVariant: `p.${substitution.wt3}${substitution.position}${substitution.mut3}`,
+          basisId: profile.maneIsoformId && isCanonicalIsoformId(profile.maneIsoformId, canonicalAccession)
+            ? canonicalAccession
+            : canonicalAccession,
+          basisKind: "canonical",
+          geneSymbol: gene,
+        });
+
+        if (!profile.maneNumberingDiffers) return canonicalOutcome();
+
+        /**
+         * A position the profile could NOT check is not a position the profile cleared.
+         *
+         * Here the two proteins carry the same residue but the second reading could not be located
+         * (it sits inside the region where they differ). Reporting "verified canonical" would assert a
+         * check that never happened — the exact confusion that let a bare notation model the wrong
+         * residue. Answer "unverified" so the caller discloses it, and never cache that.
+         */
+        if (profile.unverifiable.includes(substitution.position)) {
+          return {
+            status: "unverified",
+            canonicalAccession,
+            basisAccession: gene,
+            geneSymbol: gene,
+            reason:
+              `position ${substitution.position} lies where the MANE protein and canonical ` +
+              `${canonicalAccession} differ, so another numbering cannot be excluded`,
+          };
+        }
+
+        const collision = profile.ambiguous.find((entry) => entry.position === substitution.position);
+        if (!collision) return canonicalOutcome();
+
+        return {
+          status: "ambiguous",
+          canonicalAccession,
+          geneSymbol: gene,
+          candidates: [
+            {
+              basisId: canonicalAccession,
+              basisKind: "canonical",
+              basisPosition: substitution.position,
+              canonicalPosition: substitution.position,
+              variant: `p.${substitution.wt3}${substitution.position}${substitution.mut3}`,
+              anchorLength: 0,
+            },
+            {
+              basisId: collision.maneIsoformId,
+              basisKind: "isoform",
+              basisPosition: substitution.position,
+              canonicalPosition: collision.canonicalPosition,
+              variant: notationAtCanonicalPosition(notation, collision.canonicalPosition),
+              anchorLength: 0,
+            },
+          ],
+        };
+      }
     }
 
-    const resolution = resolveNumberingAcrossBases({ notation, bases: scopedBases });
+    const isoforms = await fetchUniprotIsoforms(canonicalAccession, options);
+    const bases = toNumberingBases(isoforms, canonicalAccession);
+    const resolution = resolveNumberingAcrossBases({ notation, bases });
 
     if (resolution.status === "unresolved") {
       return {

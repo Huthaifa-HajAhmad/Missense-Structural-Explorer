@@ -307,7 +307,16 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
               ),
               compactDetails({
                 accession: accessionedProtein.accession,
-                candidates: (outcome.candidates ?? []).map((c) => c.variant),
+                candidates: (outcome.candidates ?? []).map((candidate) => ({
+                  variant: candidate.variant,
+                  basisId: candidate.basisId,
+                  basisKind: candidate.basisKind,
+                  canonicalPosition: candidate.canonicalPosition,
+                  label:
+                    candidate.basisKind === "canonical"
+                      ? `Canonical numbering (${candidate.basisId})`
+                      : `MANE/isoform numbering (${candidate.basisId})`,
+                })),
               })
             );
             return;

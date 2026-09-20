@@ -1022,6 +1022,26 @@ export interface VariantMetadata {
   serviceStatus?: Record<string, string>;
 }
 
+/**
+ * One way a genuinely ambiguous protein notation can be read, as returned in the
+ * `AMBIGUOUS_PROTEIN_NUMBERING` error's `details.candidates`.
+ *
+ * This is what turns a refusal into a decision: each candidate is already expressed in CANONICAL
+ * numbering, which is the notation the whole pipeline downstream expects, so choosing one is just a
+ * re-submit — no client-side translation and no second source of truth.
+ */
+export const numberingChoiceSchema = z.object({
+  /** Canonical-numbered substitution to submit if the user means this reading. */
+  variant: z.string(),
+  /** Protein whose numbering this reading follows (`Q9Y305` canonical, `Q9Y305-4` an isoform). */
+  basisId: z.string(),
+  basisKind: z.enum(["canonical", "isoform"]),
+  canonicalPosition: z.number(),
+  /** Human label for a chooser, e.g. "Canonical numbering (Q9Y305)". */
+  label: z.string().optional(),
+});
+export type NumberingChoice = z.infer<typeof numberingChoiceSchema>;
+
 export interface TranscriptMetadata {
   transcriptId?: string | null;
   isManeSelect?: boolean;
@@ -1247,6 +1267,16 @@ export interface AouFrequencyData {
 }
 
 export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetadata, LanguageModelEvaluations {
+  /**
+   * Present when the run was REFUSED because the notation's numbering is genuinely ambiguous.
+   *
+   * Each entry is already canonical-numbered, so the UI can offer the readings and re-submit the
+   * chosen one — a decision instead of a dead end. Carried on the result (not only in the error
+   * string) because the choice has to survive to the component that renders it.
+   */
+  numberingChoices?: NumberingChoice[] | null;
+  /** The ambiguous notation as written, echoed so the prompt can quote it. */
+  numberingNotation?: string | null;
   analysis?: string | null;
   isFallback?: boolean;
   /** Stable degradation code — see src/shared/narrativeFallback.ts. */

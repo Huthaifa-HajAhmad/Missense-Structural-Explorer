@@ -15,7 +15,14 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
  * (14-30 days), and those entries carry no build — so a GRCh38 request could still be served a
  * GRCh37-derived payload while the code looked correct.
  */
-export const CACHE_SCHEMA_VERSION = "v5";
+/**
+ * Payload-shape generation for every persisted cache key.
+ *
+ * Bumped to v6 with the numbering-profile COVERAGE change: a profile built by the previous build can
+ * call a genuinely ambiguous position "canonical" while having exactly the same shape, so a shape-based
+ * guard alone would have kept serving it. Rows of an older generation are purged at startup.
+ */
+export const CACHE_SCHEMA_VERSION = "v6";
 export const DATA_SOURCES_VERSION = {
   dbnsfp: "4.4a",
   gnomad: "v4.1.0",
@@ -155,7 +162,34 @@ export function buildRefSeqProteinKey(proteinAccession: string): string {
   return `refseq_protein_${proteinAccession.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
-/** Cache key for a UniProt entry's isoform sequences (immutable reference data). */
+/**
+ * Cache key for a UniProt entry's isoform sequences (immutable reference data).
+ *
+ * Every key here carries `CACHE_SCHEMA_VERSION`: a payload-shape change must not be served from the
+ * previous shape's entry, and two keys added without the suffix in the same session proved how easily
+ * that rule is missed.
+ */
 export function buildUniprotIsoformKey(uniprotId: string): string {
   return `uniprot_isoforms_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
+/** Cache key for the MANE-Select cross-reference lookup of an entry. */
+export function buildManeIsoformKey(uniprotId: string): string {
+  return `uniprot_mane_isoform_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
+/** Cache key for the displayed-isoform lookup of an entry. */
+export function buildDisplayedIsoformKey(uniprotId: string): string {
+  return `uniprot_displayed_isoform_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
+/**
+ * Cache key for a gene's numbering profile (which positions a bare notation cannot disambiguate).
+ *
+ * Schema-suffixed like every other key: a profile whose shape changes must not be served from the
+ * previous shape's entry for a month, because an absent `ambiguous` list reads as "nothing is
+ * ambiguous" — a silent wrong-residue answer rather than a stale-display problem.
+ */
+export function buildNumberingProfileKey(uniprotId: string): string {
+  return `numbering_profile_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
