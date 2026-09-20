@@ -23,12 +23,27 @@ export default function NumberingChoicePrompt({
   choices: NumberingChoice[];
   onChoose: (choice: NumberingChoice) => void;
 }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  /**
+   * Takes focus when it appears, and announces itself (`role="alert"`).
+   *
+   * The prompt is inserted ABOVE the fields while the Analyze button is at the bottom, so a keyboard
+   * user who pressed Enter would otherwise re-submit the same refused notation; focus lands on the
+   * question instead, and a screen reader is told the question exists.
+   */
+  React.useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
+
   return (
     <div
-      role="group"
+      ref={containerRef}
+      role="alert"
+      tabIndex={-1}
       aria-label="Choose the numbering for this notation"
       data-testid="numbering-choice-prompt"
-      className="rounded-lg border px-3 py-3 flex flex-col gap-2"
+      className="rounded-lg border px-3 py-3 flex flex-col gap-2 outline-none"
       style={{
         borderColor: "var(--cs-border-strong, var(--cs-border))",
         background: "var(--cs-surface)",

@@ -599,13 +599,15 @@ function VariantSearchPanel({
               </div>
 
               <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
-                {result?.numberingChoices?.length &&
+                {result?.numberingChoices &&
                 /**
-                 * Only while the inputs still match the run that produced the refusal. `numberingChoices`
-                 * lives on the last result, and the fields are store-bound, so without this check a reader
-                 * could edit the gene/notation and then answer a question about the PREVIOUS one —
-                 * submitting the old candidates against new inputs.
+                 * Two readings minimum: a single "choice" is not a decision, and the refusal message
+                 * already names it. Plus: only while the inputs still match the run that produced the
+                 * refusal — `numberingChoices` lives on the last result and the fields are store-bound,
+                 * so without this a reader could edit the notation and then answer a question about the
+                 * previous one.
                  */
+                result.numberingChoices.length >= 2 &&
                 (result.numberingNotation ?? "") === customVariant.trim() &&
                 (result.metadata?.gene ?? "") === customGene.trim() &&
                 (result.metadata?.uniprotId ?? "") === customUniprot.trim() ? (

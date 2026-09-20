@@ -35,7 +35,8 @@ export interface NumberingAmbiguity {
   position: number;
   /** What that same substitution is at canonical numbering. */
   canonicalPosition: number;
-  maneIsoformId: string;
+  /** Isoform whose numbering produces this second reading. */
+  basisIsoformId: string;
   maneProteinId?: string;
 }
 
@@ -68,6 +69,16 @@ export interface NumberingProfile {
    */
   ambiguous: NumberingAmbiguity[];
   /**
+   * Positions the MANE pair agrees on, but where ANOTHER isoform also carries the same residue at a
+   * different canonical position.
+   *
+   * Not a refusal — the scope for a bare notation is canonical-vs-MANE — but not a clean bill either:
+   * a report numbered on that isoform would mean a different residue. Kept separate from `ambiguous`
+   * so the caller can accept the canonical reading and DISCLOSE this, instead of claiming a
+   * verification that only covered the MANE pair.
+   */
+  contested: NumberingAmbiguity[];
+  /**
    * Positions where the two proteins carry the SAME residue but the second reading could not be
    * located (it lies inside the region where the proteins differ).
    *
@@ -94,7 +105,7 @@ export interface NumberingProfile {
  * wrong while the shape is identical (it was — the affix fix changes findings, not fields), and such a
  * row would otherwise be served for its full TTL.
  */
-export const NUMBERING_PROFILE_BUILD_VERSION = 2;
+export const NUMBERING_PROFILE_BUILD_VERSION = 3;
 
 /** UniProt releases move isoform sets; a month is the same horizon as the other UniProt caches. */
 export const NUMBERING_PROFILE_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -144,6 +155,7 @@ export function buildNumberingProfile(params: {
     maneNumberingDiffers: false,
     maneIdentified: Boolean(maneBasis),
     ambiguous: [],
+    contested: [],
     unverifiable: [],
     coincidencesChecked: 0,
     computedAt: new Date().toISOString(),
@@ -161,33 +173,65 @@ export function buildNumberingProfile(params: {
   }
 
   const ambiguous: NumberingAmbiguity[] = [];
-  const unverifiable: number[] = [];
+  const contested: NumberingAmbiguity[] = [];
+  const unverifiable = new Set<number>();
+  const ambiguousPositions = new Set<number>();
   let coincidencesChecked = 0;
 
-  for (let position = 1; position <= maneBasis.sequence.length; position++) {
-    if (maneBasis.sequence[position - 1] !== canonical.sequence[position - 1]) continue;
-    const mapped = mapPositionAcrossSequences({
-      basisSequence: maneBasis.sequence,
-      canonicalSequence: canonical.sequence,
-      position,
-    });
-    if (mapped.status !== "mapped") {
-      // The same residue, and the second reading could not be located: NOT proof that only the
-      // canonical reading fits. Recorded so the caller answers "unverified" instead of "verified".
-      unverifiable.push(position);
-      continue;
+  /**
+   * Every isoform is scanned, not just MANE: a position the MANE pair agrees on can still be read
+   * differently by another isoform, and calling that "verified" would claim a check that only covered
+   * one pair. Those become `contested` (disclosed), never `ambiguous` (refused), because a bare
+   * notation in practice comes from the canonical or MANE numbering.
+   */
+  for (const basis of bases) {
+    if (basis.kind === "canonical") continue;
+    const isManeBasis = maneBasis !== undefined && basis.id.toUpperCase() === maneBasis.id.toUpperCase();
+
+    for (let position = 1; position <= basis.sequence.length; position++) {
+      if (basis.sequence[position - 1] !== canonical.sequence[position - 1]) continue;
+      const mapped = mapPositionAcrossSequences({
+        basisSequence: basis.sequence,
+        canonicalSequence: canonical.sequence,
+        position,
+      });
+      if (mapped.status !== "mapped") {
+        // The same residue, and this reading could not be located: NOT proof that only the canonical
+        // reading fits. Recorded so the caller answers "unverified" instead of "verified".
+        unverifiable.add(position);
+        continue;
+      }
+      if (isManeBasis) coincidencesChecked++;
+      if (mapped.mapping.canonicalPosition === position) continue;
+
+      if (isManeBasis) {
+        ambiguousPositions.add(position);
+        ambiguous.push({
+          position,
+          canonicalPosition: mapped.mapping.canonicalPosition,
+          basisIsoformId: basis.id,
+          maneProteinId,
+        });
+      } else if (!contested.some((entry) => entry.position === position)) {
+        contested.push({
+          position,
+          canonicalPosition: mapped.mapping.canonicalPosition,
+          basisIsoformId: basis.id,
+        });
+      }
     }
-    coincidencesChecked++;
-    if (mapped.mapping.canonicalPosition === position) continue;
-    ambiguous.push({
-      position,
-      canonicalPosition: mapped.mapping.canonicalPosition,
-      maneIsoformId: maneBasis.id,
-      maneProteinId,
-    });
   }
 
-  return { ...base, maneNumberingDiffers: true, ambiguous, unverifiable, coincidencesChecked };
+  return {
+    ...base,
+    maneNumberingDiffers: true,
+    ambiguous,
+    // A position already refused as ambiguous is not merely "contested": the refusal is the stronger,
+    // more useful answer, and reporting both would offer a choice the reader cannot resolve.
+    contested: contested.filter((entry) => !ambiguousPositions.has(entry.position)),
+    unverifiable: [...unverifiable].sort((a, b) => a - b),
+    coincidencesChecked,
+  };
 }
 
 function isUsableProfile(profile: NumberingProfile | null | undefined, key: string): profile is NumberingProfile {
@@ -203,15 +247,25 @@ function isUsableProfile(profile: NumberingProfile | null | undefined, key: stri
       // An ABSENT coverage list is the one payload that must never be served: it reads as "nothing is
       // ambiguous" and "nothing was unchecked" at once.
       Array.isArray(profile.ambiguous) &&
+      Array.isArray(profile.contested) &&
       Array.isArray(profile.unverifiable) &&
-      profile.ambiguous.every(
-        (entry) =>
-          entry &&
-          Number.isInteger(entry.position) &&
-          Number.isInteger(entry.canonicalPosition) &&
-          typeof entry.maneIsoformId === "string"
+      [profile.ambiguous, profile.contested].every((list) =>
+        list.every(
+          (entry) =>
+            entry &&
+            Number.isInteger(entry.position) &&
+            Number.isInteger(entry.canonicalPosition) &&
+            typeof entry.basisIsoformId === "string"
+        )
       ) &&
-      profile.unverifiable.every((position) => Number.isInteger(position))
+      profile.unverifiable.every((position) => Number.isInteger(position)) &&
+      /**
+       * Age is checked HERE as well as by the cache TTL. `computedAt` was written and never read, which
+       * left a mis-set TTL (or a future caller bypassing the cache) free to serve a stale profile — the
+       * unsafe direction, since a newly ambiguous position would be reported as verified.
+       */
+      Number.isFinite(Date.parse(profile.computedAt)) &&
+      Date.now() - Date.parse(profile.computedAt) <= NUMBERING_PROFILE_TTL_SECONDS * 1000
   );
 }
 

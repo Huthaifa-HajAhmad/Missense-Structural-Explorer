@@ -18,11 +18,12 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
 /**
  * Payload-shape generation for every persisted cache key.
  *
- * Bumped to v6 with the numbering-profile COVERAGE change: a profile built by the previous build can
- * call a genuinely ambiguous position "canonical" while having exactly the same shape, so a shape-based
- * guard alone would have kept serving it. Rows of an older generation are purged at startup.
+ * v7 adds the numbering profile's `contested` coverage list and renames its per-entry basis field.
+ * Bumped with every shape OR finding change: a profile built by the previous build can call a
+ * genuinely ambiguous position "canonical" while having exactly the same shape, so a shape-based guard
+ * alone would have kept serving it. Rows of an older generation are purged at startup.
  */
-export const CACHE_SCHEMA_VERSION = "v6";
+export const CACHE_SCHEMA_VERSION = "v7";
 export const DATA_SOURCES_VERSION = {
   dbnsfp: "4.4a",
   gnomad: "v4.1.0",

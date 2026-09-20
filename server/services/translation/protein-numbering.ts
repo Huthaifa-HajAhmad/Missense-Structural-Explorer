@@ -310,6 +310,10 @@ export function withNumberingBudget<T>(
   onExpire?: () => void
 ): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // A non-positive budget must not silently DISABLE the check (a public option can be passed 0), and
+  // "no bound" is exactly the failure this function exists to prevent. Fall back to the default.
+  const effectiveBudgetMs =
+    Number.isFinite(budgetMs) && budgetMs > 0 ? budgetMs : NUMBERING_VERIFICATION_BUDGET_MS;
   const expiry = new Promise<null>((resolve) => {
     timer = setTimeout(() => {
       try {
@@ -318,7 +322,7 @@ export function withNumberingBudget<T>(
         // An abort that throws must not swallow the "unverified" outcome.
       }
       resolve(null);
-    }, budgetMs);
+    }, effectiveBudgetMs);
   });
   return Promise.race<T | null>([work, expiry]).finally(() => {
     if (timer) clearTimeout(timer);
@@ -369,9 +373,7 @@ export async function resolveGeneProteinNumbering(params: {
           status: "canonical",
           canonicalAccession,
           canonicalVariant: `p.${substitution.wt3}${substitution.position}${substitution.mut3}`,
-          basisId: profile.maneIsoformId && isCanonicalIsoformId(profile.maneIsoformId, canonicalAccession)
-            ? canonicalAccession
-            : canonicalAccession,
+          basisId: canonicalAccession,
           basisKind: "canonical",
           geneSymbol: gene,
         });
@@ -399,31 +401,56 @@ export async function resolveGeneProteinNumbering(params: {
         }
 
         const collision = profile.ambiguous.find((entry) => entry.position === substitution.position);
-        if (!collision) return canonicalOutcome();
+        if (collision) {
+          return {
+            status: "ambiguous",
+            canonicalAccession,
+            geneSymbol: gene,
+            candidates: [
+              {
+                basisId: canonicalAccession,
+                basisKind: "canonical",
+                basisPosition: substitution.position,
+                canonicalPosition: substitution.position,
+                variant: `p.${substitution.wt3}${substitution.position}${substitution.mut3}`,
+                anchorLength: 0,
+              },
+              {
+                basisId: collision.basisIsoformId,
+                basisKind: "isoform",
+                basisPosition: substitution.position,
+                canonicalPosition: collision.canonicalPosition,
+                variant: notationAtCanonicalPosition(notation, collision.canonicalPosition),
+                anchorLength: 0,
+              },
+            ],
+          };
+        }
 
-        return {
-          status: "ambiguous",
-          canonicalAccession,
-          geneSymbol: gene,
-          candidates: [
-            {
-              basisId: canonicalAccession,
-              basisKind: "canonical",
-              basisPosition: substitution.position,
-              canonicalPosition: substitution.position,
-              variant: `p.${substitution.wt3}${substitution.position}${substitution.mut3}`,
-              anchorLength: 0,
-            },
-            {
-              basisId: collision.maneIsoformId,
-              basisKind: "isoform",
-              basisPosition: substitution.position,
-              canonicalPosition: collision.canonicalPosition,
-              variant: notationAtCanonicalPosition(notation, collision.canonicalPosition),
-              anchorLength: 0,
-            },
-          ],
-        };
+        /**
+         * A position the MANE pair agrees on, but ANOTHER isoform also reads.
+         *
+         * The scope for resolving a bare notation is canonical-vs-MANE (that is what a lab reports), so
+         * this is not a refusal — but it is not a clean bill either: a report numbered on that isoform
+         * would mean a different canonical residue. `numberingVerified: true` would assert a check of
+         * something that was never checked, so the reading is accepted and DISCLOSED, naming the isoform
+         * and the other residue it implies.
+         */
+        const contested = profile.contested.find((entry) => entry.position === substitution.position);
+        if (contested) {
+          return {
+            status: "unverified",
+            canonicalAccession,
+            basisAccession: gene,
+            geneSymbol: gene,
+            reason:
+              `isoform ${contested.basisIsoformId} also carries this residue at position ` +
+              `${substitution.position}, which is canonical ${contested.canonicalPosition} — a report ` +
+              `numbered on that isoform would mean a different residue`,
+          };
+        }
+
+        return canonicalOutcome();
       }
     }
 

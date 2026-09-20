@@ -1,5 +1,6 @@
 import React from "react";
 import { PdbHomolog, NearestResidue, DisruptionPredictorResult } from "../../types";
+import type { NumberingRemapRecord } from "../../shared/contracts";
 
 export interface TraceContext {
   activeTraceId: string | null;
@@ -104,11 +105,7 @@ export interface TranslatedVariantResult {
      * (the only sequence with a modellable structure). Carried through so reports can disclose
      * both notations rather than silently presenting a different residue number.
      */
-    numberingRemap?: {
-      reason: string;
-      from: { hgvsp?: string; transcriptId?: string; isoform?: string; maneRefSeqId?: string };
-      to: { hgvsp?: string; transcriptId?: string; isoform?: string };
-    };
+    numberingRemap?: NumberingRemapRecord;
     /** Genome build the notation was resolved against (from an inline "(GRCh38)" annotation). */
     assembly?: string;
     /** Explanation emitted when an inline assembly annotation redirected the query. */

@@ -173,6 +173,31 @@ export const translateVariantRequestSchema = z.object({
   variant: z.string()
 });
 
+/**
+ * The numbering-remap record, declared ONCE.
+ *
+ * It was written out four times (two Zod schemas and two pipeline copies) and they disagreed: the
+ * pipeline copies omitted `from.accession`, which is how that field came to be silently stripped from
+ * the audit record. Every consumer now derives from this declaration.
+ */
+export const numberingRemapSchema = z.object({
+  reason: z.string(),
+  from: z.object({
+    hgvsp: z.string().optional(),
+    transcriptId: z.string().optional(),
+    isoform: z.string().optional(),
+    maneRefSeqId: z.string().optional(),
+    /** Protein accession the ORIGINAL notation was numbered on, when it named one. */
+    accession: z.string().optional(),
+  }),
+  to: z.object({
+    hgvsp: z.string().optional(),
+    transcriptId: z.string().optional(),
+    isoform: z.string().optional(),
+  }),
+});
+export type NumberingRemapRecord = z.infer<typeof numberingRemapSchema>;
+
 export const translateVariantResponseSchema = z.object({
   gene: z.string(),
   variant: z.string(),
@@ -211,29 +236,7 @@ export const translateVariantResponseSchema = z.object({
    * isoform, because the upstream structural pipeline (AlphaFold DB / PDB) models only
    * canonical sequences. Records both notations so a report can state what changed.
    */
-  numberingRemap: z
-    .object({
-      reason: z.string(),
-      from: z.object({
-        hgvsp: z.string().optional(),
-        transcriptId: z.string().optional(),
-        isoform: z.string().optional(),
-        maneRefSeqId: z.string().optional(),
-        /**
-         * Protein accession the ORIGINAL notation was numbered on, when it named one
-         * (`NP_001032248.1`). Distinct from `isoform` (`Q9Y305-4`): for an accession-qualified
-         * input it is the identifier a lab report used, and dropping it from this schema silently
-         * removed it from the audit record on the client.
-         */
-        accession: z.string().optional(),
-      }),
-      to: z.object({
-        hgvsp: z.string().optional(),
-        transcriptId: z.string().optional(),
-        isoform: z.string().optional(),
-      }),
-    })
-    .optional(),
+  numberingRemap: numberingRemapSchema.optional(),
   genomicCoordinates: z.string().nullable().optional(),
   /** Genome build the notation was resolved against, from an inline "(GRCh38)" annotation. */
   assembly: z.enum(["GRCh37", "GRCh38"]).optional(),
@@ -897,24 +900,7 @@ export const analyzeVariantResponseSchema = z.object({
    */
   numberingVerified: z.boolean().nullable().optional(),
   numberingUnverifiedReason: z.string().nullable().optional(),
-  numberingRemap: z
-    .object({
-      reason: z.string(),
-      from: z.object({
-        hgvsp: z.string().optional(),
-        transcriptId: z.string().optional(),
-        isoform: z.string().optional(),
-        maneRefSeqId: z.string().optional(),
-        accession: z.string().optional(),
-      }),
-      to: z.object({
-        hgvsp: z.string().optional(),
-        transcriptId: z.string().optional(),
-        isoform: z.string().optional(),
-      }),
-    })
-    .nullable()
-    .optional(),
+  numberingRemap: numberingRemapSchema.nullable().optional(),
   gnomadFrequency: z.object({
     maxAF: z.number().nullable(),
     groupMaxAF: z.number().nullable().optional(),
@@ -1068,17 +1054,7 @@ export interface TranscriptMetadata {
    * decision, not on a provider's metadata.
    */
   numberingDisambiguated?: boolean | null;
-  numberingRemap?: {
-    reason: string;
-    from: {
-      hgvsp?: string;
-      transcriptId?: string;
-      isoform?: string;
-      maneRefSeqId?: string;
-      accession?: string;
-    };
-    to: { hgvsp?: string; transcriptId?: string; isoform?: string };
-  } | null;
+  numberingRemap?: NumberingRemapRecord | null;
 }
 
 export type AcmgVerdict = "Pathogenic" | "Likely Pathogenic" | "VUS" | "Likely Benign" | "Benign";

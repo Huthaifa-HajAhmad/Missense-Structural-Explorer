@@ -1,4 +1,4 @@
-import type { NumberingChoice } from "../../shared/contracts";
+import type { NumberingChoice, NumberingRemapRecord } from "../../shared/contracts";
 
 export interface AnalysisVersionInfo {
   thresholds: string;
@@ -28,11 +28,7 @@ export interface PipelineStateBaseParams {
     numberingVerified?: boolean | null;
     numberingUnverifiedReason?: string | null;
     /** Record of a MANE → canonical renumbering, for reports that must state both notations. */
-    numberingRemap?: {
-      reason: string;
-      from: { hgvsp?: string; transcriptId?: string; isoform?: string; maneRefSeqId?: string };
-      to: { hgvsp?: string; transcriptId?: string; isoform?: string };
-    } | null;
+    numberingRemap?: NumberingRemapRecord | null;
   } | null;
 }
 

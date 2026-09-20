@@ -73,7 +73,11 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   ```
 * **Numbering verification**: before anything is modelled, the residue is checked against the gene's isoform model, because a bare notation's numbers may belong to the MANE protein rather than the canonical sequence (they differ by an offset, and at some positions the wild-type letter coincides while the residue is elsewhere). The check is bounded (2.5s) and advisory, and its outcome travels with the result on BOTH the JSON response and the `analyze-variant/stream` chunks:
   - `numberingVerified: false` plus `numberingUnverifiedReason` (prose twin in `transcriptWarning`) — the check could not be completed, so the numbering is disclosed, never asserted, and never cached;
-  - `numberingVerified: true` — no other reading of that position exists;
+  - `numberingVerified: true` — no other reading of that position exists *within the scope checked*
+    (canonical versus the MANE protein, the pair a report uses). When ANOTHER isoform of the gene also
+    reads the position at a different canonical residue, the canonical reading is still accepted but
+    reported as `numberingVerified: false` with a reason naming that isoform — the alternative would be
+    to assert a verification that only ever compared one pair;
   - `numberingDisambiguated: true` — the caller answered an `AMBIGUOUS_PROTEIN_NUMBERING` refusal with `numberingBasis: "canonical"`, so the numbering was CHOSEN. A report should say so: the residue numbers rest on a human decision rather than a provider's metadata.
   Optional request field `numberingBasis: "canonical"` carries that decision; it is only honoured when the canonical reading is consistent with the sequence (it cannot settle a wild-type mismatch).
 * **Description**: Coordinates multi-modal fetches (ClinVar, gnomAD, VEP predictors, MyVariant.info, STRING network) and passes the curated evidence profile to Gemini for structured clinical-narrative analysis.

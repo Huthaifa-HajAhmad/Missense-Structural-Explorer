@@ -344,6 +344,58 @@ describe("resolveGeneProteinNumbering (bare protein notation + gene)", () => {
     expect(outcome?.status).toBe("canonical");
   });
 
+  it("discloses a position ANOTHER isoform reads, instead of claiming it verified", async () => {
+    /**
+     * The bare-notation scope is canonical-vs-MANE (what a lab reports), so a position the MANE pair
+     * agrees on is not a refusal. But if another isoform also carries that residue at a different
+     * canonical position, `numberingVerified: true` would assert a check that only covered one pair.
+     *
+     * Constructed so each basis collides at exactly one position, past both insertion points:
+     *   canonical   MARRDR G F F H K L P L MNPQRSTVWY
+     *   MANE  (+GG) …        └─ position 14: c[11]=L = c[13] → two readings (14 vs canonical 12)
+     *   other (+G)  …          position 9: c[7]=F = c[8]  → two readings (9 vs canonical 8)
+     * MANE's inserted G differs from canonical at position 9, so that one is contested-only, and a
+     * third position is read by neither.
+     */
+    const canonical = "MARRDRGFFHKLPLMNPQRSTVWY";
+    const mane = withInsertion(canonical, 3, "GG");
+    const other = withInsertion(canonical, 3, "G");
+    fetchSpy = installFetch({
+      fasta:
+        `>sp|P00001|TESTGENE_HUMAN\n${canonical}\n` +
+        `>sp|P00001-2|TESTGENE_HUMAN Isoform 2\n${mane}\n` +
+        `>sp|P00001-3|TESTGENE_HUMAN Isoform 3\n${other}\n`,
+      mane: { proteinId: "NP_000001.1", isoformId: "P00001-2" },
+    });
+
+    const contested = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Phe9Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+    expect(contested?.status).toBe("unverified");
+    expect(contested?.reason).toContain("P00001-3");
+    expect(contested?.reason).toContain("different residue");
+
+    const maneAmbiguous = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Leu14Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+    expect(maneAmbiguous?.status).toBe("ambiguous");
+
+    // Read by neither basis, so the canonical answer keeps its verified claim.
+    const verified = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Ser20Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+    expect(verified?.status).toBe("canonical");
+  });
+
   it("returns null (not an error) when UniProt cannot be reached, so callers keep working", async () => {
     fetchSpy = installFetch({ fasta: new Error("network down") });
 

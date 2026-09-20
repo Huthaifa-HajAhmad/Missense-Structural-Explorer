@@ -293,6 +293,12 @@ export async function executeFullAnalysisWorkflow({
         cached.analysisResult?.analysis &&
         !cached.analysisResult.analysis.includes("in progress") &&
         !needsNarrativeBackfill &&
+        /**
+         * A result that carries numbering CHOICES is an unanswered refusal, not a completed analysis.
+         * Caching one (the report bar re-synthesises whatever is on screen) and restoring it later would
+         * put a stale prompt back on screen and skip the run that would answer it.
+         */
+        !cached.analysisResult.numberingChoices?.length &&
         (cached.analysisResult.predictorData || cached.analysisResult.insights)
       );
 
