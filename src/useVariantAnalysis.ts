@@ -79,6 +79,9 @@ export default function useVariantAnalysis() {
         },
         serverGeminiReady,
         userDirections: currentStore.userDirections,
+        // A reader's numbering decision applies to the run they made it for; the store clears it when
+        // the notation changes, so it can never leak onto a later, different query.
+        ...(currentStore.numberingBasis ? { numberingBasis: currentStore.numberingBasis } : {}),
         sinks: {
           search: {
             setGene: currentStore.setGene,

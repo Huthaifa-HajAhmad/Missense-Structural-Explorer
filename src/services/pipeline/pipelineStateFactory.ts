@@ -1,3 +1,5 @@
+import type { NumberingChoice } from "../../shared/contracts";
+
 export interface AnalysisVersionInfo {
   thresholds: string;
   geminiModel: string;
@@ -176,7 +178,16 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
 /**
  * Generates a graceful biophysical error state if predictor query fails.
  */
-export function createBiophysicalErrorAnalysisState(errorMessage: string, params: PipelineStateBaseParams) {
+export function createBiophysicalErrorAnalysisState(
+  errorMessage: string,
+  params: PipelineStateBaseParams,
+  /**
+   * The readings of a notation that could not be resolved by residue number alone. The biophysical
+   * catch is where the analysis refusal actually lands (`fetchBiophysicalAnalysis` rejects and is
+   * consumed by a `.catch`, never by an enclosing try), so the choice has to be attached HERE.
+   */
+  extra?: { numberingChoices?: NumberingChoice[]; numberingNotation?: string }
+) {
   const { gene, variant, uniprotId, residueIndex, wildType, mutant, transcriptMeta } = params;
 
   return {
@@ -187,6 +198,12 @@ export function createBiophysicalErrorAnalysisState(errorMessage: string, params
       insights: null,
       isDemoData: false,
       ruleBasedInsights: null,
+      ...(extra?.numberingChoices?.length
+        ? {
+            numberingChoices: extra.numberingChoices,
+            numberingNotation: extra.numberingNotation ?? variant,
+          }
+        : {}),
       metadata: {
         gene,
         variant,
@@ -226,7 +243,13 @@ export function createBiophysicalErrorAnalysisState(errorMessage: string, params
  */
 export function createTopLevelErrorAnalysisState(
   errorMessage: string,
-  params: PipelineStateBaseParams
+  params: PipelineStateBaseParams,
+  /**
+   * The readings of a notation that could not be resolved by residue number alone. Passed through to
+   * the result so the UI can offer a choice: the refusal is a question, and a question with no way to
+   * answer it is just a dead end.
+   */
+  extra?: { numberingChoices?: NumberingChoice[]; numberingNotation?: string }
 ) {
   const { gene, variant, uniprotId, residueIndex, wildType, mutant } = params;
 
@@ -235,6 +258,12 @@ export function createTopLevelErrorAnalysisState(
     error: `Analysis query error: ${errorMessage || "Unknown error."}`,
     result: {
       isDemoData: false,
+      ...(extra?.numberingChoices?.length
+        ? {
+            numberingChoices: extra.numberingChoices,
+            numberingNotation: extra.numberingNotation ?? variant,
+          }
+        : {}),
       metadata: {
         gene,
         variant,

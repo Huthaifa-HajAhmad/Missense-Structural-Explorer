@@ -29,6 +29,8 @@ import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/V
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
 import { needsNotationResolution, classifyNotation, ACCEPTED_NOTATION_EXAMPLES, type NotationKind } from "../shared/variantNotation.ts";
+import NumberingChoicePrompt from "./NumberingChoicePrompt";
+import type { NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
@@ -424,6 +426,26 @@ function VariantSearchPanel({
     handleSearchSubmit(e);
   };
 
+  /**
+   * Answers the numbering prompt: record the decision, put the chosen notation in the Variant field
+   * and run.
+   *
+   * Order matters — `setCustomVariant` CLEARS any previous decision (a decision belongs to one
+   * notation), so the basis is set after it. The canonical reading additionally sends
+   * `numberingBasis: "canonical"`, because re-submitting the bare string alone is refused again: the
+   * route cannot tell an answered question from an unanswered one. The other readings need nothing,
+   * as each is already expressed in canonical numbering.
+   *
+   * The genomic field is cleared because `handleSearchSubmit` prefers it when it has content, which
+   * would silently ignore the choice the reader just made.
+   */
+  const chooseNumbering = (choice: NumberingChoice) => {
+    actions.setCustomVariant(choice.variant);
+    if (choice.basisKind === "canonical") actions.setNumberingBasis("canonical");
+    actions.setCustomGenomic("");
+    onFormSubmit({ preventDefault() {} } as React.FormEvent);
+  };
+
   // Parsed verdicts, shown so the routing the form already performs is visible rather than
   // implied. Routing itself goes through `needsNotationResolution`, so the badge can describe the
   // parser but can never disagree with it.
@@ -577,6 +599,22 @@ function VariantSearchPanel({
               </div>
 
               <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
+                {result?.numberingChoices?.length &&
+                /**
+                 * Only while the inputs still match the run that produced the refusal. `numberingChoices`
+                 * lives on the last result, and the fields are store-bound, so without this check a reader
+                 * could edit the gene/notation and then answer a question about the PREVIOUS one —
+                 * submitting the old candidates against new inputs.
+                 */
+                (result.numberingNotation ?? "") === customVariant.trim() &&
+                (result.metadata?.gene ?? "") === customGene.trim() &&
+                (result.metadata?.uniprotId ?? "") === customUniprot.trim() ? (
+                  <NumberingChoicePrompt
+                    notation={result.numberingNotation ?? customVariant}
+                    choices={result.numberingChoices}
+                    onChoose={chooseNumbering}
+                  />
+                ) : null}
                 {/* Row 1: Gene + Variant */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">

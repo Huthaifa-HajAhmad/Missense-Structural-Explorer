@@ -14,6 +14,20 @@ import {
 export interface UniprotCacheOptions {
   l1Cache?: LRUCache<string, any>;
   bypassSqlite?: boolean;
+  /**
+   * Cancels the underlying request when the caller stops waiting.
+   *
+   * The numbering VERIFICATION is bounded by a short budget and is only advisory, so abandoning it
+   * must actually stop the work: an orphaned fetch kept retrying for up to its own ~65s envelope,
+   * holding a per-host semaphore slot (5 of them starved real UniProt traffic) and booking breaker
+   * failures that ejected a healthy provider for the whole cooldown.
+   */
+  signal?: AbortSignal;
+  /**
+   * True when the timeout is the CALLER's cap rather than this caller's tolerance for the provider,
+   * so a timeout must not be booked against the provider's health.
+   */
+  cappedByCaller?: boolean;
 }
 
 export async function resolveGeneToUniprot(gene: string, options?: UniprotCacheOptions): Promise<string | null> {
@@ -118,7 +132,11 @@ export async function fetchUniprotIsoforms(
       const url =
         `https://rest.uniprot.org/uniprotkb/stream?query=accession:${encodeURIComponent(key)}` +
         `&format=fasta&includeIsoform=true`;
-      const response = await fetchWithRetry(url, { timeout: 20000 });
+      const response = await fetchWithRetry(url, {
+        timeout: 20000,
+        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
+      });
       if (!response.ok) {
         throw new Error(`Failed to fetch UniProt isoforms for ${key} (status ${response.status})`);
       }
@@ -222,6 +240,8 @@ export async function resolveRefSeqProtein(
       const response = await fetchWithRetry(url, {
         headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
         timeout: 15000,
+        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
       });
 
       if (response.status === 400 || response.status === 404) {
@@ -297,7 +317,7 @@ export async function fetchManeIsoformId(
       // and it is cached for 30 days.
       const response = await fetchWithRetry(
         `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(key)}.json`,
-        { headers: { Accept: "application/json" }, timeout: 15000 }
+        { headers: { Accept: "application/json" }, timeout: 15000, ...(options?.signal ? { signal: options.signal } : {}), ...(options?.cappedByCaller ? { cappedByCaller: true } : {}) }
       );
       if (!response.ok) {
         throw new Error(`UniProt entry lookup failed with status ${response.status}`);
@@ -358,7 +378,7 @@ export async function fetchDisplayedIsoformId(
     fetcher: async () => {
       const response = await fetchWithRetry(
         `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(key)}.json?fields=cc_alternative_products`,
-        { headers: { Accept: "application/json" }, timeout: 15000 }
+        { headers: { Accept: "application/json" }, timeout: 15000, ...(options?.signal ? { signal: options.signal } : {}), ...(options?.cappedByCaller ? { cappedByCaller: true } : {}) }
       );
       if (!response.ok) {
         throw new Error(`UniProt entry lookup failed with status ${response.status}`);

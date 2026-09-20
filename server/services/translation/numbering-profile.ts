@@ -221,7 +221,7 @@ function isUsableProfile(profile: NumberingProfile | null | undefined, key: stri
  */
 export async function getNumberingProfile(
   canonicalAccession: string,
-  options?: { bypassSqlite?: boolean }
+  options?: { bypassSqlite?: boolean; signal?: AbortSignal; cappedByCaller?: boolean }
 ): Promise<NumberingProfile | null> {
   const key = canonicalAccession.trim().toUpperCase();
   return getCachedOrFetch<NumberingProfile | null>({

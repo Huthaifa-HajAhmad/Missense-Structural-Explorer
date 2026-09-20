@@ -224,6 +224,13 @@ export function generateOpenApiSpec() {
                       "strict-structural"
                     ],
                     "default": "standard"
+                  },
+                  "numberingBasis": {
+                    "type": "string",
+                    "enum": [
+                      "canonical"
+                    ],
+                    "description": "The reader's answer to an `AMBIGUOUS_PROTEIN_NUMBERING` refusal: these residue numbers ARE canonical numbering. Re-submitting the bare notation without it is refused again, so this is the only way to select the canonical reading of a genuinely ambiguous position. Honoured only when the canonical reading is consistent with the sequence, and reported back as `numberingDisambiguated`."
                   }
                 }
               }
@@ -240,6 +247,18 @@ export function generateOpenApiSpec() {
                   "properties": {
                     "ruleBasedInsights": {
                       "type": "object"
+                    },
+                    "numberingVerified": {
+                      "type": "boolean",
+                      "description": "False when the residue's numbering could not be verified across the gene's isoforms (see `numberingUnverifiedReason`); absent when the route established nothing. Carried on the streaming chunks too."
+                    },
+                    "numberingUnverifiedReason": {
+                      "type": "string",
+                      "description": "Machine-readable reason the numbering is unverified; the prose twin is `transcriptWarning`."
+                    },
+                    "numberingDisambiguated": {
+                      "type": "boolean",
+                      "description": "True when the caller answered an ambiguity refusal with `numberingBasis: \"canonical\"`, so the numbering was CHOSEN rather than derived. A report should state which."
                     },
                     "clinvar": {
                       "type": "object",

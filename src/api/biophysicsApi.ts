@@ -2,7 +2,7 @@ import {
   biophysicalAnalysisResponseSchema,
   BiophysicalAnalysisResponse
 } from "../shared/contracts";
-import { extractErrorMessage, FetchWithAuth } from "./authSession";
+import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 
 export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
   return {
@@ -18,8 +18,10 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         signal
       });
       if (!res.ok) {
-        const errorMsg = await extractErrorMessage(res, "Failed to get biophysical analysis");
-        throw new Error(errorMsg);
+        // `extractApiError` rather than `extractErrorMessage`: the analysis route refuses a
+        // genuinely ambiguous protein notation with `code` + `details.candidates`, and flattening it
+        // to a string here is what turned that decision into a dead end.
+        throw await extractApiError(res, "Failed to get biophysical analysis");
       }
       const data = await res.json();
       return biophysicalAnalysisResponseSchema.parse(data);
@@ -38,8 +40,10 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         signal
       });
       if (!res.ok) {
-        const errorMsg = await extractErrorMessage(res, "Failed to stream biophysical analysis");
-        throw new Error(errorMsg);
+        // The pipeline PREFERS this method whenever it exists (it always does), so flattening the
+        // error here is what made the ambiguity refusal unreachable: `code` and `details.candidates`
+        // never survived to a component that could offer the reader a choice.
+        throw await extractApiError(res, "Failed to stream biophysical analysis");
       }
 
       const reader = res.body?.getReader();

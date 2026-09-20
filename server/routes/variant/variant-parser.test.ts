@@ -190,6 +190,52 @@ describe("analysis path — protein notation handling", () => {
     expect(context?.numberingWarning).toContain("Numbering not verified");
   });
 
+  it("ACCEPTS the canonical reading when the reader confirms it, instead of looping", async () => {
+    // The refusal is a question, and `numberingBasis: "canonical"` is the answer. Without it the
+    // canonical candidate's variant is byte-identical to the input, so re-submitting it was refused
+    // identically — the canonical reading was unselectable and the prompt looped forever.
+    fetchSpy = installFetch();
+
+    const { context, statusCode } = await parse({
+      gene: "ACOT9",
+      variant: "p.Asp85Phe",
+      uniprotId: "Q9Y305",
+      numberingBasis: "canonical",
+    });
+
+    expect(statusCode).toBe(200);
+    expect(context?.numberingVerified).toBe(true);
+    expect(context?.numberingDisambiguated).toBe(true);
+    expect(context?.numberingWarning).toBeUndefined();
+  });
+
+  it("still refuses the same notation when nothing was confirmed", async () => {
+    fetchSpy = installFetch();
+
+    const { statusCode } = await parse({
+      gene: "ACOT9",
+      variant: "p.Asp85Phe",
+      uniprotId: "Q9Y305",
+    });
+
+    expect(statusCode).toBe(422);
+  });
+
+  it("does not let a confirmation settle a WILD-TYPE MISMATCH", async () => {
+    // At the mismatch site the canonical reading is not consistent with the sequence at all, so
+    // confirming canonical numbering must not turn a wrong residue into an accepted one.
+    fetchSpy = installFetch();
+
+    const { statusCode } = await parse({
+      gene: "ACOT9",
+      variant: "p.Lys281Asn",
+      uniprotId: "Q9Y305",
+      numberingBasis: "canonical",
+    });
+
+    expect(statusCode).toBe(422);
+  });
+
   it("keeps the previous guidance when the numbering cannot be diagnosed", async () => {
     // The canonical sequence fetch must succeed and the ISOFORM model must fail: the answer then
     // stays actionable instead of turning a diagnosis into a provider error.

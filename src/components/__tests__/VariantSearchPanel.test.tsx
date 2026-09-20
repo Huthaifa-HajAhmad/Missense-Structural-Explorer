@@ -22,6 +22,98 @@ function renderPanel() {
   );
 }
 
+describe("VariantSearchPanel numbering choice", () => {
+  const CHOICES = [
+    { variant: "p.Asp85Phe", basisId: "Q9Y305", basisKind: "canonical" as const, canonicalPosition: 85, label: "Canonical numbering (Q9Y305)" },
+    { variant: "p.Asp76Phe", basisId: "Q9Y305-4", basisKind: "isoform" as const, canonicalPosition: 76, label: "MANE/isoform numbering (Q9Y305-4)" },
+  ];
+
+  const seedRefusal = (over: Record<string, unknown> = {}) =>
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGene: "ACOT9",
+        customVariant: "p.Asp85Phe",
+        customUniprot: "Q9Y305",
+        customGenomic: "",
+        numberingBasis: null,
+        analysisState: {
+          isLoading: false,
+          error: "Analysis query error: ambiguous numbering",
+          result: {
+            metadata: { gene: "ACOT9", uniprotId: "Q9Y305" },
+            numberingNotation: "p.Asp85Phe",
+            numberingChoices: CHOICES,
+          },
+        } as any,
+        ...over,
+      });
+    });
+
+  beforeEach(() => {
+    act(() => {
+      useVariantAnalysisStore.getState().resetVariantAnalysisState();
+      useVariantAnalysisStore.setState({
+        customGene: "",
+        customVariant: "",
+        customUniprot: "",
+        customGenomic: "",
+        numberingBasis: null,
+        history: [],
+        analysisState: { isLoading: false, error: null, result: null } as any
+      });
+    });
+  });
+
+  it("offers the readings, and records the reader's decision when they choose canonical", () => {
+    seedRefusal();
+    renderPanel();
+
+    expect(screen.getByTestId("numbering-choice-prompt")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("numbering-choice-Q9Y305"));
+
+    // The canonical reading keeps the same notation, so the DECISION is what has to reach the request —
+    // otherwise the route refuses it again and the prompt loops.
+    const state = useVariantAnalysisStore.getState();
+    expect(state.customVariant).toBe("p.Asp85Phe");
+    expect(state.numberingBasis).toBe("canonical");
+  });
+
+  it("records no decision for the isoform reading, whose notation is already canonical", () => {
+    seedRefusal();
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId("numbering-choice-Q9Y305-4"));
+
+    const state = useVariantAnalysisStore.getState();
+    expect(state.customVariant).toBe("p.Asp76Phe");
+    expect(state.numberingBasis).toBeNull();
+  });
+
+  it("hides the prompt once the inputs no longer match the refused run", () => {
+    seedRefusal({ customVariant: "p.Phe508del" });
+    renderPanel();
+
+    // The choices belong to the PREVIOUS notation; answering them against new inputs would submit the
+    // old candidates for a different query.
+    expect(screen.queryByTestId("numbering-choice-prompt")).toBeNull();
+  });
+
+  it("clears a decision when the notation changes", () => {
+    seedRefusal();
+    renderPanel();
+    fireEvent.click(screen.getByTestId("numbering-choice-Q9Y305"));
+    expect(useVariantAnalysisStore.getState().numberingBasis).toBe("canonical");
+
+    act(() => {
+      useVariantAnalysisStore.getState().setCustomVariant("p.Arg64Ala");
+    });
+
+    // A decision is about ONE notation: a stale one would silently suppress the refusal for a
+    // different query.
+    expect(useVariantAnalysisStore.getState().numberingBasis).toBeNull();
+  });
+});
+
 describe("VariantSearchPanel Input & Paste Tests", () => {
   beforeEach(() => {
     act(() => {

@@ -60,6 +60,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
           ? {}
           : {
               numberingVerified: context.numberingVerified,
+              ...(context.numberingDisambiguated ? { numberingDisambiguated: true } : {}),
               ...(context.numberingWarning
                 ? {
                     numberingUnverifiedReason: context.numberingWarning,

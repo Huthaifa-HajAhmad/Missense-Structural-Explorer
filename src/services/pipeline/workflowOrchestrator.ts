@@ -18,6 +18,7 @@ import {
   StructuredPipelineOptions,
   TraceContext
 } from "./types";
+import { numberingChoiceSchema, type NumberingChoice } from "../../shared/contracts";
 import {
   createPlaceholderAnalysisState,
   createCompletedAnalysisState,
@@ -34,8 +35,33 @@ import {
   getBiophysicsAttemptedAt,
 } from "./variantCache";
 
-export interface WorkflowOrchestratorParams {
-  targetGeneArg: string;
+/**
+ * Reads the numbering CHOICES out of a thrown analysis error.
+ *
+ * Read structurally (`code`/`details` off the error) rather than by importing the client's `ApiError`,
+ * so this service layer keeps its dependency direction — and exported so the hop is testable without
+ * driving the whole pipeline.
+ *
+ * Returns `{}` for every other error: an unrelated failure must not render a numbering prompt.
+ */
+export function numberingExtraFromError(
+  error: unknown,
+  fallbackNotation: string
+): { numberingChoices?: NumberingChoice[]; numberingNotation?: string } {
+  const code = (error as any)?.code;
+  if (code !== "AMBIGUOUS_PROTEIN_NUMBERING") return {};
+
+  const details: any = (error as any)?.details;
+  const parsed = numberingChoiceSchema.array().safeParse(details?.candidates);
+  if (!parsed.success || parsed.data.length === 0) return {};
+
+  return {
+    numberingChoices: parsed.data,
+    numberingNotation: typeof details?.notation === "string" ? details.notation : fallbackNotation,
+  };
+}
+
+export interface WorkflowOrchestratorParams {  targetGeneArg: string;
   targetVariantArg: string;
   targetUniprotArg?: string;
   options: StructuredPipelineOptions;
@@ -70,7 +96,7 @@ export async function executeFullAnalysisWorkflow({
   fetchPocketData,
   mutantFoldAbortRef
 }: WorkflowOrchestratorParams): Promise<void> {
-  const { fetchWithAuth, apiClient, settings, userDirections, sinks } = options;
+  const { fetchWithAuth, apiClient, settings, userDirections, numberingBasis, sinks } = options;
   const { search: searchSink, analysis: analysisSink, biophysical: biophysicalSink, structure: structureSink } = sinks;
 
   let targetGene = targetGeneArg.trim();
@@ -483,7 +509,10 @@ export async function executeFullAnalysisWorkflow({
         gene: targetGene,
         variant: targetVariant,
         uniprotId: targetUniprot,
-        ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {})
+        ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {}),
+        // Carries the reader's answer to the ambiguity prompt to the route that raised it, so the
+        // canonical reading can be chosen (re-submitting the bare notation alone is refused again).
+        ...(numberingBasis ? { numberingBasis } : {})
       },
       apiClient,
       activeSignal,
@@ -636,7 +665,13 @@ export async function executeFullAnalysisWorkflow({
           );
         } else {
           analysisSink.setAnalysisState(
-            createBiophysicalErrorAnalysisState(err?.message || "Biophysical analysis failed", baseParams)
+            createBiophysicalErrorAnalysisState(
+              err?.message || "Biophysical analysis failed",
+              baseParams,
+              // The refusal lands HERE (this promise is consumed by `.catch`, so the outer try/catch
+              // never sees it) — without this the reader gets the message and no way to answer it.
+              numberingExtraFromError(err, targetVariant)
+            )
           );
         }
       });
@@ -662,7 +697,14 @@ export async function executeFullAnalysisWorkflow({
         mutant: parsedResidues?.mut || "",
         transcriptMeta
       };
-      analysisSink.setAnalysisState(createTopLevelErrorAnalysisState(err?.message || "Unknown error", baseParams));
+      /**
+       * An ambiguous numbering is a QUESTION, not a failure: carry the readings into the state so the
+       * UI can offer them.
+       */
+      const numberingExtra = numberingExtraFromError(err, targetVariant);
+      analysisSink.setAnalysisState(
+        createTopLevelErrorAnalysisState(err?.message || "Unknown error", baseParams, numberingExtra)
+      );
       analysisSink.setIsBiophysicalLoading(false);
       analysisSink.setIsStructuralLoading(false);
       analysisSink.setIsClinicalLoading(false);

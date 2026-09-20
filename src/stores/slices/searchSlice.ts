@@ -18,6 +18,13 @@ export interface SearchState {
   customPdbUrl: string | null;
   showCustomInputs: boolean;
   userDirections: string;
+  /**
+   * Set when the reader answers the ambiguity prompt with "these numbers are canonical".
+   *
+   * Cleared by any edit to Gene/Variant/UniProt: a decision is about ONE notation, and a stale one
+   * would silently suppress the refusal for a different query.
+   */
+  numberingBasis: "canonical" | null;
   copied: boolean;
   history: SearchHistoryItem[];
 }
@@ -37,6 +44,7 @@ export interface SearchActions {
   setCustomPdbUrl: (url: string | null) => void;
   setShowCustomInputs: (show: boolean | ((prev: boolean) => boolean)) => void;
   setUserDirections: (directions: string) => void;
+  setNumberingBasis: (basis: "canonical" | null) => void;
   setCopied: (copied: boolean) => void;
   setHistory: (history: SearchHistoryItem[] | ((prev: SearchHistoryItem[]) => SearchHistoryItem[])) => void;
   addToHistory: (item: { gene: string; variant: string; uniprotId: string }, maxItems?: number, saveHistory?: boolean) => void;
@@ -118,6 +126,7 @@ export const createSearchSlice: StateCreator<
   customPdbUrl: null,
   showCustomInputs: false,
   userDirections: "",
+  numberingBasis: null,
   copied: false,
   history: loadInitialHistory(),
 
@@ -131,15 +140,16 @@ export const createSearchSlice: StateCreator<
   setHoveredResidueIndex: (hoveredResidueIndex) => set({ hoveredResidueIndex }),
   setSelectedGenomicVariant: (selectedGenomicVariant) => set({ selectedGenomicVariant }),
   setSearchVal: (searchVal) => set({ searchVal }),
-  setCustomGene: (customGene) => set({ customGene }),
-  setCustomVariant: (customVariant) => set({ customVariant }),
-  setCustomUniprot: (customUniprot) => set({ customUniprot }),
+  setCustomGene: (customGene) => set({ customGene, numberingBasis: null }),
+  setCustomVariant: (customVariant) => set({ customVariant, numberingBasis: null }),
+  setCustomUniprot: (customUniprot) => set({ customUniprot, numberingBasis: null }),
   setCustomGenomic: (customGenomic) => set({ customGenomic }),
   setCustomPdbUrl: (customPdbUrl) => set({ customPdbUrl }),
   setShowCustomInputs: (show) => set((state) => ({
     showCustomInputs: typeof show === "function" ? show(state.showCustomInputs) : show
   })),
   setUserDirections: (userDirections) => set({ userDirections }),
+  setNumberingBasis: (numberingBasis) => set({ numberingBasis }),
   setCopied: (copied) => set({ copied }),
 
   setHistory: (historyUpdater) => set((state) => {

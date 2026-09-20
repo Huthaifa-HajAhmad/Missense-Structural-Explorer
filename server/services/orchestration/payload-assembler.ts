@@ -91,6 +91,22 @@ export function assembleCoreResponsePayload(
     isCanonical: coreData.predictorData?.isCanonical ?? false,
     maneRefSeqId: coreData.predictorData?.maneRefSeqId ?? null,
     transcriptWarning: coreData.predictorData?.transcriptWarning ?? null,
+    /**
+     * Numbering provenance travels with EVERY payload, not only the non-streaming route.
+     *
+     * The UI's analysis runs through the STREAM endpoint, so leaving these out of the assembled chunk
+     * meant an unverifiable numbering was disclosed on the route the client does not use and silent on
+     * the one it does — the disclosure existed and reached nobody.
+     */
+    ...(context.numberingVerified === undefined
+      ? {}
+      : {
+          numberingVerified: context.numberingVerified,
+          ...(context.numberingWarning
+            ? { numberingUnverifiedReason: context.numberingWarning }
+            : {}),
+          ...(context.numberingDisambiguated ? { numberingDisambiguated: true } : {}),
+        }),
     landscapeData: null,
     stringInteractions: coreData.stringInteractions,
     disruptionPredictor: coreData.disruptionPredictor,

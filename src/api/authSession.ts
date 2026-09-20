@@ -94,27 +94,61 @@ function bindWatchdogToBody(
  * plain text error bodies, and provides clear HTTP status codes without trailing colons.
  */
 export async function extractErrorMessage(res: Response, fallbackPrefix: string): Promise<string> {
+  return (await extractApiError(res, fallbackPrefix)).message;
+}
+
+/**
+ * An API failure that keeps the machine-readable parts of the response.
+ *
+ * `extractErrorMessage` returns a STRING, so every call site threw `new Error(message)` and both
+ * `code` and `details` died there. That is why the ambiguous-numbering payload — the two readings of
+ * a notation that cannot be resolved by residue number alone — could never reach a component able to
+ * act on it, and the reader got a dead end instead of a decision.
+ */
+export class ApiError extends Error {
+  readonly code?: string;
+  readonly details?: unknown;
+  readonly status: number;
+
+  constructor(message: string, options: { code?: string; details?: unknown; status: number }) {
+    super(message);
+    this.name = "ApiError";
+    this.code = options.code;
+    this.details = options.details;
+    this.status = options.status;
+  }
+}
+
+/** Reads the standard error envelope ONCE, keeping `code` and `details` beside the message. */
+export async function extractApiError(res: Response, fallbackPrefix: string): Promise<ApiError> {
+  const status = res.status;
   try {
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const data = await res.json();
-      if (data) {
-        if (typeof data.error === "string" && data.error.trim()) return data.error.trim();
-        if (data.error?.message && typeof data.error.message === "string" && data.error.message.trim()) return data.error.message.trim();
-        if (data.message && typeof data.message === "string" && data.message.trim()) return data.message.trim();
-        if (data.detail && typeof data.detail === "string" && data.detail.trim()) return data.detail.trim();
+      const message =
+        (typeof data?.error === "string" && data.error.trim()) ||
+        (typeof data?.error?.message === "string" && data.error.message.trim()) ||
+        (typeof data?.message === "string" && data.message.trim()) ||
+        (typeof data?.detail === "string" && data.detail.trim());
+      if (message) {
+        return new ApiError(message, {
+          code: typeof data?.error?.code === "string" ? data.error.code : undefined,
+          details: data?.error?.details ?? data?.details,
+          status,
+        });
       }
     } else {
       const text = await res.text();
       if (text && text.trim().length > 0) {
-        return text.length > 250 ? `${text.slice(0, 250)}...` : text.trim();
+        return new ApiError(text.length > 250 ? `${text.slice(0, 250)}...` : text.trim(), { status });
       }
     }
   } catch (_) {
     // Ignore JSON/text body consumption errors
   }
-  const statusInfo = res.status ? `(HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""})` : "";
-  return `${fallbackPrefix} ${statusInfo}`.trim();
+  const statusInfo = status ? `(HTTP ${status}${res.statusText ? ` ${res.statusText}` : ""})` : "";
+  return new ApiError(`${fallbackPrefix} ${statusInfo}`.trim(), { status });
 }
 
 export type FetchWithAuth = (

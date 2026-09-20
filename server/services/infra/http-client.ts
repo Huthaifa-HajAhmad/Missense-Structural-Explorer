@@ -173,7 +173,14 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
       }
       try {
         const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), timeoutMs);
+        // Aborted with an explicit TimeoutError reason: undici rejects an aborted fetch with
+        // `signal.reason`, so without one it is an anonymous `AbortError` that no caller can tell
+        // apart from a transport failure. The `cappedByCaller` exemption below depends on this
+        // distinction and was INERT until it was set (verified against a real hanging socket).
+        const id = setTimeout(
+          () => controller.abort(new DOMException("attempt timeout", "TimeoutError")),
+          timeoutMs
+        );
 
         const signal = options.signal
           ? anySignal([options.signal, controller.signal])
@@ -244,7 +251,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
           // cooldown. Transport errors and the provider's own timeout still count.
           const imposedByCaller =
             options.cappedByCaller === true &&
-            (err?.name === "TimeoutError" || /timed out/i.test(String(err?.message ?? "")));
+            (err?.name === "TimeoutError" || /timed out|attempt timeout/i.test(String(err?.message ?? "")));
           if (!probe && !imposedByCaller) breaker.recordFailure();
           err.statusCode = lastStatus;
           throw err;

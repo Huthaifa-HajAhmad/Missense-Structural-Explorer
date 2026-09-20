@@ -138,6 +138,14 @@ export interface StructuredPipelineOptions {
   settings: any;
   serverGeminiReady?: boolean;
   userDirections: string;
+  /**
+   * The reader's answer to the ambiguity prompt, forwarded to the analysis request.
+   *
+   * Only `canonical` needs to travel: the isoform reading is submitted as its canonical-numbered
+   * equivalent, which is unambiguous on its own. Without this the canonical reading is unselectable —
+   * the same bare string is refused again, forever.
+   */
+  numberingBasis?: "canonical";
   sinks: PipelineStateSinks;
 }
 
@@ -149,6 +157,7 @@ export type UseAnalysisPipelineOptions =
       settings: any;
       serverGeminiReady?: boolean;
       userDirections: string;
+      numberingBasis?: "canonical";
       sinks?: PipelineStateSinks;
     });
 

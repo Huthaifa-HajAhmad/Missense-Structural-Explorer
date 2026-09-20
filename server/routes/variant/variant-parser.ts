@@ -34,6 +34,16 @@ export const analyzeVariantSchema = z.object({
   acmgWeighting: z.enum(["standard", "conservative", "strict-structural"]).optional(),
   userDirections: z.string().max(1000).optional(),
   originalNotation: z.string().max(200).optional(),
+  /**
+   * The reader's answer to the ambiguity prompt: these residue numbers ARE canonical.
+   *
+   * A bare notation whose residues sit at two different canonical positions cannot be resolved by
+   * number alone, and the route refuses it rather than pick one. That refusal is a question, and this
+   * is how it gets answered — without it the canonical reading is unselectable (re-submitting the same
+   * string is refused identically, forever). The ISOFORM reading needs no field: its candidate is
+   * already expressed in canonical numbering, so submitting it is unambiguous.
+   */
+  numberingBasis: z.enum(["canonical"]).optional(),
   biohubToken: z.string().optional(),
   hfToken: z.string().optional(),
   gpnApiUrl: z.string().url().max(512).optional(),
@@ -143,6 +153,8 @@ export interface ParsedVariantContext {
    * result is disclosed as unverified rather than presented as a clean canonical match.
    */
   numberingVerified?: boolean;
+  /** True when the reader answered the ambiguity prompt, so the numbering was chosen, not derived. */
+  numberingDisambiguated?: boolean;
   /** Human-readable disclosure for the unverified case; surfaced with the analysis result. */
   numberingWarning?: string;
   biohubToken?: string | null;
@@ -260,6 +272,13 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
+  /**
+   * One controller for every numbering verification in this request: the work is advisory, so when the
+   * budget expires it is CANCELLED rather than left running (an orphaned lookup retried for up to ~65s,
+   * holding a per-host semaphore slot and booking breaker failures against a healthy provider).
+   */
+  const numberingAbort = new AbortController();
+
   const actualWt = sequence[pos - 1];
   if (actualWt !== wt1Letter) {
     /**
@@ -271,21 +290,33 @@ export async function validateAndParseVariantRequest(
      * Best-effort: `resolveGeneProteinNumbering` returns null when UniProt is unreachable, so an
      * outage leaves the previous message in place rather than failing the request.
      */
-    const numbering = await resolveGeneProteinNumbering({ gene, notation: variant, canonicalAccession: uniprotId });
+    // Bounded like the success-path check: this diagnosis is equally advisory, and unbounded it waited
+    // out the full provider retry envelope (~65s) before answering a request that was going to be
+    // refused anyway.
+    const diagnosis = await withNumberingBudget(
+      resolveGeneProteinNumbering({
+        gene,
+        notation: variant,
+        canonicalAccession: uniprotId,
+        options: { signal: numberingAbort.signal, cappedByCaller: true },
+      }),
+      options?.verificationBudgetMs,
+      () => numberingAbort.abort()
+    );
 
-    if (numbering?.status === "ambiguous" && numbering.candidates?.length) {
+    if (diagnosis?.status === "ambiguous" && diagnosis.candidates?.length) {
       sendError(
         res,
         422,
         "AMBIGUOUS_PROTEIN_NUMBERING",
-        buildAmbiguousNumberingMessage(variant, numbering.candidates) +
+        buildAmbiguousNumberingMessage(variant, diagnosis.candidates) +
           ` (${gene} position ${pos} does not carry ${wt1Letter} in ${uniprotId}.)`
       );
       return null;
     }
 
     const canonicalEquivalent =
-      numbering?.status === "remapped" ? numbering.canonicalVariant : undefined;
+      diagnosis?.status === "remapped" ? diagnosis.canonicalVariant : undefined;
 
     sendError(
       res,
@@ -293,7 +324,7 @@ export async function validateAndParseVariantRequest(
       "UNPROCESSABLE_ENTITY",
       `Wild-type residue mismatch at position ${pos} for ${uniprotId}. Expected ${actualWt}, but query specified ${wt1Letter} (${wildType}). ` +
         (canonicalEquivalent
-          ? `This notation is numbered on ${numbering?.basisId ?? "another isoform"} of this protein, not the canonical sequence: ` +
+          ? `This notation is numbered on ${diagnosis?.basisId ?? "another isoform"} of this protein, not the canonical sequence: ` +
             `enter ${canonicalEquivalent} (the canonical-equivalent substitution) instead, or the genomic/cDNA coordinate.`
           : `This usually means the notation is numbered on a different protein isoform than the canonical ${uniprotId} sequence ` +
             "(a MANE Select notation can sit at a different position on the canonical isoform), or that the wild-type residue was mistyped. ") +
@@ -322,11 +353,25 @@ export async function validateAndParseVariantRequest(
       // exactly that pair: admitting every isoform of the gene multiplies the refusal set (ACOT9:
       // 14.8% of positions versus 3.4%) for numberings a report would not be using.
       basisScope: "mane",
+      // `cappedByCaller`: the 2.5s budget is OUR cap, so a timeout must not eject the provider.
+      options: { signal: numberingAbort.signal, cappedByCaller: true },
     }),
-    options?.verificationBudgetMs
+    options?.verificationBudgetMs,
+    () => numberingAbort.abort()
   );
 
-  if (numbering?.status === "ambiguous" && numbering.candidates?.length) {
+  /**
+   * The reader's explicit answer, read before the refusal: when they have said these numbers are
+   * canonical, refusing again would make the canonical reading unselectable (the re-submitted string is
+   * identical, so the refusal would repeat forever). The choice is recorded in provenance instead, so a
+   * report shows the numbering was disambiguated by a person rather than derived.
+   *
+   * Only the MATCH-path refusal is suppressed: at the mismatch site the canonical reading is not
+   * consistent with the sequence at all, so confirming canonical numbering settles nothing there.
+   */
+  const canonicalConfirmed = req.body?.numberingBasis === "canonical";
+
+  if (!canonicalConfirmed && numbering?.status === "ambiguous" && numbering.candidates?.length) {
     sendError(
       res,
       422,
@@ -353,7 +398,7 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
-  const numberingVerified = numbering !== null && numbering.status === "canonical";
+  const numberingVerified = canonicalConfirmed || (numbering !== null && numbering.status === "canonical");
   const numberingWarning = numberingVerified
     ? undefined
     : `Numbering not verified for ${gene} ${variant}: ${
@@ -368,6 +413,7 @@ export async function validateAndParseVariantRequest(
     variant,
     uniprotId,
     numberingVerified,
+    ...(canonicalConfirmed ? { numberingDisambiguated: true } : {}),
     numberingWarning,
     originalNotation,
     userDirections,

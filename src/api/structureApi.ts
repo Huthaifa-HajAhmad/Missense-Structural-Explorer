@@ -14,7 +14,7 @@ import {
   StructuralDiffResponse
 } from "../shared/contracts";
 import type { PdbHomolog } from "../types";
-import { extractErrorMessage, FetchWithAuth } from "./authSession";
+import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 
 export function createStructureApi(fetchWithAuth: FetchWithAuth) {
   return {
@@ -54,8 +54,9 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         signal
       });
       if (!res.ok) {
-        const errorMsg = await extractErrorMessage(res, "Failed to translate variant");
-        throw new Error(errorMsg);
+        // Keep `code`/`details`: the translate step can refuse an ambiguity, and the pipeline layers
+        // above it read those fields to turn the refusal into a decision.
+        throw await extractApiError(res, "Failed to translate variant");
       }
       const data = await res.json();
       return translateVariantResponseSchema.parse(data);

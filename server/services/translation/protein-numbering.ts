@@ -301,11 +301,24 @@ export const NUMBERING_VERIFICATION_BUDGET_MS = 2_500;
  */
 export function withNumberingBudget<T>(
   work: Promise<T>,
-  budgetMs: number = NUMBERING_VERIFICATION_BUDGET_MS
+  budgetMs: number = NUMBERING_VERIFICATION_BUDGET_MS,
+  /**
+   * Called when the budget expires, so the caller can ABORT the work instead of leaving it running.
+   * An orphaned verification kept retrying for up to its own ~65s envelope, holding a per-host
+   * semaphore slot and booking breaker failures against a healthy provider.
+   */
+  onExpire?: () => void
 ): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), budgetMs);
+    timer = setTimeout(() => {
+      try {
+        onExpire?.();
+      } catch {
+        // An abort that throws must not swallow the "unverified" outcome.
+      }
+      resolve(null);
+    }, budgetMs);
   });
   return Promise.race<T | null>([work, expiry]).finally(() => {
     if (timer) clearTimeout(timer);
@@ -325,7 +338,11 @@ export async function resolveGeneProteinNumbering(params: {
    * on. Declared (accession-qualified) input uses `all`, because there the basis is named.
    */
   basisScope?: "all" | "mane";
-  options?: { bypassSqlite?: boolean };
+  /**
+   * Passed through to the underlying lookups so an abandoned verification can be CANCELLED, and so
+   * a timeout we imposed is not booked against the provider's health.
+   */
+  options?: { bypassSqlite?: boolean; signal?: AbortSignal; cappedByCaller?: boolean };
 }): Promise<ProteinNumberingOutcome | null> {
   const { gene, notation, canonicalAccession, basisScope = "all", options } = params;
   const substitution = parseSubstitution(notation);

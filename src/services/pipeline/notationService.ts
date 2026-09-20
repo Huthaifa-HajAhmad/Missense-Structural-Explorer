@@ -123,6 +123,11 @@ export async function translateVariantNotation(
       });
     }
     if (signal.aborted) throw err;
-    throw new Error(err.message || "Failed to translate notation");
+    /**
+     * Re-throw UNCHANGED. Wrapping it in `new Error(err.message)` dropped `code` and `details`, so an
+     * ambiguity refusal raised by translation arrived at the pipeline as an anonymous failure — one of
+     * three hops that made the reader's choice unreachable.
+     */
+    throw err;
   }
 }

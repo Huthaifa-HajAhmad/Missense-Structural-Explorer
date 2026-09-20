@@ -1062,6 +1062,12 @@ export interface TranscriptMetadata {
   numberingVerified?: boolean | null;
   /** Machine-readable reason the numbering is unverified; the prose twin is `transcriptWarning`. */
   numberingUnverifiedReason?: string | null;
+  /**
+   * True when the reader answered the ambiguity prompt, so the numbering was CHOSEN rather than
+   * derived. A report must be able to tell the two apart: the residue numbers rest on a human
+   * decision, not on a provider's metadata.
+   */
+  numberingDisambiguated?: boolean | null;
   numberingRemap?: {
     reason: string;
     from: {
