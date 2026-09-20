@@ -6,48 +6,37 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# A superseded push cancels its own run. Deployment waits on this workflow, so time spent finishing a
+# stale run is latency added to the deploy of the newer commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Two jobs, not one serial chain. Measured profile of the previous shape:
+#   npm ci 79s -> lint 6s -> tests+coverage 199s -> build 22s  = 371s (6m11s)
+# The build was pure added latency behind the tests, so it now runs alongside them: the wall-clock is
+# the slower job rather than the sum.
+#
+# The Python/uv setup is GONE (36s: Set up Python, Install uv, Cache uv, uv sync). Every gate here —
+# check-boundaries, tsc, vitest, vite/esbuild — is Node-only, and `tools/` is a runtime dependency of
+# the deployed VM, not of this workflow. It was also a failure mode: run 35455821450 died there.
+#
+# Coverage is not the cost worth attacking: 49s with coverage vs 48s without, measured locally. The
+# runner is simply slower than a dev machine, which is what sharding would address.
 jobs:
-  build-and-test:
+  quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-
-      - name: Install uv
-        # The official action replaces `curl -LsSf https://astral.sh/uv/install.sh | sh`.
-        #
-        # That one-liner masked its own failure: a shell pipeline reports the LAST command's
-        # status, so a failed download exited 0, the step went green while installing nothing, and
-        # the next step died with "uv: command not found" (exit 127) — skipping lint, tests and
-        # the build entirely. Observed on run 35455821450, where every earlier run had passed.
-        #
-        # Pinned to a RESOLVABLE ref: this action publishes full version tags only (`v10.1.0`);
-        # `@v10` fails at "Set up job" with "unable to find version v10". The `version` input is
-        # omitted on purpose — its default installs the latest uv, as the installer did.
-        uses: astral-sh/setup-uv@v10.1.0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
-
-      - name: Cache uv dependencies
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('tools/uv.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-
-
-      - name: Sync Python tools environment
-        run: uv sync --project tools --no-dev
 
       - name: Cache Vitest results
         uses: actions/cache@v5
@@ -58,7 +47,9 @@ jobs:
             ${{ runner.os }}-vitest-
 
       - name: Install Node dependencies
-        run: npm ci
+        # `--prefer-offline` uses the npm cache setup-node restored; `--no-audit`/`--fund` skip work
+        # that the explicit audit step already does.
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Run security audit
         run: npm audit --audit-level=critical
@@ -68,6 +59,32 @@ jobs:
 
       - name: Run tests and collect coverage
         run: npm run test:coverage
+
+      - name: Generate CI Summary Report
+        if: always()
+        run: |
+          echo "### 🚀 CI Quality & Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Quality Gates**: Architectural boundaries, TypeScript typecheck, coverage thresholds, and the production build passed." >> $GITHUB_STEP_SUMMARY
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Run production build verification
         run: npm run build
@@ -79,12 +96,3 @@ jobs:
           name: pr-build-preview
           path: dist/
           retention-days: 7
-
-      - name: Generate CI Summary Report
-        if: always()
-        run: |
-          echo "### 🚀 CI Quality & Build Report" >> $GITHUB_STEP_SUMMARY
-          echo "- **Event**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Quality Gates**: Architectural boundaries, TypeScript typecheck, and coverage thresholds passed." >> $GITHUB_STEP_SUMMARY

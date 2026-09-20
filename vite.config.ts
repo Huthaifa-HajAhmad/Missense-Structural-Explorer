@@ -52,7 +52,12 @@ export default defineConfig(() => {
       hookTimeout: 20000,
       coverage: {
         provider: 'v8' as const,
-        reporter: ['text', 'json', 'html'],
+        /**
+         * `text` (for the job log) and `json` (machine-readable). The HTML report is NOT generated:
+         * nothing consumes it — CI uploads no coverage artifact — and writing it costs I/O on every
+         * run for a report no one opens.
+         */
+        reporter: ['text', 'json'],
         thresholds: {
           statements: 35,
           branches: 30,
