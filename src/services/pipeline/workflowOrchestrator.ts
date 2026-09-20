@@ -52,7 +52,9 @@ export function numberingExtraFromError(
   if (code !== "AMBIGUOUS_PROTEIN_NUMBERING") return {};
 
   const details: any = (error as any)?.details;
-  const parsed = numberingChoiceSchema.array().safeParse(details?.candidates);
+  // Bounded like every other server-supplied array: a compromised or buggy response must not be able
+  // to make the UI render an unbounded list of buttons (the server emits at most one per isoform).
+  const parsed = numberingChoiceSchema.array().max(16).safeParse(details?.candidates);
   if (!parsed.success || parsed.data.length === 0) return {};
 
   return {

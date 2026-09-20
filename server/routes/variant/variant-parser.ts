@@ -328,7 +328,7 @@ export async function validateAndParseVariantRequest(
             `enter ${canonicalEquivalent} (the canonical-equivalent substitution) instead, or the genomic/cDNA coordinate.`
           : `This usually means the notation is numbered on a different protein isoform than the canonical ${uniprotId} sequence ` +
             "(a MANE Select notation can sit at a different position on the canonical isoform), or that the wild-type residue was mistyped. ") +
-        "Qualify the notation with the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn, or Q9Y305-4:p.Lys281Asn) so the " +
+        " Qualify the notation with the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn, or Q9Y305-4:p.Lys281Asn) so the " +
         "numbering is mapped onto the canonical sequence, or enter the genomic/cDNA coordinate."
     );
     return null;
