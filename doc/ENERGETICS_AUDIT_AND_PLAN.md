@@ -1871,3 +1871,34 @@ The invariant test that §11.11 called a guard for "that path" could not have be
   this guard has been narrowed twice already. A receiver/operand-based rewrite is the fix; it is not done.
 - **F6-2** remains latent: a regex literal carrying a quote desynchronises the string blanker, after which
   the spread check fails OPEN rather than loudly.
+
+---
+
+## §11.14 — The interview decisions, and where each landed
+
+Seven decisions were taken after the fourth review. Five needed code; two were "leave it", and they are
+recorded here because a decision not to change something is still a decision the record should carry.
+
+| decision | outcome |
+|---|---|
+| The two body-deadline mechanisms | ONE now. `httpBody.ts` gained `readTextWithTimeout` (sharing one deadline implementation with `readJsonWithTimeout`) and `fetch-retry.ts`'s configuration-error probe uses it. Semantics preserved exactly: `ms: null` means no deadline, and a deadline rejection folds to the empty string at the call site, because a body that cannot be read in time is not a configuration error. Their fetch-layer tests pass. |
+| F15's precision | REWRITTEN to match operands. A literal counts only as a comparison operand, a lookup argument whose receiver mentions the identifier, an array element of a membership test, or a `case` label of a switch on it. All 11 must-flag shapes still caught; the four realistic false positives a review produced are now must-NOT-flag cases. |
+| F6-2's failure mode | CLOSED, but not by the mechanism chosen. "Fail loudly if the blanked and raw brace readings disagree" cannot work, because they legitimately differ whenever a string contains a brace — the very case blanking exists for. The spread check now runs over the whole CALL, delimited by the call's own closing `});` rather than by braces, so no string, template or regex literal can push a spread outside it. The reviewer's defeat is caught; the original case still is. |
+| RaSP readiness | A THIRD state. `unverified` sits between `ready` (the loader counted THIS file) and `unavailable` (the record refuses), so a healthy-but-uncounted index no longer reads as down. The `unavailable` branch is not covered by a test, because reaching it needs an index whose own record is unusable and this repository ships a good one. |
+| R8's seed | SEEDED FROM THE RESOLVED VALUE. `restoredRemoteState` is computed once at function scope and shared by both dispatches, so the store and the seed cannot disagree. Tested: a bundle with a dynamut2 score and a stale "pending" must seed "done". |
+| F17, the one-sided negatives | LEFT. They are saved by positive assertions in the same tests, so the guarantee exists; strengthening them would add words rather than coverage. |
+| Client abort and the server job | LEFT RUNNING. The result is cached and the cooldown prevents a re-dispatch, so the abandoned work is not wasted, and cancelling would need a job-cancel API plus care around a job that may be mid-write. |
+
+### Two things this pass got wrong, recorded rather than glossed
+
+1. **A guard rewrite introduced three silent false negatives**, all caught by the committed self-test
+   within minutes: `?.includes(...)` broke on the optional chain, `.toUpperCase().includes(...)` broke
+   because the receiver pattern excluded parentheses, and `Object.is(...)` demanded the identifier on both
+   sides. The must-flag list alone would have passed every one of them as "no violation found" — which is
+   why guard self-tests now carry must-NOT-flag cases as well.
+2. **An encoding slip of mine.** Writing shell command text containing a non-ASCII character does not
+   transport it faithfully: an em dash arrived as a lone CP1252 byte, leaving files that are not valid
+   UTF-8. One had already been committed and pushed (`Dockerfile`) and is repaired; two others were caught
+   mid-edit and redone with ASCII-only text. A scan of the 25 files this work touches now reports zero
+   damaged. The rule adopted: non-ASCII goes into files through the file tools, never through a command
+   string.
