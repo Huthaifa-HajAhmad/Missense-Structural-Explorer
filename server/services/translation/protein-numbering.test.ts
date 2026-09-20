@@ -4,6 +4,7 @@ import {
   buildProteinNumberingRemapWarning,
   resolveAccessionedProteinNotation,
   resolveGeneProteinNumbering,
+  withNumberingBudget,
 } from "./protein-numbering.ts";
 import { CoordinateResolutionError } from "./types.ts";
 import { clearAllCaches } from "../infra/cache.ts";
@@ -42,7 +43,11 @@ const jsonOk = (body: unknown) =>
 const fastaOk = (text: string) =>
   ({ ok: true, status: 200, json: async () => ({}), text: async () => text }) as any;
 
-function installFetch(overrides?: { search?: unknown; fasta?: string | Error }) {
+function installFetch(overrides?: {
+  search?: unknown;
+  fasta?: string | Error;
+  mane?: { proteinId: string; isoformId?: string } | Error;
+}) {
   return vi.spyOn(global, "fetch").mockImplementation(async (url: any) => {
     const target = String(url);
     if (target.includes("/uniprotkb/search")) {
@@ -52,6 +57,24 @@ function installFetch(overrides?: { search?: unknown; fasta?: string | Error }) 
     if (target.includes("/uniprotkb/stream") || target.includes("includeIsoform")) {
       if (overrides?.fasta instanceof Error) throw overrides.fasta;
       return fastaOk(overrides?.fasta ?? ISOFORM_FASTA);
+    }
+    // The MANE lookup reads the FULL entry (`fields=xref_mane_select` is rejected with HTTP 400).
+    if (target.includes(".json")) {
+      if (overrides?.mane instanceof Error) throw overrides.mane;
+      return jsonOk(
+        overrides?.mane
+          ? {
+              uniProtKBCrossReferences: [
+                {
+                  database: "MANE-Select",
+                  id: "ENST00000000001.1",
+                  ...(overrides.mane.isoformId ? { isoformId: overrides.mane.isoformId } : {}),
+                  properties: [{ key: "RefSeqProteinId", value: overrides.mane.proteinId }],
+                },
+              ],
+            }
+          : { uniProtKBCrossReferences: [] }
+      );
     }
     throw new Error(`unexpected fetch: ${target}`);
   });
@@ -331,5 +354,59 @@ describe("resolveGeneProteinNumbering (bare protein notation + gene)", () => {
     });
 
     expect(outcome).toBeNull();
+  });
+});
+
+describe("analysis-path verification bounds", () => {
+  let fetchSpy: any;
+
+  beforeEach(() => {
+    clearAllCaches(true);
+    resetHostStateForTests();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+  });
+
+  it("gives a verification lookup a budget instead of letting it dominate the request", async () => {
+    // Unbounded, a UniProt outage cost up to ~110s BEFORE the analysis started (the isoform fetch
+    // retries 3x20s, then the MANE fetch 3x15s). The lookup is advisory, so it must yield.
+    const never = new Promise<string>(() => {});
+    const startedAt = Date.now();
+
+    const result = await withNumberingBudget(never, 40);
+
+    expect(result).toBeNull();
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it("scopes to MANE even when UniProt spells the canonical isoform `<acc>-1`", async () => {
+    // The MANE xref states `P00001-1` while the FASTA labels canonical as the bare accession, so a
+    // literal comparison matched nothing and silently skipped the scoping — restoring the 14.8%
+    // over-refusal (versus 3.4% for the canonical-vs-MANE pair) on exactly the entries where that
+    // spelling is most likely.
+    const shifted = withInsertion(ACOT9_CANONICAL, 20, ACOT9_INSERTION); // 9-residue insertion
+    const other = withInsertion(ACOT9_CANONICAL, 20, `${ACOT9_INSERTION}V`); // 10-residue insertion
+    fetchSpy = installFetch({
+      fasta:
+        `>sp|P00001|TESTGENE_HUMAN\n${ACOT9_CANONICAL}\n` +
+        `>sp|P00001-2|TESTGENE_HUMAN Isoform 2\n${shifted}\n` +
+        `>sp|P00001-3|TESTGENE_HUMAN Isoform 3\n${other}\n`,
+      mane: { proteinId: "NP_000001.1", isoformId: "P00001-1" },
+    });
+
+    // Position 64 collides between canonical and the 9-residue-shifted isoform (the same letter at
+    // two positions), so WITHOUT the scoping this resolves as ambiguous and is refused.
+    const outcome = await resolveGeneProteinNumbering({
+      gene: "TESTGENE",
+      notation: "p.Arg64Ala",
+      canonicalAccession: "P00001",
+      basisScope: "mane",
+    });
+
+    expect(outcome?.status).toBe("canonical");
+    expect(outcome?.canonicalVariant).toBe("p.Arg64Ala");
   });
 });

@@ -14,7 +14,7 @@ import {
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
 import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
-import { resolveGeneProteinNumbering } from "../../services/translation/protein-numbering.ts";
+import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 
 export const analyzeVariantSchema = z.object({
@@ -153,7 +153,16 @@ export interface ParsedVariantContext {
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
-export async function validateAndParseVariantRequest(req: any, res: any): Promise<ParsedVariantContext | null> {
+export async function validateAndParseVariantRequest(
+  req: any,
+  res: any,
+  /**
+   * How long the numbering verification may take before the analysis proceeds and DISCLOSES that
+   * the numbering is unverified. Exposed so a caller (and the tests) can tighten or relax it; the
+   * default keeps a verification lookup from ever dominating the request it advises.
+   */
+  options?: { verificationBudgetMs?: number }
+): Promise<ParsedVariantContext | null> {
   const parseResult = analyzeVariantSchema.safeParse(req.body);
   if (!parseResult.success) {
     sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
@@ -304,15 +313,18 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
    *   - verification impossible (UniProt unreachable) → accept, but say so, because a provider
    *     outage must not fail an otherwise valid query and must not be mistaken for a clean bill.
    */
-  const numbering = await resolveGeneProteinNumbering({
-    gene,
-    notation: variant,
-    canonicalAccession: uniprotId,
-    // A bare notation is canonical- or MANE-numbered in practice, so the ambiguity check compares
-    // exactly that pair: admitting every isoform of the gene multiplies the refusal set (ACOT9:
-    // 14.8% of positions versus 3.4%) for numberings a report would not be using.
-    basisScope: "mane",
-  });
+  const numbering = await withNumberingBudget(
+    resolveGeneProteinNumbering({
+      gene,
+      notation: variant,
+      canonicalAccession: uniprotId,
+      // A bare notation is canonical- or MANE-numbered in practice, so the ambiguity check compares
+      // exactly that pair: admitting every isoform of the gene multiplies the refusal set (ACOT9:
+      // 14.8% of positions versus 3.4%) for numberings a report would not be using.
+      basisScope: "mane",
+    }),
+    options?.verificationBudgetMs
+  );
 
   if (numbering?.status === "ambiguous" && numbering.candidates?.length) {
     sendError(
@@ -335,7 +347,7 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     ? undefined
     : `Numbering not verified for ${gene} ${variant}: ${
         numbering?.reason ??
-        "the isoform model could not be reached"
+        "the isoform model could not be reached or did not answer in time"
       }. The residue was matched against the canonical ${uniprotId} sequence; if this notation was ` +
       "reported on a different isoform its position may refer to another residue. Qualify it with " +
       "the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn) or use the genomic/cDNA coordinate.";

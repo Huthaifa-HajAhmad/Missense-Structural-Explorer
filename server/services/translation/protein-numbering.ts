@@ -290,8 +290,34 @@ export async function resolveAccessionedProteinNotation(
  *
  * Best-effort by design: if UniProt cannot be reached the caller keeps its previous
  * canonical-only behaviour, because a provider outage must not make an otherwise valid protein
- * query fail.
+ * query fail. Callers on a request path should also bound the wait with
+ * {@link withNumberingBudget} — "best effort" must not mean "slow".
  */
+export const NUMBERING_VERIFICATION_BUDGET_MS = 2_500;
+
+/**
+ * Resolves to the work's value, or to `null` when the budget expires first.
+ *
+ * A rejection propagates (callers treat that as "provider failed"). The underlying work is NOT
+ * cancelled: it usually finishes into the cache, so the next request for the same protein is warm.
+ *
+ * Exists because an unbounded verification lookup cost up to ~110s BEFORE the analysis started
+ * during a UniProt outage (the isoform fetch retries 3 × 20s, then the MANE fetch 3 × 15s) — which
+ * is the opposite of the "an outage must not break a valid query" rule the check is built on.
+ */
+export function withNumberingBudget<T>(
+  work: Promise<T>,
+  budgetMs: number = NUMBERING_VERIFICATION_BUDGET_MS
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), budgetMs);
+  });
+  return Promise.race<T | null>([work, expiry]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 export async function resolveGeneProteinNumbering(params: {
   gene: string;
   notation: string;
@@ -324,10 +350,15 @@ export async function resolveGeneProteinNumbering(params: {
       // genuinely has several numberings and refusing is the honest answer.
       const mane = await fetchManeIsoformId(canonicalAccession, options);
       const canonicalBasis = bases.find((basis) => basis.kind === "canonical");
-      const maneBasis =
-        mane?.isoformId !== undefined
-          ? bases.find((basis) => basis.id.toUpperCase() === mane.isoformId!.toUpperCase())
-          : undefined;
+      const maneIsoformId = mane?.isoformId;
+      // UniProt spells the canonical isoform BOTH ways (`Q9Y305` in FASTA, `Q9Y305-1` in xrefs), so
+      // comparing literally made a `-1` MANE xref match nothing and silently skipped the scoping —
+      // restoring the very over-refusal this scoping exists to prevent.
+      const maneBasis = maneIsoformId
+        ? isCanonicalIsoformId(maneIsoformId, canonicalAccession)
+          ? canonicalBasis
+          : bases.find((basis) => basis.id.toUpperCase() === maneIsoformId.toUpperCase())
+        : undefined;
       if (canonicalBasis && maneBasis) scopedBases = [canonicalBasis, maneBasis];
     }
 
