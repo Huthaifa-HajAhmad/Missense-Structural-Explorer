@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import {
@@ -15,8 +15,8 @@ import { stripCommentsForScan } from "../engineStatus.ts";
  * WHY THIS EXISTS
  * ---------------
  * `SplicingTab` contained `consensusVerdict === "destabilizing"`. `computeCalibratedConsensus`
- * only ever returns "… Misfolding Risk (…)" or "Insufficient Biophysical Data", so that clause was
- * dead — and because it sat in an OR-chain that decides whether the *protein* arm carries
+ * only ever returns "â€¦ Misfolding Risk (â€¦)" or "Insufficient Biophysical Data", so that clause was
+ * dead â€” and because it sat in an OR-chain that decides whether the *protein* arm carries
  * destabilization evidence, a variant whose only evidence was a strongly destabilizing prediction
  * was rendered "Thermodynamically Tolerated". Nothing failed; the branch simply never ran.
  *
@@ -35,8 +35,8 @@ const IGNORED_DIRS = new Set(["node_modules", "dist", "coverage", "graphify-out"
 
 /**
  * Files excluded from the scan:
- *   • the module that DEFINES the verdict set, and
- *   • this guard itself, which must quote the invalid literal to explain the rule.
+ *   â€¢ the module that DEFINES the verdict set, and
+ *   â€¢ this guard itself, which must quote the invalid literal to explain the rule.
  */
 const EXCLUDED_FILES = new Set([
   "src/shared/thresholds/consensus.ts",
@@ -57,13 +57,13 @@ function collectSourceFiles(dir: string): string[] {
 
 /**
  * Removes comments while preserving line numbers, so a comment *describing* the old bug is not
- * itself treated as a violation — the mistake this guard is about was in code, not prose.
+ * itself treated as a violation â€” the mistake this guard is about was in code, not prose.
  */
 /**
  * Delegates to the scanner's own string-aware stripper.
  *
- * This file kept its own regex copy, so `f657120`'s promise — that the guards and the scanner they
- * call cannot disagree about what a comment is — held only for the label guard. Here, an impossible
+ * This file kept its own regex copy, so `f657120`'s promise â€” that the guards and the scanner they
+ * call cannot disagree about what a comment is â€” held only for the label guard. Here, an impossible
  * comparison placed after a URL on one line was invisible:
  *
  *   if (href === "https://doi.org/10/x" && consensusVerdict === "destabilizing")
@@ -101,7 +101,7 @@ describe("consensus verdict is a closed set", () => {
   it("rejects the exact string that made the original clause dead", () => {
     // The original bug used LOWERCASE "destabilizing". The verdict text says
     // "High Misfolding Risk (Destabilizing Consensus)" with a capital D, and the comparison was
-    // case-sensitive, so it could never match — which is why nothing failed and why the branch
+    // case-sensitive, so it could never match â€” which is why nothing failed and why the branch
     // was never noticed.
     expect(isConsensusVerdictFragment("destabilizing")).toBe(false);
     expect(isConsensusVerdictFragment("destabilised")).toBe(false);
@@ -114,7 +114,7 @@ describe("consensus verdict is a closed set", () => {
     // string the consensus cannot return (TS2367, no overlap). A regex guard can be walked past by a
     // rename or a `switch`; the type cannot.
     const verdict = computeConsensusVerdict({ foldx: 2.0 });
-    // @ts-expect-error — "destabilizing" is not a member of the verdict union. If the union ever
+    // @ts-expect-error â€” "destabilizing" is not a member of the verdict union. If the union ever
     // widens back to `string`, this directive becomes unused and `tsc --noEmit` fails.
     const impossible = verdict === "destabilizing";
     expect(impossible).toBe(false);
@@ -143,40 +143,40 @@ describe("no surface compares the verdict to an impossible literal", () => {
    *
    * The previous gate was a bare `line.includes("consensusVerdict")`, which is both too wide and too
    * narrow:
-   *   • too wide — it flagged ANY quoted literal sharing a line with the identifier, so an ordinary
+   *   â€¢ too wide â€” it flagged ANY quoted literal sharing a line with the identifier, so an ordinary
    *     object literal such as `{ consensusVerdict: LIVE, pendingTools: ["DynaMut2"] }` produced
    *     violations for two strings that are not comparisons at all. A guard that accuses correct code
    *     is one people learn to route around.
-   *   • too narrow — a renamed local, or a `switch` whose `case` lines carry the literals, is not
+   *   â€¢ too narrow â€” a renamed local, or a `switch` whose `case` lines carry the literals, is not
    *     seen. That hole is why the verdict is ALSO a literal union in `consensus.ts`: the type rejects
    *     an impossible comparison at compile time, which no line scan can guarantee.
    */
   /**
-   * Literals that are COMPARED WITH the identifier — the operator is between them.
+   * Literals that are COMPARED WITH the identifier â€” the operator is between them.
    *
    * Two earlier versions of this gate were both wrong, each in a different direction, and a review
    * measured exactly why:
    *
-   *   • the bare `line.includes("consensusVerdict")` gate flagged any quoted literal sharing a line
+   *   â€¢ the bare `line.includes("consensusVerdict")` gate flagged any quoted literal sharing a line
    *     with the identifier, so `{ consensusVerdict: LIVE, pendingTools: ["DynaMut2"] }` produced
    *     violations for strings that are not comparisons.
-   *   • narrowing it to "identifier AND some operator on the line" silenced that false positive but
+   *   â€¢ narrowing it to "identifier AND some operator on the line" silenced that false positive but
    *     lost true positives (`Object.is(consensusVerdict, "destabilizing")`,
-   *     `["destabilizing"].indexOf(consensusVerdict)`) — and, measured over the whole tree, its only
+   *     `["destabilizing"].indexOf(consensusVerdict)`) â€” and, measured over the whole tree, its only
    *     effect was to keep the guard's OWN new test green. That is a guard being edited to suit a
    *     test rather than the reverse.
    *
    * THE PREDICATE IS FORM-INDEPENDENT ON PURPOSE. It used to require the operator to sit BETWEEN the
    * identifier and the literal, which meant every other way of writing the same comparison was
-   * invisible: `"destabilizing" === consensusVerdict`, `consensusVerdict?.includes(…)`, `(v as string)
-   * === …`, `String(v) === …`, `v.trim() === …`, `["destabilizing"].includes(v)`, `Object.is(v, …)`, a
+   * invisible: `"destabilizing" === consensusVerdict`, `consensusVerdict?.includes(â€¦)`, `(v as string)
+   * === â€¦`, `String(v) === â€¦`, `v.trim() === â€¦`, `["destabilizing"].includes(v)`, `Object.is(v, â€¦)`, a
    * `switch`/`case`, and an operator split across lines all passed. Measured at the time: 0 violations
    * across 232 files while 11 of those 12 shapes went through. A guard that cannot fail is worse than
    * none, because it certifies the absence of the defect.
    *
    * So: if a statement mentions the identifier, contains a comparison or lookup token, AND contains a
    * string literal, every literal in it is checked. Order does not matter, the call form does not
-   * matter, and the statement — not the line — is the unit, so a split operator and a `switch` body are
+   * matter, and the statement â€” not the line â€” is the unit, so a split operator and a `switch` body are
    * both covered. The literal is still the discriminator: a real fragment of a verdict is legitimate,
    * anything the consensus cannot produce is not.
    *
@@ -192,21 +192,75 @@ describe("no surface compares the verdict to an impossible literal", () => {
    *
    * Deliberately not `{`: that opens a BLOCK. Treating a block as a continuation walked into the
    * function body of `if (consensusVerdict.includes("Insufficient")) {` and flagged the className
-   * literals of its return value as verdict comparisons — eight false positives, which is how a guard
+   * literals of its return value as verdict comparisons â€” eight false positives, which is how a guard
    * teaches people to ignore it.
    */
   const CONTINUES = /(===|!==|==|!=|&&|\|\||,|\?|:|\+|\(|\[|\\)\s*$/;
 
+  /**
+   * F15-1: a literal counts only when it is an OPERAND of the identifier.
+   *
+   * The previous version flagged every non-fragment literal in any statement that mentioned the
+   * identifier and contained a comparison token. Green on the real tree, but a review showed that
+   * minimal realistic edits to the tone logic produce false positives â€” a ternary's style strings, a
+   * `switch` case label used for colour, a property value whose line sweeps into the next â€” and this
+   * guard has been narrowed twice already for exactly that. A guard that accuses correct code is one
+   * people route around, so the match is now on the literal's RELATIONSHIP to the identifier:
+   *
+   *   (a) either side of `===`, `!==`, `==`, `!=`, or inside `Object.is(...)`
+   *   (b) the argument of a lookup whose RECEIVER expression mentions the identifier, or the array
+   *       element of an array-membership test on it
+   *   (c) a `case` label inside a `switch` on it
+   *
+   * The receiver rule is what removes the fourth false positive: `X.includes("DynaMut2")` on the line
+   * after the identifier is not a claim about the verdict, because its receiver is `X`.
+   */
   function comparedLiterals(statement: string): string[] {
-    if (!COMPARISON_TOKEN.test(statement)) return [];
+    if (!statement.includes("consensusVerdict")) return [];
+
     const out: string[] = [];
+    const literal = /(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
     let m: RegExpExecArray | null;
-    STRING_LITERAL.lastIndex = 0;
-    while ((m = STRING_LITERAL.exec(statement))) {
-      // An EMPTY literal is how code asks "is this set?" — `consensusVerdict !== ""` is not a claim
+    literal.lastIndex = 0;
+
+    while ((m = literal.exec(statement))) {
+      const text = m[2];
+      // An EMPTY literal is how code asks "is this set?" â€” `consensusVerdict !== ""` is not a claim
       // about which verdict it is, and flagging it is how a guard earns its suppression.
-      if (m[2].length > 0) out.push(m[2]);
+      if (text.length === 0) continue;
+
+      const before = statement.slice(0, m.index);
+      const after = statement.slice(m.index + m[0].length);
+      const mentions = (side: string) => side.includes("consensusVerdict");
+
+      const comparisonLeft = /(===|!==|==|!=)\s*$/.test(before);
+      const comparisonRight = /^\s*(===|!==|==|!=)/.test(after);
+      const insideObjectIs = /Object\.is\(/.test(before) && /\)/.test(after);
+      const lookupLeft =
+        /\.(includes|startsWith|endsWith|indexOf|match|search|localeCompare|has)\(\s*$/.test(before);
+      const membershipRight = /^\s*\]\s*\.(includes|indexOf)\(/.test(after);
+      const caseLabel = /(^|[;{}]\s*)case\s*$/.test(before) && /switch\s*\(/.test(statement);
+
+      /** The receiver expression: from the nearest delimiter to the lookup call it belongs to. */
+      const receiverMentions = (side: string) => {
+        const r =
+          /(?:^|[\[{,=:&|]|\breturn\b)\s*([^,;=:&|\[\{]*?)\??\.(?:includes|startsWith|endsWith|indexOf|match|search|localeCompare|has)\(\s*$/.exec(
+            side
+          );
+        return Boolean(r && r[1].includes("consensusVerdict"));
+      };
+
+      const flagged =
+        (comparisonLeft && mentions(before)) ||
+        (comparisonRight && mentions(after)) ||
+        (insideObjectIs && (mentions(before) || mentions(after))) ||
+        (lookupLeft && receiverMentions(before)) ||
+        (membershipRight && mentions(after)) ||
+        (caseLabel && mentions(statement));
+
+      if (flagged) out.push(text);
     }
+
     return out;
   }
 
@@ -234,6 +288,10 @@ describe("no surface compares the verdict to an impossible literal", () => {
       `consensusVerdict !== ""`,
       `consensusVerdict.includes("Insufficient")`,
       `consensusVerdict.includes("High")`,
+      // F15-1: the false positives a review produced from the repo's own tone logic.
+      `const tone = calConsensus.consensusVerdict === "High" ? "text-danger" : "text-muted";`,
+      `switch (calConsensus.consensusVerdict) {\n  case "High":\n    return "danger";\n}`,
+      `derivedVerdict: "x",\n  X.includes("DynaMut2") ? "partial" : "complete"`,
       `<span title={calConsensus.consensusVerdict} className="text-red-500">x</span>`,
     ];
 
