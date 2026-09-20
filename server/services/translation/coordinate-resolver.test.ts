@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   DEFAULT_RESOLUTION_BUDGET_MS,
   ENSEMBL_VEP_TIMEOUT_MS,
+  computeRungWindowMs,
   resolveCoordinate,
   buildResolutionUnavailableMessage,
 } from "./coordinate-resolver.ts";
@@ -249,8 +250,7 @@ describe("coordinate-resolver provider ladder", () => {
     expect(error.attempts.every((a: any) => !String(a.reason).startsWith("skipped"))).toBe(true);
   });
 
-  it("records WHY a rung was never tried when the budget is already spent", async () => {
-    // A budget this small leaves no window for any rung. The trail must SAY so rather than being
+  it("records WHY a rung was never tried when the budget is already spent", async () => {    // A budget this small leaves no window for any rung. The trail must SAY so rather than being
     // empty: an empty trail made `classifyTotalFailure` report an outage that named neither a
     // provider nor an attempt, which is precisely how the earlier "all providers unreachable"
     // message came to be printed for a problem that was our own arithmetic.
@@ -273,10 +273,31 @@ describe("coordinate-resolver provider ladder", () => {
    * killed by arithmetic rather than by the provider being slow. A review found the previous
    * 25s split (12.5s per rung) was smaller than every provider's 15s timeout, so the window —
    * not the provider — was always the binding constraint.
+   *
+   * Superseded by reservations: each later rung that CAN answer keeps its tolerance, and the current
+   * one borrows the remainder. The even share is now only a floor for budgets too small to reserve.
    */
-  it("allots each rung at least its provider's configured tolerance", () => {
-    const rungs = 2;
-    expect(DEFAULT_RESOLUTION_BUDGET_MS / rungs).toBeGreaterThanOrEqual(ENSEMBL_VEP_TIMEOUT_MS);
+  it("reserves a healthy fallback's tolerance for it, and gives the primary the remainder", () => {
+    const budget = DEFAULT_RESOLUTION_BUDGET_MS;
+    const fallbackTolerance = 15_000;
+
+    // Healthy fallback: the primary gets everything except the fallback's tolerance (and never less
+    // than an even share).
+    expect(
+      computeRungWindowMs({ remainingMs: budget, providersLeft: 2, reservedForLaterRungs: fallbackTolerance })
+    ).toBe(budget - fallbackTolerance);
+    expect(budget - fallbackTolerance).toBeGreaterThanOrEqual(budget / 2);
+
+    // Fallback breaker OPEN (the production case): nothing is reserved for a request that would fail
+    // instantly, so the provider that can actually answer gets the whole window.
+    expect(
+      computeRungWindowMs({ remainingMs: budget, providersLeft: 2, reservedForLaterRungs: 0 })
+    ).toBe(budget);
+
+    // A budget too small to reserve still grants an even share to every rung.
+    expect(
+      computeRungWindowMs({ remainingMs: 200, providersLeft: 2, reservedForLaterRungs: fallbackTolerance })
+    ).toBe(100);
   });
 
   /**
@@ -388,5 +409,39 @@ describe("buildResolutionUnavailableMessage", () => {
   it("asks for verification when the coordinate is genuinely absent", () => {
     const message = buildResolutionUnavailableMessage("not_found");
     expect(message).toContain("Verify the chromosome, position, alleles and genome build");
+  });
+
+  /**
+   * Measured in production: a 503 told the user every provider was "unreachable" while Ensembl VEP was
+   * reachable and serving, just taking 20-34s per query. The two situations need different words: a
+   * slow service is fixed by retrying, an unreachable one is not.
+   */
+  it("distinguishes a too-slow provider from an unreachable one", () => {
+    const slow = buildResolutionUnavailableMessage("upstream_unavailable", [
+      { provider: "ensembl-vep", ok: false, durationMs: 20_949, reason: "No time left for another attempt within the caller's deadline.", failureKind: "upstream_unavailable" },
+      { provider: "variant-validator", ok: false, durationMs: 18_985, reason: "resolution budget of 40000ms exceeded", failureKind: "upstream_unavailable" },
+    ]);
+    expect(slow).toContain("too slowly");
+    expect(slow).not.toContain("could not be reached");
+
+    const transport = buildResolutionUnavailableMessage("upstream_unavailable", [
+      { provider: "ensembl-vep", ok: false, durationMs: 40, reason: "fetch failed", failureKind: "upstream_unavailable" },
+    ]);
+    expect(transport).toContain("could not be reached");
+
+    // Both keep the actionable escape hatch, and neither promises a fallback that does not exist.
+    for (const message of [slow, transport]) {
+      expect(message).toContain("protein-level substitution");
+      expect(message).not.toContain("the rest of the analysis runs");
+    }
+  });
+
+  it("keeps the failure message free of internal provider detail", () => {
+    for (const kind of ["upstream_unavailable", "invalid_response", "not_found"] as const) {
+      const message = buildResolutionUnavailableMessage(kind, [
+        { provider: "ensembl-vep", ok: false, durationMs: 40, reason: "fetch failed", failureKind: "upstream_unavailable" },
+      ]);
+      expect(message).not.toMatch(/fetch|upstream|rate limit|ENOENT|spawn/i);
+    }
   });
 });

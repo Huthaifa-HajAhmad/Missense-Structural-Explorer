@@ -49,8 +49,12 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         // response instead of retrying, and any retry it does start is capped by this deadline,
         // which is what keeps the server's actionable message ("enter the protein-level
         // substitution directly") in front of the user instead of a bare
-        // "Request timed out after 45000ms" from a second, aborted attempt.
-        timeout: 45000,
+        // "Request timed out after 60000ms" from a second, aborted attempt.
+        //
+        // 60s, not 45s: the ladder's own budget is 40s (Ensembl VEP needs 20-34s under load), and a
+        // client deadline below it would abort before the server could deliver its 503 — replacing an
+        // actionable message with a generic timeout.
+        timeout: 60000,
         signal
       });
       if (!res.ok) {

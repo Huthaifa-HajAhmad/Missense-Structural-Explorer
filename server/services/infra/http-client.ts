@@ -73,9 +73,27 @@ function getHostBreaker(hostname: string): CircuitBreaker {
   return breaker;
 }
 
+/**
+ * True while a host is NOT breaker-ejected, i.e. a request to it can actually be answered.
+ *
+ * Callers that RESERVE time for a later fallback tier use this: holding budget for a tier whose
+ * breaker is open is holding it for a request that will fail instantly, which starves the healthy
+ * provider. Measured in production: VariantValidator was down (its liveness endpoint timed out at
+ * 20s) while 15s of every 32s resolution budget was reserved for it, leaving Ensembl VEP — which was
+ * answering, slowly — too little time to succeed.
+ */
+export function isHostAvailable(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return getHostBreaker(hostname).canExecute();
+  } catch {
+    // An unparseable URL is not our problem to judge here; let the request itself decide.
+    return true;
+  }
+}
+
 function getHostSemaphore(hostname: string): Semaphore {
-  let sem = hostSemaphores.get(hostname);
-  if (!sem) {
+  let sem = hostSemaphores.get(hostname);  if (!sem) {
     sem = new Semaphore(5); // max 5 concurrent requests per host (A3)
     hostSemaphores.set(hostname, sem);
   }
@@ -144,6 +162,14 @@ export interface FetchWithRetryOptions extends RequestInit {
    * Provider-specific timeouts and transport errors still count.
    */
   cappedByCaller?: boolean;
+  /**
+   * Absolute instant (epoch ms) by which the caller needs an answer.
+   *
+   * The fetch loop uses it to avoid starting an attempt or a retry that cannot finish in time, and to
+   * size each attempt to the time actually left. Without it a hopeless retry consumed the caller's
+   * window and the provider was then reported as unreachable although it had answered.
+   */
+  deadlineAt?: number;
 }
 
 export async function fetchWithRetry(url: string, options: FetchWithRetryOptions = {}, retries = 3, delay = 1000): Promise<Response> {
@@ -167,10 +193,27 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
 
     const timeoutMs = options.timeout ?? 15000;
     let lastStatus = 200;
+    let lastAttemptMs = 0;
+    /** Kept so a deadline that blocks a retry throws the REAL cause, not a synthetic timeout. */
+    let lastError: any = null;
     for (let i = 0; i < retries; i++) {
       if (options.signal?.aborted) {
         throw options.signal.reason || new Error("Aborted");
       }
+      /**
+       * Deadline-aware: never START an attempt that cannot finish in the time the caller has.
+       *
+       * Without this, a retry with no chance consumed the caller's whole window and the provider was
+       * then reported as "unreachable" — measured in production: Ensembl VEP was answering in ~7s and
+       * one transient 500 pushed the retry past the ladder's window, so a working provider was
+       * declared dead and the request answered 503.
+       */
+      const timeLeft = options.deadlineAt ? options.deadlineAt - Date.now() : Number.POSITIVE_INFINITY;
+      if (i > 0 && timeLeft < Math.max(lastAttemptMs, 1_500) + 250) {
+        throw lastError ?? new Error("No time left for another attempt within the caller's deadline.");
+      }
+      const attemptTimeoutMs = Math.min(timeoutMs, Math.max(500, Math.floor(timeLeft)));
+      const attemptStartedAt = Date.now();
       try {
         const controller = new AbortController();
         // Aborted with an explicit TimeoutError reason: undici rejects an aborted fetch with
@@ -179,7 +222,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         // distinction and was INERT until it was set (verified against a real hanging socket).
         const id = setTimeout(
           () => controller.abort(new DOMException("attempt timeout", "TimeoutError")),
-          timeoutMs
+          attemptTimeoutMs
         );
 
         const signal = options.signal
@@ -191,6 +234,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
           signal
         });
         clearTimeout(id);
+        lastAttemptMs = Date.now() - attemptStartedAt;
 
         if (res.status === 429 || res.status >= 500) {
           lastStatus = res.status;
@@ -235,6 +279,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         if (!probe) breaker.recordSuccess();
         return res;
       } catch (err: any) {
+        lastError = err;
         // A CALLER-INITIATED abort (the resolution ladder's window or deadline, or a client
         // disconnect) is not an upstream failure: our own timer closed the request. Booking it
         // as a failure ejected a healthy-but-slow provider on the shared per-host breaker for

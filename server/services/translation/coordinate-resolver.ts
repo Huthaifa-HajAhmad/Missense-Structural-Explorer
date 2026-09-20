@@ -41,7 +41,7 @@
 
 import { z } from "zod";
 import { LRUCache } from "lru-cache";
-import { fetchWithRetry } from "../infra/http-client.ts";
+import { fetchWithRetry, isHostAvailable } from "../infra/http-client.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
 import { buildCoordinateTranslationKey } from "../infra/cache-keys.ts";
 import { anySignal } from "../../utils.ts";
@@ -77,7 +77,7 @@ export const ENSEMBL_HOSTS: Record<GenomeAssembly, string> = {
 export const DEFAULT_ASSEMBLY: GenomeAssembly = "GRCh38";
 
 /** Ensembl VEP's configured per-attempt tolerance. */
-export const ENSEMBL_VEP_TIMEOUT_MS = 15_000;
+export const ENSEMBL_VEP_TIMEOUT_MS = 25_000;
 
 const ensemblResponseSchema = z.array(
   z.object({
@@ -207,6 +207,7 @@ export async function fetchEnsemblVepConsequence(
       timeout: options?.timeoutMs ?? ENSEMBL_VEP_TIMEOUT_MS,
       signal,
       ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
+      ...(options?.deadlineAt ? { deadlineAt: options.deadlineAt } : {}),
     });
   } catch (err: any) {
     // A caller-initiated abort must propagate untouched so the HTTP layer can answer 504.
@@ -337,16 +338,22 @@ function isCacheable(outcome: { consequence: ResolvedConsequence }): boolean {
  * slow. The previous 25s budget could not fit two 15s providers, and giving the primary the
  * whole budget starved the fallback entirely (see the window logic in {@link resolveCoordinate}).
  *
- * The client's per-request budget for this call is 45s (`src/api/structureApi.ts`), which must
- * stay above this value.
+ * Raised to 40s after measuring Ensembl VEP under load: it answered in 7s, 13.5s, 20s, 29s and 34s in
+ * successive samples, so a budget that left the primary 17s (32s minus the fallback's reserve) failed
+ * requests that a larger window answers. 40s = the primary's 25s tolerance plus the fallback's 15s
+ * reserve, and the window logic hands the whole budget to the primary whenever the fallback's breaker
+ * is open. It stays inside the client's 60s budget for this call (`src/api/structureApi.ts`), so a
+ * genuine outage still produces this route's honest 503 rather than a client-side abort.
  */
-export const DEFAULT_RESOLUTION_BUDGET_MS = 32_000;
+export const DEFAULT_RESOLUTION_BUDGET_MS = 40_000;
 
 /** Ordered provider chain: primary first, then independent fallbacks. */
 const PROVIDER_CHAIN: Array<{
   provider: TranslationProvider;
   /** This provider's configured per-attempt tolerance (before the ladder caps it). */
   timeoutMs: number;
+  /** Host used to ask the breaker whether this rung can answer at all. */
+  host: string;
   resolve: (
     notation: string,
     assembly: GenomeAssembly,
@@ -354,9 +361,38 @@ const PROVIDER_CHAIN: Array<{
     options?: ResolutionProviderOptions
   ) => Promise<{ consequence: ResolvedConsequence; attempt: ProviderAttempt }>;
 }> = [
-  { provider: "ensembl-vep", timeoutMs: ENSEMBL_VEP_TIMEOUT_MS, resolve: fetchEnsemblVepConsequence },
-  { provider: "variant-validator", timeoutMs: 15_000, resolve: fetchVariantValidatorConsequence },
+  {
+    provider: "ensembl-vep",
+    timeoutMs: ENSEMBL_VEP_TIMEOUT_MS,
+    host: "https://rest.ensembl.org",
+    resolve: fetchEnsemblVepConsequence,
+  },
+  {
+    provider: "variant-validator",
+    timeoutMs: 15_000,
+    host: "https://rest.variantvalidator.org",
+    resolve: fetchVariantValidatorConsequence,
+  },
 ];
+
+/**
+ * Window for the current rung: every LATER rung that can actually answer keeps its tolerance
+ * reserved, and the current one may borrow the rest (never less than an even share).
+ *
+ * Exported because the arithmetic IS the behaviour here: an even split looks fair, but it starved the
+ * only working provider in production (see the comment at the call site).
+ */
+export function computeRungWindowMs(params: {
+  remainingMs: number;
+  providersLeft: number;
+  reservedForLaterRungs: number;
+}): number {
+  const { remainingMs, providersLeft, reservedForLaterRungs } = params;
+  return Math.max(
+    Math.floor(remainingMs / providersLeft),
+    remainingMs - reservedForLaterRungs
+  );
+}
 
 /**
  * Collapses per-provider failures into a single machine-readable cause.
@@ -387,7 +423,10 @@ function classifyTotalFailure(attempts: ProviderAttempt[]): ResolutionFailureKin
  * string; (b) provider jargon is noise for a clinician. The machine-readable trail is
  * returned in the response `details.attempts` instead.
  */
-export function buildResolutionUnavailableMessage(kind: ResolutionFailureKind): string {
+export function buildResolutionUnavailableMessage(
+  kind: ResolutionFailureKind,
+  attempts: ProviderAttempt[] = []
+): string {
   if (kind === "not_found") {
     return (
       "No transcript consequence was found for this coordinate in any reference provider. " +
@@ -399,10 +438,36 @@ export function buildResolutionUnavailableMessage(kind: ResolutionFailureKind): 
   if (kind === "invalid_response") {
     return "Coordinate translation providers returned unusable responses. Please retry shortly.";
   }
+  /**
+   * Distinguish "too slow to answer" from "unreachable".
+   *
+   * Measured in production: Ensembl VEP was REACHABLE and serving, but taking 20-34s per query, so
+   * every rung exhausted its window. The old wording told the user (and the operator reading the
+   * developer console) that all providers were unreachable, which points at the wrong problem and at
+   * the wrong remedy — a slow service recovers by retrying, an unreachable one does not.
+   *
+   * Classified by INVERSION: only a reason that looks like a transport failure counts as
+   * unreachability, and everything else (windows, budgets, deadlines, timeouts, unusable answers) is
+   * reported as slowness. The first version looked for slowness keywords, so a new reason string that
+   * merely mentioned the caller's deadline silently fell back to accusing the provider of being down —
+   * the failure mode this message exists to prevent.
+   */
+  const transportFailure =
+    /fetch failed|enotfound|econnrefused|econnreset|ehostunreach|enetunreach|network|dns|getaddrinfo|socket|tls|ssl|certificate/i;
+  const unreachableOnly =
+    attempts.length > 0 && attempts.every((attempt) => transportFailure.test(String(attempt.reason ?? "")));
+  if (!unreachableOnly) {
+    return (
+      "Coordinate translation is temporarily unavailable: the reference providers did not answer " +
+      "within the time allowed (they are responding too slowly right now, not necessarily down). " +
+      "Retry in a minute, or enter the protein-level substitution directly (for example " +
+      "p.Glu433Lys) to run the analysis without coordinate translation."
+    );
+  }
   return (
-    "Coordinate translation is temporarily unavailable because all reference providers are " +
-    "unreachable or failed to answer in time. You can enter the protein-level substitution " +
-    "directly (for example p.Glu433Lys) — the rest of the analysis runs without coordinate translation."
+    "Coordinate translation is temporarily unavailable because the reference providers could not be " +
+    "reached. Retry in a minute, or enter the protein-level substitution directly (for example " +
+    "p.Glu433Lys) to run the analysis without coordinate translation."
   );
 }
 
@@ -492,19 +557,34 @@ export async function resolveCoordinate(
             break;
           }
 
-          // ── Fair share of the remaining budget ──────────────────────────────────────
+          // ── Share of the remaining budget ───────────────────────────────────────────
           // Handing the primary the WHOLE budget let a slow Ensembl VEP (whose own retry
           // envelope is several attempts long) consume all of it, so the loop broke before
           // VariantValidator — the tier that exists for a degraded primary — was ever called,
           // and the clinician was told "all reference providers are unreachable" for a
           // primary-only problem.
           //
-          // Each provider now gets an even share of what remains, so every rung is guaranteed
-          // a window. When the primary answers or fails fast (the common case) nothing has
-          // been consumed, so the fallback still inherits nearly the whole budget.
+          // Each later rung now has its own tolerance RESERVED, and the current one may borrow
+          // everything else. An even split looks fair but is not: VEP needs ~7s per attempt, and a
+          // single transient 500 — which it returns routinely under load — costs a retry, so an even
+          // 16s window aborted the one provider that was in fact answering and reported it as
+          // unreachable. Reserving the fallback's 15s leaves the primary 17s: one attempt plus one
+          // retry. When the primary answers or fails fast, nothing is consumed and the fallback
+          // inherits nearly the whole budget, as before.
           const providersLeft = PROVIDER_CHAIN.length - i;
           const remainingMs = budgetMs - (Date.now() - ladderStartedAt);
-          const windowMs = Math.floor(remainingMs / providersLeft);
+          /**
+           * Reserve only for later rungs that CAN answer.
+           *
+           * Holding budget for a tier whose breaker is open reserves time for a request that fails
+           * instantly — measured in production: VariantValidator was down while 15s of every 32s
+           * budget was held for it, leaving Ensembl VEP (answering in 13-34s) too little time to
+           * succeed. A dead tier gets no reservation; a healthy one keeps its tolerance.
+           */
+          const reservedForLaterRungs = PROVIDER_CHAIN.slice(i + 1)
+            .filter((rung) => isHostAvailable(rung.host))
+            .reduce((total, rung) => total + rung.timeoutMs, 0);
+          const windowMs = computeRungWindowMs({ remainingMs, providersLeft, reservedForLaterRungs });
 
           // A provider is skipped only when no positive window is left at all: while any budget
           // remains, every rung gets a chance to answer rather than being written off.
@@ -544,6 +624,10 @@ export async function resolveCoordinate(
             const { consequence, attempt } = await resolve(notation, assembly, providerSignal, {
               timeoutMs: effectiveTimeoutMs,
               cappedByCaller: effectiveTimeoutMs < timeoutMs,
+              // The window is a DEADLINE, not just an abort: with it, the transport stops starting
+              // retries that cannot finish and sizes each attempt to the time actually left, instead
+              // of being killed mid-retry and reported as unreachable.
+              deadlineAt: providerStartedAt + windowMs,
             });
             clearTimeout(windowTimer);
 
@@ -619,7 +703,7 @@ export async function resolveCoordinate(
         }
 
         const kind = classifyTotalFailure(attempts);
-        throw new CoordinateResolutionError(kind, buildResolutionUnavailableMessage(kind), attempts);
+        throw new CoordinateResolutionError(kind, buildResolutionUnavailableMessage(kind, attempts), attempts);
       },
     });
 

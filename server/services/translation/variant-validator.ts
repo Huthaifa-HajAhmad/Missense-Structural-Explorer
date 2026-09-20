@@ -267,6 +267,7 @@ export async function fetchVariantValidatorConsequence(
         timeout: options?.timeoutMs ?? VARIANT_VALIDATOR_TIMEOUT_MS,
         signal,
         ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
+        ...(options?.deadlineAt ? { deadlineAt: options.deadlineAt } : {}),
       },
       VARIANT_VALIDATOR_ATTEMPTS,
       VARIANT_VALIDATOR_RETRY_DELAY_MS

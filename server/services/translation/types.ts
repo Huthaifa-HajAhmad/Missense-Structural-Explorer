@@ -159,6 +159,14 @@ export interface ResolutionProviderOptions {
    * for the cooldown by our own scheduling.
    */
   cappedByCaller?: boolean;
+  /**
+   * Absolute instant (epoch ms) by which the caller needs an answer.
+   *
+   * The transport uses it to stop starting attempts and retries that cannot finish in time, and to
+   * size each attempt to the time actually left. Without it a retry that had no chance consumed the
+   * caller's window, and the provider was then reported as "unreachable" even though it had answered.
+   */
+  deadlineAt?: number;
 }
 
 /**
