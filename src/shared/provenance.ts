@@ -51,6 +51,33 @@ export interface ProvenanceManifest {
     acmgWeighting: string;
   };
   structureProvenance: StructureProvenance | null;
+  /**
+   * Which protein the residue numbers in this manifest belong to.
+   *
+   * "p.Lys281Asn" is not a complete description of a variant: it is only a variant GIVEN a protein.
+   * A lab reports MANE numbering (`Q9Y305-4`), structures are canonical (`Q9Y305`), and the same
+   * notation can therefore name two different residues — so an exported report that omits this
+   * cannot be re-derived or safely compared with another report.
+   */
+  numberingProvenance: {
+    /** Isoform the returned substitution is numbered on (`variant` in `queryCoordinate`). */
+    isoform: string | null;
+    basis: "canonical" | "remapped" | "unverified" | null;
+    /** Present when the input notation was converted onto canonical numbering. */
+    remap: {
+      reason: string;
+      fromHgvsp?: string | null;
+      fromIsoform?: string | null;
+      /** Protein accession the input notation was numbered on (`NP_…`), when it named one. */
+      fromAccession?: string | null;
+      toHgvsp?: string | null;
+    } | null;
+    /** False when the numbering could not be verified across the gene's isoforms. */
+    verified: boolean | null;
+    unverifiedReason: string | null;
+    /** True when the notation declared its own basis (accession-qualified input). */
+    declaredByInput: boolean;
+  };
   dataSources: typeof PROVENANCE_DATA_SOURCES;
   foundationModels: typeof PROVENANCE_MODEL_REVISIONS;
   serviceStatuses: Record<string, string>;
@@ -69,6 +96,49 @@ export interface ProvenanceManifest {
     stabilityEvidenceComplete: boolean | null;
     /** Engines that had not resolved when this manifest was generated, by display name. */
     pendingEngines: string[];
+  };
+}
+
+/**
+ * Reads the numbering provenance off an analysis result.
+ *
+ * Top-level fields are preferred (the pipeline copies them from the translation or the analysis
+ * route) with a fallback to `metadata`, because bundles persisted before those fields were promoted
+ * carry them there. `verified` is DERIVED when the run did not state it: `basis: "canonical"` means
+ * the numbering was proven to follow the canonical accession, whereas `unverified` means it was not.
+ */
+function buildNumberingProvenance(
+  analysisResult: AnalysisResult | null
+): ProvenanceManifest["numberingProvenance"] {
+  const meta: any = (analysisResult as any)?.metadata || {};
+  const pick = (key: string): any => (analysisResult as any)?.[key] ?? meta?.[key] ?? undefined;
+
+  const basis = (pick("numberingBasis") ?? null) as ProvenanceManifest["numberingProvenance"]["basis"];
+  const remap = pick("numberingRemap") ?? null;
+  const statedVerified = pick("numberingVerified");
+
+  return {
+    isoform: pick("uniprotIsoform") ?? null,
+    basis,
+    remap: remap
+      ? {
+          reason: remap.reason,
+          fromHgvsp: remap.from?.hgvsp ?? null,
+          fromIsoform: remap.from?.isoform ?? null,
+          fromAccession: remap.from?.accession ?? null,
+          toHgvsp: remap.to?.hgvsp ?? null,
+        }
+      : null,
+    verified:
+      typeof statedVerified === "boolean"
+        ? statedVerified
+        : basis === "canonical"
+          ? true
+          : basis === "unverified"
+            ? false
+            : null,
+    unverifiedReason: pick("numberingUnverifiedReason") ?? null,
+    declaredByInput: Boolean(remap?.from?.accession),
   };
 }
 
@@ -121,6 +191,7 @@ export function generateProvenanceManifest(
       acmgWeighting: settings?.acmgWeighting || "standard"
     },
     structureProvenance: structureProv,
+    numberingProvenance: buildNumberingProvenance(analysisResult),
     dataSources: PROVENANCE_DATA_SOURCES,
     foundationModels: PROVENANCE_MODEL_REVISIONS,
     serviceStatuses: status,

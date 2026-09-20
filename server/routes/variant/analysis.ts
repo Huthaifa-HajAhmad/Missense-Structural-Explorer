@@ -45,7 +45,29 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
 
       // Exclude internal routing metadata from API response
       const { _internal, ...payload } = responseData;
-      res.json(payload);
+      res.json({
+        ...payload,
+        /**
+         * Numbering provenance travels WITH the result.
+         *
+         * `numberingVerified: false` means the residue matched the canonical sequence but no other
+         * isoform numbering could be ruled out (UniProt unreachable), so the analysis is disclosed
+         * as unverified rather than presented as a clean canonical match. The prose goes in
+         * `transcriptWarning` (already rendered) and the machine-readable reason in its own field,
+         * which is what the exported report cites.
+         */
+        ...(context.numberingVerified === undefined
+          ? {}
+          : {
+              numberingVerified: context.numberingVerified,
+              ...(context.numberingWarning
+                ? {
+                    numberingUnverifiedReason: context.numberingWarning,
+                    transcriptWarning: payload.transcriptWarning ?? context.numberingWarning,
+                  }
+                : {}),
+            }),
+      });
     } catch (error: any) {
       console.error("Endpoint analysis failure:", error);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred during variant analysis.");

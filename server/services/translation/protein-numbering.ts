@@ -26,6 +26,7 @@
 
 import {
   fetchDisplayedIsoformId,
+  fetchManeIsoformId,
   fetchUniprotIsoforms,
   resolveRefSeqProtein,
   type RefSeqLookupResult,
@@ -295,16 +296,42 @@ export async function resolveGeneProteinNumbering(params: {
   gene: string;
   notation: string;
   canonicalAccession: string;
+  /**
+   * Which numberings a BARE notation could plausibly be reported on.
+   *
+   * `mane` restricts the comparison to canonical versus the MANE Select protein — the pair a bare
+   * lab notation actually uses. Admitting every isoform roughly quadrupled the refusal set for
+   * ACOT9 (14.8% of positions versus 3.4%) on the strength of isoforms no report would be numbered
+   * on. Declared (accession-qualified) input uses `all`, because there the basis is named.
+   */
+  basisScope?: "all" | "mane";
   options?: { bypassSqlite?: boolean };
 }): Promise<ProteinNumberingOutcome | null> {
-  const { gene, notation, canonicalAccession, options } = params;
+  const { gene, notation, canonicalAccession, basisScope = "all", options } = params;
   const substitution = parseSubstitution(notation);
   if (!substitution) return null;
 
   try {
     const isoforms = await fetchUniprotIsoforms(canonicalAccession, options);
     const bases = toNumberingBases(isoforms, canonicalAccession);
-    const resolution = resolveNumberingAcrossBases({ notation, bases });
+
+    let scopedBases = bases;
+    if (basisScope === "mane" && bases.length > 2) {
+      // Deliberately NOT caught: if the MANE lookup FAILS (provider problem) the whole call reports
+      // "could not verify" and the caller discloses that, rather than falling through to comparing
+      // every isoform — which would refuse ~15% of valid bare notations over an outage. An entry
+      // that simply HAS no MANE xref returns null here and keeps every base, because then the gene
+      // genuinely has several numberings and refusing is the honest answer.
+      const mane = await fetchManeIsoformId(canonicalAccession, options);
+      const canonicalBasis = bases.find((basis) => basis.kind === "canonical");
+      const maneBasis =
+        mane?.isoformId !== undefined
+          ? bases.find((basis) => basis.id.toUpperCase() === mane.isoformId!.toUpperCase())
+          : undefined;
+      if (canonicalBasis && maneBasis) scopedBases = [canonicalBasis, maneBasis];
+    }
+
+    const resolution = resolveNumberingAcrossBases({ notation, bases: scopedBases });
 
     if (resolution.status === "unresolved") {
       return {

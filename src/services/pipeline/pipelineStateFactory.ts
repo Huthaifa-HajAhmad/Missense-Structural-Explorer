@@ -23,6 +23,8 @@ export interface PipelineStateBaseParams {
     uniprotIsoform?: string;
     /** How that numbering basis was established: canonical | remapped | unverified. */
     numberingBasis?: string;
+    numberingVerified?: boolean | null;
+    numberingUnverifiedReason?: string | null;
     /** Record of a MANE → canonical renumbering, for reports that must state both notations. */
     numberingRemap?: {
       reason: string;
@@ -39,11 +41,24 @@ export interface PipelineStateBaseParams {
  * transcript fields, silently dropping anything the translation added — which is how the
  * structured remap record never reached a report while the code claimed it did.
  */
-function numberingProvenance(transcriptMeta: PipelineStateBaseParams["transcriptMeta"]) {
+function numberingProvenance(
+  transcriptMeta: PipelineStateBaseParams["transcriptMeta"],
+  resResult?: {
+    numberingVerified?: boolean | null;
+    numberingUnverifiedReason?: string | null;
+  }
+) {
   return {
     uniprotIsoform: transcriptMeta?.uniprotIsoform,
     numberingBasis: transcriptMeta?.numberingBasis,
     numberingRemap: transcriptMeta?.numberingRemap,
+    // The analysis route reports whether it could verify the numbering across isoforms; the
+    // translation meta carries it when the notation itself declared a basis. Either may be the
+    // only source, so both are consulted.
+    numberingVerified:
+      transcriptMeta?.numberingVerified ?? resResult?.numberingVerified ?? undefined,
+    numberingUnverifiedReason:
+      transcriptMeta?.numberingUnverifiedReason ?? resResult?.numberingUnverifiedReason ?? undefined,
   };
 }
 
@@ -144,7 +159,9 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       isCanonical: transcriptMeta?.isCanonical ?? resResult.predictorData?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId ?? resResult.predictorData?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning ?? resResult.transcriptWarning,
-      ...numberingProvenance(transcriptMeta),
+      // The server's numbering verification travels with the result, so an unverified numbering is
+      // disclosed on screen and cited in the export instead of looking like a clean match.
+      ...numberingProvenance(transcriptMeta, resResult),
       gnomadFrequency: resResult.gnomadFrequency || null,
       aouFrequency: resResult.aouFrequency || null,
       esm2: resResult.esm2 || null,

@@ -26,6 +26,72 @@ const LIVE = "High Misfolding Risk (Destabilizing Consensus)";
 
 const analysisResult = { metadata: { gene: "GENEX", variant: "p.Ala1Val" } } as never;
 
+/**
+ * "p.Lys281Asn" is only a variant GIVEN a protein, so the manifest must state which numbering the
+ * residue numbers belong to — otherwise a report cannot be re-derived or safely compared with one
+ * produced from a different protein.
+ */
+describe("generateProvenanceManifest — numbering provenance", () => {
+  it("cites the input basis and the conversion for an accession-qualified notation", () => {
+    const manifest = generateProvenanceManifest(
+      "ACOT9",
+      "p.Lys272Asn",
+      "Q9Y305",
+      {
+        uniprotIsoform: "Q9Y305-1",
+        numberingBasis: "remapped",
+        numberingVerified: true,
+        numberingRemap: {
+          reason: "MANE Select numbering mapped onto the canonical isoform",
+          from: {
+            hgvsp: "p.Lys281Asn",
+            isoform: "Q9Y305-4",
+            accession: "NP_001032248.1",
+            transcriptId: "NM_001037171.2",
+          },
+          to: { hgvsp: "p.Lys272Asn", isoform: "Q9Y305-1" },
+        },
+      } as never
+    );
+
+    expect(manifest.numberingProvenance.basis).toBe("remapped");
+    expect(manifest.numberingProvenance.remap?.fromAccession).toBe("NP_001032248.1");
+    expect(manifest.numberingProvenance.remap?.fromIsoform).toBe("Q9Y305-4");
+    expect(manifest.numberingProvenance.remap?.fromHgvsp).toBe("p.Lys281Asn");
+    expect(manifest.numberingProvenance.remap?.toHgvsp).toBe("p.Lys272Asn");
+    expect(manifest.numberingProvenance.declaredByInput).toBe(true);
+    expect(manifest.numberingProvenance.verified).toBe(true);
+  });
+
+  it("carries the unverified state and its reason, and derives it from the basis when absent", () => {
+    const unverified = generateProvenanceManifest(
+      "ACOT9",
+      "p.Arg55Ala",
+      "Q9Y305",
+      {
+        numberingBasis: "unverified",
+        numberingUnverifiedReason: "the isoform model could not be reached",
+      } as never
+    );
+    expect(unverified.numberingProvenance.verified).toBe(false);
+    expect(unverified.numberingProvenance.unverifiedReason).toContain("isoform model");
+    expect(unverified.numberingProvenance.declaredByInput).toBe(false);
+
+    // A canonical basis with no explicit flag is proven numbering, not unknown.
+    const canonical = generateProvenanceManifest("ACOT9", "p.Arg55Ala", "Q9Y305", {
+      numberingBasis: "canonical",
+    } as never);
+    expect(canonical.numberingProvenance.verified).toBe(true);
+  });
+
+  it("says nothing it cannot support when no numbering information exists", () => {
+    const manifest = generateProvenanceManifest("GENEX", "p.Ala1Val", "P00001", analysisResult);
+    expect(manifest.numberingProvenance.basis).toBeNull();
+    expect(manifest.numberingProvenance.verified).toBeNull();
+    expect(manifest.numberingProvenance.remap).toBeNull();
+  });
+});
+
 describe("generateProvenanceManifest — verdict summary", () => {
   it("prefers the verdict derived from the final state over the stored snapshot", () => {
     const manifest = generateProvenanceManifest(

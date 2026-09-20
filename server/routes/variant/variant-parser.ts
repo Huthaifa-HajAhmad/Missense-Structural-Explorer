@@ -137,6 +137,14 @@ export interface ParsedVariantContext {
   pos: number;
   wt1Letter: string;
   mut1Letter: string;
+  /**
+   * False when the numbering could not be verified across the gene's isoforms (UniProt
+   * unreachable). The analysis still runs — a provider outage must not fail a valid query — but the
+   * result is disclosed as unverified rather than presented as a clean canonical match.
+   */
+  numberingVerified?: boolean;
+  /** Human-readable disclosure for the unverified case; surfaced with the analysis result. */
+  numberingWarning?: string;
   biohubToken?: string | null;
   hfToken?: string | null;
   gpnApiUrl?: string | null;
@@ -286,10 +294,58 @@ export async function validateAndParseVariantRequest(req: any, res: any): Promis
     return null;
   }
 
+  /**
+   * The wild type MATCHES the canonical sequence — but for a gene whose MANE protein is numbered
+   * differently, the same letters can also describe a DIFFERENT canonical residue (ACOT9: 16 of 400
+   * indices, where the offset is 9). So the match is verified across every numbering before any
+   * analysis is modelled:
+   *   - two numberings consistent at DIFFERENT canonical positions → refuse; picking one would
+   *     model an arbitrary residue;
+   *   - verification impossible (UniProt unreachable) → accept, but say so, because a provider
+   *     outage must not fail an otherwise valid query and must not be mistaken for a clean bill.
+   */
+  const numbering = await resolveGeneProteinNumbering({
+    gene,
+    notation: variant,
+    canonicalAccession: uniprotId,
+    // A bare notation is canonical- or MANE-numbered in practice, so the ambiguity check compares
+    // exactly that pair: admitting every isoform of the gene multiplies the refusal set (ACOT9:
+    // 14.8% of positions versus 3.4%) for numberings a report would not be using.
+    basisScope: "mane",
+  });
+
+  if (numbering?.status === "ambiguous" && numbering.candidates?.length) {
+    sendError(
+      res,
+      422,
+      "AMBIGUOUS_PROTEIN_NUMBERING",
+      buildAmbiguousNumberingMessage(variant, numbering.candidates) +
+        ` Both are consistent with ${uniprotId} at position ${pos}; enter the genomic/cDNA coordinate ` +
+        "to settle which protein these residue numbers belong to.",
+      {
+        notation: variant,
+        candidates: numbering.candidates.map((candidate) => candidate.variant),
+      }
+    );
+    return null;
+  }
+
+  const numberingVerified = numbering !== null && numbering.status === "canonical";
+  const numberingWarning = numberingVerified
+    ? undefined
+    : `Numbering not verified for ${gene} ${variant}: ${
+        numbering?.reason ??
+        "the isoform model could not be reached"
+      }. The residue was matched against the canonical ${uniprotId} sequence; if this notation was ` +
+      "reported on a different isoform its position may refer to another residue. Qualify it with " +
+      "the protein it was reported on (e.g. NP_001032248.1:p.Lys281Asn) or use the genomic/cDNA coordinate.";
+
   return {
     gene,
     variant,
     uniprotId,
+    numberingVerified,
+    numberingWarning,
     originalNotation,
     userDirections,
     acmgWeighting,

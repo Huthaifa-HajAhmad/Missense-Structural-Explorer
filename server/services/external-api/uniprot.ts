@@ -261,6 +261,67 @@ export async function resolveRefSeqProtein(
 }
 
 /**
+ * The MANE Select protein of an entry, and the UniProt isoform it corresponds to.
+ *
+ * Needed to scope an AMBIGUITY check to the numberings a notation could plausibly be reported on.
+ * A bare protein notation is, in practice, either canonical-numbered or MANE-numbered — labs report
+ * the MANE protein — so comparing only those two keeps the refusal set to the real hazard. Measured
+ * for ACOT9: 3.4% of positions are ambiguous between canonical and MANE, versus 14.8% once all four
+ * isoforms are admitted, and the extra 11.4% comes from isoforms no report would be numbered on.
+ */
+export async function fetchManeIsoformId(
+  uniprotId: string,
+  options?: UniprotCacheOptions
+): Promise<{ proteinId: string; isoformId?: string } | null> {
+  const key = uniprotId.trim().toUpperCase();
+  const result = await getCachedOrFetch<{ mane: { proteinId: string; isoformId?: string } | null }>({
+    key: `uniprot_mane_isoform_${key}`,
+    source: "UniProt entry (MANE-Select xref)",
+    l1Cache: options?.l1Cache ?? uniprotIsoformsCache,
+    ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
+    fetcher: async () => {
+      // NO `fields` parameter: `fields=xref_mane_select` is not a valid field name and the API
+      // answers 400, which silently degraded this lookup to "MANE unknown" and left the ambiguity
+      // check comparing every isoform. Verified live — the full entry response is the reliable form,
+      // and it is cached for 30 days.
+      const response = await fetchWithRetry(
+        `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(key)}.json`,
+        { headers: { Accept: "application/json" }, timeout: 15000 }
+      );
+      if (!response.ok) {
+        throw new Error(`UniProt entry lookup failed with status ${response.status}`);
+      }
+      const data = (await response.json()) as any;
+      const xrefs: any[] = data?.uniProtKBCrossReferences ?? [];
+      const maneXref = xrefs.find((x) => x?.database === "MANE-Select");
+      const proteinId = maneXref?.properties?.find((p: any) => p?.key === "RefSeqProteinId")?.value;
+      if (!proteinId && !maneXref?.isoformId) return { mane: null };
+
+      // The MANE-Select xref states the isoform itself (`isoformId: Q9Y305-4`); the RefSeq
+      // cross-reference is the fallback for entries that omit it.
+      let isoformId = maneXref?.isoformId ? String(maneXref.isoformId).toUpperCase() : undefined;
+      if (!isoformId && proteinId) {
+        const refSeq = xrefs.find(
+          (x) =>
+            x?.database === "RefSeq" &&
+            String(x?.id ?? "").toUpperCase() === String(proteinId).toUpperCase()
+        );
+        isoformId = refSeq?.isoformId ? String(refSeq.isoformId).toUpperCase() : undefined;
+      }
+
+      return {
+        mane: {
+          proteinId: proteinId ? String(proteinId).toUpperCase() : key,
+          isoformId,
+        },
+      };
+    },
+  });
+  return result.mane;
+}
+
+/**
  * The isoform UniProt DISPLAYS as the entry's canonical sequence (from the ALTERNATIVE PRODUCTS
  * comment: the isoform with `isoformSequenceStatus: "Displayed"`).
  *

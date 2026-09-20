@@ -890,6 +890,13 @@ export const analyzeVariantResponseSchema = z.object({
    */
   uniprotIsoform: z.string().nullable().optional(),
   numberingBasis: z.enum(["canonical", "remapped", "unverified"]).nullable().optional(),
+  /**
+   * False when the residue matched the canonical sequence but another isoform numbering could not be
+   * ruled out (the isoform model was unreachable). Disclosed rather than silent, and cited by the
+   * exported report — the prose twin of `numberingUnverifiedReason` lives in `transcriptWarning`.
+   */
+  numberingVerified: z.boolean().nullable().optional(),
+  numberingUnverifiedReason: z.string().nullable().optional(),
   numberingRemap: z
     .object({
       reason: z.string(),
@@ -1022,6 +1029,30 @@ export interface TranscriptMetadata {
   isCanonical?: boolean;
   maneRefSeqId?: string | null;
   transcriptWarning?: string | null;
+  /**
+   * Numbering provenance of the variant these predictions refer to.
+   *
+   * Declared on the INTERFACE, not only on the Zod schema: `pipelineStateFactory` spread these
+   * fields into every analysis result, but a type that did not name them meant no consumer could
+   * read them without a cast — which is how a structured remap record came to be "carried" into
+   * reports that never actually cited it.
+   */
+  uniprotIsoform?: string | null;
+  numberingBasis?: "canonical" | "remapped" | "unverified" | null;
+  numberingVerified?: boolean | null;
+  /** Machine-readable reason the numbering is unverified; the prose twin is `transcriptWarning`. */
+  numberingUnverifiedReason?: string | null;
+  numberingRemap?: {
+    reason: string;
+    from: {
+      hgvsp?: string;
+      transcriptId?: string;
+      isoform?: string;
+      maneRefSeqId?: string;
+      accession?: string;
+    };
+    to: { hgvsp?: string; transcriptId?: string; isoform?: string };
+  } | null;
 }
 
 export type AcmgVerdict = "Pathogenic" | "Likely Pathogenic" | "VUS" | "Likely Benign" | "Benign";
