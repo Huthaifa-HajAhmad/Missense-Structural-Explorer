@@ -27,6 +27,7 @@ export class ClinVarAdapter implements ExternalServiceAdapter<{ gene: string; va
     try {
       const res = await fetchWithRetry("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi?db=clinvar&retmode=json", {
         timeout: 3000,
+        probe: true,
         signal
       }, 1);
       const latencyMs = Math.round(performance.now() - start);
@@ -104,6 +105,7 @@ export class GenosAdapter implements ExternalServiceAdapter<any, any> {
     try {
       const res = await fetchWithRetry("https://genos.app/api/v1/health", {
         timeout: 3000,
+        probe: true,
         signal
       }, 1);
       const latencyMs = Math.round(performance.now() - start);
@@ -144,6 +146,7 @@ export class UniProtAdapter implements ExternalServiceAdapter<string, any> {
     try {
       const res = await fetchWithRetry("https://rest.uniprot.org/uniprotkb/P04637.json?fields=accession", {
         timeout: 3000,
+        probe: true,
         signal
       }, 1);
       const latencyMs = Math.round(performance.now() - start);
@@ -247,7 +250,18 @@ export class EnsemblAdapter implements ExternalServiceAdapter<any, any> {
       try {
         const res = await fetchWithRetry(
           endpoint,
-          { headers: { "Content-Type": "application/json" }, timeout: 5000, signal },
+          {
+            headers: { "Content-Type": "application/json" },
+            timeout: 5000,
+            signal,
+            /**
+             * `probe`: health-check traffic must not be booked against the per-host circuit breaker.
+             * Without it the monitor IS the outage it reports — five failed probes eject the host for
+             * the whole cooldown, and every real request is then answered "circuit breaker open" for a
+             * provider that is actually serving.
+             */
+            probe: true,
+          },
           1
         );
         lastStatus = res.status;
@@ -303,6 +317,7 @@ export class EuropePmcAdapter implements ExternalServiceAdapter<any, any> {
     try {
       const res = await fetchWithRetry("https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=human&format=json&pageSize=1", {
         timeout: 3000,
+        probe: true,
         signal
       }, 1);
       const latencyMs = Math.round(performance.now() - start);
@@ -343,6 +358,7 @@ export class MyVariantAdapter implements ExternalServiceAdapter<any, any> {
     try {
       const res = await fetchWithRetry("https://myvariant.info/v1/metadata", {
         timeout: 3000,
+        probe: true,
         signal
       }, 1);
       const latencyMs = Math.round(performance.now() - start);

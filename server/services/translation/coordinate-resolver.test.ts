@@ -6,6 +6,7 @@ import {
   resolveCoordinate,
   buildResolutionUnavailableMessage,
 } from "./coordinate-resolver.ts";
+import { resolutionFailureToHttp } from "./types.ts";
 import { CoordinateResolutionError } from "./types.ts";
 import { clearAllCaches } from "../infra/cache.ts";
 import { resetHostStateForTests } from "../infra/http-client.ts";
@@ -404,6 +405,49 @@ describe("buildResolutionUnavailableMessage", () => {
     const message = buildResolutionUnavailableMessage("upstream_unavailable");
     expect(message).toContain("protein-level substitution");
     expect(message).toContain("p.Glu433Lys");
+  });
+
+  it("reports a rate limit as a rate limit, not as an outage", () => {
+    // Diagnosed in production: VariantValidator answered HTTP 429 and Ensembl 500-for-everything
+    // (including `/info/ping`, in ~90ms) while the message told the user every provider was
+    // unreachable — pointing at a provider outage instead of at our own request rate.
+    const message = buildResolutionUnavailableMessage("rate_limited", [
+      {
+        provider: "variant-validator",
+        ok: false,
+        durationMs: 5219,
+        reason: "VariantValidator returned status 429",
+        failureKind: "rate_limited",
+      },
+    ]);
+
+    expect(message).toContain("rate-limiting");
+    expect(message).toContain("protein-level substitution");
+    // Still temporary and still retryable, so the client backs off rather than reporting a bug.
+    expect(resolutionFailureToHttp("rate_limited").status).toBe(503);
+  });
+
+  it("classifies a ladder where every rung was rate-limited", async () => {
+    clearAllCaches(true);
+    resetHostStateForTests();
+    const localSpy = vi.spyOn(global, "fetch").mockImplementation(async () => ({
+      ok: false,
+      status: 429,
+      headers: { get: (name: string) => (name.toLowerCase() === "retry-after" ? "0" : null) },
+      json: async () => ({ error: "rate limited" }),
+      text: async () => "rate limited",
+    }) as any);
+
+    try {
+      const error: any = await resolveCoordinate(NOTATION, "GRCh38").catch((e) => e);
+
+      expect(error).toBeInstanceOf(CoordinateResolutionError);
+      expect(error.kind).toBe("rate_limited");
+      expect(error.message).toContain("rate-limiting");
+    } finally {
+      localSpy.mockRestore();
+      resetHostStateForTests();
+    }
   });
 
   it("asks for verification when the coordinate is genuinely absent", () => {

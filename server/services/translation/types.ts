@@ -100,7 +100,15 @@ export type ResolutionFailureKind =
   /** Providers answered, but none mapped the coordinate to a transcript consequence. */
   | "not_found"
   /** Provider answered with a structurally unusable payload. */
-  | "invalid_response";
+  | "invalid_response"
+  /**
+   * The provider answered HTTP 429 (or a rate-limit-shaped refusal).
+   *
+   * Distinct from `upstream_unavailable` on purpose: an outage is not something we cause or can fix by
+   * retrying, whereas a rate limit is a statement about OUR request rate — and the message must not
+   * send the reader looking for a provider outage that does not exist.
+   */
+  | "rate_limited";
 
 /** One provider's attempt, retained for diagnostics and response metadata. */
 export interface ProviderAttempt {
@@ -195,5 +203,7 @@ export class CoordinateResolutionError extends Error {
 export function resolutionFailureToHttp(kind: ResolutionFailureKind): { status: number; code: string } {
   if (kind === "not_found") return { status: 404, code: "NOT_FOUND" };
   if (kind === "invalid_response") return { status: 502, code: "TRANSLATION_FAILED" };
+  // A rate limit is temporary and the caller should back off, exactly like an outage — 503 with a
+  // cooldown, so the client stops retrying the whole ladder.
   return { status: 503, code: "TRANSLATION_UNAVAILABLE" };
 }

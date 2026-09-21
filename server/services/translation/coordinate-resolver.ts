@@ -212,16 +212,28 @@ export async function fetchEnsemblVepConsequence(
   } catch (err: any) {
     // A caller-initiated abort must propagate untouched so the HTTP layer can answer 504.
     if (signal?.aborted) throw err;
-    throw new CoordinateResolutionError(
-      "upstream_unavailable",
-      `Ensembl VEP unreachable: ${err?.message || "network error"}`,
-      [attempt(false, err?.message || "network error", "upstream_unavailable")]
-    );
+    /**
+     * Classify by the STATUS the transport attached, not only by the message.
+     *
+     * A refusal (429, or a fast 500) is deliberately NOT retried by the transport, so it arrives here
+     * as a thrown error carrying `statusCode` — and calling that "unreachable" is what produced a
+     * production message telling the user every provider was down while VariantValidator was
+     * answering 429 (rate-limiting us) and Ensembl 500-for-everything.
+     */
+    const kind: ProviderAttempt["failureKind"] =
+      err?.statusCode === 429 ? "rate_limited" : "upstream_unavailable";
+    throw new CoordinateResolutionError(kind, `Ensembl VEP: ${err?.message || "network error"}`, [
+      attempt(false, err?.message || "network error", kind),
+    ]);
   }
 
   if (!response.ok) {
     const failureKind: ProviderAttempt["failureKind"] =
-      response.status === 429 || response.status >= 500 ? "upstream_unavailable" : "invalid_response";
+      response.status === 429
+        ? "rate_limited"
+        : response.status >= 500
+          ? "upstream_unavailable"
+          : "invalid_response";
     const text = await response.text().catch(() => "");
     throw new CoordinateResolutionError(
       failureKind,
@@ -404,6 +416,12 @@ export function computeRungWindowMs(params: {
  */
 function classifyTotalFailure(attempts: ProviderAttempt[]): ResolutionFailureKind {
   const kinds = attempts.map((a) => a.failureKind).filter(Boolean) as ResolutionFailureKind[];
+  /**
+   * A rate limit outranks the others: it is a statement about OUR request rate, and reporting it as an
+   * outage ("all providers unreachable") sends the reader hunting for a provider problem while the
+   * actual remedy is to slow down and wait.
+   */
+  if (kinds.includes("rate_limited")) return "rate_limited";
   if (kinds.length > 0 && kinds.every((k) => k === "upstream_unavailable")) {
     return "upstream_unavailable";
   }
@@ -436,7 +454,19 @@ export function buildResolutionUnavailableMessage(
     );
   }
   if (kind === "invalid_response") {
-    return "Coordinate translation providers returned unusable responses. Please retry shortly.";
+    return (
+      "Coordinate translation providers returned unusable responses (they are degraded right now). " +
+      "Retry in a minute, or enter the protein-level substitution directly (for example " +
+      "p.Glu433Lys) to run the analysis without coordinate translation."
+    );
+  }
+  if (kind === "rate_limited") {
+    return (
+      "The reference services are rate-limiting this deployment right now (HTTP 429), so coordinate " +
+      "translation is paused rather than retried immediately. Wait a minute and try again, or enter " +
+      "the protein-level substitution directly (for example p.Glu433Lys) to run the analysis without " +
+      "coordinate translation."
+    );
   }
   /**
    * Distinguish "too slow to answer" from "unreachable".
@@ -456,7 +486,25 @@ export function buildResolutionUnavailableMessage(
     /fetch failed|enotfound|econnrefused|econnreset|ehostunreach|enetunreach|network|dns|getaddrinfo|socket|tls|ssl|certificate/i;
   const unreachableOnly =
     attempts.length > 0 && attempts.every((attempt) => transportFailure.test(String(attempt.reason ?? "")));
-  if (!unreachableOnly) {
+
+  /**
+   * Every rung skipped by our own circuit breaker.
+   *
+   * This is the state a user reaches after a provider has refused us repeatedly, and it is neither an
+   * outage nor mere slowness: we are deliberately not asking. Saying so is what stops an operator from
+   * hunting for a provider problem while the actual remedy is to wait out the cooldown.
+   */
+  const breakerOnly =
+    attempts.length > 0 &&
+    attempts.every((attempt) => /circuit breaker/i.test(String(attempt.reason ?? "")));
+  if (breakerOnly) {
+    return (
+      "Coordinate translation is paused: the reference providers refused recent requests, so this " +
+      "deployment is backing off for their cooldown. Wait a minute and try again, or enter the " +
+      "protein-level substitution directly (for example p.Glu433Lys) to run the analysis without " +
+      "coordinate translation."
+    );
+  }  if (!unreachableOnly) {
     return (
       "Coordinate translation is temporarily unavailable: the reference providers did not answer " +
       "within the time allowed (they are responding too slowly right now, not necessarily down). " +

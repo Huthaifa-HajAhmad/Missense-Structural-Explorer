@@ -231,6 +231,19 @@ class SqliteInFlightPrewarms {
         fs.mkdirSync(dir, { recursive: true });
       }
       this.db = new DatabaseSync(this.dbPath);
+      /**
+       * WAL + a busy timeout, exactly as the analysis database does.
+       *
+       * SQLite's default is to FAIL IMMEDIATELY when another connection holds the write lock, and this
+       * file is shared by every worker thread in the process. A concurrent write therefore threw
+       * "database is locked", the insert/delete was logged and dropped, and the in-flight prewarm
+       * registry silently lost entries — in production that means duplicate prewarm jobs, and a stale
+       * entry suppresses a legitimate one. (Observed as a load-dependent test failure:
+       * `[SharedState] Error deleting from SQLite state: database is locked`.) With a busy timeout,
+       * writers queue for up to 5s instead of erroring.
+       */
+      this.db.exec("PRAGMA journal_mode = WAL;");
+      this.db.exec("PRAGMA busy_timeout = 5000;");
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS inflight_prewarms (
           key TEXT PRIMARY KEY,

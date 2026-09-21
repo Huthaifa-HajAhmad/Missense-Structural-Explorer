@@ -277,16 +277,22 @@ export async function fetchVariantValidatorConsequence(
     // provider does: wrapping it turned an expired window into "VariantValidator unreachable"
     // and a caller abort into a 503 instead of the HTTP layer's 504.
     if (signal?.aborted) throw err;
-    throw new CoordinateResolutionError(
-      "upstream_unavailable",
-      `VariantValidator unreachable: ${err?.message || "network error"}`,
-      [attempt(false, err?.message || "network error", "upstream_unavailable")]
-    );
+    // A non-retried refusal (429, or a fast 5xx) arrives as a thrown error carrying the status; see
+    // the primary provider for why the message alone is not enough to classify it.
+    const kind: ProviderAttempt["failureKind"] =
+      err?.statusCode === 429 ? "rate_limited" : "upstream_unavailable";
+    throw new CoordinateResolutionError(kind, `VariantValidator: ${err?.message || "network error"}`, [
+      attempt(false, err?.message || "network error", kind),
+    ]);
   }
 
   if (!response.ok) {
     const failureKind: ProviderAttempt["failureKind"] =
-      response.status === 429 || response.status >= 500 ? "upstream_unavailable" : "invalid_response";
+      response.status === 429
+        ? "rate_limited"
+        : response.status >= 500
+          ? "upstream_unavailable"
+          : "invalid_response";
     const text = await response.text().catch(() => "");
     throw new CoordinateResolutionError(
       failureKind,

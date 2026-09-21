@@ -82,10 +82,14 @@ async function invokeTranslate(
 
   let statusCode = 200;
   let body: any = null;
+  const headers: Record<string, string> = {};
   const req: any = { body: { variant }, headers: {} };
   const res: any = {
     status(code: number) { statusCode = code; return this; },
-    json(payload: any) { body = payload; return this; }
+    json(payload: any) { body = payload; return this; },
+    // Captured so a test can assert the cooldown header the client's retry policy keys on.
+    setHeader(name: string, value: string) { headers[name] = value; return this; },
+    getHeader(name: string) { return headers[name]; }
   };
 
   await handler(req, res, () => {});
@@ -94,7 +98,7 @@ async function invokeTranslate(
   const calledUrl = rawUrl ? decodeURIComponent(String(rawUrl)) : "";
   fetchSpy.mockRestore();
 
-  return { statusCode, body, calledUrl };
+  return { statusCode, body, calledUrl, headers };
 }
 
 /**
@@ -224,6 +228,32 @@ describe("POST /translate-variant — notation normalization & assembly routing"
     expect(statusCode).toBe(503);
     expect(body.error.code).toBe("TRANSLATION_UNAVAILABLE");
     expect(body.error.message).toContain("protein-level substitution");
+  });
+
+  it("answers a degraded-provider 502 with a cooldown, so the client stops retrying the ladder", async () => {
+    /**
+     * A degraded provider sometimes answers with an UNUSABLE payload rather than timing out, which the
+     * taxonomy reports as 502 — and a 502 with no Retry-After is retried by the client. Observed in
+     * production: three whole ladder runs (12.3s) for one query, each re-asking two failing providers.
+     * The advertised cooldown is what ends that; the message must still carry the workaround.
+     */
+    const unusable = () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ not: "a vep response" }),
+      text: async () => '{"not":"a vep response"}',
+    });
+
+    const { statusCode, body, headers } = await invokeTranslate(
+      "chr1:g.25484258G>A",
+      MISSENSE_CONSEQUENCE,
+      unusable
+    );
+
+    expect(statusCode).toBe(502);
+    expect(body.error.message).toContain("protein-level substitution");
+    expect(headers["Retry-After"]).toBe("60");
   });
 
   it("routes a (GRCh37) annotation to the GRCh37 Ensembl host", async () => {

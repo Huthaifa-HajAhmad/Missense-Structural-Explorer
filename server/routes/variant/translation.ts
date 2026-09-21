@@ -620,8 +620,19 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       if (err instanceof CoordinateResolutionError) {
         const { status, code } = resolutionFailureToHttp(err.kind);
 
-        if (status === 503) {
-          // The per-host circuit breaker cools down for ~60s (jittered), so advise that window.
+        /**
+         * `Retry-After` on BOTH temporary-failure statuses, not just 503.
+         *
+         * A degraded provider sometimes answers with an unusable payload instead of timing out, which
+         * this taxonomy reports as 502 — and a 502 with no cooldown is RETRIED by the client. Observed
+         * in the developer console: three whole ladder runs (12.3s) for one query, each re-asking two
+         * providers that were already failing. The advertised cooldown is what stops that: the client
+         * returns any response whose Retry-After exceeds 2s instead of retrying it, so the user sees
+         * this message once and gets the workaround.
+         *
+         * The per-host circuit breaker cools down for ~60s (jittered), so advise that window.
+         */
+        if (status === 503 || status === 502) {
           try {
             res.setHeader?.("Retry-After", "60");
           } catch { /* headers already sent */ }

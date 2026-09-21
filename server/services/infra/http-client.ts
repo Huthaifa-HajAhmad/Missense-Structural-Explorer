@@ -32,6 +32,26 @@ const MAX_RETRY_AFTER_MS = 10_000;
 const MIN_RETRY_AFTER_MS = 50;
 
 /**
+ * A refusal that arrives faster than this is a POLICY answer (rate limit, blocked client, broken
+ * endpoint), not transient load, and is not retried.
+ *
+ * Measured: Ensembl returns 500 for every endpoint — `/info/ping` included — in ~90ms when it refuses
+ * a client, and VariantValidator returns 429. Retrying those multiplied our footprint and deepened the
+ * block.
+ */
+const FAST_REFUSAL_MS = 1_000;
+
+/**
+ * Who we are, sent on every upstream call.
+ *
+ * Both Ensembl and VariantValidator document a User-Agent as a REQUIREMENT for API clients (EBI asks
+ * for an application identifier and a contact), and it is anonymous retrying traffic that gets
+ * throttled. Costs nothing and is the polite half of staying unblocked.
+ */
+export const UPSTREAM_USER_AGENT =
+  "Missense-Structural-Explorer/1.0 (+https://missense-resolve.duckdns.org; structural variant analysis)";
+
+/**
  * Sleep that aborts as soon as `signal` fires.
  *
  * The previous implementation awaited a bare timer, so a caller abort (including
@@ -194,6 +214,8 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
     const timeoutMs = options.timeout ?? 15000;
     let lastStatus = 200;
     let lastAttemptMs = 0;
+    /** Counts attempts actually started, so a short-circuited loop reports the truth. */
+    let attemptsMade = 0;
     /** Kept so a deadline that blocks a retry throws the REAL cause, not a synthetic timeout. */
     let lastError: any = null;
     for (let i = 0; i < retries; i++) {
@@ -214,6 +236,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
       }
       const attemptTimeoutMs = Math.min(timeoutMs, Math.max(500, Math.floor(timeLeft)));
       const attemptStartedAt = Date.now();
+      attemptsMade++;
       try {
         const controller = new AbortController();
         // Aborted with an explicit TimeoutError reason: undici rejects an aborted fetch with
@@ -231,6 +254,8 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
 
         const res = await fetch(url, {
           ...init,
+          // Identify ourselves unless the caller set one explicitly: see UPSTREAM_USER_AGENT.
+          headers: { "User-Agent": UPSTREAM_USER_AGENT, ...(init.headers as Record<string, string> | undefined) },
           signal
         });
         clearTimeout(id);
@@ -265,6 +290,28 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
           if (!hasRetryAfter) {
             const jitter = 0.5 + Math.random() * 0.5;
             backoff = Math.round(backoff * jitter);
+          }
+
+          /**
+           * A FAST refusal is not transient load: do not retry it.
+           *
+           * Ensembl answers every endpoint — including `/info/ping` — with a 500 HTML page in ~90ms
+           * when it is refusing a client, and VariantValidator answers 429. Retrying those inside the
+           * same request triples our footprint against services that are already rate-limiting us,
+           * which is how a deployment EARNS a longer block: per user query we could issue
+           * `retries x rungs x client retries` requests. So a 429/5xx that arrives faster than
+           * {@link FAST_REFUSAL_MS} is reported as-is, and only a slow failure (which is what load
+           * looks like) is retried.
+           */
+          const fastRefusal = lastAttemptMs < FAST_REFUSAL_MS;
+          const retryAfterFits =
+            hasRetryAfter && (!options.deadlineAt || Date.now() + backoff < options.deadlineAt);
+
+          if (fastRefusal && !retryAfterFits) {
+            // BREAK, not throw: a throw here is caught by this loop's own catch, which treats it as a
+            // failed attempt and retries it — the exact storm this rule exists to prevent (the first
+            // version did that, and the test caught 3 attempts where 1 was intended).
+            break;
           }
 
           // Never sleep after the final attempt: there is no next try to prepare for, and
@@ -308,7 +355,14 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
       }
     }
     if (!probe) breaker.recordFailure();
-    const errObj = new Error(`Failed to fetch ${url} after ${retries} attempts.`);
+    // The attempt count is reported honestly: a fast refusal breaks out after ONE attempt, and a
+    // message claiming "after 3 attempts" would send a reader looking for retry behaviour that the
+    // policy deliberately declined to perform.
+    const errObj = new Error(
+      `Failed to fetch ${url} after ${attemptsMade} attempt${attemptsMade === 1 ? "" : "s"}${
+        lastStatus !== 200 ? ` (last status ${lastStatus})` : ""
+      }.`
+    );
     (errObj as any).statusCode = lastStatus;
     throw errObj;
   } finally {
