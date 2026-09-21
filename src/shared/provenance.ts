@@ -7,6 +7,7 @@
  */
 
 import type { AnalysisResult, StructureProvenance, EnergeticsData } from "./contracts.ts";
+import { variantNumberingView } from "./numbering.ts";
 
 export const PROVENANCE_DATA_SOURCES = {
   dbnsfp: "4.4a",
@@ -60,6 +61,15 @@ export interface ProvenanceManifest {
    * cannot be re-derived or safely compared with another report.
    */
   numberingProvenance: {
+    /**
+     * Notation a clinician should read: the source report's numbering when the analysis was converted
+     * onto canonical (`p.Lys281Asn`), otherwise the modelled notation.
+     */
+    reportedNotation: string | null;
+    /** The same in a form this platform re-resolves exactly (`Q9Y305-4:p.Lys281Asn`). */
+    reportedQualifiedNotation: string | null;
+    /** Notation actually modelled, in canonical numbering. */
+    modelledNotation: string;
     /** Isoform the returned substitution is numbered on (`variant` in `queryCoordinate`). */
     isoform: string | null;
     basis: "canonical" | "remapped" | "unverified" | null;
@@ -108,7 +118,9 @@ export interface ProvenanceManifest {
  * the numbering was proven to follow the canonical accession, whereas `unverified` means it was not.
  */
 function buildNumberingProvenance(
-  analysisResult: AnalysisResult | null
+  analysisResult: AnalysisResult | null,
+  /** The modelled notation and the accession it was modelled on; the report leads with these. */
+  query: { variant: string; uniprotId?: string | null }
 ): ProvenanceManifest["numberingProvenance"] {
   const meta: any = (analysisResult as any)?.metadata || {};
   const pick = (key: string): any => (analysisResult as any)?.[key] ?? meta?.[key] ?? undefined;
@@ -117,7 +129,18 @@ function buildNumberingProvenance(
   const remap = pick("numberingRemap") ?? null;
   const statedVerified = pick("numberingVerified");
 
+  const view = variantNumberingView({
+    variant: query.variant,
+    uniprotId: query.uniprotId || meta.uniprotId || null,
+    numberingRemap: remap,
+  });
+
   return {
+    // Report-first ordering: the manifest is what gets attached to a clinical write-up, so it leads
+    // with the notation the source report used and states the modelled basis beside it.
+    reportedNotation: view.reported,
+    reportedQualifiedNotation: view.reportedQualified,
+    modelledNotation: view.modelled,
     isoform: pick("uniprotIsoform") ?? null,
     basis,
     remap: remap
@@ -191,7 +214,7 @@ export function generateProvenanceManifest(
       acmgWeighting: settings?.acmgWeighting || "standard"
     },
     structureProvenance: structureProv,
-    numberingProvenance: buildNumberingProvenance(analysisResult),
+    numberingProvenance: buildNumberingProvenance(analysisResult, { variant, uniprotId }),
     dataSources: PROVENANCE_DATA_SOURCES,
     foundationModels: PROVENANCE_MODEL_REVISIONS,
     serviceStatuses: status,

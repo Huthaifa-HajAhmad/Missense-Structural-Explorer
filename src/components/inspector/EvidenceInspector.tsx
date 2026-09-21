@@ -19,6 +19,7 @@ import {
   summarizeGuidelinesRows
 } from "../../shared/thresholds";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import { variantNumberingView } from "../../shared/numbering";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -50,6 +51,17 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const isCanonical = analysisResult.isCanonical ?? analysisResult.predictorData?.isCanonical ?? false;
   const maneRefSeqId = analysisResult.maneRefSeqId ?? analysisResult.predictorData?.maneRefSeqId ?? null;
   const transcriptWarning = analysisResult.transcriptWarning ?? analysisResult.predictorData?.transcriptWarning ?? null;
+  /**
+   * Reported (lab/MANE) versus modelled (canonical) notation.
+   *
+   * The lineage panel is where a reader checks what was actually analysed, so it must state both: the
+   * notation their report used and the canonical numbering the engines were given.
+   */
+  const numbering = variantNumberingView({
+    variant: analysisResult.metadata?.variant ?? "",
+    uniprotId: analysisResult.metadata?.uniprotId ?? null,
+    numberingRemap: (analysisResult as any).numberingRemap ?? null,
+  });
   const clinvar = analysisResult.clinvar;
   const conservationData = analysisResult.conservationData;
   const multimerData = analysisResult.multimerData;
@@ -273,6 +285,23 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <div id="genomic-lineage-drawer" className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
               {/* Assembly & Transcript */}
               <div className="space-y-1.5 text-[11px]">
+                {numbering.remapped && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-cs-text-secondary">Reported notation:</span>
+                      <span className="font-mono font-bold text-cs-text-primary" data-testid="reported-notation">
+                        {numbering.reported}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-cs-text-secondary">Modelled as:</span>
+                      <span className="font-mono text-cs-text-secondary" data-testid="modelled-notation">
+                        {numbering.modelled}
+                        {analysisResult.metadata?.uniprotId ? ` (canonical ${analysisResult.metadata.uniprotId})` : ""}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between items-center">
                   <span className="text-cs-text-secondary">Genome Assembly:</span>
                   <span className="font-mono font-bold text-cs-text-primary">GRCh38 / hg38</span>

@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback, useState } from "react";
 import { AnalysisResult } from "../types";
 import { parseVariantCoordinate } from "../shared/variantCoordinate";
+import { variantNumberingView } from "../shared/numbering";
 import { ExternalLink, Copy, Check, Dna, MapPin, FlaskConical, Scissors } from "lucide-react";
 
 interface VariantHeaderProps {
@@ -478,6 +479,32 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
     }
   }, [variant]);
 
+  /**
+   * Which numbering the header LEADS with.
+   *
+   * A clinician reads this to recognise their variant. When a coordinate resolved through the MANE
+   * transcript and was converted for modelling, the lab's notation is the one they recognise, so it is
+   * the headline and the canonical basis is stated beside it — instead of making them re-map
+   * `p.Lys272Asn` back to the `p.Lys281Asn` their report names.
+   */
+  const numbering = useMemo(
+    () =>
+      variantNumberingView({
+        variant,
+        uniprotId,
+        numberingRemap: (analysisResult as any)?.numberingRemap ?? null,
+      }),
+    [variant, uniprotId, analysisResult]
+  );
+  const headlineVariant = useMemo(() => {
+    if (!numbering.remapped || !numbering.reported) return formattedVariant;
+    try {
+      return parseVariantCoordinate(numbering.reported).hgvsp3;
+    } catch {
+      return numbering.reported;
+    }
+  }, [numbering, formattedVariant]);
+
   // Transcript tier — colour and label only; the full wording moves to the tooltip.
   const transcriptTier = useMemo(() => {
     if (isManeSelect) return { tone: "good" as const, label: "MANE Select", suffix: "MANE Select — clinical gold standard" };
@@ -501,10 +528,28 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
       <div className="variant-header-top">
         <div className="variant-header-identity">
           <span className="variant-header-gene">{gene}</span>
-          {formattedVariant && (
+          {headlineVariant && (
             <span className="variant-header-hgvs">
-              {formattedVariant}
-              <CopyBtn text={formattedVariant} label="variant notation" />
+              {headlineVariant}
+              <CopyBtn text={headlineVariant} label="variant notation" />
+            </span>
+          )}
+          {numbering.remapped && (
+            <span
+              className="variant-header-numbering-basis"
+              data-testid="modelled-basis"
+              title={numbering.basisNote ?? undefined}
+              // Inline (CSS variables, like the rest of this header) rather than a new stylesheet rule:
+              // this is one secondary line, and the file it lives in is edited concurrently.
+              style={{
+                fontFamily: "var(--cs-font-mono)",
+                fontSize: "10px",
+                color: "var(--cs-text-muted)",
+                marginLeft: "6px",
+              }}
+            >
+              modelled as {numbering.modelled}
+              {uniprotId ? ` on canonical ${uniprotId}` : ""}
             </span>
           )}
         </div>

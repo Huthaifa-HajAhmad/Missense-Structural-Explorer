@@ -19,6 +19,7 @@ import {
   TraceContext
 } from "./types";
 import { numberingChoiceSchema, type NumberingChoice } from "../../shared/contracts";
+import { variantNumberingView } from "../../shared/numbering";
 import {
   createPlaceholderAnalysisState,
   createCompletedAnalysisState,
@@ -147,12 +148,28 @@ export async function executeFullAnalysisWorkflow({
       if (activeSignal.aborted || getActiveRequestId() !== requestId) return;
     }
 
+    /**
+     * What goes back into the search fields is the REPORTED notation (the lab's numbering), in a form
+     * this platform can re-resolve — not the canonical string the engines were handed.
+     *
+     * Two reasons: a clinician checks this field against their report, and the canonical notation meant
+     * re-mapping by hand (the exact question that prompted this change); and a BARE reported notation
+     * would be ambiguous for a gene like ACOT9, whereas `Q9Y305-4:p.Lys281Asn` declares its basis, so a
+     * re-run resolves identically. The engines still receive `targetVariant` (canonical) below.
+     */
+    const numberingView = variantNumberingView({
+      variant: targetVariant,
+      uniprotId: targetUniprot,
+      numberingRemap: transcriptMeta?.numberingRemap ?? null,
+    });
+    const fieldVariant = numberingView.reportedQualified ?? targetVariant;
+
     searchSink.setGene(targetGene);
-    searchSink.setVariant(targetVariant);
+    searchSink.setVariant(fieldVariant);
     searchSink.setUniprotId(targetUniprot);
-    searchSink.setSearchVal(`${targetGene} ${targetVariant}`);
+    searchSink.setSearchVal(`${targetGene} ${fieldVariant}`);
     searchSink.setCustomGene(targetGene);
-    searchSink.setCustomVariant(targetVariant);
+    searchSink.setCustomVariant(fieldVariant);
     searchSink.setCustomUniprot(targetUniprot);
 
     const posMatch = targetVariant.match(/\d+/);

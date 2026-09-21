@@ -6,6 +6,43 @@ import VariantHeader from "../VariantHeader";
 import { AnalysisResult } from "../../types";
 
 describe("VariantHeader Component Tests", () => {
+  /**
+   * The real case that prompted this: a coordinate resolves through the MANE transcript
+   * (`NM_001037171.2:p.Lys281Asn`, isoform Q9Y305-4) and is modelled as `p.Lys272Asn` on canonical
+   * Q9Y305. A clinician checking this header against their lab report must see THEIR notation first,
+   * with the canonical basis stated beside it — showing only `p.Lys272Asn` made them re-map it by hand.
+   */
+  it("leads with the REPORTED (lab/MANE) notation and states the modelled basis", () => {
+    const remapped = {
+      metadata: { gene: "ACOT9", variant: "p.Lys272Asn", uniprotId: "Q9Y305" },
+      numberingRemap: {
+        reason: "MANE numbering remapped onto the canonical isoform",
+        from: {
+          hgvsp: "ENSP00000368605.5:p.Lys281Asn",
+          transcriptId: "ENST00000379303",
+          isoform: "Q9Y305-4",
+          maneRefSeqId: "NM_001037171.2",
+        },
+      },
+    } as unknown as AnalysisResult;
+
+    render(<VariantHeader gene="ACOT9" variant="p.Lys272Asn" uniprotId="Q9Y305" analysisResult={remapped} />);
+
+    expect(screen.getByText("p.Lys281Asn")).toBeTruthy();
+    const basis = screen.getByTestId("modelled-basis");
+    expect(basis.textContent).toContain("modelled as p.Lys272Asn");
+    expect(basis.textContent).toContain("canonical Q9Y305");
+    // The canonical notation is NOT the headline any more, and nothing claims a remap that did not happen.
+    expect(screen.queryByText("p.Lys272Asn")).toBeNull();
+  });
+
+  it("shows the plain notation when nothing was remapped", () => {
+    render(<VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={null} />);
+
+    expect(screen.getByText("p.Val600Glu")).toBeTruthy();
+    expect(screen.queryByTestId("modelled-basis")).toBeNull();
+  });
+
   const mockAnalysisResult: Partial<AnalysisResult> = {
     transcriptId: "ENST00000288602.11",
     isManeSelect: true,
