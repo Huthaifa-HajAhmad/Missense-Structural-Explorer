@@ -39,7 +39,7 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
           </div>
           <div className="flex justify-between items-center text-[11px]">
             <span className="text-cs-text-secondary">Generation Mode:</span>
-            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">Structured Clinical Schema</span>
+            <span className="font-mono text-cs-text-good-on-soft font-semibold">Structured Clinical Schema</span>
           </div>
           <div className="flex justify-between items-center text-[11px]">
             <span className="text-cs-text-secondary">Sampling Temperature:</span>
@@ -47,7 +47,7 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
           </div>
           <div className="flex justify-between items-center text-[11px] pt-1 border-t border-cs-border-subtle">
             <span className="text-cs-text-secondary">Status:</span>
-            <span className="font-mono font-bold text-cs-accent-clay">
+            <span className="font-mono font-bold text-cs-text-accent">
               {isNarrativeLoading ? "Synthesizing..." : "Inference Ready"}
             </span>
           </div>
@@ -61,7 +61,7 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
             <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" />
             ACMG Criteria Audit Trace
           </span>
-          <span className="text-[9px] font-mono font-bold text-cs-accent-clay">
+          <span className="text-[10px] font-mono font-bold text-cs-text-accent">
             {uniqueCriteria.length} Met
           </span>
         </div>
@@ -74,18 +74,18 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
                 className="p-2 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex flex-col gap-1"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-[11px] text-cs-accent-clay">
+                  <span className="font-mono font-bold text-[11px] text-cs-text-accent">
                     {crit.code}
                   </span>
-                  <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold ${
-                    crit.source === "database_verified" 
-                      ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" 
-                      : "bg-blue-500/10 text-blue-600 border border-blue-500/20"
-                  }`}>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold border ${
+                    crit.source === "database_verified"
+                      ? "text-cs-text-good-on-soft border-cs-good/30"
+                      : "text-cs-text-accent border-cs-accent-clay/30"
+                  }`} style={{ background: crit.source === "database_verified" ? "var(--cs-good-soft)" : "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)" }}>
                     {crit.source === "database_verified" ? "Rule Engine" : "AI Inferred"}
                   </span>
                 </div>
-                <p className="text-[10.5px] leading-snug text-cs-text-secondary">
+                <p className="text-[11px] leading-snug text-cs-text-secondary">
                   {crit.reason}
                 </p>
               </div>

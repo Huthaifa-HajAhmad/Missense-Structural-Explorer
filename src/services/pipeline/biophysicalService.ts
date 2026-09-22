@@ -12,6 +12,14 @@ export interface BiophysicalAnalysisParams {
    * decides which of them can be consulted at all — without it the server assumed GRCh38.
    */
   assembly?: "GRCh37" | "GRCh38";
+  /**
+   * The genomic coordinate the protein notation was translated from (hyphen form), sent
+   * together with `assembly` only. Lets the server's predictor query VEP by position instead
+   * of re-deriving the locus from protein HGVS (unmapping defect F-1).
+   */
+  genomicCoordinates?: string;
+  /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
+  numberingBasis?: string;
 }
 
 export async function fetchBiophysicalAnalysis(
@@ -21,21 +29,30 @@ export async function fetchBiophysicalAnalysis(
   onChunk?: (chunkData: any) => void,
   traceContext?: TraceContext
 ): Promise<any> {
-  const { gene, variant, uniprotId, assembly } = params;
+  const { gene, variant, uniprotId, assembly, genomicCoordinates, numberingBasis } = params;
   const bpKey = `biophysical_${gene}_${variant}_${uniprotId}`;
   const bpStart = performance.now();
+
+  const requestBody = {
+    gene,
+    variant,
+    uniprotId,
+    ...(assembly ? { assembly } : {}),
+    ...(genomicCoordinates && assembly ? { genomicCoordinates } : {}),
+    ...(numberingBasis ? { numberingBasis } : {})
+  };
 
   return getDeduplicatedPromise(bpKey, () => {
     const streamOrPromise = apiClient.streamBiophysicalAnalysis
       ? apiClient.streamBiophysicalAnalysis(
-          { gene, variant, uniprotId, ...(assembly ? { assembly } : {}) },
+          requestBody,
           (chunkData: any) => {
             if (signal.aborted) return;
             if (onChunk) onChunk(chunkData);
           },
           signal
         )
-      : apiClient.getBiophysicalAnalysis({ gene, variant, uniprotId, ...(assembly ? { assembly } : {}) }, signal);
+      : apiClient.getBiophysicalAnalysis(requestBody, signal);
 
     return streamOrPromise
       .then((res: any) => {
@@ -121,12 +138,10 @@ export function fetchProgressiveLandscape(
   requestId: number,
   getActiveRequestId: () => number
 ): void {
-  console.log("[BiophysicalService] Starting progressive fetch for Landscape data...");
   apiClient
     .getLandscapeData(params, signal)
     .then((landscapeRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
-      console.log("[BiophysicalService] Progressive Landscape data loaded successfully");
       setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
         return {
@@ -221,7 +236,6 @@ export function fetchProgressiveStructuralAssessments(
   traceContext?: TraceContext,
   setIsStructuralLoading?: (loading: boolean) => void
 ): Promise<void> {
-  console.log("[BiophysicalService] Starting progressive fetch for heavy structural models...");
   setIsStructuralLoading?.(true);
   return apiClient
     .getStructuralAssessments(params, signal)
@@ -235,7 +249,6 @@ export function fetchProgressiveStructuralAssessments(
         return;
       }
       setIsStructuralLoading?.(false);
-      console.log("[BiophysicalService] Progressive heavy structural models response received:", structRes);
 
       if (traceContext?.activeTraceId) {
         traceContext.addTraceSpan({
@@ -265,9 +278,8 @@ export function fetchProgressiveStructuralAssessments(
         } else if ("error" in evalResult && evalResult.error) {
           failedModels.push(`${modelName} (${evalResult.status || "error"}: ${evalResult.error})`);
           console.warn(`[StructuralModel] ${modelName} failed (${evalResult.status || "error"}): ${evalResult.error}`);
-        } else {
-          console.log(`[StructuralModel] ${modelName}: Successfully loaded.`);
         }
+        // Successes need no log line: the payload is rendered by the structure panel.
       }
 
       if (failedModels.length === modelEntries.length) {

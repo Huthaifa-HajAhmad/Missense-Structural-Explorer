@@ -32,11 +32,3 @@ export const AMINO_ACID_MAP_3_TO_1: Record<string, string> = {
   ALA: "A", ARG: "R", ASN: "N", ASP: "D", CYS: "C", GLN: "Q", GLU: "E", GLY: "G", HIS: "H", ILE: "I",
   LEU: "L", LYS: "K", MET: "M", PHE: "F", PRO: "P", SER: "S", THR: "T", TRP: "W", TYR: "Y", VAL: "V"
 };
-
-export const getSubstitutionGroup = (aa: string): string => {
-  if (["D", "E", "K", "R", "H"].includes(aa)) return "Charged";
-  if (["S", "T", "N", "Q", "C"].includes(aa)) return "Polar";
-  if (["A", "V", "I", "L", "M", "F", "Y", "W"].includes(aa)) return "Hydrophobic";
-  if (["P", "G"].includes(aa)) return "Conformational";
-  return "";
-};

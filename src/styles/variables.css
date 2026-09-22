@@ -31,6 +31,12 @@
   --cs-accent-clay:   #C46849;   /* Anthropic brand terracotta / clay */
   --cs-accent-mag:    #D946AA;   /* variant marker hot pink */
   --cs-accent-mag-soft: #FDF2F9; /* light pink background */
+  /**
+   * Clay used AS TEXT (headings, section labels, links). Raw #C46849 is only
+   * 3.9:1 on white — below AA for normal-size copy. This deeper clay reaches
+   * ~5.7:1 while staying recognisably terracotta.
+   */
+  --cs-text-accent:   #A24E33;
 
   /* pLDDT quality colors */
   --cs-plddt-vhigh:   #2055FF;   /* ≥90 — deep blue */
@@ -109,6 +115,13 @@
   --cs-text-danger-on-soft:     #B91C1C;
   /** Warning text on soft warning background. #D97706 is only 2.83:1; #92400E achieves 5.4:1 (WCAG AA). */
   --cs-text-warning-on-soft:    #92400E;
+  /**
+   * Success text placed ON --cs-bg-success. #16A34A over #DCFCE7 is ~3:1, so
+   * good-state badges (AUC calibration, ACMG benign, ClinVar benign) use this
+   * darker green (7.1:1) instead. On the translucent dark tint the standard
+   * bright green already passes, so dark mode reuses --cs-text-success.
+   */
+  --cs-text-good-on-soft:       #166534;
   --cs-surface-1:               #FFFFFF;
   --cs-surface-2:               #FAF9F6;
 
@@ -151,6 +164,12 @@
   --cs-text-secondary:#B2ABA0;
   --cs-text-muted:    #9A938A;   /* WCAG AA compliant (≥4.5:1 against dark surfaces #191816 and #2A2724) */
 
+  /* Clay-as-text needs to go BRIGHTER on dark surfaces: #C46849 is 3.8:1 on
+     #2A2724, this warm clay reaches ~5.6:1. */
+  --cs-text-accent:   #E08B66;
+  /* Pink panel background needs a dark-mode tint (light value is near-white). */
+  --cs-accent-mag-soft: rgba(217, 70, 170, 0.15);
+
   --cs-shadow-card:   none;
 
   /* === SEMANTIC COLOR ROLES (Dark Mode) === */
@@ -164,6 +183,7 @@
   /** On the translucent dark danger tint the standard red already passes, so reuse it. */
   --cs-text-danger-on-soft:     #F87171;
   --cs-text-warning-on-soft:    #FBBF24;
+  --cs-text-good-on-soft:       #4ADE80;
   --cs-surface-1:               #2A2724;
   --cs-surface-2:               #201E1B;
 }
@@ -180,6 +200,7 @@
   --color-cs-text-muted: var(--cs-text-muted);
   --color-cs-accent-clay: var(--cs-accent-clay);
   --color-cs-accent-mag: var(--cs-accent-mag);
+  --color-cs-text-accent: var(--cs-text-accent);
   --color-cs-good: var(--cs-good);
   --color-cs-good-soft: var(--cs-good-soft);
   --color-cs-warn: var(--cs-warn);
@@ -194,6 +215,7 @@
   --color-cs-text-danger: var(--cs-text-danger);
   --color-cs-bg-danger: var(--cs-bg-danger);
   --color-cs-text-danger-on-soft: var(--cs-text-danger-on-soft);
+  --color-cs-text-good-on-soft: var(--cs-text-good-on-soft);
   --color-cs-surface-1: var(--cs-surface-1);
   
   --font-size-cs-micro: var(--cs-text-micro);

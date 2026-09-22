@@ -136,6 +136,44 @@
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
 }
+.cs-btn-ghost:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+}
+.cs-btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.cs-btn-ghost:disabled:hover {
+  background: transparent;
+  color: var(--cs-text-secondary);
+}
+
+/* Compact ghost button in the accent color (report header actions) */
+.cs-btn-ghost-accent {
+  background: color-mix(in srgb, var(--cs-accent-clay) 8%, transparent);
+  border: 1px solid var(--cs-accent-clay);
+  color: var(--cs-text-accent);
+}
+.cs-btn-ghost-accent:hover {
+  background: color-mix(in srgb, var(--cs-accent-clay) 18%, transparent);
+  color: var(--cs-text-accent);
+}
+.cs-btn-ghost-accent:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+}
+.cs-btn-ghost-accent:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Same specificity as .cs-btn-ghost:disabled:hover but declared later, so the
+   disabled accent button keeps its tinted background / accent label instead of
+   reverting to the plain ghost colors. */
+.cs-btn-ghost-accent:disabled:hover {
+  background: color-mix(in srgb, var(--cs-accent-clay) 8%, transparent);
+  color: var(--cs-text-accent);
+}
 
 /* Segmented control (Wild-Type / Mutant) */
 .cs-seg-control {
