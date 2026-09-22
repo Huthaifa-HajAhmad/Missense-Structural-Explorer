@@ -107,6 +107,8 @@
    * tainted-panel body copy uses this darker shade (5.3:1) instead.
    */
   --cs-text-danger-on-soft:     #B91C1C;
+  /** Warning text on soft warning background. #D97706 is only 2.83:1; #92400E achieves 5.4:1 (WCAG AA). */
+  --cs-text-warning-on-soft:    #92400E;
   --cs-surface-1:               #FFFFFF;
   --cs-surface-2:               #FAF9F6;
 
@@ -147,7 +149,7 @@
 
   --cs-text-primary:  #F9F8F6;
   --cs-text-secondary:#B2ABA0;
-  --cs-text-muted:    #827B70;
+  --cs-text-muted:    #9A938A;   /* WCAG AA compliant (≥4.5:1 against dark surfaces #191816 and #2A2724) */
 
   --cs-shadow-card:   none;
 
@@ -161,6 +163,7 @@
   --cs-bg-danger:               rgba(220, 38, 38, 0.15);
   /** On the translucent dark danger tint the standard red already passes, so reuse it. */
   --cs-text-danger-on-soft:     #F87171;
+  --cs-text-warning-on-soft:    #FBBF24;
   --cs-surface-1:               #2A2724;
   --cs-surface-2:               #201E1B;
 }

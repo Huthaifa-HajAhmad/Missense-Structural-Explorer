@@ -97,30 +97,6 @@
   gap: 12px;
 }
 
-/* Clinical report bar (full width bottom) */
-.report-bar {
-  border-top: 1px solid var(--cs-border);
-  background: var(--cs-surface);
-  flex-shrink: 0;
-  overflow: hidden;
-  transition: max-height 0.35s ease;
-}
-.report-bar.open   { max-height: 160px; }
-.report-bar.closed { max-height: 44px;  }
-.report-bar-header {
-  height: 44px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 10px;
-  cursor: pointer;
-  user-select: none;
-  flex-shrink: 0;
-}
-.report-bar-content {
-  padding: 0 16px 12px;
-  overflow: hidden;
-}
 
 /* ---------------------------------------------------------------------------
    CLINICAL REPORT — document surface
@@ -583,16 +559,18 @@
 .vh-scale {
   grid-area: scale;
   position: relative;
-  /* 20px = bar (1..5) + marker centred at 3 (spans -2.5..8.5) + numerals from 9.
-     The numerals used to start at 7px, i.e. under the marker, so a value sitting on
-     a threshold drew its dot across the number that names that threshold. */
-  height: 20px;
+  /* 24px with everything centred on the 12px midline — the same line the
+     row's text centres on. Bar at 10..14, ticks 8..16, marker (11px) centred
+     at 12 so it spans 6.5..17.5, and the threshold numerals from 18.5, which
+     keeps a 1px clearance under the marker (the geometry harness asserts they
+     never touch). The numerals end at ~28, inside the row's bottom padding. */
+  height: 24px;
   min-width: 0;
 }
 
 .vh-scale-bar {
   position: absolute;
-  top: 1px;
+  top: 10px;
   left: 0;
   right: 0;
   height: 4px;
@@ -615,7 +593,7 @@
 
 .vh-tick {
   position: absolute;
-  top: -1px;
+  top: 8px;
   height: 8px;
   width: 1px;
   background: var(--vh-tick);
@@ -625,7 +603,7 @@
 
 .vh-marker {
   position: absolute;
-  top: 3px;
+  top: 12px;
   width: 11px;
   height: 11px;
   border-radius: 50%;
@@ -643,11 +621,11 @@
 
 .vh-axis-label {
   position: absolute;
-  top: 9px;
+  top: 18.5px;
   transform: translateX(-50%);
   font-family: var(--cs-font-mono);
-  font-size: 9.5px;
-  line-height: 1.1;
+  font-size: 9px;
+  line-height: 1.05;
   font-variant-numeric: tabular-nums;
   color: var(--vh-muted-fg);
   white-space: nowrap;

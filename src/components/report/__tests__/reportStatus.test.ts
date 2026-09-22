@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildEvidenceInventory,
+  computeReportFingerprint,
   deriveAiStatus,
   formatDeltaG,
   summarizeEvidence,
@@ -94,6 +95,7 @@ describe("deriveAiStatus", () => {
     const status = deriveAiStatus({ ...BASE_INPUT, hasNarrative: true });
     expect(status.state).toBe("live");
     expect(status.tone).toBe("good");
+    expect(status.retryable).toBe(false);
   });
 
   it("reports loading ahead of every other state", () => {
@@ -153,14 +155,57 @@ describe("buildEvidenceInventory", () => {
     expect(inSilico?.detail).toContain("REVEL");
   });
 
-  it("lists which stability tools produced a value", () => {
+  it("lists which stability tools produced a value from EnergeticsData and foldingDdG", () => {
+    const result = { metadata: { gene: "ACOT9" } };
+    const energetics = {
+      foldx: 1.42,
+      dynamut2: -0.3,
+      rasp: 0.85,
+    } as any;
+    const sources = buildEvidenceInventory(result, energetics, 1.42);
+    const item = sources.find((s) => s.id === "energetics");
+
+    expect(item?.status).toBe("present");
+    expect(item?.detail).toContain("FoldX");
+    expect(item?.detail).toContain("DynaMut2");
+    expect(item?.detail).toContain("RaSP");
+    expect(item?.detail).not.toContain("DDMut");
+  });
+
+  it("distinguishes pending calculations from absence", () => {
+    const energetics = { pendingTools: ["DynaMut2", "DDMut"] } as any;
+    const sources = buildEvidenceInventory({}, energetics, null);
+    const item = sources.find((s) => s.id === "energetics");
+
+    expect(item?.status).toBe("absent");
+    expect(item?.detail).toBe("Calculations pending (DynaMut2, DDMut)");
+  });
+
+  it("reports FoldX binary missing honestly", () => {
+    const energetics = { foldxBinaryMissing: true } as any;
+    const sources = buildEvidenceInventory({}, energetics, null);
+    const item = sources.find((s) => s.id === "energetics");
+
+    expect(item?.status).toBe("absent");
+    expect(item?.detail).toBe("FoldX binary not installed");
+  });
+
+  it("reports FoldX repair failure honestly", () => {
+    const energetics = { foldxRepairFailed: true } as any;
+    const sources = buildEvidenceInventory({}, energetics, null);
+    const item = sources.find((s) => s.id === "energetics");
+
+    expect(item?.status).toBe("absent");
+    expect(item?.detail).toBe("FoldX structure repair failed");
+  });
+
+  it("supports legacy bundles with flat keys on result as fallback", () => {
     const sources = buildEvidenceInventory({ foldingDdG: 1.42, dynamut2: -0.3 });
     const energetics = sources.find((s) => s.id === "energetics");
 
     expect(energetics?.status).toBe("present");
     expect(energetics?.detail).toContain("FoldX");
     expect(energetics?.detail).toContain("DynaMut2");
-    expect(energetics?.detail).not.toContain("DDMut");
   });
 
   it("counts present sources and their total", () => {
@@ -188,5 +233,70 @@ describe("formatDeltaG", () => {
     expect(formatDeltaG(undefined)).toBe("—");
     expect(formatDeltaG(Number.NaN)).toBe("—");
     expect(formatDeltaG(Number.POSITIVE_INFINITY)).toBe("—");
+  });
+});
+
+describe("computeReportFingerprint", () => {
+  it("computes a deterministic SHA-256 digest regardless of object key order", async () => {
+    const objA = { z: 1, a: "hello", m: { beta: 2, alpha: 1 } };
+    const objB = { a: "hello", m: { alpha: 1, beta: 2 }, z: 1 };
+
+    const hashA = await computeReportFingerprint(objA);
+    const hashB = await computeReportFingerprint(objB);
+
+    expect(hashA).not.toBeNull();
+    expect(hashA?.algorithm).toBe("SHA-256");
+    expect(hashA?.digest).toHaveLength(64);
+    expect(hashA?.digest).toBe(hashB?.digest);
+  });
+
+  it("produces distinct digests for different content", async () => {
+    const hash1 = await computeReportFingerprint({ gene: "ACOT9", variant: "p.Lys272Asn" });
+    const hash2 = await computeReportFingerprint({ gene: "BRAF", variant: "p.Val600Glu" });
+
+    expect(hash1?.digest).not.toBe(hash2?.digest);
+  });
+
+  it("filters undefined object keys so undefined does not alter canonical serialization", async () => {
+    const objWithUndef = { a: 1, b: undefined };
+    const objWithoutUndef = { a: 1 };
+
+    const hashWith = await computeReportFingerprint(objWithUndef);
+    const hashWithout = await computeReportFingerprint(objWithoutUndef);
+
+    expect(hashWith?.digest).toBe(hashWithout?.digest);
+  });
+
+  it("distinguishes reports with different live energetics values", async () => {
+    const base = { gene: "ACOT9", variant: "p.Lys272Asn" };
+    const hashUncomputed = await computeReportFingerprint({ ...base, energetics: null });
+    const hashComputed = await computeReportFingerprint({
+      ...base,
+      energetics: { foldx: 1.45, consensusVerdict: "Destabilizing" },
+    });
+
+    expect(hashUncomputed?.digest).not.toBe(hashComputed?.digest);
+  });
+});
+
+describe("ClinVar case-insensitive 'not found' detection in buildEvidenceInventory", () => {
+  it("treats various case variations of 'not found' as absent", () => {
+    for (const testClass of ["not found", "Not found in ClinVar", "NOT FOUND", "  Not Found  "]) {
+      const sources = buildEvidenceInventory({
+        clinvar: { classification: testClass } as any,
+      });
+      const clinvarSource = sources.find((s) => s.id === "clinvar");
+      expect(clinvarSource?.status).toBe("absent");
+      expect(clinvarSource?.detail).toBe("No submission for this variant");
+    }
+  });
+
+  it("treats valid clinical classifications as present", () => {
+    const sources = buildEvidenceInventory({
+      clinvar: { classification: "Pathogenic/Likely pathogenic" } as any,
+    });
+    const clinvarSource = sources.find((s) => s.id === "clinvar");
+    expect(clinvarSource?.status).toBe("present");
+    expect(clinvarSource?.detail).toBe("Pathogenic/Likely pathogenic");
   });
 });

@@ -84,7 +84,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   energetics: { title: "Stability Telemetry", subtitle: "Engines & Thermodynamic Baseline", Icon: Activity },
   landscape: { title: "Landscape Controls", subtitle: "Intolerance & Domain Minimap", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
-  report: { title: "Report Generator", subtitle: "Section Filters & Audit Hash", Icon: FileText },
+  report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },
   literature: { title: "Literature Tools", subtitle: "Query Provenance & Citation Export", Icon: BookOpen },
   console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
 };

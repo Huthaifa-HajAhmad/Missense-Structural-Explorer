@@ -1,0 +1,157 @@
+/**
+ * print.css — Clinical Document Print & PDF Export Stylesheet
+ *
+ * Formats the clinical report as an authentic, high-contrast, publication-grade
+ * medical genetics document when printed or saved to PDF via window.print().
+ */
+
+/* ============================================================
+   Screen defaults for print utilities
+   ============================================================ */
+.report-print-only {
+  display: none !important;
+}
+
+.report-screen-only {
+  display: initial;
+}
+
+/* ============================================================
+   Print Media Overrides
+   ============================================================ */
+@media print {
+  @page {
+    margin: 12mm 15mm;
+    size: auto;
+  }
+
+  /* 1. Visibility utilities */
+  .report-print-only {
+    display: block !important;
+  }
+
+  .report-screen-only,
+  header.app-header,
+  aside.app-sidebar,
+  aside.inspector-panel,
+  .toast-container,
+  .notification-toast,
+  nav,
+  .report-press,
+  .app-navigation {
+    display: none !important;
+  }
+
+  /* Section header disclosure buttons reset to plain text heading layout in print */
+  .report-section h2 button {
+    display: flex !important;
+    width: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0.25rem 0 !important;
+    cursor: default !important;
+    color: inherit !important;
+  }
+
+  /* 2. Color adjustment and light paper theme flattening */
+  :root,
+  [data-theme="dark"],
+  body.dark,
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+
+    /* Flatten dark palette tokens to crisp medical document values */
+    --cs-bg: #FFFFFF !important;
+    --cs-bg-subtle: #F9FAFB !important;
+    --cs-surface: #FFFFFF !important;
+    --cs-surface-2: #F3F4F6 !important;
+    --cs-border: #E5E7EB !important;
+    --cs-border-subtle: #F3F4F6 !important;
+    --cs-text-primary: #111827 !important;
+    --cs-text-secondary: #374151 !important;
+    --cs-text-muted: #6B7280 !important;
+    --cs-accent-clay: #92400E !important;
+  }
+
+  /* 3. Unclamp height & scrolling containers for multi-page document flow */
+  html,
+  body,
+  #root,
+  .app-container,
+  .data-screen-primary,
+  .report-page,
+  main {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    display: block !important;
+  }
+
+  /* 4. Document surface measure */
+  .report-page {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    font-size: 10.5pt !important;
+    line-height: 1.5 !important;
+    box-shadow: none !important;
+  }
+
+  .report-page > * {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  /* 5. Force all report disclosures to render expanded */
+  details,
+  .report-disclosure,
+  .report-disclosure[data-open="false"] {
+    display: block !important;
+    grid-template-rows: 1fr !important;
+    opacity: 1 !important;
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .report-chevron {
+    display: none !important;
+  }
+
+  /* 6. Page-break prevention & pagination guards */
+  .report-masthead,
+  .report-section,
+  .report-summary-box {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 1.25rem !important;
+  }
+
+  h1, h2, h3, h4, .screen-title {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* 7. Institutional paper borders & shadows */
+  .report-section {
+    border: 1px solid #E5E7EB !important;
+    border-radius: 6px !important;
+    background: #FFFFFF !important;
+    box-shadow: none !important;
+  }
+
+  /* 8. Hyperlink URLs in printed footnotes */
+  a[href^="http"]:after {
+    content: " (" attr(href) ")";
+    font-size: 8pt;
+    color: #6B7280;
+  }
+}
