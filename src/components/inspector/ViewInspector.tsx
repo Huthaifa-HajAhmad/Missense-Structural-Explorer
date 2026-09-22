@@ -26,6 +26,7 @@ import EnergeticsInspector from "./EnergeticsInspector";
 import LandscapeInspector from "./LandscapeInspector";
 import InsightsInspector from "./InsightsInspector";
 import LiteratureInspector from "./LiteratureInspector";
+import type { Citation } from "../LiteratureView";
 import ReportInspector from "./ReportInspector";
 
 export interface ViewInspectorProps {
@@ -54,6 +55,8 @@ export interface ViewInspectorProps {
   disruptionPredictor?: { plddt?: number } | null;
   literatureSearchQuery?: string;
   onLiteratureSearch?: (query: string) => void;
+  /** Citations currently displayed by the Literature view (filter applied). */
+  literatureCitations?: Citation[];
   metricMode?: "mean" | "max";
   setMetricMode?: (mode: "mean" | "max") => void;
   windowSize?: number;
@@ -141,6 +144,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   disruptionPredictor = null,
   literatureSearchQuery = "",
   onLiteratureSearch,
+  literatureCitations = [],
   metricMode = "mean",
   setMetricMode,
   windowSize = 31,
@@ -513,9 +517,9 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           <LiteratureInspector
             gene={gene}
             variant={variant}
-            analysisResult={analysisResult}
             searchQuery={literatureSearchQuery}
             onSearch={onLiteratureSearch}
+            citations={literatureCitations}
           />
         )}
 
