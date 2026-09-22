@@ -53,8 +53,6 @@ interface VhMetric {
   ticks: VhTick[];
   /** Raw metric value plotted on the track, or null when unmeasured. */
   marker: number | null;
-  /** Variant-specific footnote (RMC region + p-value). */
-  note: string | null;
   tooltip: string;
   detail: string;
 }
@@ -134,7 +132,6 @@ function buildMissenseZMetric(
       { at: 2.0, label: "2.0" },
       { at: 3.09, label: "3.09" },
     ],
-    note: null,
   };
   const refRange =
     "Reference: tolerant below 2.0, constrained from 2.0, severe intolerance at or above 3.09.";
@@ -198,7 +195,6 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
       { at: 0.35, label: "0.35" },
       { at: 1.0, label: "1.0" },
     ],
-    note: null,
   };
   const refRange =
     "Reference: strong loss-of-function intolerance below 0.35, moderate constraint below 1.0, tolerant at or above 1.0.";
@@ -278,7 +274,6 @@ function buildRmcMetric(
       verdict: noCall.verdict,
       marker: null,
       ...domains,
-      note: null,
       tooltip: `gnomAD v2 Regional Missense Constraint (RMC) — ${noCall.reason}.`,
       detail: `${noCall.sentence} ${refRange}`,
     };
@@ -289,12 +284,16 @@ function buildRmcMetric(
   const pText = formatPValue(regional.pValue);
   const region = compactRegion(regional.regionText);
 
-  const noteParts: string[] = [];
-  if (regional.isConstrained && region) noteParts.push(region);
-  if (regional.isConstrained && pText) noteParts.push(`p = ${pText}`);
-  const note = noteParts.length > 0 ? noteParts.join(" · ") : null;
-
   const regionDetail = region ? `Constrained block ${region.replace("–", " to ")}` : "Constrained sub-region";
+  // sr-only: the verdict already announces "Subgenic constrained", so the
+  // detail names the block without repeating the verdict word.
+  const regionSr = region ? `RMC block ${region.replace("–", " to ")}` : "RMC sub-region";
+  // The block span and its p-value are facts about the RMC window, not about
+  // this residue, so they are tooltip / sr-only provenance. A visible footnote
+  // would hand the third row a second text line the other rows don't have,
+  // breaking the row rhythm. The p-value is a likelihood-ratio statistic on
+  // the window, so it is labelled as the approximate window LRT it is.
+  const pClause = pText ? `, window LRT p = ${pText} (approximate)` : "";
 
   if (regional.isConstrained) {
     return {
@@ -305,12 +304,8 @@ function buildRmcMetric(
       verdict: "Subgenic constrained",
       marker: oe,
       ...domains,
-      note,
-      tooltip: `gnomAD v2 Regional Missense Constraint (RMC): ${regionDetail}${
-        pText ? `, p = ${pText}` : ""
-      }. Observed/expected ratio ${value} against a neutral baseline of 1.0.`,
-      // Reference-only: the value, the verdict and the block/p-value note are visible text.
-      detail: refRange,
+      tooltip: `gnomAD v2 Regional Missense Constraint (RMC): ${regionDetail}${pClause}. Observed/expected ratio ${value} against a neutral baseline of 1.0.`,
+      detail: `${regionSr}${pText ? `, window LRT p = ${pText}` : ""}. ${refRange}`,
     };
   }
 
@@ -322,7 +317,6 @@ function buildRmcMetric(
     verdict: "Expected variation",
     marker: oe,
     ...domains,
-    note: null,
     tooltip: `gnomAD v2 Regional Missense Constraint (RMC): the residue sits outside every constrained sub-region (observed/expected ${value}).`,
     // The "outside every constrained sub-region" clause is tooltip-only otherwise.
     detail: `Residue outside every constrained sub-region. ${refRange}`,
@@ -417,8 +411,6 @@ function ConstraintMetric({ metric }: { metric: VhMetric }) {
       <span className="vh-verdict" data-tone={tone}>
         {metric.verdict}
       </span>
-      {/* Rendered only when present, so rows without a footnote stay single-line. */}
-      {metric.note && <span className="vh-note">{metric.note}</span>}
 
       <span className="vh-sr-only">{metric.detail}</span>
     </li>

@@ -224,8 +224,15 @@ describe("VariantHeader Component Tests", () => {
     // Constraint bands encode the reference zones (3 for Z, 3 for LOEUF, none for RMC)
     expect(container.querySelectorAll(".vh-band").length).toBe(6);
 
-    // RMC footnote keeps the constrained block and the p-value
-    expect(screen.getByText("460–600 · p = 0.002")).toBeInTheDocument();
+    // RMC block span and p-value are tooltip/sr-only provenance, not visible
+    // text — a footnote would give the third row a second line and break the
+    // row rhythm.
+    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    expect(rmcRow).not.toBeNull();
+    expect(rmcRow!.getAttribute("title")).toContain("Constrained block 460 to 600");
+    expect(rmcRow!.getAttribute("title")).toContain("p = 0.002");
+    expect(rmcRow!.textContent).toContain("RMC block 460 to 600");
+    expect(screen.queryByText(/460–600/)).not.toBeInTheDocument();
   });
 
   it("should expose the reference ranges to assistive tech without restating the visible values", () => {
@@ -249,7 +256,9 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.getByText(/Reference: unconstrained at O\/E ≈ 1\.0\./)).toBeInTheDocument();
 
     const srOnly = Array.from(document.querySelectorAll(".vh-sr-only")).map((el) => el.textContent ?? "");
-    const detail = srOnly.filter((t) => t.startsWith("Reference:"));
+    // The RMC row's detail leads with the constrained block (window provenance,
+    // formerly the visible footnote), so match containment rather than a prefix.
+    const detail = srOnly.filter((t) => t.includes("Reference:"));
     expect(detail).toHaveLength(3); // one per metric row
     // The metric value and verdict are NOT repeated inside the hidden detail.
     expect(detail.some((t) => t.includes("+2.04"))).toBe(false);
@@ -340,7 +349,10 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByText("Gln199–Met555 · p = 6.6×10⁻⁶")).toBeInTheDocument();
+    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    expect(rmcRow).not.toBeNull();
+    expect(rmcRow!.getAttribute("title")).toContain("p = 6.6×10⁻⁶");
+    expect(screen.queryByText(/Gln199–Met555/)).not.toBeInTheDocument();
   });
 
   it("should handle null and NaN constraint values gracefully", () => {
@@ -509,7 +521,9 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByText(new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
+    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    expect(rmcRow).not.toBeNull();
+    expect(rmcRow!.getAttribute("title")).toContain(expected);
   });
 
   it.each([0, -1, NaN, Infinity])("omits the RMC p-value when it is %s", (pValue) => {
@@ -534,8 +548,11 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
+    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    expect(rmcRow).not.toBeNull();
+    expect(rmcRow!.getAttribute("title")).not.toContain("p = ");
+    expect(rmcRow!.getAttribute("title")).toContain("Constrained block Gln199 to Met555");
     expect(screen.queryByText(/p = /)).not.toBeInTheDocument();
-    expect(screen.getByText("Gln199–Met555")).toBeInTheDocument();
   });
 
   it("labels the coordinate build from the payload instead of assuming GRCh38", () => {

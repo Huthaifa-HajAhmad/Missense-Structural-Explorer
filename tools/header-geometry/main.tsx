@@ -161,12 +161,12 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
     detail: collisions.join(" | ") || "none",
   });
 
-  // 4. Ellipsised labels hide the metric name; ellipsised notes hide the p-value.
+  // 4. An ellipsised label hides the metric name; an ellipsised verdict hides the call.
   const clipped: string[] = [];
-  header.querySelectorAll<HTMLElement>(".vh-metric-label, .vh-verdict, .vh-note").forEach((el) => {
+  header.querySelectorAll<HTMLElement>(".vh-metric-label, .vh-verdict").forEach((el) => {
     if (el.scrollWidth - el.clientWidth > 1) clipped.push(`${el.className} "${el.textContent ?? ""}"`);
   });
-  checks.push({ name: `${id}: labels and footnotes are not truncated`, pass: clipped.length === 0, detail: clipped.join(" | ") || "none" });
+  checks.push({ name: `${id}: labels and verdicts are not truncated`, pass: clipped.length === 0, detail: clipped.join(" | ") || "none" });
 
   return checks;
 }
@@ -262,7 +262,7 @@ function effectiveBackground(el: Element, pageBackground: Rgb): Rgb {
 function checkContrast(host: HTMLElement, id: string, pageBackgroundHex: string): GeometryCheck[] {
   const page = parseColor(pageBackgroundHex);
   if (!page) return [];
-  const selectors = [".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict", ".vh-note"];
+  const selectors = [".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict"];
   const checks: GeometryCheck[] = [];
   selectors.forEach((selector) => {
     const el = host.querySelector(selector);

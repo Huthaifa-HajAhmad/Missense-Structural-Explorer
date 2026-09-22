@@ -502,8 +502,7 @@
   background: var(--cs-border-subtle);
 }
 
-/* One metric, one line: label · value · track · verdict, with the RMC footnote
-   dropping to a second line when the variant sits in a constrained block.
+/* One metric, one line: label · value · track · verdict.
    The columns are fixed widths because each row is its own grid — an `auto`
    column would size differently per row and the tracks would stop lining up
    down the group. Rows paint the header's own surface so the list's 1px gaps
@@ -511,12 +510,9 @@
 .vh-metric {
   display: grid;
   grid-template-columns: 82px 58px minmax(0, 1fr) 140px;
-  grid-template-areas:
-    "label value scale verdict"
-    "note  note  note  note";
+  grid-template-areas: "label value scale verdict";
   align-items: center;
   column-gap: 10px;
-  row-gap: 1px;
   padding: 4px 14px;
   min-width: 0;
   background: var(--cs-surface);
@@ -646,20 +642,6 @@
 .vh-verdict[data-tone="path"]  { background: var(--vh-path-soft);  color: var(--vh-path-fg); }
 .vh-verdict[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
 
-/* Variant-specific RMC footnote (constrained block + p-value), right-aligned on
-   its own line so it never competes with the verdict for the same gap. */
-.vh-note {
-  grid-area: note;
-  justify-self: end;
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--cs-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Full metric sentences for assistive tech — the visual track carries the same
    information, so it is hidden from the accessibility tree with aria-hidden. */
 .vh-sr-only {
@@ -689,12 +671,10 @@
     grid-template-areas:
       "label   value"
       "scale   scale"
-      "verdict verdict"
-      "note    note";
+      "verdict verdict";
     row-gap: 4px;
     padding: 6px 14px;
   }
-  .vh-note { justify-self: start; }
 }
 
 
