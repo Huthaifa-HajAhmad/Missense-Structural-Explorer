@@ -534,24 +534,6 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
               <CopyBtn text={headlineVariant} label="variant notation" />
             </span>
           )}
-          {numbering.remapped && (
-            <span
-              className="variant-header-numbering-basis"
-              data-testid="modelled-basis"
-              title={numbering.basisNote ?? undefined}
-              // Inline (CSS variables, like the rest of this header) rather than a new stylesheet rule:
-              // this is one secondary line, and the file it lives in is edited concurrently.
-              style={{
-                fontFamily: "var(--cs-font-mono)",
-                fontSize: "10px",
-                color: "var(--cs-text-muted)",
-                marginLeft: "6px",
-              }}
-            >
-              modelled as {numbering.modelled}
-              {uniprotId ? ` on canonical ${uniprotId}` : ""}
-            </span>
-          )}
         </div>
 
         {/* Lineage identifiers sit directly under the gene — the header centres
@@ -617,6 +599,32 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
               </span>
             )}
           </div>
+        )}
+
+        {/* Modelled-basis phrase: its own line under the identifiers, in the
+            header's soft verdict-fill grammar (clay = caution, not error) so the
+            remap reads as a stated fact, not inline noise beside the HGVS.
+            Inline style, like the rest of this header: the stylesheet it would
+            live in is edited concurrently. */}
+        {numbering.remapped && (
+          <span
+            className="variant-header-numbering-basis"
+            data-testid="modelled-basis"
+            title={numbering.basisNote ?? undefined}
+            style={{
+              fontFamily: "var(--cs-font-mono)",
+              fontSize: "10px",
+              fontWeight: 500,
+              color: "var(--vh-clay-fg)",
+              background: "var(--vh-clay-soft)",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              alignSelf: "flex-start",
+            }}
+          >
+            modelled as {numbering.modelled}
+            {uniprotId ? ` on canonical ${uniprotId}` : ""}
+          </span>
         )}
       </div>
 
