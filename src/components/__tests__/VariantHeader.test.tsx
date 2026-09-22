@@ -555,6 +555,39 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.queryByText(/p = /)).not.toBeInTheDocument();
   });
 
+  it("labels a matched RMC window that did not reach significance as sub-threshold, not as expected variation", () => {
+    const subThreshold: Partial<AnalysisResult> = {
+      gnomadConstraint: {
+        missense_z: 3.13,
+        oe_mis: 0.26,
+        pli: 0.98,
+        loeuf: 0.26,
+        isPP2Constrained: true,
+        hasRegionalData: true,
+        // The server gates isConstrained on the window's own p-value; this is
+        // what a matched-but-insignificant window looks like on the wire.
+        regionalConstraint: { isConstrained: false, oeRatio: 0.91, pValue: 0.4, regionText: "100 to 200" },
+      },
+    };
+
+    render(
+      <VariantHeader
+        gene="MACO1"
+        variant="p.Glu433Lys"
+        uniprotId="Q9NSG2"
+        analysisResult={subThreshold as AnalysisResult}
+      />
+    );
+
+    const verdict = screen.getByText("Sub-threshold window");
+    const row = verdict.closest("li");
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute("title")).toContain("did not reach significance");
+    expect(row!.getAttribute("title")).toContain("p = 0.400");
+    // The "outside every constrained sub-region" copy would be false here.
+    expect(screen.queryByText("Expected variation")).not.toBeInTheDocument();
+  });
+
   it("labels the coordinate build from the payload instead of assuming GRCh38", () => {
     const grch37: Partial<AnalysisResult> = {
       predictorData: { gnomadVariantId: "7-140453136-A-T", gnomadVariantAssembly: "GRCh37" } as any,

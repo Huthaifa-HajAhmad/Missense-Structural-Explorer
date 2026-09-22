@@ -309,6 +309,27 @@ function buildRmcMetric(
     };
   }
 
+  // The server gates the constrained call on the window's own significance, so a
+  // non-constrained result with a span means "matched a candidate window that did
+  // not clear it" — say that, instead of the copy below, which is only true when
+  // no window matched at all (region is null then).
+  if (region) {
+    return {
+      key: "regional-oe",
+      label: "Regional O/E",
+      value,
+      tone: "muted",
+      verdict: "Sub-threshold window",
+      marker: oe,
+      ...domains,
+      tooltip: `gnomAD v2 Regional Missense Constraint (RMC): the residue lies in candidate window ${region.replace(
+        "–",
+        " to "
+      )}${pText ? ` (window LRT p = ${pText})` : ""}, which did not reach significance — not a constrained call.`,
+      detail: `Candidate RMC window ${region.replace("–", " to ")} below significance. ${refRange}`,
+    };
+  }
+
   return {
     key: "regional-oe",
     label: "Regional O/E",

@@ -212,6 +212,8 @@ export interface GnomadGeneConstraint {
   isPP2Constrained: boolean;
   regions?: any[];
   hasRegionalData?: boolean;
+  /** gnomAD's QC verdict on the gene's RMC track; null when the API omitted it. */
+  rmcPassedQc?: boolean | null;
   regionalConstraint?: {
     isConstrained: boolean;
     oeRatio: number | null;
@@ -297,7 +299,8 @@ export async function fetchGnomadGeneConstraint(
               loeuf,
               isPP2Constrained,
               regions: rmc?.regions || [],
-              hasRegionalData: !!(rmc && rmc.regions && rmc.regions.length > 0)
+              hasRegionalData: !!(rmc && rmc.regions && rmc.regions.length > 0),
+              rmcPassedQc: typeof rmc?.passed_qc === "boolean" ? rmc.passed_qc : null
             };
           }
         }
@@ -327,8 +330,19 @@ export async function fetchGnomadGeneConstraint(
       }
     }
     if (matchedRegion) {
+      // gnomAD's released RMC regions are all significantly depleted, but the
+      // verdict must not rest on that assumption: a matched window only counts
+      // as constrained when the RMC track passed QC and the window's own LRT
+      // p-value clears 0.05. A sub-threshold match still returns its span and
+      // p-value so the client can say "matched, not significant" instead of
+      // "outside every constrained sub-region".
+      const significant =
+        cached.rmcPassedQc !== false &&
+        typeof matchedRegion.p_value === "number" &&
+        Number.isFinite(matchedRegion.p_value) &&
+        matchedRegion.p_value < 0.05;
       regionalConstraint = {
-        isConstrained: true,
+        isConstrained: significant,
         oeRatio: matchedRegion.obs_exp != null ? parseFloat(matchedRegion.obs_exp.toFixed(2)) : null,
         pValue: matchedRegion.p_value,
         regionText: `${matchedRegion.aa_start} to ${matchedRegion.aa_stop}`
