@@ -231,22 +231,27 @@ export class EnsemblAdapter implements ExternalServiceAdapter<any, any> {
   /**
    * Reports whether the Ensembl REST API is answering.
    *
-   * Two corrections over the original single probe, both from a production 503 investigation:
+   * Three corrections over the original single probe, all from production investigations:
    *   - `/info/ping` is NOT a reliable liveness signal: it answered HTTP 500 in 425ms while VEP itself
-   *     was serving requests. A broken ping endpoint made the whole service look down. A second,
-   *     documented endpoint is tried before declaring failure;
-   *   - the tolerance is 5s rather than 3s, and a TIMEOUT is reported as slowness rather than as
-   *     unreachability, because "not answering quickly" and "not there" call for different responses.
+   *     was serving requests, and it routinely takes ~7s while VEP answers in <1s. A broken or slow
+   *     ping endpoint made the whole service look down. A second, documented endpoint is tried
+   *     before declaring failure;
+   *   - `/info/software` is probed FIRST because it is fast and reliable; `/info/ping` is the fallback;
+   *   - a TIMEOUT on one endpoint falls through to the next instead of returning immediately, and is
+   *     reported as slowness rather than as unreachability, because "not answering quickly" and
+   *     "not there" call for different responses.
    */
   async healthCheck(signal?: AbortSignal): Promise<HealthStatus> {
     const start = performance.now();
     const endpoints = [
-      "https://rest.ensembl.org/info/ping",
       "https://rest.ensembl.org/info/software",
+      "https://rest.ensembl.org/info/ping",
     ];
     let lastStatus: number | null = null;
+    let sawTimeout = false;
 
     for (const endpoint of endpoints) {
+      if (signal?.aborted) break;
       try {
         const res = await fetchWithRetry(
           endpoint,
@@ -276,18 +281,24 @@ export class EnsemblAdapter implements ExternalServiceAdapter<any, any> {
       } catch (err: any) {
         // A timeout means SLOW, which is not the same answer as "unreachable": VEP routinely needs
         // ~20s under load, and calling that a dead service sent operators looking for an outage.
+        // Fall through to the next endpoint — a slow ping must not mask a fast software endpoint
+        // (observed: ping ~7s while VEP answers in <1s).
         const timedOut = err?.name === "TimeoutError" || /timed out|attempt timeout|abort/i.test(String(err?.message ?? ""));
         if (timedOut) {
-          return {
-            healthy: false,
-            latencyMs: Math.round(performance.now() - start),
-            message: "No answer within 5s (service is slow, not necessarily down)",
-            timestamp: new Date().toISOString(),
-          };
+          sawTimeout = true;
+          continue;
         }
       }
     }
 
+    if (sawTimeout && lastStatus === null) {
+      return {
+        healthy: false,
+        latencyMs: Math.round(performance.now() - start),
+        message: "No answer within 5s (service is slow, not necessarily down)",
+        timestamp: new Date().toISOString(),
+      };
+    }
     return {
       healthy: false,
       latencyMs: Math.round(performance.now() - start),
