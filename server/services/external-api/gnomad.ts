@@ -336,11 +336,14 @@ export async function fetchGnomadGeneConstraint(
       // p-value clears 0.05. A sub-threshold match still returns its span and
       // p-value so the client can say "matched, not significant" instead of
       // "outside every constrained sub-region".
+      // p_value is a GraphQL Float, but tolerate a string encoding too rather
+      // than silently un-constraining every match.
+      const windowP =
+        matchedRegion.p_value == null ? NaN : Number(matchedRegion.p_value);
       const significant =
         cached.rmcPassedQc !== false &&
-        typeof matchedRegion.p_value === "number" &&
-        Number.isFinite(matchedRegion.p_value) &&
-        matchedRegion.p_value < 0.05;
+        Number.isFinite(windowP) &&
+        windowP < 0.05;
       regionalConstraint = {
         isConstrained: significant,
         oeRatio: matchedRegion.obs_exp != null ? parseFloat(matchedRegion.obs_exp.toFixed(2)) : null,
