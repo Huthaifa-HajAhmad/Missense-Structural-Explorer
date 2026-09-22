@@ -11,7 +11,7 @@ import { getGeminiClient } from "./gemini.ts";
  * selecting them would throw. The columns are added with ALTER and backfilled: rows
  * written before query-scoping existed are attributed to their gene's default query.
  */
-function migrateLiteratureSchema(db: DatabaseSync): void {
+export function migrateLiteratureSchema(db: DatabaseSync): void {
   const columns = db.prepare("PRAGMA table_info(literature_abstracts)").all() as Array<{ name: string }>;
   if (columns.length === 0) return;
 
@@ -173,29 +173,62 @@ export function isLiteratureCacheStale(cacheKey: string): boolean {
 }
 
 /**
+ * Run a multi-statement write atomically.
+ *
+ * A process kill or SQL error between an abstract-row insert and its membership
+ * insert (or between the membership-delete loop and the orphan-delete below) leaves a
+ * membership-less row that the next startup's backfill attributes to the default key.
+ * One transaction closes that window: either both halves land or neither does.
+ */
+function withWriteTx(db: DatabaseSync, fn: () => void): void {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    fn();
+    db.exec("COMMIT");
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (_) {
+      // Already torn down — report the original failure, not the rollback's.
+    }
+    throw err;
+  }
+}
+
+/** Strip control characters (notably newlines) before interpolating untrusted
+ *  input — a gene symbol or custom query — into a log line. */
+function safeLog(value: string): string {
+  return value.replace(/[\r\n]+/g, " ");
+}
+
+/**
  * Replace the membership of `cacheKey` with exactly `paperIds`.
  *
- * Called before the new rows are inserted, so the set being written is authoritative:
- * memberships for this key that the fresh sweep no longer matched are dropped, and
- * abstract rows left with no membership at all are deleted. A paper still referenced by
- * another query (or another gene) keeps its row.
+ * Called only after the new rows are fully inserted (see the sync loop), never
+ * before: replacing first and then dying mid-loop used to destroy the previous good
+ * set and leave a partial cache with no sync record, so every GET re-synced until a
+ * run finally completed. Memberships for this key that the fresh sweep no longer
+ * matched are dropped, and abstract rows left with no membership at all are deleted.
+ * A paper still referenced by another query (or another gene) keeps its row.
  */
 function replaceLiteratureMembership(cacheKey: string, paperIds: string[]): void {
   const db = getDb();
   const keep = new Set(paperIds);
 
-  const existing = db
-    .prepare("SELECT paper_id FROM literature_query_members WHERE cache_key = ?")
-    .all(cacheKey) as Array<{ paper_id: string }>;
+  withWriteTx(db, () => {
+    const existing = db
+      .prepare("SELECT paper_id FROM literature_query_members WHERE cache_key = ?")
+      .all(cacheKey) as Array<{ paper_id: string }>;
 
-  const deleteMember = db.prepare("DELETE FROM literature_query_members WHERE cache_key = ? AND paper_id = ?");
-  for (const row of existing) {
-    if (!keep.has(row.paper_id)) {
-      deleteMember.run(cacheKey, row.paper_id);
+    const deleteMember = db.prepare("DELETE FROM literature_query_members WHERE cache_key = ? AND paper_id = ?");
+    for (const row of existing) {
+      if (!keep.has(row.paper_id)) {
+        deleteMember.run(cacheKey, row.paper_id);
+      }
     }
-  }
 
-  db.prepare("DELETE FROM literature_abstracts WHERE id NOT IN (SELECT paper_id FROM literature_query_members)").run();
+    db.prepare("DELETE FROM literature_abstracts WHERE id NOT IN (SELECT paper_id FROM literature_query_members)").run();
+  });
 }
 
 export function resetDbForTesting(): void {
@@ -405,9 +438,6 @@ export function cleanLiteratureText(raw: string): string {
     .trim();
 }
 
-/** Back-compat alias: the same cleaning applies to titles and abstracts alike. */
-export const cleanAbstractText = cleanLiteratureText;
-
 /**
  * Canonical link for a record. Registered PMIDs and PMC accessions get their own stable
  * PubMed/PMC path; anything else falls back to a Europe PMC search for the identifier.
@@ -466,38 +496,43 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
   // The abstract row is keyed by PMID alone, so a paper shared by several queries is
   // stored once. `INSERT OR REPLACE` would drop a previously-good embedding when a later
   // sync fails to embed, so keep the existing row's embedding when this one has none.
-  db.prepare(
-    `INSERT INTO literature_abstracts
-       (id, gene, title, abstract, authors, journal, year, url, embedding, has_embedding, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       gene = excluded.gene,
-       title = excluded.title,
-       abstract = excluded.abstract,
-       authors = excluded.authors,
-       journal = excluded.journal,
-       year = excluded.year,
-       url = excluded.url,
-       embedding = CASE WHEN excluded.has_embedding = 1 THEN excluded.embedding ELSE literature_abstracts.embedding END,
-       has_embedding = CASE WHEN excluded.has_embedding = 1 THEN 1 ELSE literature_abstracts.has_embedding END,
-       created_at = excluded.created_at`
-  ).run(
-    citation.id,
-    gene,
-    citation.title,
-    citation.abstract,
-    citation.authors,
-    citation.journal,
-    citation.year,
-    citation.url,
-    embedding,
-    hasEmbedding ? 1 : 0,
-    now
-  );
+  // The row insert and its membership insert are one transaction (see withWriteTx), so
+  // a crash between them cannot strand a membership-less row for the startup backfill
+  // to mis-attribute to the default key.
+  withWriteTx(db, () => {
+    db.prepare(
+      `INSERT INTO literature_abstracts
+         (id, gene, title, abstract, authors, journal, year, url, embedding, has_embedding, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         gene = excluded.gene,
+         title = excluded.title,
+         abstract = excluded.abstract,
+         authors = excluded.authors,
+         journal = excluded.journal,
+         year = excluded.year,
+         url = excluded.url,
+         embedding = CASE WHEN excluded.has_embedding = 1 THEN excluded.embedding ELSE literature_abstracts.embedding END,
+         has_embedding = CASE WHEN excluded.has_embedding = 1 THEN 1 ELSE literature_abstracts.has_embedding END,
+         created_at = excluded.created_at`
+    ).run(
+      citation.id,
+      gene,
+      citation.title,
+      citation.abstract,
+      citation.authors,
+      citation.journal,
+      citation.year,
+      citation.url,
+      embedding,
+      hasEmbedding ? 1 : 0,
+      now
+    );
 
-  db.prepare(
-    `INSERT OR REPLACE INTO literature_query_members (cache_key, paper_id, added_at) VALUES (?, ?, ?)`
-  ).run(cacheKey, citation.id, now);
+    db.prepare(
+      `INSERT OR REPLACE INTO literature_query_members (cache_key, paper_id, added_at) VALUES (?, ?, ?)`
+    ).run(cacheKey, citation.id, now);
+  });
 }
 
 /** Europe PMC returns one page per request; this is that page's size. The UI reports the
@@ -521,7 +556,7 @@ export async function syncLiteratureForGene(
 
   const syncPromise = (async () => {
     const formattedQuery = formatQueryForEuropePmc(customQuery, cleanGene);
-    console.log(`[RAG] Querying Europe PMC literature for: ${formattedQuery}...`);
+    console.log(`[RAG] Querying Europe PMC literature for: ${safeLog(formattedQuery)}...`);
     
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
     
@@ -579,20 +614,21 @@ export async function syncLiteratureForGene(
         console.warn(`[RAG] Skipped ${skipped}/${results.length} Europe PMC records with no identifier for ${cleanGene}.`);
       }
 
-      // Replace this query's cached set before inserting: a paper the fresh sweep no
-      // longer matched loses its membership, and rows left unowned are deleted, so the
-      // set tracks the live query instead of accumulating every paper ever matched.
-      replaceLiteratureMembership(cacheKey, citations.map((citation) => citation.id));
-
+      // Membership is replaced only after the new rows are all inserted (below), not
+      // before: replacing first and then timing out mid-loop destroyed the previous good
+      // set and left a partial cache. An aborted run now leaves the old set intact (plus
+      // whatever prefix of the new set landed), the sync record stays unwritten, and the
+      // next request retries instead of serving the partial set as complete.
       if (citations.length === 0) {
-        console.log(`[RAG] No articles found on Europe PMC for gene: ${cleanGene}`);
+        console.log(`[RAG] No articles found on Europe PMC for gene: ${safeLog(cleanGene)}`);
         // An empty result is still a completed sweep: recording it stops every later
         // request from re-querying a gene that genuinely has no literature.
+        replaceLiteratureMembership(cacheKey, []);
         recordLiteratureSync(cacheKey, formattedQuery, hitCount);
         return 0;
       }
 
-      console.log(`[RAG] Found ${citations.length} papers for ${cleanGene}. Embedding and storing...`);
+      console.log(`[RAG] Found ${citations.length} papers for ${safeLog(cleanGene)}. Embedding and storing...`);
 
       let successCount = 0;
       for (const citation of citations) {
@@ -625,18 +661,21 @@ export async function syncLiteratureForGene(
       }
 
       // Only a completed sweep may claim the set as fresh: an interrupted sync must not
-      // suppress the retry that would fill in the rows it never reached.
+      // suppress the retry that would fill in the rows it never reached. Membership is
+      // pruned here — after every row landed — so the set tracks the live query instead
+      // of accumulating every paper ever matched, without risking a partial overwrite.
       if (!timeoutController.signal.aborted) {
+        replaceLiteratureMembership(cacheKey, citations.map((citation) => citation.id));
         recordLiteratureSync(cacheKey, formattedQuery, hitCount);
       }
 
-      console.log(`[RAG] Successfully synced and embedded ${successCount}/${citations.length} papers for ${cleanGene}`);
+      console.log(`[RAG] Successfully synced and embedded ${successCount}/${citations.length} papers for ${safeLog(cleanGene)}`);
       return successCount;
     } catch (err: any) {
       if (err.message && err.message.includes("Europe PMC API")) {
         recordPmcFailure();
       }
-      console.warn(`[RAG Warning] Gene literature sync failed for ${cleanGene}:`, err.message || err);
+      console.warn(`[RAG Warning] Gene literature sync failed for ${safeLog(cleanGene)}:`, err.message || err);
       return 0;
     } finally {
       clearTimeout(syncTimeoutId);
@@ -870,11 +909,11 @@ export async function searchGeneLiterature(
   }
 
   // A live search is a completed sweep of its own query, so it writes the same cache the
-  // list reads: membership of this key is replaced, and the rows are stored with a zero
-  // embedding marked unscorable. `syncLiteratureForGene` (which embeds properly) is what
-  // later upgrades them.
+  // list reads. Rows are inserted first and membership is pruned after (same ordering as
+  // the sync loop above), so a mid-store failure cannot strand a partial overwrite; the
+  // rows are stored with a zero embedding marked unscorable. `syncLiteratureForGene`
+  // (which embeds properly) is what later upgrades them.
   const storeResults = (citations: NormalizedCitation[], hitCount: number | null): void => {
-    replaceLiteratureMembership(cacheKey, citations.map((citation) => citation.id));
     const zeroVector = vectorToBuffer(new Float32Array(768));
     for (const citation of citations) {
       try {
@@ -883,27 +922,74 @@ export async function searchGeneLiterature(
         // A single failed row must not discard the rest of the result set.
       }
     }
+    replaceLiteratureMembership(cacheKey, citations.map((citation) => citation.id));
     recordLiteratureSync(cacheKey, formattedQuery, hitCount);
   };
 
+  // The live call used to run with no timeout and no circuit-breaker participation: a
+  // stalled upstream hung the request indefinitely, and repeated live failures never
+  // counted toward the breaker. It now gets the same 15 s fetch ceiling the sync loop
+  // uses, shares the breaker, and honours the caller's abort.
+  const liveController = new AbortController();
+  const liveTimeoutId = setTimeout(() => liveController.abort(), 15000);
+  const onCallerAbort = () => liveController.abort();
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(liveTimeoutId);
+      return { citations: [], degraded: true };
+    }
+    signal.addEventListener("abort", onCallerAbort);
+  }
+
   try {
+    checkPmcCircuit();
+
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
-    const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
-      signal
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { "Accept": "application/json" },
+        signal: liveController.signal
+      });
+    } finally {
+      clearTimeout(liveTimeoutId);
+      if (signal) {
+        signal.removeEventListener("abort", onCallerAbort);
+      }
+    }
 
     if (res.ok) {
+      recordPmcSuccess();
       const data = await res.json();
       const { citations } = mapPapers(data.resultList?.result || []);
       const hitCount = typeof data.hitCount === "number" ? data.hitCount : null;
       // A successful query with no matches is a real answer; recording it caches the
       // empty set so it is not re-queried the next time the same search is executed.
       storeResults(citations, hitCount);
-      return { citations, degraded: false };
+      // Return the canonical cache read, not the raw upstream page: the cached SELECT
+      // orders by year (nulls last) while Europe PMC's page order is upstream-defined,
+      // and serving upstream order here but cached order on re-render flipped the top-8
+      // between the first and every later render of the same query.
+      const ordered = await getGeneCitations(cleanGene, signal, customQuery);
+      return { citations: ordered, degraded: false };
     }
+    recordPmcFailure();
   } catch (err: any) {
-    console.warn(`[RAG Warning] Live Europe PMC search failed for "${formattedQuery}":`, err.message);
+    clearTimeout(liveTimeoutId);
+    if (signal) {
+      signal.removeEventListener("abort", onCallerAbort);
+    }
+    // An intentional client abort is not a failure to report: the caller is gone, so
+    // skip the gene-wide fallback read and return empty instead of work nobody wants.
+    // (A timeout abort is different — the caller is still waiting, so it falls through
+    // to the degraded fallback below.)
+    if (signal?.aborted) {
+      return { citations: [], degraded: true };
+    }
+    if (err.message && err.message.includes("Europe PMC API")) {
+      recordPmcFailure();
+    }
+    console.warn(`[RAG Warning] Live Europe PMC search failed for "${safeLog(formattedQuery)}":`, err.message);
   }
 
   // Fallback (degraded): the upstream call failed, so search the cached abstracts for

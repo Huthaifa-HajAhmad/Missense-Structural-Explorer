@@ -9,7 +9,7 @@ import ClinicalReportBar from "./ClinicalReportBar";
 import DevConsolePanel from "./DevConsolePanel";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
-import LiteratureView from "./LiteratureView";
+import LiteratureView, { type Citation } from "./LiteratureView";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
@@ -290,6 +290,21 @@ export function AppViews({
   }, [alignmentScope, isEsm, esmFoldWtPdb, esmFoldMutPdb, pdbText, mutantPdb, foldedResidueIndex, selectedResidueIndex, variant, apiClient]);
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
+  // Citations currently shown by the Literature view — passed to the inspector so the
+  // citation export serializes exactly what the user sees.
+  const [literatureCitations, setLiteratureCitations] = useState<Citation[]>([]);
+  // Bumped whenever the inspector applies a query: it tells LiteratureView to (re-)execute
+  // even when the query text is unchanged, which a plain string prop cannot signal —
+  // without this, re-applying after an error was a silent no-op behind a success toast.
+  const [literatureSearchVersion, setLiteratureSearchVersion] = useState(0);
+  // Stable identity: this is passed through memoised inspector panes, and an inline
+  // lambda would defeat their memo on every parent render. The version bump is what
+  // lets the inspector re-execute an unchanged query — LiteratureView's effect depends
+  // on it, so retry-after-error and repeated applies are never a silent no-op.
+  const handleLiteratureSearch = useCallback((q: string) => {
+    setLiteratureSearchQuery(q);
+    setLiteratureSearchVersion((v) => v + 1);
+  }, []);
   const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
   const [hasEverMountedStructure, setHasEverMountedStructure] = useState(isStructureActive);
 
@@ -585,10 +600,10 @@ export function AppViews({
               >
                 <LiteratureView 
                   gene={gene} 
-                  variant={variant} 
-                  uniprotId={uniprotId} 
                   searchQuery={literatureSearchQuery}
                   onSearchQueryChange={setLiteratureSearchQuery}
+                  onDisplayedCitationsChange={setLiteratureCitations}
+                  searchVersion={literatureSearchVersion}
                 />
               </ErrorBoundary>
             </div>
@@ -631,7 +646,8 @@ export function AppViews({
               thermompnnError={thermompnnError}
               disruptionPredictor={disruptionPredictor}
               literatureSearchQuery={literatureSearchQuery}
-              onLiteratureSearch={setLiteratureSearchQuery}
+              onLiteratureSearch={handleLiteratureSearch}
+              literatureCitations={literatureCitations}
               metricMode={metricMode}
               setMetricMode={setMetricMode}
               windowSize={windowSize}

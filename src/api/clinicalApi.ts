@@ -59,7 +59,23 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
       force = false, 
       signal?: AbortSignal,
       customQuery?: string
-    ): Promise<{ gene: string; citations: any[] }> {
+    ): Promise<{
+      gene: string;
+      citations: Array<{
+        id: string;
+        title: string;
+        abstract: string;
+        authors: string;
+        journal: string;
+        year: number | null;
+        url?: string | null;
+      }>;
+      /** Europe PMC's total match count for the query — normally larger than the single
+       *  page of citations returned, so the UI can explain the difference. */
+      hitCount?: number | null;
+      returnedCount?: number;
+      query?: string | null;
+    }> {
       const params = new URLSearchParams();
       if (force) params.set("force", "true");
       if (customQuery && customQuery.trim()) params.set("query", customQuery.trim());
@@ -72,7 +88,24 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
         const errorMsg = await extractErrorMessage(res, "Failed to fetch literature");
         throw new Error(errorMsg);
       }
-      return await res.json();
+      // Validated, not cast: an unvalidated `any[]` here once let a malformed payload
+      // through to the list view, where a missing `title` crashed rendering instead of
+      // surfacing as the fetch error it is.
+      return z.object({
+        gene: z.string(),
+        citations: z.array(z.object({
+          id: z.string(),
+          title: z.string(),
+          abstract: z.string(),
+          authors: z.string(),
+          journal: z.string(),
+          year: z.number().nullable(),
+          url: z.string().nullable().optional()
+        })),
+        hitCount: z.number().nullable().optional(),
+        returnedCount: z.number().optional(),
+        query: z.string().nullable().optional()
+      }).parse(await res.json());
     }
   };
 }
