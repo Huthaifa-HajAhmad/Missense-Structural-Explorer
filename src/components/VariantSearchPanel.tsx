@@ -534,15 +534,25 @@ function VariantSearchPanel({
       ddmutStatus,
       isNarrativeLoading
     });
+    /**
+     * Display labels for the workflow states. "In Progress" was retired — it is in
+     * `LEGACY_ENGINE_LABELS` (`engineStatus.ts`), which bans it precisely because it implies waiting
+     * forever, and a stalled stage rendered with it looked identical to a working one.
+     *
+     * The rest of this component used to branch on these LABELS (`info.status === "In Progress"`),
+     * which made the display string load-bearing as an identifier — so renaming one silently broke a
+     * status check. `rawStatus` is returned alongside so callers branch on the state, never the word.
+     */
     const statusMap: Record<string, string> = {
       complete: "Complete",
-      progress: "In Progress",
+      progress: "Running",
       pending: "Pending",
       degraded: "Degraded",
       error: "Error"
     };
     return {
       status: statusMap[raw.status] || raw.status,
+      rawStatus: raw.status,
       desc: raw.desc
     };
   };
@@ -1077,10 +1087,11 @@ function VariantSearchPanel({
                     {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
                       const info = getStageInfo(key as any);
                       const isClickable = !!result && !!onViewChange;
-                      const isRunning = info.status === "In Progress" || info.status === "Computing";
-                      const isDone = info.status === "Complete";
-                      const isDegraded = info.status === "Degraded" || info.status === "degraded";
-                      const isErr = info.status === "Error" || info.status === "error";
+                      /* Branch on the state, not the rendered word: `info.status` is a display label. */
+                      const isRunning = info.rawStatus === "progress";
+                      const isDone = info.rawStatus === "complete";
+                      const isDegraded = info.rawStatus === "degraded";
+                      const isErr = info.rawStatus === "error";
 
                       return (
                         <div

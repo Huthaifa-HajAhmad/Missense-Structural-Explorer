@@ -28,6 +28,8 @@ import {
 import { useSettings } from "../../context/SettingsContext";
 import { useApiClient } from "../../apiClient";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { ENGINE_STATE_LABELS, type EngineTone } from "../../shared/engineStatus";
+import { resolveSourceAvailability } from "../../shared/evidenceAvailability";
 
 export interface ModalityDefinition {
   id: string;
@@ -204,14 +206,49 @@ export const MODALITY_DEFINITIONS: ModalityDefinition[] = [
   }
 ];
 
-function extractModalityShap(def: ModalityDefinition, featureAttributions: Record<string, number> | null): number {
-  if (!featureAttributions) return 0;
+/**
+ * Presentation only — the *words* come from `ENGINE_STATE_LABELS` via the resolver, so this map can
+ * never introduce a status vocabulary of its own.
+ *
+ * Two deliberate choices, both learned from the design system rather than invented here:
+ *
+ * 1. **Amber is reserved for clinical severity.** `upstream-error` and `no-result` are system
+ *    conditions, and this app already paints "PP3-moderate" amber on the gauge 200px below. A hue
+ *    that answers both "how bad is this variant?" and "is the software working?" makes the reader
+ *    disambiguate by context, so infrastructure states take the indigo the app already uses for
+ *    transport and links. The state is still unmistakable without amber: it carries an icon and a
+ *    canonical label word.
+ * 2. **The AA-safe badge primitives are reused, not re-derived.** `primitives.css` ships
+ *    `cs-badge-good` / `cs-badge-muted` with foreground values chosen to clear WCAG AA at small
+ *    text; `layout.css:248-251` records that the raw `--cs-good` / `--cs-warn` roles do *not* at
+ *    this size. Hand-rolled `text-emerald-500` / `text-amber-500` on a white surface measure ≈2.5:1
+ *    and ≈2.15:1 — below 4.5:1 — so those are gone rather than tuned.
+ */
+const TONE_CLASSES: Record<EngineTone, string> = {
+  good: "cs-badge cs-badge-good",
+  muted: "cs-badge cs-badge-muted",
+  neutral: "cs-badge border-indigo-500/25 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300",
+  warn: "cs-badge border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
+  danger: "cs-badge cs-badge-path",
+};
+
+/**
+ * The SHAP attribution for one modality, or `null` when the model never attributed it.
+ *
+ * `null` and `0` are different facts and were previously the same value. `0.000` is a measurement
+ * meaning "this biological layer contributed nothing to the variant's impact" — a substantive
+ * negative result, and the one a clinician most wants to see ruled out. Returning `0` for a missing
+ * key made every unmeasured layer indistinguishable from a measured zero, so all 18 cards read as
+ * unmeasured whenever the aggregate happened to be flat (standby RCA §2A).
+ */
+function extractModalityShap(def: ModalityDefinition, featureAttributions: Record<string, number> | null): number | null {
+  if (!featureAttributions) return null;
   for (const alias of [def.id, def.name, ...def.aliases]) {
-    if (alias in featureAttributions && typeof featureAttributions[alias] === "number") {
+    if (alias in featureAttributions && Number.isFinite(featureAttributions[alias])) {
       return featureAttributions[alias];
     }
   }
-  return 0;
+  return null;
 }
 
 interface ReferenceAssayTrack {
@@ -317,7 +354,26 @@ const REFERENCE_ASSAY_SCHEMA: ReferenceAssayTrack[] = [
   }
 ];
 
+/**
+ * The null-result guard lives in this wrapper, which declares no hooks of its own.
+ *
+ * It previously sat inside the body, above ten `useMemo`/`useCallback` calls — a Rules-of-Hooks
+ * violation that is unreachable today (the only host returns before mounting any tab) but that
+ * `EvidenceDashboardCard` records as having already crashed once in exactly this shape, and this repo
+ * has no eslint to catch the next one. Splitting the component makes the violation unrepresentable
+ * rather than merely unreached.
+ */
 function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
+  const result = analysisState.result;
+  if (!result) return null;
+  return <AlphaGenomeTabBody result={result} />;
+}
+
+function AlphaGenomeTabBody({
+  result,
+}: {
+  result: NonNullable<TabComponentProps["analysisState"]["result"]>;
+}) {
   const [selectedTissue, setSelectedTissue] = useState<string>("All");
   const [trackSearch, setTrackSearch] = useState<string>("");
   const [modalitySort, setModalitySort] = useState<"tier" | "impact">("impact");
@@ -341,12 +397,73 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
   const { settings, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
 
-  const result = analysisState.result;
-  if (!result) return null;
-
   const alphagenome: AlphaGenomeAviData | null = result.conservationData?.alphagenome || null;
   const isLive = alphagenome?.status === "live";
-  const hasConfiguredKey = Boolean(settings.alphagenomeApiKey?.trim() || settings.alphagenomeApiUrl?.trim());
+  // Two different facts, previously one flag: a custom endpoint is not a credential. Counting a URL
+  // alone as "configured" let a keyless user see a button reading "Key Configured" — a false
+  // statement about a credential, on the transport axis where it is merely wrong rather than
+  // misleading, but it is still the same class of claim this change is meant to retire.
+  const hasAlphaGenomeKey = Boolean(settings.alphagenomeApiKey?.trim());
+  const hasAlphaGenomeEndpoint = hasAlphaGenomeKey || Boolean(settings.alphagenomeApiUrl?.trim());
+
+  /**
+   * WHY THIS SOURCE HAS NO VALUE — decided by the shared resolver, not by this file.
+   *
+   * Two facts were previously conflated into one amber badge, and the conflation is what made this
+   * panel un-debuggable: transport health (does the key work?) and evidence availability (did a
+   * score reach this variant?) are independent, and here they disagreed. `Test Connection` passing
+   * proved the credential; the build gate had already declined the coordinate. The panel said
+   * "Awaiting API key" and sent the user back to the screen that was never the problem.
+   *
+   * `availability.action` is what gates the remedy sentence below, and no coverage condition — a
+   * build refusal or an unindexed variant — can produce a credential action
+   * (see evidenceAvailability.ts).
+   */
+  const assemblyRefusals = result.conservationData?.assemblyRefusals ?? null;
+  const availability = resolveSourceAvailability({
+    source: "alphagenome",
+    refusals: assemblyRefusals,
+    // The value itself, not a per-site boolean: an earlier revision took `hasValue` and this file
+    // required `status === "live"` while the predictors panel did not, so two panels could make
+    // opposite claims about one payload. A returned score is information even when the flag says
+    // the run was imperfect — which is `engineStatus`'s own rule.
+    value: alphagenome?.aviPhred ?? null,
+    status: alphagenome?.status ?? null,
+    // A *tri*-state, and the honest one. The client can only attest to a key it holds: with no key
+    // in browser settings the server may still be reading `process.env.ALPHAGENOME_API_KEY`, which
+    // this page cannot see. Passing a definite `false` there let an unknown outrank the provider's
+    // own message and send a server-keyed deployment to Settings for a plain timeout — the original
+    // defect, mirrored. `undefined` means "unknown", and the resolver never infers a missing
+    // credential from it.
+    configured: settings.alphagenomeApiKey?.trim() ? true : undefined,
+    message: alphagenome?.message ?? null,
+  });
+  const isAssessed = availability.state === "available";
+
+  /**
+   * The second, independent axis: did the model attribute the score across modalities?
+   *
+   * `alphagenome-client.ts` emits `featureAttributions: null` on a **live** result whenever the
+   * feature-importance scorer returns nothing. Gating the 18 modality cards on the AVI score alone
+   * therefore rendered "AVI assessed" beside eighteen unexplained em-dashes under a subtitle
+   * claiming a completed decomposition — silent absence, arriving from a new direction.
+   * Attribution gets its own flag and its own sentence.
+   */
+  const hasAttribution = isAssessed && (alphagenome?.featureAttributions ?? null) !== null;
+
+  /**
+   * The status bar's accent follows evidence availability, not the raw live flag. A source that
+   * declined a build it never claimed to support is not a fault — alarming the panel invites the
+   * user to fix something that cannot be fixed from here. Amber is deliberately absent: it is the
+   * gauge's clinical-severity hue, and the two axes must not share a colour.
+   */
+  const accent = availability.state === "available"
+    ? { ring: "rgba(22,163,74,0.3)", wash: "rgba(22,163,74,0.06)", icon: "text-cs-good", iconWash: "rgba(22,163,74,0.12)" }
+    : availability.tone === "danger"
+    ? { ring: "rgba(185,28,28,0.3)", wash: "rgba(185,28,28,0.05)", icon: "text-cs-danger", iconWash: "rgba(185,28,28,0.12)" }
+    : availability.tone === "warn" || availability.tone === "neutral"
+    ? { ring: "rgba(99,102,241,0.3)", wash: "rgba(99,102,241,0.05)", icon: "text-indigo-600 dark:text-indigo-300", iconWash: "rgba(99,102,241,0.12)" }
+    : { ring: "var(--cs-border)", wash: "rgba(99,102,241,0.05)", icon: "text-cs-text-secondary", iconWash: "rgba(99,102,241,0.10)" };
   const geneName = result.metadata?.gene || "";
   const variantNotation = result.metadata?.variant || "";
 
@@ -454,7 +571,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
     }
   }, [fetchWithAuth, geneName, variantNotation, result.metadata?.uniprotId]);
 
-  // Values from live backend or standby state
+  // Values read straight off the payload; absence is classified once, by `availability` above.
   const aviPhred = alphagenome?.aviPhred ?? null;
   const topPercentile = alphagenome?.topPercentile ?? (aviPhred !== null && aviPhred >= 0 ? Math.pow(10, -aviPhred / 10) * 100 : null);
   const topModality = alphagenome?.topModality ?? null;
@@ -507,16 +624,31 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         };
       default:
         return {
-          label: "Indeterminate / Standby",
-          odds: "Non-discriminatory continuous score",
+          label: "Indeterminate",
+          odds: "AVI sits between the BP4 and PP3 bands",
           badgeClass: "bg-slate-500/10 text-slate-400 border-slate-500/30"
         };
     }
   };
 
-  const acmgBadge = getAcmgBadgeConfig(acmgStrength);
+  /**
+   * "Indeterminate" is a clinical conclusion: the model ran and landed between the BP4 and PP3
+   * bands. It was previously reachable from a null score as well — `acmgStrength` defaults to
+   * `"indeterminate"`, and `calculateAlphaGenomeAcmgStrength(null)` returns `"indeterminate"` too,
+   * so absence of evidence and evidence of no effect rendered as one badge and the ClinGen SVI card
+   * could not be read. Only an assessed variant may use the tier map now.
+   */
+  const acmgBadge = isAssessed
+    ? getAcmgBadgeConfig(acmgStrength)
+    : {
+        label: availability.label,
+        odds: "No AVI score, so no SVI tier was assigned",
+        badgeClass: "bg-slate-500/10 text-slate-400 border-slate-500/30"
+      };
 
-  // Filtered modalities with scores
+  // All 18 modalities, each carrying its attribution or `null` when the model reported none.
+  // Nothing is filtered here; the search and tissue controls below belong to the reference-track
+  // table further down the page.
   const renderedModalities = useMemo(() => {
     const list = MODALITY_DEFINITIONS.map((def) => {
       const shap = extractModalityShap(def, featureAttributions);
@@ -527,7 +659,15 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
     });
 
     if (modalitySort === "impact") {
-      return list.sort((a, b) => Math.abs(b.shap) - Math.abs(a.shap));
+      // Unattributed layers sort to the end. With `Math.abs(null)` coercing to 0, an unmeasured
+      // layer used to sort *among* the measured ones, so "Sort by Impact" interleaved blanks with
+      // real attributions and the ordering claimed a ranking it had not made.
+      return list.sort((a, b) => {
+        if (a.shap === null && b.shap === null) return 0;
+        if (a.shap === null) return 1;
+        if (b.shap === null) return -1;
+        return Math.abs(b.shap) - Math.abs(a.shap);
+      });
     }
     return list;
   }, [featureAttributions, modalitySort]);
@@ -562,21 +702,16 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
       <div
         className="p-4 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 relative overflow-hidden"
         style={{
-          background: isLive
-            ? "linear-gradient(135deg, rgba(16,185,129,0.06) 0%, rgba(99,102,241,0.06) 100%)"
-            : "linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(99,102,241,0.06) 100%)",
-          borderColor: isLive ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"
+          background: `linear-gradient(135deg, ${accent.wash} 0%, rgba(99,102,241,0.05) 100%)`,
+          borderColor: accent.ring
         }}
       >
         <div className="flex items-start gap-3.5 z-10">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
-            style={{
-              background: isLive ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)",
-              border: `1px solid ${isLive ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"}`
-            }}
+            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm"
+            style={{ background: accent.iconWash, border: `1px solid ${accent.ring}` }}
           >
-            <Compass className={`w-5 h-5 ${isLive ? "text-emerald-500" : "text-amber-500"}`} />
+            <Compass className={`w-5 h-5 ${accent.icon}`} />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -586,25 +721,88 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
               <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                 Google DeepMind
               </span>
-              {isLive ? (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Live gRPC Channel
-                </span>
-              ) : (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> Standby (Direct Atlas Mode)
-                </span>
-              )}
+              {/*
+                * AXIS 1 — evidence availability for THIS variant. Both words come from
+                * `ENGINE_STATE_LABELS`, including the positive state: the first revision wrote
+                * "AVI assessed" by hand, which is a status word the guard structurally cannot see
+                * (it scans the retired *absence* labels), so the claim "no surface invents a status
+                * word" had a hole exactly here and this file fell into it.
+                *
+                * The tooltip no longer claims attribution was received — attribution is a separate
+                * axis (`hasAttribution`) and a live result can carry a score with no feature vector.
+                */}
+              <span
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-mono font-semibold ${isAssessed ? TONE_CLASSES.good : TONE_CLASSES[availability.tone]}`}
+                title={availability.reason ?? (isAssessed
+                  ? (hasAttribution ? "AVI score and modality attribution received" : "AVI score received; the model returned no modality attribution")
+                  : undefined)}
+              >
+                {isAssessed ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                {isAssessed ? ENGINE_STATE_LABELS.computed : availability.label}
+              </span>
+              {/*
+                * AXIS 2 — transport health, its own badge with its own noun. These facts are
+                * independent, and until now they shared a single amber word: the credential
+                * verified (296ms, 22 scorers) while the build gate had already declined the
+                * coordinate. Two axes make the disagreement legible instead of misleading.
+                */}
               {connectionTestResult?.ok && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 flex items-center gap-1">
-                  <Zap className="w-2.5 h-2.5" /> {connectionTestResult.latencyMs}ms ({connectionTestResult.scorersCount ?? 0} Scorers)
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-mono font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/25"
+                  title={`Channel verified to gdmscience.googleapis.com:443 in ${connectionTestResult.latencyMs}ms. Transport health is independent of whether a score reached this variant.`}
+                >
+                  <Zap className="w-3 h-3" />
+                  channel {connectionTestResult.latencyMs}ms · {connectionTestResult.scorersCount ?? 0} scorers
                 </span>
               )}
             </div>
             <p className="text-xs text-cs-text-muted mt-1 max-w-3xl leading-relaxed">
-              Native gRPC client connected directly to <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">gdmscience.googleapis.com:443</code> over TLS.
-              Continuous calibrated AVI scores and 18-modality biological SHAP weights.
+              Queries <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-black/10 dark:bg-white/10">gdmscience.googleapis.com:443</code>{" "}
+              over TLS with a native gRPC client, returning a calibrated AVI score and 18-modality biological SHAP weights.
             </p>
+            {/*
+              * ONE explanation, in place of the twenty-odd "Standby" strings this panel used to
+              * scatter across four KPI cards, eighteen modality cards and two mechanism cards.
+              * Absence is a property of the source and this variant, so it belongs once, at the
+              * source — repeating it in every slot that lacked a number manufactured the impression
+              * of twenty-five separate problems.
+              *
+              * The remedy sentence is gated on `availability.action`, which no coverage condition —
+              * build refusal or unindexed variant — can set to a credential action.
+              */}
+            {!isAssessed && (
+              <div className="mt-2.5 flex items-start gap-2 max-w-3xl">
+                <AlertCircle className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${accent.icon}`} />
+                <p className="text-[11.5px] leading-relaxed text-cs-text-secondary">
+                  {availability.reason ?? `No AVI score reached this variant (${availability.label}).`}{" "}
+                  <span className="text-cs-text-muted">
+                    {availability.action === "retry"
+                      ? "Re-evaluate the variant to ask the Atlas again."
+                      : availability.action === "configure-credentials"
+                      ? "Add or check the AlphaGenome credential in Settings, then re-evaluate."
+                      : availability.state === "not-covered"
+                      ? "No setting changes this."
+                      : "No cause was recorded for this absence."}
+                  </span>
+                </p>
+              </div>
+            )}
+            {/*
+              * The attribution axis, stated separately. A live score with no feature vector used to
+              * leave eighteen cards showing a bare em-dash under a heading claiming a completed
+              * decomposition — the silent absence this change exists to remove, re-entering through
+              * a second axis the first revision had not separated.
+              */}
+            {isAssessed && !hasAttribution && (
+              <div className="mt-2 flex items-start gap-2 max-w-3xl">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-cs-text-secondary" />
+                <p className="text-[11.5px] leading-relaxed text-cs-text-secondary">
+                  The AVI score was returned without modality attributions, so the eighteen layers
+                  below are not assessed for this variant — an em-dash means no value was reported,
+                  which is different from a measured 0.000.
+                </p>
+              </div>
+            )}
             {/* Locus Coordinate Chip with Copy action */}
             <div className="flex items-center gap-2 mt-2">
               <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 border border-cs-border text-cs-text-secondary">
@@ -612,10 +810,10 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
               </span>
               <button
                 onClick={() => handleCopyVariant(parsedCoords ? `${parsedCoords.chrom}:${parsedCoords.pos}:${parsedCoords.ref}:${parsedCoords.alt}` : variantNotation)}
-                className="text-[11px] text-cs-text-muted hover:text-cs-text-primary flex items-center gap-1 font-mono transition-colors"
+                className="text-[11px] px-1.5 py-1 rounded-md text-cs-text-muted hover:text-cs-text-primary flex items-center gap-1 font-mono transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96]"
                 title="Copy coordinates"
               >
-                {copiedVariant ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                {copiedVariant ? <Check className="w-3 h-3 text-cs-good" /> : <Copy className="w-3 h-3" />}
                 <span>{copiedVariant ? "Copied" : "Copy"}</span>
               </button>
             </div>
@@ -626,7 +824,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
           <button
             onClick={handleTestConnection}
             disabled={isTestingConnection}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-cs-text-primary border transition-all disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-cs-text-primary border transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] disabled:opacity-50"
             style={{ borderColor: "var(--cs-border)" }}
             title="Ping AlphaGenome Atlas API and verify credentials"
           >
@@ -637,7 +835,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
           <button
             onClick={handleReevaluate}
             disabled={isReevaluating}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 transition-all disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] disabled:opacity-50"
             title="Re-run variant analysis with active AlphaGenome credentials"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isReevaluating ? "animate-spin" : ""}`} />
@@ -646,19 +844,19 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
 
           <button
             onClick={() => openSettingsTab("connections")}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-cs-text-primary border transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-cs-text-primary border transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96]"
             style={{ borderColor: "var(--cs-border)" }}
             title="Open Connections Settings"
           >
             <Key className="w-3.5 h-3.5 text-indigo-400" />
-            <span>{hasConfiguredKey ? "Key Configured" : "Configure Key"}</span>
+            <span>{hasAlphaGenomeKey ? "Key Configured" : hasAlphaGenomeEndpoint ? "Endpoint Set" : "Configure Key"}</span>
           </button>
 
           <a
             href={atlasUrls ? atlasUrls.trackPredictionsUrl : fallbackGeneSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-sm hover:shadow"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] shadow-sm hover:shadow"
           >
             <span>DeepMind Atlas</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -720,7 +918,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
             {/* Phred Gauge with calibrated thresholds */}
             <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden mt-2 relative">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="h-full rounded-full transition-[width] duration-500 ease-out"
                 style={{
                   width: `${Math.min(100, Math.max(0, ((aviPhred ?? 0) / 50) * 100))}%`,
                   background:
@@ -733,16 +931,21 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
                       : "#10b981"
                 }}
               />
-              <div className="absolute top-0 bottom-0 left-[16%] w-0.5 bg-slate-400 dark:bg-white/40" title="BP4 Threshold (8.0)" />
-              <div className="absolute top-0 bottom-0 left-[30%] w-0.5 bg-slate-400 dark:bg-white/40" title="PP3 Supporting (15.0)" />
-              <div className="absolute top-0 bottom-0 left-[50%] w-0.5 bg-slate-400 dark:bg-white/40" title="PP3 Moderate (25.0)" />
-              <div className="absolute top-0 bottom-0 left-[70%] w-0.5 bg-slate-400 dark:bg-white/40" title="PP3 Strong (35.0)" />
+              {/* Decorative marks; their meaning is stated in the legend below rather than left
+                  to a `title` that keyboard and touch users never see. */}
+              <div aria-hidden className="absolute top-0 bottom-0 left-[16%] w-0.5 bg-slate-400 dark:bg-white/40" />
+              <div aria-hidden className="absolute top-0 bottom-0 left-[30%] w-0.5 bg-slate-400 dark:bg-white/40" />
+              <div aria-hidden className="absolute top-0 bottom-0 left-[50%] w-0.5 bg-slate-400 dark:bg-white/40" />
+              <div aria-hidden className="absolute top-0 bottom-0 left-[70%] w-0.5 bg-slate-400 dark:bg-white/40" />
             </div>
-            <div className="flex justify-between text-[9px] font-mono text-cs-text-muted mt-1">
+            <div className="flex justify-between text-[10px] font-mono text-cs-text-muted mt-1">
               <span>0 (Benign)</span>
               <span>25 (Mod)</span>
               <span>50 (Deleterious)</span>
             </div>
+            <p className="text-[10px] font-mono text-cs-text-muted mt-1">
+              Ticks: 8 BP4 · 15 PP3-supporting · 25 PP3-moderate · 35 PP3-strong
+            </p>
           </div>
 
           <p className="text-[11px] text-cs-text-muted border-t pt-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
@@ -766,21 +969,31 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
 
           <div className="my-3">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold font-mono tracking-tight text-cs-text-primary">
-                {topPercentile !== null ? `Top ${topPercentile < 0.01 ? topPercentile.toExponential(2) : topPercentile.toFixed(3)}%` : "Standby"}
+              {/*
+                * "—" rather than a status word in the headline slot. This card's largest type is
+                * reserved for the measurement; giving it to "Standby" made the absence the most
+                * prominent thing on the card and explained nothing. The reason is stated once, at
+                * the source, above.
+                */}
+              <span className={`text-2xl font-bold font-mono tracking-tight ${topPercentile !== null ? "text-cs-text-primary" : "text-cs-text-muted"}`}>
+                {topPercentile !== null ? `Top ${topPercentile < 0.01 ? topPercentile.toExponential(2) : topPercentile.toFixed(3)}%` : "—"}
               </span>
             </div>
             <p className="text-xs font-mono text-cs-text-muted mt-1">
               {topPercentile !== null
                 ? `1 in ${Math.round(100 / Math.max(topPercentile, 0.00001)).toLocaleString()} human SNVs`
-                : "Awaiting API key for exact rank"}
+                : "Genome-wide percentile of the AVI score"}
             </p>
           </div>
 
           <div className="border-t pt-2 flex items-center justify-between text-[11px]" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <span className="text-cs-text-muted">Empirical Quantile</span>
             <span className="font-mono font-semibold text-cs-accent-clay">
-              {alphagenome?.aviQuantile ? alphagenome.aviQuantile.toFixed(5) : "—"}
+              {/* A measured quantile of exactly 0 is a value; the truthiness test here conflated it
+                  with absence — the same zero/absent collapse this change removed for SHAP. */}
+              {alphagenome?.aviQuantile !== null && alphagenome?.aviQuantile !== undefined
+                ? alphagenome.aviQuantile.toFixed(5)
+                : "—"}
             </span>
           </div>
         </div>
@@ -799,14 +1012,20 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
 
           <div className="my-3">
             <div className="flex items-baseline gap-2">
-              <span className="text-lg font-bold tracking-tight text-cs-text-primary truncate">
-                {topModality || "Multi-Modal"}
+              {/*
+                * `{topModality || "Multi-Modal"}` read absence as a finding. "Multi-Modal" sounds
+                * like every biological layer contributed; it meant no layer reported — and the two
+                * are opposite conclusions a reader cannot tell apart. Same for the "Unified
+                * consensus" sub-line that used to sit under it.
+                */}
+              <span className={`text-lg font-bold tracking-tight truncate ${topModality ? "text-cs-text-primary" : "text-cs-text-muted"}`}>
+                {topModality ?? "—"}
               </span>
             </div>
-            <p className="text-xs font-mono text-cs-accent-clay mt-1 font-semibold">
+            <p className={`text-xs font-mono mt-1 font-semibold ${topFeatureImportance !== null ? "text-cs-accent-clay" : "text-cs-text-muted"}`}>
               {topFeatureImportance !== null
                 ? `${topFeatureImportance >= 0 ? "+" : ""}${topFeatureImportance.toFixed(3)} SHAP weight`
-                : "Unified consensus"}
+                : "Highest-|SHAP| modality"}
             </p>
           </div>
 
@@ -860,11 +1079,11 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-3.5 rounded-xl border bg-cs-surface-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+          <div className="p-3.5 rounded-lg border bg-cs-surface-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="font-semibold text-xs text-cs-text-primary">Protein Structural Impact (AlphaMissense)</span>
-              <span className="font-mono text-xs font-bold text-amber-500">
-                {alphaMissenseShap !== 0 ? `${alphaMissenseShap >= 0 ? "+" : ""}${alphaMissenseShap.toFixed(3)} SHAP` : "Standby"}
+              <span className={`font-mono text-xs font-bold ${alphaMissenseShap !== null ? "text-amber-500" : "text-cs-text-muted"}`}>
+                {alphaMissenseShap !== null ? `${alphaMissenseShap >= 0 ? "+" : ""}${alphaMissenseShap.toFixed(3)} SHAP` : "—"}
               </span>
             </div>
             <p className="text-[11px] text-cs-text-muted leading-relaxed">
@@ -872,11 +1091,11 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
             </p>
           </div>
 
-          <div className="p-3.5 rounded-xl border bg-cs-surface-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
+          <div className="p-3.5 rounded-lg border bg-cs-surface-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="font-semibold text-xs text-cs-text-primary">Pre-mRNA Splicing Disruption (Splice Sites/Junctions)</span>
-              <span className="font-mono text-xs font-bold text-pink-500">
-                {splicingShap !== 0 ? `${splicingShap >= 0 ? "+" : ""}${splicingShap.toFixed(3)} SHAP` : "Standby"}
+              <span className={`font-mono text-xs font-bold ${splicingShap !== null ? "text-pink-500" : "text-cs-text-muted"}`}>
+                {splicingShap !== null ? `${splicingShap >= 0 ? "+" : ""}${splicingShap.toFixed(3)} SHAP` : "—"}
               </span>
             </div>
             <p className="text-[11px] text-cs-text-muted leading-relaxed">
@@ -888,7 +1107,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         <div className="mt-3.5 p-2.5 rounded-lg border bg-slate-50 dark:bg-slate-900/40 text-[11px] text-cs-text-muted flex items-start gap-2" style={{ borderColor: "var(--cs-border-subtle)" }}>
           <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
           <span>
-            <strong>Protocol Safety Mandate:</strong> In adherence with ClinGen SVI and biophysical engine standards, AlphaGenome pre-mRNA splicing predictions are strictly isolated from the missense consensus vote. Missense consensus voting reflects translated protein stability ($\Delta\Delta G$ / structural impact), ensuring splicing and coding mechanisms are evaluated independently without double-counting.
+            <strong>Protocol Safety Mandate:</strong> In adherence with ClinGen SVI and biophysical engine standards, AlphaGenome pre-mRNA splicing predictions are strictly isolated from the missense consensus vote. Missense consensus voting reflects translated protein stability (ΔΔG / structural impact), ensuring splicing and coding mechanisms are evaluated independently without double-counting.
           </span>
         </div>
       </div>
@@ -909,15 +1128,18 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
               </span>
             </div>
             <p className="text-xs text-cs-text-muted mt-0.5">
-              Decomposition of 9,440 functional tracks into human-interpretable biological regulatory drivers.
+              {hasAttribution
+                ? "Decomposition of 9,440 functional tracks into human-interpretable biological regulatory drivers."
+                : "Eighteen biological layers the AVI score decomposes across — not attributed for this variant."}
             </p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center rounded-lg border p-0.5 text-xs font-mono" style={{ borderColor: "var(--cs-border)" }}>
+            <div role="group" aria-label="Modality ordering" className="flex items-center rounded-lg border p-0.5 text-xs font-mono" style={{ borderColor: "var(--cs-border)" }}>
               <button
                 onClick={() => setModalitySort("impact")}
-                className={`px-2.5 py-1 rounded-md transition-all ${
+                aria-pressed={modalitySort === "impact"}
+                className={`px-2.5 py-1.5 rounded-md transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] ${
                   modalitySort === "impact"
                     ? "bg-indigo-600 text-white font-semibold"
                     : "text-cs-text-muted hover:text-cs-text-primary"
@@ -927,7 +1149,8 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
               </button>
               <button
                 onClick={() => setModalitySort("tier")}
-                className={`px-2.5 py-1 rounded-md transition-all ${
+                aria-pressed={modalitySort === "tier"}
+                className={`px-2.5 py-1.5 rounded-md transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] ${
                   modalitySort === "tier"
                     ? "bg-indigo-600 text-white font-semibold"
                     : "text-cs-text-muted hover:text-cs-text-primary"
@@ -939,7 +1162,8 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
 
             <button
               onClick={() => setShowEduExplainer(!showEduExplainer)}
-              className="p-1.5 rounded-lg border text-cs-text-muted hover:text-cs-text-primary transition-all flex items-center gap-1 text-xs"
+              aria-expanded={showEduExplainer}
+              className="p-2 rounded-lg border text-cs-text-muted hover:text-cs-text-primary transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] flex items-center gap-1 text-xs"
               style={{ borderColor: "var(--cs-border)" }}
               title="Explain SHAP attribution methodology"
             >
@@ -953,7 +1177,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         {/* Educational Drawer */}
         {showEduExplainer && (
           <div
-            className="p-4 rounded-xl border mb-6 text-xs leading-relaxed space-y-2"
+            className="p-4 rounded-lg border mb-6 text-xs leading-relaxed space-y-2"
             style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
           >
             <h5 className="font-bold text-cs-text-primary flex items-center gap-1.5">
@@ -979,13 +1203,13 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {renderedModalities.map((mod) => {
             const shapValue = mod.shap;
-            const hasScore = isLive && shapValue !== 0;
-            const barWidth = Math.min(100, Math.max(4, Math.abs(shapValue) * 200));
+            const hasScore = shapValue !== null;
+            const barWidth = shapValue === null ? 0 : Math.min(100, Math.max(4, Math.abs(shapValue) * 200));
 
             return (
               <div
                 key={mod.id}
-                className="p-3.5 rounded-xl border flex flex-col justify-between hover:border-indigo-500/30 transition-all"
+                className="p-3.5 rounded-lg border flex flex-col justify-between hover:border-indigo-500/30 transition-colors duration-150"
                 style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -993,7 +1217,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-xs text-cs-text-primary">{mod.name}</span>
                       <span
-                        className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium border"
+                        className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium border"
                         style={{
                           background: `${mod.color}15`,
                           color: mod.color,
@@ -1009,10 +1233,13 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
                   </div>
 
                   <div className="text-right flex-shrink-0">
-                    <span className="font-mono text-xs font-bold" style={{ color: mod.color }}>
-                      {hasScore ? `${shapValue >= 0 ? "+" : ""}${shapValue.toFixed(3)}` : "Standby"}
+                    <span
+                      className="font-mono text-xs font-bold"
+                      style={{ color: shapValue !== null ? mod.color : "var(--cs-text-muted)" }}
+                    >
+                      {shapValue !== null ? `${shapValue >= 0 ? "+" : ""}${shapValue.toFixed(3)}` : "—"}
                     </span>
-                    <span className="block text-[9px] font-mono text-cs-text-muted">SHAP</span>
+                    <span className="block text-[10px] font-mono text-cs-text-muted">SHAP</span>
                   </div>
                 </div>
 
@@ -1020,16 +1247,16 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
                 <div className="mt-3">
                   <div className="w-full bg-slate-200 dark:bg-slate-700/50 h-1.5 rounded-full overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-300"
+                      className="h-full rounded-full transition-[width] duration-300 ease-out"
                       style={{
                         width: hasScore ? `${barWidth}%` : "0%",
                         backgroundColor: mod.color
                       }}
                     />
                   </div>
-                  <div className="flex justify-between items-center text-[9px] font-mono text-cs-text-muted mt-1">
+                  <div className="flex justify-between items-center text-[10px] font-mono text-cs-text-muted mt-1">
                     <span>{mod.assay}</span>
-                    <span>{hasScore ? `${(shapValue * 100).toFixed(1)}% Rel` : "—"}</span>
+                    <span>{shapValue !== null ? `${(shapValue * 100).toFixed(1)}% Rel` : "—"}</span>
                   </div>
                 </div>
               </div>
@@ -1074,12 +1301,13 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
               />
             </div>
 
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 max-w-full">
+            <div role="group" aria-label="Filter reference tracks by tissue" className="flex items-center gap-1 overflow-x-auto pb-1 max-w-full">
               {["All", "Liver", "Brain", "Cardiac", "Immune / Blood", "Epithelial"].map((tissue) => (
                 <button
                   key={tissue}
                   onClick={() => setSelectedTissue(tissue)}
-                  className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all whitespace-nowrap font-medium ${
+                  aria-pressed={selectedTissue === tissue}
+                  className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition-[transform,color,background-color,border-color] duration-150 ease-out active:scale-[0.96] whitespace-nowrap font-medium ${
                     selectedTissue === tissue
                       ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
                       : "border-cs-border text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-surface-2"
@@ -1094,7 +1322,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         </div>
 
         {/* Protocol Disclaimer & Direct DeepMind Launcher Notice */}
-        <div className="mb-4 p-3 rounded-xl border border-cs-border bg-cs-surface-2 text-xs text-cs-text-muted flex items-start gap-2.5">
+        <div className="mb-4 p-3 rounded-lg border border-cs-border bg-cs-surface-2 text-xs text-cs-text-muted flex items-start gap-2.5">
           <ShieldCheck className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
           <p className="leading-relaxed">
             <strong>Assay Reference Architecture:</strong> The tracks below illustrate DeepMind AlphaGenome&apos;s multimodal output schema across 10 key biological categories. In accordance with the project&apos;s Strict No-Heuristics Policy, variant-specific continuous signal tracks across all 9,440 tissue assays are viewed directly in the Sovereign{" "}
@@ -1110,7 +1338,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
         </div>
 
         {/* Tracks Table */}
-        <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--cs-border)" }}>
+        <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--cs-border)" }}>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead
@@ -1175,7 +1403,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
             href={atlasUrls ? atlasUrls.trackPredictionsUrl : fallbackGeneSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-4 rounded-xl border flex flex-col justify-between hover:border-indigo-500 hover:shadow-md transition-all group"
+            className="p-4 rounded-lg border flex flex-col justify-between hover:border-indigo-500 hover:shadow-md transition-[transform,border-color,box-shadow] duration-150 ease-out active:scale-[0.96] group"
             style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
           >
             <div>
@@ -1199,7 +1427,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
             href={atlasUrls ? atlasUrls.variantUrl : fallbackGeneSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-4 rounded-xl border flex flex-col justify-between hover:border-indigo-500 hover:shadow-md transition-all group"
+            className="p-4 rounded-lg border flex flex-col justify-between hover:border-indigo-500 hover:shadow-md transition-[transform,border-color,box-shadow] duration-150 ease-out active:scale-[0.96] group"
             style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
           >
             <div>
@@ -1223,7 +1451,7 @@ function AlphaGenomeTabComponent({ analysisState }: TabComponentProps) {
             href={atlasUrls ? atlasUrls.locusUrl : fallbackGeneSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-4 rounded-xl border flex flex-col justify-between hover:border-indigo-500 hover:shadow-md transition-all group"
+            className="p-4 rounded-lg border flex flex-col justify-between hover:border-indigo-500 hover:shadow-md transition-[transform,border-color,box-shadow] duration-150 ease-out active:scale-[0.96] group"
             style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
           >
             <div>

@@ -1,4 +1,5 @@
 import type { AlphaGenomeAviData } from "../contracts.ts";
+import { resolveEvidenceAvailability, refusalReasonFor } from "../evidenceAvailability.ts";
 import {
   type PredictorSignal,
   evaluateCadd,
@@ -56,6 +57,14 @@ export function countPredictorConcordance(
     vesmLlr?: number | null;
     gpnStar?: number | null;
     alphagenome?: AlphaGenomeAviData | null;
+    /**
+     * Per-source build-gate refusals recorded server-side, so a skipped evidence source can name the
+     * reason it was skipped instead of being silently omitted. Optional: absent means no refusal was
+     * recorded, which the resolver treats as "not a coverage problem", never as a credential one.
+     */
+    assemblyRefusals?: Array<{ source: string; reason: string }> | null;
+    /** Whether a credential is known to be configured. `undefined` = the caller does not know. */
+    alphagenomeConfigured?: boolean;
   }
 ): PredictorConcordance {
   const toolDefs: PredictorToolDetails[] = [
@@ -171,14 +180,39 @@ export function countPredictorConcordance(
   for (const tool of toolDefs) {
     signals[tool.key] = tool.signal;
     if (tool.signal === "unavailable") {
-      // Unconfigured frontier models in clean Standby (e.g. AlphaGenome without API key/endpoint)
-      // do not penalize the in-silico missense consensus report with false partial evidence warnings.
-      const isUnconfiguredStandby =
-        tool.key === "alphagenome" &&
-        (!extra?.alphagenome || extra.alphagenome.status !== "live" || extra.alphagenome.aviPhred == null);
+      /**
+       * AlphaGenome used to be dropped from `unavailable` whenever it was not live, on the premise
+       * that it was "without API key/endpoint" — an unprovisioned deployment, where a partial-evidence
+       * warning would be noise the user cannot act on.
+       *
+       * That premise stopped being the only reason a score can be absent. A build-gate refusal also
+       * leaves it unlive, and suppressing *that* hides a skipped evidence source from the one line
+       * positioned to report it — while the panel beside it blamed the credential. The two cases are
+       * now separated by the resolver rather than by assumption:
+       *
+       *   • not provisioned here  → still silent. Nothing to do, no source skipped for this variant.
+       *   • declined this coordinate, or a provider fault → named, with the recorded reason, because
+       *     the consensus genuinely is partial and the reader should know which source and why.
+       *
+       * The vote is unaffected either way: `unavailable` signals are excluded from the counts.
+       */
+      const skipReason = tool.key === "alphagenome"
+        ? resolveEvidenceAvailability({
+            value: extra?.alphagenome?.aviPhred ?? null,
+            status: extra?.alphagenome?.status ?? null,
+            refusal: refusalReasonFor(extra?.assemblyRefusals, "alphagenome"),
+            message: extra?.alphagenome?.message ?? null,
+            configured: extra?.alphagenomeConfigured,
+          })
+        : null;
 
-      if (!isUnconfiguredStandby) {
-        unavailable.push(tool.name.toUpperCase());
+      const notProvisioned = skipReason !== null && skipReason.state === "not-configured";
+      if (!notProvisioned) {
+        unavailable.push(
+          skipReason?.state === "not-covered" && skipReason.reason
+            ? `${tool.name.toUpperCase()} — NOT ASSESSED: ${skipReason.reason}`
+            : tool.name.toUpperCase(),
+        );
       }
     } else {
       available.push(tool.name.toUpperCase());

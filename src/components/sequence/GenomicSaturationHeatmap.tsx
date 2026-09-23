@@ -7,6 +7,7 @@ import {
   AlphaGenomeSaturationVariant
 } from "../../shared/contracts";
 import { THRESHOLDS } from "../../shared/thresholds";
+import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 
 export interface GenomicSaturationHeatmapProps {
   chrom?: string | null;
@@ -338,14 +339,22 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
               </div>
             </div>
           ) : !hasPositions ? (
-            /* Standby State */
+            /*
+              * No positions came back. The heading previously read "… Standby" and the body asserted
+              * that queries "require an active AlphaGenome service connection" — a credential/transport
+              * cause this code never establishes. The region-saturation route records no build refusal
+              * and no credential check, so an empty region can mean a provider fault, an unsupported
+              * window, or an unindexed locus, and naming one of those is a guess. Render the server's
+              * own message when it sent one; say nothing was recorded when it did not.
+              */
             <div className="p-4 rounded-lg border border-dashed border-cs-border-subtle bg-cs-surface text-center flex flex-col items-center justify-center gap-2">
               <Activity className="w-6 h-6 text-cs-accent-clay/60 stroke-[1.5]" />
               <div className="text-xs font-semibold text-cs-text-primary">
-                AlphaGenome Regional Saturation Standby
+                {`Regional saturation — ${ENGINE_STATE_LABELS["no-result"]}`}
               </div>
               <p className="text-[11px] text-cs-text-muted max-w-md">
-                {data?.message || "Direct in-browser API queries require an active AlphaGenome service connection. Under our strict no-heuristics protocol, synthetic scores are never fabricated. You can inspect the live DeepMind Atlas locus viewer for this exon:"}
+                {data?.message ||
+                  "No saturation profile was returned for this region, and no cause was recorded for the absence. Under the strict no-heuristics protocol no scores are synthesised in its place. The live Atlas locus viewer below shows the underlying tracks:"}
               </p>
               <a
                 href={atlasUrl}

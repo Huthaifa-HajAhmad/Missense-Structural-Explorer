@@ -1,7 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vitest/config';
+import {defineConfig, configDefaults} from 'vitest/config';
 
 export default defineConfig(() => {
   return {
@@ -36,6 +36,20 @@ export default defineConfig(() => {
     },
     test: {
       environment: 'node',
+      /**
+       * Scratch is a working area, not source.
+       *
+       * It holds throwaway probes and — during concurrent multi-agent work — full copies of this
+       * repository (`scratch/staged-tree/`, `scratch/verify-tree/`). Those copies contain test files,
+       * so the default include glob collected ~450 files and ~5,000 tests, roughly three times the
+       * real suite, and a failure inside a copied tree was reported as a project failure. One such
+       * copy also injected `vi.mock` state into the real suite's module registry and caused three
+       * unrelated failures in real test files.
+       *
+       * Appending to vitest's own defaults rather than replacing them keeps every legitimate pattern
+       * (including deliberately-failing fixtures under `src/test/`) intact.
+       */
+      exclude: [...configDefaults.exclude, 'scratch/**'],
       globals: true,
       setupFiles: './src/test/setup.ts',
       /**

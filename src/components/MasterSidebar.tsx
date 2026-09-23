@@ -231,14 +231,33 @@ function MasterSidebar({
         }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div
-            className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
-            style={{ background: "var(--cs-accent-clay)" }}
-            title={isCollapsed ? "Expand sidebar" : "Missense & Fold"}
-            onClick={isCollapsed ? toggleCollapse : undefined}
-          >
-            <Dna className="w-4 h-4 text-white stroke-[2.2]" />
-          </div>
+          {/*
+            * When collapsed, this is the ONLY route back out — so it has to be a real button. It was
+            * a `<div>` with an `onClick` and a `title`: no role, no tabIndex, no keyboard handler.
+            * A keyboard user who collapsed the sidebar had no focusable control left to expand it
+            * (the genuine toggle below renders only when `!isCollapsed`), which is a dead end, not a
+            * preference.
+            */}
+          {isCollapsed ? (
+            <button
+              type="button"
+              onClick={toggleCollapse}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+              className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer active:scale-[0.96] transition-transform"
+              style={{ background: "var(--cs-accent-clay)" }}
+            >
+              <Dna className="w-4 h-4 text-white stroke-[2.2]" />
+            </button>
+          ) : (
+            <div
+              className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ background: "var(--cs-accent-clay)" }}
+              title="Missense & Fold"
+            >
+              <Dna className="w-4 h-4 text-white stroke-[2.2]" />
+            </div>
+          )}
           {!isCollapsed && (
             <span
               className="text-[13px] font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis"

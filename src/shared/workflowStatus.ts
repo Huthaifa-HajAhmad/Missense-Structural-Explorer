@@ -1,4 +1,5 @@
 import type { AnalysisResult } from "./contracts.ts";
+import { toCanonicalDdg, formatDdg, type EnergyEngineId } from "./engineStatus.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
 
@@ -235,8 +236,29 @@ export function getWorkflowStageStatus(
       }
 
       if (hasBiophysics || realAnalysis) {
-        const ddgVal = result.foldingEnergetics?.foldx ?? result.foldingEnergetics?.dynamut2 ?? result.foldingEnergetics?.ddmut ?? result.foldingEnergetics?.thermompnn ?? result.dynamut2;
-        const ddgText = ddgVal != null ? `ΔΔG = ${ddgVal > 0 ? "+" : ""}${ddgVal.toFixed(2)} kcal/mol · Biophysics ready` : "Biophysical stability models active · In-silico chips updating";
+        /**
+         * Each fallback now carries the engine it came from, so the value can be canonicalised before
+         * it is printed.
+         *
+         * The previous form picked a raw number across engines whose native sign conventions differ —
+         * DynaMut2 and DDMut are negative-destabilizing, FoldX and ThermoMPNN are not
+         * (`engineStatus.ts:126`, `:135`) — and formatted it under one "ΔΔG" label. For a DynaMut2
+         * value that inverted the meaning: a destabilizing variant printed as negative, i.e. as
+         * stabilizing. `engineStatus.ts:212-214` states the rule this violated: every surface must
+         * format a ΔΔG through `formatDdg`, so one value can never show two signs in two panels.
+         */
+        const ddgCandidates: Array<[EnergyEngineId, number | null | undefined]> = [
+          ["foldx", result.foldingEnergetics?.foldx],
+          ["dynamut2", result.foldingEnergetics?.dynamut2],
+          ["ddmut", result.foldingEnergetics?.ddmut],
+          ["thermompnn", result.foldingEnergetics?.thermompnn],
+          ["dynamut2", result.dynamut2],
+        ];
+        const picked = ddgCandidates.find(([, raw]) => raw !== null && raw !== undefined);
+        const canonicalDdg = picked ? toCanonicalDdg(picked[0], picked[1]) : null;
+        const ddgText = canonicalDdg !== null
+          ? `ΔΔG = ${canonicalDdg > 0 ? "+" : ""}${formatDdg(canonicalDdg)} · Biophysics ready`
+          : "Biophysical stability models active · In-silico chips updating";
         return {
           status: "complete",
           desc: ddgText
