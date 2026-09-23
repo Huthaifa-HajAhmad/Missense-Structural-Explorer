@@ -260,4 +260,54 @@ describe("Analysis Orchestrator Unit Tests", () => {
     const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
     expect(fetchCoreVariantData).not.toHaveBeenCalled();
   });
+
+  /**
+   * Review M1: a build refusal is TRANSIENT (the lift may succeed on the next attempt), so
+   * honoring it must be time-bounded — unlike "not indexed", which is a permanent property
+   * of the Atlas.
+   */
+  const refusedPayload = {
+    metadata: { gene: "CNNM2", variant: "p.Ser489Cys" },
+    clinvar: { classification: "Uncertain Significance" },
+    conservationData: {
+      available: true,
+      dann: 0.9,
+      bayesdel: 0.5,
+      clinpred: 0.8,
+      eigenPhred: 12.0,
+      alphagenome: null,
+      assemblyRefusals: [
+        { source: "alphagenome", reason: "alphagenome covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored." }
+      ]
+    }
+  };
+  const alphaKeyContext: ParsedVariantContext = {
+    ...baseContext,
+    gene: "CNNM2",
+    variant: "p.Ser489Cys",
+    alphagenomeApiKey: "ag_secret_key_123"
+  };
+
+  it("honors a RECENT build refusal without thrashing (no recompute)", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
+      payload: refusedPayload, id: "4", updatedAt: new Date().toISOString()
+    });
+
+    await runCoreAnalysis(alphaKeyContext);
+
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    expect(fetchCoreVariantData).not.toHaveBeenCalled();
+  });
+
+  it("re-attempts after the refusal window lapses — a transient refusal must not pin a blank forever", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
+      payload: refusedPayload, id: "5",
+      updatedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString() // 7h ago (> 6h window)
+    });
+
+    await runCoreAnalysis(alphaKeyContext);
+
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    expect(fetchCoreVariantData).toHaveBeenCalled();
+  });
 });

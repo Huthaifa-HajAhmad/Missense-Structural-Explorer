@@ -10,6 +10,7 @@
  */
 import type { AnalysisResult } from "./contracts.ts";
 import { THRESHOLDS, evaluateSplicePredictor, type PredictorSignal } from "./thresholds/index.ts";
+import { refusalReasonFor } from "./evidenceAvailability.ts";
 
 /** SpliceAI ΔScore visual bands. */
 export type SpliceAiSeverity = "high" | "moderate" | "low" | "unannotated" | "loading";
@@ -43,6 +44,14 @@ export interface SplicingEvidenceModel {
   maxDbsc: number | null;
   hasDbscsnv: boolean;
   isDbscAltering: boolean;
+  /**
+   * True only when the junction distance is MEASURED and beyond the perijunctional consensus
+   * flank — the one state in which "outside the dbscSNV window" is a checkable statement about
+   * this variant. Without a measured distance, or inside the flank with no score, the absence
+   * is unexplained and surfaces must say "Not Assessed" (external review M-7: the flank claim
+   * survived at 3 bp, self-contradicting its own sentence).
+   */
+  dbscFlankMeasurable: boolean;
   /** SpliceAI per-channel delta scores (null when unannotated). */
   spliceai: {
     ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null;
@@ -90,6 +99,16 @@ export interface SplicingEvidenceModel {
   hasAlphaGenome: boolean;
   /** Raw AlphaGenome availability, surfaced so callers can distinguish standby. */
   alphagenomeStatus: "live" | "unavailable" | "pending" | null;
+  /**
+   * WHY a blank is blank, when the assembly gate refused the source (unmapping defect F-13).
+   *
+   * Null means "no refusal recorded" — the source either answered, or failed for a reason this
+   * layer does not pretend to know. Surfaces must render the reason verbatim when present and
+   * honest generic wording when absent; they must never invent a cause ("Awaiting API key",
+   * "coordinates mapped") for a refusal they cannot see.
+   */
+  proximityRefusal: string | null;
+  alphagenomeRefusal: string | null;
 
   // ── Derived bands & labels shared by both panes ──
   dsSeverity: SpliceAiSeverity;
@@ -236,6 +255,12 @@ export function deriveSplicingEvidence(
   const isSplicingDominant =
     splicingAttribution !== null && Math.abs(splicingAttribution) >= ALPHAGENOME_SPLICING_DOMINANCE;
 
+  // Build-gate refusals, read straight off the payload through the shared lookup helper
+  // (interface docs above; the lookup key spelling is policed by ASSEMBLY_REFUSAL_SOURCES).
+  const refusals = conservation?.assemblyRefusals ?? null;
+  const proximityRefusal = refusalReasonFor(refusals, "splice-proximity");
+  const alphagenomeRefusal = refusalReasonFor(refusals, "alphagenome");
+
   // ── SpliceAI severity band ──
   let dsSeverity: SpliceAiSeverity = "unannotated";
   let dsLabel = "Unannotated";
@@ -285,8 +310,14 @@ export function deriveSplicingEvidence(
   }
 
   // ── dbscSNV band ──
+  // The default label must describe ABSENCE, not a location: with no score there is no
+  // measurement, and "Outside Consensus Zone" asserted one (unmapping defect F-9 — the same
+  // rule the proximity band follows above: labels say what was measured, never what was not
+  // tested). Here it was also provably false: SpliceAI placed the variant at 0 bp of the
+  // acceptor, squarely INSIDE the dbscSNV window — the score was missing because the source
+  // never answered, not because the motif was out of range.
   let dbscSeverity: DbscSeverity = "unmapped";
-  let dbscLabel = "Outside Consensus Zone";
+  let dbscLabel = "No dbscSNV Data";
   let dbscBadgeClass = MUTED_BADGE;
   if (hasDbscsnv) {
     if (isDbscAltering) {
@@ -425,6 +456,7 @@ export function deriveSplicingEvidence(
     maxDbsc,
     hasDbscsnv,
     isDbscAltering,
+    dbscFlankMeasurable: distance !== null && distance > PROXIMITY_CONSENSUS_BP,
     spliceai: spliceai
       ? {
           ds_ag: spliceai.ds_ag,
@@ -448,6 +480,8 @@ export function deriveSplicingEvidence(
     isSpliceAiLoading,
     splicingAttribution,
     isSplicingDominant,
+    proximityRefusal,
+    alphagenomeRefusal,
     hasAlphaGenome: alphagenome?.status === "live",
     alphagenomeStatus: alphagenome?.status ?? null,
     exonNumber,
@@ -488,21 +522,28 @@ export function deriveSplicingEvidence(
 }
 
 /**
- * Splice junction orientation, resolved from the resolver's junctionType when
- * present and otherwise inferred from distance availability (legacy behaviour
- * preserved so the schematic keeps rendering for older payloads).
+ * Splice junction orientation.
+ *
+ * The resolver's `junctionType` decides whenever it is present. The legacy distance-based
+ * inference survives ONLY for payloads where the field is absent (`undefined`) — those predate
+ * the resolver knowing about junction kinds at all. An EXPLICIT non-junction answer must be
+ * honoured: `"terminal"` is a transcript terminus, not a splice site, and `null` is the resolver
+ * saying "no boundary identified" — both previously fell through to "donor", drawing a GT donor
+ * at a boundary the resolver had just excluded (unmapping defect F-15).
  */
 export function resolveJunctionOrientation(
   result: AnalysisResult | null | undefined,
   distance: number | null
 ): { isDonor: boolean; isAcceptor: boolean; junctionType: string } {
-  const raw = result?.conservationData?.spliceProximity?.junctionType ?? null;
+  const raw = result?.conservationData?.spliceProximity?.junctionType;
   const isAcceptor = raw === "acceptor";
-  const isDonor = raw === "donor" || (!isAcceptor && distance !== null);
+  const isDonor = raw === "donor" || (raw === undefined && distance !== null);
   const junctionType = isDonor
     ? "5' Splice Donor (GT)"
     : isAcceptor
     ? "3' Splice Acceptor (AG)"
-    : "Splice Junction";
+    : raw === "terminal"
+    ? "Transcript Terminus (not a splice junction)"
+    : "Splice Junction (orientation not resolved)";
   return { isDonor, isAcceptor, junctionType };
 }

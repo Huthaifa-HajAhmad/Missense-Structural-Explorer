@@ -5,7 +5,10 @@ import { buildPredictorsKey } from "../../infra/cache-keys.ts";
 import { queryLocalDbnsfpVariant } from "../dbnsfp_local.ts";
 import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
-import type { PredictorData } from "../../../../src/shared/contracts.ts";
+import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
+import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
+import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
+import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 
 export const vepResponseSchema = z.array(z.object({
   seq_region_name: z.string().optional(),
@@ -13,6 +16,16 @@ export const vepResponseSchema = z.array(z.object({
   allele_string: z.string().optional(),
   transcript_consequences: z.array(z.object({
     transcript_id: z.string().optional(),
+    /**
+     * Gene identity of the consequence. VEP annotates neighbors too (a downstream_gene_variant
+     * row for an adjacent gene appears in the same response — observed live for ACOT9/PRDX4),
+     * so the gene filter in buildPredictorFromVep needs the field present after parsing, and
+     * zod strips unknown keys by default.
+     */
+    gene_symbol: z.string().optional(),
+    /** e.g. "K/N" — used to bind a coordinate answer to the requested substitution (review H-2). */
+    amino_acids: z.string().optional(),
+    protein_start: z.number().optional(),
     canonical: z.union([z.number(), z.boolean()]).optional(),
     mane_select: z.any().optional(),
     mane_plus_clinical: z.any().optional(),
@@ -26,18 +39,177 @@ export const vepResponseSchema = z.array(z.object({
   })).optional()
 })).min(1);
 
+type VepParsed = z.infer<typeof vepResponseSchema>;
+
+/**
+ * Consequence selection, in the platform's documented preference order:
+ * MANE Select → MANE Plus Clinical → Ensembl canonical → RefSeq NM_ → any scored → first.
+ */
+function pickPredictorConsequence(consequences: NonNullable<VepParsed[number]["transcript_consequences"]>): any | null {
+  const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined;
+  let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
+  if (!tc) tc = consequences.find((c: any) => c.mane_plus_clinical && hasPredictor(c));
+  if (!tc) tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
+  if (!tc) tc = consequences.find((c: any) => typeof c.transcript_id === "string" && c.transcript_id.startsWith("NM_") && hasPredictor(c));
+  if (!tc) tc = consequences.find(hasPredictor);
+  if (!tc) tc = consequences[0];
+  return tc ?? null;
+}
+
+/**
+ * Build the predictor payload from a VEP response, on EITHER query route.
+ *
+ * Shared by the coordinate (region) path and the protein-HGVS ladder so the two can never
+ * drift in consequence preference, coordinate stamping, or MANE extraction. `assembly` is the
+ * build of the host that answered — the coordinate derived from the response belongs to it, and
+ * the build must travel WITH the coordinate (see the gnomadVariantAssembly contract).
+ *
+ * `expectedGene` filters the consequence list BEFORE selection (review H-2): VEP answers a
+ * region query with every overlapping gene's transcripts — a neighbor's `downstream_gene_variant`
+ * row (observed live: PRDX4 in ACOT9's response) could otherwise win the `consequences[0]`
+ * fallback and stamp the payload with the wrong gene's transcript. Zero matching consequences
+ * is a refusal, not a fallback.
+ */
+function buildPredictorFromVep(
+  parsed: VepParsed,
+  assembly: GenomeAssembly,
+  source: string,
+  canonicalEnsemblId: string | null,
+  expectedGene?: string | null
+): PredictorData | null {
+  const first = parsed[0];
+  let consequences = first?.transcript_consequences;
+  if (!consequences || consequences.length === 0) return null;
+  if (expectedGene) {
+    const want = expectedGene.trim().toUpperCase();
+    consequences = consequences.filter((c: any) => typeof c.gene_symbol === "string" && c.gene_symbol.trim().toUpperCase() === want);
+    if (consequences.length === 0) return null;
+  }
+  const tc = pickPredictorConsequence(consequences);
+  if (!tc) return null;
+
+  const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
+  const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
+  const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
+
+  const chr = first.seq_region_name;
+  const startPos = first.start;
+  const alleleStr = first.allele_string;
+  let gnomadVariantId: string | null = null;
+  if (chr && startPos && typeof alleleStr === "string") {
+    const parts = alleleStr.split("/");
+    if (parts.length >= 2) {
+      gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
+    }
+  }
+
+  let maneRefSeqId: string | undefined = undefined;
+  if (tc.mane_select && typeof tc.mane_select === "string") {
+    maneRefSeqId = tc.mane_select;
+  } else if (tc.mane_select && typeof tc.mane_select === "object") {
+    maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
+  } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
+    maneRefSeqId = tc.mane_plus_clinical;
+  } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
+    maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
+  }
+
+  return {
+    available: true,
+    amPathogenicity,
+    amClass,
+    caddPhred,
+    gnomadVariantId,
+    gnomadVariantAssembly: gnomadVariantId ? assembly : null,
+    transcriptId: tc.transcript_id,
+    isManeSelect: !!tc.mane_select,
+    isManePlusClinical: !!tc.mane_plus_clinical,
+    isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
+    maneRefSeqId,
+    canonicalEnsemblId,
+    source
+  };
+}
+
+/**
+ * Coordinate-first predictor query (unmapping defect F-1).
+ *
+ * The protein-HGVS ladder below is a lossy re-derivation: Ensembl's REST hgvs endpoint rejects
+ * any substitution whose codon back-map is not unique (Lys→Asn has two single-nucleotide
+ * solutions — verified live: "Could not uniquely determine nucleotide change"), and it checks the
+ * residue against the queried transcript's OWN numbering, which fails for every gene whose MANE
+ * isoform is not the canonical one this platform models. Both walls collapse the query into the
+ * MyVariant GRCh37 fallback, and the fallback forfeits every GRCh38-only evidence source.
+ *
+ * When the caller already HAS a verified genomic coordinate — which it does whenever the user
+ * entered one, because the translate step resolved it — querying the region endpoint by that
+ * coordinate answers in one request with no numbering ambiguity at all.
+ *
+ * Binding is enforced at three levels (external review H-2: the route is public and the client
+ * asserts the coordinate's build; a lying or stale `genomicCoordinates` must not be able to
+ * produce a mixed-locus payload):
+ *   1. echo: the response's contig, position and REF must match what was asked;
+ *   2. gene: at least one consequence must belong to the requested gene (the region response
+ *      also carries neighbor-gene rows, so this filter runs BEFORE consequence selection);
+ *   3. substitution: some consequence must state the requested WT→MUT change, and — when the
+ *      protein position parsed — at that position on some transcript (the platform's numbering
+ *      is canonical-isoform, so the match is sought across transcripts, not only the selected one).
+ * Any failure returns null and the ladder runs unchanged; a coordinate that cannot prove it is
+ * this variant's locus is worth exactly nothing here.
+ */
+async function fetchPredictorsViaCoordinate(
+  lifted: { chrom: string; pos: number; ref: string; alt: string },
+  canonicalEnsemblId: string | null,
+  expect: { gene: string; wt: string | null; mut: string | null; pos: number | null },
+  deadlineAt?: number
+): Promise<PredictorData | null> {
+  const url = `https://rest.ensembl.org/vep/human/region/${encodeURIComponent(lifted.chrom)}:${lifted.pos}-${lifted.pos}/${encodeURIComponent(lifted.alt)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
+  try {
+    const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000, deadlineAt }, 1);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const parsed = vepResponseSchema.parse(data) as VepParsed;
+    const first = parsed[0];
+    const echoChrom = String(first.seq_region_name ?? "").replace(/^chr/i, "").toUpperCase();
+    const alleles = typeof first.allele_string === "string" ? first.allele_string.split("/") : [];
+    const echoRef = (alleles[0] ?? "").toUpperCase();
+    if (echoChrom !== lifted.chrom.toUpperCase() || first.start !== lifted.pos || echoRef !== lifted.ref.toUpperCase()) {
+      return null;
+    }
+
+    // (2)+(3) gene and substitution binding, against the RAW consequence list.
+    const consequences = (first.transcript_consequences ?? []) as any[];
+    const wantGene = expect.gene.trim().toUpperCase();
+    const geneRows = consequences.filter(c => typeof c.gene_symbol === "string" && c.gene_symbol.trim().toUpperCase() === wantGene);
+    if (geneRows.length === 0) return null;
+    if (expect.wt && expect.mut) {
+      const wantChange = `${expect.wt}/${expect.mut}`.toUpperCase();
+      const changeMatches = geneRows.some(c => typeof c.amino_acids === "string" && c.amino_acids.toUpperCase() === wantChange
+        && (expect.pos === null || c.protein_start === expect.pos));
+      if (!changeMatches) return null;
+    }
+
+    return buildPredictorFromVep(parsed, "GRCh38", "Ensembl VEP API (coordinate)", canonicalEnsemblId, wantGene);
+  } catch (err: any) {
+    console.warn(`[VEP Coordinate Query] Failed for ${lifted.chrom}:${lifted.pos}: ${err?.message ?? err}`);
+    return null;
+  }
+}
+
 export async function fetchPredictorsFallback(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   
   let transcriptId: string | undefined = undefined;
   let maneRefSeqId: string | undefined = undefined;
+  let canonicalEnsemblId: string | null = null;
   let isManeSelect = false;
   if (uniprotId) {
     try {
       const transcripts = await getTranscriptsForProtein(uniprotId);
       if (transcripts.ensemblId) transcriptId = transcripts.ensemblId;
       if (transcripts.refseqId) maneRefSeqId = transcripts.refseqId;
+      canonicalEnsemblId = transcripts.canonicalEnsemblId ?? null;
       if (transcripts.isManeSelect) isManeSelect = true;
     } catch (_) {}
   }
@@ -81,6 +253,19 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
       if (res.ok) {
         const data = await res.json() as any;
         if (data.hits && Array.isArray(data.hits)) {
+          /**
+           * Locus-ambiguity refusal (external review M-3): the hgvsp test is a substring match,
+           * and dbNSFP lists per-transcript notations — so a DIFFERENT genomic locus whose some
+           * isoform happens to number the same substitution identically also matches (ACOT9 has
+           * 4 positions where canonical and isoform-4 both carry K; 16/400 letters coincide).
+           * Previously the first match's `_id` was adopted and the build gate merely refused it;
+           * now that the fallback lifts, a coincidental locus would be promoted to TRUSTED
+           * GRCh38 evidence. So: scan every hit, and if more than one distinct locus matches,
+           * refuse the coordinate entirely — the substitution-level values (AM/CADD) stay, the
+           * locus-keyed ones (geometry, gnomAD, AlphaGenome) honestly decline, mirroring the
+           * AMBIGUOUS_PROTEIN_NUMBERING policy of the translate route.
+           */
+          const matchedLoci = new Set<string>();
           for (const hit of data.hits) {
             const hgvsp = Array.isArray(hit.dbnsfp?.hgvsp) ? hit.dbnsfp.hgvsp : [hit.dbnsfp?.hgvsp];
             const matchesVar = hgvsp.some((h: any) => {
@@ -88,7 +273,7 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
               const hl = h.toLowerCase();
               return hl.includes(cleanVarLower) || (term1 && hl.includes(term1));
             });
-            
+
             // Strict No-Heuristics: ONLY accept data if this hit explicitly matches the requested variant substitution!
             if (matchesVar) {
               const amData = hit.dbnsfp?.alphamissense;
@@ -106,15 +291,43 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
               if (hit._id && typeof hit._id === "string" && hit._id.startsWith("chr")) {
                 const m = hit._id.match(/chr([0-9XYM]+):g\.(\d+)([A-Z]+)>([A-Z]+)/i);
                 if (m) {
-                  gnomadVariantId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
+                  const locusId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
+                  matchedLoci.add(locusId);
+                  if (gnomadVariantId === null) gnomadVariantId = locusId;
                 }
               }
             }
-            if (amPathogenicity !== null && caddPhred !== null) break;
+          }
+          if (matchedLoci.size > 1) {
+            console.warn(`[VEP Fallback] ${matchedLoci.size} distinct MyVariant loci match ${normGene} ${cleanVar} by notation; refusing the coordinate as ambiguous.`);
+            gnomadVariantId = null;
           }
         }
       }
     } catch (_) {}
+  }
+
+  /**
+   * Lift the hg19 `_id` onto the canonical build (unmapping defect F-3, at its producer).
+   *
+   * The MyVariant `_id` is GRCh37, and its query service has no assembly parameter at all. The
+   * coordinate used to be returned tagged GRCh37 and left there — honest, but terminal: every
+   * GRCh38-only source (splice geometry, AlphaGenome, PopEVE, GPN-Star, gnomAD r4) then refused
+   * the variant for two weeks at a time. Lifting HERE, once, with the three-fold verification
+   * the liftover module performs, gives every downstream consumer the canonical-build locus of
+   * the SAME variant. A failed lift keeps the GRCh37 tag: refusal then reads "not assessed",
+   * which is true, and is never coerced.
+   */
+  let gnomadVariantAssembly: GenomeAssembly | null = gnomadVariantId ? "GRCh37" : null;
+  if (gnomadVariantId) {
+    const parsed = parseGenomicCoordinateString(gnomadVariantId);
+    if (parsed) {
+      const lifted = await liftCoordinateToCanonical({ ...parsed, assembly: "GRCh37" }).catch(() => null);
+      if (lifted) {
+        gnomadVariantId = `${lifted.chrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`;
+        gnomadVariantAssembly = "GRCh38";
+      }
+    }
   }
 
   const hasAnyData = amPathogenicity !== null || caddPhred !== null || Boolean(transcriptId);
@@ -124,52 +337,117 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
     amClass,
     caddPhred,
     gnomadVariantId,
-    /**
-     * The MyVariant.info `_id` is hg19 by default — its query service has no assembly
-     * parameter at all — so this coordinate is GRCh37 and must be labelled as such. It was
-     * previously returned untagged and consumed as though it were GRCh38.
-     */
-    gnomadVariantAssembly: gnomadVariantId ? ("GRCh37" as const) : null,
+    gnomadVariantAssembly,
     transcriptId,
     maneRefSeqId,
+    canonicalEnsemblId,
     isManeSelect: Boolean(isManeSelect),
     isCanonical: Boolean(transcriptId),
     source: (amPathogenicity !== null || caddPhred !== null) ? "MyVariant.info & dbNSFP (VEP Fallback)" : "UniProt Transcript Fallback"
   };
 }
 
-export async function fetchPredictorData(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
+export async function fetchPredictorData(
+  gene: string,
+  variant: string,
+  uniprotId?: string,
+  /**
+   * The genomic coordinate the protein notation was TRANSLATED FROM, build-tagged, when the
+   * caller has one (a genomic/cDNA input). Used for the coordinate-first query above; ignored
+   * for protein-only inputs, which keep the legacy ladder.
+   */
+  coord?: AssemblyTaggedCoordinate | null
+): Promise<PredictorData> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
-  const cacheKey = buildPredictorsKey(gene, variant, uniprotId);
+  // The coordinate participates in the cache key (review H2): a coordinate-first result is
+  // computed at a specific locus, and the same protein substitution can sit at two loci
+  // (p.Lys272Asn from C>A and from C>G — same codon, different nucleotide, different
+  // CADD/SpliceAI/gnomAD answer). Keying without it lets one request's locus serve another's.
+  const cacheKey = buildPredictorsKey(gene, variant, uniprotId, coord ?? null);
 
   return getCachedOrFetch({
     key: cacheKey,
     source: "Ensembl VEP API",
     l1Cache: predictorCache,
     ttlSeconds: 14 * 24 * 60 * 60,
+    /**
+     * Do not pin a GRCh37-coordinate result for 14 days (unmapping defect F-4).
+     *
+     * The fallback coordinate is what the build gate refuses; caching it behind a key that has
+     * no build dimension turned a TRANSIENT VEP/liftover outage into a two-week blind panel for
+     * every user of the same variant. A result whose coordinate is canonical (or absent) is
+     * stable reference data and keeps the long TTL; a GRCh37-tagged one is retried next request,
+     * by which time the lift may well succeed.
+     */
+    shouldCache: (res) => !(res?.gnomadVariantId && res?.gnomadVariantAssembly === "GRCh37"),
     fetcher: async () => {
-      let queryTargets: string[] = [];
+      let transcriptRefseqId: string | null = null;
+      let transcriptEnsemblId: string | null = null;
+      let canonicalEnsemblId: string | null = null;
       if (uniprotId) {
-        const transcripts = await getTranscriptsForProtein(uniprotId);
-        if (transcripts.refseqId && transcripts.refseqId.startsWith("NM_")) {
-          queryTargets.push(`${transcripts.refseqId}:p.${cleanVar}`);
-          const cleanRefseq = transcripts.refseqId.split(".")[0];
-          if (cleanRefseq !== transcripts.refseqId) {
-            queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
-          }
+        try {
+          const transcripts = await getTranscriptsForProtein(uniprotId);
+          transcriptRefseqId = transcripts.refseqId;
+          transcriptEnsemblId = transcripts.ensemblId;
+          canonicalEnsemblId = transcripts.canonicalEnsemblId ?? null;
+        } catch (_) {}
+      }
+
+      // ── Coordinate-first: one unambiguous query beats a ladder of lossy ones ──
+      if (coord) {
+        // What the coordinate must PROVE it is (review H-2): the requested substitution,
+        // parsed from the same notation the structural arm models. Position and letters are
+        // canonical-isoform values, so the binding check looks for them on ANY consequence of
+        // the requested gene, not on the selected one.
+        const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
+        const expect = {
+          gene: normGene,
+          wt: aaMatch ? toSingleAa(aaMatch[1]) : null,
+          mut: aaMatch ? toSingleAa(aaMatch[3]) : null,
+          pos: aaMatch ? parseInt(aaMatch[2], 10) : null
+        };
+        // The lift + region query is an auxiliary prelude to the ladder, and the analysis
+        // stream has a 30 s client-side idle watchdog — bound the prelude so a slow Ensembl
+        // degrades to the ladder instead of stalling chunk 1 (review M4).
+        const coordDeadline = Date.now() + 15_000;
+        const lifted = await liftCoordinateToCanonical(coord, { deadlineAt: coordDeadline }).catch(() => null);
+        if (lifted) {
+          const viaCoordinate = await fetchPredictorsViaCoordinate(lifted, canonicalEnsemblId, expect, coordDeadline);
+          if (viaCoordinate) return viaCoordinate;
+          // A coordinate that cannot prove it is this variant's locus falls through to the
+          // ladder; it is never coerced, and the ladder's own fallback keeps the honest build tag.
         }
-        if (transcripts.ensemblId) {
-          queryTargets.push(`${transcripts.ensemblId}:p.${cleanVar}`);
-          const cleanEnsembl = transcripts.ensemblId.split(".")[0];
-          if (cleanEnsembl !== transcripts.ensemblId) {
-            queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
-          }
+      }
+
+      let queryTargets: string[] = [];
+      if (transcriptRefseqId && transcriptRefseqId.startsWith("NM_")) {
+        queryTargets.push(`${transcriptRefseqId}:p.${cleanVar}`);
+        const cleanRefseq = transcriptRefseqId.split(".")[0];
+        if (cleanRefseq !== transcriptRefseqId) {
+          queryTargets.push(`${cleanRefseq}:p.${cleanVar}`);
+        }
+      }
+      if (transcriptEnsemblId) {
+        queryTargets.push(`${transcriptEnsemblId}:p.${cleanVar}`);
+        const cleanEnsembl = transcriptEnsemblId.split(".")[0];
+        if (cleanEnsembl !== transcriptEnsemblId) {
+          queryTargets.push(`${cleanEnsembl}:p.${cleanVar}`);
+        }
+      }
+      // The CANONICAL transcript's own numbering is what the platform feeds in (the isoform remap
+      // guarantees it), so for MANE≠canonical genes this target succeeds exactly where every
+      // MANE target fails a residue check (unmapping defect F-2).
+      if (canonicalEnsemblId && canonicalEnsemblId !== transcriptEnsemblId) {
+        queryTargets.push(`${canonicalEnsemblId}:p.${cleanVar}`);
+        const cleanCanonical = canonicalEnsemblId.split(".")[0];
+        if (cleanCanonical !== canonicalEnsemblId) {
+          queryTargets.push(`${cleanCanonical}:p.${cleanVar}`);
         }
       }
       queryTargets.push(`${normGene}:p.${cleanVar}`);
 
-      let parsedData: any = null;
+      let parsedData: VepParsed | null = null;
       let errorMsg = "";
 
       for (const target of queryTargets) {
@@ -202,73 +480,8 @@ export async function fetchPredictorData(gene: string, variant: string, uniprotI
 
       try {
         if (parsedData && parsedData.length > 0 && parsedData[0].transcript_consequences) {
-          const consequences = parsedData[0].transcript_consequences;
-          const hasPredictor = (c: any) => c.alphamissense || c.cadd_phred !== undefined;
-          let tc = consequences.find((c: any) => c.mane_select && hasPredictor(c));
-          if (!tc) {
-            tc = consequences.find((c: any) => c.mane_plus_clinical && hasPredictor(c));
-          }
-          if (!tc) {
-            tc = consequences.find((c: any) => (c.canonical === 1 || c.canonical === true || String(c.canonical) === "1") && hasPredictor(c));
-          }
-          if (!tc) {
-            tc = consequences.find((c: any) => typeof c.transcript_id === "string" && c.transcript_id.startsWith("NM_") && hasPredictor(c));
-          }
-          if (!tc) {
-            tc = consequences.find(hasPredictor);
-          }
-          if (!tc) {
-            tc = consequences[0];
-          }
-          if (tc) {
-            const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
-            const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
-            const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
-
-            const chr = parsedData[0].seq_region_name;
-            const startPos = parsedData[0].start;
-            const alleleStr = parsedData[0].allele_string;
-            let gnomadVariantId: string | null = null;
-            if (chr && startPos && typeof alleleStr === "string") {
-              const parts = alleleStr.split("/");
-              if (parts.length >= 2) {
-                gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
-              }
-            }
-
-            let maneRefSeqId: string | undefined = undefined;
-            if (tc.mane_select && typeof tc.mane_select === "string") {
-              maneRefSeqId = tc.mane_select;
-            } else if (tc.mane_select && typeof tc.mane_select === "object") {
-              maneRefSeqId = tc.mane_select.refseq_match || tc.mane_select.id || undefined;
-            } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "string") {
-              maneRefSeqId = tc.mane_plus_clinical;
-            } else if (tc.mane_plus_clinical && typeof tc.mane_plus_clinical === "object") {
-              maneRefSeqId = tc.mane_plus_clinical.refseq_match || tc.mane_plus_clinical.id || undefined;
-            }
-
-            const resVal = { 
-              available: true, 
-              amPathogenicity, 
-              amClass, 
-              caddPhred, 
-              gnomadVariantId,
-              /**
-               * This path queries the GRCh38 Ensembl host (the URL above is hard-coded), so the
-               * coordinate it derives is GRCh38. Stated explicitly rather than left implicit:
-               * the build now travels with the coordinate, because the gate that consumes it
-               * can no longer assume the request's declared build matches the coordinate's.
-               */
-              gnomadVariantAssembly: gnomadVariantId ? ("GRCh38" as const) : null,
-              transcriptId: tc.transcript_id,
-              isManeSelect: !!tc.mane_select,
-              isManePlusClinical: !!tc.mane_plus_clinical,
-              isCanonical: !!(tc.canonical === 1 || tc.canonical === true || String(tc.canonical) === "1"),
-              maneRefSeqId,
-              source: "Ensembl VEP API"
-            };
-            return resVal;
-          }
+          const resVal = buildPredictorFromVep(parsedData, "GRCh38", "Ensembl VEP API", canonicalEnsemblId, normGene);
+          if (resVal) return resVal;
         }
       } catch (err: any) {
         console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);

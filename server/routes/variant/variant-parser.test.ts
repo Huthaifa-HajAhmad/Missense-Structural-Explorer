@@ -167,6 +167,35 @@ describe("analysis path — protein notation handling", () => {
     expect(String(maneCall![0])).not.toContain("xref_mane_select");
   });
 
+  it("accepts a forwarded coordinate ONLY with a declared, parseable build (unmapping reviews H-2/L-3/L-10)", async () => {
+    fetchSpy = installFetch();
+
+    // Coordinate without a stated build: the schema DEFAULTS assembly to GRCh38, and a defaulted
+    // build beside a GRCh37 position is the wrong-locus hazard — so the coordinate is dropped.
+    const withoutBuild = await parse({
+      gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+      genomicCoordinates: "X-23723975-C-A",
+    });
+    expect(withoutBuild.statusCode).toBe(200);
+    expect(withoutBuild.context?.genomicCoordinates).toBeUndefined();
+
+    // Coordinate + declared build: forwarded verbatim for the predictor's coordinate-first query.
+    const withBuild = await parse({
+      gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+    });
+    expect(withBuild.statusCode).toBe(200);
+    expect(withBuild.context?.genomicCoordinates).toBe("X-23723975-C-A");
+    expect(withBuild.context?.assembly).toBe("GRCh37");
+
+    // Malformed coordinate (trailing components): the strict parser refuses it despite the build.
+    const malformed = await parse({
+      gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+      genomicCoordinates: "X-23723975-C-A-junk", assembly: "GRCh37",
+    });
+    expect(malformed.context?.genomicCoordinates).toBeUndefined();
+  });
+
   it("discloses an unverifiable numbering instead of silently trusting canonical", async () => {
     // Sequence fetch succeeds, isoform model fails: the analysis proceeds (an outage must not break
     // a valid query) but it is labelled unverified rather than presented as a clean canonical match.

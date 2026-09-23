@@ -350,6 +350,15 @@ export function humaniseAnyRefusal(reason: string | null): string | null {
  * Deliberately does not invent a cause when none is known: `reason` is only ever the server's
  * recorded refusal or the provider's own message, so what the UI says about why something is
  * missing is always something the pipeline actually established.
+ *
+ * STATUS — canonical formatter, currently unconsumed (kept deliberately, not dead by neglect).
+ * Every present surface renders the state badge and the reason as SEPARATE elements, and two of
+ * them (AlphaGenomeTab, SplicingTab) add wording this one-liner cannot: "No AVI score reached
+ * this variant (Not covered)". Using this helper there would collapse a richer sentence into
+ * `label. reason` and double the label already shown on the badge. It stays exported as the
+ * canonical single-sentence form for a surface that has room for one line and no badge — the
+ * "wire it in or delete it" rule is satisfied by this note plus its three-state tests; deleting
+ * it would only remove the assertions that pin the states it describes.
  */
 export function describeAbsence(availability: EvidenceAvailability): string {
   if (availability.hasValue) return "";

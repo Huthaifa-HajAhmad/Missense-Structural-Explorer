@@ -16,6 +16,8 @@ import {
 import { healCachedAnalysisIfPossible } from "./self-healer.ts";
 import { fetchCoreVariantData } from "../external-api/core-data-fetcher.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
+import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
+import { CANONICAL_ASSEMBLY } from "../../../src/shared/assembly.ts";
 import { CONFIG } from "../../config.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData, StructuralAnalysisData };
@@ -29,7 +31,18 @@ export {
   persistAnalysis
 };
 
-function isStaleCachedPayload(payload: any, context?: ParsedVariantContext): boolean {
+/**
+ * How long a recorded build refusal suppresses the AlphaGenome staleness check.
+ *
+ * A build refusal is TRANSIENT — the liftover may succeed on the next attempt (review M1).
+ * Honoring it forever would pin a blanked payload to a row that has no expiry and no build
+ * dimension; honoring it never would restore the every-view recompute thrash the predicate
+ * exists to prevent. A bounded window threads both: no thrash while an outage persists, and
+ * automatic recovery within one window after it ends.
+ */
+const REFUSAL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
@@ -57,7 +70,21 @@ function isStaleCachedPayload(payload: any, context?: ParsedVariantContext): boo
     );
     if (hasAlphaGenomeKey) {
       const isAlreadyQueriedUnindexed = Boolean(cons.alphagenome?.message?.includes("not indexed"));
-      const alphaMissing = !cons.alphagenome || (!isAlreadyQueriedUnindexed && (cons.alphagenome.status !== "live" || cons.alphagenome.aviPhred === null));
+      // A source the build gate REFUSED cannot be satisfied by recomputing it right now — the
+      // predicate used to demand a live AVI for every GRCh37-coordinate payload, discarding the
+      // persisted analysis on every view forever (the AlphaGenome standby RCA's "aggravating
+      // side effect"). The refusal is recorded, so honour it — but for a bounded window only:
+      // unlike "not indexed" (a permanent Atlas property), a build refusal is transient, and
+      // the lift may succeed on the next attempt (review M1).
+      const refusalIsRecent = (() => {
+        if (!recordUpdatedAt) return false;
+        const t = new Date(recordUpdatedAt).getTime();
+        return Number.isFinite(t) && Date.now() - t < REFUSAL_RETRY_WINDOW_MS;
+      })();
+      const isBuildRefused = refusalIsRecent &&
+        Boolean(cons.assemblyRefusals?.some((r: { source: string }) => r.source === "alphagenome"));
+      const alphaMissing = !isBuildRefused && !isAlreadyQueriedUnindexed &&
+        (!cons.alphagenome || (cons.alphagenome.status !== "live" || cons.alphagenome.aviPhred === null));
       if (alphaMissing) return true;
     }
   }
@@ -73,7 +100,7 @@ export async function runCoreAnalysis(context: ParsedVariantContext): Promise<an
   // Check persistent SQLite database
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = await db.getVariantAnalysisAsync(gene, variant, acmgWeighting);
-  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context)) {
+  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context, cachedRecord.updatedAt)) {
     return healCachedAnalysisIfPossible(cachedRecord.payload, context);
   }
 
@@ -109,7 +136,7 @@ export async function streamCoreAnalysis(
 
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = await db.getVariantAnalysisAsync(gene, variant, context.acmgWeighting);
-  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context)) {
+  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context, cachedRecord.updatedAt)) {
     const healed = healCachedAnalysisIfPossible(cachedRecord.payload, context);
     onChunk({
       chunkIndex: 1,
@@ -135,7 +162,11 @@ export async function streamCoreAnalysis(
 
   const fastPredictorPromise = (async () => {
     try {
-      const data = await fetchPredictorData(gene, variant, uniprotId);
+      const parsedInputCoord = context.genomicCoordinates ? parseGenomicCoordinateString(context.genomicCoordinates) : null;
+      const inputCoordinate = parsedInputCoord
+        ? { ...parsedInputCoord, assembly: context.assembly ?? CANONICAL_ASSEMBLY }
+        : null;
+      const data = await fetchPredictorData(gene, variant, uniprotId, inputCoordinate);
       return { data, status: (data ? "ok" : "not_found") as ServiceFetchStatus };
     } catch (err: any) {
       const isTimeout = err?.name === "TimeoutError" || err?.message?.toLowerCase().includes("timeout");

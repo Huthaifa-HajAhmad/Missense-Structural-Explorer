@@ -7,7 +7,16 @@ import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSessi
 export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
   return {
     async getBiophysicalAnalysis(
-      params: { gene: string; uniprotId: string; variant: string; wtPdb?: string; options?: any },
+      params: {
+        gene: string;
+        uniprotId: string;
+        variant: string;
+        wtPdb?: string;
+        assembly?: string;
+        genomicCoordinates?: string;
+        numberingBasis?: string;
+        options?: any;
+      },
       signal?: AbortSignal
     ): Promise<BiophysicalAnalysisResponse> {
       const res = await fetchWithAuth("/api/v1/analyze-variant", {
@@ -28,7 +37,16 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
     },
 
     async streamBiophysicalAnalysis(
-      params: { gene: string; uniprotId: string; variant: string; acmgWeighting?: string; options?: any },
+      params: {
+        gene: string;
+        uniprotId: string;
+        variant: string;
+        acmgWeighting?: string;
+        assembly?: string;
+        genomicCoordinates?: string;
+        numberingBasis?: string;
+        options?: any;
+      },
       onChunk: (chunk: any) => void,
       signal?: AbortSignal
     ): Promise<BiophysicalAnalysisResponse> {

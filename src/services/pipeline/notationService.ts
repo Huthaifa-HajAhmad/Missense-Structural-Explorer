@@ -94,7 +94,13 @@ export async function translateVariantNotation(
         numberingRemap: data.numberingRemap,
         // Preserved so callers/reports can state which build the coordinate resolved against.
         assembly: data.assembly,
-        assemblyNote: data.assemblyNote
+        assemblyNote: data.assemblyNote,
+        // The genomic coordinate the protein notation was translated FROM. Carried through so
+        // the analysis request can hand it to the predictor, which otherwise re-derives the
+        // annotation from protein HGVS — a notation Ensembl rejects for codon-ambiguous
+        // substitutions and isoform-remapped genes, dropping the variant onto the GRCh37
+        // fallback and blanking every GRCh38-only source (unmapping defect F-1).
+        genomicCoordinates: data.genomicCoordinates ?? null
       },
       // Carried through rather than dropped, so downstream surfaces can disclose a degraded
       // provider. VariantValidator returns no UniProt accession and no Ensembl transcript id,

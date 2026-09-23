@@ -417,3 +417,102 @@ describe("deriveSplicingEvidence — SpliceAI provenance and delta positions", (
     expect(m.spliceaiProvenance).toBeNull();
   });
 });
+
+/**
+ * Honesty regressions from the unmapping-defect audit (doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md):
+ * the panel must never state a measurement it refused to take, and never invent a cause for
+ * a blank it cannot see.
+ */
+describe("deriveSplicingEvidence — unmapping-defect honesty (F-9 / F-13 / F-15)", () => {
+  it("labels missing dbscSNV as 'no data', not as a location claim (F-9)", () => {
+    // The old default asserted "Outside Consensus Zone" with no score at all — and for the
+    // ACOT9 case it was provably false: SpliceAI placed the variant at 0 bp of the acceptor.
+    const m = deriveSplicingEvidence(
+      makeResult({ spliceProximity: null, spliceai: null, dbscsnv: null })
+    )!;
+    expect(m.dbscSeverity).toBe("unmapped");
+    expect(m.dbscLabel).toBe("No dbscSNV Data");
+  });
+
+  it("keeps the measured labels when a score exists", () => {
+    const tolerated = deriveSplicingEvidence(
+      makeResult({ dbscsnv: { ada_score: 0.001, rf_score: 0.002 } })
+    )!;
+    expect(tolerated.dbscLabel).toBe("Tolerated / Unaltered");
+  });
+
+  it("surfaces build-gate refusals so the panes can explain their own blanks (F-13)", () => {
+    const m = deriveSplicingEvidence(
+      makeResult({
+        assemblyRefusals: [
+          { source: "splice-proximity", reason: "splice-proximity covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored." },
+          { source: "alphagenome", reason: "alphagenome covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored." }
+        ]
+      })
+    )!;
+    expect(m.proximityRefusal).toContain("GRCh37");
+    expect(m.alphagenomeRefusal).toContain("GRCh38");
+  });
+
+  it("reports refusals as null when none were recorded — absence is not a reason", () => {
+    const m = deriveSplicingEvidence(makeResult({}))!;
+    expect(m.proximityRefusal).toBeNull();
+    expect(m.alphagenomeRefusal).toBeNull();
+  });
+
+  it("does NOT fabricate a donor orientation at a transcript terminus (F-15)", () => {
+    // The resolver excluded the terminus from junction claims (isNearSpliceSite false) —
+    // the orientation used to re-claim it as a GT donor whenever a distance existed.
+    const m = deriveSplicingEvidence(
+      makeResult({
+        spliceProximity: { distance: 2, isNearSpliceSite: false, junctionType: "terminal", regionType: "exonic" },
+        spliceai: null,
+        dbscsnv: null
+      })
+    )!;
+    expect(m.isDonor).toBe(false);
+    expect(m.isAcceptor).toBe(false);
+    expect(m.junctionType).toContain("Terminus");
+    expect(m.isCriticalJunctionProximity).toBe(false);
+  });
+
+  it("keeps the legacy donor inference ONLY for payloads that predate junctionType (F-15)", () => {
+    const legacy = deriveSplicingEvidence(
+      makeResult({
+        // No junctionType key at all: a payload from before the resolver named boundaries.
+        spliceProximity: { distance: 2, isNearSpliceSite: false },
+        spliceai: null,
+        dbscsnv: null
+      })
+    )!;
+    expect(legacy.isDonor).toBe(true);
+
+    // An EXPLICIT null (resolver identified no boundary) is a known answer, not a legacy gap.
+    const explicitNull = deriveSplicingEvidence(
+      makeResult({
+        spliceProximity: { distance: 2, isNearSpliceSite: false, junctionType: null },
+        spliceai: null,
+        dbscsnv: null
+      })
+    )!;
+    expect(explicitNull.isDonor).toBe(false);
+    expect(explicitNull.junctionType).toContain("not resolved");
+  });
+
+  it("only calls a dbscSNV absence 'outside the flank' when a measured distance proves it (M-7)", () => {
+    // 3 bp from a TERMINAL boundary: the flank claim used to fire on any non-null distance and
+    // printed "outside the canonical flank … 3 bp away" — self-contradictory.
+    const nearTerminal = deriveSplicingEvidence(
+      makeResult({ spliceProximity: { distance: 3, isNearSpliceSite: false, junctionType: "terminal" } })
+    )!;
+    expect(nearTerminal.dbscFlankMeasurable).toBe(false);
+
+    const farFromJunction = deriveSplicingEvidence(
+      makeResult({ spliceProximity: { distance: CONSENSUS_BP + 5, isNearSpliceSite: false, junctionType: "donor" } })
+    )!;
+    expect(farFromJunction.dbscFlankMeasurable).toBe(true);
+
+    const noDistance = deriveSplicingEvidence(makeResult({ spliceProximity: null }))!;
+    expect(noDistance.dbscFlankMeasurable).toBe(false);
+  });
+});

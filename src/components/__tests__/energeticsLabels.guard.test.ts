@@ -33,10 +33,40 @@ const GUARDED_SURFACES = [
   // "Standby / Unconfigured", which is in LEGACY_ENGINE_LABELS, and it sat outside the guard
   // precisely because it had never been added here.
   "src/components/evidence/SplicingTab.tsx",
+  /**
+   * The AlphaGenome panel carried "Standby" six times — including "Indeterminate / Standby", which
+   * collapsed a clinical verdict with an infrastructure state — and nothing failed, for the same
+   * reason SplicingTab had escaped: it had never been listed. Its literals are now gone and the
+   * state is derived through `shared/evidenceAvailability` from `shared/engineStatus`.
+   *
+   * PredictorSpecialistPanels was the other deferral ("needs their own pass", unmapping review
+   * UI#9): that pass is done — the four structural-model "Standby" badges now render
+   * `ENGINE_STATE_LABELS["no-result"]` and the score slot uses the em-dash — so the file is
+   * listed with the rest. If a future edit reintroduces a retired word there, this guard, not
+   * a comment, is what stops it.
+   */
+  "src/components/evidence/AlphaGenomeTab.tsx",
+  "src/components/PredictorSpecialistPanels.tsx",
+  /**
+   * The derivation layer itself, listed because it makes a structural promise — "this module adds
+   * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a
+   * docstring that nothing checks is a promise that decays. A status literal added here would
+   * otherwise reach every surface consuming the resolver: a wider blast radius than the single
+   * panel this guard was written for.
+   */
+  "src/shared/evidenceAvailability.ts",
 ] as const;
 
-/** The canonical module every guarded surface must consume. */
-const CANONICAL_MODULE = "shared/engineStatus";
+/**
+ * The canonical module every guarded surface must consume.
+ *
+ * Two spellings, not one: a surface under `src/components/` reaches the module as
+ * `shared/engineStatus`, while `src/shared/evidenceAvailability.ts` — itself part of the canonical
+ * layer, and guarded for the same reason — reaches it as `./engineStatus`. Accepting only the first
+ * would mean either leaving the derivation layer unguarded or writing a fake import to satisfy a
+ * test, and the second is exactly the failure mode a guard should never induce.
+ */
+const CANONICAL_MODULE_TOKENS = ["shared/engineStatus", "./engineStatus"] as const;
 
 /**
  * Removes comments while preserving line numbers.
@@ -149,8 +179,8 @@ describe("Energetics label guardrail", () => {
       it("renders engine state from the canonical shared module", () => {
         const source = readSurface(surface);
         expect(
-          source.includes(CANONICAL_MODULE),
-          `${surface} must import from ${CANONICAL_MODULE}`
+          CANONICAL_MODULE_TOKENS.some(token => source.includes(token)),
+          `${surface} must import from ${CANONICAL_MODULE_TOKENS.join(" or ")}`
         ).toBe(true);
       });
 

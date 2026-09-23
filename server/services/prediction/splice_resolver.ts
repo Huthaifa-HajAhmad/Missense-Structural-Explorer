@@ -1,6 +1,7 @@
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
 import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
+import { sameContig } from "../../../src/shared/assembly.ts";
 
 export interface EnsemblExonData {
   id?: string;
@@ -123,13 +124,30 @@ export function calculateDistanceToSpliceSite(
 /**
  * Resolve proximity of a variant position to splicing junctions and annotate
  * with real Exon/Intron numbers, lengths, junction types (donor vs. acceptor), and coordinates.
+ *
+ * `variantChrom` (when the caller has it) is checked against the transcript's contig before any
+ * distance is computed. A position measured against another chromosome's exon model yields a
+ * confident, meaningless number — the resolver used to accept any integer, which is how a
+ * wrong-build or wrong-locus coordinate could render as measured geometry (unmapping defect F-6).
  */
 export async function resolveSpliceProximity(
   transcriptId: string,
-  genomicPos: number
+  genomicPos: number,
+  variantChrom?: string | null
 ): Promise<SpliceProximityResult | null> {
   const structure = await fetchTranscriptExons(transcriptId);
   if (!structure || structure.exons.length === 0) return null;
+
+  if (variantChrom && structure.seqRegionName) {
+    // Shared normalizer (review L-8): GRCh38 names the mitochondrion "MT" while callers write
+    // "chrM" — private per-side normalizers disagreed, and MT variants refused their own geometry.
+    if (!sameContig(variantChrom, structure.seqRegionName)) {
+      console.warn(
+        `[Splice Resolver] Refusing geometry: variant contig ${variantChrom} does not match transcript ${transcriptId} on ${structure.seqRegionName}`
+      );
+      return null;
+    }
+  }
 
   const exons = structure.exons;
   const totalExons = exons.length;

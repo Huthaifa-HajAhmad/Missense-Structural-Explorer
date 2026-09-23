@@ -13,6 +13,7 @@ import {
 } from "../../services/external.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
+import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
 import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
@@ -30,6 +31,16 @@ export const analyzeVariantSchema = z.object({
    * existing clients keep their current behaviour.
    */
   assembly: z.enum(["GRCh37", "GRCh38"]).optional().default("GRCh38"),
+  /**
+   * The genomic coordinate the protein notation was translated FROM (e.g. "X-23723975-C-A").
+   *
+   * The translate step resolves it, and the predictor path used to throw it away and re-derive
+   * annotation from protein HGVS — which Ensembl rejects for codon-ambiguous substitutions and
+   * isoform-remapped genes, collapsing the pipeline into the GRCh37 MyVariant fallback and
+   * blanking every GRCh38-only evidence source (unmapping defect F-1). Forwarding the coordinate
+   * lets the predictor query VEP by position instead.
+   */
+  genomicCoordinates: z.string().max(64).optional(),
   uniprotId: z.string().max(50).optional().default(""),
   acmgWeighting: z.enum(["standard", "conservative", "strict-structural"]).optional(),
   userDirections: z.string().max(1000).optional(),
@@ -140,6 +151,14 @@ export interface ParsedVariantContext {
    * (the request schema defaults it to GRCh38); consumers default it identically.
    */
   assembly?: GenomeAssembly;
+  /**
+   * The genomic coordinate the notation was translated from, kept as submitted (hyphen form).
+   * Populated only when the caller ALSO declared the build it belongs to — the schema's
+   * `assembly` DEFAULTS to GRCh38, and a defaulted build beside a GRCh37 coordinate is exactly
+   * the wrong-locus hazard `src/shared/assembly.ts` exists to prevent. Consumers parse it and
+   * tag it with the declared build.
+   */
+  genomicCoordinates?: string;
   residueIndex: string;
   wildType: string;
   mutant: string;
@@ -185,6 +204,7 @@ export async function validateAndParseVariantRequest(
   let userDirections: string | undefined;
   let acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard";
   let originalNotation: string | undefined;
+  let genomicCoordinates: string | undefined;
 
   // An accession-qualified notation names the protein its residue numbers belong to, so it MUST be
   // resolved (and converted onto canonical numbering) by the translation service — never read by
@@ -218,6 +238,28 @@ export async function validateAndParseVariantRequest(
       uniprotId = validateUniProt(resolvedUniprotId);
     }
     originalNotation = req.body.originalNotation ? String(req.body.originalNotation) : undefined;
+
+    /**
+     * Trust the forwarded coordinate only when the caller ALSO stated its build.
+     *
+     * The schema defaults `assembly` to GRCh38, so "absent" and "GRCh38" are indistinguishable
+     * after parsing — reading `req.body.assembly` raw is the only way to know the build was
+     * DECLARED. A coordinate paired with a defaulted build could be GRCh37 wearing a GRCh38
+     * label, which is the wrong-locus hazard the whole assembly gate exists to refuse.
+     *
+     * ORDERING DEPENDENCY (review L-3): the raw re-read is safe only because
+     * `analyzeVariantSchema.safeParse` above has already enum-validated `req.body.assembly` —
+     * anything reaching here is "GRCh37" | "GRCh38". Do not move this block above the parse.
+     * Note this check proves the build was SENT, not that it is TRUE; the truth test is the
+     * gene/substitution binding inside the predictor's coordinate-first query (review H-2).
+     */
+    const declaredAssembly = typeof req.body?.assembly === "string" ? req.body.assembly : null;
+    if (declaredAssembly && typeof req.body?.genomicCoordinates === "string") {
+      const trimmedCoord = req.body.genomicCoordinates.trim();
+      if (trimmedCoord && parseGenomicCoordinateString(trimmedCoord)) {
+        genomicCoordinates = trimmedCoord;
+      }
+    }
 
     if (req.body.userDirections !== undefined) {
       if (typeof req.body.userDirections !== "string") {
@@ -416,6 +458,7 @@ export async function validateAndParseVariantRequest(
     ...(canonicalConfirmed ? { numberingDisambiguated: true } : {}),
     numberingWarning,
     originalNotation,
+    ...(genomicCoordinates ? { genomicCoordinates } : {}),
     userDirections,
     acmgWeighting,
     // The schema defaults this to GRCh38, so it is always a concrete build by here.

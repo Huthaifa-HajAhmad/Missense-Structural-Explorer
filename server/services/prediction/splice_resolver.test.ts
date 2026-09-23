@@ -195,5 +195,71 @@ describe("Splice Resolver and Distance Calculator Tests", () => {
       // Distance is still reported (fallback calculator); it just is not a junction hit.
       expect(offTranscript!.distance).toBeGreaterThan(0);
     });
+
+    /**
+     * F-6 (unmapping-defect audit): the resolver previously accepted any integer and measured
+     * it against the transcript's exons without ever checking the contig — so a wrong-build or
+     * wrong-locus coordinate that reached it rendered as confident geometry.
+     */
+    describe("contig guard", () => {
+      // Distinct transcript ids per case: the resolver's exon cache is module-level and is
+      // NOT cleared between tests, so reusing an id would serve the first mock's structure.
+      const twoExonTranscript = (id: string, contig: string) => ({
+        ok: true,
+        json: async () => ({
+          object_type: "Transcript",
+          id,
+          strand: 1,
+          seq_region_name: contig,
+          Exon: [
+            { id: "EXON1", start: 1000, end: 1200 },
+            { id: "EXON2", start: 2000, end: 2200 }
+          ]
+        })
+      });
+
+      it("refuses geometry when the variant contig is not the transcript's chromosome", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(twoExonTranscript("ENST00000600001", "1")));
+        const res = await resolveSpliceProximity("ENST00000600001", 1195, "X");
+        expect(res).toBeNull();
+      });
+
+      it("resolves when the contig matches, tolerating the chr prefix and case", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(twoExonTranscript("ENST00000600002", "1")));
+        const res = await resolveSpliceProximity("ENST00000600002", 1195, "chr1");
+        expect(res).not.toBeNull();
+        expect(res!.distance).toBe(5);
+      });
+
+      it("stays permissive when the transcript model names no contig (older payloads)", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            object_type: "Transcript",
+            id: "ENST00000600003",
+            strand: 1,
+            Exon: [{ id: "EXON1", start: 1000, end: 1200 }]
+          })
+        }));
+        const res = await resolveSpliceProximity("ENST00000600003", 1195, "X");
+        expect(res).not.toBeNull();
+      });
+
+      it("treats chrM and MT as the same contig (review L-8: per-side normalizers disagreed)", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            object_type: "Transcript",
+            id: "ENST00000600004",
+            strand: 1,
+            seq_region_name: "MT",
+            Exon: [{ id: "EXON1", start: 1000, end: 1200 }]
+          })
+        }));
+        const res = await resolveSpliceProximity("ENST00000600004", 1195, "chrM");
+        expect(res).not.toBeNull();
+        expect(res!.distance).toBe(5);
+      });
+    });
   });
 });

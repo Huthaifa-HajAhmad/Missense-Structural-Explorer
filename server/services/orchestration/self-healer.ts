@@ -1,5 +1,6 @@
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
+import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
 import type { ClinVarData } from "../external-api/clinvar.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { persistVariantAnalysisPayload } from "./payload-assembler.ts";
@@ -108,7 +109,15 @@ export function healCachedAnalysisIfPossible(
   // 6. Predictors healing
   if (status.predictorData === "timeout" || status.predictorData === "error") {
     const predictorCache = db.getExternalCache<any>(
-      buildPredictorsKey(context.gene, context.variant, context.uniprotId)
+      // The predictor cache key carries the coordinate dimension now (review H2); the healer
+      // reconstructs it from the same request context the original run used, so a coordinate-
+      // first entry is found only by a request that forwarded the same coordinate. A coordinate
+      // that fails to parse maps to "no coordinate" — the same shape the producer computes.
+      buildPredictorsKey(context.gene, context.variant, context.uniprotId,
+        (() => {
+          const parsed = context.genomicCoordinates ? parseGenomicCoordinateString(context.genomicCoordinates) : null;
+          return parsed ? { ...parsed, assembly: context.assembly ?? null } : null;
+        })())
     );
     if (predictorCache?.data) {
       payload.predictorData = predictorCache.data;

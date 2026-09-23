@@ -164,6 +164,7 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
     adaScore,
     rfScore,
     hasDbscsnv,
+    dbscFlankMeasurable,
     distance,
     isNearSpliceSite,
     isCriticalJunctionProximity,
@@ -180,6 +181,7 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
     verdictLabel,
     verdictBadgeClass,
     isPredictorCoverageAbsent,
+    proximityRefusal,
     pathogenicRules,
     benignRules
   } = model;
@@ -209,9 +211,13 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
         <SectionLabel Icon={Dna}>Variant Splice Architecture</SectionLabel>
 
         <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-cs-text-secondary">Nearest Junction</span>
-            <span className="font-mono font-semibold text-cs-text-primary capitalize">{junctionType}</span>
+            {/* Same truncate contract as every row below: the inspector clamps to 280px, and
+                the neutral states now carry long honest strings ("Splice Junction (orientation
+                not resolved)") that used to wrap the only un-truncated row (review UI#6).
+                `capitalize` removed: it title-cased the disclaimers into nonsense. */}
+            <span className="font-mono font-semibold text-cs-text-primary sm:min-w-0 sm:truncate" title={junctionType}>{junctionType}</span>
           </div>
           {/* Rows stack below `sm` and give the value `min-w-0` so it truncates rather
               than wrapping: the inspector can be dragged to 280px, where a label plus a
@@ -262,28 +268,46 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
 
         {distance !== null ? (
           /* Severity must mirror the main column and the ACMG proximity rule: danger is
-             reserved for the critical junction band (<=5 bp). The consensus flank
-             (<=12 bp) is a warn band, never danger. */
+             reserved for the critical junction band (<=5 bp). The consensus flank (<=12 bp)
+             is a warn band, never danger — and never at all when the nearest boundary is not
+             a splice junction: a terminal variant at 2 bp used to read "located 2 bp from the
+             transcript terminus … places it beyond the ±12 bp perijunctional region", a false
+             distance claim self-contradicting in one sentence (external review UI#2). */
           <div
             className={`p-3 rounded-lg border flex items-start gap-2 ${
               isCriticalJunctionProximity
                 ? "border-cs-danger/25 bg-cs-bg-danger text-cs-text-danger-on-soft"
-                : distance <= PROXIMITY_CONSENSUS_BP
+                : isCanonicalJunction && distance <= PROXIMITY_CONSENSUS_BP
                 ? "border-cs-warn/25 bg-cs-bg-warning text-cs-text-primary"
                 : "border-cs-border bg-cs-surface-2 text-cs-text-secondary"
             }`}
           >
             <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 opacity-80" />
             <p className="text-[10.5px] leading-relaxed">
-              Variant resides in <strong className="font-mono">{displayExonLabel}</strong>, located{" "}
-              <strong className="font-mono">{distance} bp</strong> from the {junctionType.toLowerCase()}.
+              {regionType === "exonic" || regionType === "intronic" ? (
+                <>
+                  Variant resides in <strong className="font-mono">{regionType === "exonic" ? displayExonLabel : displayIntronLabel}</strong>, located{" "}
+                  <strong className="font-mono">{distance} bp</strong> from the {junctionType.toLowerCase()}.
+                </>
+              ) : (
+                <>
+                  Variant lies outside the mapped transcript span,{" "}
+                  <strong className="font-mono">{distance} bp</strong> from the nearest annotated boundary.
+                </>
+              )}
               {isCriticalJunctionProximity ? (
                 <>
                   {" "}This sits on the critical splice junction band (&le;{PROXIMITY_CRITICAL_BP} bp), where
                   disruption of the invariant donor/acceptor dinucleotide can provoke exon skipping or
                   intron retention.
                 </>
-              ) : isCanonicalJunction && distance <= PROXIMITY_CONSENSUS_BP ? (
+              ) : !isCanonicalJunction ? (
+                <>
+                  {" "}The nearest boundary is not a splice junction (a transcript terminus, or no canonical
+                  junction identified), so perijunctional proximity rules do not apply at this distance and
+                  no flank claim is made.
+                </>
+              ) : distance <= PROXIMITY_CONSENSUS_BP ? (
                 <>
                   {" "}This falls inside the &plusmn;{PROXIMITY_CONSENSUS_BP} bp perijunctional consensus region
                   flanking a junction, but outside the critical band, so it may affect splice-site recognition
@@ -300,11 +324,16 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
             </p>
           </div>
         ) : (
+          /* No geometry. The old text asserted "Transcript coordinates MAPPED to Ensembl model
+             …" directly beneath a table where every coordinate row read "Unmapped" — a false
+             cause for a refusal the layer above actually knows the reason for (unmapping
+             defect F-10/F-13). State the refusal, verbatim when it is recorded. */
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 flex items-start gap-2 text-cs-text-secondary">
             <Info className="w-3.5 h-3.5 text-cs-accent-clay mt-0.5 shrink-0" />
             <p className="text-[10.5px] leading-relaxed">
-              Transcript coordinates mapped to Ensembl model {transcriptId ?? "canonical"}. Splice
-              disruption probability is quantified across the machine learning consensus scores above.
+              {proximityRefusal ??
+                "Junction geometry could not be resolved against a transcript exon model for this variant."}{" "}
+              Sequence-based scores above are computed independently of transcript geometry.
             </p>
           </div>
         )}
@@ -427,7 +456,11 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
             <DeltaBar label="AdaBoost (ADA_SCORE)" value={adaScore} cutoff={THRESHOLDS.dbscsnv.spliceAltering} cutoffLabel={`Altering (${THRESHOLDS.dbscsnv.spliceAltering})`} isSpliceAi={false} />
             <DeltaBar label="Random Forest (RF_SCORE)" value={rfScore} cutoff={THRESHOLDS.dbscsnv.spliceAltering} cutoffLabel={`Altering (${THRESHOLDS.dbscsnv.spliceAltering})`} isSpliceAi={false} />
           </div>
-        ) : (
+        ) : dbscFlankMeasurable ? (
+          /* "Outside the window" is a real, checkable statement only when the distance was
+             MEASURED and exceeds the flank (external review M-7): at 3 bp from a TERMINAL
+             boundary this header used to print "outside the canonical flank … is 3 bp away" —
+             the claim-class F-9 retired, re-entering through the branch condition. */
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
             <div className="flex items-center gap-1.5 font-bold text-cs-text-primary text-[10.5px]">
               <Info className="w-3.5 h-3.5 text-cs-text-muted shrink-0" />
@@ -435,8 +468,23 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
             </div>
             <p className="text-[10px] text-cs-text-muted leading-relaxed">
               dbscSNV annotations are restricted to the donor (&minus;3 to +8 bp) and acceptor
-              (&minus;12 to +2 bp) windows
-              {distance !== null ? `; this variant is ${distance} bp away.` : "."}
+              (&minus;12 to +2 bp) windows; this variant is {distance} bp from the nearest junction.
+            </p>
+          </div>
+        ) : (
+          /* Either no measured distance at all, or a small distance whose boundary is not a
+             canonical junction: in both cases "outside the flank" is an assertion about a
+             window the variant was never measured against (unmapping defect F-9). Absence of
+             a score is not evidence of an intact motif. */
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-cs-text-primary text-[10.5px]">
+              <Info className="w-3.5 h-3.5 text-cs-text-muted shrink-0" />
+              <span>dbscSNV Not Assessed</span>
+            </div>
+            <p className="text-[10px] text-cs-text-muted leading-relaxed">
+              No dbscSNV score was returned for this position{distance === null ? ", and junction distance is unresolved" : ""},
+              so the score's absence says nothing about the motif — it is not evidence that the
+              variant sits outside the donor/acceptor windows.
             </p>
           </div>
         )}

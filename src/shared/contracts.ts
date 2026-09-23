@@ -374,6 +374,17 @@ export const biophysicalAnalysisRequestSchema = z.object({
   uniprotId: z.string(),
   variant: z.string(),
   wtPdb: z.string().optional(),
+  /**
+   * The genomic coordinate the protein notation was translated FROM, plus the build it belongs
+   * to. Forwarded by the client whenever the user entered a genomic/cDNA notation, so the
+   * predictor can query VEP by COORDINATE instead of re-deriving it from protein HGVS (which
+   * Ensembl rejects for codon-ambiguous substitutions — the root of the unmapping defect).
+   * `assembly` must accompany it: a coordinate without its declared build is not trusted.
+   */
+  genomicCoordinates: z.string().max(64).optional(),
+  assembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+  /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
+  numberingBasis: z.enum(["canonical"]).optional(),
   options: z.any().optional()
 });
 
@@ -507,6 +518,14 @@ export const predictorDataSchema = z.object({
   gnomadVariantAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
   proteinName: z.string().nullable().optional(),
   transcriptId: z.string().optional(),
+  /**
+   * Ensembl transcript of the UniProt CANONICAL isoform — the sequence this platform models.
+   * `transcriptId` is the selected (usually MANE) consequence's transcript, which for genes like
+   * ACOT9 is a DIFFERENT isoform's model; splice-junction geometry must be resolved against the
+   * canonical model so "Exon N of M" describes the same numbering the protein evidence does
+   * (unmapping defect F-16).
+   */
+  canonicalEnsemblId: z.string().nullable().optional(),
   isManeSelect: z.boolean().optional(),
   isManePlusClinical: z.boolean().optional(),
   isCanonical: z.boolean().optional(),
@@ -611,18 +630,23 @@ export interface AtlasUrls {
 /**
  * Robustly parses genomic coordinate strings in hyphen, colon, or Ensembl notation:
  * e.g., "chr9:128225994:G>A", "9-128225994-G-A", "chr11:5225488:A-T".
+ *
+ * The output feeds URL path segments and cache keys downstream, so it is strictly shaped:
+ * exactly four components (trailing junk like "X-100-C-A-extra" is a malformed input, not a
+ * variant), and a bounded position — the largest human chromosome is ~250 Mb, and an
+ * unbounded parseInt("9".repeat(21)) interpolates "1e+21" into a URL (review L-3/L-10).
  */
 export function parseGenomicCoordinateString(rawId?: string | null): { chrom: string; pos: number; ref: string; alt: string } | null {
   if (!rawId || typeof rawId !== "string") return null;
   const parts = rawId.trim().replace(/[:>/_]/g, "-").split("-");
-  if (parts.length >= 4) {
+  if (parts.length === 4) {
     const chrom = parts[0];
     const pos = parseInt(parts[1], 10);
     const ref = parts[2].toUpperCase();
     const alt = parts[3].toUpperCase();
     const validChrom = /^(chr)?([1-9]|1\d|2[0-2]|X|Y|M|MT)$/i.test(chrom);
     const validBases = /^[ACGTN]+$/.test(ref) && /^[ACGTN]+$/.test(alt);
-    if (validChrom && !isNaN(pos) && pos > 0 && validBases) {
+    if (validChrom && !isNaN(pos) && pos > 0 && pos <= 400_000_000 && validBases) {
       return { chrom, pos, ref, alt };
     }
   }

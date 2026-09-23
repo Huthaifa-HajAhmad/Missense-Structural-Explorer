@@ -535,6 +535,12 @@ export async function executeFullAnalysisWorkflow({
         variant: targetVariant,
         uniprotId: targetUniprot,
         ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {}),
+        // Forward the coordinate the user's notation resolved to, but ONLY together with its
+        // declared build — the server refuses a coordinate whose build was not stated, because
+        // a defaulted GRCh38 label over a GRCh37 position is the wrong-locus hazard itself.
+        ...(transcriptMeta?.genomicCoordinates && transcriptMeta?.assembly
+          ? { genomicCoordinates: transcriptMeta.genomicCoordinates }
+          : {}),
         // Carries the reader's answer to the ambiguity prompt to the route that raised it, so the
         // canonical reading can be chosen (re-submitting the bare notation alone is refused again).
         ...(numberingBasis ? { numberingBasis } : {})

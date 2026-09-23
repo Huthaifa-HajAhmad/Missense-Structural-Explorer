@@ -82,6 +82,37 @@ describe("Predictors Sub-Resolvers Unit Tests", () => {
         global.fetch = origFetch;
       }
     });
+
+    /**
+     * F-2/M-6 (unmapping-defect review): the canonical transcript must be selected by the
+     * ISOFORM RULE, not by xref ordering — live UniProt names the canonical isoform
+     * `<accession>-1`, and the first ENST xref is not always the canonical isoform's model.
+     * The fixture deliberately lists the NON-canonical isoform's transcript first.
+     */
+    it("selects canonicalEnsemblId by the isoform rule, not by xref ordering", async () => {
+      transcriptMappingCache.clear();
+      const origFetch = global.fetch;
+
+      global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        results: [{
+          primaryAccession: "P00002",
+          uniProtKBCrossReferences: [
+            { database: "Ensembl", id: "ENST00000111111.1", isoformId: "P00002-2", properties: [] },
+            { database: "Ensembl", id: "ENST00000222222.3", isoformId: "P00002-1", properties: [] },
+            { database: "MANE-Select", id: "ENST00000111111.1", isoformId: "P00002-2", properties: [{ key: "RefSeqNucleotideId", value: "NM_000001.1" }] }
+          ]
+        }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+      try {
+        const mapping = await getTranscriptsForProtein("P00002b"); // search branch (non-accession form)
+        expect(mapping.ensemblId).toBe("ENST00000111111.1"); // MANE wins ensemblId
+        expect(mapping.canonicalEnsemblId).toBe("ENST00000222222.3"); // isoform rule wins geometry model
+      } finally {
+        global.fetch = origFetch;
+        transcriptMappingCache.clear();
+      }
+    });
   });
 
   describe("gpn-star score resolver", () => {

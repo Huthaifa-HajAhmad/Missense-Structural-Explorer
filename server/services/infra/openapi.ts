@@ -231,6 +231,21 @@ export function generateOpenApiSpec() {
                       "canonical"
                     ],
                     "description": "The reader's answer to an `AMBIGUOUS_PROTEIN_NUMBERING` refusal: these residue numbers ARE canonical numbering. Re-submitting the bare notation without it is refused again, so this is the only way to select the canonical reading of a genuinely ambiguous position. Honoured only when the canonical reading is consistent with the sequence, and reported back as `numberingDisambiguated`."
+                  },
+                  "assembly": {
+                    "type": "string",
+                    "enum": [
+                      "GRCh37",
+                      "GRCh38"
+                    ],
+                    "default": "GRCh38",
+                    "description": "Genome build the caller's coordinate notation was expressed in. Nearly every coordinate-consuming source downstream is single-build (GPN-Star, local dbNSFP, Genos, dbnsfp.org, gnomAD r4 variant ids, AlphaGenome, splice-junction geometry), so the build is carried explicitly rather than assumed. Defaults to GRCh38 so existing clients keep their behaviour."
+                  },
+                  "genomicCoordinates": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "example": "X-23723975-C-A",
+                    "description": "The genomic coordinate the protein notation was TRANSLATED FROM (hyphen form: chrom-pos-ref-alt), sent TOGETHER WITH `assembly`. The translate route returns it; forwarding it lets the predictor query Ensembl VEP by position instead of re-deriving the locus from protein HGVS — a notation VEP rejects for codon-ambiguous substitutions (e.g. Lys→Asn) and for genes whose MANE isoform is not the canonical one this platform models. Ignored unless `assembly` was explicitly stated in the same request (a defaulted build beside a GRCh37 position is the wrong-locus hazard the assembly gate exists to refuse), and only honoured by the predictor when the annotation proves it belongs to the requested gene AND states the requested substitution at the requested position; otherwise the request falls through to the protein-HGVS path. Coordinates are lifted to GRCh38 with a forward map, an exact reverse round-trip and a reference-base check."
                   }
                 }
               }
@@ -307,47 +322,72 @@ export function generateOpenApiSpec() {
       }
     },
     "/analyze-variant/stream": {
-      "get": {
+      "post": {
         "tags": [
           "Variant Analysis"
         ],
         "summary": "Progressive NDJSON streaming endpoint for rapid initial triage (<150ms) followed by full evidence",
         "operationId": "streamAnalyzeVariant",
-        "parameters": [
-          {
-            "name": "gene",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "variant",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "uniprotId",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "acmgWeighting",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "standard"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "gene",
+                  "variant",
+                  "uniprotId"
+                ],
+                "properties": {
+                  "gene": {
+                    "type": "string",
+                    "example": "ACOT9"
+                  },
+                  "variant": {
+                    "type": "string",
+                    "example": "p.Lys272Asn"
+                  },
+                  "uniprotId": {
+                    "type": "string",
+                    "example": "Q9Y305"
+                  },
+                  "acmgWeighting": {
+                    "type": "string",
+                    "enum": [
+                      "standard",
+                      "conservative",
+                      "strict-structural"
+                    ],
+                    "default": "standard"
+                  },
+                  "numberingBasis": {
+                    "type": "string",
+                    "enum": [
+                      "canonical"
+                    ],
+                    "description": "The reader's answer to an `AMBIGUOUS_PROTEIN_NUMBERING` refusal — see POST /analyze-variant."
+                  },
+                  "assembly": {
+                    "type": "string",
+                    "enum": [
+                      "GRCh37",
+                      "GRCh38"
+                    ],
+                    "default": "GRCh38",
+                    "description": "Build the caller's coordinate notation was expressed in — see POST /analyze-variant."
+                  },
+                  "genomicCoordinates": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "example": "X-23723975-C-A",
+                    "description": "The coordinate the protein notation was translated from, sent together with `assembly` — see POST /analyze-variant. The streaming route forwards it to the same predictor path, so the first chunk carries coordinate-derived evidence (AlphaMissense, CADD, transcript selection) whenever the coordinate proves the locus."
+                  }
+                }
+              }
             }
           }
-        ],
+        },
         "responses": {
           "200": {
             "description": "Chunked NDJSON progressive streaming stream",

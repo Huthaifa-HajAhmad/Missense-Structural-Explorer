@@ -12,7 +12,7 @@ import { fetchRealConsurfData } from "./consurf-resolver.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
 import { fetchSpliceAiBroad, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiScoreRecord } from "../../external-api/spliceai_broad.ts";
-import { CANONICAL_ASSEMBLY, sourceSupportsAssembly } from "../../../../src/shared/assembly.ts";
+import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, describeAssemblyRefusal, ASSEMBLY_REFUSAL_SOURCES } from "../../../../src/shared/assembly.ts";
 import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
 
@@ -170,8 +170,19 @@ export async function fetchConservationData(
             return match ? parseInt(match[0], 10) : null;
           })();
 
-      const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null)
-        ? await resolveSpliceProximity(transcriptId, genomicPos)
+      const parsedIdCoord = gnomadVariantId ? parseGenomicCoordinateString(gnomadVariantId) : null;
+      const spliceProximity = (transcriptId && genomicPos !== undefined && genomicPos !== null
+        // Build gate, same rule as the progressive path below: the exon model is GRCh38
+        // (rest.ensembl.org lookup), so a GRCh37 position must never be measured against it.
+        // This call site was the ungated landmine (unmapping defect F-5) — reachable the moment
+        // any caller passed a coordinate, and free to render wrong-locus geometry as measured.
+        && assembly !== null && assembly !== undefined
+        && sourceSupportsAssembly("splice-proximity", assembly as GenomeAssembly)
+        // The position must also BE the tagged id's locus: `assembly` is documented as the build
+        // `gnomadVariantId` belongs to, and nothing else ties `genomicPos` to it (review M5).
+        // An unrelated genomicPos beside a tagged id gets no geometry.
+        && parsedIdCoord !== null && parsedIdCoord.pos === genomicPos)
+        ? await resolveSpliceProximity(transcriptId, genomicPos, parsedIdCoord?.chrom ?? null)
         : null;
 
       /**
@@ -241,8 +252,15 @@ export async function fetchConservationData(
               ? fetchGpnStarByCoordinate(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
 
-            const alphaPromise = parsedGnomad
-              ? fetchAlphaGenome(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt).catch(() => null)
+            // AlphaGenome is GRCh38-only — the same gate as its progressive-path sibling and
+            // the PopEVE/GPN calls in this very block. Gating only the progressive call site
+            // left this one free to score an hg19 position against the GRCh38 model (review M-4).
+            const alphaPromise = (parsedGnomad && usableBy("alphagenome"))
+              ? fetchAlphaGenome(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt, {
+                  // The build reaches the cache key, as on the progressive path: a GRCh38
+                  // entry must never be served for another build's numeric position.
+                  assembly: assembly ?? undefined
+                }).catch(() => null)
               : Promise.resolve(null);
 
             const [popEVEScore, consurfVal, gpnTabixRes, alphaRes] = await Promise.all([popEVEPromise, consurfPromise, gpnTabixPromise, alphaPromise]);
@@ -425,7 +443,10 @@ export async function fetchConservationData(
       const queryStr = (resolvedPos !== null)
         ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:${resolvedPos}`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen,dbnsfp.bayesdel,dbnsfp.dann,dbnsfp.esm1b";
+      // NOTE `dbnsfp.dbscsnv`: the parser below reads dbscSNV ADA/RF from the hit, but the query
+      // used to omit the field from the projection, so MyVariant never returned it — dbscSNV was
+      // unfetchable by construction on this path (unmapping defect F-7).
+      const targetFields = "dbnsfp.revel,dbnsfp.gerp,dbnsfp.gerp++,dbnsfp.phylop,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.aapos,dbnsfp.genename,dbnsfp.alphamissense,dbnsfp.spliceai,dbnsfp.dbscsnv,dbnsfp.metarnn,dbnsfp.clinpred,dbnsfp.eigen,dbnsfp.bayesdel,dbnsfp.dann,dbnsfp.esm1b";
       const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=${targetFields}&limit=100`;
   
       try {
@@ -492,14 +513,20 @@ export async function fetchConservationData(
                 revel = safeParseFloat(rVal);
               }
 
+              // gerp/phylop are gated on the exact substitution like every other value: the query
+              // is `aa.pos`-based, so without a matched hgvsp the record is an ARBITRARY variant
+              // at the same protein position, and its conservation numbers would be attributed to
+              // this variant (unmapping defect F-8).
               let gerp: any = null;
-              const gerpObj = dbnsfp["gerp++"] || dbnsfp.gerp || {};
-              let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : (gerpObj.elements || gerpObj["gerp++_rs"] || null);
-              if (Array.isArray(gerpVal)) gerpVal = gerpVal[0];
-              gerp = safeParseFloat(gerpVal);
+              if (isExactMatch) {
+                const gerpObj = dbnsfp["gerp++"] || dbnsfp.gerp || {};
+                let gerpVal = gerpObj.rs !== undefined ? gerpObj.rs : (gerpObj.elements || gerpObj["gerp++_rs"] || null);
+                if (Array.isArray(gerpVal)) gerpVal = gerpVal[0];
+                gerp = safeParseFloat(gerpVal);
+              }
 
               let phylop: any = null;
-              if (dbnsfp.phylop) {
+              if (isExactMatch && dbnsfp.phylop) {
                 let phylopVal = dbnsfp.phylop["100way_vertebrate"]?.score !== undefined 
                   ? dbnsfp.phylop["100way_vertebrate"].score 
                   : (dbnsfp.phylop.vertebrate || dbnsfp.phylop["phylop100way_vertebrate"] || null);
@@ -744,6 +771,7 @@ export async function fetchConservationDataProgressive(
       let gpnStarResult: EvolutionaryScaleResult | null = null;
       let alphagenomeResult: AlphaGenomeAviData | null = null;
       let liveSpliceAi: SpliceAiScoreRecord | null = null;
+      const assemblyRefusals: Array<{ source: string; reason: string }> = [];
 
       const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
       if (parsedCoord) {
@@ -765,6 +793,37 @@ export async function fetchConservationDataProgressive(
         const coordinateAssembly = pred?.gnomadVariantAssembly ?? null;
         const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
           coordinateAssembly !== null && sourceSupportsAssembly(source, coordinateAssembly);
+
+        /**
+         * Record WHY each skipped source was skipped (unmapping defect F-13).
+         *
+         * The refusal is correct; the silence was not. Without a reason on the payload, every
+         * surface that renders a blank invents one — "Awaiting API key", "Outside Consensus
+         * Zone", "Transcript coordinates mapped" — and the panel contradicts itself. The reasons
+         * travel as data; no fabricated status objects, so "never asked" stays distinguishable
+         * from "asked and unavailable".
+         *
+         * A refusal is recorded only for a source that was actually reachable-but-for-the-build
+         * (review L-9): claiming "not scored because GRCh37" for splice-proximity when no
+         * transcript exists, or for AlphaGenome when none is configured, states a sufficient
+         * cause that is not the operative one and misdirects whoever reads it.
+         */
+        for (const src of ASSEMBLY_REFUSAL_SOURCES) {
+          const reachable = src === "splice-proximity"
+            ? Boolean(pred?.transcriptId)
+            : src === "alphagenome"
+            ? Boolean(alphagenomeApiKey || alphagenomeApiUrl)
+            : true;
+          if (!reachable) continue;
+          if (coordinateAssembly === null) {
+            assemblyRefusals.push({
+              source: src,
+              reason: `${src} was not scored: the coordinate's genome build was not declared.`
+            });
+          } else if (!sourceSupportsAssembly(src, coordinateAssembly)) {
+            assemblyRefusals.push({ source: src, reason: describeAssemblyRefusal(src, coordinateAssembly) });
+          }
+        }
 
         const [popRes, gpnRes, alphaRes, liveSpliceAiRes] = await Promise.all([
           // PopEVE matches chrom/pos/ref/alt against a GRCh38-only index (`popeve_grch38.vcf.gz`).
@@ -808,14 +867,21 @@ export async function fetchConservationDataProgressive(
          * region type and a wrong canonical-junction verdict — all rendered as measured geometry
          * ("N bp from junction", "Exon 3 of 12"). `splice-proximity` was declared GRCh38-only but
          * nothing enforced it, so this was reachable with an hg19 coordinate.
+         *
+         * The geometry model is the CANONICAL transcript when the producer named one (F-16): the
+         * platform numbers the variant on the canonical isoform, so "Exon N of M" must describe
+         * the canonical exon structure, not the MANE model's. And the contig travels with the
+         * position (F-6): a coordinate on another chromosome is refused by the resolver, not
+         * measured against unrelated exons.
          */
         if (pred?.transcriptId && usableBy("splice-proximity")) {
-          spliceProximity = await resolveSpliceProximity(pred.transcriptId, parsedCoord.pos).catch(() => null);
+          const geometryTranscript = pred.canonicalEnsemblId || pred.transcriptId;
+          spliceProximity = await resolveSpliceProximity(geometryTranscript, parsedCoord.pos, parsedCoord.chrom).catch(() => null);
         }
       }
-      return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult, liveSpliceAi };
+      return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult, liveSpliceAi, assemblyRefusals };
     })
-    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null, liveSpliceAi: null }));
+    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null, liveSpliceAi: null, assemblyRefusals: null as Array<{ source: string; reason: string }> | null }));
 
   // 3. Immediately kick off base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant)
   const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
@@ -884,6 +950,9 @@ export async function fetchConservationDataProgressive(
     consurf: consurfVal ?? baseConservation.consurf,
     popeve: baseConservation.popeve ?? enrichment.popEVEScore,
     spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity,
+    assemblyRefusals: enrichment.assemblyRefusals && enrichment.assemblyRefusals.length > 0
+      ? enrichment.assemblyRefusals
+      : baseConservation.assemblyRefusals ?? null,
     gpnStar: finalGpnScore,
     gpnStarStatus: finalGpnStatus,
     gpnStarMessage: finalGpnMessage,

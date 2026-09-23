@@ -110,6 +110,12 @@ export interface TranslatedVariantResult {
     assembly?: string;
     /** Explanation emitted when an inline assembly annotation redirected the query. */
     assemblyNote?: string;
+    /**
+     * The genomic coordinate the protein notation was translated from (hyphen form, e.g.
+     * "X-23723975-C-A"), in the build named by `assembly`. Forwarded with the analysis request
+     * so the predictor can query VEP by coordinate; present only for genomic/cDNA inputs.
+     */
+    genomicCoordinates?: string | null;
   };
   /**
    * Which provider actually answered, and whether the ladder fell back.

@@ -3,6 +3,8 @@ import { Brain, Cpu, Database, HeartHandshake, HelpCircle, Info, Layers, ShieldA
 import { THRESHOLDS, THRESHOLD_NOTES, evaluateGpnStar } from "../shared/thresholds";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
 import { useSettings } from "../context/SettingsContext";
+import { resolveSourceAvailability } from "../shared/evidenceAvailability";
+import { ENGINE_STATE_LABELS } from "../shared/engineStatus";
 import type { AlphaGenomeAviData } from "../shared/contracts";
 
 interface PredictorSpecialistPanelsProps {
@@ -31,6 +33,8 @@ interface PredictorSpecialistPanelsProps {
     gpnStar?: number | null;
     gpnStarStatus?: "live" | "token_required" | "unavailable";
     gpnStarMessage?: string | null;
+    /** Per-source build-gate refusals, recorded server-side. Optional so older payloads typecheck. */
+    assemblyRefusals?: Array<{ source: string; reason: string }> | null;
     alphagenome?: AlphaGenomeAviData | null;
     source?: string;
   } | null;
@@ -58,7 +62,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
   onOpenSettings,
   onTabChange
 }) => {
-  const { openSettingsTab } = useSettings();
+  const { settings, openSettingsTab } = useSettings();
   const renderScoreValue = (val: number | null, decimals = 3) => {
     if (val !== null && val !== undefined) {
       return decimals === 0 ? val.toString() : val.toFixed(decimals);
@@ -71,7 +75,9 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
         </span>
       );
     }
-    return "N/A";
+    // "—" not "N/A": the retired vocabulary list (engineStatus.ts LEGACY_ENGINE_LABELS)
+    // includes "N/A"; the em-dash is the established absence glyph across these surfaces.
+    return "—";
   };
   const [activeTab, setActiveTab] = useState<TabType>("meta");
   const [knowledgeModalKey, setKnowledgeModalKey] = useState<string | null>(null);
@@ -105,6 +111,22 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
 
   const alphagenome = conservationData?.alphagenome ?? null;
   const aviPhred = alphagenome?.aviPhred ?? null;
+  /**
+   * Why there is no AVI score. Previously this panel asserted "Configure an API key in Settings →
+   * Connections" for every absence, which is the same false cause the standby RCA traced through the
+   * AlphaGenome tab — and here it is asserted even when a key is configured and verified.
+   */
+  const aviAvailability = resolveSourceAvailability({
+    source: "alphagenome",
+    refusals: conservationData?.assemblyRefusals,
+    value: aviPhred,
+    status: alphagenome?.status ?? null,
+    // Tri-state: this page can only attest to a key the browser holds. The server may be reading
+    // process.env.ALPHAGENOME_API_KEY, which is invisible here — asserting `false` on that basis
+    // outranks the provider's own message and sends a server-keyed deployment to Settings.
+    configured: settings.alphagenomeApiKey?.trim() ? true : undefined,
+    message: alphagenome?.message ?? null,
+  });
   const aviStrength = alphagenome?.acmgStrength ?? "indeterminate";
   const aviTopModality = alphagenome?.topModality ?? null;
   const aviPercentile = alphagenome?.topPercentile ?? null;
@@ -354,7 +376,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       aviStrength !== "indeterminate" ? aviStrength.replace("_", " ") : "Indeterminate"
                     )
                   ) : (
-                    renderBadge("unavailable", isLoading ? "Evaluating..." : "Standby")
+                    renderBadge("unavailable", isLoading ? "Evaluating..." : (aviAvailability.label ?? ENGINE_STATE_LABELS["no-result"]))
                   )}
                 </div>
               </div>
@@ -364,7 +386,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                   <div>
                     <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>AVI Phred: </span>
                     <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                      {aviPhred !== null ? `${aviPhred.toFixed(1)}` : (isLoading ? "Evaluating..." : "Standby")}
+                      {aviPhred !== null ? `${aviPhred.toFixed(1)}` : (isLoading ? "Evaluating..." : "—")}
                     </span>
                   </div>
                   {aviPercentile !== null && (
@@ -375,8 +397,19 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                 </div>
 
                 {aviPhred === null && !isLoading && (
-                  <p className="text-[10.5px] text-cs-text-muted mt-1.5 leading-tight">
-                    Frontier foundation model in standby. Configure an API key in Settings &rarr; Connections or explore directly in the Atlas tab.
+                  <p className="text-[11px] text-cs-text-muted mt-1.5 leading-tight">
+                    {aviAvailability.reason ?? "No AVI score reached this variant."}{" "}
+                    {aviAvailability.action === "configure-credentials" && (
+                      <button
+                        type="button"
+                        onClick={() => openSettingsTab("connections")}
+                        className="underline font-semibold cursor-pointer"
+                      >
+                        Configure an API key in Settings &rarr; Connections.
+                      </button>
+                    )}
+                    {aviAvailability.action === "retry" && "Re-evaluate the variant to ask the Atlas again."}
+                    {aviAvailability.action === null && "No setting changes this."}
                   </p>
                 )}
 
@@ -437,7 +470,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                     getEsmSignal(vesmScore ?? null),
                     vesmScore !== null && vesmScore !== undefined
                       ? "Informational"
-                      : (isStructuralLoading || isLoading ? "Evaluating..." : "Standby")
+                      : (isStructuralLoading || isLoading ? "Evaluating..." : ENGINE_STATE_LABELS["no-result"])
                   )}
                 </div>
               </div>
@@ -481,7 +514,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                     getEsmSignal(esm2Score ?? null),
                     esm2Score !== null && esm2Score !== undefined
                       ? "Informational"
-                      : (isStructuralLoading || isLoading ? "Evaluating..." : "Standby")
+                      : (isStructuralLoading || isLoading ? "Evaluating..." : ENGINE_STATE_LABELS["no-result"])
                   )}
                 </div>
               </div>
@@ -527,7 +560,7 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                     getEsmSignal(saprotScore ?? null),
                     saprotScore !== null && saprotScore !== undefined
                       ? "Informational"
-                      : (isStructuralLoading || isLoading ? "Evaluating..." : "Standby")
+                      : (isStructuralLoading || isLoading ? "Evaluating..." : ENGINE_STATE_LABELS["no-result"])
                   )}
                 </div>
               </div>
@@ -588,14 +621,17 @@ export const PredictorSpecialistPanels: React.FC<PredictorSpecialistPanelsProps>
                       Token Required
                     </span>
                   ) : (
-                    renderBadge("unavailable", "Endpoint Standby")
+                    // The GPN sidecar endpoint is not provisioned in this deployment — the
+                    // canonical state for that is not-installed ("Not available here"),
+                    // operator-fixable; the retired word was "Endpoint Standby" (guard UI#9).
+                    renderBadge("unavailable", ENGINE_STATE_LABELS["not-installed"])
                   )}
                 </div>
               </div>
               <div className="mt-4">
                 <span className="text-xs font-medium" style={{ color: "var(--cs-text-secondary)" }}>LLR Score: </span>
                 <span className="font-bold text-sm" style={{ color: "var(--cs-text-primary)" }}>
-                  {gpnScore !== null ? renderScoreValue(gpnScore, 2) : "Standby"}
+                  {gpnScore !== null ? renderScoreValue(gpnScore, 2) : ENGINE_STATE_LABELS["no-result"]}
                 </span>
                 {gpnScore !== null ? (
                   renderScoreBar(gpnScore, -10, 2, -2.5, 0.0, true)

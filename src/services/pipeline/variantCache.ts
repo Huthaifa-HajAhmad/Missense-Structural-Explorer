@@ -24,8 +24,13 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * the entries written before the server became build-aware; closing the remaining window needs the
  * build in this key, which requires threading it through every one of the ~20 call sites — most of
  * which only ever hold protein notation and therefore have no build to thread.
+ *
+ * v3.8: discards bundles written before the unmapping-defect fixes — they carry no
+ * `assemblyRefusals`, no lifted coordinates, and pre-fix splice geometry. The surfaces degrade
+ * honestly on such payloads, but replaying one would hide the fix for up to 24 h on a
+ * recently-viewed variant (external review UI#7).
  */
-export const CACHE_VERSION = "v3.7";
+export const CACHE_VERSION = "v3.8";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

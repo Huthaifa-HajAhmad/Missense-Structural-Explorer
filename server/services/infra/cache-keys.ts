@@ -95,11 +95,30 @@ export function buildUniprotIdKey(gene: string): string {
   return `uniprot_id_${normGene}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
-export function buildPredictorsKey(gene: string, variant: string, uniprotId?: string): string {
+/**
+ * Key for a resolved predictor payload.
+ *
+ * The coordinate participates (normalized, with its build) whenever the caller supplied one:
+ * a coordinate-first result is computed at a specific locus, and two different loci must never
+ * share a cache entry. The same protein substitution can legitimately sit at two coordinates
+ * (`p.Lys272Asn` from C>A and from C>G — same codon position, different nucleotide, different
+ * CADD/SpliceAI/gnomAD answer), so keying on gene+variant+uniprot alone lets one request's
+ * coordinate-derived result be served to another's (review H2). "nocoord" pins the ladder-only
+ * shape so a later coordinate-first result cannot be shadowed by it either.
+ */
+export function buildPredictorsKey(
+  gene: string,
+  variant: string,
+  uniprotId?: string,
+  coord?: { chrom: string; pos: number; ref: string; alt: string; assembly?: string | null } | null
+): string {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   const uId = uniprotId ? `_${uniprotId.trim().toUpperCase()}` : "";
-  return `predictors_${normGene}_${cleanVar}${uId}_schema:${CACHE_SCHEMA_VERSION}`;
+  const coordPart = coord
+    ? `_coord_${coord.chrom.toUpperCase()}:${coord.pos}:${coord.ref.toUpperCase()}>${coord.alt.toUpperCase()}_${coord.assembly ?? "unknown"}`
+    : "_nocoord";
+  return `predictors_${normGene}_${cleanVar}${uId}${coordPart}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 /**
@@ -138,6 +157,28 @@ export function buildStringKey(gene: string): string {
 export function buildAlphaGenomeKey(chrom: string, pos: number, ref: string, alt: string, assembly?: string | null): string {
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom.toLowerCase() : `chr${chrom.toLowerCase()}`;
   return `alphagenome_${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}_${assembly ?? "unknown"}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
+/**
+ * Key for a coordinate lift between two builds.
+ *
+ * The build PAIR participates (a GRCh37→GRCh38 lift is not an answer for GRCh38→GRCh37).
+ * The ALLELES participate too: the cached value is a full LiftedCoordinate carrying ref/alt,
+ * and two SNVs at one position (KRAS c.35G>A then c.35G>T) share a chrom:pos — keying without
+ * the alleles served the second variant the FIRST one's alt, re-stamped GRCh38, which then
+ * passed every build gate downstream (review H3 — the largest silent-wrongness in the
+ * surface). Position mappings are identical per locus; the duplicate entry costs one row.
+ */
+export function buildCoordinateLiftKey(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  from: string,
+  to: string
+): string {
+  const normChrom = chrom.trim().replace(/^chr/i, "").toUpperCase();
+  return `lift_${normChrom}:${pos}:${ref.toUpperCase()}>${alt.toUpperCase()}_${from}>${to}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 /**

@@ -12,8 +12,10 @@ import {
   Layers
 } from "lucide-react";
 import { TabComponentProps } from "./types";
+import { useSettings } from "../../context/SettingsContext";
 import { THRESHOLDS } from "../../shared/thresholds";
 import { buildEngineOutcomes, ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+import { resolveEvidenceAvailability } from "../../shared/evidenceAvailability";
 import { deriveSplicingEvidence, LOADING_BADGE } from "../../shared/splicingEvidence.ts";
 
 /**
@@ -209,14 +211,48 @@ function SplicingTabComponent({
     isSplicingDisrupted,
     isCriticalJunctionProximity,
     verdictLabel,
-    verdictBadgeClass
+    verdictBadgeClass,
+    proximityRefusal,
+    alphagenomeRefusal,
+    alphagenomeStatus
   } = evidence;
+
+  /**
+   * Why AlphaGenome has no value here, decided by the shared resolver rather than by a ternary at
+   * the call site. The previous `refusal ? not-covered : not-installed` was right about the one
+   * case the unmapping defect happened to hit and wrong about the rest: a provider timeout or an
+   * unindexed variant both fell through to "Not available here", which tells the user a binary is
+   * missing when nothing is missing.
+   *
+   * `configured` and `message` are passed exactly as the AlphaGenome tab and the specialist panels
+   * pass them (review UI#1): without `configured`, a keyless deployment falls to the resolver's
+   * provider-error branch and this card says "retry" while the AlphaGenome tab says "go to
+   * Settings" — two surfaces, one absence, opposite claims. The resolver's own contract is that
+   * `configured` is omitted only when the surface genuinely cannot know; this one can.
+   */
+  const { settings } = useSettings();
+  const alphaGenomeAvailability = resolveEvidenceAvailability({
+    // The value itself, not a per-site boolean — see evidenceAvailability.ts. A non-null splicing
+    // attribution only exists when AlphaGenome answered, so no extra `hasAlphaGenome` coupling is
+    // needed, and adding it here would re-create the disagreement the `value` field removes.
+    value: splicingAttribution,
+    status: alphagenomeStatus,
+    refusal: alphagenomeRefusal,
+    // Tri-state, per the resolver's own contract: this page can attest only to a key the browser
+    // holds. A definite `false` would outrank the provider's message and send a server-keyed
+    // deployment to Settings for what may be an outage or a coverage miss.
+    configured: settings.alphagenomeApiKey?.trim() ? true : undefined,
+    message: result?.conservationData?.alphagenome?.message ?? null,
+  });
 
   // ---------------------------------------------------------------------------
   // Genomic schematic geometry (960 x 240)
-  // Donor site:    [Exon (5', left)]   ── GT ── [Intron (3', right)]
-  // Acceptor site: [Intron (5', left)] ── AG ── [Exon (3', right)]
+  // Donor site:    [Exon (5', left)]   ── GT ─ [Intron (3', right)]
+  // Acceptor site: [Intron (5', left)] ── AG ─ [Exon (3', right)]
+  // Neither known: neutral boundary — the diagram may not claim an orientation,
+  // a motif, or a side the resolver did not measure (unmapping defect F-11/F-15).
   // ---------------------------------------------------------------------------
+  const orientationKnown = isDonor || isAcceptor;
   const isOffScale = distance !== null && distance > 60;
   const clampedDistance =
     typeof distance === "number" && Number.isFinite(distance) && distance >= 0
@@ -225,7 +261,10 @@ function SplicingTabComponent({
 
   let pinX = 480;
   if (clampedDistance !== null) {
-    if (isDonor) {
+    if (!orientationKnown) {
+      // Both candidate sides are drawn; the chip position follows the right-hand one.
+      pinX = 480 + clampedDistance * 6.3;
+    } else if (isDonor) {
       pinX = isExonicVariant ? 480 - clampedDistance * 6.3 : 480 + clampedDistance * 6.3;
     } else {
       pinX = isExonicVariant ? 480 + clampedDistance * 6.3 : 480 - clampedDistance * 6.3;
@@ -237,7 +276,9 @@ function SplicingTabComponent({
   const rightTickY1 = isDonor ? 113 : 132;
   const rightTickY2 = isDonor ? 125 : 144;
 
-  const chipSignLabel = isDonor
+  const chipSignLabel = !orientationKnown
+    ? `±${distance} bp (side not resolved)`
+    : isDonor
     ? isExonicVariant
       ? `-${distance} bp (Exonic)`
       : `+${distance} bp (Intronic)`
@@ -342,18 +383,31 @@ function SplicingTabComponent({
                 : "—"}
             </div>
           </div>
-          <span className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${
-            isSplicingDominant ? "cs-badge cs-badge-path" : "cs-badge cs-badge-muted"
-          }`}>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 mt-2.5 rounded text-[10px] font-mono border w-fit ${
+              isSplicingDominant ? "cs-badge cs-badge-path" : "cs-badge cs-badge-muted"
+            }`}
+            title={alphaGenomeAvailability.reason ?? undefined}
+          >
             {isSplicingDominant
               ? "Primary Driver"
               : !hasAlphaGenome
-              ? // Rendered from the canonical contract rather than a hand-written literal. "Standby /
-                // Unconfigured" implied the app was waiting for something it would receive; the truth
-                // is that this engine has no data source in this deployment.
-                ENGINE_STATE_LABELS["not-installed"]
+              ? // The two absences the engine contract already names — "Not covered" (the build gate
+                // refused this coordinate, not fixable by configuration) vs "Not available here" (no
+                // data source in this deployment, operator-fixable) — plus the provider cases the
+                // old inline ternary had no branch for. Collapsing them sent users re-pasting an
+                // API key that was never the problem (unmapping defect F-14).
+                (alphaGenomeAvailability.label ?? ENGINE_STATE_LABELS["no-result"])
               : "No Splicing Attribution"}
           </span>
+          {/* The refusal/absence reason as visible text, not only a hover title: keyboard and
+              touch users get nothing from `title`, and the reason is the whole point of the
+              refusal surfacing (review UI#4). */}
+          {!isSplicingDominant && !hasAlphaGenome && alphaGenomeAvailability.reason && (
+            <p className="text-[10px] font-sans text-cs-text-muted mt-1.5 leading-snug">
+              {alphaGenomeAvailability.reason}
+            </p>
+          )}
         </div>
 
         {/* Card 5: Mechanistic Etiology Verdict */}
@@ -539,13 +593,45 @@ function SplicingTabComponent({
 
         {/* Full-Width Biologically Oriented SVG Schematic */}
         <div className="w-full p-6 rounded-xl border border-cs-border-subtle bg-cs-surface-2 flex flex-col items-center justify-center">
+          {(distance === null || clampedDistance === null) ? (
+            /* Unmapped geometry gets an UNRESOLVED panel, not a junction. The old fallback
+               drew the acceptor layout with a "Splice Boundary (0 bp)" marker sitting on the
+               junction — a fabricated measurement for the very case the resolver had just
+               declined to measure (unmapping defect F-11). A non-finite distance (possible
+               only via a replayed/hand-edited payload) lands here too rather than pinning
+               the marker to the junction while the chip claims ">60 bp" (review UI#5). */
+            <div className="w-full py-10 flex flex-col items-center justify-center gap-3 text-center">
+              <Scissors className="w-6 h-6 text-cs-text-muted" />
+              <p className="text-[12px] font-mono text-cs-text-secondary">
+                {distance === null && (isBiophysicalLoading || analysisState.isLoading)
+                  ? "Resolving exon–intron geometry…"
+                  : "Exon–intron geometry not resolved for this coordinate"}
+              </p>
+              <p className="text-[11px] font-sans text-cs-text-muted max-w-[560px] leading-relaxed">
+                {distance === null && (isBiophysicalLoading || analysisState.isLoading)
+                  ? "Junction distance, region type and exon bounds are being computed; the diagram appears once a position is measured."
+                  : proximityRefusal ??
+                    (distance === null
+                      ? "The splice resolver returned no junction distance, region type or exon bounds, so no geometry is drawn. The sequence-based scores above are computed independently of this diagram."
+                      : `The resolver reported a distance (${distance}) that cannot be placed on a linear map, so no geometry is drawn.`)}
+              </p>
+            </div>
+          ) : (
+          <>
           <svg
             width="100%"
             height="240"
             viewBox="0 0 960 240"
             className="overflow-visible select-none max-w-full"
             role="img"
-            aria-label="Splice junction biological architecture"
+            /* The static label used to announce "Splice junction biological architecture" even
+               for the neutral state — screen-reader users heard a junction claim precisely where
+               the visual disclosure says the junction was NOT resolved (review UI#3). */
+            aria-label={
+              orientationKnown
+                ? `Splice junction schematic: ${junctionType}; variant ${distance} bp from the junction, ${isExonicVariant ? "exonic" : "intronic"}.`
+                : `Splice boundary schematic: junction orientation not resolved; variant ${distance} bp from the boundary, shown on both candidate sides.`
+            }
           >
             <defs>
               <linearGradient id={exonGradId} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -587,7 +673,7 @@ function SplicingTabComponent({
                   3&apos; Intronic Flank (GT Motif)
                 </text>
               </g>
-            ) : (
+            ) : isAcceptor ? (
               <g>
                 {/* Intron Label Pill (Above pipe) */}
                 <rect x="170" y="16" width="160" height="30" rx="5" fill="var(--cs-surface)" stroke="var(--cs-border)" strokeWidth="1.2" />
@@ -616,13 +702,38 @@ function SplicingTabComponent({
                   3&apos; Exonic Sequence (Coding)
                 </text>
               </g>
+            ) : (
+              /* Orientation NOT known (transcript terminus, or a resolver that identified no
+                 boundary): two neutral model sides, no exon/intron claim, no GT/AG motif. The
+                 distance is real; which side it lies on is not (unmapping defect F-15). */
+              <g>
+                <rect x="170" y="16" width="220" height="30" rx="5" fill="var(--cs-surface)" stroke="var(--cs-border)" strokeWidth="1.2" />
+                <text x="280" y="36" fill="var(--cs-text-secondary)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[12px] font-bold" textAnchor="middle">
+                  Boundary — orientation not resolved
+                </text>
+
+                <rect x="40" y="77" width="440" height="36" rx="5" fill="var(--cs-surface)" stroke="var(--cs-border)" strokeWidth="1.5" strokeDasharray="6 4" />
+                <line x1="40" y1="95" x2="920" y2="95" stroke="var(--cs-text-muted)" strokeWidth="2.5" strokeDasharray="8 5" />
+
+                <text x="260" y="162" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                  5&apos; Transcript Model Side
+                </text>
+                <text x="700" y="162" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                  3&apos; Transcript Model Side
+                </text>
+              </g>
             )}
 
-            {/* Critical Consensus Zone (±5 bp Highlight around 480) */}
-            <rect x="446" y="50" width="68" height="90" rx="5" fill={`url(#${criticalZoneGradId})`} stroke="var(--cs-danger)" strokeWidth="1.5" strokeDasharray="3 2" />
-            <text x="480" y="42" fill="var(--cs-text-danger)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[11px] font-bold" textAnchor="middle">
-              &plusmn;{THRESHOLDS.spliceai.proximityCriticalBp} bp Consensus Zone
-            </text>
+            {/* Critical Consensus Zone (±5 bp Highlight around 480) — only ever a claim about a
+                REAL splice junction; a terminus or unresolved boundary has no consensus motif. */}
+            {orientationKnown && (
+              <>
+                <rect x="446" y="50" width="68" height="90" rx="5" fill={`url(#${criticalZoneGradId})`} stroke="var(--cs-danger)" strokeWidth="1.5" strokeDasharray="3 2" />
+                <text x="480" y="42" fill="var(--cs-text-danger)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[11px] font-bold" textAnchor="middle">
+                  &plusmn;{THRESHOLDS.spliceai.proximityCriticalBp} bp Consensus Zone
+                </text>
+              </>
+            )}
 
             {/* Splice Junction 0bp Boundary Line */}
             <line x1="480" y1="48" x2="480" y2="148" stroke="var(--cs-text-primary)" strokeWidth="3" />
@@ -633,7 +744,7 @@ function SplicingTabComponent({
 
             <line x1="480" y1="148" x2="480" y2="160" stroke="var(--cs-text-primary)" strokeWidth="2" />
             <text x="480" y="184" fill="var(--cs-text-primary)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[12px] font-bold" textAnchor="middle">
-              0 bp ({isDonor ? "GT Donor" : isAcceptor ? "AG Acceptor" : "Junction"})
+              0 bp ({isDonor ? "GT Donor" : isAcceptor ? "AG Acceptor" : "Boundary"})
             </text>
 
             <line x1="670" y1={rightTickY1} x2="670" y2={rightTickY2} stroke="var(--cs-text-muted)" strokeWidth="1.5" />
@@ -647,8 +758,11 @@ function SplicingTabComponent({
               </g>
             )}
 
-            {/* Dynamic Variant Position Marker Pin */}
-            {distance !== null ? (
+            {/* Dynamic Variant Position Marker Pin.
+                Known orientation: one pin on the measured side. Unknown orientation: TWO
+                candidate rings, one per side — the distance was measured, the side was not,
+                and a single pin would pick a side the data does not support. */}
+            {orientationKnown ? (
               <g>
                 <line
                   x1={pinX}
@@ -692,9 +806,63 @@ function SplicingTabComponent({
               </g>
             ) : (
               <g>
-                <circle cx="480" cy="95" r="5.5" fill="var(--cs-text-muted)" />
-                <text x="480" y="218" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[12px]" textAnchor="middle">
-                  Splice Boundary (0 bp)
+                <line
+                  x1={480 - (clampedDistance ?? 0) * 6.3}
+                  y1="56"
+                  x2={480 - (clampedDistance ?? 0) * 6.3}
+                  y2="134"
+                  stroke="var(--cs-accent-clay)"
+                  strokeWidth="2"
+                  strokeDasharray="5 2.5"
+                  opacity="0.55"
+                />
+                <circle
+                  cx={480 - (clampedDistance ?? 0) * 6.3}
+                  cy="95"
+                  r="7"
+                  fill="none"
+                  stroke="var(--cs-accent-clay)"
+                  strokeWidth="2.5"
+                  strokeDasharray="3 2"
+                />
+                <line
+                  x1={480 + (clampedDistance ?? 0) * 6.3}
+                  y1="56"
+                  x2={480 + (clampedDistance ?? 0) * 6.3}
+                  y2="134"
+                  stroke="var(--cs-accent-clay)"
+                  strokeWidth="2"
+                  strokeDasharray="5 2.5"
+                  opacity="0.55"
+                />
+                <circle
+                  cx={480 + (clampedDistance ?? 0) * 6.3}
+                  cy="95"
+                  r="7"
+                  fill="none"
+                  stroke="var(--cs-accent-clay)"
+                  strokeWidth="2.5"
+                  strokeDasharray="3 2"
+                />
+                <rect
+                  x="380"
+                  y="202"
+                  width="200"
+                  height="30"
+                  rx="6"
+                  fill="var(--cs-surface)"
+                  stroke="var(--cs-accent-clay)"
+                  strokeWidth="1.8"
+                />
+                <text
+                  x="480"
+                  y="222"
+                  fill="var(--cs-accent-clay)"
+                  style={{ fontFamily: "var(--cs-font-mono)" }}
+                  className="text-[12px] font-bold"
+                  textAnchor="middle"
+                >
+                  {isOffScale ? `${distance} bp (>60 bp scale)` : chipSignLabel}
                 </text>
               </g>
             )}
@@ -704,6 +872,8 @@ function SplicingTabComponent({
             <span className="font-semibold text-cs-text-primary">{junctionType}</span>
             <span>Strand: {strandLabel}</span>
           </div>
+          </>
+          )}
         </div>
 
         {/* Coverage notice — the one caveat that must sit next to the figure,

@@ -20,7 +20,8 @@ import {
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
 import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
-import { CANONICAL_ASSEMBLY, sourceSupportsAssembly } from "../../../src/shared/assembly.ts";
+import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
+import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, type AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
 import { predictStructuralDisruption, runEsm2Eval, type DisruptionPrediction } from "../stability/biophysics.ts";
@@ -54,6 +55,12 @@ export async function fetchCoreVariantData(
     // Build the caller's notation was expressed in; forwarded so build-pinned sources can
     // be skipped rather than handed another build's coordinates.
     assembly = CANONICAL_ASSEMBLY,
+    // The coordinate the protein notation was translated from, when the caller declared its
+    // build. Tagged and handed to the predictor so it can query VEP by POSITION — the protein-
+    // HGVS route is rejected by Ensembl for codon-ambiguous substitutions and isoform-remapped
+    // genes, and every such rejection used to land the variant on the GRCh37 fallback path
+    // (unmapping defect F-1).
+    genomicCoordinates,
     sequence,
     pos,
     wt1Letter,
@@ -64,6 +71,11 @@ export async function fetchCoreVariantData(
     alphagenomeApiKey,
     alphagenomeApiUrl
   } = context;
+
+  const parsedInputCoord = genomicCoordinates ? parseGenomicCoordinateString(genomicCoordinates) : null;
+  const inputCoordinate: AssemblyTaggedCoordinate | null = parsedInputCoord
+    ? { ...parsedInputCoord, assembly }
+    : null;
 
   const overallStart = performance.now();
   const serviceTimings: Record<string, number> = {};
@@ -87,7 +99,7 @@ export async function fetchCoreVariantData(
   }));
 
   let predictorHasError = false;
-  const predictorPromise = timeTask("predictorData", (prefetched?.predictorPromise || fetchPredictorData(gene, variant, uniprotId)).catch(err => {
+  const predictorPromise = timeTask("predictorData", (prefetched?.predictorPromise || fetchPredictorData(gene, variant, uniprotId, inputCoordinate)).catch(err => {
     console.warn("[Predictor Parallel Run Warning] Failed to fetch predictor data:", err);
     predictorHasError = true;
     return null;
