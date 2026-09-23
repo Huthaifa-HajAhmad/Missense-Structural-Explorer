@@ -121,7 +121,7 @@ function StateChip({ observation }: { observation: FrequencyObservation }) {
   );
 }
 
-/** `AC 8 · AN 1,459,156`, or whichever half the source reported. */
+/** `AC 17 · AN 1,461,892`, or whichever half the source reported. */
 function countLine(observation: FrequencyObservation): string | null {
   const parts: string[] = [];
   if (observation.ac !== null) parts.push(`AC ${formatCount(observation.ac)}`);
@@ -129,12 +129,34 @@ function countLine(observation: FrequencyObservation): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/**
+ * A labelled figure, on the project's stat-block grammar.
+ *
+ * `emphasis` exists for the allele counts. They are the number a reader can sanity-check without
+ * arithmetic — "17 of 1.46 million alleles" is interpretable at a glance where "1.16e-5" is not — so
+ * they are rendered as a real figure in ink rather than as a 12px muted caption. The frequency keeps
+ * the larger type because it is what the ACMG cut-points are stated in.
+ */
+function Figure({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
+  return (
+    <div className="flex flex-col">
+      <span className="metric-card-label">{label}</span>
+      <span
+        className={emphasis ? "text-[13px] font-medium tabular-nums leading-snug" : "metric-card-value tabular-nums"}
+        style={emphasis ? { color: "var(--cs-text-primary)" } : undefined}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function ObservationRow({ observation }: { observation: FrequencyObservation }) {
   const { availability } = observation;
   const counts = countLine(observation);
 
   return (
-    <div className="px-4 py-3 flex flex-col gap-2" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
+    <div className="px-4 py-3 flex flex-col gap-2.5" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
       <div className="flex items-start justify-between gap-3">
         <span className="text-[11px] font-medium" style={{ color: "var(--cs-text-secondary)" }}>
           {observation.label}
@@ -143,18 +165,17 @@ function ObservationRow({ observation }: { observation: FrequencyObservation }) 
       </div>
 
       {/*
-        * A frequency is a figure; counts are supporting detail. Both are rendered from what the row
-        * actually holds, so a source that reports an allele count but no denominator — which has no
-        * frequency — still shows its count instead of vanishing into an absence sentence.
+        * Both figures, from what the row actually holds: a source that reports an allele count but
+        * no denominator — which has no frequency — still shows its count rather than vanishing into
+        * an absence sentence.
         */}
       {availability.hasValue && observation.af !== null ? (
-        <div className="flex flex-col">
-          <span className="metric-card-label">Allele frequency</span>
-          <span className="metric-card-value tabular-nums">{formatAlleleFrequency(observation.af)}</span>
-          {counts && <span className="metric-card-desc tabular-nums">{counts}</span>}
+        <div className="flex flex-col gap-2">
+          <Figure label="Allele frequency" value={formatAlleleFrequency(observation.af)} />
+          {counts && <Figure label="Allele count / number" value={counts} emphasis />}
         </div>
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
           {/*
             * The reason, not the label. `observationAbsence` falls back to the canonical state label
             * when the pipeline recorded no reason — but the chip above already shows that label, so
@@ -165,11 +186,7 @@ function ObservationRow({ observation }: { observation: FrequencyObservation }) 
               {observationAbsence(observation)}
             </p>
           )}
-          {counts && (
-            <span className="font-mono text-[12px] tabular-nums" style={{ color: "var(--cs-text-muted)" }}>
-              {counts}
-            </span>
-          )}
+          {counts && <Figure label="Allele count / number" value={counts} emphasis />}
         </div>
       )}
     </div>
@@ -261,6 +278,20 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
   const gnomadMeta = gnomadRows[0]?.dataset ?? null;
   const clinvarClassification = clinvar.classification;
 
+  /**
+   * The governing value, when it is one no card shows.
+   *
+   * `groupMaxAF` is the maximum across gnomAD's ancestry groups, which is rarely equal to a dataset's
+   * global AF — for CNNM2 p.Ser489Cys it is 0.031% against 1.16e-5 and 1.97e-5. Without a row of its
+   * own the headline is a number the reader cannot find anywhere below it, which is what made the
+   * summary card hard to reconcile with the cards. Rendered as a DERIVED value, not as a source
+   * reading: it belongs to no single dataset.
+   */
+  const groupedMaxAf = criterion.usedGroupMax ? criterion.af : null;
+
+  /** Which sources actually produced a reading, named — a bare count answered no question. */
+  const reportingLabels = evidence.contributing.map(o => o.label);
+
   /** The one-line finding: what the engine did, and the value it did it on. */
   const findingLead = (() => {
     if (criterion.af === null) return "No frequency available";
@@ -306,19 +337,24 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
           </p>
 
           {/*
-            * The engine can legitimately decline to apply the criterion the frequency supports: the
-            * ACMG weighting is user-selectable and suppresses PM2 under `strict-structural`, and under
-            * `conservative` when ClinVar is not pathogenic (`criteria.ts:77`). Showing only the
-            * supported criterion would report a pathogenic finding the engine withheld.
+            * The engine can record no frequency criterion while the frequency supports one. That
+            * disagreement is a fact; its CAUSE usually is not. Only a weighting that actually
+            * suppresses frequency evidence may be named as the reason — a `standard` run that records
+            * no PM2 has some other cause, and claiming "the weighting withheld it" there would be
+            * inventing one.
             */}
           {applied.suppressed && (
             <p
               className="text-[12px] m-0 leading-relaxed"
               style={{ color: "var(--cs-text-warning-on-soft)" }}
             >
-              The engine applied no frequency criterion for this run
-              {applied.weighting ? ` (ACMG weighting: ${applied.weighting})` : ""}. The frequency above meets{" "}
-              {criterion.code}, so the weighting is what withheld it.
+              The frequency above meets {criterion.code}, but the engine recorded no frequency criterion
+              for this run
+              {applied.withheldByWeighting && applied.weighting
+                ? ` — the ${applied.weighting} weighting is what withholds it.`
+                : applied.weighting
+                  ? ` (ACMG weighting: ${applied.weighting}).`
+                  : "."}
             </p>
           )}
           {!applied.known && criterion.code !== "none" && criterion.code !== "unknown" && criterion.code !== "withheld" && (
@@ -328,18 +364,16 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
             </p>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 text-[12px]" style={{ borderTop: "1px solid var(--cs-border-subtle)", color: "var(--cs-text-muted)" }}>
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pt-2 text-[12px]" style={{ borderTop: "1px solid var(--cs-border-subtle)", color: "var(--cs-text-muted)" }}>
             {/*
-              * "Source readings", not "Sources contributing". The count is of observations that
-              * rendered a value, which is a fact about the cards below; "contributing" claimed these
-              * were the sources the criterion was drawn from, and the two differ — a payload can carry
-              * a grouped maximum with both per-dataset readings empty, giving "0 contributing" beside
-              * "gnomAD global maximum" in the headline.
+              * Names, not a count. "Source readings: 2" was reported as unclear — reasonably, since
+              * two of what, and the reader cannot tell which. Naming them answers the question the
+              * count was gesturing at, and an empty list says so in words.
               */}
             <span>
-              Source readings:{" "}
-              <span className="font-mono tabular-nums" style={{ color: "var(--cs-text-secondary)" }}>
-                {evidence.contributing.length}
+              Datasets reporting a frequency:{" "}
+              <span data-testid="reporting-datasets" style={{ color: "var(--cs-text-secondary)" }}>
+                {reportingLabels.length > 0 ? reportingLabels.join(" · ") : "none"}
               </span>
             </span>
             {criterion.fallback && (
@@ -445,6 +479,36 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
             {gnomadRows.map(row => (
               <ObservationRow key={row.key} observation={row} />
             ))}
+
+            {/*
+              * The value the criterion used, when it is a grouped maximum rather than either
+              * dataset's global AF. Without this the headline ("0.031% gnomAD ancestry-grouped
+              * maximum") is a number the reader cannot find anywhere on the screen.
+              */}
+            {groupedMaxAf !== null && (
+              <div className="px-4 py-3 flex flex-col gap-2" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-[11px] font-medium" style={{ color: "var(--cs-text-secondary)" }}>
+                    Ancestry-grouped maximum
+                  </span>
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium shrink-0"
+                    style={{
+                      color: "color-mix(in srgb, var(--cs-accent-clay) 70%, var(--cs-text-primary))",
+                      background: "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)",
+                      borderColor: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)",
+                    }}
+                  >
+                    Used for classification
+                  </span>
+                </div>
+                <Figure label="Allele frequency" value={formatAlleleFrequency(groupedMaxAf)} />
+                <p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
+                  Highest frequency across gnomAD ancestry groups with at least 2,000 alleles observed. It is
+                  a derived value, not one dataset's figure.
+                </p>
+              </div>
+            )}
 
             {evidence.gnomadHomozygotes !== null && evidence.gnomadHomozygotes > 0 && (
               <div className="px-4 py-2.5 flex items-baseline justify-between gap-3 text-[12px]" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>

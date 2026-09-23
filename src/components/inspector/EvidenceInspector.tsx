@@ -358,13 +358,13 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               Genomic Lineage &amp; ACMG Baseline
             </span>
             <div id="genomic-lineage-drawer" className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
-              {/* Assembly & Transcript */}
-              <div className="space-y-1.5 text-[11px]">
+              {/* Assembly & Transcript — 12px and weight 600, matching the main column's rows. */}
+              <div className="space-y-2 text-[12px]">
                 {numbering.remapped && (
                   <>
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Reported notation:</span>
-                      <span className="font-mono font-bold text-cs-text-primary" data-testid="reported-notation">
+                      <span className="font-mono font-semibold text-cs-text-primary" data-testid="reported-notation">
                         {numbering.reported}
                       </span>
                     </div>
@@ -379,14 +379,14 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 )}
                 <div className="flex justify-between items-center">
                   <span className="text-cs-text-secondary">Genome Assembly:</span>
-                  <span className="font-mono font-bold text-cs-text-primary">
+                  <span className="font-mono font-semibold text-cs-text-primary">
                     {genomicAssembly ? ASSEMBLY_LABELS[genomicAssembly] : "Build not reported"}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center">
                   <span className="text-cs-text-secondary">Transcript ID:</span>
-                  <span className="font-mono font-bold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
+                  <span className="font-mono font-semibold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
                 </div>
 
                 {maneRefSeqId && (
@@ -398,7 +398,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
                 <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
                   <span className="text-cs-text-secondary">Transcript Tier:</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
+                  <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-semibold uppercase ${
                     isManeSelect
                       ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                       : isManePlusClinical
@@ -438,13 +438,13 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                       {/* Theme tokens, not the raw Tailwind palette: the criteria-code rows below
                           used the same rose/emerald, which put the same two codes in two different
                           reds and two different greens inside one card. */}
-                      <span className="font-mono font-bold" style={{ color: "var(--cs-text-danger-on-soft)" }}>
+                      <span className="font-mono font-semibold" style={{ color: "var(--cs-text-danger-on-soft)" }}>
                         {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Benign Rules:</span>
-                      <span className="font-mono font-bold" style={{ color: "var(--cs-text-good-on-soft)" }}>
+                      <span className="font-mono font-semibold" style={{ color: "var(--cs-text-good-on-soft)" }}>
                         {benCount > 0 ? `${benCount} active` : "0 triggered"}
                       </span>
                     </div>
@@ -466,7 +466,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
           {/* ClinVar Provenance */}
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
             <div className="flex justify-between items-center">
-              <span className="font-bold text-[11px] text-cs-text-primary flex items-center gap-1">
+              <span className="text-[12px] font-medium uppercase tracking-[0.05em] text-cs-text-secondary flex items-center gap-1">
                 NCBI ClinVar Review
               </span>
               {/*
@@ -514,20 +514,32 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             * what THIS run did with the frequency — the same object the main column renders, so the
             * two panes cannot report different frequencies or different criteria for one variant.
             */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
+            {/*
+              * Card titles in this pane take the main column's rank (12px / 500 / uppercase /
+              * secondary). They were 10px mono bold, the same treatment as the section eyebrows above
+              * them, so a card and its own eyebrow read as the same thing.
+              */}
+            <span className="text-[12px] font-medium uppercase tracking-[0.05em] text-cs-text-secondary block">
               This run's frequency reading
             </span>
-            <div className="space-y-1.5 text-[11px]">
-              <div className="flex justify-between items-start gap-2">
-                <span className="text-cs-text-secondary shrink-0">Governing frequency:</span>
-                <span className="font-mono font-bold text-cs-text-primary text-right tabular-nums">
+            {/*
+              * 12px rather than 11px, and 600 rather than 700. The rail's rows were all 11px — labels
+              * and values the same size — so the pane read as one flat block of text; and `font-bold`
+              * is off this design system's weight scale, whose heaviest declared weight is
+              * `--cs-font-weight-semibold: 600`, which is what the main column uses for the same
+              * values. Weight, not size, is what separates a label from its value here.
+              */}
+            <div className="space-y-2 text-[12px]">
+              <div className="flex justify-between items-baseline gap-3">
+                <span className="text-cs-text-secondary shrink-0">Governing frequency</span>
+                <span className="font-mono font-semibold text-cs-text-primary text-right tabular-nums">
                   {formatAlleleFrequency(frequencyEvidence.criterion.af)}
                 </span>
               </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="text-cs-text-secondary shrink-0">Engine criterion:</span>
-                <span className="font-mono font-bold text-cs-text-primary text-right">
+              <div className="flex justify-between items-baseline gap-3">
+                <span className="text-cs-text-secondary shrink-0">Engine criterion</span>
+                <span className="font-mono font-semibold text-cs-text-primary text-right">
                   {frequencyEvidence.applied.known
                     ? frequencyEvidence.applied.code ?? "None recorded"
                     : `unconfirmed (supports ${frequencyEvidence.criterion.code})`}
@@ -535,32 +547,35 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               </div>
             </div>
             {frequencyEvidence.applied.suppressed && (
-              <p className="text-[11px] m-0 leading-snug" style={{ color: "var(--cs-text-warning-on-soft)" }}>
-                The frequency meets {frequencyEvidence.criterion.code}
-                {frequencyEvidence.applied.weighting ? `, and the ${frequencyEvidence.applied.weighting} weighting withheld it` : ", and the engine recorded no frequency criterion"}.
+              <p className="text-[12px] m-0 leading-relaxed" style={{ color: "var(--cs-text-warning-on-soft)" }}>
+                The frequency meets {frequencyEvidence.criterion.code}, but the engine recorded no frequency
+                criterion for this run
+                {frequencyEvidence.applied.withheldByWeighting && frequencyEvidence.applied.weighting
+                  ? ` — the ${frequencyEvidence.applied.weighting} weighting is what withholds it.`
+                  : "."}
               </p>
             )}
           </div>
 
           {/* ACMG Population Frequency Criteria */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
+            <span className="text-[12px] font-medium uppercase tracking-[0.05em] text-cs-text-secondary block">
               ACMG Frequency Criteria
             </span>
-            <div className="space-y-1.5 text-[11px]">
-              {/*
-                * The cut-points are READ from the constant the rule engine branches on, not restated
-                * here. They were restated, and they disagreed: this card printed "MAF > 0.1%" for BS1
-                * while `criteria.ts` tested at 1% — a provenance panel contradicting the classifier it
-                * sits beside, in the one card a reader consults to check the classification.
-                */}
-              {FREQUENCY_CRITERIA.map(({ code, tone, describe }) => (
-                <div key={code} className="flex justify-between items-start gap-2">
-                  <span className={`font-mono font-bold shrink-0 ${tone}`}>{code}</span>
-                  <span className="text-cs-text-secondary text-right">{describe(THRESHOLDS.populationFrequency)}</span>
-                </div>
-              ))}
-            </div>
+            {/*
+              * Each criterion is a stacked block: code, then its cut-point as a full-width left-aligned
+              * line. The previous shape put the description right-aligned against a left-aligned code,
+              * so a three-line description ("Extremely rare in gnomAD (MAF ≤ 0.01%, or ≤ 0.1% when pLI
+              * < 0.9 reads as recessive)") had a ragged left edge in a 300px column and had to be
+              * re-found on every read. Left-aligned prose with its own leading is what makes it
+              * scannable; the code is a label, not a table column.
+              */}
+            {FREQUENCY_CRITERIA.map(({ code, tone, describe }) => (
+              <div key={code} className="flex flex-col gap-1">
+                <span className={`font-mono font-semibold text-[12px] ${tone}`}>{code}</span>
+                <span className="text-[12px] text-cs-text-secondary leading-relaxed">{describe(THRESHOLDS.populationFrequency)}</span>
+              </div>
+            ))}
           </div>
 
           {/* Provenance */}

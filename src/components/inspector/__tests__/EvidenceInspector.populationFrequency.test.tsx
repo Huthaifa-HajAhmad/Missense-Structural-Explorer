@@ -74,14 +74,15 @@ describe("EvidenceInspector — clinical pane", () => {
 
   it("does not assert a gnomAD patch release the code never reads", () => {
     renderRail();
-    expect(screen.getByText("r4")).toBeTruthy();
+    // "v4", the release name gnomAD uses — not the `gnomad_r4` API alias, and never a minor.
+    expect(screen.getByText("v4")).toBeTruthy();
     expect(screen.queryByText(/v4\.0\.0|v4\.1\.0/)).toBeNull();
   });
 
   it("takes the release from the payload rather than a literal", () => {
     renderRail({ gnomadFrequency: { ...GNOMAD, dataset: "gnomad_r3" } });
-    expect(screen.getByText("gnomad_r3")).toBeTruthy();
-    expect(screen.queryByText("r4")).toBeNull();
+    expect(screen.getByText("v3")).toBeTruthy();
+    expect(screen.queryByText("v4")).toBeNull();
   });
 
   it("states this run's own frequency reading", () => {
@@ -106,7 +107,17 @@ describe("EvidenceInspector — clinical pane", () => {
       ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
     });
     expect(screen.getByText("None recorded")).toBeTruthy();
-    expect(screen.getByText(/strict-structural weighting withheld it/)).toBeTruthy();
+    // Only a weighting that actually suppresses frequency evidence may be named as the cause.
+    expect(screen.getByText(/strict-structural weighting is what withholds it/)).toBeTruthy();
+  });
+
+  it("does not blame a weighting that cannot withhold the criterion", () => {
+    renderRail({
+      metadata: { variant: "p.Arg591Trp", uniprotId: "Q9H116", acmgWeighting: "standard" },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
+    });
+    expect(screen.getByText(/the engine recorded no frequency criterion/)).toBeTruthy();
+    expect(screen.queryByText(/weighting is what withholds it/)).toBeNull();
   });
 
   it("does not claim a ClinVar record was read when the query failed", () => {

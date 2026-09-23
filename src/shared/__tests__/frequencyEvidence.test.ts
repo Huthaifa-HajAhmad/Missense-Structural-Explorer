@@ -281,7 +281,27 @@ describe("frequencyEvidence — what the ENGINE did, versus what the frequency s
     expect(suppressed.applied.known).toBe(true);
     expect(suppressed.applied.code).toBeNull();
     expect(suppressed.applied.suppressed).toBe(true);
+    expect(suppressed.applied.withheldByWeighting).toBe(true);
     expect(suppressed.applied.weighting).toBe("strict-structural");
+  });
+
+  it("does not blame the weighting for a withholding it cannot cause", () => {
+    /**
+     * `suppressed` says the engine recorded no criterion the frequency supports; it does NOT say why.
+     * Only `strict-structural` and `conservative` suppress frequency evidence, so a `standard` run
+     * that records no PM2 must not be worded as a weighting decision — that would name a cause the
+     * module cannot see, which is the defect class this whole change exists to close.
+     */
+    const standard = buildFrequencyEvidence(
+      rareInput({ engineCriteria: [{ code: "PP3" }], acmgWeighting: "standard" }),
+    );
+    expect(standard.applied.suppressed).toBe(true);
+    expect(standard.applied.withheldByWeighting).toBe(false);
+
+    // And with no weighting stated at all, the same holds.
+    const unstated = buildFrequencyEvidence(rareInput({ engineCriteria: [] }));
+    expect(unstated.applied.suppressed).toBe(true);
+    expect(unstated.applied.withheldByWeighting).toBe(false);
   });
 
   it("does not call a genuine engine agreement a suppression", () => {
@@ -403,7 +423,7 @@ describe("frequencyEvidence — source attribution", () => {
     expect(gnomadRows[0].id).toBe("gnomad-local");
     expect(gnomadRows[0].label).toContain("combined");
     // And the release is named rather than passed through as a machine token.
-    expect(gnomadRows[0].dataset).toBe("r4 (local dbNSFP ingest)");
+    expect(gnomadRows[0].dataset).toBe("v4 (local dbNSFP ingest)");
   });
 
   it("counts only the sources that produced a finite frequency as contributing", () => {
@@ -476,9 +496,15 @@ describe("frequencyEvidence — display formatting", () => {
     expect(formatCount(1459156)).toBe("1,459,156");
   });
 
-  it("names the gnomAD release the pipeline pinned, and never leaks a machine token", () => {
-    expect(gnomadReleaseLabel("gnomad_r4")).toBe("r4");
-    expect(gnomadReleaseLabel("gnomad_r4_local")).toBe("r4 (local dbNSFP ingest)");
+  it("names the gnomAD release the pipeline pinned, in the name gnomAD itself uses", () => {
+    // `gnomad_r4` is the GraphQL dataset alias; "v4" is the release name a reader recognises, and no
+    // MINOR version is asserted because the alias moves with the latest v4 minor and the code never
+    // reads one. The defect this replaced was the patch claim ("v4.0.0" / "v4.1.0" for one query).
+    expect(gnomadReleaseLabel("gnomad_r4")).toBe("v4");
+    expect(gnomadReleaseLabel("gnomad_r4_local")).toBe("v4 (local dbNSFP ingest)");
+    expect(gnomadReleaseLabel("gnomad_r3")).toBe("v3");
     expect(gnomadReleaseLabel(null)).toBe("release not reported");
+    // An unrecognised identifier is passed through rather than guessed at.
+    expect(gnomadReleaseLabel("something_else")).toBe("something_else");
   });
 });

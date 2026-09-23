@@ -131,10 +131,20 @@ export interface FrequencyApplication {
   code: "BA1" | "BS1" | "PM2" | null;
   known: boolean;
   /**
-   * True when the frequency supports a frequency criterion and the engine recorded none. This is the
-   * `acmgWeighting` gate (`criteria.ts:77`, `:315`), not an inconsistency to hide.
+   * True when the frequency supports a frequency criterion and the engine recorded none.
+   *
+   * This states the DISAGREEMENT, not its cause. A surface must not word it as "the weighting
+   * withheld it" unless {@link withheldByWeighting} says so: the engine can record no frequency
+   * criterion for reasons this module cannot see, and a `standard` weighting never withholds one.
    */
   suppressed: boolean;
+  /**
+   * True when the weighting this run used is one that actually suppresses frequency evidence —
+   * `strict-structural`, or `conservative` with a non-pathogenic ClinVar record
+   * (`server/services/prediction/acmg/criteria.ts:77`). Only then may a surface name the weighting as
+   * the reason.
+   */
+  withheldByWeighting: boolean;
   /** The ACMG weighting the run used, when the payload states it. */
   weighting: string | null;
 }
@@ -254,21 +264,26 @@ export const LOCAL_GNOMAD_DATASET = "gnomad_r4_local";
 /**
  * Name the gnomAD release the pipeline actually pinned.
  *
- * `gnomad_r4` is the GraphQL dataset enum (`server/services/external-api/gnomad.ts`), and it is the
- * whole of what the code establishes: no patch version is requested or read. Surfaces previously
- * printed "v4.0.0" and "v4.1.0" for the same query — two different patch claims, neither derived from
- * anything (review §2D). `r4` is the honest rendering.
+ * `gnomad_r4` is the GraphQL dataset enum (`server/services/external-api/gnomad.ts`) and `r4` is
+ * gnomAD's own release token, but "v4" is the name gnomAD and every clinician uses for it — the
+ * token is an API identifier, not a version to show a reader. The defect this replaced was the
+ * PATCH claim: surfaces printed "v4.0.0" and "v4.1.0" for the same query, neither read from
+ * anywhere, and `gnomad_r4` is an alias that moves with the latest v4 minor. So the major release
+ * is stated, and no minor is asserted.
  *
- * The local dbNSFP ingest is named rather than passed through: it reports ONE combined frequency with
- * `exomeAC`/`exomeAN` set to zero (`prediction/landscape.ts:132-141`), so attributing its value to
- * the exome cohort is wrong. A machine token in a provenance row was also the class of defect this
- * function replaced.
+ * The local dbNSFP ingest is named rather than passed through: it reports ONE combined frequency
+ * with `exomeAC`/`exomeAN` set to zero (`prediction/landscape.ts:132-141`), so attributing its
+ * value to the exome cohort is wrong.
  */
 export function gnomadReleaseLabel(dataset: string | null | undefined): string {
   if (!dataset) return "release not reported";
-  if (dataset === "gnomad_r4") return "r4";
-  if (dataset === LOCAL_GNOMAD_DATASET) return "r4 (local dbNSFP ingest)";
-  return dataset;
+  const local = dataset === LOCAL_GNOMAD_DATASET;
+  const base = local ? dataset.slice(0, -"_local".length) : dataset;
+  // `gnomad_r4`, `gnomad_r3`, `gnomad_r2_1` — the major release is the part the code establishes.
+  // Anything unrecognised is passed through rather than guessed at.
+  const major = /^gnomad_r(\d+)/.exec(base);
+  if (!major) return dataset;
+  return local ? `v${major[1]} (local dbNSFP ingest)` : `v${major[1]}`;
 }
 
 /**
@@ -455,9 +470,15 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
 export function readAppliedCriterion(input: FrequencyEvidenceInput): FrequencyApplication {
   const supported = classifyAcmgFrequency(input);
   const weighting = input.acmgWeighting ?? null;
+  /**
+   * Only these weightings suppress frequency evidence, so only these may be named as the reason a
+   * supported criterion went unrecorded. A `standard` run that records no PM2 has some other cause,
+   * and this module cannot see what it is.
+   */
+  const weightingSuppresses = weighting === "strict-structural" || weighting === "conservative";
   const criteria = input.engineCriteria;
   if (!criteria) {
-    return { code: null, known: false, suppressed: false, weighting };
+    return { code: null, known: false, suppressed: false, withheldByWeighting: false, weighting };
   }
   const recorded = criteria
     .map(c => (typeof c?.code === "string" ? c.code.toUpperCase() : ""))
@@ -465,10 +486,12 @@ export function readAppliedCriterion(input: FrequencyEvidenceInput): FrequencyAp
     | FrequencyApplication["code"]
     | undefined;
   const code = recorded ?? null;
+  const supportsCriterion = supported.code === "BA1" || supported.code === "BS1" || supported.code === "PM2";
   return {
     code,
     known: true,
-    suppressed: code === null && (supported.code === "BA1" || supported.code === "BS1" || supported.code === "PM2"),
+    suppressed: code === null && supportsCriterion,
+    withheldByWeighting: code === null && supportsCriterion && weightingSuppresses,
     weighting,
   };
 }

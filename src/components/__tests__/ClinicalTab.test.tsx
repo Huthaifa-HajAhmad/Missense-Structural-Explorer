@@ -144,13 +144,45 @@ describe("ClinicalTab — the frequency the engine read is on the screen", () =>
   it("shows the governing frequency, its source and the counts behind it", () => {
     renderTab(gzf1Result());
 
-    // One rendered figure, with its label — a count of the formatted value could not detect a
-    // dropped figure, because the same value also appears in the finding and the sentence.
-    expect(screen.getAllByText("Allele frequency").length).toBe(1);
+    // Figure LABELS are counted, not formatted values: a value also appears in the finding and in the
+    // criterion sentence, so counting it cannot detect a dropped figure. Two "Allele frequency"
+    // figures render — the exome reading and the ancestry-grouped maximum the criterion used — and
+    // one "Allele count / number", the line a reader can sanity-check without doing arithmetic.
+    expect(screen.getAllByText("Allele frequency").length).toBe(2);
+    expect(screen.getAllByText("Allele count / number").length).toBe(1);
     expect(screen.getAllByText("5.50e-6").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/gnomAD ancestry-grouped maximum/)).toBeTruthy();
     expect(screen.getByText("PM2?")).toBeTruthy();
+    // The counts keep their jargon labels but are figures in ink, not muted captions.
     expect(screen.getByText(/AC 8 · AN 1,459,156/)).toBeTruthy();
+  });
+
+  it("makes the value the criterion used traceable in the cards", () => {
+    // The grouped maximum is neither dataset's global AF, so without a row of its own the headline
+    // ("0.031% gnomAD ancestry-grouped maximum") is a number the reader cannot find on the screen.
+    renderTab(
+      gzf1Result({
+        gnomadFrequency: {
+          maxAF: 0.0004, groupMaxAF: 0.0004, genomeAF: 0.0004, exomeAF: 0.0004,
+          genomeAC: 6, exomeAC: 6, genomeAN: 15000, exomeAN: 15000,
+          nHomozygous: null, dataset: "gnomad_r4",
+        },
+      }),
+    );
+    expect(screen.getByText("Used for classification")).toBeTruthy();
+    // Scoped to the row itself: the same value is also the finding and both dataset readings.
+    const row = screen.getByText("Ancestry-grouped maximum").closest("div.px-4") as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(within(row).getByText("Allele frequency")).toBeTruthy();
+    expect(within(row).getByText("0.040%")).toBeTruthy();
+  });
+
+  it("names which datasets reported, rather than printing a bare count", () => {
+    renderTab(gzf1Result());
+    // "Source readings: 2" was reported as unclear — two of what, and which. Names answer that.
+    expect(screen.getByText(/Datasets reporting a frequency:/)).toBeTruthy();
+    expect(screen.getByTestId("reporting-datasets").textContent).toBe("Exomes");
+    expect(screen.queryByText(/Source readings:\s*\d/)).toBeNull();
   });
 
   it("keeps a source's counts when its frequency cannot be derived", () => {
@@ -210,15 +242,16 @@ describe("ClinicalTab — the frequency the engine read is on the screen", () =>
     expect(screen.getByText("0.090%")).toBeTruthy();
   });
 
-  it("renders the gnomAD release the payload carries, not a patch it never read", () => {
+  it("names the gnomAD release the way gnomAD does, and asserts no minor", () => {
     renderTab(gzf1Result());
-    expect(screen.getByText("r4")).toBeTruthy();
-    expect(screen.queryByText(/v4\.0\.0|v4\.1\.0/)).toBeNull();
+    // "v4" — the release name, not the `gnomad_r4` API alias, and never a patch the code cannot read.
+    expect(screen.getByText("v4")).toBeTruthy();
+    expect(screen.queryByText(/v4\.0\.0|v4\.1\.0|gnomad_r4/)).toBeNull();
 
     renderTab(
       gzf1Result({ gnomadFrequency: { ...gzf1Result().gnomadFrequency, dataset: "gnomad_r3" } }),
     );
-    expect(screen.getAllByText("gnomad_r3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("v3").length).toBeGreaterThan(0);
   });
 });
 
@@ -236,10 +269,23 @@ describe("ClinicalTab — the verdict is the engine's, and a disagreement is sta
         ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
       }),
     );
-    expect(screen.getByText(/The engine applied no frequency criterion/)).toBeTruthy();
-    expect(screen.getByText(/strict-structural/)).toBeTruthy();
+    expect(screen.getByText(/the engine recorded no frequency criterion/)).toBeTruthy();
+    expect(screen.getByText(/strict-structural weighting is what withholds it/)).toBeTruthy();
     // The supported criterion is NOT presented as the engine's verdict.
     expect(screen.getByText("No criterion")).toBeTruthy();
+  });
+
+  it("does not blame a weighting that cannot withhold the criterion", () => {
+    // `standard` never suppresses frequency evidence, so a run in that mode which recorded no PM2 has
+    // some other cause — and naming the weighting would be inventing one.
+    renderTab(
+      gzf1Result({
+        metadata: { gene: "GZF1", variant: "p.Arg591Trp", uniprotId: "Q9H116", acmgWeighting: "standard" },
+        ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
+      }),
+    );
+    expect(screen.getByText(/the engine recorded no frequency criterion/)).toBeTruthy();
+    expect(screen.queryByText(/weighting is what withholds it/)).toBeNull();
   });
 
   it("marks the criterion unconfirmed when the payload carries no engine criteria", () => {
