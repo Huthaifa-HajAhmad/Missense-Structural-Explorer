@@ -12,10 +12,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Two jobs, not one serial chain. Measured profile of the previous shape:
+# Three jobs, not one serial chain. Measured profile of the previous shape:
 #   npm ci 79s -> lint 6s -> tests+coverage 199s -> build 22s  = 371s (6m11s)
-# The build was pure added latency behind the tests, so it now runs alongside them: the wall-clock is
-# the slower job rather than the sum.
+# The build was pure added latency behind the tests, so it now runs alongside them, and so does the
+# measured-layout job: the wall-clock is the slowest job rather than the sum.
 #
 # The Python/uv setup is GONE (36s: Set up Python, Install uv, Cache uv, uv sync). Every gate here —
 # check-boundaries, tsc, vitest, vite/esbuild — is Node-only, and `tools/` is a runtime dependency of
@@ -68,6 +68,51 @@ jobs:
           echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Quality Gates**: Architectural boundaries, TypeScript typecheck, coverage thresholds, and the production build passed." >> $GITHUB_STEP_SUMMARY
+
+  # Measured layout. Both harnesses bundle the real component with the real stylesheet, render it in
+  # headless Chromium and assert geometry jsdom cannot see: getBBox, computed styles, :focus-visible,
+  # and the rendered effect of a filter. They exist because two layout regressions in the variant
+  # header and four in the Functional Domains track were previously verified only by eye.
+  #
+  # `ubuntu-latest` ships Chrome, which the runners discover at /usr/bin/google-chrome. Deployment
+  # gates on this workflow's overall conclusion, so a geometry failure stops a deploy.
+  geometry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Variant header geometry
+        run: npm run test:geometry
+
+      - name: Functional Domains sequence-track geometry
+        env:
+          TRACK_SHOT: "1"
+        run: npm run test:geometry:function-track
+
+      # A geometry failure is only actionable next to the render that produced it, and each
+      # harness's dist/ is a self-contained page.
+      - name: Upload geometry renders
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: geometry-renders
+          path: |
+            tools/header-geometry/dist/
+            tools/function-track-geometry/dist/
+            tools/function-track-geometry/function-track.png
+          retention-days: 7
 
   build:
     runs-on: ubuntu-latest

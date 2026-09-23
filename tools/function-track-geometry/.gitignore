@@ -1,0 +1,4 @@
+# Build output, the headless browser's profile and the TRACK_SHOT screenshot are per-run artefacts.
+dist/
+.browser-profile/
+function-track.png
