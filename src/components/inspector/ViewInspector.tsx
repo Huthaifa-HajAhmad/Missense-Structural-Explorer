@@ -69,7 +69,7 @@ export interface ViewInspectorProps {
   metrics?: any;
   comparePdbData?: string | null;
   hasMutantModel?: boolean;
-  active3dModelTab?: "alphafold2" | "esm3";
+  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
   bFactorMetadata?: { source: string; details?: string } | null;
   /** P2Rank output backing the Residue Shifts inspector's cavity narrative. */
   computedPocket?: PocketResult | null;
@@ -85,7 +85,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   evidence: { title: "Evidence Lineage", subtitle: "Genomic & Database Provenance", Icon: BarChart2 },
   structure: { title: "Structure Inspector", subtitle: "Models, Homologs & Probes", Icon: Layers },
   structure_alphafold: { title: "AlphaFold Inspector", subtitle: "Full-Length 3D Model", Icon: Layers },
-  structure_esmfold: { title: "ESM3 / ESMFold Inspector", subtitle: "Transformer De Novo 3D Model", Icon: Layers },
+  structure_esmfold: { title: "ESMFold-2 Inspector", subtitle: "Transformer De Novo 3D Model", Icon: Layers },
   energetics: { title: "Stability Telemetry", subtitle: "Engines & Thermodynamic Baseline", Icon: Activity },
   landscape: { title: "Landscape Controls", subtitle: "Intolerance & Domain Minimap", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
@@ -177,6 +177,8 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
    * the main column and consumed here, the same way ReportInspector reads reportSections.
    */
   const activePerturbationModel = useVariantAnalysisStore(s => s.activePerturbationModel);
+  const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
+  const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
   const saprotEngine = useSettings().settings.saprotEngine;
   /**
    * The tab reads its geometry from the biophysics slice, while this panel receives
@@ -436,6 +438,9 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             comparePdbData={comparePdbData}
             hasMutantModel={hasMutantModel}
             bFactorMetadata={bFactorMetadata}
+            esmFoldingError={esmFoldingError}
+            isEsmFolding={isEsmFolding}
+            onSwitchToAlphaFold={() => onViewChange("structure_alphafold")}
           />
         )}
 

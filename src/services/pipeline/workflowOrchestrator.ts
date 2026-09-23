@@ -344,12 +344,17 @@ export async function executeFullAnalysisWorkflow({
             getTraceContext()
           ).then((pdb: any) => {
             if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
-              structureSink.setPdbText(pdb);
+              const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
+              const provenance = pdb?.provenance || (typeof pdb === "string" ? (pdb as any).provenance : null);
+              structureSink.setPdbText(pdbString);
+              if (provenance && structureSink.setStructureProvenance) {
+                structureSink.setStructureProvenance(provenance);
+              }
               if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
                 fetchPocketData(
                   targetUniprot,
                   residueIndex,
-                  pdb,
+                  pdbString,
                   apiClient,
                   structureSink.setIsPocketLoading,
                   structureSink.setPocketError,
@@ -581,12 +586,17 @@ export async function executeFullAnalysisWorkflow({
 
     pdbWarmupPromise.then((pdb: any) => {
       if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
-        structureSink.setPdbText(pdb);
+        const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
+        const provenance = pdb?.provenance || (typeof pdb === "string" ? (pdb as any).provenance : null);
+        structureSink.setPdbText(pdbString);
+        if (provenance && structureSink.setStructureProvenance) {
+          structureSink.setStructureProvenance(provenance);
+        }
         if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
           fetchPocketData(
             targetUniprot,
             residueIndex,
-            pdb,
+            pdbString,
             apiClient,
             structureSink.setIsPocketLoading,
             structureSink.setPocketError,

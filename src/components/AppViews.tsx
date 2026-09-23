@@ -219,7 +219,7 @@ export function AppViews({
       hasMutantModel,
       metrics: (viewMode === "superimposed" || viewMode === "mutant") ? metrics : undefined,
       residueIndex,
-      active3dModelTab: isEsm ? ("esm3" as const) : ("alphafold2" as const)
+      active3dModelTab: isEsm ? ("esmfold2" as const) : ("alphafold2" as const)
     };
   }, [
     isEsm,
@@ -509,7 +509,7 @@ export function AppViews({
                         variant={variant}
                         heightClass="h-full"
                         active3dModelTab={resolvedStructureProps.active3dModelTab}
-                        onModelTabChange={(tab) => setMasterView(tab === "esm3" ? "structure_esmfold" : "structure_alphafold")}
+                        onModelTabChange={(tab) => setMasterView(tab === "esm3" || tab === "esmfold2" ? "structure_esmfold" : "structure_alphafold")}
                         viewMode={viewMode}
                         customPdbData={resolvedStructureProps.customPdbData}
                         comparePdbData={resolvedStructureProps.comparePdbData}

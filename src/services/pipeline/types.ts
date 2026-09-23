@@ -1,6 +1,6 @@
 import React from "react";
 import { PdbHomolog, NearestResidue, DisruptionPredictorResult } from "../../types";
-import type { NumberingRemapRecord } from "../../shared/contracts";
+import type { NumberingRemapRecord, StructureProvenance } from "../../shared/contracts";
 
 export interface TraceContext {
   activeTraceId: string | null;
@@ -60,6 +60,7 @@ export interface PipelineBiophysicalSink {
 
 export interface PipelineStructureSink {
   setPdbText: (pdb: string | null) => void;
+  setStructureProvenance?: (provenance: StructureProvenance | null) => void;
   setComputedPocket: (pocket: any) => void;
   setIsPocketLoading: (loading: boolean) => void;
   setPocketError: (err: string | null) => void;

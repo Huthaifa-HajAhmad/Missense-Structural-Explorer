@@ -38,7 +38,7 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
   const [foldxMetrics, setFoldxMetrics] = useState<StructuralMetrics | null>(null);
   const [isEsmFolding, setIsEsmFolding] = useState<boolean>(false);
   const [esmFoldingError, setEsmFoldingError] = useState<string | null>(null);
-  const [active3dModelTab, setActive3dModelTab] = useState<"alphafold2" | "esm3">("alphafold2");
+  const [active3dModelTab, setActive3dModelTab] = useState<"alphafold2" | "esmfold2" | "esm3">("alphafold2");
 
   const resetEsmFoldState = useCallback(() => {
     setEsmFoldWtPdb(null);

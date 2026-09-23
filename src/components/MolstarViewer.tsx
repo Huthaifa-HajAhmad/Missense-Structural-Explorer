@@ -49,6 +49,7 @@ export default function MolstarViewer({
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const gene = useVariantAnalysisStore(s => s.gene);
   const customPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
+  const structureProvenance = useVariantAnalysisStore(s => s.structureProvenance);
   const computedPocket = useVariantAnalysisStore(s => s.computedPocket);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
   const pocketError = useVariantAnalysisStore(s => s.pocketError);
@@ -223,6 +224,7 @@ export default function MolstarViewer({
           customPdbData={customPdbData || null}
           mutantStatus={mutantStatus}
           active3dModelTab={active3dModelTab}
+          structureProvenance={structureProvenance}
           viewMode={viewMode || null}
           alignmentScope={alignmentScope}
           onAlignmentScopeChange={onAlignmentScopeChange}
@@ -277,12 +279,12 @@ export default function MolstarViewer({
             </div>
           )}
 
-          {/* ESM3 Active Prediction Loading State */}
-          {active3dModelTab === "esm3" && isEsmFolding && (
+          {/* ESMFold-2 Active Prediction Loading State */}
+          {(active3dModelTab === "esmfold2" || active3dModelTab === "esm3") && isEsmFolding && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
               <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent)", borderTopColor: "transparent" }}></div>
               <p className="font-mono text-xs font-bold tracking-wider uppercase animate-pulse" style={{ color: "var(--cs-accent)" }}>
-                Refining 3D Mutant Structure via ESM3...
+                Predicting 3D Mutant Structure via ESMFold-2...
               </p>
             </div>
           )}
@@ -298,8 +300,8 @@ export default function MolstarViewer({
           )}
 
           {/* Structure Load Error Overlay */}
-          {(plugin.loadError || (active3dModelTab === "esm3" && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (() => {
-            const isEsmMode = active3dModelTab === "esm3";
+          {(plugin.loadError || ((active3dModelTab === "esmfold2" || active3dModelTab === "esm3") && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (() => {
+            const isEsmMode = active3dModelTab === "esmfold2" || active3dModelTab === "esm3";
             const lengthMatch = esmFoldingError?.match(/Sequence length \((\d+)\s*aa\)/i) || esmFoldingError?.match(/(\d+)\s*aa/i);
             const parsedLength = lengthMatch ? parseInt(lengthMatch[1], 10) : null;
             const detectedAaLength = parsedLength || landscapeLength;
@@ -374,11 +376,13 @@ export default function MolstarViewer({
 
                       {/* Message Body */}
                       <p className="text-xs leading-relaxed mb-5" style={{ color: "var(--cs-text-secondary)" }}>
-                        {esmFoldingError || (isLengthLimit
-                          ? (detectedAaLength && detectedAaLength > 1024
-                              ? `Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to 1,024 residues, and public ESM Atlas limits folding to 400 residues. This protein has ${detectedAaLength} residues.`
-                              : `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ 400 amino acids. This protein has ${detectedAaLength ? `${detectedAaLength} residues` : "more than 400 residues"}.`)
-                          : "The ESMFold de novo structure generation service encountered an error or is offline.")}
+                        {esmFoldingError && /timed?\s*out|45000/i.test(esmFoldingError)
+                          ? `ESMFold-2 de novo prediction timed out for this ${detectedAaLength ? `${detectedAaLength} aa ` : ""}sequence. High-throughput cloud GPUs are experiencing high queue depth.`
+                          : (esmFoldingError || (isLengthLimit
+                              ? (detectedAaLength && detectedAaLength > 1024
+                                  ? `Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to 1,024 residues, and public ESM Atlas limits folding to 400 residues. This protein has ${detectedAaLength} residues.`
+                                  : `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ 400 amino acids. This protein has ${detectedAaLength ? `${detectedAaLength} residues` : "more than 400 residues"}.`)
+                              : "The ESMFold-2 de novo structure generation service encountered an error or is offline."))}
                       </p>
 
                       {/* Action Buttons */}
@@ -389,7 +393,7 @@ export default function MolstarViewer({
                             onModelTabChange?.("alphafold2");
                             analysisActions.setActive3dModelTab("alphafold2");
                           }}
-                          className="w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer shadow-sm flex items-center justify-center gap-2 hover:opacity-90"
+                          className="w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer shadow-sm flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.96]"
                           style={{ background: "var(--cs-accent-clay)" }}
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -399,7 +403,7 @@ export default function MolstarViewer({
                         <button
                           type="button"
                           onClick={() => setIsSettingsOpen(true)}
-                          className="w-full sm:w-auto px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-1.5 hover:bg-[var(--cs-surface-2)]"
+                          className="w-full sm:w-auto px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-1.5 hover:bg-[var(--cs-surface-2)] active:scale-[0.96]"
                           style={{
                             background: "var(--cs-surface-2)",
                             borderColor: "var(--cs-border)",

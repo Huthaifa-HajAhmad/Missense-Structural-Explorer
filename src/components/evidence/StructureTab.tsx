@@ -304,7 +304,7 @@ export function StructureTab({
                         if (computedPocket.pocketResidues && computedPocket.pocketResidues[0]) {
                           onSelectResidue?.(computedPocket.pocketResidues[0].index);
                         }
-                        onNavigateToView(active3dModelTab === "esm3" ? "structure_esmfold" : "structure_alphafold");
+                        onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
                       }}
                       className="text-[10.5px] font-mono text-cs-accent-clay hover:underline flex items-center gap-1 cursor-pointer"
                     >

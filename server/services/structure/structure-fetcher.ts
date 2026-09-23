@@ -340,8 +340,28 @@ export async function fetchPdbFromRcsb(
         }
       }
 
-      // Fallback if no sequence validation context provided
-      const shift = (unpStart !== undefined && structStart !== undefined) ? (unpStart - structStart) : 0;
+      // Fallback if no sequence validation context provided:
+      // Verify whether the raw PDB text is already UniProt-numbered before applying shift.
+      // E.g. PDB 6N7E already starts at residue 431 (~unpStart 429); adding shift (427) doubly offsets residues to 858+.
+      let shift = 0;
+      if (unpStart !== undefined && structStart !== undefined && unpStart !== structStart) {
+        const firstRes = parseFirstResidueSeq(fullText, chainUpper);
+        const candidateShift = unpStart - structStart;
+        // Check if the PDB coordinates are already numbered in UniProt space.
+        // A crystal construct authored with UniProt residue numbers will have its first residue in the
+        // neighborhood of unpStart (e.g. 6N7E starts at 431, unpStart=429, structStart=1).
+        // Conversely, a crystallographically-numbered PDB with missing N-terminal residues (e.g. firstRes=60,
+        // structStart=1, unpStart=429) is far below unpStart and must be shifted.
+        const isAlreadyUniProtNumbered = firstRes !== null && (
+          firstRes >= (unpStart - 5) && structStart <= 15
+        );
+        if (isAlreadyUniProtNumbered) {
+          console.log(`[RCSB PDB] Structure ${pdbId} chain ${chainUpper} is already UniProt-numbered (first residue: ${firstRes}, unpStart: ${unpStart}, structStart: ${structStart}). Skipping redundant shift of ${candidateShift}.`);
+          shift = 0;
+        } else {
+          shift = candidateShift;
+        }
+      }
       const chainPdb = extractChainFromPdb(fullText, chainUpper, shift);
       return chainPdb;
     } catch (err: any) {

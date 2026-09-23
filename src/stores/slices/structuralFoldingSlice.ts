@@ -9,7 +9,7 @@ export interface StructuralFoldingState {
   foldxMetrics: StructuralMetrics | null;
   isEsmFolding: boolean;
   esmFoldingError: string | null;
-  active3dModelTab: "alphafold2" | "esm3";
+  active3dModelTab: "alphafold2" | "esmfold2" | "esm3";
 }
 
 export interface StructuralFoldingActions {
@@ -20,7 +20,7 @@ export interface StructuralFoldingActions {
   setFoldxMetrics: (foldxMetrics: StructuralMetrics | null) => void;
   setIsEsmFolding: (isEsmFolding: boolean) => void;
   setEsmFoldingError: (esmFoldingError: string | null) => void;
-  setActive3dModelTab: (active3dModelTab: "alphafold2" | "esm3") => void;
+  setActive3dModelTab: (active3dModelTab: "alphafold2" | "esmfold2" | "esm3") => void;
   resetEsmFoldState: () => void;
 }
 

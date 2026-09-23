@@ -1,8 +1,11 @@
+import type { StructureProvenance } from "../../shared/contracts";
+
 export interface MolstarToolbarProps {
   comparePdbData: string | null;
   customPdbData: string | null;
   mutantStatus?: string | null;
-  active3dModelTab?: "alphafold2" | "esm3";
+  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
+  structureProvenance?: StructureProvenance | null;
   viewMode?: "wildtype" | "mutant" | "superimposed" | null;
   alignmentScope?: "local" | "global";
   onAlignmentScopeChange?: (scope: "local" | "global") => void;

@@ -1,6 +1,7 @@
 import { PdbHomolog, NearestResidue } from "../../types";
 import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
 import { TraceContext, PipelineStructureSink } from "./types";
+import type { StructureFetchResult } from "../../api/structureApi";
 
 export async function fetchPdbCoordinates(
   targetGene: string,
@@ -10,13 +11,39 @@ export async function fetchPdbCoordinates(
   apiClient: any,
   signal: AbortSignal,
   traceContext?: TraceContext
-): Promise<string | null> {
+): Promise<string | StructureFetchResult | null> {
   const pdbKey = `warmup_${targetGene}_${targetVariant}_${targetUniprot}`;
   const pdbStart = performance.now();
 
+  const fetchAction = async () => {
+    // Option A: Guarantee authentic AlphaFold model is fetched first for AlphaFold tab
+    if (typeof apiClient.getAlphaFoldPdbWithProvenance === "function") {
+      try {
+        const afRes = await apiClient.getAlphaFoldPdbWithProvenance(targetUniprot, signal);
+        if (afRes && afRes.pdbText && afRes.pdbText.includes("ATOM")) {
+          return afRes;
+        }
+      } catch (afErr: any) {
+        console.warn("[StructureService] AlphaFold DB fetch failed, falling back to 3-tier PDB resolver:", afErr.message || afErr);
+      }
+    } else if (typeof apiClient.getAlphaFoldPdb === "function") {
+      try {
+        const afRes = await apiClient.getAlphaFoldPdb(targetUniprot, signal);
+        if (afRes && (typeof afRes === "string" ? afRes.includes("ATOM") : afRes.pdbText?.includes("ATOM"))) {
+          return afRes;
+        }
+      } catch (afErr: any) {
+        console.warn("[StructureService] AlphaFold DB fetch failed, falling back to 3-tier PDB resolver:", afErr.message || afErr);
+      }
+    }
+    if (typeof apiClient.getPdbWithProvenance === "function") {
+      return await apiClient.getPdbWithProvenance(targetUniprot, residueIndex, signal);
+    }
+    return await apiClient.getPdb(targetUniprot, residueIndex, signal);
+  };
+
   return getDeduplicatedPromise(pdbKey, () =>
-    apiClient
-      .getPdb(targetUniprot, residueIndex, signal)
+    fetchAction()
       .then((res: any) => {
         const durationMs = Math.round(performance.now() - pdbStart);
         const offsetMs = traceContext ? Math.max(0, Math.round(pdbStart - traceContext.traceStart)) : 0;

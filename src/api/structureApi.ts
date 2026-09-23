@@ -11,10 +11,42 @@ import {
   PocketFinderResponse,
   EsmFoldResponse,
   StructuralAlignResponse,
-  StructuralDiffResponse
+  StructuralDiffResponse,
+  StructureProvenance
 } from "../shared/contracts";
 import type { PdbHomolog } from "../types";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
+
+export interface StructureFetchResult {
+  pdbText: string;
+  provenance: StructureProvenance;
+}
+
+export function parseProvenanceFromHeaders(res: Response): StructureProvenance {
+  const sourceHeader = res.headers.get("X-Template-Source");
+  const source: StructureProvenance["source"] =
+    sourceHeader === "experimental" || sourceHeader === "homolog" || sourceHeader === "alphafold" || sourceHeader === "client-provided"
+      ? sourceHeader
+      : "alphafold";
+  const pdbId = res.headers.get("X-Template-PdbId") || undefined;
+  const chainId = res.headers.get("X-Template-ChainId") || undefined;
+  const resolutionStr = res.headers.get("X-Template-Resolution");
+  const resolution = resolutionStr ? parseFloat(resolutionStr) : undefined;
+  const method = res.headers.get("X-Template-Method") || undefined;
+  const identityStr = res.headers.get("X-Template-Identity");
+  const identity = identityStr ? parseFloat(identityStr) : undefined;
+  const afdbVersion = res.headers.get("X-Template-AfdbVersion") || undefined;
+
+  return {
+    source,
+    pdbId,
+    chainId,
+    resolution: resolution !== undefined && !Number.isNaN(resolution) ? resolution : undefined,
+    method,
+    identity: identity !== undefined && !Number.isNaN(identity) ? identity : undefined,
+    afdbVersion
+  };
+}
 
 export function createStructureApi(fetchWithAuth: FetchWithAuth) {
   return {
@@ -79,7 +111,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       return z.object({ sequence: z.string() }).parse(data).sequence;
     },
 
-    async getPdb(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<string> {
+    async getPdbWithProvenance(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<StructureFetchResult> {
       const posQuery = pos ? `?pos=${pos}` : "";
       const res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`, {
         timeout: 15000,
@@ -89,10 +121,17 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         const errorMsg = await extractErrorMessage(res, "Failed to fetch PDB structure");
         throw new Error(errorMsg);
       }
-      return await res.text();
+      const provenance = parseProvenanceFromHeaders(res);
+      const pdbText = await res.text();
+      return { pdbText, provenance };
     },
 
-    async getAlphaFoldPdb(uniprotId: string, signal?: AbortSignal): Promise<string> {
+    async getPdb(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<string> {
+      const { pdbText } = await this.getPdbWithProvenance(uniprotId, pos, signal);
+      return pdbText;
+    },
+
+    async getAlphaFoldPdbWithProvenance(uniprotId: string, signal?: AbortSignal): Promise<StructureFetchResult> {
       const res = await fetchWithAuth(`/api/v1/alphafold-pdb/${encodeURIComponent(uniprotId)}`, {
         timeout: 35000,
         signal
@@ -101,7 +140,14 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         const errorMsg = await extractErrorMessage(res, "Failed to fetch AlphaFold model");
         throw new Error(errorMsg);
       }
-      return await res.text();
+      const provenance = parseProvenanceFromHeaders(res);
+      const pdbText = await res.text();
+      return { pdbText, provenance };
+    },
+
+    async getAlphaFoldPdb(uniprotId: string, signal?: AbortSignal): Promise<string> {
+      const { pdbText } = await this.getAlphaFoldPdbWithProvenance(uniprotId, signal);
+      return pdbText;
     },
 
     async getHomologs(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<PdbHomolog[]> {

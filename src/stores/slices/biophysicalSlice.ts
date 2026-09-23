@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import { VariantBiophysicsState, createInitialBiophysicsState } from "../models";
 import type { PocketResult, EnergeticsData, StructuralDiffResult } from "../../types";
+import type { StructureProvenance } from "../../shared/contracts";
 
 export interface BiophysicalState {
   // Normalized Sub-State Models
@@ -9,6 +10,7 @@ export interface BiophysicalState {
 
   // Shared / Global Viewer State
   pdbText: string | null;
+  structureProvenance: StructureProvenance | null;
   compareMode: boolean;
   compareVariant: string;
   comparisonLayout: "split" | "overlay";
@@ -89,6 +91,7 @@ export interface BiophysicalActions {
 
   // Shared / Global Setters
   setPdbText: (pdbText: string | null) => void;
+  setStructureProvenance: (structureProvenance: StructureProvenance | null) => void;
   setCompareMode: (compareMode: boolean) => void;
   setCompareVariant: (compareVariant: string) => void;
   setComparisonLayout: (comparisonLayout: "split" | "overlay") => void;
@@ -142,6 +145,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
 
   // Shared
   pdbText: null,
+  structureProvenance: null,
   compareMode: false,
   compareVariant: "p.Arg408Pro",
   comparisonLayout: "split",
@@ -314,6 +318,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
 
   // Shared Setters
   setPdbText: (pdbText) => set({ pdbText }),
+  setStructureProvenance: (structureProvenance) => set({ structureProvenance }),
   setCompareMode: (compareMode) => set({ compareMode }),
   setCompareVariant: (compareVariant) => set((state) => ({
     compareVariant,
@@ -459,6 +464,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     primaryBiophysics: createInitialBiophysicsState(""),
     compareBiophysics: createInitialBiophysicsState("p.Arg408Pro"),
     pdbText: null,
+    structureProvenance: null,
     mutantPdb: null,
     foldedResidueIndex: null,
     isFolding: false,

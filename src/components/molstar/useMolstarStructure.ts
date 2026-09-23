@@ -29,7 +29,7 @@ export interface UseMolstarStructureOptions {
   variant?: string | null;
   esmFoldPdb?: string | null;
   esm3Eval?: any;
-  active3dModelTab?: "alphafold2" | "esm3";
+  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
   viewMode?: "wildtype" | "mutant" | "superimposed";
   setLoading: (loading: boolean) => void;
   setLoadError: (err: string | null) => void;
@@ -187,7 +187,7 @@ export function useMolstarStructure({
             data: resData,
             label: `${gene || 'Homolog'} (${labelName})`
           });
-        } else if (esmFoldPdb && active3dModelTab === "esm3") {
+        } else if (esmFoldPdb && (active3dModelTab === "esmfold2" || active3dModelTab === "esm3")) {
           data = await localPlugin.builders.data.rawData({
             data: esmFoldPdb,
             label: `${gene || 'ESMFold'} (${variant || 'Structure'})`

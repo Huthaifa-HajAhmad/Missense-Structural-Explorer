@@ -104,7 +104,7 @@ const EVIDENCE_SUB_ITEMS = [
 
 const STRUCTURE_SUB_ITEMS = [
   { id: "structure_alphafold", label: "AlphaFold2" },
-  { id: "structure_esmfold",   label: "ESM3 Model"   },
+  { id: "structure_esmfold",   label: "ESMFold-2 Model"   },
 ];
 
 /** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */

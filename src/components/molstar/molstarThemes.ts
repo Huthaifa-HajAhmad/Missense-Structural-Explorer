@@ -304,8 +304,8 @@ export interface MolstarViewerProps {
   residueIndex: number | null;
   customPdbData?: string;
   customPdbUrl?: string;
-  active3dModelTab?: "alphafold2" | "esm3";
-  onModelTabChange?: (tab: "alphafold2" | "esm3") => void;
+  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
+  onModelTabChange?: (tab: "alphafold2" | "esmfold2" | "esm3") => void;
   uniprotId?: string;
   gene?: string;
   showPolarContacts?: boolean;
