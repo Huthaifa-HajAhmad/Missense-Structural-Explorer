@@ -749,6 +749,21 @@ export const conservationDataSchema = z.object({
     rf_score: z.number().nullable()
   }).nullable().optional(),
   alphagenome: alphagenomeAviSchema.optional(),
+  /**
+   * Per-source build refusals that produced this payload (unmapping defect F-13).
+   *
+   * When the assembly gate declines a source ("alphagenome covers GRCh38; this coordinate is
+   * GRCh37 and was not scored"), the ABSENCE used to reach the client with no reason attached,
+   * and each surface filled the vacuum with its own guess — "Awaiting API key", "Outside
+   * Consensus Zone", "Transcript coordinates mapped". The reason now travels on the payload so
+   * the panes can state what actually happened. Carried as a reason list rather than as
+   * fabricated status objects: "never asked" must stay distinguishable from "asked and
+   * unavailable" (see splicingEvidence's hasAlphaGenome contract).
+   */
+  assemblyRefusals: z.array(z.object({
+    source: z.string(),
+    reason: z.string()
+  })).nullable().optional(),
   source: z.string().optional()
 });
 
