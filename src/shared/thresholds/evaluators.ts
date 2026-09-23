@@ -1,6 +1,30 @@
-import { THRESHOLDS } from "./constants.ts";
+import { STRING_CONFIDENCE_BANDS, THRESHOLDS, type StringConfidenceBandId } from "./constants.ts";
 
 export type PredictorSignal = "pathogenic" | "benign" | "vus" | "unavailable";
+
+/**
+ * Maps a STRING-db combined association score onto its published confidence band.
+ *
+ * Returns `null` for a non-finite score and for a score below STRING's lowest
+ * band (0.150): STRING assigns no confidence word there, so neither do we.
+ * Callers that need a word for that case must say "unclassified" themselves
+ * rather than inheriting a band the score does not qualify for.
+ */
+export function stringConfidenceTier(
+  score: number | null | undefined
+): StringConfidenceBandId | null {
+  if (score === null || score === undefined || !Number.isFinite(score)) return null;
+  for (const band of STRING_CONFIDENCE_BANDS) {
+    if (score >= band.min) return band.id;
+  }
+  return null;
+}
+
+/** The display word for a band, e.g. "Highest"; `null` when there is no band. */
+export function stringConfidenceLabel(score: number | null | undefined): string | null {
+  const tier = stringConfidenceTier(score);
+  return STRING_CONFIDENCE_BANDS.find((band) => band.id === tier)?.label ?? null;
+}
 
 export function evaluateAlphaGenomeAvi(
   alphagenome?: {

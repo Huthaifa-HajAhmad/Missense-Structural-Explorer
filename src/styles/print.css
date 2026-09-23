@@ -75,6 +75,31 @@
     --cs-text-secondary: #374151 !important;
     --cs-text-muted: #6B7280 !important;
     --cs-accent-clay: #92400E !important;
+    --cs-text-accent: #92400E !important;
+
+    /* Semantic verdict tokens, flattened to their light values.
+       These were the hole in this block: the neutral ramp above was covered, but
+       every verdict tint is built from `--cs-bg-*` and `--cs-text-*-on-soft`,
+       whose DARK values are bright inks chosen for dark surfaces (#4ADE80,
+       #FBBF24, #F87171). A token is only print-safe if the flattening reaches it,
+       so printing from dark mode put pale ink on white paper — 1.8:1 for a
+       benign badge, ~1.5:1 for a dark-theme confidence chip — on the threshold
+       guide and the evidence tabs alike. */
+    --cs-bg-success: #DCFCE7 !important;
+    --cs-bg-warning: #FEF3C7 !important;
+    --cs-bg-danger: #FEE2E2 !important;
+    --cs-text-success: #166534 !important;
+    --cs-text-warning: #92400E !important;
+    --cs-text-danger: #B91C1C !important;
+    --cs-text-good-on-soft: #166534 !important;
+    --cs-text-warning-on-soft: #92400E !important;
+    --cs-text-danger-on-soft: #B91C1C !important;
+
+    /* Non-verdict informational hues (STRING confidence tiers), same reason. */
+    --cs-bg-teal: #CCFBF1 !important;
+    --cs-bg-indigo: #E0E7FF !important;
+    --cs-text-teal-on-soft: #0F766E !important;
+    --cs-text-indigo-on-soft: #3730A3 !important;
   }
 
   /* 3. Unclamp height & scrolling containers for multi-page document flow */

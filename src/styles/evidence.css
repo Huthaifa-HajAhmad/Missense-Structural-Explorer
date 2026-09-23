@@ -288,3 +288,596 @@
   font-weight: 500;
 }
 .method-info-panel a:hover { text-decoration: underline; }
+
+/* ============================================================
+   EVIDENCE PANEL — one section grammar for the inspector tabs
+   ============================================================
+   Each section of a tab is a titled panel: a header strip that names the
+   section and stamps its provenance, then a body. Before this the PPI tab
+   carried three unrelated header treatments for three sibling sections —
+   12px/700 ink with an icon, 11px/700 clay without one, and a bare title
+   floating over a table — so three equal-rank sections read as three
+   different ranks, and the table's own column headers competed with them
+   at the same 11px uppercase.
+
+   The rail below replaces nested cards. A card inside a card repeats the
+   panel's border at a second radius and, because `.metric-card` fills with
+   `--cs-surface-1` (white) on a white panel, its box all but disappears.
+   Hairline-separated siblings keep one rectangle per section. */
+
+.ev-panel {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
+  overflow: hidden;
+  /* The rail and the residue grid size themselves from THIS box, not from the
+     viewport. A viewport breakpoint was wrong here: the panel sits in a
+     `flex: 1; min-width: 0` column beside a 280-540px inspector, so a 640px
+     viewport leaves the panel ~116-190px wide while the 3-up rule has already
+     fired. `inline-size` containment is what makes the @container queries below
+     measure the space actually available. */
+  container-type: inline-size;
+}
+
+.ev-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--cs-surface-2);
+  border-bottom: 1px solid var(--cs-border-subtle);
+}
+
+/* Section rank: 12px/600 ink. The icon carries the accent so the title
+   itself can stay ink — clay-as-text on all three would make every section
+   heading read as a link. */
+.ev-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-family: var(--cs-font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-primary);
+}
+.ev-panel-title > svg {
+  flex: none;
+  color: var(--cs-accent-clay);
+}
+
+.ev-panel-body { padding: 14px; }
+
+/* Closing interpretation line for a panel: the sentence that says what the
+   numbers above it mean. */
+.ev-panel-footnote {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--cs-border-subtle);
+  font-family: var(--cs-font-sans);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
+}
+.ev-panel-footnote strong {
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+
+/* ── Metric rail ─────────────────────────────────────────────────────────── */
+
+.ev-metric-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* Stacked, a divider sits on the gap; side by side it sits in it. */
+.ev-metric-rail > .ev-metric + .ev-metric {
+  border-top: 1px solid var(--cs-border-subtle);
+  padding-top: 14px;
+}
+
+/* Three columns only once the PANEL is wide enough to hold them. 560px is set
+   by the widest chip the rail can render ("Allosteric perturbation", ~146px at
+   11px/600 plus its icon) and the 18px divider inset each column carries:
+   (560 - 2*18) / 3 = 174px per column. Below that the metrics stack, which is
+   the honest layout — at 116-190px of panel, three columns were 27-53px wide
+   and the `white-space: nowrap` chips overflowed into each other and were then
+   clipped by the panel's own `overflow: hidden`. */
+@container (min-width: 560px) {
+  .ev-metric-rail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .ev-metric-rail > .ev-metric + .ev-metric {
+    border-top: 0;
+    padding-top: 0;
+    border-left: 1px solid var(--cs-border-subtle);
+    padding-left: 18px;
+  }
+}
+
+.ev-metric {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Same type ramp as the incumbent `.metric-card-label` rather than a second
+   one: 12px/400 muted, 0.05em. The panel title above it stays distinguishable
+   by weight and ink (12px/600 primary). */
+.ev-metric-label {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-caption);
+  line-height: 1.4;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+}
+
+/* One value row height for every metric, whatever renders inside it. Without
+   this the numeric and the categorical chips push their notes onto different
+   baselines and the rail reads as three ragged columns. */
+.ev-metric-value {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  margin-top: 3px;
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-stat-value);
+  font-weight: var(--cs-font-weight-stat-value);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+}
+
+.ev-metric-note {
+  margin-top: 3px;
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.55;
+  color: var(--cs-text-muted);
+}
+
+/* Tone for a metric value, keyed by `data-tone` exactly as `.gt-value` is.
+   The previous `.ev-value-*` modifier classes had IDENTICAL specificity to
+   `.ev-metric-value` and merely came later in the file, so any reorder silently
+   reverted every tone to primary ink. `[data-tone]` is order-independent.
+
+   20px/600 is NOT large text under WCAG (large = ≥24px, or ≥18.66px at weight
+   700), so these must clear 4.5:1, not 3:1. The `-on-soft` tokens do
+   (7.09:1 warning, 7.13:1 good, 5.30:1 danger on white); the plain
+   `--cs-text-warning` (3.19:1) and `--cs-text-success` (3.30:1) these replaced
+   did not, for the two most common tones. */
+.ev-metric-value[data-tone="danger"]  { color: var(--cs-text-danger-on-soft); }
+.ev-metric-value[data-tone="warning"] { color: var(--cs-text-warning-on-soft); }
+.ev-metric-value[data-tone="good"]    { color: var(--cs-text-good-on-soft); }
+.ev-metric-value[data-tone="muted"]   { color: var(--cs-text-muted); font-weight: 500; }
+
+/* ── State / tier chips ───────────────────────────────────────────────────── */
+
+.ev-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2.5px 7px;
+  border-radius: var(--cs-radius-badge);
+  border: 1px solid transparent;
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-badge);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Every tone is token-driven, so both themes come from one rule and a print
+   pass that flattens tokens lights them correctly. The former literal
+   `.dark .ev-tier` overrides could not be flattened: printing the dark theme
+   put #5EEAD4 on white paper (1.48:1). */
+.ev-tier[data-tone="highest"],
+.ev-tier[data-tone="good"] {
+  color: var(--cs-text-good-on-soft);
+  background: var(--cs-bg-success);
+  border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent);
+}
+.ev-tier[data-tone="high"] {
+  color: var(--cs-text-teal-on-soft);
+  background: var(--cs-bg-teal);
+  border-color: color-mix(in srgb, var(--cs-text-teal-on-soft) 30%, transparent);
+}
+.ev-tier[data-tone="medium"] {
+  color: var(--cs-text-indigo-on-soft);
+  background: var(--cs-bg-indigo);
+  border-color: color-mix(in srgb, var(--cs-text-indigo-on-soft) 25%, transparent);
+}
+/* Neutral chip. The fill is a translucent mix rather than a surface token:
+   `--cs-bg-subtle` collapsed to the legend card's own `--cs-surface-2` in dark
+   mode (1.00:1, the chip stopped reading as a chip) and to the row-hover
+   background in light mode. A mix over whatever is behind it always differs. */
+.ev-tier[data-tone="low"],
+.ev-tier[data-tone="neutral"] {
+  color: var(--cs-text-secondary);
+  background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--cs-text-secondary) 28%, transparent);
+}
+.ev-tier[data-tone="warning"] {
+  color: var(--cs-text-warning-on-soft);
+  background: var(--cs-bg-warning);
+  border-color: color-mix(in srgb, var(--cs-text-warning) 30%, transparent);
+}
+.ev-tier[data-tone="danger"] {
+  color: var(--cs-text-danger-on-soft);
+  background: var(--cs-bg-danger);
+  border-color: color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
+}
+
+/* ── Data table ───────────────────────────────────────────────────────────── */
+
+.ev-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--cs-font-sans);
+  /* Below this the partner column collapses before the scroller engages, so the
+     wrapper scrolls the table instead of wrapping every gene symbol. */
+  min-width: 520px;
+}
+
+/* Visible, not screen-reader-only: it carries the ordering and the population
+   the rows were drawn from, which the row data cannot show. */
+.ev-table-caption {
+  caption-side: top;
+  text-align: left;
+  padding: 11px 14px 9px;
+  font-family: var(--cs-font-sans);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cs-text-muted);
+}
+
+.ev-table thead th {
+  padding: 7px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+  border-bottom: 1px solid var(--cs-border);
+  white-space: nowrap;
+}
+
+/* The partner cell is a `<th scope="row">`, so a screen reader reads each row as
+   "PTP4A1 — Association strength 0.970 — Confidence Highest" instead of a bare
+   data cell. It therefore has to be unpicked from the UA's centred, bold `th`
+   default and styled as a body cell. */
+.ev-table tbody td,
+.ev-table tbody th {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+  font-size: 13px;
+  color: var(--cs-text-primary);
+  vertical-align: middle;
+}
+.ev-table tbody th {
+  text-align: left;
+  font-weight: inherit;
+}
+.ev-table tbody tr:last-child td,
+.ev-table tbody tr:last-child th { border-bottom: 0; }
+
+/* Rows are separated by hairlines only — no vertical rules. The grid of
+   borders these replaced drew a box around every cell, which is a heavier
+   structure than the panel they sit in. */
+.ev-table tbody tr {
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.ev-table tbody tr:hover { background: var(--cs-bg-subtle); }
+
+.ev-rank {
+  flex: none;
+  width: 14px;
+  font-family: var(--cs-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
+}
+
+.ev-partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--cs-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+  text-decoration: none;
+  border-radius: 4px;
+}
+.ev-partner:hover { color: var(--cs-text-accent); text-decoration: underline; }
+.ev-partner:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+}
+/* Full-opacity secondary ink. At `opacity: .35` the "opens in a new tab" glyph
+   was 2.21:1 on white (1.4.11 needs 3:1), and `opacity` is not one of the
+   properties forced-colors overrides, so it stayed unreadable in Windows High
+   Contrast too. `min-height` gives the link a 24px hit target (WCAG 2.5.8)
+   without changing the row's rhythm. */
+.ev-partner {
+  min-height: 24px;
+}
+.ev-partner > svg {
+  flex: none;
+  color: var(--cs-text-secondary);
+  transition: color 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+.ev-partner:hover > svg { color: var(--cs-text-accent); }
+
+/* Association strength: bar then number on one line, so the column scans as a
+   length and stays precise as a value. The bar carries the published band cuts
+   as ticks, which is what makes its length readable against the legend instead
+   of being a proportion of an unlabelled 0–1 span. */
+.ev-conf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ev-conf-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 56px;
+  height: 4px;
+  border-radius: var(--cs-radius-pill);
+  background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent);
+  /* Not load-bearing today (visible is the initial value) — it is here so a
+     future `overflow: hidden` added to round the fill cannot silently clip the
+     8px band ticks, which overhang this 4px rail by 2px top and bottom. */
+  overflow: visible;
+}
+.ev-conf-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--cs-radius-pill);
+}
+/* Token fills: both themes from one rule, and prints light. */
+.ev-conf-fill[data-tone="highest"] { background: var(--cs-text-success); }
+.ev-conf-fill[data-tone="high"]    { background: var(--cs-text-teal-on-soft); }
+.ev-conf-fill[data-tone="medium"]  { background: var(--cs-text-indigo-on-soft); }
+/* `none` is the unbanded case: a score below STRING's lowest band, which the
+   classifier explicitly declines to name. It is a distinct tone from `low`,
+   because "in the Low band" and "below every band" are different claims. */
+.ev-conf-fill[data-tone="low"]     { background: var(--cs-text-muted); }
+.ev-conf-fill[data-tone="none"]    { background: var(--cs-border); }
+
+/* One tick per inter-band cut (0.400 / 0.700 / 0.900), drawn over the fill. */
+.ev-conf-tick {
+  position: absolute;
+  top: -2px;
+  height: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--cs-text-secondary) 45%, transparent);
+}
+
+.ev-conf-value {
+  flex: none;
+  min-width: 46px;
+  text-align: right;
+  font-family: var(--cs-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+}
+
+/* ── Empty / unannotated state ────────────────────────────────────────────── */
+
+.ev-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+}
+.ev-empty > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--cs-text-muted);
+}
+.ev-empty-title {
+  display: block;
+  font-family: var(--cs-font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.ev-empty-note {
+  margin: 3px 0 0;
+  font-family: var(--cs-font-sans);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
+}
+.ev-empty-note strong { font-weight: 600; color: var(--cs-text-primary); }
+
+/* A curated annotation quoted back from the source record. `display: block`
+   because this is a span nested in the placeholder's paragraph — block layout
+   without breaking the <p> */
+
+.ev-quote {
+  display: block;
+  margin: 6px 0 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--cs-border);
+  background: var(--cs-surface-2);
+  border-radius: 0 var(--cs-radius-input) var(--cs-radius-input) 0;
+  font-family: var(--cs-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
+}
+.ev-quote-label {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--cs-font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+}
+
+/* ── Curated interface residue list ───────────────────────────────────────── */
+
+.ev-residue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+/* Two-up only when the PANEL can hold two readable columns: 600px leaves ~300px
+   each, enough for the residue text beside a ~93px "Mutation site" chip. The
+   viewport breakpoint this replaces fired at 640px of VIEWPORT, which could be
+   ~100px of panel. */
+@container (min-width: 600px) {
+  .ev-residue-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* The hairline is on TOP of each row, not the bottom of each. `border-bottom`
+   needed a rule for the last row, and in a two-column grid "the last row" is
+   one OR two items: `:nth-last-child(-n + 2)` covered the even case and, with an
+   odd count, stripped the border from an interior first-row cell — leaving a
+   ragged rule across the middle of the list. A top border clears only the first
+   ROW, which is one item at one column and two at two columns. */
+.ev-residue {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.ev-residue:first-child { border-top: 0; }
+@container (min-width: 600px) {
+  .ev-residue:nth-child(2) { border-top: 0; }
+}
+.ev-residue-pos {
+  display: block;
+  font-family: var(--cs-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.ev-residue-desc {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--cs-font-sans);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cs-text-muted);
+}
+
+/* The variant's own residue, marked by a leading accent rather than a filled
+   row: the fill grammar belongs to verdicts, and this is a location. The accent
+   is a `border-left`, not an inset `box-shadow`, because forced-colors computes
+   `box-shadow` to `none` and would erase the marker (the "Mutation site" chip
+   survives either way). */
+.ev-residue.is-variant {
+  background: color-mix(in srgb, var(--cs-accent-clay) 6%, transparent);
+  border-left: 2px solid var(--cs-accent-clay);
+  padding-left: 12px;
+}
+
+/* ── Accessibility fallbacks ──────────────────────────────────────────────── */
+
+/* Error banner. Token-driven rather than the Tailwind rose ramp it replaced:
+   `text-rose-600` on `rose-500/10` over the page background measured 3.93:1 at
+   12px, under the 4.5:1 it needs, while this pair is 5.30:1 in light mode and
+   inherits its dark counterpart (and print flattening) from the tokens. */
+.ev-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-bg-danger);
+  color: var(--cs-text-danger-on-soft);
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.5;
+}
+.ev-alert > svg { flex: none; color: var(--cs-text-danger); }
+
+/* Refresh is `aria-disabled`, not `disabled`, so it keeps focus; it therefore
+   needs its own disabled look rather than the pseudo-class one. */
+.ev-refresh[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* Inline call-to-action inside a footnote paragraph. Without this it fell back
+   to the UA focus ring while every sibling control uses the 2px clay ring. */
+.ev-inline-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+  color: var(--cs-text-accent);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+}
+.ev-inline-cta:hover { text-decoration: underline; }
+.ev-inline-cta:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.ev-inline-cta:active { transform: scale(0.96); }
+@media (prefers-reduced-motion: reduce) {
+  .ev-inline-cta:active { transform: none; }
+}
+
+/* Windows High Contrast. `background-color` is forced to the colour opposite the
+   element's `color` with alpha preserved, so the rail's translucent track and
+   its opaque fill both resolve to Canvas and the bar becomes invisible, taking
+   the three band cuts with it. The value and the tier chip still carry the
+   information, so this is restoration rather than conformance. */
+@media (forced-colors: active) {
+  .ev-conf-track {
+    forced-color-adjust: none;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+  .ev-conf-fill {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  .ev-conf-tick {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+  .ev-partner > svg { forced-color-adjust: none; color: LinkText; }
+}
+
+/* ── Print ────────────────────────────────────────────────────────────────── */
+
+/* Browsers do not expand a scroller for print, and `overflow: hidden` clips
+   across page breaks, so a 520px-minimum table inside both would print with the
+   Confidence column missing. The tokens are flattened in print.css; these are
+   the layout consequences of that flattening that only this block knows about. */
+@media print {
+  .ev-panel { overflow: visible; border-radius: 0; container-type: normal; }
+  .ev-table-scroller { overflow: visible; }
+  .ev-table { min-width: 0; }
+  .ev-panel-header { background: transparent; }
+}

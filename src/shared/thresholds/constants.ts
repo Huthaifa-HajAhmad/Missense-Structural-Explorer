@@ -243,9 +243,85 @@ export const THRESHOLDS = {
     /** pLI below this is read as recessive, which raises the PM2 ceiling tenfold. */
     recessivePlI: 0.9,
   },
+
+  /**
+   * STRING-db association-confidence bands over its combined score.
+   *
+   * STRING publishes four bands (https://string-db.org/help/getting_started/,
+   * Szklarczyk et al. Nucleic Acids Res 2023): low ≥ 0.150, medium ≥ 0.400,
+   * high ≥ 0.700, highest ≥ 0.900. Nothing below 0.150 carries a band at all.
+   *
+   * These live here because the PPI table's row badges and the inspector's tier
+   * legend are two descriptions of one classifier. They were not shared before,
+   * and the table had no floor: every score under 0.700 was labelled "Medium",
+   * so a 0.200 partner — which STRING calls LOW confidence — was reported to the
+   * user as medium-confidence evidence of a functional interaction.
+   */
+  stringDb: {
+    /** ≥ 0.900 — highest confidence. */
+    highest: 0.9,
+    /** ≥ 0.700 — high confidence. */
+    high: 0.7,
+    /** ≥ 0.400 — medium confidence. */
+    medium: 0.4,
+    /** ≥ 0.150 — low confidence. Below this STRING assigns no band. */
+    low: 0.15,
+  },
+
+  /**
+   * OpenBind-0 interface binding-affinity cut-points (ΔΔG_bind, kcal/mol).
+   *
+   * The server uses these two numbers to fall back to a classification when the
+   * model returns none (`japanfold-client.ts`), and the PPI tab used the same two
+   * numbers again to colour the value. Two hand-written copies of one classifier:
+   * changing either alone makes the chip's word disagree with the value beside it.
+   * Declared here so both read one pair.
+   */
+  openBind: {
+    /** ΔΔG ≥ 1.5 — complex docking is disrupted. */
+    disruptive: 1.5,
+    /** ΔΔG ≥ 0.5 — allosteric perturbation of the interface. */
+    allosteric: 0.5,
+  },
 } as const;
 
 export const LOCAL_STRUCTURAL_WINDOW = 5;
+
+/**
+ * STRING confidence bands, strongest first — the single ordered list the PPI
+ * table's row badges and the inspector's tier legend both render from, so a
+ * legend can never describe bands the rows do not use.
+ *
+ * `label` is the word STRING itself prints for the band, and is display copy:
+ * "Highest", not "≥ 0.900".
+ */
+export const STRING_CONFIDENCE_BANDS = [
+  { id: "highest", min: THRESHOLDS.stringDb.highest, label: "Highest" },
+  { id: "high", min: THRESHOLDS.stringDb.high, label: "High" },
+  { id: "medium", min: THRESHOLDS.stringDb.medium, label: "Medium" },
+  { id: "low", min: THRESHOLDS.stringDb.low, label: "Low" },
+] as const;
+
+export type StringConfidenceBandId = (typeof STRING_CONFIDENCE_BANDS)[number]["id"];
+
+/**
+ * The band boundaries that sit BETWEEN two bands — the three scores the strength
+ * rail draws a tick at.
+ *
+ * Named here rather than derived with `slice(0, -1)`, which produced the right
+ * answer only because the band list happens to be ordered strongest-first with
+ * the lowest band last: dropping the `low` band would have silently removed the
+ * 0.400 boundary instead of the 0.150 floor, leaving the rail looking correct.
+ *
+ * 0.150 is deliberately absent: it is the floor below which STRING assigns no
+ * band at all, and the table says "Unclassified" there rather than drawing a
+ * fourth band edge on the rail.
+ */
+export const STRING_CONFIDENCE_CUTS = [
+  { id: "highest", min: THRESHOLDS.stringDb.highest },
+  { id: "high", min: THRESHOLDS.stringDb.high },
+  { id: "medium", min: THRESHOLDS.stringDb.medium },
+] as const;
 
 /**
  * Human-readable citation strings for display in the UI.
@@ -312,4 +388,9 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "AlphaGenome Variant Impact (Google DeepMind 2024). Whole-genome multimodal foundation model. " +
     "ClinGen SVI-calibrated cutoffs: PP3 strong Phred ≥ 35.0, moderate ≥ 25.0, supporting ≥ 15.0; " +
     "BP4 supporting Phred ≤ 8.0, moderate ≤ 5.0.",
+  stringDb:
+    "STRING-db combined association score (Szklarczyk et al. Nucleic Acids Res 2023). " +
+    "Confidence bands: highest ≥ 0.900, high ≥ 0.700, medium ≥ 0.400, low ≥ 0.150. " +
+    "A functional association is not a physical interaction — co-expression and shared-pathway " +
+    "evidence contribute to the score alongside direct binding evidence.",
 };

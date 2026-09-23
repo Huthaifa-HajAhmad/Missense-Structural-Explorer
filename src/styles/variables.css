@@ -125,6 +125,22 @@
   --cs-surface-1:               #FFFFFF;
   --cs-surface-2:               #FAF9F6;
 
+  /**
+   * Informational-but-not-a-verdict hues, for surfaces that rank or classify
+   * without calling a variant pathogenic or benign — the STRING confidence tiers.
+   *
+   * Tokenised because the same colour pair was previously hand-written in two
+   * places (`typography-tables.css` .badge-data-source and the PPI chips), and
+   * because a literal `.dark` override cannot be flattened for print the way a
+   * token can: dark-mode chips printed at ~1.5:1 on white paper.
+   *
+   * Contrast: teal 4.86:1, indigo 8.06:1 on their own tints.
+   */
+  --cs-text-teal-on-soft:       #0F766E;
+  --cs-bg-teal:                 #CCFBF1;
+  --cs-text-indigo-on-soft:     #3730A3;
+  --cs-bg-indigo:               #E0E7FF;
+
   /* Legacy mappings for backward compatibility */
   --cs-good:                    var(--cs-text-success);
   --cs-good-soft:               var(--cs-bg-success);
@@ -186,6 +202,13 @@
   --cs-text-good-on-soft:       #4ADE80;
   --cs-surface-1:               #2A2724;
   --cs-surface-2:               #201E1B;
+
+  /* Informational hues, dark counterparts. Contrast on the translucent tints:
+     teal 8.44:1, indigo 6.39:1. */
+  --cs-text-teal-on-soft:       #5EEAD4;
+  --cs-bg-teal:                 rgba(13, 148, 136, 0.15);
+  --cs-text-indigo-on-soft:     #A5B4FC;
+  --cs-bg-indigo:               rgba(99, 102, 241, 0.15);
 }
 
 @theme {
