@@ -1036,6 +1036,14 @@ export interface VariantMetadata {
   acmgWeighting?: string;
   pdbId?: string | null;
   pdbSource?: string | null;
+  /**
+   * The canonical sequence the pipeline analysed.
+   *
+   * Declared here because `metadataSchema` has carried it all along while this
+   * interface did not, which forced every caller that needed it (the clinical
+   * report's re-synthesis call) to reach through `as any`.
+   */
+  sequence?: string | null;
   alternativeVariants?: any;
   mutatedSequence?: string | null;
   analysisVersion?: {

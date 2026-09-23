@@ -18,20 +18,55 @@ const geminiClientCache = new LRUCache<string, GoogleGenAI>({
 });
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
+
+/**
+ * Fallback ladder, ordered by **measured** synthesis latency rather than by recency.
+ *
+ * The ladder previously led with `gemini-3.8-flash` and omitted `gemini-3.7-flash`
+ * entirely — so a deployment whose `.env` pinned the overloaded `gemini-3.5-flash`
+ * as primary never tried the one model this repository's own default and this
+ * budget were calibrated against.
+ *
+ * Measured on the production key with the narrative workload (full markdown analysis
+ * plus the five response-schema fields), each against the 35 s per-attempt ceiling:
+ *
+ *   gemini-3.1-flash-lite    3.8 s  OK
+ *   gemini-3.7-flash        10.6 s  OK   ← the built-in default
+ *   gemini-3.5-flash-lite   11.6 s  OK
+ *   gemini-2.5-flash        36.7 s  OK   ← answers, but over a whole attempt slice
+ *   gemini-3.5-flash        16.5 s  503 "currently experiencing high demand"
+ *   gemini-3.8-flash         2.2 s  503, and 504 "deadline expired" on another run
+ *
+ * A candidate that needs longer than one slice cannot finish inside it, so the
+ * cheap-and-fast models come first and the two large thinking models come last:
+ * by the time the ladder reaches them the budget is nearly spent, and reaching
+ * them at all means the fast ones just failed.
+ */
 export const DEFAULT_GEMINI_FALLBACK_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-2.5-flash-lite",
-  "gemini-2.5-pro",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.8-flash",
 ] as const;
+
+/**
+ * Models the provider has retired.
+ *
+ * `gemini-2.5-flash-lite` and `gemini-2.5-pro` were dropped from the ladder after
+ * the API answered both with HTTP 404 "This model … is no longer available to new
+ * users". They are listed here as well as removed from the defaults so a `.env`
+ * that still names them (the deployment guide used to) cannot spend one of the
+ * four attempt slots on a request that can only fail.
+ */
 const RETIRED_GEMINI_MODELS = new Set([
   "gemini-1.5-flash",
   "gemini-1.5-pro",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
 ]);
 
 export function isGeminiApiKeyPlaceholder(value: string | undefined): boolean {
@@ -51,7 +86,13 @@ export function getConfiguredGeminiModels(): string[] {
     ? configuredPrimary
     : DEFAULT_GEMINI_MODEL;
   const fallbackValue = process.env.GEMINI_MODEL_FALLBACKS;
-  const fallbacks = fallbackValue === undefined
+  /*
+   * An empty or whitespace-only value is treated as *unset*, not as "no fallbacks".
+   * `GEMINI_MODEL_FALLBACKS=` in a `.env` previously collapsed the ladder to the
+   * primary model alone — one overloaded model away from a degraded report, with
+   * nothing in the UI explaining that the ladder had been emptied.
+   */
+  const fallbacks = !fallbackValue?.trim()
     ? [...DEFAULT_GEMINI_FALLBACK_MODELS]
     : fallbackValue
         .split(",")
@@ -100,6 +141,25 @@ const MAX_MODELS_PER_REQUEST = 4;
  */
 export function sliceForAttempt(remainingBudgetMs: number, attemptsRemaining: number): number {
   if (remainingBudgetMs <= 0 || attemptsRemaining <= 0) return 0;
+
+  /*
+   * The last candidate is the last chance, so it gets everything that is left
+   * rather than a cap it is known to exceed.
+   *
+   * Measured on the production key: the only fallback that answered the real
+   * narrative prompt, `gemini-2.5-flash`, needed 36.7 s for the full markdown
+   * analysis plus the five response-schema fields. Against the 35 s ceiling the
+   * old rule aborted it *as it was answering* — in one live run of
+   * `performGeminiAnalysis` the same model finished at 35.0 s and succeeded, in
+   * the next it needed 36.7 s and the whole request degraded to "Not
+   * synthesized". The outcome was decided by provider jitter, not by the model.
+   *
+   * The budget is the real bound: `NARRATIVE_SYNTHESIS_BUDGET_MS` (105 s) already
+   * sits below the route deadline (130 s) and the client timeout (140 s), so a
+   * final attempt may safely consume whatever remains of it.
+   */
+  if (attemptsRemaining === 1) return remainingBudgetMs;
+
   // Only reserve floors for candidates the budget can actually afford, otherwise a small budget
   // would reserve more than it has and no attempt could ever be made.
   const affordableAttempts = Math.max(1, Math.floor(remainingBudgetMs / MIN_ATTEMPT_TIMEOUT_MS));

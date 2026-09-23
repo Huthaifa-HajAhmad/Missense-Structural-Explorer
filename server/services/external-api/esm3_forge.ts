@@ -1,5 +1,6 @@
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
+import { classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
@@ -233,8 +234,15 @@ export async function fetchEsm3StructureEval(
 
   // 2. Microenvironment
   const microenvironments: string[] = [];
-  if (rsa < 0.15) microenvironments.push("Hydrophobic core");
-  else if (rsa > 0.35) microenvironments.push("Surface");
+  /*
+   * Banded by the app's single burial definition rather than by local 0.15 / 0.35
+   * literals: those numbers disagreed with the SASA engine that produces
+   * `burialStatus` for the same residue, so the perturbation panel and the Residue
+   * Shifts panel could call one RSA value "Hydrophobic core" and "boundary".
+   */
+  const burialBand = classifyBurialRsa(rsa);
+  if (burialBand === "core") microenvironments.push("Hydrophobic core");
+  else if (burialBand === "surface") microenvironments.push("Surface");
   else microenvironments.push("Binding pocket");
 
   if (isHelix) microenvironments.push("Alpha-Helix");

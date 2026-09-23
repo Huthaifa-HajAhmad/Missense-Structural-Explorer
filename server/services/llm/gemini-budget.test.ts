@@ -132,6 +132,28 @@ describe("narrative synthesis time budget", () => {
     expect(slice).toBeGreaterThanOrEqual(MIN_ATTEMPT_TIMEOUT_MS);
   });
 
+  it("gives the final candidate everything that is left, not a cap it already exceeds", async () => {
+    const { sliceForAttempt, MAX_ATTEMPT_TIMEOUT_MS } = await import("./gemini.ts");
+
+    /*
+     * Regression: the fallback that actually answers in production needs ~37s for the
+     * full narrative prompt, against a 35s per-attempt ceiling — so the old rule
+     * aborted it as it was answering, and whether the user saw a real narrative came
+     * down to provider jitter. The last candidate is the last chance, so it may use
+     * whatever the budget has left.
+     */
+    const remaining = 80_000;
+    const lastSlice = sliceForAttempt(remaining, 1);
+    expect(lastSlice).toBe(remaining);
+    expect(lastSlice).toBeGreaterThan(MAX_ATTEMPT_TIMEOUT_MS);
+
+    // ...while a non-final candidate is still capped, so one slow model cannot eat the ladder.
+    expect(sliceForAttempt(remaining, 2)).toBeLessThanOrEqual(MAX_ATTEMPT_TIMEOUT_MS);
+
+    // An exhausted budget still allocates nothing, last candidate or not.
+    expect(sliceForAttempt(0, 1)).toBe(0);
+  });
+
   it("caps how long a single unresponsive model can hold the request", async () => {
     process.env.GEMINI_MODEL = "empty-primary";
     process.env.GEMINI_MODEL_FALLBACKS = "healthy";
@@ -237,6 +259,72 @@ describe("provider-health circuit breaker", () => {
     expect(flaky).toBeDefined();
     expect(flaky?.coolingDown).toBe(true);
     expect(flaky?.lastDetail).toContain("high demand");
+  });
+});
+
+describe("configured model ladder", () => {
+  let oldModel: string | undefined;
+  let oldFallbacks: string | undefined;
+
+  beforeEach(() => {
+    oldModel = process.env.GEMINI_MODEL;
+    oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+  });
+
+  afterEach(() => {
+    if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+    else process.env.GEMINI_MODEL = oldModel;
+    if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+    else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+  });
+
+  it("ships the built-in default model inside its own fallback ladder", async () => {
+    /*
+     * The outage's configuration half: `.env` pinned the overloaded gemini-3.5-flash as
+     * primary, and the shipped ladder did not contain gemini-3.7-flash at all — the model
+     * this repository defaults to and the one the synthesis budget was sized against. A
+     * single bad pin therefore removed the only measured-fast model from the request.
+     */
+    delete process.env.GEMINI_MODEL;
+    delete process.env.GEMINI_MODEL_FALLBACKS;
+
+    const { getConfiguredGeminiModels, DEFAULT_GEMINI_MODEL } = await import("./gemini.ts");
+    expect(getConfiguredGeminiModels()).toContain(DEFAULT_GEMINI_MODEL);
+  });
+
+  it("keeps the built-in default in the ladder even when the primary is pinned elsewhere", async () => {
+    process.env.GEMINI_MODEL = "gemini-3.5-flash";
+    delete process.env.GEMINI_MODEL_FALLBACKS;
+
+    const { getConfiguredGeminiModels, DEFAULT_GEMINI_MODEL } = await import("./gemini.ts");
+    const ladder = getConfiguredGeminiModels();
+
+    expect(ladder[0]).toBe("gemini-3.5-flash");
+    // Within the four attempts a request is allowed, not merely present in the list.
+    expect(ladder.slice(0, 4)).toContain(DEFAULT_GEMINI_MODEL);
+  });
+
+  it("drops models the provider has retired, however they were configured", async () => {
+    // The API answers gemini-2.5-pro and gemini-2.5-flash-lite with 404 "no longer
+    // available to new users", so an attempt spent on either can only fail.
+    process.env.GEMINI_MODEL = "gemini-2.5-pro";
+    process.env.GEMINI_MODEL_FALLBACKS = "gemini-2.5-flash-lite,gemini-3.7-flash";
+
+    const { getConfiguredGeminiModels, DEFAULT_GEMINI_MODEL } = await import("./gemini.ts");
+    const ladder = getConfiguredGeminiModels();
+
+    expect(ladder).not.toContain("gemini-2.5-pro");
+    expect(ladder).not.toContain("gemini-2.5-flash-lite");
+    // A retired primary falls back to the built-in default rather than to nothing.
+    expect(ladder[0]).toBe(DEFAULT_GEMINI_MODEL);
+  });
+
+  it("treats a blank fallback list as unset rather than as 'no fallbacks'", async () => {
+    process.env.GEMINI_MODEL = "custom-primary";
+    process.env.GEMINI_MODEL_FALLBACKS = "   ";
+
+    const { getConfiguredGeminiModels } = await import("./gemini.ts");
+    expect(getConfiguredGeminiModels().length).toBeGreaterThan(1);
   });
 });
 

@@ -85,6 +85,84 @@ describe("ResidueShiftInspector", () => {
     expect(screen.getByText(/3 of 4 axes move/)).toBeInTheDocument();
   });
 
+  it("explains why synthesis failed instead of echoing the pipeline's placeholder", () => {
+    /*
+     * The pane showed "Rule-based only / Not synthesized": the raw marker the pipeline
+     * writes when the model call fails, with no indication of whether the provider was
+     * busy, the key was missing or the budget expired — and therefore no basis for
+     * deciding whether to retry.
+     */
+    render(
+      <ResidueShiftInspector
+        analysisResult={{
+          ...ANALYSIS_RESULT,
+          insights: { biochemicalShift: "Not synthesized" },
+          fallbackReason: "PROVIDER_OVERLOADED",
+          providerDetail: "This model is currently experiencing high demand.",
+          attemptedModels: ["gemini-3.5-flash", "gemini-3.5-flash-lite"],
+          fallbackRetryable: true
+        }}
+      />
+    );
+
+    expect(screen.getByText("AI service busy")).toBeInTheDocument();
+    expect(screen.getByText(/overloaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Not synthesized/)).not.toBeInTheDocument();
+    // Diagnostics travel beside the prose, never inside it.
+    expect(screen.getByText(/gemini-3.5-flash \u2192 gemini-3.5-flash-lite/)).toBeInTheDocument();
+    expect(screen.getByText(/high demand/)).toBeInTheDocument();
+    // The derived interpretation is still there, so the degradation costs the reader
+    // the prose and nothing else.
+    expect(screen.getByText(/3 of 4 axes move/)).toBeInTheDocument();
+  });
+
+  it("offers a re-synthesis when the failure is retryable, and only then", () => {
+    const onRetryNarrative = vi.fn();
+    const { unmount } = render(
+      <ResidueShiftInspector
+        analysisResult={{
+          ...ANALYSIS_RESULT,
+          insights: { biochemicalShift: "Not synthesized" },
+          fallbackReason: "PROVIDER_OVERLOADED",
+          fallbackRetryable: true
+        }}
+        onRetryNarrative={onRetryNarrative}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Re-synthesize the narrative/i }));
+    expect(onRetryNarrative).toHaveBeenCalledTimes(1);
+    unmount();
+
+    // A rejected key cannot be fixed by asking again.
+    render(
+      <ResidueShiftInspector
+        analysisResult={{
+          ...ANALYSIS_RESULT,
+          insights: { biochemicalShift: "Not synthesized" },
+          fallbackReason: "API_KEY_INVALID",
+          fallbackRetryable: false
+        }}
+        onRetryNarrative={onRetryNarrative}
+      />
+    );
+    expect(screen.queryByRole("button", { name: /Re-synthesize the narrative/i })).not.toBeInTheDocument();
+  });
+
+  it("never shows a retry it cannot perform", () => {
+    render(
+      <ResidueShiftInspector
+        analysisResult={{
+          ...ANALYSIS_RESULT,
+          insights: { biochemicalShift: "Not synthesized" },
+          fallbackReason: "PROVIDER_OVERLOADED"
+        }}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /Re-synthesize the narrative/i })).not.toBeInTheDocument();
+  });
+
   it("shows a skeleton instead of prose while synthesis is in flight", () => {
     render(
       <ResidueShiftInspector

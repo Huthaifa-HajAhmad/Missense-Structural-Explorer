@@ -13,6 +13,7 @@ import LiteratureView, { type Citation } from "./LiteratureView";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
+import { useNarrativeResynthesis } from "../hooks/useNarrativeResynthesis";
 import { lazyWithRetry } from "../lib/utils";
 
 const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "MolstarViewer");
@@ -368,6 +369,15 @@ export function AppViews({
     }
   }, [analysisState.result, uniprotId, actions, pdbText]);
 
+  /**
+   * One re-synthesis path for the whole app.
+   *
+   * The report view used to own the only implementation, so a reader who met a
+   * degraded narrative in the Residue Shifts inspector could see that synthesis had
+   * failed but had nothing to do about it. Both surfaces now call the same hook.
+   */
+  const { resynthesize: handleRetryNarrative } = useNarrativeResynthesis();
+
   return (
     <main className="app-view flex-1 relative overflow-hidden transition-all duration-300">
       <Suspense fallback={
@@ -665,6 +675,7 @@ export function AppViews({
               isPocketLoading={isPocketLoading}
               pocketError={pocketError}
               onRetryPocket={handleRetryPocket}
+              onRetryNarrative={handleRetryNarrative}
             />
           )}
         </div>

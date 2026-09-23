@@ -8,6 +8,7 @@ import {
   deriveBiochemicalNarrative,
   derivePocketNarrative,
   findNarrativeDiscrepancies,
+  rankContrastRowsByMagnitude,
   stripInlineMarkdown,
   type AminoAcidScaleValues,
   type PocketNarrativeInput
@@ -242,6 +243,91 @@ describe("deriveBiochemicalNarrative", () => {
 
   it("treats the literal 'Not synthesized' placeholder as unavailable", () => {
     expect(deriveBiochemicalNarrative("Not synthesized").state).toBe("unavailable");
+  });
+
+  it("explains a degraded synthesis with the server's reason instead of echoing the marker", () => {
+    /*
+     * The panel used to print the pipeline's own placeholder as the explanation: a
+     * reader saw "Rule-based only / Not synthesized" and could not tell a busy
+     * provider from a missing key, a retired model or an expired budget — nor
+     * whether retrying could possibly help.
+     */
+    const narrative = deriveBiochemicalNarrative("Not synthesized", {
+      fallbackReason: "PROVIDER_OVERLOADED",
+      providerDetail: "This model is currently experiencing high demand.",
+      attemptedModels: ["gemini-3.5-flash", "gemini-3.5-flash-lite"],
+    });
+
+    expect(narrative.state).toBe("unavailable");
+    expect(narrative.reasonLabel).toBe("AI service busy");
+    expect(narrative.detail).toMatch(/overloaded/i);
+    expect(narrative.detail).not.toMatch(/not synthesized/i);
+    expect(narrative.retryable).toBe(true);
+    expect(narrative.diagnostics).toContain("gemini-3.5-flash \u2192 gemini-3.5-flash-lite");
+    expect(narrative.diagnostics).toContain("high demand");
+  });
+
+  it("does not offer a retry the server has already ruled out", () => {
+    const narrative = deriveBiochemicalNarrative("Not synthesized", {
+      fallbackReason: "API_KEY_INVALID",
+      retryable: false,
+    });
+
+    expect(narrative.reasonLabel).toBe("API key rejected");
+    expect(narrative.retryable).toBe(false);
+    expect(narrative.diagnostics).toBeNull();
+  });
+
+  it("lets the server's retryability verdict override the reason's default", () => {
+    // A provider overload is usually transient, but a caller that has just failed
+    // several times in a row may know better.
+    const narrative = deriveBiochemicalNarrative("Not synthesized", {
+      fallbackReason: "PROVIDER_OVERLOADED",
+      retryable: false,
+    });
+
+    expect(narrative.retryable).toBe(false);
+  });
+
+  it("carries no reason, diagnostics or retry on a healthy narrative", () => {
+    const narrative = deriveBiochemicalNarrative("Charge swap: Negative to Positive.");
+
+    expect(narrative.reasonLabel).toBeNull();
+    expect(narrative.diagnostics).toBeNull();
+    expect(narrative.retryable).toBe(false);
+  });
+});
+
+describe("shift profile helpers", () => {
+  it("ranks changed axes by magnitude and puts the flat ones last", () => {
+    const contrast = contrastGluLys()!;
+
+    const ranked = rankContrastRowsByMagnitude(contrast.rows);
+    const magnitudes = ranked.map(row => row.absoluteDelta);
+
+    expect(ranked).toHaveLength(contrast.rows.length);
+    // Descending, so the largest move is the first row of the profile.
+    expect(magnitudes).toEqual([...magnitudes].sort((a, b) => b - a));
+    // Flat axes sort last: they carry the least information.
+    expect(ranked[ranked.length - 1].direction).toBe("unchanged");
+    // ...and the ranking names the same axis as the shared headline.
+    expect(ranked[0].key).toBe(contrast.headlineRow!.key);
+    // Stable within a group, so the table does not reshuffle between renders.
+    expect(ranked.filter(row => row.direction === "unchanged").map(row => row.key)).toEqual(
+      contrast.rows.filter(row => row.direction === "unchanged").map(row => row.key)
+    );
+  });
+
+  it("leaves axes that do not move at the end, in a stable order", () => {
+    const contrast = contrastGluLys()!;
+    // Polarity is 100 -> 100 in this pair, so the flat axis is the case that matters.
+    const flatAxes = contrast.rows.filter(row => row.direction === "unchanged").map(row => row.key);
+    expect(flatAxes).toEqual(["polarity"]);
+    expect(
+      rankContrastRowsByMagnitude(contrast.rows)
+        .slice(-flatAxes.length)
+        .map(row => row.key)
+    ).toEqual(flatAxes);
   });
 });
 

@@ -1,6 +1,11 @@
 import React from "react";
 import { ArrowDown, ArrowUp, Equal, Info, PanelRightOpen } from "lucide-react";
-import type { BiochemicalContrast, BiochemicalContrastRow, ShiftMagnitude } from "../../shared/residueShiftEvidence";
+import {
+  rankContrastRowsByMagnitude,
+  type BiochemicalContrast,
+  type BiochemicalContrastRow,
+  type ShiftMagnitude
+} from "../../shared/residueShiftEvidence";
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";
 
 /**
@@ -24,6 +29,16 @@ import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFo
  * with labelled ticks, joins them with a neutral span whose width *is* the delta,
  * and states direction and magnitude as text. Colour is reserved for the two
  * residues, never for the change itself.
+ *
+ * Reading the four changes against each other
+ * -------------------------------------------
+ * Every track is drawn on the same normalised 0–100 range, so the span widths *are*
+ * comparable — but only once the rows are in an order worth comparing. They are therefore
+ * ranked by magnitude, largest first (`rankContrastRowsByMagnitude`, the same ranking the
+ * prose summary names its headline axis from), the span is drawn dark enough to read at a
+ * glance, and its leading edge carries a chevron so the direction of the change is legible
+ * without consulting the chip. No value is stated twice: the graphic stays decoration and
+ * the numbers stay text.
  */
 
 const MAGNITUDE_LABEL: Record<ShiftMagnitude, string> = {
@@ -163,9 +178,13 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         axis label, both values and the delta chip already rendered as plain text
         immediately above and below it, so each of the four rows was announced
         roughly twice. The text is the accessible content; this only draws it.
+
+        Taller than it was: at h-3 the span and the two half-height markers were the
+        faintest elements in the card even though the span is the number the reader came
+        for.
       */}
       <div
-        className="relative h-3 rounded-full border overflow-hidden bg-cs-bg-subtle border-cs-border-subtle"
+        className="relative h-4 rounded-full border overflow-hidden bg-cs-bg-subtle border-cs-border-subtle"
         aria-hidden="true"
       >
         {/* Quarter gridlines give the axis a readable scale without a chart library.
@@ -185,8 +204,34 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         {/* The span between the residues. Its width is the delta, nothing else. */}
         {!isUnchanged && row.spanWidth > 0 && (
           <span
-            className="absolute top-0 bottom-0 bg-cs-accent-clay/35"
+            className="absolute top-0 bottom-0 bg-cs-accent-clay/50"
             style={{ left: `${row.spanStart}%`, width: `${row.spanWidth}%` }}
+            aria-hidden="true"
+          />
+        )}
+
+        {/*
+          Direction chevron on the leading edge of the span.
+
+          Increase and decrease are otherwise distinguishable only from the chip's arrow,
+          which sits in a different corner of the row; the span itself reads as a width
+          with no sign. Drawn as a CSS triangle rather than an icon so it scales with the
+          span's own edge instead of needing a second positioned element.
+        */}
+        {!isUnchanged && row.spanWidth > 0 && (
+          <span
+            className="absolute top-1/2 -translate-y-1/2 w-0 h-0"
+            style={{
+              left:
+                row.direction === "increase"
+                  ? `calc(${row.spanStart + row.spanWidth}% - 1px)`
+                  : `calc(${row.spanStart}% - 4px)`,
+              borderTop: "4px solid transparent",
+              borderBottom: "4px solid transparent",
+              ...(row.direction === "increase"
+                ? { borderLeft: "5px solid var(--cs-accent-clay)" }
+                : { borderRight: "5px solid var(--cs-accent-clay)" })
+            }}
             aria-hidden="true"
           />
         )}
@@ -244,8 +289,9 @@ export function BiochemicalContrastScales({ contrast, isLoading = false }: Bioch
             Biochemical Property Contrast
           </span>
           <p className="text-[10.5px] mt-1 font-sans leading-snug text-cs-text-muted">
-            Every track spans the full 0&ndash;100 range of its descriptor. The markers are the two side chains; the bar between
-            them is the size of the change.
+            Rows are ordered by the size of the change, largest first, so the width of each span is
+            directly comparable with the row above it. The markers are the two side chains and the bar
+            between them is the size of the change on that descriptor&rsquo;s own 0&ndash;100 range.
           </p>
         </div>
 
@@ -271,9 +317,9 @@ export function BiochemicalContrastScales({ contrast, isLoading = false }: Bioch
         </div>
       </div>
 
-      {/* ── One row per property axis ── */}
+      {/* ── One row per property axis, ranked by the size of the change ── */}
       <div className="space-y-4 pt-1">
-        {contrast.rows.map(row => (
+        {rankContrastRowsByMagnitude(contrast.rows).map(row => (
           <ContrastScaleRow key={row.key} row={row} />
         ))}
       </div>

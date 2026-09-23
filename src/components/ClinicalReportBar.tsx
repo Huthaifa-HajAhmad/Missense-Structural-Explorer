@@ -13,9 +13,9 @@ import {
 } from "lucide-react";
 import { AnalysisState } from "../types";
 import { useSettings } from "../context/SettingsContext";
-import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
-import { isFallbackNarrative, setCachedVariant } from "../services/pipeline/variantCache";
+import { isFallbackNarrative } from "../services/pipeline/variantCache";
+import { useNarrativeResynthesis } from "../hooks/useNarrativeResynthesis";
 import { variantNumberingView } from "../shared/numbering";
 import {
   AiStatusStrip,
@@ -63,7 +63,6 @@ function ClinicalReportBar({
   const result = analysisState.result;
   const hasResult = !!result;
   const [copied, setCopied] = useState(false);
-  const [isSynthesizingLocally, setIsSynthesizingLocally] = useState(false);
 
   // Section disclosure state for controlled expand / collapse
   const [sectionOpenState, setSectionOpenState] = useState<Record<string, boolean>>({
@@ -111,18 +110,18 @@ function ClinicalReportBar({
     }, 50);
   }, []);
 
-  const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
-  const { apiClient } = useApiClient();
+  const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady } = useSettings();
 
   const storeIsNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
   const gene = useVariantAnalysisStore(s => s.gene);
   const variant = useVariantAnalysisStore(s => s.variant);
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
-  const userDirections = useVariantAnalysisStore(s => s.userDirections);
-  const setAnalysisState = useVariantAnalysisStore(s => s.setAnalysisState);
-  const setIsNarrativeLoading = useVariantAnalysisStore(s => s.setIsNarrativeLoading);
   const addNotification = useVariantAnalysisStore(s => s.addNotification);
   const reportSections = useVariantAnalysisStore(s => s.reportSections);
+
+  // One re-synthesis path, shared with the Residue Shifts inspector. The report used to
+  // own the only implementation, so no other surface could offer a retry at all.
+  const { resynthesize, isResynthesizing } = useNarrativeResynthesis();
 
   // Live biophysical state subscriptions
   const storeFoldingEnergetics = useVariantAnalysisStore(
@@ -135,7 +134,7 @@ function ClinicalReportBar({
     s => s.primaryBiophysics?.foldingStatus ?? s.foldingStatus
   );
 
-  const isNarrativeLoading = propIsNarrativeLoading ?? (storeIsNarrativeLoading || isSynthesizingLocally);
+  const isNarrativeLoading = propIsNarrativeLoading ?? (storeIsNarrativeLoading || isResynthesizing);
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
 
   const classification = result?.clinvar?.classification ?? result?.ruleBasedInsights?.acmgVerdict ?? "";
@@ -277,84 +276,8 @@ function ClinicalReportBar({
       propOnRetryNarrative();
       return;
     }
-    if (!result) return;
-
-    setIsSynthesizingLocally(true);
-    setIsNarrativeLoading(true);
-
-    try {
-      const narrativeData = await apiClient.getNarrative({
-        gene: gene || result.metadata?.gene || "",
-        variant: variant || result.metadata?.variant || "",
-        uniprotId: uniprotId || result.metadata?.uniprotId || "",
-        userDirections: userDirections || undefined,
-        acmgWeighting: settings.acmgWeighting,
-        clinvar: result.clinvar || null,
-        predictorData: result.predictorData || null,
-        conservationData: result.conservationData || null,
-        stringInteractions: result.stringInteractions || null,
-        gnomadConstraint: result.gnomadConstraint || null,
-        gnomadFrequency: result.gnomadFrequency || null,
-        uniprotFeatures: result.uniprotFeatures || null,
-        sequence: (result.metadata as any)?.sequence || null
-      });
-
-      if (narrativeData?.analysis) {
-        const mergedResult = {
-          ...result,
-          analysis: narrativeData.analysis,
-          isFallback: narrativeData.isFallback ?? false,
-          fallbackReason: narrativeData.fallbackReason,
-          fallbackMessage: narrativeData.fallbackMessage,
-          fallbackRetryable: narrativeData.fallbackRetryable,
-          providerDetail: narrativeData.providerDetail,
-          attemptedModels: narrativeData.attemptedModels,
-          insights: narrativeData.insights ?? result.insights
-        };
-
-        setAnalysisState(prev => (prev.result ? { ...prev, result: mergedResult } : prev));
-
-        // Keep local cache fresh
-        const targetGene = gene || result.metadata?.gene || "";
-        const targetVariant = variant || result.metadata?.variant || "";
-        const targetUniprot = uniprotId || result.metadata?.uniprotId || "";
-        setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: mergedResult });
-
-        if (narrativeData.isFallback) {
-          addNotification(
-            narrativeData.fallbackRetryable === false ? "warn" : "info",
-            narrativeData.fallbackMessage ||
-              "AI synthesis was unavailable; the report shows database-derived evidence and rule-based ACMG criteria."
-          );
-        } else {
-          addNotification(
-            "success",
-            "Clinical report updated with calibrated multi-layer Gemini insights."
-          );
-        }
-      }
-    } catch (err: any) {
-      addNotification(
-        "error",
-        err.message || "Failed to generate AI narrative from Gemini API."
-      );
-    } finally {
-      setIsSynthesizingLocally(false);
-      setIsNarrativeLoading(false);
-    }
-  }, [
-    propOnRetryNarrative,
-    result,
-    apiClient,
-    gene,
-    variant,
-    uniprotId,
-    userDirections,
-    settings.acmgWeighting,
-    setAnalysisState,
-    setIsNarrativeLoading,
-    addNotification
-  ]);
+    await resynthesize();
+  }, [propOnRetryNarrative, resynthesize]);
 
   if (!hasResult && !isNarrativeLoading) return (
     <div className="flex flex-col items-center justify-center h-full gap-3 p-8" style={{ color: "var(--cs-text-muted)" }}>

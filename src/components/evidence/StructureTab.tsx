@@ -1,8 +1,9 @@
 import React, { useMemo } from "react";
-import { Info, ShieldAlert, RotateCw, Box, PanelRightOpen } from "lucide-react";
+import { PanelRightOpen, RotateCw, ShieldAlert, Box, Info } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { AMINO_ACID_NAMES_MAP } from "../../useVariantAnalysis";
 import { BiochemicalContrastScales } from "./ContrastScale";
+import { ResidueEnvironmentPanel } from "./ResidueEnvironmentPanel";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import { useResidueScalesLoading } from "../../lib/residueScalesLoading";
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";
@@ -113,61 +114,12 @@ export function StructureTab({
       <BiochemicalContrastScales contrast={contrast} isLoading={areScalesLoading} />
 
       {(result.disruptionPredictor?.burialStatus !== undefined || result.disruptionPredictor?.neighborCount !== undefined || result.disruptionPredictor?.rsa !== undefined) ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button
-            type="button"
-            onClick={() => setSelectedMetric("burial_status")}
-            className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[var(--cs-accent-clay)]/50 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] w-full"
-            style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
-          >
-            <div className="w-full">
-              <div className="flex items-center justify-between w-full mb-1">
-                <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Burial / Exposure Status</span>
-                <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded border badge-metric-neutral">
-                  {result.disruptionPredictor.burialStatus ?? "Unknown"}
-                </span>
-                {result.disruptionPredictor.rsa !== undefined && result.disruptionPredictor.rsa !== null && (
-                  <span className="text-[11px] font-mono opacity-80" style={{ color: "var(--cs-text-secondary)" }}>
-                    RSA: {(result.disruptionPredictor.rsa * 100).toFixed(1)}%
-                  </span>
-                )}
-              </div>
-              <p className="text-[12px] leading-relaxed mt-2 font-sans" style={{ color: "var(--cs-text-secondary)" }}>
-                {result.disruptionPredictor.burialStatus === "core"
-                  ? "Residue is deeply buried in the hydrophobic core (<15% RSA)."
-                  : result.disruptionPredictor.burialStatus === "surface"
-                  ? "Residue is solvent-exposed on the protein surface (>35% RSA)."
-                  : result.disruptionPredictor.burialStatus === "boundary"
-                  ? "Residue is located at a boundary or partial burial site."
-                  : "Burial status is undetermined."}
-              </p>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSelectedMetric("contact_density")}
-            className="p-4 rounded-lg border text-left flex flex-col justify-between hover:border-[var(--cs-accent-clay)]/50 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] w-full"
-            style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}
-          >
-            <div className="w-full">
-              <div className="flex items-center justify-between w-full mb-1">
-                <span className="block text-[11px] uppercase font-bold tracking-wider" style={{ color: "var(--cs-text-secondary)" }}>Spatial Neighbor Density</span>
-                <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              </div>
-              <div className="text-xl font-bold font-mono mt-1" style={{ color: "var(--cs-text-primary)" }}>
-                {result.disruptionPredictor.neighborCount ?? 0}{" "}
-                <span className="text-[10px] font-medium" style={{ color: "var(--cs-text-muted)" }}>neighbors (&lt;10Å)</span>
-              </div>
-              <p className="text-[10px] leading-normal mt-2" style={{ color: "var(--cs-text-secondary)" }}>
-                Quantifies local packing density. Core is defined as &ge; 15 neighbors, boundary as 8-14, and surface as &lt; 8.
-              </p>
-            </div>
-          </button>
-        </div>
+        <ResidueEnvironmentPanel
+          burialStatus={result.disruptionPredictor.burialStatus}
+          neighbourCount={result.disruptionPredictor.neighborCount}
+          rsa={result.disruptionPredictor.rsa}
+          onExplainMetric={setSelectedMetric}
+        />
       ) : (
         <div className="empty-state-box">
           No 3D structural packing or burial metrics available for this variant.

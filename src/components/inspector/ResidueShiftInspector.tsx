@@ -24,6 +24,7 @@ import {
   deriveBiochemicalNarrative,
   derivePocketNarrative,
   findNarrativeDiscrepancies,
+  type BiochemicalNarrative,
   type NarrativeState,
   type PocketNarrative
 } from "../../shared/residueShiftEvidence";
@@ -43,6 +44,8 @@ interface ResidueShiftInspectorProps {
   isBiophysicalLoading?: boolean;
   isNarrativeLoading?: boolean;
   onRetryPocket?: () => void | Promise<void>;
+  /** Re-runs AI narrative synthesis for this variant. */
+  onRetryNarrative?: () => void | Promise<void>;
 }
 
 /**
@@ -90,17 +93,21 @@ function deltaGlyph(delta: number): string {
 function buildCopyText(params: {
   gene?: string | null;
   variant?: string | null;
-  prose: string | null;
+  narrative: BiochemicalNarrative;
   summary: string;
   axisLines: string[];
   pocket: PocketNarrative;
 }): string {
-  const { gene, variant, prose, summary, axisLines, pocket } = params;
+  const { gene, variant, narrative, summary, axisLines, pocket } = params;
   const header = [gene, variant].filter(Boolean).join(" ") || "Variant";
   const lines = [`${header} \u2014 residue shift & cavity interpretation`, ""];
 
   lines.push("Biochemical shift (AI synthesis):");
-  lines.push(prose ?? "No AI narrative available.");
+  lines.push(
+    narrative.prose ??
+      `Not available \u2014 ${narrative.reasonLabel ?? "no AI narrative was returned"}. ` +
+        "The interpretation below is derived from the residue property scales."
+  );
   lines.push("");
   lines.push("Derived from the 0\u2013100 property scales:");
   lines.push(summary);
@@ -120,7 +127,8 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
   pocketError = null,
   isBiophysicalLoading = false,
   isNarrativeLoading = false,
-  onRetryPocket
+  onRetryPocket,
+  onRetryNarrative
 }) => {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [isScaleReferenceOpen, setIsScaleReferenceOpen] = useState(false);
@@ -161,8 +169,22 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
   const contrast = model.contrast;
 
   const narrative = useMemo(
-    () => deriveBiochemicalNarrative(analysisResult?.insights?.biochemicalShift, { isLoading: isNarrativeLoading }),
-    [analysisResult?.insights?.biochemicalShift, isNarrativeLoading]
+    () =>
+      deriveBiochemicalNarrative(analysisResult?.insights?.biochemicalShift, {
+        isLoading: isNarrativeLoading,
+        fallbackReason: analysisResult?.fallbackReason,
+        providerDetail: analysisResult?.providerDetail,
+        attemptedModels: analysisResult?.attemptedModels,
+        retryable: analysisResult?.fallbackRetryable,
+      }),
+    [
+      analysisResult?.insights?.biochemicalShift,
+      analysisResult?.fallbackReason,
+      analysisResult?.providerDetail,
+      analysisResult?.attemptedModels,
+      analysisResult?.fallbackRetryable,
+      isNarrativeLoading,
+    ]
   );
 
   const discrepancies = useMemo(
@@ -190,7 +212,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         buildCopyText({
           gene: metadata?.gene,
           variant: metadata?.variant,
-          prose: narrative.prose,
+          narrative,
           summary: contrast?.summary ?? "Property scales unavailable for this substitution.",
           axisLines: (contrast?.rows ?? []).map(
             row =>
@@ -242,13 +264,22 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         </div>
 
         <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          <span
-            className={`inline-block text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${
-              NARRATIVE_BADGE_CLASS[narrative.state] ?? NARRATIVE_BADGE_CLASS.absent
-            }`}
-          >
-            {narrative.badge}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className={`inline-block text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${
+                NARRATIVE_BADGE_CLASS[narrative.state] ?? NARRATIVE_BADGE_CLASS.absent
+              }`}
+            >
+              {narrative.badge}
+            </span>
+            {/* The *why*, when the server classified it. Without this the reader only
+                learned that synthesis had failed, never whether retrying could help. */}
+            {narrative.reasonLabel && (
+              <span className="inline-block text-[9.5px] font-mono uppercase px-2 py-0.5 rounded border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25">
+                {narrative.reasonLabel}
+              </span>
+            )}
+          </div>
 
           {narrative.state === "loading" ? (
             <div className="space-y-1.5 pt-0.5" role="status" aria-busy="true">
@@ -259,7 +290,29 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
           ) : narrative.prose ? (
             <p className="text-[11.5px] leading-relaxed text-cs-text-primary">{narrative.prose}</p>
           ) : (
-            <p className="text-[10.5px] leading-relaxed text-cs-text-secondary">{narrative.detail}</p>
+            <>
+              <p className="text-[10.5px] leading-relaxed text-cs-text-secondary">{narrative.detail}</p>
+              {narrative.diagnostics && (
+                <p className="text-[9.5px] font-mono leading-relaxed text-cs-text-muted break-words">
+                  {narrative.diagnostics}
+                </p>
+              )}
+              {onRetryNarrative && narrative.retryable && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // `void`: the handler is typed `void | Promise<void>` and React
+                    // discards a returned promise, so a rejection would be unhandled.
+                    void onRetryNarrative();
+                  }}
+                  disabled={isNarrativeLoading}
+                  className="mt-0.5 px-2.5 py-1 rounded border border-cs-accent-clay/30 bg-cs-accent-clay/10 text-cs-accent-clay font-mono text-[10px] font-semibold inline-flex items-center gap-1.5 hover:bg-cs-accent-clay/20 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RotateCw className={`w-3 h-3 ${isNarrativeLoading ? "animate-spin" : ""}`} />
+                  Re-synthesize the narrative
+                </button>
+              )}
+            </>
           )}
         </div>
 

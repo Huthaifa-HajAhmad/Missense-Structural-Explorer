@@ -71,10 +71,21 @@ def main():
 
         max_sasa = MAX_SASA.get(resname, 200.0) # fallback
         rsa = sasa / max_sasa
-        
-        if rsa < 0.05:
+
+        # The single burial definition for the whole app, mirrored in
+        # src/shared/burialEvidence.ts (BURIAL_RSA_BANDS) and pinned by
+        # src/shared/__tests__/burialEvidence.test.ts, which reads this file and
+        # fails if the two drift apart.
+        #
+        # These were 0.05 / 0.25, so this script labelled a residue at RSA 0.12
+        # "boundary" while the panel's own prose and the metric-explanation registry
+        # called the same value "deeply buried in the hydrophobic core", and while
+        # esm3_forge.ts labelled it "Hydrophobic core".
+        BURIAL_RSA_CORE_MAX = 0.15
+        BURIAL_RSA_SURFACE_MIN = 0.35
+        if rsa <= BURIAL_RSA_CORE_MAX:
             burial_status = "core"
-        elif rsa > 0.25:
+        elif rsa >= BURIAL_RSA_SURFACE_MIN:
             burial_status = "surface"
         else:
             burial_status = "boundary"

@@ -76,6 +76,8 @@ export interface ViewInspectorProps {
   isPocketLoading?: boolean;
   pocketError?: string | null;
   onRetryPocket?: () => void | Promise<void>;
+  /** Re-runs AI narrative synthesis for the current variant. */
+  onRetryNarrative?: () => void | Promise<void>;
 }
 
 const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> }> = {
@@ -162,7 +164,8 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   computedPocket = null,
   isPocketLoading = false,
   pocketError = null,
-  onRetryPocket
+  onRetryPocket,
+  onRetryNarrative
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("cs-inspector-collapsed") === "true";
@@ -452,6 +455,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             isBiophysicalLoading={isBiophysicalLoading}
             isNarrativeLoading={isNarrativeLoading}
             onRetryPocket={onRetryPocket}
+            onRetryNarrative={onRetryNarrative}
           />
         )}
 

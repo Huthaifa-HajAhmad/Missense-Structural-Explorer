@@ -17,6 +17,8 @@
  * this module stays dependency-free and unit-testable.
  */
 
+import { describeFallbackReason, isNarrativeFallbackReason } from "./narrativeFallback.ts";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Amino-acid property scales
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,6 +199,27 @@ export interface BiochemicalContrastRow {
   /** Left edge and width of the segment joining the two markers. */
   spanStart: number;
   spanWidth: number;
+}
+
+/**
+ * Rows ordered the way a reader needs them: the biggest move first.
+ *
+ * Every track is drawn on the same normalised 0–100 range, so the *width* of a change is
+ * comparable between axes — but only if the rows are in a useful order. Presented in
+ * definition order the reader has to compare four numbers to find what actually moved;
+ * sorted, the answer is the first row, and it always agrees with the prose summary
+ * (`headlineRow`) about which axis that is.
+ *
+ * Unchanged axes sort last: they carry the least information and they are the ones the
+ * reader can skip. Ordering within each group preserves the definition order, so a table
+ * built from this is stable across renders.
+ */
+export function rankContrastRowsByMagnitude(
+  rows: readonly BiochemicalContrastRow[]
+): BiochemicalContrastRow[] {
+  const changed = rows.filter(row => row.direction !== "unchanged");
+  const unchanged = rows.filter(row => row.direction === "unchanged");
+  return [...changed.sort((a, b) => b.absoluteDelta - a.absoluteDelta), ...unchanged];
 }
 
 export interface BiochemicalContrast {
@@ -501,6 +524,19 @@ export interface BiochemicalNarrative {
   badge: string;
   /** Explanation shown when there is no usable prose. */
   detail: string | null;
+  /**
+   * Short label for *why* synthesis produced no prose, from the shared degradation
+   * vocabulary. Null when there is nothing structured to say.
+   */
+  reasonLabel: string | null;
+  /** Whether re-running synthesis has a realistic chance of succeeding. */
+  retryable: boolean;
+  /**
+   * What the server actually tried and what the provider said, already sanitized
+   * by the server. Kept separate from `detail` so clinical prose never mixes with
+   * infrastructure telemetry.
+   */
+  diagnostics: string | null;
 }
 
 /**
@@ -527,9 +563,43 @@ export function stripInlineMarkdown(text: string): string {
     .trim();
 }
 
+export interface BiochemicalNarrativeOptions {
+  isLoading?: boolean;
+  /**
+   * Stable degradation code returned by the server (`NarrativeFallbackReason`).
+   *
+   * Without it the panel could only say "rule-based only" and echo the internal
+   * placeholder — the reader saw a bare "Not synthesized" and had no way to tell a
+   * busy provider from a missing key or an expired budget.
+   */
+  fallbackReason?: string | null;
+  /** Sanitized provider line, when the server reported one. */
+  providerDetail?: string | null;
+  /** Models the server actually attempted, in order. */
+  attemptedModels?: readonly string[] | null;
+  /** The server's own retryability verdict, which wins over the reason's default. */
+  retryable?: boolean | null;
+}
+
+/**
+ * One line of provider/attempt diagnostics for the degraded state.
+ *
+ * Kept out of `detail`: the clinical explanation and the infrastructure telemetry
+ * are different registers, and mixing them is how a provider payload ends up
+ * inside a clinical report.
+ */
+function buildDiagnostics(options: BiochemicalNarrativeOptions): string | null {
+  const parts: string[] = [];
+  const attempted = (options.attemptedModels ?? []).filter(model => typeof model === "string" && model.trim());
+  if (attempted.length > 0) parts.push(`Attempted: ${attempted.join(" → ")}`);
+  const providerDetail = typeof options.providerDetail === "string" ? options.providerDetail.trim() : "";
+  if (providerDetail) parts.push(`Provider: ${providerDetail}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function deriveBiochemicalNarrative(
   raw: string | null | undefined,
-  options: { isLoading?: boolean } = {}
+  options: BiochemicalNarrativeOptions = {}
 ): BiochemicalNarrative {
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   const stripped = trimmed ? stripInlineMarkdown(trimmed) : "";
@@ -544,7 +614,15 @@ export function deriveBiochemicalNarrative(
    * badge, with no explanatory detail because `detail` is null in the ready state.
    */
   if (stripped.length > 0 && !isUnavailable) {
-    return { state: "ready", prose: stripped, badge: "AI synthesis", detail: null };
+    return {
+      state: "ready",
+      prose: stripped,
+      badge: "AI synthesis",
+      detail: null,
+      reasonLabel: null,
+      retryable: false,
+      diagnostics: null,
+    };
   }
 
   if (options.isLoading) {
@@ -553,16 +631,32 @@ export function deriveBiochemicalNarrative(
       prose: null,
       badge: "Synthesising",
       detail: "The language model is composing the biochemical interpretation for this substitution.",
+      reasonLabel: null,
+      retryable: false,
+      diagnostics: null,
     };
   }
+
+  const presentation = describeFallbackReason(options.fallbackReason);
+  const hasReason = isNarrativeFallbackReason(options.fallbackReason);
+  const diagnostics = buildDiagnostics(options);
 
   return {
     state: "unavailable",
     prose: null,
     badge: "Rule-based only",
-    detail: isUnavailable
-      ? stripped || "AI synthesis did not produce a usable narrative for this substitution."
-      : "No AI biochemical narrative was returned for this substitution. The derived interpretation in this panel is computed from the residue property scales and is unaffected.",
+    /*
+     * The structured reason is the explanation when there is one. Otherwise the marker
+     * the pipeline wrote is the only information available, and it is shown as the
+     * state label it is — never as markdown, and never in place of a reason the server
+     * did classify.
+     */
+    detail: hasReason
+      ? presentation.detail
+      : stripped || "No AI biochemical narrative was returned for this substitution. The derived interpretation in this panel is computed from the residue property scales and is unaffected.",
+    reasonLabel: hasReason ? presentation.label : null,
+    retryable: options.retryable ?? presentation.retryable,
+    diagnostics,
   };
 }
 

@@ -33,9 +33,14 @@ This document outlines the step-by-step procedure to deploy the Missense & Fold 
 ### Step 2: Configure Environment Secrets (`.env`)
 Create a production `.env` file in the project root:
 ```ini
-# Primary Gemini model
-GEMINI_MODEL="gemini-3.5-flash"
-GEMINI_MODEL_FALLBACKS="gemini-2.5-flash,gemini-2.5-pro"
+# Primary Gemini model. Leave both lines unset to use the ladder the code ships,
+# which is ordered by measured latency and is what the synthesis budget is sized
+# against. If you do pin a model, keep GEMINI_MODEL_FALLBACKS unset: an explicit
+# list replaces the shipped ladder, and the earlier advice here named
+# `gemini-2.5-pro` — which the API now rejects with 404 "no longer available to
+# new users" — as a fallback, so a pinned deployment had no working candidate.
+GEMINI_MODEL="gemini-3.7-flash"
+# GEMINI_MODEL_FALLBACKS=
 
 # Path to FoldX binary (or leave blank to auto-detect from tools/foldx)
 FOLDX_BINARY=""

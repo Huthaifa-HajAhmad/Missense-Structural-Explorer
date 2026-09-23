@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { parseAtomsFromPdb } from "../pdb-parser.ts";
+import { classifyPackingDensity } from "../../../../src/shared/burialEvidence.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -150,8 +151,14 @@ export async function predictStructuralDisruption(
   }
   // 3. Compute true SASA and RSA using the sidecar script
   const sasaResult = await runSasaEval(wtPdbText, resolvedChain || "A", position);
-  
-  const burialStatus = sasaResult ? sasaResult.burialStatus : (neighborCount >= 15 ? "core" : (neighborCount < 8 ? "surface" : "boundary"));
+
+  /*
+   * The packing fallback reads the same band table the client renders, so the word
+   * and the numbers printed beside it cannot be banded differently.
+   */
+  const burialStatus = sasaResult
+    ? sasaResult.burialStatus
+    : (classifyPackingDensity(neighborCount) ?? "boundary");
   const rsa = sasaResult ? sasaResult.rsa : undefined;
   const sasa = sasaResult ? sasaResult.sasa : undefined;
   const isBuried = burialStatus === "core";
