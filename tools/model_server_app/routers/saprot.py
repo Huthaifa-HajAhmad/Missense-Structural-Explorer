@@ -172,7 +172,10 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     mut_sequence = "".join(mut_seq_chars)
     mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
     
-    embedding_shift = 0.0
+    # Left as None, not 0.0: HF's filler API exposes no per-residue feature extraction for
+    # SaProt's 3Di tokens, and a coerced zero is indistinguishable from a measured zero shift
+    # once it reaches the model card.
+    embedding_shift: float | None = None
     local_shift_map = []
     try:
         wt_emb = np.array(client.feature_extraction(wt_seq_sa, model=chosen_model))
@@ -215,7 +218,7 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
         "preferences": preferences,
         "mutRank": mut_rank,
         "positionalEntropy": round(pos_entropy, 4),
-        "embeddingShift": round(embedding_shift, 4),
+        "embeddingShift": round(embedding_shift, 4) if embedding_shift is not None else None,
         "localShiftMap": local_shift_map,
         "klDivergence": kl_div,
         "conformationState": s_pos,

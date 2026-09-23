@@ -11,6 +11,7 @@ import { Esm3ExploratorySection } from "./perturbation/Esm3ExploratorySection";
 import { useApiClient } from "../../apiClient";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { resolveModelCalibration } from "../../shared/modelCalibration";
+import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import {
   resolveModelDisplayName,
   type PerturbationModelId
@@ -173,9 +174,37 @@ export function PerturbationTab({
     [result?.saprotEval?.provenance, settings.saprotEngine]
   );
 
+  /**
+   * Resolve the substitution once, before the null guard.
+   *
+   * The perturbation panels compare residues against the model's own preference vocabulary,
+   * which is one-letter (`preferences[].aa`), while the pipeline records the pair three-letter
+   * (`metadata.wildType` = "Ser"). Comparing the two directly matched nothing at all: the
+   * distribution legend dropped both percentages and no row ever received the native or variant
+   * colour. Resolving here yields codes for matching and labels for display, so no panel has to
+   * guess which alphabet it was handed.
+   *
+   * Evaluated ahead of the null guard below for the same reason as the display name above:
+   * `result` can become null on an instance that has already rendered with data, and a hook must
+   * not appear after the early return.
+   */
+  const residuePair = useMemo(
+    () =>
+      resolveResidueShiftModel({
+        wildType: result?.metadata?.wildType,
+        mutant: result?.metadata?.mutant,
+        variant: result?.metadata?.variant
+      }),
+    [result?.metadata?.wildType, result?.metadata?.mutant, result?.metadata?.variant]
+  );
+
   if (!result) return null;
-  const wtRes = result.metadata?.wildType || "R";
-  const mutRes = result.metadata?.mutant || "H";
+  /** One-letter codes: the alphabet the model payloads use. */
+  const wtCode = residuePair.wildTypeCode;
+  const mutCode = residuePair.mutantCode;
+  /** Three-letter labels for prose. Falls back to the raw metadata value when unresolved. */
+  const wtLabel = residuePair.wildTypeLabel || result.metadata?.wildType || "wild type";
+  const mutLabel = residuePair.mutantLabel || result.metadata?.mutant || "variant";
   const pos = result.metadata?.residueIndex || 408;
 
   const handleSwitchTo35M = async () => {
@@ -456,8 +485,8 @@ export function PerturbationTab({
           {/* Grid 2: Core Metrics of Selected Model */}
           <PerturbationMetricsBar
             activeEval={activeEval}
-            wtRes={wtRes}
-            mutRes={mutRes}
+            wtLabel={wtLabel}
+            mutLabel={mutLabel}
             calibration={currentModel.calibration ?? null}
           />
 
@@ -466,14 +495,16 @@ export function PerturbationTab({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
             <ResiduePreferenceList
               preferences={activeEval.preferences || []}
-              wtRes={wtRes}
-              mutRes={mutRes}
+              wtCode={wtCode}
+              mutCode={mutCode}
+              wtLabel={wtLabel}
+              mutLabel={mutLabel}
               pos={pos}
             />
 
             <EmbeddingShiftChart
               activeEval={activeEval}
-              activePerturbModel={activePerturbModel}
+              modelName={currentModel.name}
               pos={pos}
               points={points}
               pathD={pathD}

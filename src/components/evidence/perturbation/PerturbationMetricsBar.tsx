@@ -3,8 +3,9 @@ import { classifyLlr, isCalibrated, type ModelCalibration } from "../../../share
 
 interface PerturbationMetricsBarProps {
   activeEval: any;
-  wtRes: string;
-  mutRes: string;
+  /** Three-letter display labels ("Ser"). Matching against model payloads happens elsewhere. */
+  wtLabel: string;
+  mutLabel: string;
   /** Governs whether ΔLLR may be tinted against a cut-point. */
   calibration?: ModelCalibration | null;
 }
@@ -20,8 +21,8 @@ interface PerturbationMetricsBarProps {
  */
 export function PerturbationMetricsBar({
   activeEval,
-  wtRes,
-  mutRes,
+  wtLabel,
+  mutLabel,
   calibration = null
 }: PerturbationMetricsBarProps) {
   const mutProb = typeof activeEval.mutProbability === "number" ? activeEval.mutProbability : null;
@@ -63,7 +64,7 @@ export function PerturbationMetricsBar({
         <strong className="text-base font-bold font-mono block mt-1 text-sky-700 dark:text-sky-400 tabular-nums">
           {wtProb === null ? "N/A" : wtProb.toFixed(4)}
         </strong>
-        <span className="block text-[10px] mt-0.5 text-cs-text-muted">Expectation of native {wtRes}</span>
+        <span className="block text-[10px] mt-0.5 text-cs-text-muted">Expectation of native {wtLabel}</span>
       </div>
 
       <div className="p-3 rounded-lg border transition-all duration-300 shadow-sm text-left" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
@@ -73,7 +74,7 @@ export function PerturbationMetricsBar({
         </strong>
         <span className="block text-[10px] mt-0.5 text-cs-text-muted">
           {retention === null
-            ? `Compatibility of variant ${mutRes}`
+            ? `Compatibility of variant ${mutLabel}`
             : `Retains ${(retention * 100) < 1 ? "<1" : (retention * 100).toFixed(0)}% of native likelihood`}
         </span>
       </div>

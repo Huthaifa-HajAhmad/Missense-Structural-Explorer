@@ -88,9 +88,14 @@ export async function runEsm2Analysis(
         const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
         const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
         const preferences = Array.isArray(data.preferences) ? data.preferences : [];
-        const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : 0.0;
+        /**
+         * Absence is preserved, never coerced to 0 — the serverless filler API exposes no
+         * per-residue feature extraction, and `0.000` on the card cannot be told apart from a
+         * measured zero shift. KL divergence is a separate measurement and is kept as reported.
+         */
+        const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
         const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
-        const klDivergence = typeof data.klDivergence === "number" ? data.klDivergence : 0.0;
+        const klDivergence = typeof data.klDivergence === "number" ? data.klDivergence : null;
 
         let localEmbeddingShift = 0.0;
         if (localShiftMap.length > 0) {

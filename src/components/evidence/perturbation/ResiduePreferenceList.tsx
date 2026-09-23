@@ -7,15 +7,26 @@ interface PreferenceItem {
 
 interface ResiduePreferenceListProps {
   preferences: PreferenceItem[];
-  wtRes: string;
-  mutRes: string;
+  /**
+   * One-letter codes — the alphabet `preferences[].aa` is expressed in. These do the matching.
+   * `metadata.wildType`/`mutant` arrive three-letter ("Ser"), so comparing them against these
+   * keys directly matched nothing: the legend silently dropped both percentages and no row ever
+   * received the native or variant colour. Callers resolve the pair once and pass codes here.
+   */
+  wtCode: string;
+  mutCode: string;
+  /** Three-letter display labels ("Ser") for the legend text. */
+  wtLabel: string;
+  mutLabel: string;
   pos: number;
 }
 
 export function ResiduePreferenceList({
   preferences,
-  wtRes,
-  mutRes,
+  wtCode,
+  mutCode,
+  wtLabel,
+  mutLabel,
   pos
 }: ResiduePreferenceListProps) {
   /**
@@ -28,8 +39,24 @@ export function ResiduePreferenceList({
   const MUT_COLOR = "var(--cs-accent-clay)";
   const BG_COLOR = "var(--cs-text-muted)";
 
-  const wtProb = preferences.find(p => p.aa === wtRes)?.prob ?? null;
-  const mutProb = preferences.find(p => p.aa === mutRes)?.prob ?? null;
+  const wtIndex = wtCode ? preferences.findIndex(p => p.aa === wtCode) : -1;
+  const mutIndex = mutCode ? preferences.findIndex(p => p.aa === mutCode) : -1;
+  const total = preferences.length;
+
+  const wtProb = wtIndex >= 0 ? preferences[wtIndex].prob : null;
+  const mutProb = mutIndex >= 0 ? preferences[mutIndex].prob : null;
+
+  /**
+   * The list is ranked, so the variant of interest is routinely far below the fold — Cys at
+   * rank 18 of 20 in a reviewer's own case, inside a 220px scroll box. Carrying each keyed
+   * residue's rank in the legend (and not only in the rows) is what keeps the colour coding
+   * actionable when its row is off-screen. Both percentages are formatted like the row column
+   * so the legend and the row it names cannot disagree.
+   */
+  const rankOf = (index: number) => (index >= 0 && total > 0 ? `rank ${index + 1}/${total}` : null);
+
+  /** No keyed residue at all: say so, rather than rendering a legend that explains nothing. */
+  const pairResolved = Boolean(wtCode) || Boolean(mutCode);
 
   return (
     <div className="p-4 rounded-xl border transition-all duration-300 shadow-sm space-y-3 text-left flex flex-col h-full" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
@@ -39,23 +66,41 @@ export function ResiduePreferenceList({
       </div>
 
       {/* Legend: names the two highlighted rows so the colour coding needs no inference. */}
-      <div className="flex items-center gap-3 text-[9.5px] font-mono text-cs-text-muted">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: WT_COLOR }} />
-          Native {wtRes}
-          {wtProb !== null && <span className="text-cs-text-secondary">{(wtProb * 100).toFixed(1)}%</span>}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: MUT_COLOR }} />
-          Variant {mutRes}
-          {mutProb !== null && <span className="text-cs-text-secondary">{(mutProb * 100).toFixed(2)}%</span>}
-        </span>
-      </div>
+      {pairResolved ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9.5px] font-mono text-cs-text-muted">
+          {wtCode && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: WT_COLOR }} />
+              Native {wtLabel}
+              {wtProb !== null && (
+                <span className="text-cs-text-secondary">
+                  {(wtProb * 100).toFixed(2)}% · {rankOf(wtIndex)}
+                </span>
+              )}
+            </span>
+          )}
+          {mutCode && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: MUT_COLOR }} />
+              Variant {mutLabel}
+              {mutProb !== null && (
+                <span className="text-cs-text-secondary">
+                  {(mutProb * 100).toFixed(2)}% · {rankOf(mutIndex)}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      ) : (
+        <p className="text-[9.5px] font-mono text-cs-text-muted m-0">
+          Residue pair unresolved, so no row can be highlighted. The distribution below is unaffected.
+        </p>
+      )}
 
       <div className="space-y-2 h-[220px] overflow-y-auto pr-1">
         {preferences.map((pref) => {
-          const isWt = pref.aa === wtRes;
-          const isMut = pref.aa === mutRes;
+          const isWt = Boolean(wtCode) && pref.aa === wtCode;
+          const isMut = Boolean(mutCode) && pref.aa === mutCode;
           const widthPercent = `${Math.max(1, pref.prob * 100)}%`;
           return (
             <div key={pref.aa} className="flex items-center gap-3 text-xs">

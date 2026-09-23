@@ -90,7 +90,10 @@ def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str,
     mut_seq_chars[pos - 1] = mut
     mut_sequence = "".join(mut_seq_chars)
     
-    embedding_shift = 0.0
+    # Left as None, not 0.0: the serverless filler API exposes no per-residue feature
+    # extraction, and a coerced zero is indistinguishable from a measured zero shift once it
+    # reaches the model card. The KL divergence below is a separate, real measurement.
+    embedding_shift: float | None = None
     local_shift_map = []
     try:
         wt_emb = np.array(client.feature_extraction(wt_sequence, model=model_name))
@@ -146,7 +149,7 @@ def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str,
         "preferences": preferences,
         "mutRank": mut_rank,
         "positionalEntropy": round(pos_entropy, 4),
-        "embeddingShift": round(embedding_shift, 4),
+        "embeddingShift": round(embedding_shift, 4) if embedding_shift is not None else None,
         "localShiftMap": local_shift_map,
         "klDivergence": round(kl_div, 4),
         "provenance": f"ESM-2 ({model_name.split('/')[-1]} - Remote)"
