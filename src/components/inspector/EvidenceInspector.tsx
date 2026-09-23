@@ -849,50 +849,76 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
         */}
       {tab === "alphagenome" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-cs-text-muted">
+          <h3 className="text-[10px] font-mono uppercase tracking-wider text-cs-text-muted">
             Provenance &amp; method
-          </span>
+          </h3>
           <dl className="space-y-2.5 text-[11px] leading-relaxed">
             <div>
               <dt className="text-cs-text-muted">Source</dt>
               <dd className="text-cs-text-secondary">
                 AlphaGenome Atlas (Google DeepMind), queried over TLS by a native gRPC client at{" "}
-                <code className="font-mono">gdmscience.googleapis.com:443</code>.
+                <code className="font-mono">gdmscience.googleapis.com:443</code>. The Atlas links on
+                the panel are deep links into the authenticated Atlas for this locus, not a public
+                search.
               </dd>
             </div>
             <div>
               <dt className="text-cs-text-muted">Scalar reported</dt>
               <dd className="text-cs-text-secondary">
+                {/*
+                  * This said "−10·log₁₀ P(benign)", which is not the quantity computed. `cdfToPhred`
+                  * is `tail = 1 − cdfQuantile; phred = −10·log10(tail)`, and the cdf is cumulative
+                  * against ALL genome-wide SNVs — so the tail is the fraction of variants scoring at
+                  * least as high, i.e. the genome-wide rank the adjacent card already prints as
+                  * "Top 0.537%". Read literally the old gloss turned Phred 22.7 into "P(benign) =
+                  0.54%, ~99.5% pathogenic", contradicting the PP3-Supporting / 2.08:1 verdict two
+                  * hundred pixels away.
+                  */}
                 AVI — the calibrated variant impact score, shown as Phred
-                (−10·log₁₀ P(benign)). Thresholds: 8 BP4, 15 PP3-supporting, 25 PP3-moderate,
-                35 PP3-strong.
+                (−10·log₁₀ <em>tail</em>, where the tail is the fraction of genome-wide SNVs scoring
+                at least this high; Phred 20 ≈ top 1%). Five bands, not four: ≤ 5 BP4-moderate,
+                ≤ 8 BP4-supporting, ≥ 15 PP3-supporting, ≥ 25 PP3-moderate, ≥ 35 PP3-strong.
               </dd>
             </div>
             <div>
               <dt className="text-cs-text-muted">Attribution</dt>
               <dd className="text-cs-text-secondary">
-                TreeExplainer SHAP over 9,440 functional tracks, reduced to 18 biological layers.
-                Coding, splicing and regulatory layers name a mechanism; the conservation layers
-                (Cactus 241-way, PhastCons 470-way) report constraint, and are never ranked against a
-                mechanism as though the largest number were the mechanism.
+                {/*
+                  * Two corrections. The method is SHAP by expected-gradients approximation (the
+                  * Atlas's own description), not TreeExplainer — a name this panel had also asserted
+                  * in its education drawer, now fixed there too. And "biological layers" oversells the
+                  * vector: it carries non-layer indicators (protein termination, start/stop lost,
+                  * insertion, deletion), so these are 18 features.
+                  */}
+                SHAP (expected-gradients approximation) over the model&apos;s 9,440 tracks, reduced to
+                18 features which sum to the raw AVI score. Coding, splicing and regulatory features
+                name a mechanism; the conservation features (Cactus 241-way, PhastCons 470-way)
+                report constraint and are never elected into the mechanism slot.
               </dd>
             </div>
             <div>
-              <dt className="text-cs-text-muted">Held out of the missense consensus</dt>
+              <dt className="text-cs-text-muted">How it is counted</dt>
               <dd className="text-cs-text-secondary">
-                Per ClinGen SVI, AlphaGenome pre-mRNA splicing predictions are excluded from the
-                missense consensus vote. That vote reflects translated protein stability
-                (ΔΔG / structural impact), so a variant is never counted twice — once as a coding
-                effect and again as a splicing one.
+                {/*
+                  * This row previously read "Held out of the missense consensus … a variant is never
+                  * counted twice", and got STRONGER in the move from the panel. It is false:
+                  * `countPredictorConcordance` includes AlphaGenome as a full voting member
+                  * (`isInformationalOnly: false`) scored on the whole AVI — and the AVI's own feature
+                  * 0 is splicing. Nothing anywhere withholds splicing from any vote. What is true is
+                  * narrower and worth stating plainly.
+                  */}
+                The AVI is one composite member of the in-silico pathogenicity concordance vote — a
+                single scalar, not eighteen separate votes, and nothing is withheld from that count.
+                It is absent from the ΔΔG stability consensus because it is not a ΔΔG engine.
               </dd>
             </div>
             <div>
               <dt className="text-cs-text-muted">Track reference schema</dt>
               <dd className="text-cs-text-secondary">
-                The ten-row schema on the panel illustrates AlphaGenome&apos;s output shape across ten
-                assay categories; those magnitudes are examples, not measurements of this variant.
-                This variant&apos;s continuous tracks are read in the Atlas, linked at the foot of the
-                panel.
+                The ten example rows on the panel illustrate AlphaGenome&apos;s output shape across
+                four assay categories; those magnitudes are examples, not measurements of this
+                variant. This variant&apos;s continuous tracks are read in the Atlas, linked at the
+                foot of the panel.
               </dd>
             </div>
           </dl>

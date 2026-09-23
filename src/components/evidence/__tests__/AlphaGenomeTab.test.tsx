@@ -154,7 +154,11 @@ describe("the wrapper's guard", () => {
  * never occupy the mechanism slot.
  */
 describe("mechanism and constraint are ranked separately", () => {
-  it("names the leading MECHANISM even when a conservation track scores higher", () => {
+  it("does not promote a sub-floor mechanism: the real ACOT9 vector reports unresolved", () => {
+    // The exact payload that produced the original defect: Cactus +0.531 against AlphaMissense
+    // +0.076. AlphaMissense is the largest *mechanism* attribution, but 0.076 is far below the
+    // floor and Cactus carries 86% of the attributed score, so the honest headline is that the
+    // mechanism is unresolved — not "AlphaMissense is the driver".
     renderTab({
       alphagenome: {
         status: "live",
@@ -162,33 +166,78 @@ describe("mechanism and constraint are ranked separately", () => {
         featureAttributions: { AlphaMissense: 0.076, Splicing: 0.008, Cactus: 0.531 },
       },
     });
-    // AlphaMissense also appears as a modality card, so assert presence rather than uniqueness.
-    expect(screen.getAllByText("AlphaMissense").length).toBeGreaterThan(0);
-    // ...and the conservation signal is named, but explicitly as corroboration rather than a driver.
-    expect(screen.getByText(/Constraint corroboration/)).toBeInTheDocument();
-    expect(screen.getByText(/conservation evidence, not a mechanism/)).toBeInTheDocument();
-    expect(screen.queryByText(/Primary biological regulatory disruption/)).not.toBeInTheDocument();
+    expect(screen.getByText(/mechanism not resolved/)).toBeInTheDocument();
+    expect(screen.getByText(/Constraint dominates/)).toBeInTheDocument();
+    expect(screen.getByText(/evolutionary constraint, not a mechanism/)).toBeInTheDocument();
+    // The sub-floor mechanism must not be printed as though it led.
+    expect(screen.queryByText(/\+0\.076 signed SHAP/)).not.toBeInTheDocument();
   });
 
-  it("leaves the mechanism slot empty when ONLY conservation was attributed", () => {
-    // The load-bearing case: a conservation-only vector must not be able to claim a mechanism.
-    renderTab({
-      alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Cactus: 0.531 } },
-    });
-    expect(screen.getByText(/Largest attribution across coding, splicing and regulatory layers/))
-      .toBeInTheDocument();
-    // The conservation value is still reported — real evidence, just not a mechanism.
-    expect(screen.getByText(/Constraint corroboration/)).toBeInTheDocument();
-  });
-
-  it("never labels a conservation track as the primary regulatory disruption", () => {
+  it("names a mechanism that clears the floor, and reports no constraint", () => {
     renderTab({
       alphagenome: {
         status: "live",
         aviPhred: 22.7,
-        featureAttributions: { Cactus: 0.531, PhastCons: 0.138, ProteinTermination: 0.02 },
+        featureAttributions: { AlphaMissense: 0.4, Splicing: 0.05, Cactus: 0.1 },
       },
     });
-    expect(screen.queryByText(/Primary biological regulatory disruption/)).not.toBeInTheDocument();
+    expect(screen.getByText(/\+0\.400 signed SHAP/)).toBeInTheDocument();
+    expect(screen.getByText(/Coding, splicing and regulatory features only\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Constraint dominates/)).not.toBeInTheDocument();
+  });
+
+  it("leaves the mechanism slot empty when ONLY conservation was attributed", () => {
+    // The load-bearing case: a conservation-only vector must not be able to claim a mechanism.
+    // Nothing was measured in a mechanism tier, so the sub-line describes what the slot measures
+    // rather than claiming a resolution, and the footer states the unresolved verdict.
+    renderTab({
+      alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Cactus: 0.531 } },
+    });
+    expect(screen.getByText(/Largest attribution across coding, splicing and regulatory features/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/Constraint dominates/)).toBeInTheDocument();
+    expect(screen.getByText(/not resolved by this score/)).toBeInTheDocument();
+  });
+
+  it("breaks an exact |SHAP| tie toward the first declared mechanism", () => {
+    // Catches a `>` → `>=` mutation in `pickTopModality`, which every other case in this file
+    // survives. With strict `>` the incumbent — Splicing, declared first — keeps the slot; with
+    // `>=` the later AlphaMissense replaces it. Splicing is negative here, so the *sign* of the
+    // printed value distinguishes the two implementations.
+    renderTab({
+      alphagenome: {
+        status: "live",
+        aviPhred: 22.7,
+        featureAttributions: { Splicing: -0.5, AlphaMissense: 0.5 },
+      },
+    });
+    expect(screen.getByText(/-0\.500 signed SHAP/)).toBeInTheDocument();
+    expect(screen.queryByText(/\+0\.500 signed SHAP/)).not.toBeInTheDocument();
+  });
+
+  it("never describes a structural-variant feature as conservation evidence", () => {
+    // `"Structural Variant"` used to sit in CONSTRAINT_TIERS, which rendered a leading indel as
+    // "Constraint corroboration: Deletion +0.440 — conservation evidence, not a mechanism".
+    // Insertions and deletions are not conservation, so they are in neither slot now.
+    renderTab({
+      alphagenome: {
+        status: "live",
+        aviPhred: 22.7,
+        featureAttributions: { Splicing: 0.1, Deletion: 0.44, Insertion: 0.42 },
+      },
+    });
+    // The assertion keys on the FOOTER's phrasing: the Cactus modality card legitimately carries
+    // "Cross-species evolutionary constraint…" as its static description, so the bare phrase is not
+    // discriminating — ", not a mechanism" and "Constraint dominates" are footer-only.
+    expect(screen.queryByText(/conservation evidence/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/evolutionary constraint, not a mechanism/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Constraint dominates/)).not.toBeInTheDocument();
+    // Splicing 0.10 was attributed, so this must not claim nothing was measured.
+    expect(screen.getByText(/no mechanism resolved\./)).toBeInTheDocument();
+  });
+
+  it("distinguishes an empty vector from a merely sub-floor one", () => {
+    renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: {} } });
+    expect(screen.getByText(/No attribution reached this variant\./)).toBeInTheDocument();
   });
 });

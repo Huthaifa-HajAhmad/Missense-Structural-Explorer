@@ -258,8 +258,33 @@ const MECHANISM_TIERS: ReadonlyArray<ModalityDefinition["tier"]> = [
   "Epigenetics",
 ];
 
-/** Tiers that report constraint rather than a mechanism. */
-const CONSTRAINT_TIERS: ReadonlyArray<ModalityDefinition["tier"]> = ["Conservation", "Structural Variant"];
+/**
+ * Tiers that report evolutionary constraint rather than a mechanism.
+ *
+ * `"Structural Variant"` was in this list and does not belong: `IS_INSERTION` / `IS_DELETION` are
+ * variant-class features, not conservation. With the footer hardcoding "conservation evidence", a
+ * leading deletion rendered as "Constraint corroboration: Deletion +0.440 — conservation evidence,
+ * not a mechanism" — the same category error this split exists to remove. Structural-variant
+ * features are now in neither slot: an indel feature is neither a mechanism for a missense
+ * substitution nor constraint, so the card declines to name it.
+ */
+const CONSTRAINT_TIERS: ReadonlyArray<ModalityDefinition["tier"]> = ["Conservation"];
+
+/**
+ * The smallest |SHAP| that may be presented as a leading mechanism.
+ *
+ * `pickTopModality` elects the largest magnitude present, so an all-zero vector elects a mechanism
+ * at exactly 0.000 — the zero-as-finding defect this panel has already removed twice (unmeasured vs
+ * measured-0, for both SHAP and `aviQuantile`). `splicingEvidence` carries a dominance floor for the
+ * same reason; this mirrors it. Below the floor the card says the mechanism is unresolved rather
+ * than naming a layer that contributed nothing.
+ *
+ * This is not cosmetic for the variant that prompted the fix: Cactus +0.531 carries 86% of the
+ * attributed score and is 7× the coding signal, and the Atlas's own reading of a
+ * conservation-dominated vector is that the molecular mechanism is *not* resolved by the AVI. The
+ * card now says so instead of promoting AlphaMissense +0.076 into the headline.
+ */
+const MECHANISM_SHAP_FLOOR = 0.25;
 
 /**
  * Largest-magnitude attribution within the given tiers, or `null` when none was measured.
@@ -633,14 +658,26 @@ function AlphaGenomeTabBody({
   const acmgStrength = alphagenome?.acmgStrength ?? "indeterminate";
   const featureAttributions = alphagenome?.featureAttributions ?? null;
 
-  // Derive Phred color class
-  const getPhredColorClass = (val: number | null) => {
-    if (val === null || val < 0) return "text-slate-400";
-    if (val >= 35.0) return "text-rose-500 dark:text-rose-400";
-    if (val >= 25.0) return "text-amber-500 dark:text-amber-400";
-    if (val >= 15.0) return "text-yellow-500 dark:text-yellow-400";
-    if (val <= 8.0) return "text-emerald-500 dark:text-emerald-400";
-    return "text-slate-400";
+  /**
+   * ONE source of truth for AVI severity colour, shared by the number, the status dot and the gauge
+   * fill.
+   *
+   * Three sites previously derived this independently from raw palette values, which is how the dot
+   * could read "good" green over an amber bar for the same Phred — and how the number came to be
+   * painted at 1.92:1 (yellow-500), 2.15:1 (amber-500) and 2.54:1 (emerald-500) against its own
+   * surface, while this file's comment claimed those exact values were "gone rather than tuned".
+   *
+   * Token-based, so both themes get the project's contrast-tuned values. Bands mirror
+   * `calculateAlphaGenomeAcmgStrength`: ≤ 8 BP4, 9–14 indeterminate, ≥ 15 PP3-supporting,
+   * ≥ 25 PP3-moderate, ≥ 35 PP3-strong. The two PP3 tiers share a token because the palette carries
+   * one AA-safe warm value; both are PP3, so no clinical distinction is lost.
+   */
+  const phredBand = (val: number | null) => {
+    if (val === null || val < 0) return { text: "text-cs-text-muted", fill: "var(--cs-text-muted)" };
+    if (val >= 35) return { text: "text-cs-danger", fill: "var(--cs-danger)" };
+    if (val >= 15) return { text: "text-cs-warn", fill: "var(--cs-warn)" };
+    if (val <= 8) return { text: "text-cs-good", fill: "var(--cs-good)" };
+    return { text: "text-cs-text-muted", fill: "var(--cs-border)" };
   };
 
   // ClinGen SVI Badge Configuration
@@ -723,7 +760,15 @@ function AlphaGenomeTabBody({
         return Math.abs(b.shap) - Math.abs(a.shap);
       });
     }
-    return list;
+
+    // Tier order: mechanism tiers first, constraint last, and anything in neither bucket between
+    // them. The spectrum's subtitle claims conservation is shown last and, before this, it was not —
+    // the default was plain declaration order, in which Cactus and PhastCons sit at positions 12 and
+    // 13 of 18 with five Coding Impact and Structural Variant entries after them. Stable, so the
+    // declared order within a bucket survives.
+    const bucket = (tier: ModalityDefinition["tier"]) =>
+      MECHANISM_TIERS.includes(tier) ? 0 : CONSTRAINT_TIERS.includes(tier) ? 2 : 1;
+    return [...list].sort((a, b) => bucket(a.tier) - bucket(b.tier));
   }, [featureAttributions, modalitySort]);
 
   // Dual-mechanism detection (Splicing vs Coding)
@@ -739,12 +784,19 @@ function AlphaGenomeTabBody({
 
   /**
    * The mechanism and the constraint, ranked separately and never against each other.
-   * See MECHANISM_TIERS for why the raw eighteen-way argmax was wrong here.
+   * See MECHANISM_TIERS for why the raw eighteen-way argmax was wrong here, and
+   * MECHANISM_SHAP_FLOOR for why a measured-but-negligible mechanism is reported as unresolved.
    */
-  const leadingMechanism = useMemo(
+  const leadingMechanismRaw = useMemo(
     () => pickTopModality(renderedModalities, MECHANISM_TIERS),
     [renderedModalities],
   );
+  const leadingMechanism = useMemo(
+    () => (leadingMechanismRaw && Math.abs(leadingMechanismRaw.shap) >= MECHANISM_SHAP_FLOOR ? leadingMechanismRaw : null),
+    [leadingMechanismRaw],
+  );
+  /** True when a mechanism WAS attributed but sits below the floor — a different fact from "none". */
+  const mechanismBelowFloor = leadingMechanismRaw !== null && leadingMechanism === null;
   const leadingConstraint = useMemo(
     () => pickTopModality(renderedModalities, CONSTRAINT_TIERS),
     [renderedModalities],
@@ -971,20 +1023,13 @@ function AlphaGenomeTabBody({
                 to clear contrast on these surfaces. */}
             <span
               className="w-2 h-2 rounded-full"
-              style={{
-                background:
-                  aviPhred === null
-                    ? "var(--cs-text-muted)"
-                    : aviPhred >= 25
-                    ? "var(--cs-danger)"
-                    : "var(--cs-good)"
-              }}
+              style={{ background: phredBand(aviPhred).fill }}
             />
           </div>
 
           <div className="my-3">
             <div className="flex items-baseline gap-2">
-              <span className={`text-4xl font-bold font-mono tracking-tight tabular-nums ${getPhredColorClass(aviPhred)}`}>
+              <span className={`text-4xl font-bold font-mono tracking-tight tabular-nums ${phredBand(aviPhred).text}`}>
                 {aviPhred !== null ? aviPhred.toFixed(1) : "—"}
               </span>
               <span className="text-xs font-mono text-cs-text-muted">/ 50.0</span>
@@ -996,14 +1041,7 @@ function AlphaGenomeTabBody({
                 className="h-full rounded-full transition-[width] duration-500 ease-out"
                 style={{
                   width: `${Math.min(100, Math.max(0, ((aviPhred ?? 0) / 50) * 100))}%`,
-                  background:
-                    aviPhred !== null && aviPhred >= 35
-                      ? "#f43f5e"
-                      : aviPhred !== null && aviPhred >= 25
-                      ? "#f59e0b"
-                      : aviPhred !== null && aviPhred >= 15
-                      ? "#eab308"
-                      : "#10b981"
+                  background: phredBand(aviPhred).fill
                 }}
               />
               {/* Decorative marks; their meaning is stated in the legend below rather than left
@@ -1099,29 +1137,43 @@ function AlphaGenomeTabBody({
             </span>
             <p className={`text-xs font-mono mt-1 ${leadingMechanism ? "text-cs-text-secondary" : "text-cs-text-muted"}`}>
               {leadingMechanism
-                ? `${leadingMechanism.shap >= 0 ? "+" : ""}${leadingMechanism.shap.toFixed(3)} SHAP`
-                : "Largest attribution across coding, splicing and regulatory layers"}
+                ? `${leadingMechanism.shap >= 0 ? "+" : ""}${leadingMechanism.shap.toFixed(3)} signed SHAP`
+                : mechanismBelowFloor
+                ? `No feature above ${MECHANISM_SHAP_FLOOR.toFixed(2)} |SHAP| — mechanism not resolved`
+                : "Largest attribution across coding, splicing and regulatory features"}
             </p>
           </div>
 
           {/*
-            The reconciliation with the coding/splicing panel below. When the all-layer argmax would
-            have elected a conservation track instead — as it did here, at seven times the coding
-            signal — that is stated rather than left for the reader to notice that the hero and the
-            resolver disagree. It is real evidence; it is just not a mechanism.
+            The reconciliation with the coding/splicing panel below.
+            *
+            * The word "corroboration" is gone. Nothing computed a relationship between the two
+            * numbers; the only computed fact is which magnitude is larger, and that fires precisely
+            * when constraint DOMINATES — so "corroborates" asserted an agreement the code never
+            * established. What is true, and what the Atlas itself says of a conservation-dominated
+            * vector, is that the mechanism is unresolved.
+            *
+            * The fallback also no longer claims "coding, splicing and regulatory layers only" when
+            * NOTHING was attributed, which was reachable from a live payload with a null feature
+            * vector.
           */}
           <p className="text-[11px] text-cs-text-muted border-t pt-2 leading-snug" style={{ borderColor: "var(--cs-border-subtle)" }}>
             {leadingConstraint && (!leadingMechanism || Math.abs(leadingConstraint.shap) > Math.abs(leadingMechanism.shap)) ? (
               <>
-                Constraint corroboration:{" "}
+                Constraint dominates:{" "}
                 <span className="font-mono">
                   {leadingConstraint.name} {leadingConstraint.shap >= 0 ? "+" : ""}
                   {leadingConstraint.shap.toFixed(3)}
                 </span>{" "}
-                — conservation evidence, not a mechanism.
+                — evolutionary constraint, not a mechanism. The molecular mechanism is not resolved by
+                this score.
               </>
+            ) : leadingMechanism ? (
+              "Coding, splicing and regulatory features only."
+            ) : mechanismBelowFloor ? (
+              "Attributed, but nothing above the floor — no mechanism resolved."
             ) : (
-              "Coding, splicing and regulatory layers only."
+              "No attribution reached this variant."
             )}
           </p>
         </div>
@@ -1172,7 +1224,7 @@ function AlphaGenomeTabBody({
             </h4>
           </div>
           <span className="text-[10.5px] text-cs-text-muted">
-            Scored independently — see Provenance
+            Layers of one composite score — see Provenance
           </span>
         </div>
 
@@ -1282,7 +1334,7 @@ function AlphaGenomeTabBody({
             <p className="text-cs-text-muted">
               AlphaGenome maps each DNA sequence into 9,440 continuous epigenetic and transcriptomic track predictions.
               To derive clinical interpretability, DeepMind trains a calibrated gradient boosted ensemble on top of these 9,440 predictions.
-              TreeExplainer then decomposes the overall Variant Impact (AVI) into exact additive SHAP weights:
+              SHAP (expected-gradients approximation) then decomposes the overall Variant Impact (AVI) into additive attributions that sum to the raw score:
             </p>
             <div className="p-2.5 rounded bg-slate-100 dark:bg-black/30 border border-cs-border-subtle font-mono text-[11px] text-indigo-700 dark:text-indigo-300">
               AVI = Expected Value + &Sigma; (SHAP_TF + SHAP_Splicing + SHAP_Chromatin + SHAP_AlphaMissense + ...)
@@ -1383,7 +1435,8 @@ function AlphaGenomeTabBody({
               </span>
             </div>
             <p className="text-xs text-cs-text-muted mt-1 max-w-[70ch]">
-              The shape of AlphaGenome's output across ten track categories. The magnitudes below are
+              The shape of AlphaGenome's output across ten example rows and four assay categories.
+              The magnitudes below are
               examples of what each assay reports, not measurements of this variant; this variant's
               real tracks are in the Atlas, linked at the foot of this panel.
             </p>
