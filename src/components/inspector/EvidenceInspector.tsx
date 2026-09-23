@@ -25,6 +25,8 @@ import {
   formatAlleleFrequency,
 } from "../../shared/frequencyEvidence";
 import { variantNumberingView } from "../../shared/numbering";
+import { ASSEMBLY_LABELS } from "../../shared/assembly";
+import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 
 type PopulationFrequencyThresholds = typeof THRESHOLDS.populationFrequency;
 
@@ -90,6 +92,19 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const isCanonical = analysisResult.isCanonical ?? analysisResult.predictorData?.isCanonical ?? false;
   const maneRefSeqId = analysisResult.maneRefSeqId ?? analysisResult.predictorData?.maneRefSeqId ?? null;
   const transcriptWarning = analysisResult.transcriptWarning ?? analysisResult.predictorData?.transcriptWarning ?? null;
+  /**
+   * The build the coordinate is actually expressed in.
+   *
+   * This row was a hardcoded "GRCh38 / hg38". For a variant whose coordinate resolved through the
+   * GRCh37 fallback, the header chip two metres away read `HG19` while the provenance panel
+   * certified GRCh38 — and the build *is* the reason the GRCh38-only sources declined. A debugger
+   * checking the lineage box last was therefore told the opposite of the truth (standby RCA §1).
+   * `VariantHeader.tsx:462-466` already states the rule this row violated: the build is not ours to
+   * assume.
+   */
+  const genomicAssembly = analysisResult.predictorData?.gnomadVariantAssembly ?? null;
+  /** Per-source build-gate refusals recorded server-side (unmapping defect F-13). */
+  const assemblyRefusals = analysisResult.conservationData?.assemblyRefusals ?? null;
   /**
    * Reported (lab/MANE) versus modelled (canonical) notation.
    *
@@ -364,7 +379,9 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 )}
                 <div className="flex justify-between items-center">
                   <span className="text-cs-text-secondary">Genome Assembly:</span>
-                  <span className="font-mono font-bold text-cs-text-primary">GRCh38 / hg38</span>
+                  <span className="font-mono font-bold text-cs-text-primary">
+                    {genomicAssembly ? ASSEMBLY_LABELS[genomicAssembly] : "Build not reported"}
+                  </span>
                 </div>
 
                 <div className="flex justify-between items-center">
@@ -805,13 +822,27 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
             Evidence Subtab Telemetry
           </span>
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px] text-cs-text-secondary">
-            <p>
-              Viewing specialized evidence telemetry for <strong>{activeEvidenceTab}</strong>.
-            </p>
-            <p className="text-[10px] text-cs-text-muted">
-              Deep-dive domain calibrations and metrics are populated dynamically from live backend microservices.
-            </p>
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[11px] text-cs-text-secondary">
+            {/*
+              * This box previously claimed "Deep-dive domain calibrations and metrics are populated
+              * dynamically from live backend microservices" while rendering a static sentence with
+              * one interpolated tab id — a placeholder asserting that it was a feature, on the very
+              * tab where the pipeline had refused to compute anything. It now says what it is, and
+              * reports the refusals the server actually recorded.
+              */}
+            <p>This panel carries no per-tab telemetry yet — what you see here is a placeholder, not a measurement.</p>
+            {assemblyRefusals && assemblyRefusals.length > 0 && (
+              <div className="space-y-1 pt-1">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-cs-text-muted">
+                  Sources that declined this coordinate
+                </p>
+                {assemblyRefusals.map((refusal) => (
+                  <p key={refusal.source} className="text-[11px] text-cs-text-muted leading-snug">
+                    {humaniseAnyRefusal(refusal.reason)}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

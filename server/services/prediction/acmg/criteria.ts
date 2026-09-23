@@ -167,7 +167,10 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       popeve: conservationData?.popeve,
       esm2Llr: esm2Eval?.llr,
       saprotLlr: saprotEval?.llr,
-      alphagenome: conservationData?.alphagenome
+      alphagenome: conservationData?.alphagenome,
+      // So a source the build gate declined is named in the consensus coverage line rather than
+      // silently omitted (see src/shared/thresholds/concordance.ts).
+      assemblyRefusals: conservationData?.assemblyRefusals
     }
   );
 
