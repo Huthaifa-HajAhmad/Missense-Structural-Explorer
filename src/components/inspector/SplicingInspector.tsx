@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Scissors, GitFork, CheckCircle2, Info, Database, Dna, GitBranch, Cpu } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds/index.ts";
@@ -143,10 +143,12 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
   // Previously this pane passed only `isBiophysicalLoading`, so the two surfaces could
   // disagree on "Evaluating SpliceAI..." — defeating the point of a shared model.
   const isAnalysisLoading = useVariantAnalysisStore(s => s.analysisState.isLoading);
+  const isLoading = isBiophysicalLoading || isAnalysisLoading;
 
-  const model: SplicingEvidenceModel | null = deriveSplicingEvidence(analysisResult, {
-    isLoading: isBiophysicalLoading || isAnalysisLoading
-  });
+  const model: SplicingEvidenceModel | null = useMemo(
+    () => deriveSplicingEvidence(analysisResult, { isLoading }),
+    [analysisResult, isLoading]
+  );
 
   if (!model) {
     return (
@@ -175,6 +177,7 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
     strandLabel,
     regionType,
     transcriptId,
+    ensemblTranscriptId,
     displayExonLabel,
     displayIntronLabel,
     junctionType,
@@ -256,7 +259,12 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
           {transcriptId && (
             <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-cs-text-secondary">Transcript</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted sm:min-w-0 sm:truncate" title={transcriptId}>{transcriptId}</span>
+              <span
+                className="font-mono text-[9.5px] text-cs-text-muted sm:min-w-0 sm:truncate"
+                title={ensemblTranscriptId && transcriptId !== ensemblTranscriptId ? `${transcriptId} (Ensembl: ${ensemblTranscriptId})` : transcriptId}
+              >
+                {transcriptId}
+              </span>
             </div>
           )}
         </div>
@@ -287,7 +295,7 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
               {regionType === "exonic" || regionType === "intronic" ? (
                 <>
                   Variant resides in <strong className="font-mono">{regionType === "exonic" ? displayExonLabel : displayIntronLabel}</strong>, located{" "}
-                  <strong className="font-mono">{distance} bp</strong> from the {junctionType.toLowerCase()}.
+                  <strong className="font-mono">{distance} bp</strong> from the {junctionType.toLowerCase().replace(/\b(gt|ag)\b/g, (m) => m.toUpperCase())}.
                 </>
               ) : (
                 <>
@@ -593,7 +601,7 @@ export const SplicingInspector: React.FC<SplicingInspectorProps> = ({
           */}
           <p className="text-[10px] text-cs-text-muted leading-relaxed">
             Splice junction geometry resolved against the Ensembl transcript model
-            {transcriptId ? ` (${transcriptId})` : ""}. SpliceAI scores are computed on the build
+            {ensemblTranscriptId ? ` (${ensemblTranscriptId})` : transcriptId ? ` (${transcriptId})` : ""}. SpliceAI scores are computed on the build
             reported in the Source row.
           </p>
         </div>

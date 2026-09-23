@@ -130,6 +130,8 @@ export interface SplicingEvidenceModel {
   intronNumber: number | null;
   strand: "+" | "-" | null;
   transcriptId: string | null;
+  refseqTranscriptId: string | null;
+  ensemblTranscriptId: string | null;
   regionType: "exonic" | "intronic" | null;
   isExonicVariant: boolean;
   displayExonLabel: string;
@@ -339,7 +341,16 @@ export function deriveSplicingEvidence(
   const exonEnd = spliceProximity?.exonEnd ?? null;
   const intronNumber = spliceProximity?.intronNumber ?? spliceProximity?.adjacentIntronNumber ?? null;
   const strand = spliceProximity?.strand ?? null;
-  const transcriptId = spliceProximity?.transcriptId ?? result.transcriptId ?? null;
+  const rawRefSeq =
+    result.maneRefSeqId ??
+    result.predictorData?.maneRefSeqId ??
+    result.numberingRemap?.from?.maneRefSeqId ??
+    null;
+  const refseqTranscriptId = rawRefSeq?.trim() || null;
+  const rawEnsembl = spliceProximity?.transcriptId ?? result.transcriptId ?? null;
+  const ensemblTranscriptId = rawEnsembl?.trim() || null;
+  // RefSeq convention is prioritized for clinical clarity; falls back to Ensembl when unavailable
+  const transcriptId = refseqTranscriptId || ensemblTranscriptId || null;
   /**
    * Region classification as reported by the resolver. `null` means the position could
    * not be classified — either the payload predates the field or the variant falls
@@ -492,6 +503,8 @@ export function deriveSplicingEvidence(
     intronNumber,
     strand,
     transcriptId,
+    refseqTranscriptId,
+    ensemblTranscriptId,
     regionType,
     isExonicVariant,
     displayExonLabel,

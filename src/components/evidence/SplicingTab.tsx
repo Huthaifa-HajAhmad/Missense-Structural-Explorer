@@ -174,7 +174,7 @@ function SplicingTabComponent({
       badgeClass: "cs-badge cs-badge-muted",
       description: "Genomic splice proximity and deep learning models unavailable for this coordinate."
     };
-  }, [evidence, foldxVal, result]);
+  }, [evidence, isProteinDestabilized]);
 
   // Stable hook for the SVG gradient IDs regardless of early return.
   const gradIdSuffix = useId().replace(/:/g, "_");
@@ -197,6 +197,7 @@ function SplicingTabComponent({
     displayIntronLabel,
     strandLabel,
     transcriptId,
+    ensemblTranscriptId,
     dsLabel,
     dsBadgeClass,
     proximityLabel,
@@ -271,10 +272,11 @@ function SplicingTabComponent({
     }
   }
 
-  const leftTickY1 = isDonor ? 132 : 113;
-  const leftTickY2 = isDonor ? 144 : 125;
-  const rightTickY1 = isDonor ? 113 : 132;
-  const rightTickY2 = isDonor ? 125 : 144;
+  // Linear scale ticks mathematically aligned with the variant pin projection (6.3 px/bp):
+  // -25 bp = 480 - (25 * 6.3) = 322.5
+  // +25 bp = 480 + (25 * 6.3) = 637.5
+  const leftTickX = 322.5;
+  const rightTickX = 637.5;
 
   const chipSignLabel = !orientationKnown
     ? `±${distance} bp (side not resolved)`
@@ -285,6 +287,19 @@ function SplicingTabComponent({
     : isExonicVariant
     ? `+${distance} bp (Exonic)`
     : `-${distance} bp (Intronic)`;
+
+  const chipText = isOffScale ? `${distance} bp (>60 bp scale)` : chipSignLabel;
+  // Dynamic width sized to content so text never overflows the chip box:
+  const chipWidth = Math.max(120, Math.min(220, chipText.length * 7.5 + 28));
+  // Horizontally clamp within the 960 viewBox with 16px safety margin:
+  const chipX = Math.max(16, Math.min(960 - chipWidth - 16, pinX - chipWidth / 2));
+  const chipTextX = chipX + chipWidth / 2;
+
+  // Unoriented candidate chip width centered at junction x=480:
+  const unorientedChipWidth = Math.max(160, Math.min(260, chipText.length * 7.5 + 28));
+
+  // Off-scale break mark on the axis/body between pin and junction, clear of the pin circle:
+  const breakX = pinX < 480 ? pinX + 35 : pinX - 35;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -582,7 +597,10 @@ function SplicingTabComponent({
             </h3>
           </div>
           <div className="flex items-center gap-2 text-[11px] font-mono text-cs-text-secondary">
-            <span className="px-2.5 py-1 rounded bg-cs-surface-2 border border-cs-border-subtle">
+            <span
+              className="px-2.5 py-1 rounded bg-cs-surface-2 border border-cs-border-subtle"
+              title={ensemblTranscriptId && transcriptId !== ensemblTranscriptId ? `Ensembl: ${ensemblTranscriptId}` : undefined}
+            >
               {transcriptId ? `${transcriptId} (${strandLabel})` : "Transcript unmapped"}
             </span>
             <span className="px-2.5 py-1 rounded bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20 font-semibold">
@@ -633,6 +651,12 @@ function SplicingTabComponent({
                 : `Splice boundary schematic: junction orientation not resolved; variant ${distance} bp from the boundary, shown on both candidate sides.`
             }
           >
+            <title>Exon-Intron Splice Junction Schematic</title>
+            <desc>
+              {orientationKnown
+                ? `Splice junction schematic: ${junctionType}; variant ${distance} bp from the junction, ${isExonicVariant ? "exonic" : "intronic"}.`
+                : `Splice boundary schematic: junction orientation not resolved; variant ${distance} bp from the boundary, shown on both candidate sides.`}
+            </desc>
             <defs>
               <linearGradient id={exonGradId} x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="var(--cs-accent-clay)" stopOpacity="0.10" />
@@ -643,6 +667,28 @@ function SplicingTabComponent({
                 <stop offset="100%" stopColor="var(--cs-danger)" stopOpacity="0.16" />
               </linearGradient>
             </defs>
+
+            {/* Critical Junction Zone Backdrop (±5 bp around 480) — rendered in backdrop so
+                it does not slice an awkward bounding box across the exon's solid boundaries. */}
+            {orientationKnown && (
+              <g>
+                <rect
+                  x="448.5"
+                  y="54"
+                  width="63"
+                  height="82"
+                  rx="4"
+                  fill={`url(#${criticalZoneGradId})`}
+                  stroke="var(--cs-danger)"
+                  strokeWidth="1.2"
+                  strokeDasharray="3 2"
+                  opacity="0.9"
+                />
+                <text x="480" y="42" fill="var(--cs-text-danger)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[11px] font-bold" textAnchor="middle">
+                  &plusmn;{THRESHOLDS.spliceai.proximityCriticalBp} bp Critical Junction Zone
+                </text>
+              </g>
+            )}
 
             {isDonor ? (
               <g>
@@ -666,10 +712,10 @@ function SplicingTabComponent({
                 <line x1="480" y1="95" x2="920" y2="95" stroke="var(--cs-text-muted)" strokeWidth="2.5" strokeDasharray="8 5" />
 
                 {/* Region Sequence Tags */}
-                <text x="260" y="162" fill="var(--cs-accent-clay)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                <text x="260" y="154" fill="var(--cs-accent-clay)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
                   5&apos; Exonic Sequence (Coding)
                 </text>
-                <text x="700" y="162" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                <text x="700" y="154" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
                   3&apos; Intronic Flank (GT Motif)
                 </text>
               </g>
@@ -695,10 +741,10 @@ function SplicingTabComponent({
                 </text>
 
                 {/* Region Sequence Tags */}
-                <text x="240" y="162" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                <text x="240" y="154" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
                   5&apos; Intronic Flank (AG Motif)
                 </text>
-                <text x="700" y="162" fill="var(--cs-accent-clay)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                <text x="700" y="154" fill="var(--cs-accent-clay)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
                   3&apos; Exonic Sequence (Coding)
                 </text>
               </g>
@@ -715,46 +761,46 @@ function SplicingTabComponent({
                 <rect x="40" y="77" width="440" height="36" rx="5" fill="var(--cs-surface)" stroke="var(--cs-border)" strokeWidth="1.5" strokeDasharray="6 4" />
                 <line x1="40" y1="95" x2="920" y2="95" stroke="var(--cs-text-muted)" strokeWidth="2.5" strokeDasharray="8 5" />
 
-                <text x="260" y="162" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                <text x="260" y="154" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
                   5&apos; Transcript Model Side
                 </text>
-                <text x="700" y="162" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
+                <text x="700" y="154" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[12px] font-semibold uppercase tracking-wider" textAnchor="middle">
                   3&apos; Transcript Model Side
                 </text>
               </g>
             )}
 
-            {/* Critical Consensus Zone (±5 bp Highlight around 480) — only ever a claim about a
-                REAL splice junction; a terminus or unresolved boundary has no consensus motif. */}
-            {orientationKnown && (
-              <>
-                <rect x="446" y="50" width="68" height="90" rx="5" fill={`url(#${criticalZoneGradId})`} stroke="var(--cs-danger)" strokeWidth="1.5" strokeDasharray="3 2" />
-                <text x="480" y="42" fill="var(--cs-text-danger)" style={{ fontFamily: "var(--cs-font-sans)" }} className="text-[11px] font-bold" textAnchor="middle">
-                  &plusmn;{THRESHOLDS.spliceai.proximityCriticalBp} bp Consensus Zone
-                </text>
-              </>
-            )}
-
             {/* Splice Junction 0bp Boundary Line */}
-            <line x1="480" y1="48" x2="480" y2="148" stroke="var(--cs-text-primary)" strokeWidth="3" />
+            <line x1="480" y1="48" x2="480" y2="174" stroke="var(--cs-text-primary)" strokeWidth="3" />
 
-            {/* Scale Ticks (-25bp, 0bp, +25bp) with Dynamic Geometry Anchoring */}
-            <line x1="290" y1={leftTickY1} x2="290" y2={leftTickY2} stroke="var(--cs-text-muted)" strokeWidth="1.5" />
-            <text x="290" y="184" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">-25 bp</text>
+            {/* Scale Ticks (-25bp, 0bp, +25bp) mathematically anchored to linear coordinate space */}
+            <line x1={leftTickX} y1="166" x2={leftTickX} y2="174" stroke="var(--cs-text-muted)" strokeWidth="1.5" />
+            <text x={leftTickX} y="186" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">-25 bp</text>
 
-            <line x1="480" y1="148" x2="480" y2="160" stroke="var(--cs-text-primary)" strokeWidth="2" />
-            <text x="480" y="184" fill="var(--cs-text-primary)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[12px] font-bold" textAnchor="middle">
+            <text x="480" y="186" fill="var(--cs-text-primary)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[12px] font-bold" textAnchor="middle">
               0 bp ({isDonor ? "GT Donor" : isAcceptor ? "AG Acceptor" : "Boundary"})
             </text>
 
-            <line x1="670" y1={rightTickY1} x2="670" y2={rightTickY2} stroke="var(--cs-text-muted)" strokeWidth="1.5" />
-            <text x="670" y="184" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">+25 bp</text>
+            <line x1={rightTickX} y1="166" x2={rightTickX} y2="174" stroke="var(--cs-text-muted)" strokeWidth="1.5" />
+            <text x={rightTickX} y="186" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">+25 bp</text>
 
-            {/* Off-scale break symbol if distance > 60 bp */}
+            {/* Off-scale break symbol if distance > 60 bp (positioned between pin and junction, clear of the circle) */}
             {isOffScale && (
-              <g>
-                <line x1={pinX - 10} y1="85" x2={pinX - 5} y2="105" stroke="var(--cs-text-muted)" strokeWidth="2" />
-                <line x1={pinX - 5} y1="85" x2={pinX} y2="105" stroke="var(--cs-text-muted)" strokeWidth="2" />
+              <g aria-label="Scale break symbol">
+                {orientationKnown ? (
+                  <>
+                    <line x1={breakX - 4} y1="83" x2={breakX + 1} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
+                    <line x1={breakX + 2} y1="83" x2={breakX + 7} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
+                  </>
+                ) : (
+                  <>
+                    {/* Render break marks symmetrically on both candidate pipes when orientation is unresolved */}
+                    <line x1={102 + 35 - 4} y1="83" x2={102 + 35 + 1} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
+                    <line x1={102 + 35 + 2} y1="83" x2={102 + 35 + 7} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
+                    <line x1={858 - 35 - 4} y1="83" x2={858 - 35 + 1} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
+                    <line x1={858 - 35 + 2} y1="83" x2={858 - 35 + 7} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
+                  </>
+                )}
               </g>
             )}
 
@@ -768,7 +814,7 @@ function SplicingTabComponent({
                   x1={pinX}
                   y1="56"
                   x2={pinX}
-                  y2="200"
+                  y2="202"
                   stroke={isNearSpliceSite ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
                   strokeWidth="2.5"
                   strokeDasharray="5 2.5"
@@ -784,9 +830,9 @@ function SplicingTabComponent({
 
                 {/* High-Legibility Marker Chip */}
                 <rect
-                  x={pinX - 58}
+                  x={chipX}
                   y="202"
-                  width="116"
+                  width={chipWidth}
                   height="30"
                   rx="6"
                   fill="var(--cs-surface)"
@@ -794,14 +840,14 @@ function SplicingTabComponent({
                   strokeWidth="1.8"
                 />
                 <text
-                  x={pinX}
+                  x={chipTextX}
                   y="222"
                   fill={isNearSpliceSite ? "var(--cs-text-danger)" : "var(--cs-accent-clay)"}
                   style={{ fontFamily: "var(--cs-font-mono)" }}
                   className="text-[12px] font-bold"
                   textAnchor="middle"
                 >
-                  {isOffScale ? `${distance} bp (>60 bp scale)` : chipSignLabel}
+                  {chipText}
                 </text>
               </g>
             ) : (
@@ -845,9 +891,9 @@ function SplicingTabComponent({
                   strokeDasharray="3 2"
                 />
                 <rect
-                  x="380"
+                  x={480 - unorientedChipWidth / 2}
                   y="202"
-                  width="200"
+                  width={unorientedChipWidth}
                   height="30"
                   rx="6"
                   fill="var(--cs-surface)"
@@ -862,7 +908,7 @@ function SplicingTabComponent({
                   className="text-[12px] font-bold"
                   textAnchor="middle"
                 >
-                  {isOffScale ? `${distance} bp (>60 bp scale)` : chipSignLabel}
+                  {chipText}
                 </text>
               </g>
             )}
