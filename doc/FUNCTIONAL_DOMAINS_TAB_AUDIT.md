@@ -6,10 +6,15 @@ Functional Domains*).
 Reported items: **focus ring on lollipop and domains**, **lollipops offset from backbone**,
 **variant location callout overlaps**, **inventory functionality**.
 
-Revision this document describes: the working-tree file at SHA-256
-`CAEB9C1AAE21A49FDCB4E8157755F7CC47F4F0B972A89DED03630402D107BBE1`, in a tree that also carried
-~30 unrelated uncommitted files from other work (see *Verification* for why a snapshot, not a file
-list, is the honest way to say this).
+Revision this document describes: commit `c458600`, specifically
+`src/components/evidence/FunctionInteractionsTabs.tsx` at SHA-256
+`64A15E0C15AB0CCFFDE54F3A50C92947998E9699567F49CE7E7AFEBBB8797B05` and
+`tools/function-track-geometry/main.tsx` at SHA-256
+`34CF85FFBE6222F2E9674AD00DE85FC6AD607328C10E352C60D41CA3F9325EAC`. The commit's blobs were compared
+against those working files with `git rev-parse HEAD:<path>` vs `git hash-object <path>`, so the
+evidence below belongs to the committed content and not to a later edit. The tree also carried
+unrelated uncommitted work by other agents (see *Verification* for why a snapshot, not a file list,
+is the honest way to say this).
 
 ## Evidence
 
@@ -160,7 +165,7 @@ light value; the pin hit area grew from ~18px to ≥22 units to clear WCAG 2.5.8
 
 | Layer | Result |
 | --- | --- |
-| `npm run test:geometry:function-track` | **92/92 pass** on the current revision (5 cases, including a 3.5× zoomed window) |
+| `npm run test:geometry:function-track` | **92/92 pass** on the revision above (5 cases, including a 3.5× zoomed window) |
 | Same harness, defects reintroduced (three batches) | **25/70**, **21/70** and **7/92** fail, each named in the failure text |
 | Truncated run (a check threw mid-run) | runner printed `incomplete run — 13 assertions, expected 70` and exited 1 |
 | `tsc --noEmit` | clean |
