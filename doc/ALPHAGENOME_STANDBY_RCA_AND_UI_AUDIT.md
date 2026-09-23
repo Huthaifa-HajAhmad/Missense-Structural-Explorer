@@ -710,20 +710,52 @@ is caught under the new one.
   failing."* True for absence labels; **false for positive states**, which the guard does not scan.
   The code now uses the canonical label; the claim is qualified rather than left standing.
 
-### Not fixed, deliberately
+### Closed after this section was first written
 
-- **`concordance.ts:174-182`** still suppresses AlphaGenome from the coverage `unavailable[]` list on
-  the old "without API key/endpoint" premise. The clinical vote is provably unaffected (unavailable
-  signals are excluded from the counts); the loss is that the one surface positioned to report a
-  skipped source stays silent. Changing it alters the summary line for every variant — its own pass,
-  not a ride-along.
-- **The illustrative reference-assay table** stays: honestly labelled. The finding is that its filter
-  and tissue chips are measurement-grade affordances on fabricated rows — a design judgement.
-- **Early `return null` before ten hooks** in `AlphaGenomeTab.tsx`: pre-existing, unreachable through
-  the only host, but the host's comment records that the identical pattern already crashed once, and
-  this repo has no eslint. A live trap for the next editor, not this change's to fix.
-- **No component test for `AlphaGenomeTab.tsx`** — still true. The resolver is now heavily tested;
-  what the panel *renders* is tested only by the label guard.
+The four items below were deferred when §6 was drafted and have since been done, so the record is
+corrected rather than left claiming they are outstanding.
+
+- **`concordance.ts` coverage line — done.** A skipped source is now named with its recorded reason
+  instead of being silently dropped. The suppression was not simply removed: the resolver separates
+  the two cases the old blanket rule conflated, so a deployment with no AlphaGenome credential stays
+  silent (nothing is skipped for this variant, and a warning would be noise) while a source that
+  *declined this coordinate* is reported as `ALPHAGENOME — NOT ASSESSED: <reason>`. The vote is
+  untouched, exactly as before. `criteria.ts` passes `assemblyRefusals` through; because the field is
+  optional, the consensus degrades to today's behaviour if that wiring is ever absent.
+- **A component test for `AlphaGenomeTab.tsx` — done.** Ten render assertions now pin the claims
+  review proved the panel could get wrong: the refusal renders as the canonical label *and never*
+  as a credential ask; a rejected key offers Settings and not a retry; a provider fault offers a
+  retry and not Settings; a bare `status:"unavailable"` is not reported as a provider error; the
+  positive state uses the canonical word; a live score with no attributions is explained rather
+  than shown as eighteen bare dashes; a measured quantile of `0` renders as a value; and mounting
+  without a result is a clean no-op through the new hook-free wrapper.
+- **The early `return null` above ten hooks — done.** The guard moved into a wrapper that declares
+  no hooks of its own, so the Rules-of-Hooks violation is now unrepresentable rather than merely
+  unreached. It was pre-existing, but the host's comment records the identical pattern already
+  crashing once and this repo has no eslint to catch a repeat.
+- **Two more §2D leftovers — done.** `workflowStatus` now canonicalises a ΔΔG through
+  `toCanonicalDdg`/`formatDdg` instead of printing a raw pick across engines with opposite sign
+  conventions, and `VariantSearchPanel` retired the banned "In Progress" literal — moving its
+  status checks onto the underlying state so a display label is no longer load-bearing as an
+  identifier.
+
+### Still not fixed
+
+- **The illustrative reference-assay table** stays: honestly labelled, and the finding is that its
+  filter and tissue chips are measurement-grade affordances on fabricated rows. A design judgement,
+  not a correctness defect.
+- **`MasterSidebar`'s motion-only "degraded" cue**, the header's `title`-only reasoning, and the
+  9.5px build tag are unaddressed. They sit in files another session is actively rewriting
+  (`VariantHeader.tsx`, `layout.css`), so touching them now risks clobbering concurrent work. They
+  remain recorded in §2D and §6.
+
+### Final verification
+
+`tsc --noEmit` clean · `check-boundaries.ts` 0 violations · **1697 passed · 5 skipped · 0 failed**
+across 153 files · `evidenceAvailability.test.ts` 34 tests · `AlphaGenomeTab.test.tsx` 10 tests.
+
+Committed as `895d0bd`, alongside the shared module already landed in `2a4ac13`. The remaining
+dirty files belong to the concurrent session and were deliberately not staged.
 
 ### Net effect
 
