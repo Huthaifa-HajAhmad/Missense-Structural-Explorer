@@ -85,7 +85,12 @@ describe("biophysicalService", () => {
       }));
 
       expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
-        name: "↳ Population Allele Frequency (gnomAD v4.0 GraphQL)",
+        // Label updated to match `biophysicalService.ts`, which renamed "gnomAD v4.0" → "gnomAD r4"
+        // (the dataset constant is `gnomad_r4`; no patch version is ever reported by the client, so
+        // "v4.0.0" asserted a precision the code does not have). The waterfall name is a display
+        // string duplicated between source and this expectation — if it drifts again, this is the
+        // assertion that catches it.
+        name: "↳ Population Allele Frequency (gnomAD r4 GraphQL)",
         stage: "clinical",
         durationMs: 520,
         status: "failed"
