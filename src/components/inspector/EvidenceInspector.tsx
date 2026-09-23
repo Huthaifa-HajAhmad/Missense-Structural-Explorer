@@ -16,6 +16,7 @@ import {
 import { AnalysisResult, EnergeticsData } from "../../types";
 import {
   THRESHOLDS,
+  STRING_CONFIDENCE_BANDS,
   buildGuidelinesRows,
   summarizeGuidelinesRows
 } from "../../shared/thresholds";
@@ -198,19 +199,24 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
               STRING Score Confidence Tiers
             </span>
+            {/* Rendered from the shared band table rather than re-written here: this
+                card and the PPI table's row badges describe the same classifier, and
+                as a hand-written copy this legend listed three bands while the table
+                could report a fourth. */}
             <div className="space-y-1 text-[11px] font-mono">
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">&ge; 0.900</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Highest</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">0.700 – 0.899</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">High</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">0.400 – 0.699</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Medium</span>
-              </div>
+              {STRING_CONFIDENCE_BANDS.map((band, idx) => {
+                const upper = idx === 0 ? null : STRING_CONFIDENCE_BANDS[idx - 1].min;
+                return (
+                  <div key={band.id} className="flex justify-between items-center">
+                    <span className="text-cs-text-secondary">
+                      {upper === null
+                        ? `≥ ${band.min.toFixed(3)}`
+                        : `${band.min.toFixed(3)} – ${(upper - 0.001).toFixed(3)}`}
+                    </span>
+                    <span className="ev-tier" data-tone={band.id}>{band.label}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -829,6 +835,69 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
         </div>
         );
       })()}
+
+      {/*
+        ── ALPHAGENOME PROVENANCE ──
+        * Where the AlphaGenome panel's verbose material went. Two multi-line methodology notes used
+        * to sit as paragraphs inside the data column — the ClinGen SVI isolation mandate, between two
+        * numbers, and a five-line assay-architecture disclaimer above a table — plus a transport
+        * sentence in the hero. None of it is a finding about the variant, which is what the main
+        * column is for; all of it is what a reader wants when they ask how a number was obtained.
+        *
+        * Semantic list rather than prose blocks: a definition list is scannable, and the paragraphs
+        * it replaces were neither scannable nor short.
+        */}
+      {tab === "alphagenome" && (
+        <div className="flex flex-col gap-3">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-cs-text-muted">
+            Provenance &amp; method
+          </span>
+          <dl className="space-y-2.5 text-[11px] leading-relaxed">
+            <div>
+              <dt className="text-cs-text-muted">Source</dt>
+              <dd className="text-cs-text-secondary">
+                AlphaGenome Atlas (Google DeepMind), queried over TLS by a native gRPC client at{" "}
+                <code className="font-mono">gdmscience.googleapis.com:443</code>.
+              </dd>
+            </div>
+            <div>
+              <dt className="text-cs-text-muted">Scalar reported</dt>
+              <dd className="text-cs-text-secondary">
+                AVI — the calibrated variant impact score, shown as Phred
+                (−10·log₁₀ P(benign)). Thresholds: 8 BP4, 15 PP3-supporting, 25 PP3-moderate,
+                35 PP3-strong.
+              </dd>
+            </div>
+            <div>
+              <dt className="text-cs-text-muted">Attribution</dt>
+              <dd className="text-cs-text-secondary">
+                TreeExplainer SHAP over 9,440 functional tracks, reduced to 18 biological layers.
+                Coding, splicing and regulatory layers name a mechanism; the conservation layers
+                (Cactus 241-way, PhastCons 470-way) report constraint, and are never ranked against a
+                mechanism as though the largest number were the mechanism.
+              </dd>
+            </div>
+            <div>
+              <dt className="text-cs-text-muted">Held out of the missense consensus</dt>
+              <dd className="text-cs-text-secondary">
+                Per ClinGen SVI, AlphaGenome pre-mRNA splicing predictions are excluded from the
+                missense consensus vote. That vote reflects translated protein stability
+                (ΔΔG / structural impact), so a variant is never counted twice — once as a coding
+                effect and again as a splicing one.
+              </dd>
+            </div>
+            <div>
+              <dt className="text-cs-text-muted">Track reference schema</dt>
+              <dd className="text-cs-text-secondary">
+                The ten-row schema on the panel illustrates AlphaGenome&apos;s output shape across ten
+                assay categories; those magnitudes are examples, not measurements of this variant.
+                This variant&apos;s continuous tracks are read in the Atlas, linked at the foot of the
+                panel.
+              </dd>
+            </div>
+          </dl>
+        </div>
+      )}
 
       {/* Baseline fallback for tabs under subsequent evaluation */}
       {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "thresholds" && tab !== "guidelines" && (

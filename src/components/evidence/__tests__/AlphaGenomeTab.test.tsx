@@ -140,3 +140,55 @@ describe("the wrapper's guard", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+/**
+ * The "Leading Driver: Cactus" defect.
+ *
+ * The payload's `topModality` is an `argmax |SHAP|` across all eighteen layers including the two
+ * conservation tracks, so for ACOT9 p.Ser489Cys it elected Cactus (the 241-way placental-mammal
+ * alignment) at +0.531 — seven times the coding signal — and the panel labelled it "Primary
+ * biological regulatory disruption". Conservation is not a mechanism, and presenting it as the driver
+ * made the hero quietly contradict the coding/splicing panel directly below it.
+ *
+ * These pin the split: mechanisms and constraint are ranked separately, and a conservation track can
+ * never occupy the mechanism slot.
+ */
+describe("mechanism and constraint are ranked separately", () => {
+  it("names the leading MECHANISM even when a conservation track scores higher", () => {
+    renderTab({
+      alphagenome: {
+        status: "live",
+        aviPhred: 22.7,
+        featureAttributions: { AlphaMissense: 0.076, Splicing: 0.008, Cactus: 0.531 },
+      },
+    });
+    // AlphaMissense also appears as a modality card, so assert presence rather than uniqueness.
+    expect(screen.getAllByText("AlphaMissense").length).toBeGreaterThan(0);
+    // ...and the conservation signal is named, but explicitly as corroboration rather than a driver.
+    expect(screen.getByText(/Constraint corroboration/)).toBeInTheDocument();
+    expect(screen.getByText(/conservation evidence, not a mechanism/)).toBeInTheDocument();
+    expect(screen.queryByText(/Primary biological regulatory disruption/)).not.toBeInTheDocument();
+  });
+
+  it("leaves the mechanism slot empty when ONLY conservation was attributed", () => {
+    // The load-bearing case: a conservation-only vector must not be able to claim a mechanism.
+    renderTab({
+      alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Cactus: 0.531 } },
+    });
+    expect(screen.getByText(/Largest attribution across coding, splicing and regulatory layers/))
+      .toBeInTheDocument();
+    // The conservation value is still reported — real evidence, just not a mechanism.
+    expect(screen.getByText(/Constraint corroboration/)).toBeInTheDocument();
+  });
+
+  it("never labels a conservation track as the primary regulatory disruption", () => {
+    renderTab({
+      alphagenome: {
+        status: "live",
+        aviPhred: 22.7,
+        featureAttributions: { Cactus: 0.531, PhastCons: 0.138, ProteinTermination: 0.02 },
+      },
+    });
+    expect(screen.queryByText(/Primary biological regulatory disruption/)).not.toBeInTheDocument();
+  });
+});
