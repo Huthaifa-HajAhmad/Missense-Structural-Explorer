@@ -11,7 +11,14 @@ import { variantNumberingView } from "./numbering.ts";
 
 export const PROVENANCE_DATA_SOURCES = {
   dbnsfp: "4.4a",
-  gnomad: "v4.1.0 (GraphQL API)",
+  /**
+   * The dataset the pipeline pins — `gnomad_r4` (`external-api/gnomad.ts:68`).
+   *
+   * This read "v4.1.0 (GraphQL API)" while `EvidenceInspector` printed "v4.0.0" for the same query:
+   * two patch claims, neither requested nor read, exported in a manifest that is attached to a
+   * clinical write-up. The major release is what the code establishes.
+   */
+  gnomad: "r4 (GraphQL API)",
   clinvar: "2024-latest (NCBI E-utilities)",
   foldx: "FoldX 5.0 (BuildModel & RepairPDB)",
   cacheSchemaVersion: "v3",

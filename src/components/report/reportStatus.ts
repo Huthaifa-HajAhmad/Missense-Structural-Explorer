@@ -10,6 +10,9 @@ import {
   type NarrativeFallbackReason,
 } from "../../shared/narrativeFallback";
 import type { EnergeticsData } from "../../shared/contracts";
+// One definition of "is there a frequency", shared with the Population Frequencies screen and the
+// ACMG classifier's own input.
+import { buildFrequencyEvidence } from "../../shared/frequencyEvidence";
 
 export type AiStatusState = "live" | "degraded" | "unconfigured" | "idle";
 
@@ -184,7 +187,24 @@ export function buildEvidenceInventory(
     hasNumber(conservation?.revel) ? "REVEL" : null,
   ].filter(Boolean) as string[];
 
-  const hasFrequency = hasNumber(gnomadFrequency?.exomeAF) || hasNumber(gnomadFrequency?.genomeAF);
+  /**
+   * Whether a population frequency is present at all.
+   *
+   * Read through the shared module rather than off `exomeAF`/`genomeAF`, which is what this did: a
+   * variant present only through `groupMaxAF`/`maxAF` — the values the ACMG classifier actually uses,
+   * and the only ones a local-dbNSFP payload carries — reported as having NO frequency, so the report
+   * marked the source missing while the classifier had classified on it.
+   */
+  const hasFrequency = buildFrequencyEvidence({
+    gnomadFrequency: gnomadFrequency ?? null,
+    aouFrequency: result?.aouFrequency ?? null,
+    serviceStatus: result?.serviceStatus ?? metadata?.serviceStatus ?? null,
+    clinvar: clinvar
+      ? { classification: clinvar.classification, alleleFrequencies: clinvar.alleleFrequencies }
+      : null,
+    assembly: predictors?.gnomadVariantAssembly ?? null,
+    pli: gnomadConstraint?.pli ?? null,
+  }).criterion.af !== null;
 
   const hasStructure = Boolean(metadata?.pdbId || metadata?.pdbSource);
 

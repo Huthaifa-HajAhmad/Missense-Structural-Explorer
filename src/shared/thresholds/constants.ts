@@ -211,6 +211,38 @@ export const THRESHOLDS = {
     benign: 8.0,
     benignModerate: 5.0,
   },
+
+  /**
+   * ACMG/AMP population-frequency evidence (PM2 / BS1 / BA1).
+   *
+   * These are the numbers the RULE ENGINE actually branches on
+   * (`server/services/prediction/acmg/criteria.ts` §2). They live here, in the module the server
+   * already imports, so the engine and every surface that *describes* the engine read one value.
+   *
+   * They did not, before: the engine tested BS1 at `> 0.01` (1%) while the Evidence Lineage card
+   * printed "MAF > 0.1%" beside it, and the All-of-Us/tab copy said nothing at all. A threshold
+   * stated in the provenance panel is a claim about the classifier next to it, so a hand-written
+   * copy of it is a claim nothing checks — the same failure mode as the hardcoded genome build
+   * this panel used to certify.
+   */
+  populationFrequency: {
+    /** BA1 — stand-alone benign evidence. ACMG/AMP: allele frequency > 5%. */
+    standAloneBenign: 0.05,
+    /** BS1 — frequency greater than expected for the disorder. Local policy: > 1%. */
+    tooCommonForDisorder: 0.01,
+    /**
+     * PM2 — "extremely low frequency in population databases".
+     *
+     * Inherited as a CEILING, not a floor: the criterion fires at or BELOW this value. The ceiling
+     * is inheritance-aware because a recessive disorder tolerates far more standing variation —
+     * 0.01% for dominant/unknown, 0.1% when the gene reads recessive.
+     */
+    extremelyRare: 0.0001,
+    /** PM2 ceiling used when the gene is read as recessive (pLI < {@link recessivePlI}). */
+    extremelyRareRecessive: 0.001,
+    /** pLI below this is read as recessive, which raises the PM2 ceiling tenfold. */
+    recessivePlI: 0.9,
+  },
 } as const;
 
 export const LOCAL_STRUCTURAL_WINDOW = 5;

@@ -30,6 +30,8 @@
  * 2. Coordinates are LIFTED to the canonical build when the input build differs, and the
  *    lift is REVERSE-VERIFIED before use (`reverseVerified`). A lift is only ever accepted
  *    when mapping back reproduces the original position exactly.
+ *    (Implemented in `server/services/translation/liftover.ts`; applied at the coordinate
+ *    producers, so consumers see one canonical-build coordinate or an honest refusal.)
  * 3. When a lift cannot be verified, or a coordinate's build is unknown, the evidence is
  *    reported as UNAVAILABLE (or unavailable-unless-provable) — never coerced, never
  *    guessed. Absence is a truthful answer; a wrong-build score is not.
@@ -115,6 +117,38 @@ export interface AssemblyTaggedCoordinate {
   assembly: GenomeAssembly;
 }
 
+/**
+ * One canonical spelling for a contig name, shared by every component that compares a
+ * variant's contig to a transcript's (the splice resolver) or interpolates one into a URL
+ * (the liftover). The two sides used to carry private normalizers that disagreed on the
+ * one case that matters: GRCh38 names the mitochondrion "MT" while variant callers write
+ * "chrM" — with per-side helpers, an MT variant refused its own geometry (review L-8).
+ */
+export function normalizeContigName(chrom: string): string {
+  const c = chrom.trim().replace(/^chr/i, "").toUpperCase();
+  return c === "M" ? "MT" : c;
+}
+
+/** Whether two contig names denote the same chromosome. */
+export function sameContig(a: string, b: string): boolean {
+  return normalizeContigName(a) === normalizeContigName(b);
+}
+
+/**
+ * The wire vocabulary for `conservationData.assemblyRefusals[].source`.
+ *
+ * The server writes these keys and the client reads them back; as a free-string convention
+ * a typo degrades silently to "no refusal recorded", which the surfaces then render as an
+ * unexplained blank (review L-1). One exported tuple, both sides import it.
+ */
+export const ASSEMBLY_REFUSAL_SOURCES = [
+  "popEVE",
+  "gpn-star",
+  "alphagenome",
+  "splice-proximity"
+] as const;
+export type AssemblyRefusalSource = (typeof ASSEMBLY_REFUSAL_SOURCES)[number];
+
 /** A coordinate lifted onto the canonical build. Produced by the liftover step, which owns
  * the round-trip check and discards any lift that fails it.
  *
@@ -134,10 +168,9 @@ export interface LiftedCoordinate extends AssemblyTaggedCoordinate {
  * Word the absence of a score for a source that cannot serve this build, so a skipped
  * source reads as "not assessed" rather than as a negative result.
  *
- * NOTE: currently exercised only by unit tests. The production gate composes
- * `sourceSupportsAssembly` directly because refusal reasons are not yet surfaced in the UI.
- * Wire this in — or delete it — when that surface lands, rather than leaving a public
- * helper unused.
+ * Wired into the production pipeline: the conservation orchestrator records one per refused
+ * source on `conservationData.assemblyRefusals`, and the splicing surfaces render it verbatim
+ * (unmapping defect F-13). "Absence must be explained, not silent" is no longer only a test name.
  */
 export function describeAssemblyRefusal(
   source: AssemblyAwareSource,

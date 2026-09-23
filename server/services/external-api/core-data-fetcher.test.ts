@@ -169,6 +169,15 @@ describe("Core Data Fetcher Service Unit Tests", () => {
 
     expect(fetchGnomadVariantFrequency).not.toHaveBeenCalled();
     expect(result.gnomadFrequency).toBeNull();
+    /**
+     * ...and the refusal must be RECORDED as one.
+     *
+     * This assertion is the one that matters clinically. The gate used to return `null` with no flag,
+     * so the status became `not_found` — the same value a genuine confirmed absence carries — and the
+     * ACMG classifier read it as one: a zero frequency and **PM2 awarded for a variant gnomAD was
+     * never asked about**.
+     */
+    expect(result.serviceStatus.gnomadFrequency).toBe("unsupported-build");
   });
 
   it("should handle service errors gracefully and report status as error/not_found without throwing", async () => {

@@ -17,6 +17,12 @@ import {
 } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import { resolveGeneToUniprot } from "../../services/external.ts";
+// Shared with the Population Frequencies screen, so the report and the UI cannot state different
+// frequencies or different absence causes for one variant.
+import {
+  buildFrequencyEvidence,
+  formatAlleleFrequency,
+} from "../../../src/shared/frequencyEvidence.ts";
 import {
   performGeminiAnalysis,
   GeminiError,
@@ -63,6 +69,13 @@ const analyzeVariantNarrativeSchema = z.object({
   gnomadFrequency: z.any().optional(),
   uniprotFeatures: z.any().optional(),
   sequence: z.any().optional(),
+  aouFrequency: z.any().optional(),
+  /**
+   * Per-source fetch outcomes. Validated here rather than read ad hoc off `req.body`, because the
+   * frequency sentence below turns on it: without it a gnomAD timeout is indistinguishable from a
+   * confirmed absence, and the report asserted absence.
+   */
+  serviceStatus: z.record(z.string(), z.string()).optional(),
 });
 
 export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: any): void {
@@ -110,7 +123,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures, sequence } = req.body;
+      const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures, sequence, aouFrequency, serviceStatus } = req.body;
 
       const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
       if (!mutMatch) {
@@ -248,9 +261,41 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           ? `Listed as **${clinvar.classification || "Unclassified"}** (Review status: *${clinvar.reviewStatus || "unknown"}*).`
           : "Not listed in ClinVar (rare or novel variant).";
 
-        const freqText = (gnomadFrequency && gnomadFrequency.exomeAF)
-          ? `Observed in gnomAD with an exome allele frequency of **${gnomadFrequency.exomeAF.toExponential(3)}**.`
-          : "Absent from the gnomAD population database (extremely rare or novel variant).";
+        /**
+         * The frequency sentence, from the same module the Population Frequencies screen renders.
+         *
+         * It used to read `gnomadFrequency.exomeAF` and, whenever that was falsy, write "Absent from
+         * the gnomAD population database (extremely rare or novel variant)." Three defects in one
+         * line: a gnomAD **timeout** produced the absence claim, a genomes-only variant was called
+         * absent, and the value the ACMG classifier actually used (`groupMaxAF`) was ignored in
+         * favour of one dataset's global AF. The report is the most consequential surface this text
+         * appears on, so it now states what the pipeline established and nothing more.
+         */
+        const frequency = buildFrequencyEvidence({
+          gnomadFrequency,
+          aouFrequency: aouFrequency ?? null,
+          serviceStatus: serviceStatus ?? null,
+          clinvar,
+          assembly: predictorData?.gnomadVariantAssembly ?? null,
+          pli: gnomadConstraint?.pli ?? null,
+          engineCriteria: ruleInsights.acmgCriteria,
+          acmgWeighting,
+        });
+        const freqText = (() => {
+          const criterion = frequency.criterion;
+          if (criterion.af === null) return criterion.statement;
+          const where =
+            criterion.sourceId === "clinvar-submissions"
+              ? "ClinVar-submitted data"
+              : criterion.usedGroupMax
+                ? "gnomAD (ancestry-grouped maximum)"
+                : "gnomAD (global maximum)";
+          const observed =
+            criterion.af === 0
+              ? `Not present in ${where.replace(" (ancestry-grouped maximum)", "").replace(" (global maximum)", "")} in the reference cohorts sampled (allele frequency 0).`
+              : `Observed in ${where} with an allele frequency of **${formatAlleleFrequency(criterion.af)}**.`;
+          return `${observed} ${criterion.statement}${criterion.fallback ? " The grouped frequency fell back to the global maximum because no population was large enough to report." : ""}`;
+        })();
 
         const cadd = predictorData?.caddPhred;
         const am = predictorData?.amClass;

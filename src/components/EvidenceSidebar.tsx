@@ -36,7 +36,7 @@ interface NavSection {
 }
 
 const NAV_SECTIONS: NavSection[] = [
-  { id: "clinical",  label: "Databases",        Icon: Database },
+  { id: "clinical",  label: "Population Frequencies", Icon: Database },
   {
     id: "predictors", label: "Predictors",       Icon: Cpu,
     subItems: [

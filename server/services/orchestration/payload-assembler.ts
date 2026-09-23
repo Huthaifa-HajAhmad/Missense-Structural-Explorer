@@ -6,7 +6,18 @@ import type { PredictorData, ConservationData } from "../../../src/shared/contra
 import type { DisruptionPrediction } from "../stability/biophysics.ts";
 import type { RuleBasedInsights } from "../prediction/acmg.ts";
 
-export type ServiceFetchStatus = "ok" | "not_found" | "timeout" | "error";
+/**
+ * The outcome of one external fetch.
+ *
+ * `unsupported-build` is distinct from `not_found` on purpose, and the distinction is clinical.
+ * gnomAD r4 answers by numeric position and serves GRCh38 only, so the gate in
+ * `core-data-fetcher.ts` refuses any other coordinate *before* querying. Recording that refusal as
+ * `not_found` — which is what happened until this member existed — made "this source holds no record
+ * of the variant" and "this source was never asked" the same value, and the ACMG classifier read the
+ * second as the first: a confirmed absence, a zero frequency, and **PM2 awarded for a variant no
+ * database had been queried about**.
+ */
+export type ServiceFetchStatus = "ok" | "not_found" | "timeout" | "error" | "unsupported-build";
 
 export interface ServiceStatusMap {
   clinvar: ServiceFetchStatus;

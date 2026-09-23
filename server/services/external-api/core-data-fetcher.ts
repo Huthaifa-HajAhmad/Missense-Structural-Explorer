@@ -141,6 +141,14 @@ export async function fetchCoreVariantData(
     : Promise.resolve(null));
 
   let gnomadFreqHasError = false;
+  /**
+   * Set when the build gate below declines the coordinate.
+   *
+   * Tracked separately from "the query returned nothing" because the two are opposite facts about
+   * the variant, and reporting the refusal as `not_found` made the ACMG classifier award PM2 for a
+   * variant gnomAD was never asked about (see `ServiceFetchStatus`).
+   */
+  let gnomadFreqBuildRefused = false;
   const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then((localFreqs: any) => {
     if (localFreqs && localFreqs.gnomad) return localFreqs.gnomad;
     return predictorPromise.then(pred => {
@@ -152,12 +160,13 @@ export async function fetchCoreVariantData(
        * that locus's population frequency. These frequencies drive PM2 / BA1 / BS1 / PS4, which
        * makes a wrong-locus value the highest-impact wrong number this pipeline can produce.
        *
-       * A build that is unknown or unsupported therefore yields no frequency, which surfaces as
-       * "not assessed" rather than as a confident number for the wrong position. The build is
-       * also passed into the cache key so a cross-build entry can never be served.
+       * A build that is unknown or unsupported therefore yields no frequency, and records WHY as
+       * `unsupported-build` rather than as an absence. The build is also passed into the cache key so
+       * a cross-build entry can never be served.
        */
       const coordinateAssembly = pred?.gnomadVariantAssembly ?? null;
       if (!coordinateAssembly || !sourceSupportsAssembly("gnomad-variants", coordinateAssembly)) {
+        gnomadFreqBuildRefused = true;
         return null;
       }
       return fetchGnomadVariantFrequency(pred?.gnomadVariantId || null, { assembly: coordinateAssembly });
@@ -346,6 +355,8 @@ export async function fetchCoreVariantData(
     ? "timeout"
     : gnomadFreqHasError
     ? "error"
+    : gnomadFreqBuildRefused
+    ? "unsupported-build"
     : gnomadFreqRes ? "ok" : "not_found";
 
   const uniprotFeaturesTimedOut = rawUniprotFeatures === TIMEOUT_FLAG;

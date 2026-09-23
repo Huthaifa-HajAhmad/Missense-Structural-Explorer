@@ -15,11 +15,50 @@ import {
 } from "lucide-react";
 import { AnalysisResult, EnergeticsData } from "../../types";
 import {
+  THRESHOLDS,
   buildGuidelinesRows,
   summarizeGuidelinesRows
 } from "../../shared/thresholds";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import {
+  buildFrequencyEvidence,
+  formatAlleleFrequency,
+} from "../../shared/frequencyEvidence";
 import { variantNumberingView } from "../../shared/numbering";
+
+type PopulationFrequencyThresholds = typeof THRESHOLDS.populationFrequency;
+
+/**
+ * The PM2 / BS1 / BA1 frequency criteria, described from the engine's own cut-points.
+ *
+ * Each `describe` interpolates the constant into the sentence, so a card that documents a rule
+ * cannot print a percentage the rule does not use. The previous revision hard-coded "MAF > 0.1%"
+ * for BS1 while the classifier tested at 1%.
+ */
+const FREQUENCY_CRITERIA: ReadonlyArray<{
+  code: string;
+  tone: string;
+  describe: (freq: PopulationFrequencyThresholds) => string;
+}> = [
+  {
+    code: "PM2",
+    // Theme tokens rather than the raw palette, so the code carries the same red here as it does in
+    // the tab's verdict chip and in the rule counts above.
+    tone: "text-cs-text-danger-on-soft",
+    describe: freq =>
+      `Extremely rare in gnomAD (MAF ≤ ${(freq.extremelyRare * 100).toFixed(2)}%, or ≤ ${(freq.extremelyRareRecessive * 100).toFixed(1)}% when pLI < ${freq.recessivePlI} reads as recessive)`
+  },
+  {
+    code: "BS1",
+    tone: "text-cs-text-success",
+    describe: freq => `Frequency greater than expected for the disorder (MAF > ${(freq.tooCommonForDisorder * 100).toFixed(1)}%)`
+  },
+  {
+    code: "BA1",
+    tone: "text-cs-text-success",
+    describe: freq => `Stand-alone benign (MAF > ${(freq.standAloneBenign * 100).toFixed(0)}% in population cohorts)`
+  }
+];
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -67,6 +106,27 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const multimerData = analysisResult.multimerData;
   const subunitComment = multimerData?.subunitComment || analysisResult.uniprotFeatures?.subunitComment;
 
+  /**
+   * The same frequency view the Population Frequencies column renders.
+   *
+   * Built here rather than restated: the rail and the column sit in one viewport describing one
+   * variant, so a release name, a governing frequency or a criterion written out a second time is a
+   * claim nothing checks. `gnomadRelease` is the row's own dataset label.
+   */
+  const frequencyEvidence = buildFrequencyEvidence({
+    gnomadFrequency: analysisResult.gnomadFrequency ?? null,
+    aouFrequency: analysisResult.aouFrequency ?? null,
+    serviceStatus: analysisResult.serviceStatus ?? analysisResult.metadata?.serviceStatus ?? null,
+    clinvar: clinvar
+      ? { classification: clinvar.classification, alleleFrequencies: clinvar.alleleFrequencies }
+      : null,
+    assembly: analysisResult.predictorData?.gnomadVariantAssembly ?? null,
+    pli: analysisResult.gnomadConstraint?.pli ?? null,
+    engineCriteria: analysisResult.ruleBasedInsights?.acmgCriteria ?? analysisResult.insights?.acmgCriteria ?? null,
+    acmgWeighting: analysisResult.metadata?.acmgWeighting ?? null,
+  });
+  const gnomadRelease = frequencyEvidence.observations.find(o => o.id.startsWith("gnomad"))?.dataset ?? "release not reported";
+
   const clinvarUid = clinvar?.uid != null ? String(clinvar.uid) : null;
   const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
 
@@ -110,10 +170,10 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               <Info className="w-3.5 h-3.5 text-cs-accent-clay shrink-0" />
               <span>Functional vs. Physical Networks</span>
             </div>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               <strong>STRING-db</strong> quantifies proteome-wide functional associations inferred from co-expression, shared pathways, and literature citations.
             </p>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               In contrast, <strong>OpenBind-0</strong> directly calculates atomistic steric clashes, electrostatic shifts, and binding free energy changes (&Delta;&Delta;G_bind) across the physical 3D subunit interface.
             </p>
           </div>
@@ -123,18 +183,18 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
               STRING Score Confidence Tiers
             </span>
-            <div className="space-y-1 text-[10.5px] font-mono">
+            <div className="space-y-1 text-[11px] font-mono">
               <div className="flex justify-between items-center">
                 <span className="text-cs-text-secondary">&ge; 0.900</span>
-                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Highest</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Highest</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-cs-text-secondary">0.700 – 0.899</span>
-                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">High</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">High</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-cs-text-secondary">0.400 – 0.699</span>
-                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Medium</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Medium</span>
               </div>
             </div>
           </div>
@@ -155,14 +215,14 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
           )}
 
           {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">STRING-db</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v12.0 · Homo sapiens (9606)</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">v12.0 · Homo sapiens (9606)</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">OpenBind-0</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">Tier 1 · JapanFold</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">Tier 1 · JapanFold</span>
             </div>
           </div>
         </div>
@@ -180,10 +240,10 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[11px] font-bold text-cs-text-primary block">
               Interface Quality (ipTM)
             </span>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               <strong>ipTM &ge; 0.80</strong> indicates high-confidence subunit interface geometry. <strong>Overall pTM</strong> measures whole-complex structural topology.
             </p>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               Inter-chain contact boundary is evaluated at heavy-atom distance &le; 4.5 &Aring;.
             </p>
           </div>
@@ -194,21 +254,21 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
                 Swiss-Prot SUBUNIT Curation
               </span>
-              <p className="text-[10.5px] text-cs-text-primary italic leading-relaxed">
+              <p className="text-[11px] text-cs-text-primary italic leading-relaxed">
                 &ldquo;{subunitComment}&rdquo;
               </p>
             </div>
           )}
 
           {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">Boltz-2 / OpenFold3</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">Tier 1 · JapanFold</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">Tier 1 · JapanFold</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">UniProtKB</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">Swiss-Prot Curated</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">Swiss-Prot Curated</span>
             </div>
           </div>
         </div>
@@ -226,7 +286,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
               Feature Types &amp; Palette
             </span>
-            <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 shrink-0" />
                 <span className="text-cs-text-secondary">Domains</span>
@@ -255,20 +315,20 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[11px] font-bold text-cs-text-primary block">
               Inspection &amp; Zoom Controls
             </span>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               Use the zoom slider or zoom buttons to focus on specific sequence windows. Clicking domain cards dynamically highlights and scrolls to corresponding SVG pins.
             </p>
           </div>
 
           {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">UniProtKB Feature Table</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">Swiss-Prot Verified</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">Swiss-Prot Verified</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">InterPro / Pfam</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v2024</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">v2024</span>
             </div>
           </div>
         </div>
@@ -321,7 +381,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
                 <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
                   <span className="text-cs-text-secondary">Transcript Tier:</span>
-                  <span className={`text-[9.5px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
                     isManeSelect
                       ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                       : isManePlusClinical
@@ -332,7 +392,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                       ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                       : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
                   }`}>
-                    {isManeSelect ? "MANE Select (Gold)" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
+                    {isManeSelect ? "MANE Select" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
                   </span>
                 </div>
 
@@ -355,20 +415,23 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 const benCount = uniqueCriteria.filter((c: any) => c.category === "benign" || (typeof c.code === "string" && c.code.toUpperCase().startsWith("B"))).length;
 
                 return (
-                  <div className="pt-2 border-t border-cs-border-subtle space-y-1 text-[10.5px]">
+                  <div className="pt-2 border-t border-cs-border-subtle space-y-1 text-[11px]">
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Pathogenic Rules:</span>
-                      <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                      {/* Theme tokens, not the raw Tailwind palette: the criteria-code rows below
+                          used the same rose/emerald, which put the same two codes in two different
+                          reds and two different greens inside one card. */}
+                      <span className="font-mono font-bold" style={{ color: "var(--cs-text-danger-on-soft)" }}>
                         {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Benign Rules:</span>
-                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      <span className="font-mono font-bold" style={{ color: "var(--cs-text-good-on-soft)" }}>
                         {benCount > 0 ? `${benCount} active` : "0 triggered"}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-[9.5px] text-cs-text-muted pt-0.5">
+                    <div className="flex justify-between items-center text-[10px] text-cs-text-muted pt-0.5">
                       <span>Framework:</span>
                       <span className="font-mono">Richards et al. 2015 / ClinGen</span>
                     </div>
@@ -389,11 +452,15 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               <span className="font-bold text-[11px] text-cs-text-primary flex items-center gap-1">
                 NCBI ClinVar Review
               </span>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-cs-text-muted">
-                E-Fetch API
-              </span>
+              {/*
+                * A "E-Fetch API" badge sat here. The client calls `esearch`/`esummary`
+                * (`clinvar.ts:99`, `:117`) and never `efetch`, so the badge named a mechanism the
+                * code does not use — in the one card whose job is to establish provenance. The
+                * footer of this group states the mechanism that IS used; a second, wrong statement
+                * of it is worse than none.
+                */}
             </div>
-            <div className="flex justify-between items-center text-[10.5px]">
+            <div className="flex justify-between items-center text-[11px]">
               <span className="text-cs-text-secondary">VCV Accession:</span>
               {clinvarVcv ? (
                 <a
@@ -406,16 +473,55 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                   <ExternalLink className="w-2.5 h-2.5" />
                 </a>
               ) : (
-                <span className="font-mono text-[10px] text-cs-text-muted italic">
-                  Unindexed in ClinVar
+                /*
+                 * "Unindexed in ClinVar" was asserted whenever there was no uid — including when the
+                 * ClinVar query had timed out. `frequencyEvidence` classifies that read, so the row
+                 * says which absence it means instead of naming the one that reads as a negative
+                 * result.
+                 */
+                <span className="font-mono text-[11px] text-cs-text-muted italic text-right">
+                  {frequencyEvidence.clinvar.availability.hasValue ? "Unindexed in ClinVar" : "No ClinVar record read"}
                 </span>
               )}
             </div>
             {clinvar?.lastEvaluated && !isNaN(Date.parse(clinvar.lastEvaluated)) && (
-              <div className="flex justify-between items-center text-[10px] text-cs-text-muted pt-1 border-t border-cs-border-subtle">
+              <div className="flex justify-between items-center text-[11px] text-cs-text-muted pt-1 border-t border-cs-border-subtle">
                 <span>Last Evaluated:</span>
                 <span className="font-mono">{new Date(clinvar.lastEvaluated).toLocaleDateString()}</span>
               </div>
+            )}
+          </div>
+
+          {/*
+            * This card belongs to the one tab whose job is population frequency, so it also states
+            * what THIS run did with the frequency — the same object the main column renders, so the
+            * two panes cannot report different frequencies or different criteria for one variant.
+            */}
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
+            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
+              This run's frequency reading
+            </span>
+            <div className="space-y-1.5 text-[11px]">
+              <div className="flex justify-between items-start gap-2">
+                <span className="text-cs-text-secondary shrink-0">Governing frequency:</span>
+                <span className="font-mono font-bold text-cs-text-primary text-right tabular-nums">
+                  {formatAlleleFrequency(frequencyEvidence.criterion.af)}
+                </span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="text-cs-text-secondary shrink-0">Engine criterion:</span>
+                <span className="font-mono font-bold text-cs-text-primary text-right">
+                  {frequencyEvidence.applied.known
+                    ? frequencyEvidence.applied.code ?? "None recorded"
+                    : `unconfirmed (supports ${frequencyEvidence.criterion.code})`}
+                </span>
+              </div>
+            </div>
+            {frequencyEvidence.applied.suppressed && (
+              <p className="text-[11px] m-0 leading-snug" style={{ color: "var(--cs-text-warning-on-soft)" }}>
+                The frequency meets {frequencyEvidence.criterion.code}
+                {frequencyEvidence.applied.weighting ? `, and the ${frequencyEvidence.applied.weighting} weighting withheld it` : ", and the engine recorded no frequency criterion"}.
+              </p>
             )}
           </div>
 
@@ -424,31 +530,39 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
               ACMG Frequency Criteria
             </span>
-            <div className="space-y-1.5 text-[10.5px]">
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-rose-600 dark:text-rose-400 shrink-0">PM2</span>
-                <span className="text-cs-text-secondary text-right">Extremely low/absent in gnomAD (MAF &lt; 0.01%)</span>
-              </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">BS1</span>
-                <span className="text-cs-text-secondary text-right">Frequency greater than expected for disorder (MAF &gt; 0.1%)</span>
-              </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">BA1</span>
-                <span className="text-cs-text-secondary text-right">Stand-alone benign (MAF &gt; 5% in population cohorts)</span>
-              </div>
+            <div className="space-y-1.5 text-[11px]">
+              {/*
+                * The cut-points are READ from the constant the rule engine branches on, not restated
+                * here. They were restated, and they disagreed: this card printed "MAF > 0.1%" for BS1
+                * while `criteria.ts` tested at 1% — a provenance panel contradicting the classifier it
+                * sits beside, in the one card a reader consults to check the classification.
+                */}
+              {FREQUENCY_CRITERIA.map(({ code, tone, describe }) => (
+                <div key={code} className="flex justify-between items-start gap-2">
+                  <span className={`font-mono font-bold shrink-0 ${tone}`}>{code}</span>
+                  <span className="text-cs-text-secondary text-right">{describe(THRESHOLDS.populationFrequency)}</span>
+                </div>
+              ))}
             </div>
           </div>
 
           {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
+          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">NCBI ClinVar</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">GRCh38 / E-Utilities</span>
+              <span className="font-mono text-[11px] text-cs-text-muted">E-utilities esearch/esummary</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">gnomAD</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v4.0.0 (Genomes &amp; Exomes)</span>
+              {/*
+                * The release comes from the payload the main column renders, not from a literal
+                * here. It was a literal, and it disagreed with the manifest ("v4.0.0" here, "v4.1.0"
+                * in `provenance.ts`) for the same query — neither read from anywhere. Deriving it
+                * means a payload whose dataset is not `gnomad_r4` cannot render two release names.
+                */}
+              <span className="font-mono text-[11px] text-cs-text-muted">
+                {gnomadRelease}
+              </span>
             </div>
           </div>
         </div>
@@ -466,34 +580,34 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[11px] font-bold text-cs-text-primary block">
               ACMG PP3 / BP4 Evidence Weighting
             </span>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               Per Tavtigian et al. (2018) and ClinGen SVI guidelines, computational scores are calibrated against local odds of pathogenicity.
             </p>
-            <p className="text-[10.5px] text-cs-text-secondary leading-relaxed font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
               Multiple correlated tools are harmonized via consensus voting to prevent circular double-counting of evolutionary signals.
             </p>
           </div>
 
           {/* Predictor Suite Registry */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
+          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[11px]">
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block pb-1 border-b border-cs-border-subtle">
               Model Registry &amp; Lineage
             </span>
             <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
               <span className="font-semibold text-cs-text-primary">AlphaMissense</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v2023 · Google DeepMind</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">v2023 · Google DeepMind</span>
             </div>
             <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
               <span className="font-semibold text-cs-text-primary">REVEL</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v2016 · Ioannidis et al.</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">v2016 · Ioannidis et al.</span>
             </div>
             <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
               <span className="font-semibold text-cs-text-primary">SpliceAI</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v1.3.1 · Illumina</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">v1.3.1 · Illumina</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="font-semibold text-cs-text-primary">CADD</span>
-              <span className="font-mono text-[9.5px] text-cs-text-muted">v1.6 · Rentzsch et al.</span>
+              <span className="font-mono text-[10px] text-cs-text-muted">v1.6 · Rentzsch et al.</span>
             </div>
           </div>
         </div>
@@ -532,11 +646,11 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
             <div className="flex items-center justify-between gap-1">
-              <span className={`text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${statusBadgeStyle}`}>
+              <span className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${statusBadgeStyle}`}>
                 {statusText}
               </span>
             </div>
-            <p className="text-[10.5px] text-cs-text-secondary leading-snug font-sans">
+            <p className="text-[11px] text-cs-text-secondary leading-snug font-sans">
               {statusDesc}
             </p>
             <div className="pt-2 border-t border-cs-border-subtle flex flex-col gap-1 text-[10px] font-mono text-cs-text-muted">
@@ -566,7 +680,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 return (
                   <span
                     key={g}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9.5px] font-sans"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-sans"
                     style={{ background: tint.bg, color: tint.fg, borderColor: tint.border }}
                     title={g === "nodata" ? "Metrics with no score for this variant" : undefined}
                   >
@@ -582,7 +696,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 if (items.length === 0) return null;
                 return (
                   <div key={key} className="space-y-0.5">
-                    <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-cs-text-muted block">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted block">
                       {label} · {items.length}
                     </span>
                     {items.map(row => {
@@ -618,7 +732,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
               ACMG/AMP Evidence Codes Key
             </span>
-            <div className="space-y-1.5 text-[10.5px]">
+            <div className="space-y-1.5 text-[11px]">
               <div className="flex justify-between items-start gap-2">
                 <span className="font-mono font-bold text-cs-accent-clay shrink-0">PP3 / BP4</span>
                 <span className="text-cs-text-secondary text-right">Computational algorithms predict a deleterious (PP3) / neutral (BP4) effect on the protein.</span>
@@ -646,7 +760,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
               ClinGen Evidence Point Scale
             </span>
-            <div className="space-y-1 text-[10.5px]">
+            <div className="space-y-1 text-[11px]">
               <div className="flex justify-between">
                 <span className="text-cs-text-secondary">Very Strong (Pathogenic)</span>
                 <span className="font-mono font-bold text-rose-500">8 points</span>

@@ -82,7 +82,7 @@ export async function fetchBiophysicalAnalysis(
               conservationData: { name: "Evolutionary Conservation (ConSurf / REVEL / GERP++)", stage: "biophysics" },
               esm2: { name: "Zero-Shot ESM-2 Masked Marginal Likelihood", stage: "biophysics" },
               clinvar: { name: "ClinVar Clinical Interpretation (NCBI E-Utilities)", stage: "clinical" },
-              gnomadFrequency: { name: "Population Allele Frequency (gnomAD v4.0 GraphQL)", stage: "clinical" },
+              gnomadFrequency: { name: "Population Allele Frequency (gnomAD r4 GraphQL)", stage: "clinical" },
               gnomadConstraint: { name: "Gene Constraint & Regional Missense (gnomAD)", stage: "clinical" },
               stringInteractions: { name: "Protein-Protein Interaction Network (STRING DB)", stage: "clinical" }
             };

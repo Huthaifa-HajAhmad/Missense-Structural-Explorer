@@ -420,6 +420,29 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(resSuccess.acmgCriteria.some(c => c.code === "PM2")).toBe(true);
   });
 
+  it("should withhold PM2 when the coordinate's build is not one gnomAD serves", () => {
+    /**
+     * The gate in `core-data-fetcher.ts` refuses a non-GRCh38 coordinate BEFORE querying, and used to
+     * leave `not_found` behind — which the classifier read as a confirmed absence and turned into
+     * PM2. That awarded pathogenic-frequency support for a variant no database had been asked about.
+     */
+    const res = computeRuleBasedACMG({
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.9, amClass: "pathogenic", caddPhred: 28 },
+      conservationData: { available: true, revel: 0.8 },
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "unsupported-build" as const }
+    });
+
+    expect(res.acmgCriteria.some(c => c.code === "PM2")).toBe(false);
+    // The REASON must survive into the partial-evidence list, so the report can say why.
+    expect(
+      res.partialEvidence?.unavailable.some(u => u.includes("build is not one gnomAD r4 serves"))
+    ).toBe(true);
+  });
+
   it("should classify 1 Very Strong (PVS1) + 2 Supporting (PP) as Likely Pathogenic", () => {
     const input = {
       gene: "BRCA1",

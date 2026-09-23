@@ -190,7 +190,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   const clinvarStatusText = !isLoaded && loading
     ? "Connecting…"
     : clinvarReady
-    ? "E-Fetch Live"
+    ? "E-utilities live"
     : "Offline";
 
   // 5. UniProtKB

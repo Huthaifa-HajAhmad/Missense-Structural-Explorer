@@ -2,6 +2,9 @@ import React, { memo, useCallback, useMemo, useRef, useState, useLayoutEffect } 
 import { getResidueContext, getCalibration } from "../shared/uncertainty";
 import { generateProvenanceManifest } from "../shared/provenance";
 import { computeCalibratedConsensus } from "../shared/thresholds";
+// One frequency formatter for the whole app — this card used `toExponential(3)` while the
+// Population Frequencies screen used the shared one, so the same value rendered two ways.
+import { formatAlleleFrequency } from "../shared/frequencyEvidence";
 import { 
   FileText, 
   CheckCircle2, 
@@ -1071,19 +1074,23 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                             </div>
                           </div>
                           
-                          {/* gnomAD frequencies */}
+                          {/* ClinVar-submitted population frequencies.
+                              The heading read "gnomAD / Population Allele Frequencies" over data
+                              that is by definition ClinVar's own submitted frequencies — the same
+                              misattribution the Population Frequencies screen corrected. The value
+                              also used `toExponential(3)` ("5.500e-6") where every other surface
+                              reports "5.50e-6", so the same frequency rendered two ways. */}
                           {analysisState.result.clinvar.alleleFrequencies && analysisState.result.clinvar.alleleFrequencies.length > 0 && (
                             <div className="mt-3 pt-3 border-t text-xs" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider mb-2" style={{ color: "var(--cs-text-muted)" }}>gnomAD / Population Allele Frequencies</span>
+                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider mb-2" style={{ color: "var(--cs-text-muted)" }}>ClinVar-submitted population frequencies</span>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {analysisState.result.clinvar.alleleFrequencies.map((freq: any, fIdx: number) => (
                                   <div key={fIdx} className="flex justify-between items-center pr-4 text-xs">
-                                    <span className="font-semibold" style={{ color: "var(--cs-text-muted)" }}>{/gnomad/i.test(freq.source) ? "gnomAD" : freq.source}:</span>
-                                    <span className="font-bold font-mono" style={{ color: "var(--cs-text-accent)" }}>
-                                      {(() => {
-                                        const num = parseFloat(freq.value);
-                                        return isNaN(num) ? "N/A" : num.toExponential(3);
-                                      })()}
+                                    <span className="font-semibold" style={{ color: "var(--cs-text-muted)" }}>{freq.source}:</span>
+                                    <span className="font-bold font-mono tabular-nums" style={{ color: "var(--cs-text-accent)" }}>
+                                      {formatAlleleFrequency(
+                                        typeof freq.value === "string" ? parseFloat(freq.value) : freq.value,
+                                      )}
                                     </span>
                                   </div>
                                 ))}
