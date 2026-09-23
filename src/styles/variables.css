@@ -45,6 +45,13 @@
   --cs-plddt-vlow:    #FF7D45;   /* <50 — orange */
 
   --cs-radius-card:   12px;
+  /**
+   * Legacy alias, still referenced by `.table-container-card`
+   * (`typography-tables.css`). It was never declared, so that rule's
+   * `var(--cs-radius-lg)` was invalid at computed-value time and the card fell
+   * back to the initial value — square corners.
+   */
+  --cs-radius-lg:     var(--cs-radius-card);
   /* Panel radius (16px) — outer + nested workspace panels only (e.g. Search
      Workspace card, Accepted Inputs). Inputs/buttons stay on --cs-radius-input:
      a 16px radius on a 40px-high field collapses toward a capsule. */

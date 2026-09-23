@@ -64,6 +64,59 @@ describe("PPI Binding Affinity Service Tests", () => {
 
     // No PDBs provided => bindingShift is null (no synthetic fallback)
     expect(result.bindingShift).toBeNull();
+
+    // Both lookups ran, so the tab may report an absence as an absence.
+    expect(result.lookups).toEqual({ stringPartners: "ok", interfaceResidues: "ok" });
+  });
+
+  it("reports a failed lookup as failed rather than as an empty answer", async () => {
+    // The defect this pins: the STRING fetcher caught its own error and returned
+    // `[]`, and a failed UniProt request returned null from inside a `try` that
+    // only logged. Both reached the tab as empty arrays, so a dead endpoint
+    // rendered as "this protein has no interaction partners".
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => ({ ok: false }) as any);
+
+    // Unique gene/id so neither lookup can be served from a cache another test
+    // in this file warmed.
+    const result = await analyzePpiBinding("PPIFAILGENE", "p.Ala1Val", "PPIFAILID");
+
+    expect(result.stringPartners).toEqual([]);
+    expect(result.interfaceResidues).toEqual([]);
+    expect(result.lookups).toEqual({ stringPartners: "failed", interfaceResidues: "failed" });
+  });
+
+  it("keeps a real empty answer distinct from a failure", async () => {
+    // `ok` with nothing in it is a claim STRING is entitled to make.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("string-db.org")) return { ok: true, json: async () => [] } as any;
+      return { ok: false } as any;
+    });
+
+    const result = await analyzePpiBinding("PPIEMPTYGENE", "p.Ala1Val", "PPIEMPTYID");
+
+    expect(result.stringPartners).toEqual([]);
+    expect(result.lookups?.stringPartners).toBe("ok");
+  });
+
+  it("marks the interface lookup as skipped when no UniProt accession was resolved", async () => {
+    // Nothing was ever asked, which is a third state the tab previously rendered
+    // as "no curated interface residues".
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("string-db.org")) {
+        return {
+          ok: true,
+          json: async () => [{ preferredName_A: "PPISKIPGENE", preferredName_B: "PARTNER", score: "0.9" }]
+        } as any;
+      }
+      return { ok: false } as any;
+    });
+
+    const result = await analyzePpiBinding("PPISKIPGENE", "p.Ala1Val", undefined);
+
+    expect(result.lookups?.interfaceResidues).toBe("skipped");
+    expect(result.lookups?.stringPartners).toBe("ok");
   });
 
   it("computes OpenBind-0 binding affinity shift when mutant complex is provided", async () => {

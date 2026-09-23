@@ -26,6 +26,7 @@ vi.mock("../../../stores/useVariantAnalysisStore", () => ({
 afterEach(() => {
   fetchWithAuthMock.mockReset();
   setAnalysisStateMock.mockReset();
+  vi.unstubAllGlobals();
 });
 
 /**
@@ -43,6 +44,14 @@ function hangingFetch() {
     })
   );
 }
+
+/**
+ * The endpoint reports an empty array for every non-answer, so `lookups` is what
+ * separates "STRING/UniProt answered, and the answer was empty" from "the lookup
+ * never happened". Fixtures that assert an absence must therefore say `ok`; the
+ * tests that vary it are the ones testing the distinction.
+ */
+const LOOKUPS_OK = { stringPartners: "ok", interfaceResidues: "ok" } as const;
 
 const PARTNERS = [
   { partner: "PTP4A1", score: 0.97 }, // highest
@@ -62,6 +71,7 @@ const MONOMER_RESULT = {
     variant: "p.Ser489Cys",
     bindingShift: null,
     interfaceResidues: [],
+    lookups: LOOKUPS_OK,
     stringPartners: PARTNERS
   }
 } as any;
@@ -84,6 +94,7 @@ const MULTIMER_RESULT = {
     variant: "p.Ser489Cys",
     bindingShift: null,
     interfaceResidues: [],
+    lookups: LOOKUPS_OK,
     stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
   }
 } as any;
@@ -104,6 +115,7 @@ function scoredResult(ddgBind: number) {
         provenance: "OpenBind-0 (run 7)"
       },
       interfaceResidues: [],
+      lookups: LOOKUPS_OK,
       stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
     }
   } as any;
@@ -124,6 +136,7 @@ const CONTACT_RESULT = {
     variant: "p.Ser489Cys",
     bindingShift: null,
     interfaceResidues: [],
+    lookups: LOOKUPS_OK,
     stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
   }
 } as any;
@@ -141,6 +154,7 @@ const CURATED_RESULT = {
       { pos: 489, description: "Interface site", isVariantPosition: true },
       { pos: 511, description: "Subunit contact", isVariantPosition: false }
     ],
+    lookups: LOOKUPS_OK,
     stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
   }
 } as any;
@@ -360,6 +374,7 @@ describe("InteractionsTab — request state", () => {
         variant: "p.Ser489Cys",
         bindingShift: null,
         interfaceResidues: [],
+        lookups: LOOKUPS_OK,
         stringPartners: []
       })
     });
@@ -367,6 +382,81 @@ describe("InteractionsTab — request state", () => {
 
     const empty = await screen.findByText("No interaction partners");
     expect(empty.parentElement).toHaveTextContent("(0.150)");
+  });
+
+  it.each([
+    ["failed", "Partners not retrieved"],
+    [undefined, "Partners not reported"]
+  ])("refuses to call the partner list empty when the lookup was %s", (stringPartners, expected) => {
+    // The endpoint returns an empty array for every non-answer. Rendering that as
+    // "no association for this gene" states something about the protein that a
+    // failed or absent lookup cannot support.
+    const result = {
+      ...MONOMER_RESULT,
+      ppiBindingData: {
+        ...MONOMER_RESULT.ppiBindingData,
+        stringPartners: [],
+        lookups: { stringPartners, interfaceResidues: "ok" }
+      }
+    };
+    renderTab(result);
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    expect(screen.queryByText("No interaction partners")).toBeNull();
+  });
+
+  it.each([
+    ["failed", "Curated sites not retrieved"],
+    ["skipped", "Interface annotations not checked"],
+    [undefined, "Interface annotations not reported"]
+  ])("refuses to call the curated sites empty when the lookup was %s", (interfaceResidues, expected) => {
+    const result = {
+      ...MONOMER_RESULT,
+      ppiBindingData: {
+        ...MONOMER_RESULT.ppiBindingData,
+        interfaceResidues: [],
+        lookups: { stringPartners: "ok", interfaceResidues }
+      }
+    };
+    renderTab(result);
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    expect(screen.queryByText("No curated interface residues")).toBeNull();
+  });
+
+  it("still reports a genuine empty lookup as empty", () => {
+    // The counterpart to the two tests above: `ok` with nothing in it IS an
+    // answer, and the section must keep saying so.
+    renderTab({
+      ...MONOMER_RESULT,
+      ppiBindingData: {
+        ...MONOMER_RESULT.ppiBindingData,
+        stringPartners: [],
+        interfaceResidues: [],
+        lookups: { stringPartners: "ok", interfaceResidues: "ok" }
+      }
+    });
+    expect(screen.getByText("No interaction partners")).toBeInTheDocument();
+    expect(screen.getByText("No curated interface residues")).toBeInTheDocument();
+  });
+
+  it("opens the partner's network when the row is clicked, but not twice via the link", () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal("open", openSpy);
+    const { container } = renderTab(MONOMER_RESULT);
+    const firstRow = container.querySelector("tbody tr")!;
+
+    // A non-link cell: the row handler is the only thing listening.
+    fireEvent.click(firstRow.querySelectorAll("td")[0]);
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://string-db.org/network/9606.PTP4A1",
+      "_blank",
+      "noopener,noreferrer"
+    );
+
+    // The anchor keeps its own navigation, so the row handler must stand down or
+    // the click would open two tabs.
+    openSpy.mockClear();
+    fireEvent.click(screen.getByRole("link", { name: /PTP4A1/ }));
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it("renders the payload the endpoint returns and stores it on the analysis result", async () => {

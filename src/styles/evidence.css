@@ -184,35 +184,15 @@
   color: #D97706;
 }
 
-/* EVIDENCE CONTENT PANELS */
-.ev-section-heading {
-  font-family: var(--cs-font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cs-text-primary);
-  margin-bottom: 12px;
-}
-.ev-score-display {
-  font-family: var(--cs-font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--cs-accent-clay);
-  line-height: 1;
-}
-.ev-interpretation {
-  font-family: var(--cs-font-sans);
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--cs-text-secondary);
-}
-.ev-code-label {
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--cs-text-muted);
-}
+/* EVIDENCE CONTENT PANELS
+ *
+ * Four rules used to sit here — `.ev-section-heading`, `.ev-score-display`,
+ * `.ev-interpretation`, `.ev-code-label` — with no consumer anywhere in the
+ * repo. They were a third section/metric vocabulary, unreconciled with the live
+ * one, and a grep for their class names found only their own definitions.
+ * Removed rather than left as a trap for the next person looking for the
+ * section grammar.
+ */
 
 /* Predictor card */
 .predictor-card {
@@ -571,8 +551,11 @@
 
 /* Rows are separated by hairlines only — no vertical rules. The grid of
    borders these replaced drew a box around every cell, which is a heavier
-   structure than the panel they sit in. */
+   structure than the panel they sit in. Every row navigates to the partner's
+   STRING network, so the pointer cursor is honest; the row itself carries no
+   role or tabindex, and the gene link remains the keyboard and AT target. */
 .ev-table tbody tr {
+  cursor: pointer;
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 .ev-table tbody tr:hover { background: var(--cs-bg-subtle); }

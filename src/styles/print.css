@@ -32,8 +32,19 @@
 
   .report-screen-only,
   header.app-header,
-  aside.app-sidebar,
-  aside.inspector-panel,
+  /*
+   * The two `aside` selectors here used to be `aside.app-sidebar` and
+   * `aside.inspector-panel`, neither of which matches any element in the DOM —
+   * so Ctrl+P from any screen other than the Report view printed the fixed-width
+   * sidebar and inspector chrome alongside the content. The panels carry utility
+   * classes only, and their `aria-label` is the one stable hook they expose:
+   * MasterSidebar (`Main navigation`) and ViewInspector
+   * (`Context & Provenance Inspector`). `.ev-sidebar` is the Evidence view's own
+   * navigation rail.
+   */
+  aside[aria-label="Main navigation"],
+  aside[aria-label="Context & Provenance Inspector"],
+  aside.ev-sidebar,
   .toast-container,
   .notification-toast,
   nav,

@@ -205,6 +205,29 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
   const ppiUnavailable = !ppiData && active?.status === "error";
   const ppiErrorMessage = active?.status === "error" ? active.message ?? null : null;
 
+  /**
+   * The endpoint reports an EMPTY ARRAY for every non-answer, so an empty list is
+   * not on its own evidence of absence: `lookups` records whether the lookup
+   * actually ran. Absent `lookups` means the payload predates the field, which is
+   * UNKNOWN — not an empty answer, because the old API could not have expressed
+   * the difference.
+   */
+  const stringLookup = ppiData?.lookups?.stringPartners ?? null;
+  const interfaceLookup = ppiData?.lookups?.interfaceResidues ?? null;
+
+  /** Curated SUBUNIT annotation, quoted back under whichever note precedes it. */
+  const withSubunitQuote = (lead: React.ReactNode) => (
+    <>
+      {lead}
+      {subunitComment && (
+        <span className="ev-quote">
+          <span className="ev-quote-label">Curated SUBUNIT annotation</span>
+          {subunitComment}
+        </span>
+      )}
+    </>
+  );
+
   // `ppiData` decides the partner list, not array truthiness: an empty array from
   // a settled response is a real answer and must not fall back to the pipeline's.
   const stringPartners = ppiData ? ppiData.stringPartners : result.stringInteractions ?? [];
@@ -311,6 +334,103 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
   // The lowest band STRING publishes, read rather than typed, so the sentence and
   // the classifier cannot disagree.
   const lowestBand = THRESHOLDS.stringDb.low.toFixed(3);
+
+  /**
+   * What each section shows in place of a table or list. Every branch below
+   * distinguishes a real empty answer from a lookup that never happened — the
+   * distinction the endpoint could not previously express, and which the section
+   * used to paper over by asserting absence either way.
+   */
+  const interfacePlaceholder: React.ComponentProps<typeof PanelState> = (() => {
+    if (ppiPending) {
+      return {
+        icon: RefreshCw,
+        spinning: true,
+        title: "Checking curated interface annotations…",
+        note: <>Querying UniProt for subunit interface features on <strong>{gene}</strong>.</>
+      };
+    }
+    if (ppiUnavailable) {
+      return {
+        icon: AlertTriangle,
+        title: "Curated sites not retrieved",
+        note: <>The query failed, so no interface annotation could be checked for <strong>{gene}</strong>. This is not evidence that none exists.</>
+      };
+    }
+    if (interfaceLookup === "failed") {
+      return {
+        icon: AlertTriangle,
+        title: "Curated sites not retrieved",
+        note: <>The UniProt lookup failed, so no interface annotation could be checked for <strong>{gene}</strong>. This is not evidence that none exists.</>
+      };
+    }
+    if (interfaceLookup === "skipped") {
+      return {
+        icon: HelpCircle,
+        title: "Interface annotations not checked",
+        note: <>No UniProt accession was resolved for <strong>{gene}</strong>, so no interface annotation was requested. This is not evidence that none exists.</>
+      };
+    }
+    if (interfaceLookup === "ok") {
+      return {
+        icon: ShieldCheck,
+        title: "No curated interface residues",
+        note: withSubunitQuote(
+          <>
+            Swiss-Prot records no residue-level subunit interface annotation for{" "}
+            <strong>{gene}</strong>, so no interface position can be reported for this variant.
+          </>
+        )
+      };
+    }
+    return {
+      icon: HelpCircle,
+      title: "Interface annotations not reported",
+      note: withSubunitQuote(
+        <>
+          This response does not say whether the interface lookup ran, so no absence can be
+          claimed for <strong>{gene}</strong>.
+        </>
+      )
+    };
+  })();
+
+  const partnersPlaceholder: React.ComponentProps<typeof PanelState> = (() => {
+    if (ppiPending) {
+      return {
+        icon: RefreshCw,
+        spinning: true,
+        title: "Querying STRING-db…",
+        note: <>Fetching the strongest functional interaction partners for <strong>{gene}</strong>.</>
+      };
+    }
+    if (ppiUnavailable) {
+      return {
+        icon: AlertTriangle,
+        title: "Partners not retrieved",
+        note: <>The STRING-db query failed, so no partner list is available. This is not evidence that <strong>{gene}</strong> has none.</>
+      };
+    }
+    if (stringLookup === "failed") {
+      return {
+        icon: AlertTriangle,
+        title: "Partners not retrieved",
+        note: <>The STRING-db lookup failed, so no partner list is available for <strong>{gene}</strong>. This is not evidence that it has none.</>
+      };
+    }
+    if (stringLookup === "ok") {
+      return {
+        icon: Network,
+        title: "No interaction partners",
+        note: <>STRING-db returns no association for <strong>{gene || "this gene"}</strong> at or above its lowest confidence band ({lowestBand}).</>
+      };
+    }
+    return {
+      icon: HelpCircle,
+      title: "Partners not reported",
+      note: <>This response does not say whether the STRING-db lookup ran, so no absence can be claimed for <strong>{gene}</strong>.</>
+    };
+  })();
 
   return (
     <div className="space-y-4">
@@ -460,36 +580,8 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
               </li>
             ))}
           </ul>
-        ) : ppiPending ? (
-          <PanelState
-            icon={RefreshCw}
-            spinning
-            title="Checking curated interface annotations…"
-            note={<>Querying UniProt for subunit interface features on <strong>{gene}</strong>.</>}
-          />
-        ) : ppiUnavailable ? (
-          <PanelState
-            icon={AlertTriangle}
-            title="Curated sites not retrieved"
-            note={<>The query failed, so no interface annotation could be checked for <strong>{gene}</strong>. This is not evidence that none exists.</>}
-          />
         ) : (
-          <PanelState
-            icon={ShieldCheck}
-            title="No curated interface residues"
-            note={
-              <>
-                Swiss-Prot records no residue-level subunit interface annotation for{" "}
-                <strong>{gene}</strong>, so no interface position can be reported for this variant.
-                {subunitComment && (
-                  <span className="ev-quote">
-                    <span className="ev-quote-label">Curated SUBUNIT annotation</span>
-                    {subunitComment}
-                  </span>
-                )}
-              </>
-            }
-          />
+          <PanelState {...interfacePlaceholder} />
         )}
       </section>
 
@@ -534,7 +626,18 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
                   const stringUrl = `https://string-db.org/network/9606.${encodeURIComponent(partner.partner || "")}`;
 
                   return (
-                    <tr key={partner.partner || pIdx}>
+                    <tr
+                      key={partner.partner || pIdx}
+                      onClick={(event) => {
+                        // The anchor is the accessible target and keeps its own
+                        // focus ring, target and rel. The row handler is a pointer
+                        // convenience on top of it, which is why it bails out when
+                        // the click landed on the link — otherwise the anchor would
+                        // navigate and this would open a second tab.
+                        if ((event.target as HTMLElement).closest("a")) return;
+                        window.open(stringUrl, "_blank", "noopener,noreferrer");
+                      }}
+                    >
                       {/* A row header, not a data cell: this is the key the other
                           two cells describe, and it is what a screen reader
                           announces alongside them. The rank is hidden so the
@@ -586,30 +689,8 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
               </tbody>
             </table>
           </div>
-        ) : ppiPending ? (
-          <PanelState
-            icon={RefreshCw}
-            spinning
-            title="Querying STRING-db…"
-            note={<>Fetching the strongest functional interaction partners for <strong>{gene}</strong>.</>}
-          />
-        ) : ppiUnavailable ? (
-          <PanelState
-            icon={AlertTriangle}
-            title="Partners not retrieved"
-            note={<>The STRING-db query failed, so no partner list is available. This is not evidence that <strong>{gene}</strong> has none.</>}
-          />
         ) : (
-          <PanelState
-            icon={Network}
-            title="No interaction partners"
-            note={
-              <>
-                STRING-db returns no association for <strong>{gene || "this gene"}</strong> at or
-                above its lowest confidence band ({lowestBand}).
-              </>
-            }
-          />
+          <PanelState {...partnersPlaceholder} />
         )}
       </section>
     </div>

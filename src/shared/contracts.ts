@@ -1209,6 +1209,24 @@ export interface PpiBindingData {
     description: string;
     isVariantPosition: boolean;
   }>;
+  /**
+   * Outcome of each independent upstream lookup for this payload, so a consumer
+   * can tell an empty answer from no answer at all.
+   *
+   * Both sections report an empty array for every non-answer: the STRING fetcher
+   * swallows its own error, and a failed UniProt request returns null from inside
+   * a `try` that only logs. Without this, a PPI outage renders as "this protein
+   * has no interaction partners" and "no interface residue is annotated here" —
+   * assertions about the protein made from a failed HTTP call. `skipped` is the
+   * third case that was equally invisible: no UniProt id was resolved, so nothing
+   * was ever asked. Optional so a payload cached before this field existed still
+   * type-checks; absent means "unknown", which consumers must treat as not-an-
+   * empty-answer.
+   */
+  lookups?: {
+    stringPartners?: "ok" | "failed";
+    interfaceResidues?: "ok" | "failed" | "skipped";
+  };
   error?: string;
 }
 

@@ -13,6 +13,7 @@ import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { CONFIG } from "../../config.ts";
 import { anySignal } from "../../utils/signals.ts";
+import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 
 export interface JapanFoldZeroShotResult {
   status: "success" | "failed";
@@ -396,8 +397,11 @@ export async function queryOpenBind(
     const data = (await response.json()) as any;
     if (data && Number.isFinite(data.ddgBind)) {
       const ddg = data.ddgBind;
+      // Cut-points come from THRESHOLDS.openBind, which the PPI tab also reads to
+      // colour the value. As two hand-written copies, changing one alone made the
+      // chip's word disagree with the value beside it.
       const classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" =
-        data.classification || (ddg >= 1.5 ? "INTERFACE_DISRUPTIVE" : ddg >= 0.5 ? "ALLOSTERIC_PERTURBATION" : "SURFACE_NEUTRAL");
+        data.classification || (ddg >= THRESHOLDS.openBind.disruptive ? "INTERFACE_DISRUPTIVE" : ddg >= THRESHOLDS.openBind.allosteric ? "ALLOSTERIC_PERTURBATION" : "SURFACE_NEUTRAL");
 
       const result: JapanFoldBindingResult = {
         status: "success",

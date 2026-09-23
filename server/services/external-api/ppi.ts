@@ -6,9 +6,12 @@
  * - Maps UniProt curated interface residues
  * - Computes interface binding affinity shifts (ΔΔG_bind) via JapanFold OpenBind-0
  */
-import { fetchStringInteractions, StringInteraction } from "./string.ts";
+import { fetchStringInteractionsWithStatus, StringInteraction } from "./string.ts";
 import { queryOpenBind, JapanFoldBindingResult } from "./japanfold-client.ts";
 import { fetchUniprotFeatures } from "./uniprot.ts";
+
+/** How one upstream lookup for a PPI section ended. */
+export type PpiLookupStatus = "ok" | "failed" | "skipped";
 
 export interface PpiBindingAffinityResult {
   status: "success" | "unavailable" | "failed";
@@ -27,6 +30,22 @@ export interface PpiBindingAffinityResult {
     description: string;
     isVariantPosition: boolean;
   }>;
+  /**
+   * Outcome of each independent lookup, so a consumer can tell an empty answer
+   * from no answer at all.
+   *
+   * Both sections used to return an empty array for every non-answer: the STRING
+   * fetcher caught its own error and returned `[]`, and a UniProt request that
+   * failed returned `null` from inside a `try` that only logged. The PPI tab
+   * rendered those as "no association for this gene" and "no residue-level
+   * interface annotation is recorded" — claims about the protein, made on the
+   * strength of a failed HTTP call. `skipped` is the third case the tab could not
+   * see either: no UniProt id was resolved, so nothing was ever asked.
+   */
+  lookups: {
+    stringPartners: Exclude<PpiLookupStatus, "skipped">;
+    interfaceResidues: PpiLookupStatus;
+  };
   error?: string;
 }
 
@@ -42,8 +61,16 @@ export async function analyzePpiBinding(
   chainB: string = "B",
   signal?: AbortSignal
 ): Promise<PpiBindingAffinityResult> {
-  // 1. Fetch STRING partners
-  const stringPartners = await fetchStringInteractions(gene);
+  // 1. Fetch STRING partners, keeping the lookup's outcome
+  let stringPartners: StringInteraction[] = [];
+  let stringLookup: "ok" | "failed" = "failed";
+  try {
+    const stringResult = await fetchStringInteractionsWithStatus(gene);
+    stringPartners = stringResult.partners;
+    stringLookup = stringResult.status;
+  } catch (err: any) {
+    console.warn(`[PPI Service] STRING lookup threw for ${gene}:`, err?.message);
+  }
 
   // 2. Parse variant position
   let pos = 0;
@@ -59,11 +86,20 @@ export async function analyzePpiBinding(
     isVariantPosition: boolean;
   }> = [];
 
+  // "skipped" means no id was resolved, so nothing could be asked — which is a
+  // different statement from "UniProt has nothing annotated here".
+  let interfaceLookup: PpiLookupStatus = "skipped";
+
   if (uniprotId) {
+    // Assume failure until an answer arrives. `fetchUniprotFeatures` returns null
+    // (rather than throwing) on a non-OK response, and a null result is never
+    // cached, so a null return reliably means the lookup did not happen.
+    interfaceLookup = "failed";
     try {
       const featuresResult = await fetchUniprotFeatures(uniprotId);
-      if (featuresResult?.features) {
-        for (const feat of featuresResult.features) {
+      if (featuresResult) {
+        interfaceLookup = "ok";
+        for (const feat of featuresResult.features ?? []) {
           const typeLower = (feat.type || "").toLowerCase();
           const descLower = (feat.description || "").toLowerCase();
 
@@ -126,6 +162,10 @@ export async function analyzePpiBinding(
     uniprotId,
     stringPartners,
     bindingShift,
-    interfaceResidues
+    interfaceResidues,
+    lookups: {
+      stringPartners: stringLookup,
+      interfaceResidues: interfaceLookup
+    }
   };
 }
