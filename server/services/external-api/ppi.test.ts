@@ -165,4 +165,43 @@ describe("PPI Binding Affinity Service Tests", () => {
     expect(result.bindingShift?.classification).toBe("INTERFACE_DISRUPTIVE");
     expect(result.bindingShift?.provenance).toContain("JapanFold OpenBind-0");
   });
+
+  it("computes DDMut-PPI binding affinity shift when WT complex is provided without mutant complex", async () => {
+    const mockWtPdb = "ATOM      1  N   ARG A 408      11.1  12.2  13.3  1.00 20.00           N\nATOM      2  N   ASP B 100      14.1  15.2  16.3  1.00 20.00           N";
+
+    const ddmutPpiModule = await import("../stability/ddmut-ppi.ts");
+    const ppiSpy = vi.spyOn(ddmutPpiModule, "evaluateDdmutPpi").mockResolvedValue({
+      ddgBind: 1.85,
+      distanceToInterface: 3.2,
+      classification: "INTERFACE_DISRUPTIVE",
+      provenance: "DDMut-PPI (Graph Neural Network)"
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("string-db.org")) {
+        return { ok: true, json: async () => [] } as any;
+      }
+      return { ok: false } as any;
+    });
+
+    const result = await analyzePpiBinding(
+      "PAH",
+      "p.Arg408Trp",
+      "P00439",
+      mockWtPdb,
+      null, // mutPdb is null
+      "A",
+      "B"
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.bindingShift).not.toBeNull();
+    expect(result.bindingShift?.ddgBind).toBe(1.85);
+    expect(result.bindingShift?.distanceToInterface).toBe(3.2);
+    expect(result.bindingShift?.classification).toBe("INTERFACE_DISRUPTIVE");
+    expect(result.bindingShift?.provenance).toBe("DDMut-PPI (Graph Neural Network)");
+    expect(ppiSpy).toHaveBeenCalledWith(mockWtPdb, "A", "R408W", 20000, undefined);
+  });
 });
+

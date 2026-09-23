@@ -1203,6 +1203,7 @@ export interface PpiBindingData {
     unit: string;
     classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" | "UNKNOWN";
     provenance: string;
+    distanceToInterface?: number | null;
   } | null;
   interfaceResidues: Array<{
     pos: number;

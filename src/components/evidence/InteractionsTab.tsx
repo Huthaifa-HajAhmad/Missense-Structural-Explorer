@@ -277,10 +277,14 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
         : "good"
     : "muted";
   const ddgNote = hasDdgBind
-    ? "Binding free energy shift across the interface"
+    ? bindingShift?.distanceToInterface != null
+      ? `Interface distance: ${bindingShift.distanceToInterface.toFixed(1)} Å`
+      : "Binding free energy shift across the interface"
     : isMonomeric
       ? "Monomer: no inter-chain interface to score"
-      : "No modelled mutant complex yet";
+      : requestInFlight
+        ? "Evaluating interface binding shift..."
+        : "No multimer complex available yet";
 
   // ── Quaternary assembly ───────────────────────────────────────────────────
   const classificationCopy = bindingShift?.classification
@@ -308,8 +312,15 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
   // the single case that matters instead of to four equally coloured chips.
   const proximity = isMonomeric
     ? { label: "Intramolecular", tone: "neutral", Icon: ShieldCheck, note: "Residue is internal to the single-chain structure" }
-    : hasDirectComplexContact
-      ? { label: "Direct contact < 5 Å", tone: "danger", Icon: AlertTriangle, note: "Residue sits in a modelled quaternary contact" }
+    : (hasDirectComplexContact || (bindingShift?.distanceToInterface != null && bindingShift.distanceToInterface <= 5.0))
+      ? {
+          label: bindingShift?.distanceToInterface != null
+            ? `Direct contact (${bindingShift.distanceToInterface.toFixed(1)} Å)`
+            : "Direct contact < 5 Å",
+          tone: "danger",
+          Icon: AlertTriangle,
+          note: "Residue sits in a modelled quaternary contact"
+        }
       : hasCuratedInterface
         ? { label: "Interface residue", tone: "danger", Icon: AlertTriangle, note: "Residue is a curated subunit interface site" }
         : hasCuratedInterfaceAny
@@ -323,11 +334,17 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
    * for every state: the "N/A (Monomer)" case previously carried no explanation
    * at this level, so the reader had to infer why ΔΔG_bind could not be scored.
    */
+  const predictorName = bindingShift?.provenance || "OpenBind-0";
+  const distanceSuffix = bindingShift?.distanceToInterface != null
+    ? ` (distance to interface: ${bindingShift.distanceToInterface.toFixed(1)} Å)`
+    : "";
   const bindingFootnote = hasDdgBind
-    ? `OpenBind-0 predicts an interface binding shift of ${formatDdGValue(ddgBind!, energyUnit)}. A positive ΔΔG means the substitution weakens complex affinity; a negative value means it tightens it.`
+    ? `${predictorName} predicts an interface binding shift of ${formatDdGValue(ddgBind!, energyUnit)}${distanceSuffix}. A positive ΔΔG means the substitution weakens complex affinity; a negative value means it tightens it.`
     : isMonomeric
-      ? `${gene} is curated as a single-chain monomer, so there is no inter-chain interface for OpenBind-0 to score and ΔΔG_bind is not applicable to this variant.`
-      : `No modelled mutant complex is available for ${gene}, so the interface shift cannot be computed.`;
+      ? `${gene} is curated as a single-chain monomer, so there is no inter-chain interface to score and ΔΔG_bind is not applicable to this variant.`
+      : requestInFlight
+        ? `Computing interface binding shift for ${gene}...`
+        : `No modelled mutant complex or multimer coordinates are available for ${gene}, so the interface shift cannot be computed.`;
 
   const showMultimerCta = !hasDdgBind && !isMonomeric && Boolean(onTabChange);
 

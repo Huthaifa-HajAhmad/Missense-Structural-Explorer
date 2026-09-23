@@ -158,7 +158,14 @@ export async function submitBioSigJob(
   signal?: AbortSignal
 ): Promise<string | null> {
   const toolName = tool === "dynamut2" ? "DynaMut2" : "DDMut";
-  const url = `https://biosig.lab.uq.edu.au/${tool}/api/prediction_single`;
+  // BioSig upstream quirk: DDMut's official /ddmut/api/prediction_single route leaves jobs
+  // orphaned in RUNNING status indefinitely because the Flask API handler does not dispatch
+  // to the compute daemon. The web route (/ddmut/run_single_prediction) actively dispatches
+  // to workers, issuing a 302 redirect to /ddmut/results_prediction/<job_id>.
+  // DynaMut2's API route (/dynamut2/api/prediction_single) is fully integrated and functional.
+  const url = tool === "ddmut"
+    ? "https://biosig.lab.uq.edu.au/ddmut/run_single_prediction"
+    : "https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single";
   const mutationCode = `${wtRes}${pos}${mutRes}`; // e.g. R408W
 
   // Pre-flight check: Safeguard against extreme unphysical structures (>1500 residues)
@@ -180,9 +187,15 @@ export async function submitBioSigJob(
 
   try {
     const formData = new FormData();
-    formData.append("mutation", mutationCode);
-    formData.append("chain", chain || "A");
-    formData.append("pdb_file", new Blob([effectivePdb], { type: "text/plain" }), "wt.pdb");
+    if (tool === "ddmut") {
+      formData.append("mutation_single", mutationCode);
+      formData.append("chain_single", chain || "A");
+      formData.append("pdb_file_single", new Blob([effectivePdb], { type: "text/plain" }), "wt.pdb");
+    } else {
+      formData.append("mutation", mutationCode);
+      formData.append("chain", chain || "A");
+      formData.append("pdb_file", new Blob([effectivePdb], { type: "text/plain" }), "wt.pdb");
+    }
 
     const response = await fetchWithRetry(url, {
       method: "POST",
@@ -192,28 +205,56 @@ export async function submitBioSigJob(
       signal
     });
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 301 && response.status !== 302) {
       const bodyText = typeof response.text === "function" ? await response.text().catch(() => "") : "";
       console.warn(`[${toolName} API] Submission rejected (HTTP ${response.status}):`, String(bodyText).slice(0, 150));
       return null;
     }
 
-    let data: any = null;
-    if (typeof response.text === "function") {
-      const text = await response.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        console.warn(`[${toolName} API] Upstream returned non-JSON body:`, text.slice(0, 150));
-        return null;
+    let jobId: string | null = null;
+
+    if (tool === "ddmut") {
+      // 1. Followed redirect URL check
+      const urlMatch = response.url ? response.url.match(/results_prediction\/([0-9a-zA-Z]+)/) : null;
+      if (urlMatch) {
+        jobId = urlMatch[1];
       }
-    } else if (typeof (response as any).json === "function") {
-      data = await (response as any).json();
+
+      // 2. Location header check (e.g. manual redirect)
+      if (!jobId && response.headers?.get) {
+        const loc = response.headers.get("location");
+        const locMatch = loc ? loc.match(/results_prediction\/([0-9a-zA-Z]+)/) : null;
+        if (locMatch) {
+          jobId = locMatch[1];
+        }
+      }
+
+      // 3. Fallback: Parse HTML body for result ID or refresh meta tag
+      if (!jobId) {
+        const text = typeof response.text === "function" ? await response.text().catch(() => "") : "";
+        const bodyMatch = text.match(/results_prediction\/([0-9a-zA-Z]+)/) || text.match(/ID:\s*<b>([0-9a-zA-Z]+)<\/b>/i);
+        if (bodyMatch) {
+          jobId = bodyMatch[1];
+        }
+      }
+    } else {
+      let data: any = null;
+      if (typeof response.text === "function") {
+        const text = await response.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          console.warn(`[${toolName} API] Upstream returned non-JSON body:`, text.slice(0, 150));
+          return null;
+        }
+      } else if (typeof (response as any).json === "function") {
+        data = await (response as any).json();
+      }
+      jobId = data?.job_id ? String(data.job_id) : null;
     }
 
-    const jobId = data?.job_id;
     if (!jobId) {
-      console.warn(`[${toolName} API] Response missing job_id:`, data);
+      console.warn(`[${toolName} API] Response missing job_id`);
       return null;
     }
     console.log(`[${toolName} API] Job submitted successfully. Job ID: ${jobId}`);
@@ -283,24 +324,37 @@ export async function pollBioSigJob(
     }
 
     if (pollJson.prediction !== undefined && pollJson.prediction !== null) {
-      const ddG = parseFloat(pollJson.prediction);
+      const ddG = typeof pollJson.prediction === "number" ? pollJson.prediction : parseFloat(pollJson.prediction);
       console.log(`[${toolName} API] Prediction completed for job ${jobId}: ${ddG} kcal/mol`);
-      return { status: "DONE", prediction: isNaN(ddG) ? null : ddG };
+      return { status: "DONE", prediction: Number.isFinite(ddG) ? ddG : null };
     }
 
-    // Check if explicitly running, queued, or missing prediction/error
+    // Check for explicit error or failure returned by upstream BioSig API
+    if (
+      pollJson.status === "ERROR" ||
+      pollJson.status === "FAILED" ||
+      pollJson.status === "FAILURE" ||
+      pollJson.message === "ERROR" ||
+      pollJson.error
+    ) {
+      console.warn(`[${toolName} API] Polling returned error response for job ${jobId}:`, pollJson);
+      return { status: "ERROR", prediction: null };
+    }
+
+    // Check if explicitly running, queued, or pending
     if (
       pollJson.status === "RUNNING" ||
       pollJson.message === "RUNNING" ||
       pollJson.status === "QUEUED" ||
       pollJson.message === "QUEUED" ||
       pollJson.status === "PENDING" ||
-      (pollJson.prediction === undefined && !pollJson.error)
+      pollJson.message === "PENDING" ||
+      (pollJson.prediction === undefined && !pollJson.status && !pollJson.error)
     ) {
       return { status: "RUNNING", prediction: null };
     }
 
-    console.warn(`[${toolName} API] Polling returned error or unexpected format:`, pollJson);
+    console.warn(`[${toolName} API] Polling returned unexpected format for job ${jobId}:`, pollJson);
     return { status: "ERROR", prediction: null };
   } catch (err: any) {
     console.warn(`[${toolName} API] Warning polling job ${jobId}:`, err.message);

@@ -1,11 +1,78 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { pollBioSigJob, httpGetWithBody } from "./dynamut.ts";
+import { pollBioSigJob, httpGetWithBody, submitDdmutJob, submitDynaMut2Job } from "./dynamut.ts";
 import https from "node:https";
 import { EventEmitter } from "node:events";
 
-describe("BioSig Polling Engine (server/services/dynamut.ts)", () => {
+describe("BioSig Polling and Submission Engine (server/services/dynamut.ts)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe("submitBioSigJob", () => {
+    it("submits DynaMut2 job to API endpoint with JSON response", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ job_id: "1790123456" })
+      } as any);
+
+      try {
+        const jobId = await submitDynaMut2Job("ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND", "A", 1, "A", "V");
+        expect(jobId).toBe("1790123456");
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          "https://biosig.lab.uq.edu.au/dynamut2/api/prediction_single",
+          expect.objectContaining({
+            method: "POST"
+          })
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("submits DDMut job to web route and extracts job_id from followed redirect URL", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        url: "https://biosig.lab.uq.edu.au/ddmut/results_prediction/17901952599297054",
+        text: async () => "<html>We are processing your submission</html>"
+      } as any);
+
+      try {
+        const jobId = await submitDdmutJob("ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND", "A", 1, "A", "V");
+        expect(jobId).toBe("17901952599297054");
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          "https://biosig.lab.uq.edu.au/ddmut/run_single_prediction",
+          expect.objectContaining({
+            method: "POST"
+          })
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("submits DDMut job and extracts job_id from Location header when 302 is received", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 302,
+        url: "https://biosig.lab.uq.edu.au/ddmut/run_single_prediction",
+        headers: {
+          get: (name: string) => name.toLowerCase() === "location" ? "http://biosig.lab.uq.edu.au/ddmut/results_prediction/1790199999" : null
+        },
+        text: async () => "Redirecting..."
+      } as any);
+
+      try {
+        const jobId = await submitDdmutJob("ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00 20.00           C\nEND", "A", 1, "A", "V");
+        expect(jobId).toBe("1790199999");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
   });
 
   it("handles DDMut RUNNING status correctly via GET body protocol", async () => {
@@ -69,6 +136,37 @@ describe("BioSig Polling Engine (server/services/dynamut.ts)", () => {
     expect(result).toEqual({
       status: "DONE",
       prediction: -0.45
+    });
+  });
+
+  it("handles upstream ERROR status without falsely marking it as RUNNING", async () => {
+    const mockReq = new EventEmitter() as any;
+    mockReq.write = vi.fn();
+    mockReq.end = vi.fn();
+    mockReq.destroy = vi.fn();
+
+    vi.spyOn(https, "request").mockImplementation((url: any, options: any, callback: any) => {
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.setEncoding = vi.fn();
+
+      process.nextTick(() => {
+        callback(mockRes);
+        mockRes.emit("data", JSON.stringify({
+          job_id: "17893192007005534",
+          status: "ERROR",
+          message: "Job failed: mutation residue out of chain bounds"
+        }));
+        mockRes.emit("end");
+      });
+
+      return mockReq;
+    });
+
+    const result = await pollBioSigJob("ddmut", "17893192007005534");
+    expect(result).toEqual({
+      status: "ERROR",
+      prediction: null
     });
   });
 
