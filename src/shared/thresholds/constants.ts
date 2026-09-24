@@ -242,6 +242,15 @@ export const THRESHOLDS = {
     extremelyRareRecessive: 0.001,
     /** pLI below this is read as recessive, which raises the PM2 ceiling tenfold. */
     recessivePlI: 0.9,
+    /**
+     * Minimum allele number for an ancestry group to contribute to `groupMaxAF`.
+     *
+     * This is a DATA-QUALITY floor the server's gnomAD query applies
+     * (`external-api/gnomad.ts`), not an ACMG cut-point — but the UI describes it ("at least 2,000
+     * alleles observed"), and a number stated in two places is a number that drifts in two places.
+     * It lives here so the server filters on it and the surface reads it from one declaration.
+     */
+    groupMinAn: 2000,
   },
 
   /**

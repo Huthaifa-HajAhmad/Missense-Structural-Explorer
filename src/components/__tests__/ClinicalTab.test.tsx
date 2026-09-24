@@ -78,9 +78,10 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
         serviceStatus: { gnomadFrequency: "not_found", clinvar: "ok" },
       }),
     );
-    // `PM2?` — this fixture carries no engine criteria, so the screen shows the criterion the
-    // frequency SUPPORTS and marks it unconfirmed rather than presenting it as the engine's verdict.
-    expect(screen.getByText("PM2?")).toBeTruthy();
+    // The chip shows the supported criterion behind a DASHED border — this fixture carries no engine
+    // criteria, so it is what the frequency SUPPORTS, not a confirmed engine verdict.
+    const chip = screen.getByText("PM2");
+    expect(chip.getAttribute("style") ?? "").toContain("dashed");
     // Both gnomAD datasets report the same classified cause.
     expect(screen.getAllByText(/holds no record of this variant/i).length).toBe(2);
     // A confirmed absence is a result, not a fault: no incomplete-read notice.
@@ -144,22 +145,30 @@ describe("ClinicalTab — the frequency the engine read is on the screen", () =>
   it("shows the governing frequency, its source and the counts behind it", () => {
     renderTab(gzf1Result());
 
-    // Figure LABELS are counted, not formatted values: a value also appears in the finding and in the
-    // criterion sentence, so counting it cannot detect a dropped figure. Two "Allele frequency"
-    // figures render — the exome reading and the ancestry-grouped maximum the criterion used — and
-    // one "Allele count / number", the line a reader can sanity-check without doing arithmetic.
-    expect(screen.getAllByText("Allele frequency").length).toBe(2);
-    expect(screen.getAllByText("Allele count / number").length).toBe(1);
+    // The row subject and its two figures: the frequency (the screen's answer) and the AC/AN line
+    // (the sanity check). Figures carry no visible field labels any more — the words live in
+    // title/sr-only — so the assertion is on the subject and the values, not on labels.
+    expect(screen.getByText("Exomes")).toBeTruthy();
+    expect(screen.getByText(/AC 8 · AN 1,459,156/)).toBeTruthy();
+    // The value renders as the headline figure AND as the exome row's figure AND as the grouped
+    // maximum row's figure (this payload's groupMaxAF equals its exome AF by coincidence).
     expect(screen.getAllByText("5.50e-6").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/gnomAD ancestry-grouped maximum/)).toBeTruthy();
-    expect(screen.getByText("PM2?")).toBeTruthy();
-    // The counts keep their jargon labels but are figures in ink, not muted captions.
-    expect(screen.getByText(/AC 8 · AN 1,459,156/)).toBeTruthy();
+    // Unconfirmed criterion: the chip shows the code behind a dashed border, not a "PM2?" plus a
+    // paragraph explaining the "?".
+    const chip = screen.getByText("PM2");
+    expect(chip.getAttribute("style") ?? "").toContain("dashed");
+    expect(screen.queryByText(/rather than a confirmed engine decision/)).toBeNull();
+    // The prose states the finding WITHOUT restating the lead value. The headline is its own
+    // emphasis span, so the two halves are asserted separately (a single regex cannot cross the
+    // element boundary).
+    expect(screen.getByText("Extremely rare")).toBeTruthy();
+    expect(screen.getByText(/at or below the 0\.10% PM2 ceiling/)).toBeTruthy();
   });
 
   it("makes the value the criterion used traceable in the cards", () => {
     // The grouped maximum is neither dataset's global AF, so without a row of its own the headline
-    // ("0.031% gnomAD ancestry-grouped maximum") is a number the reader cannot find on the screen.
+    // is a number the reader cannot find on the screen.
     renderTab(
       gzf1Result({
         gnomadFrequency: {
@@ -173,15 +182,25 @@ describe("ClinicalTab — the frequency the engine read is on the screen", () =>
     // Scoped to the row itself: the same value is also the finding and both dataset readings.
     const row = screen.getByText("Ancestry-grouped maximum").closest("div.px-4") as HTMLElement;
     expect(row).toBeTruthy();
-    expect(within(row).getByText("Allele frequency")).toBeTruthy();
     expect(within(row).getByText("0.040%")).toBeTruthy();
+    // The AN floor is READ from the shared constant the server filters on, not hard-coded in copy.
+    expect(within(row).getByText(/≥ 2,000 alleles/)).toBeTruthy();
   });
 
-  it("names which datasets reported, rather than printing a bare count", () => {
-    renderTab(gzf1Result());
-    // "Source readings: 2" was reported as unclear — two of what, and which. Names answer that.
-    expect(screen.getByText(/Datasets reporting a frequency:/)).toBeTruthy();
-    expect(screen.getByTestId("reporting-datasets").textContent).toBe("Exomes");
+  it("prints the fallback note only when the grouped maximum actually fell back", () => {
+    // The dataset list that used to sit in the footer duplicated the cards' Measured chips and is
+    // gone; the footer now carries only the fallback, which nothing else states.
+    const noFallback = renderTab(gzf1Result());
+    expect(noFallback.container.textContent).not.toMatch(/fell back to the global maximum/);
+    noFallback.unmount();
+
+    renderTab(
+      gzf1Result({
+        gnomadFrequency: { ...gzf1Result().gnomadFrequency, groupMaxAFIsFallback: true },
+      }),
+    );
+    expect(screen.getByText(/grouped maximum fell back to the global maximum/)).toBeTruthy();
+    expect(screen.queryByText(/Datasets reporting a frequency/)).toBeNull();
     expect(screen.queryByText(/Source readings:\s*\d/)).toBeNull();
   });
 
@@ -269,7 +288,7 @@ describe("ClinicalTab — the verdict is the engine's, and a disagreement is sta
         ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
       }),
     );
-    expect(screen.getByText(/the engine recorded no frequency criterion/)).toBeTruthy();
+    expect(screen.getByText(/the engine recorded no frequency criterion/i)).toBeTruthy();
     expect(screen.getByText(/strict-structural weighting is what withholds it/)).toBeTruthy();
     // The supported criterion is NOT presented as the engine's verdict.
     expect(screen.getByText("No criterion")).toBeTruthy();
@@ -284,13 +303,18 @@ describe("ClinicalTab — the verdict is the engine's, and a disagreement is sta
         ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
       }),
     );
-    expect(screen.getByText(/the engine recorded no frequency criterion/)).toBeTruthy();
+    expect(screen.getByText(/the engine recorded no frequency criterion/i)).toBeTruthy();
     expect(screen.queryByText(/weighting is what withholds it/)).toBeNull();
   });
 
-  it("marks the criterion unconfirmed when the payload carries no engine criteria", () => {
+  it("marks the criterion unconfirmed with the chip itself, not a paragraph explaining a '?'", () => {
     renderTab(gzf1Result());
-    expect(screen.getByText(/what the frequency supports rather than a confirmed engine decision/)).toBeTruthy();
+    // The dashed border IS the "suggested, not confirmed" state; the qualifier lives in the
+    // accessible name and the hover title, so the screen no longer says it twice.
+    const chip = screen.getByText("PM2");
+    expect(chip.getAttribute("style") ?? "").toContain("dashed");
+    expect(chip.getAttribute("aria-label") ?? "").toMatch(/unconfirmed by the engine record/);
+    expect(chip.getAttribute("title") ?? "").toMatch(/no engine record to confirm it against/);
   });
 });
 
@@ -309,6 +333,23 @@ describe("ClinicalTab — absence from ClinVar is not benignity", () => {
     );
     expect(container.textContent).not.toMatch(/no submitter has classified it/i);
     expect(screen.getByText(/could not be read/)).toBeTruthy();
+  });
+
+  it("reads a successful ClinVar query that carried no classification as a recorded outcome", () => {
+    // `ok` + null classification is reachable on legacy/cached payloads. The sentence must not
+    // claim "no outcome was recorded" — the query SUCCEEDED, it just returned nothing classifiable.
+    // Scoped to the ClinVar card: the gnomAD Genomes row legitimately carries its own "no outcome"
+    // sentence for this fixture (genomeAF is null with status `ok`), so a container-wide assertion
+    // would test the wrong card.
+    renderTab(
+      gzf1Result({
+        clinvar: { classification: null },
+        serviceStatus: { gnomadFrequency: "ok", clinvar: "ok" },
+      }),
+    );
+    const clinvarCard = screen.getByText("ClinVar").closest("div.rounded-xl") as HTMLElement;
+    expect(clinvarCard.textContent ?? "").not.toMatch(/no outcome was recorded/i);
+    expect(within(clinvarCard).getByText(/Absence from ClinVar is not evidence of benignity/i)).toBeTruthy();
   });
 
   it("does not paint a conflicting interpretation with the pathogenic tone", () => {

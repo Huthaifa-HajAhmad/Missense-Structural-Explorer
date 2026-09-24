@@ -11,6 +11,7 @@ import {
   type FrequencyEvidence,
   type FrequencyObservation,
 } from "../../shared/frequencyEvidence";
+import { THRESHOLDS } from "../../shared/thresholds";
 
 /**
  * Population Frequencies.
@@ -41,11 +42,13 @@ import {
  *    count but no denominator has no AF and still has an AC; the row shows what it holds and says
  *    what is missing.
  *
- * TYPOGRAPHY — the project's declared scale, nothing else
- *   screen title 18 · stat value 20 (tabular) · eyebrow 10 mono · card title 12 uppercase ·
- *   dataset label 11 · row label 12 · caption 12 · micro 10
- * Every size here is a `--cs-font-size-*` tier. The previous revision used 9px, 10px, 10.5px and
- * 12px for the same three jobs, which is why the cards read as three different components.
+ * TYPOGRAPHY — one scale, each tier with exactly one job (see `ObservationRow` for the row grammar)
+ *   screen title 18 · headline figure 20/600 tabular · row subject & counts 13 · prose, detail
+ *   rows and card field labels 12 · chips and meta 11 · section eyebrows 10 mono
+ * Every size is a declared `--cs-font-size-*` tier and every weight is on the 400/500/600 scale —
+ * no 700, no off-scale px. The revision before this one labelled every figure, which put three
+ * label voices (11/12/13px) within one row and made the field labels louder than the row subjects
+ * they described; the labels are gone and the words live in `title`/sr-only instead.
  */
 
 /** Eyebrow above a group — the same 10px mono grammar the Evidence Lineage rail uses. */
@@ -73,19 +76,18 @@ function Card({ children }: { children: React.ReactNode }) {
 /**
  * Card title, on the same rank as every other stat card in the app (`.metric-card-label`).
  *
- * The first revision gave this its own 13px uppercase rank, which sat 1px from the 12px uppercase
- * row labels beneath it and read as one rank while competing with the rail's 10px eyebrow and
- * `GuidelinesTab`'s 11px header. Reusing the project's primitive removes the invented rank.
+ * `trailing` lets a card whose single row would otherwise repeat its title (All of Us) carry that
+ * row's state chip in the header instead of printing the same words twice in one card.
  */
-function CardHeader({ title, meta }: { title: string; meta?: string | null }) {
+function CardHeader({ title, meta, trailing }: { title: string; meta?: string | null; trailing?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 px-4 py-3" style={{ borderBottom: "1px solid var(--cs-border-subtle)" }}>
       <span className="metric-card-label">{title}</span>
-      {meta && (
+      {trailing ?? (meta ? (
         <span className="font-mono text-[11px] shrink-0" style={{ color: "var(--cs-text-muted)" }}>
           {meta}
         </span>
-      )}
+      ) : null)}
     </div>
   );
 }
@@ -130,39 +132,41 @@ function countLine(observation: FrequencyObservation): string | null {
 }
 
 /**
- * A labelled figure, on the project's stat-block grammar.
+ * One source row.
  *
- * `emphasis` exists for the allele counts. They are the number a reader can sanity-check without
- * arithmetic — "17 of 1.46 million alleles" is interpretable at a glance where "1.16e-5" is not — so
- * they are rendered as a real figure in ink rather than as a 12px muted caption. The frequency keeps
- * the larger type because it is what the ACMG cut-points are stated in.
+ * THE TYPE SYSTEM OF THIS SCREEN
+ * ------------------------------
+ *   card title        12 uppercase muted   (`.metric-card-label`) — structure
+ *   row subject       13/500 ink           (Exomes, Genomes)      — what this row is
+ *   frequency figure  20/600 tabular ink                           — the row's answer
+ *   counts line       13/500 tabular secondary (AC · AN)           — the sanity check
+ *   absence sentence  12/400 secondary
+ *   chips / meta      11
+ *
+ * The previous revision labelled every figure ("ALLELE FREQUENCY", "ALLELE COUNT / NUMBER" in 12px
+ * uppercase) — three label voices in 11-13px, and the field labels LOUDER than the row subject
+ * beneath which they sat. On a screen titled Population Frequencies the frequency figure needs no
+ * label: "Exomes / 1.16e-5 / AC 17 · AN 1,461,892" reads, and the AC/AN abbreviations are the same
+ * ones gnomAD and ClinVar themselves print. The words survive as `title` attributes and the sr-only
+ * text, so nothing is lost to a screen reader or a hover.
+ *
+ * `showSubject={false}` is for a card whose header already IS the subject (All of Us), so the row
+ * does not print the same words twice in one card.
  */
-function Figure({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
-  return (
-    <div className="flex flex-col">
-      <span className="metric-card-label">{label}</span>
-      <span
-        className={emphasis ? "text-[13px] font-medium tabular-nums leading-snug" : "metric-card-value tabular-nums"}
-        style={emphasis ? { color: "var(--cs-text-primary)" } : undefined}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function ObservationRow({ observation }: { observation: FrequencyObservation }) {
+function ObservationRow({ observation, showSubject = true }: { observation: FrequencyObservation; showSubject?: boolean }) {
   const { availability } = observation;
   const counts = countLine(observation);
 
   return (
-    <div className="px-4 py-3 flex flex-col gap-2.5" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
-      <div className="flex items-start justify-between gap-3">
-        <span className="text-[11px] font-medium" style={{ color: "var(--cs-text-secondary)" }}>
-          {observation.label}
-        </span>
-        <StateChip observation={observation} />
-      </div>
+    <div className="px-4 py-3 flex flex-col gap-1.5" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
+      {showSubject && (
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-[13px] font-medium" style={{ color: "var(--cs-text-primary)" }}>
+            {observation.label}
+          </span>
+          <StateChip observation={observation} />
+        </div>
+      )}
 
       {/*
         * Both figures, from what the row actually holds: a source that reports an allele count but
@@ -170,12 +174,24 @@ function ObservationRow({ observation }: { observation: FrequencyObservation }) 
         * an absence sentence.
         */}
       {availability.hasValue && observation.af !== null ? (
-        <div className="flex flex-col gap-2">
-          <Figure label="Allele frequency" value={formatAlleleFrequency(observation.af)} />
-          {counts && <Figure label="Allele count / number" value={counts} emphasis />}
-        </div>
+        <>
+          <span
+            className="text-[20px] font-semibold tabular-nums leading-tight"
+            style={{ color: "var(--cs-text-primary)" }}
+            title={`Allele frequency in ${observation.label}`}
+          >
+            <span className="sr-only">Allele frequency: </span>
+            {formatAlleleFrequency(observation.af)}
+          </span>
+          {counts && (
+            <span className="text-[13px] font-medium tabular-nums" style={{ color: "var(--cs-text-secondary)" }} title="Allele count · allele number">
+              <span className="sr-only">Allele count </span>
+              {counts}
+            </span>
+          )}
+        </>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <>
           {/*
             * The reason, not the label. `observationAbsence` falls back to the canonical state label
             * when the pipeline recorded no reason — but the chip above already shows that label, so
@@ -186,56 +202,64 @@ function ObservationRow({ observation }: { observation: FrequencyObservation }) 
               {observationAbsence(observation)}
             </p>
           )}
-          {counts && <Figure label="Allele count / number" value={counts} emphasis />}
-        </div>
+          {counts && (
+            <span className="text-[13px] font-medium tabular-nums" style={{ color: "var(--cs-text-secondary)" }} title="Allele count · allele number">
+              {counts}
+            </span>
+          )}
+        </>
       )}
     </div>
   );
 }
 
 /**
- * The verdict chip.
+ * The verdict chip. Three states, one visual grammar each:
  *
- * Shows the criterion the ENGINE recorded. When the payload carries no engine criteria the
- * supported criterion is shown as such, and when the engine recorded none while the frequency
- * supports one, that disagreement is named rather than papered over.
+ *  - CONFIRMED — the engine recorded this criterion: solid border, verdict colour.
+ *  - SUPPORTED, UNCONFIRMED — the frequency meets a criterion but this payload carries no engine
+ *    record to check it against: the code alone behind a DASHED clay border. "Suggested" is a
+ *    visual state, not a punctuation mark — the previous revision printed "PM2?" and then spent a
+ *    two-line paragraph explaining the "?", one fact in two voices. The qualifier lives in the
+ *    accessible name and the hover title instead.
+ *  - NOTHING — no criterion, withheld, or the engine recorded none while the frequency supports
+ *    one (that disagreement is the suppression note's job, not the chip's).
+ *
+ * Tone is chosen so amber means ONE thing on this screen: a run fault, already carried by the
+ * fault banner. `no-result`'s resolver tone is deliberately overridden here: the resolver maps it
+ * to `warn`, which would paint a healthy "no record" chip as a failure.
  */
 function VerdictChip({ criterion, applied }: { criterion: FrequencyCriterion; applied: FrequencyApplication }) {
-  const shown = applied.known ? applied.code : criterion.code;
-  /**
-   * Tone is chosen so amber means ONE thing on this screen: a run fault, already carried by the
-   * fault banner. `withheld` was given the provider-error tone, which put a third amber on the tab
-   * beside the ClinVar likely-pathogenic badge and the banner — and a withheld criterion caused by a
-   * build refusal is not a fault at all. `no-result`'s own tone is deliberately overridden here for
-   * the same reason: the resolver maps it to `warn`, which would paint a healthy "no record" chip as
-   * a failure.
-   */
+  const supportsCode = criterion.code === "PM2" || criterion.code === "BS1" || criterion.code === "BA1";
+  const unconfirmed = !applied.known && supportsCode;
+
+  const text = applied.known
+    ? (applied.code ?? "No criterion")
+    : criterion.code === "none" ? "No criterion"
+    : criterion.code === "unknown" ? "Not classified"
+    : criterion.code === "withheld" ? "Withheld"
+    : criterion.code;
+
   const tone =
     applied.suppressed ? STATE_TONE["not-covered"]
-    : shown === "PM2" ? { fg: "var(--cs-text-danger-on-soft)", bg: "var(--cs-bg-danger)", border: "color-mix(in srgb, var(--cs-text-danger) 25%, transparent)" }
-    : shown === "BS1" || shown === "BA1" ? STATE_TONE.available
+    : unconfirmed ? { fg: "color-mix(in srgb, var(--cs-accent-clay) 75%, var(--cs-text-primary))", bg: "transparent", border: "color-mix(in srgb, var(--cs-accent-clay) 45%, transparent)" }
+    : applied.known && applied.code === "PM2" ? { fg: "var(--cs-text-danger-on-soft)", bg: "var(--cs-bg-danger)", border: "color-mix(in srgb, var(--cs-text-danger) 25%, transparent)" }
+    : applied.known && (applied.code === "BS1" || applied.code === "BA1") ? STATE_TONE.available
     : STATE_TONE["no-result"];
-  /**
-   * `withheld` is not a criterion the frequency supports — it is the statement that nothing was
-   * classified — so it keeps its own word rather than taking the `?` that marks an unconfirmed
-   * criterion. The `?` means "the frequency supports this, and this payload cannot confirm the
-   * engine agreed", which is a different claim from "no classification was made".
-   */
-  const text =
-    applied.known
-      ? (applied.code ?? "No criterion")
-      : criterion.code === "none" ? "No criterion"
-      : criterion.code === "unknown" ? "Not classified"
-      : criterion.code === "withheld" ? "Withheld"
-      : `${criterion.code}?`;
+
   return (
     <span
-      className="inline-flex items-center px-2.5 py-1 rounded-lg border font-mono font-bold text-[11px] tracking-wide shrink-0"
-      style={{ color: tone.fg, background: tone.bg, borderColor: tone.border }}
+      className="inline-flex items-center px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] tracking-wide shrink-0"
+      style={{ color: tone.fg, background: tone.bg, border: `${unconfirmed ? "1px dashed" : "1px solid"} ${tone.border}` }}
       title={
         applied.known
           ? "The ACMG frequency criterion this run recorded"
-          : "The criterion the frequency supports — this payload carries no engine criteria to confirm it against"
+          : unconfirmed
+            ? `${criterion.code} is what the frequency supports — this payload carries no engine record to confirm it against`
+            : "No frequency criterion was applied"
+      }
+      aria-label={
+        unconfirmed ? `${criterion.code}, supported by the frequency, unconfirmed by the engine record` : undefined
       }
     >
       {text}
@@ -289,9 +313,6 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
    */
   const groupedMaxAf = criterion.usedGroupMax ? criterion.af : null;
 
-  /** Which sources actually produced a reading, named — a bare count answered no question. */
-  const reportingLabels = evidence.contributing.map(o => o.label);
-
   /** The one-line finding: what the engine did, and the value it did it on. */
   const findingLead = (() => {
     if (criterion.af === null) return "No frequency available";
@@ -316,14 +337,15 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
               <Eyebrow icon={Gauge}>ACMG population-frequency evidence</Eyebrow>
               {/*
                 * The screen's headline number, and the largest thing on it: every per-source reading
-                * below is supporting detail for this one value.
+                * below is supporting detail for this one value. The attribution beside it is 11px
+                * muted — a qualifier of the figure, not a second statement competing with it.
                 */}
               <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span className="text-[20px] font-semibold tabular-nums leading-tight" style={{ color: "var(--cs-text-primary)" }}>
                   {findingLead}
                 </span>
                 {criterion.af !== null && (
-                  <span className="text-[12px]" style={{ color: "var(--cs-text-secondary)" }}>
+                  <span className="text-[11px]" style={{ color: "var(--cs-text-muted)" }}>
                     {criterionSourceLabel(evidence)}
                   </span>
                 )}
@@ -332,54 +354,62 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
             <VerdictChip criterion={criterion} applied={applied} />
           </div>
 
+          {/*
+            * The prose states the FINDING, not the number again: the lead above is the value, and
+            * the previous revision printed it a second time inside the sentence ("Extremely rare:
+            * 0.031% is at or below…") and a third time in the gnomAD card below. `headline` +
+            * `predicate` are the module's value-free halves of the same sentence it composes for
+            * surfaces (the rail) that show no figure — so the two renderings cannot disagree.
+            */}
           <p className="text-[12px] m-0 leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-            {criterion.statement}
+            {criterion.headline !== null && criterion.predicate !== null ? (
+              <>
+                <span className="font-medium" style={{ color: "var(--cs-text-primary)" }}>{criterion.headline}</span>
+                {" — "}
+                {criterion.predicate}.
+              </>
+            ) : (
+              criterion.statement
+            )}
           </p>
 
           {/*
-            * The engine can record no frequency criterion while the frequency supports one. That
-            * disagreement is a fact; its CAUSE usually is not. Only a weighting that actually
-            * suppresses frequency evidence may be named as the reason — a `standard` run that records
-            * no PM2 has some other cause, and claiming "the weighting withheld it" there would be
-            * inventing one.
+            * The engine can record no frequency criterion while the frequency supports one. The
+            * chip ("No criterion") and the prose ("Extremely rare — …PM2 ceiling…") then read as a
+            * contradiction, so a bridge sentence is required — but it states only the engine's
+            * decision and its CAUSE, never the value or threshold the prose already carries.
+            * Only a weighting that actually suppresses frequency evidence may be named as the
+            * reason: a `standard` run that records no PM2 has some other cause, and claiming
+            * "the weighting withheld it" there would be inventing one.
             */}
           {applied.suppressed && (
             <p
               className="text-[12px] m-0 leading-relaxed"
               style={{ color: "var(--cs-text-warning-on-soft)" }}
             >
-              The frequency above meets {criterion.code}, but the engine recorded no frequency criterion
-              for this run
-              {applied.withheldByWeighting && applied.weighting
+              The engine recorded no frequency criterion for this run
+              {applied.withheldByWeighting
                 ? ` — the ${applied.weighting} weighting is what withholds it.`
                 : applied.weighting
                   ? ` (ACMG weighting: ${applied.weighting}).`
                   : "."}
             </p>
           )}
-          {!applied.known && criterion.code !== "none" && criterion.code !== "unknown" && criterion.code !== "withheld" && (
-            <p className="text-[12px] m-0 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-              This payload carries no engine criteria, so the criterion shown is what the frequency supports
-              rather than a confirmed engine decision.
-            </p>
-          )}
 
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pt-2 text-[12px]" style={{ borderTop: "1px solid var(--cs-border-subtle)", color: "var(--cs-text-muted)" }}>
-            {/*
-              * Names, not a count. "Source readings: 2" was reported as unclear — reasonably, since
-              * two of what, and the reader cannot tell which. Naming them answers the question the
-              * count was gesturing at, and an empty list says so in words.
-              */}
-            <span>
-              Datasets reporting a frequency:{" "}
-              <span data-testid="reporting-datasets" style={{ color: "var(--cs-text-secondary)" }}>
-                {reportingLabels.length > 0 ? reportingLabels.join(" · ") : "none"}
+          {/*
+            * The footer carries only what the rest of the card cannot: the grouped-maximum fallback,
+            * a fact about HOW the value was derived. The dataset list that used to sit here
+            * ("Datasets reporting a frequency: Exomes · Genomes") duplicated the Measured chips on
+            * the cards below, and the unconfirmed-criterion paragraph duplicated the dashed chip —
+            * both removed rather than reworded.
+            */}
+          {criterion.fallback && (
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pt-2 text-[12px]" style={{ borderTop: "1px solid var(--cs-border-subtle)", color: "var(--cs-text-muted)" }}>
+              <span className="font-mono">
+                grouped maximum fell back to the global maximum — no ancestry group reached {formatCount(THRESHOLDS.populationFrequency.groupMinAn)} alleles
               </span>
-            </span>
-            {criterion.fallback && (
-              <span className="font-mono">global-maximum fallback — population too small to report</span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/*
@@ -411,7 +441,9 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* ── ClinVar interpretation ── */}
         <Card>
-          <CardHeader title="ClinVar" meta="NCBI" />
+          {/* The "NCBI" meta was decoration — the rail's provenance row already names the source
+              and mechanism; gnomAD's meta ("v4") survives because it is data the payload carries. */}
+          <CardHeader title="ClinVar" />
           {/*
             * Routed through the module's `clinvarAvailability`: ClinVar is a source like any other
             * and its fetch carries a status, so an outage must not render as "no submitter has
@@ -482,13 +514,15 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
 
             {/*
               * The value the criterion used, when it is a grouped maximum rather than either
-              * dataset's global AF. Without this the headline ("0.031% gnomAD ancestry-grouped
-              * maximum") is a number the reader cannot find anywhere on the screen.
+              * dataset's global AF. Without this the headline is a number the reader cannot find
+              * anywhere on the screen. The AN floor is READ from the shared constant the server's
+              * query filters on — the copy used to hard-code "2,000", which is a number that
+              * drifts the day the server's floor changes.
               */}
             {groupedMaxAf !== null && (
-              <div className="px-4 py-3 flex flex-col gap-2" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
+              <div className="px-4 py-3 flex flex-col gap-1.5" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
                 <div className="flex items-start justify-between gap-3">
-                  <span className="text-[11px] font-medium" style={{ color: "var(--cs-text-secondary)" }}>
+                  <span className="text-[13px] font-medium" style={{ color: "var(--cs-text-primary)" }}>
                     Ancestry-grouped maximum
                   </span>
                   <span
@@ -502,10 +536,16 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
                     Used for classification
                   </span>
                 </div>
-                <Figure label="Allele frequency" value={formatAlleleFrequency(groupedMaxAf)} />
+                <span
+                  className="text-[20px] font-semibold tabular-nums leading-tight"
+                  style={{ color: "var(--cs-text-primary)" }}
+                  title="Allele frequency — highest across gnomAD ancestry groups"
+                >
+                  <span className="sr-only">Allele frequency: </span>
+                  {formatAlleleFrequency(groupedMaxAf)}
+                </span>
                 <p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-                  Highest frequency across gnomAD ancestry groups with at least 2,000 alleles observed. It is
-                  a derived value, not one dataset's figure.
+                  Derived from ancestry groups with ≥ {formatCount(THRESHOLDS.populationFrequency.groupMinAn)} alleles — not one dataset's figure.
                 </p>
               </div>
             )}
@@ -525,9 +565,18 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
 
         {/* ── All of Us ── */}
         <Card>
-          <CardHeader title="All of Us" meta="cohort" />
+          {/*
+            * The card's single row would otherwise print "All of Us" twice — once as the header,
+            * once as the row subject — so the row's state chip moves up into the header and the
+            * row renders bare. The "cohort" meta that used to sit here was decoration, not data:
+            * gnomAD's meta ("v4") is a release the payload establishes.
+            */}
+          <CardHeader
+            title="All of Us"
+            trailing={aouRow ? <StateChip observation={aouRow} /> : undefined}
+          />
           <div className="flex flex-col">
-            {aouRow && <ObservationRow observation={aouRow} />}
+            {aouRow && <ObservationRow observation={aouRow} showSubject={false} />}
             {aouRow && (aouRow.heterozygotes !== null || aouRow.homozygotes !== null) && (
               <div className="px-4 py-2.5 flex items-baseline justify-between gap-3 text-[12px]" style={{ borderTop: "1px solid var(--cs-border-subtle)" }}>
                 <span style={{ color: "var(--cs-text-muted)" }}>Heterozygotes · homozygotes</span>

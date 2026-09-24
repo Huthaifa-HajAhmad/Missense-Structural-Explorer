@@ -2,6 +2,9 @@ import type { LRUCache } from "lru-cache";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import { gnomadFreqCache, gnomadConstraintCache, getCachedOrFetch } from "../infra/cache.ts";
 import { buildGnomadFreqKey, buildGnomadConstraintKey } from "../infra/cache-keys.ts";
+// The ancestry-group AN floor is shared with the surface that DESCRIBES it (the Population
+// Frequencies tab's grouped-maximum row), so the filter and the copy cannot drift apart.
+import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 
 export interface FetchGnomadFrequencyOptions {
   l1Cache?: LRUCache<string, any>;
@@ -161,7 +164,7 @@ export async function fetchGnomadVariantFrequency(
       }
     }
 
-    const validPops = populations.filter(p => p.an >= 2000 && p.af !== null && p.af !== undefined);
+    const validPops = populations.filter(p => p.an >= THRESHOLDS.populationFrequency.groupMinAn && p.af !== null && p.af !== undefined);
     let groupMaxAF: number | null = null;
     let groupMaxAFIsFallback = false;
     if (validPops.length > 0) {

@@ -161,6 +161,24 @@ describe("frequencyEvidence — absence is classified, never worded", () => {
     );
   });
 
+  it("does not claim a missing outcome for a dataset that is merely empty on a successful query", () => {
+    // The variant is in exomes; genomes is empty; the query status is `ok`. The genomes row may say
+    // the dataset holds no frequency, but must NOT say the query recorded no outcome — it did.
+    const genomes = observation(
+      { gnomadFrequency: { ...GZF1_GNOMAD, genomeAF: null, genomeAC: null, genomeAN: null } },
+      "gnomad-genomes",
+    );
+    expect(genomes.availability.hasValue).toBe(false);
+    expect(observationAbsence(genomes)).toBe("gnomAD returned no frequency for this variant in genomes.");
+    expect(observationAbsence(genomes)).not.toMatch(/no outcome was recorded/i);
+    // The exome reading on the same payload is untouched.
+    const exomes = observation(
+      { gnomadFrequency: { ...GZF1_GNOMAD, genomeAF: null, genomeAC: null, genomeAN: null } },
+      "gnomad-exomes",
+    );
+    expect(exomes.availability.hasValue).toBe(true);
+  });
+
   it("lets a measured value outrank a fault signal on the same payload", () => {
     const exomes = observation(
       { gnomadFrequency: GZF1_GNOMAD, serviceStatus: { gnomadFrequency: "timeout" } },
@@ -261,6 +279,42 @@ describe("frequencyEvidence — cut-points come from the shared constants", () =
     );
     expect(pm2.code).toBe("PM2");
     expect(pm2.statement).toContain("0.01%");
+  });
+
+  it("composes the statement from its headline and predicate, so the two cannot disagree", () => {
+    // A surface that shows the value as a headline figure renders `headline — predicate.`; the
+    // rail, which shows no figure, renders `statement`. Both come from the same two fragments, so
+    // the screen that prints "0.031%" twice and the screen that prints it once cannot state
+    // different thresholds for the same reading.
+    const at = (af: number) =>
+      classifyAcmgFrequency(input({ gnomadFrequency: { ...GZF1_GNOMAD, maxAF: af, groupMaxAF: af } }));
+
+    for (const c of [at(0.00002), at(0.02), at(0.06), at(0.0005)]) {
+      if (c.headline !== null && c.predicate !== null && c.af !== null) {
+        // Every branch composes its statement from the predicate, so the figure-surface rendering
+        // ("headline — predicate.") and the rail rendering (full statement) share one threshold
+        // clause and cannot state different cut-points for one reading.
+        expect(c.statement).toContain(c.predicate);
+        // The three real criteria also lead with the headline; the `none` band deliberately states
+        // the frequency and the two bounding cut-points without a verdict word, because it has none.
+        if (c.code !== "none") expect(c.statement).toContain(c.headline);
+        // The predicate never restates the frequency — that is the whole point for a surface
+        // that already shows the value as a figure.
+        expect(c.predicate).not.toContain(formatAlleleFrequency(c.af));
+      }
+    }
+    // Withheld and unknown readings have no value to anchor a headline, so both halves are null
+    // and surfaces fall back to the full statement.
+    const withheld = classifyAcmgFrequency(input({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "timeout" } }));
+    expect(withheld.headline).toBeNull();
+    expect(withheld.predicate).toBeNull();
+    expect(withheld.statement).toMatch(/withheld/);
+  });
+
+  it("owns the ancestry-group AN floor the server filters on", () => {
+    // The UI copy ("≥ 2,000 alleles") and `external-api/gnomad.ts`'s filter read this one constant.
+    // A hard-coded 2,000 in the copy was a number that would drift the day the floor changed.
+    expect(FREQ.groupMinAn).toBe(2000);
   });
 });
 
@@ -468,6 +522,25 @@ describe("frequencyEvidence — the ClinVar reading carries its own status", () 
       expect(evidence.clinvar.availability.state).toBe("upstream-error");
       expect(evidence.clinvar.availability.reason).toMatch(/could not be read/);
     }
+  });
+
+  it("reads a successful query that carried no classification as a recorded outcome", () => {
+    // `ok` + null classification is reachable on legacy/cached payloads whose record predates the
+    // classification. It must NOT fall through to the "no outcome was recorded" sentence — for a
+    // status of `ok` that claim is false: the outcome was recorded, and it was "nothing".
+    const evidence = buildFrequencyEvidence(
+      input({ clinvar: { classification: null }, serviceStatus: { gnomadFrequency: "ok", clinvar: "ok" } }),
+    );
+    expect(evidence.clinvar.availability.hasValue).toBe(false);
+    expect(evidence.clinvar.availability.reason).toMatch(/Absence from ClinVar is not evidence of benignity/);
+    expect(evidence.clinvar.availability.reason).not.toMatch(/no outcome was recorded/);
+  });
+
+  it("reserves 'no outcome was recorded' for a status it cannot read", () => {
+    const evidence = buildFrequencyEvidence(
+      input({ clinvar: { classification: null }, serviceStatus: { gnomadFrequency: "ok" } }),
+    );
+    expect(evidence.clinvar.availability.reason).toMatch(/no outcome was recorded/);
   });
 
   it("reads a present classification as a value", () => {

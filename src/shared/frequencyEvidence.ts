@@ -100,11 +100,24 @@ export type FrequencyCriterionCode = "BA1" | "BS1" | "PM2" | "none" | "withheld"
 export interface FrequencyCriterion {
   code: FrequencyCriterionCode;
   /**
-   * One sentence stating what the frequency supports. Every percentage in it is interpolated from
-   * `THRESHOLDS.populationFrequency`, so the sentence cannot describe a threshold other than the one
-   * that was applied.
+   * One sentence stating what the frequency supports, with the value embedded. For surfaces that
+   * show no headline figure — the Evidence Lineage rail. Every percentage in it is interpolated
+   * from `THRESHOLDS.populationFrequency`, so the sentence cannot describe a threshold other than
+   * the one that was applied.
    */
   statement: string;
+  /**
+   * The verdict word alone — "Extremely rare", "Stand-alone benign" — or `null` when no frequency
+   * was read. Paired with {@link predicate} it lets a surface that ALREADY shows the value as a
+   * headline state the finding without restating the number, which is what made the summary card
+   * print "0.031%" twice in four lines.
+   */
+  headline: string | null;
+  /**
+   * The cut-point clause WITHOUT the frequency: "at or below the 0.10% PM2 ceiling for recessive
+   * (pLI < 0.9) inheritance". Null when no frequency was read.
+   */
+  predicate: string | null;
   /** The frequency the reading was taken from, or `null` when there was none. */
   af: number | null;
   /** Which source supplied `af`. */
@@ -315,6 +328,8 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
     fallback: false,
     pm2Ceiling: null as number | null,
     inheritance: "unknown" as FrequencyCriterion["inheritance"],
+    headline: null as string | null,
+    predicate: null as string | null,
   };
 
   // 0. A build the source cannot serve. Tested first because the status this leaves behind is
@@ -422,18 +437,32 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
 
   const shared = { ...base, af, sourceId, usedGroupMax, fallback };
 
+  /**
+   * Each branch states its clause ONCE, and the full sentence is composed from it. The headline and
+   * the predicate are what a surface that already shows the value as a figure renders, so the
+   * summary card no longer prints its own number twice — and the composed `statement` cannot
+   * disagree with them, because it is built from them.
+   */
   if (af > FREQ.standAloneBenign) {
+    const headline = "Stand-alone benign";
+    const predicate = `above the ${pct(FREQ.standAloneBenign, 1)} BA1 cut-point`;
     return {
       ...shared,
       code: "BA1",
-      statement: `Stand-alone benign: ${formatAlleleFrequency(af)} exceeds the ${pct(FREQ.standAloneBenign, 1)} BA1 cut-point.`,
+      headline,
+      predicate,
+      statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.`,
     };
   }
   if (af > FREQ.tooCommonForDisorder) {
+    const headline = "Too common for the disorder";
+    const predicate = `above the ${pct(FREQ.tooCommonForDisorder, 1)} BS1 cut-point`;
     return {
       ...shared,
       code: "BS1",
-      statement: `Too common for the disorder: ${formatAlleleFrequency(af)} exceeds the ${pct(FREQ.tooCommonForDisorder, 1)} BS1 cut-point.`,
+      headline,
+      predicate,
+      statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.`,
     };
   }
   if (af <= pm2Ceiling) {
@@ -442,21 +471,29 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
       : inheritance === "dominant"
         ? `dominant (pLI ≥ ${FREQ.recessivePlI})`
         : "dominant/unknown (pLI not available)";
+    const headline = "Extremely rare";
+    const predicate = `at or below the ${pct(pm2Ceiling, 2)} PM2 ceiling for ${reading} inheritance`;
     return {
       ...shared,
       code: "PM2",
       pm2Ceiling,
       inheritance,
-      statement: `Extremely rare: ${formatAlleleFrequency(af)} is at or below the ${pct(pm2Ceiling, 2)} PM2 ceiling for ${reading} inheritance.`,
+      headline,
+      predicate,
+      statement: `${headline}: ${formatAlleleFrequency(af)} is ${predicate}.`,
     };
   }
 
+  const headline = "Between the cut-points";
+  const predicate = `above the ${pct(pm2Ceiling, 2)} PM2 ceiling but below the ${pct(FREQ.tooCommonForDisorder, 1)} BS1 cut-point, so no frequency criterion applies`;
   return {
     ...shared,
     code: "none",
     pm2Ceiling,
     inheritance,
-    statement: `${formatAlleleFrequency(af)} sits above the ${pct(pm2Ceiling, 2)} PM2 ceiling but below the ${pct(FREQ.tooCommonForDisorder, 1)} BS1 cut-point, so no frequency criterion applies.`,
+    headline,
+    predicate,
+    statement: `${formatAlleleFrequency(af)} sits ${predicate}.`,
   };
 }
 
@@ -540,6 +577,19 @@ function gnomadAbsence(
     });
   }
   /**
+   * The query SUCCEEDED (`ok`) but this one dataset carries no frequency for the variant — the
+   * common shape for a variant seen in exomes but not genomes. The outcome WAS recorded, so the
+   * sentence below must not claim otherwise; what is absent is this dataset's value, not the run.
+   * The previous revision fell through to "no outcome was recorded for the query", a run-level
+   * claim derived from a dataset-level absence.
+   */
+  if (status === "ok") {
+    return resolveEvidenceAvailability({
+      status: "live",
+      message: `gnomAD returned no frequency for this variant in ${datasetLabel}.`,
+    });
+  }
+  /**
    * No readable status. The pipeline did not record an outcome for this source, so the honest answer
    * is bounded to what is known — gnomAD reported no frequency — and asserts neither presence nor
    * absence. The previous revision fell through to "The variant is not present in gnomAD … for this
@@ -580,7 +630,11 @@ function clinvarAvailability(
     });
   }
   if (status === "pending") return resolveEvidenceAvailability({ status: "pending" });
-  if (recordedNegative || status === "not_found") {
+  if (recordedNegative || status === "not_found" || status === "ok") {
+    // `ok` with no classification is a RECORDED outcome — the query succeeded and ClinVar returned
+    // nothing classifiable (reachable on legacy/cached payloads whose record predates the
+    // classification). It says the same thing as `not_found`, and it must NOT fall through to the
+    // "no outcome was recorded" sentence below, which would be false for a status of `ok`.
     return resolveEvidenceAvailability({
       status: "live",
       message: "ClinVar holds no classification for this variant. Absence from ClinVar is not evidence of benignity — it means no submitter has classified it.",
