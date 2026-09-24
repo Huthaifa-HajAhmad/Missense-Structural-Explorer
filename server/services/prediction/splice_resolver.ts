@@ -1,7 +1,8 @@
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
 import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
-import { sameContig } from "../../../src/shared/assembly.ts";
+import { normalizeContigName, sameContig } from "../../../src/shared/assembly.ts";
+import { AnalysisDatabase } from "../infra/analysis-db.ts";
 
 export interface EnsemblExonData {
   id?: string;
@@ -18,6 +19,127 @@ export interface TranscriptExonStructure {
 }
 
 const exonCache = new LRUCache<string, TranscriptExonStructure>({ max: 500 });
+const inFlightExonFetches = new Map<string, Promise<TranscriptExonStructure | null>>();
+
+/**
+ * Resets the in-memory L1 exon cache and in-flight fetch deduplicator for test isolation.
+ */
+export function resetExonCacheForTests(): void {
+  exonCache.clear();
+  inFlightExonFetches.clear();
+}
+
+/**
+ * Query UCSC Genome Browser REST API for exon structure.
+ *
+ * Supports:
+ * - track="knownGene" for GENCODE/Ensembl (ENST...)
+ * - track="ncbiRefSeq" for NCBI RefSeq Curated (NM_..., NR_...)
+ */
+export async function fetchExonsFromUcsc(
+  cleanId: string,
+  variantChrom: string,
+  genomicPos: number,
+  track: "knownGene" | "ncbiRefSeq"
+): Promise<TranscriptExonStructure | null> {
+  // Numerical guard against NaN or non-finite positions tripping UCSC 400 and circuit breaker
+  if (!Number.isFinite(genomicPos) || genomicPos < 1) {
+    return null;
+  }
+
+  // Canonicalize contig for UCSC (hg38 uses "chrM", not "chrMT", and strips any double prefixes)
+  const cleanContig = normalizeContigName(variantChrom);
+  const normChrom = `chr${cleanContig === "MT" ? "M" : cleanContig}`;
+
+  // Start with a 50kb window around the variant, expand to 500kb if needed
+  const windows = [
+    { start: Math.max(0, Math.floor(genomicPos - 25_000)), end: Math.floor(genomicPos + 25_000) },
+    { start: Math.max(0, Math.floor(genomicPos - 250_000)), end: Math.floor(genomicPos + 250_000) }
+  ];
+
+  for (const win of windows) {
+    try {
+      const url = `https://api.genome.ucsc.edu/getData/track?genome=hg38;track=${encodeURIComponent(track)};chrom=${encodeURIComponent(normChrom)};start=${win.start};end=${win.end}`;
+      const response = await fetchWithRetry(
+        url,
+        {
+          headers: { Accept: "application/json" },
+          timeout: 6000
+        },
+        1
+      );
+
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as any;
+      const items: any[] = data?.[track] || [];
+      if (!Array.isArray(items) || items.length === 0) continue;
+
+      // Find item whose name matches cleanId (e.g. ENST00000338121.10 or NM_022482.5)
+      const hit = items.find(item => {
+        const name: string = item.name || "";
+        return name === cleanId || name.startsWith(cleanId + ".");
+      });
+
+      if (!hit) continue;
+
+      const isReverse = hit.strand === "-";
+      const strandNum = isReverse ? -1 : 1;
+      const exons: EnsemblExonData[] = [];
+
+      // Decouple track name from format detection:
+      // bigBed format supplies blockSizes and chromStarts (relative to chromStart / txStart)
+      // genePred format supplies absolute exonStarts (0-based) and exonEnds (1-based closed)
+      if (hit.blockSizes && hit.chromStarts) {
+        const chromStart = parseInt(hit.chromStart ?? hit.txStart, 10);
+        const sizes = String(hit.blockSizes).split(",").filter(Boolean).map(s => parseInt(s, 10));
+        const starts = String(hit.chromStarts).split(",").filter(Boolean).map(s => parseInt(s, 10));
+
+        for (let i = 0; i < sizes.length && i < starts.length; i++) {
+          const exStart = chromStart + starts[i] + 1; // 0-based to 1-based closed
+          const exEnd = chromStart + starts[i] + sizes[i]; // 1-based closed
+          if (!isNaN(exStart) && !isNaN(exEnd)) {
+            exons.push({
+              start: exStart,
+              end: exEnd,
+              strand: strandNum,
+              seq_region_name: hit.chrom?.replace(/^chr/, "") || cleanContig
+            });
+          }
+        }
+      } else if (hit.exonStarts && hit.exonEnds) {
+        const starts = String(hit.exonStarts).split(",").filter(Boolean).map(s => parseInt(s, 10));
+        const ends = String(hit.exonEnds).split(",").filter(Boolean).map(s => parseInt(s, 10));
+
+        for (let i = 0; i < starts.length && i < ends.length; i++) {
+          const exStart = starts[i] + 1; // 0-based to 1-based closed
+          const exEnd = ends[i]; // 1-based closed
+          if (!isNaN(exStart) && !isNaN(exEnd)) {
+            exons.push({
+              start: exStart,
+              end: exEnd,
+              strand: strandNum,
+              seq_region_name: hit.chrom?.replace(/^chr/, "") || cleanContig
+            });
+          }
+        }
+      }
+
+      if (exons.length > 0) {
+        exons.sort((a, b) => a.start - b.start);
+        return {
+          strand: strandNum,
+          seqRegionName: hit.chrom?.replace(/^chr/, "") || cleanContig,
+          exons
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[Splice Resolver] UCSC track query error for ${cleanId}:`, err.message);
+    }
+  }
+
+  return null;
+}
 
 export interface SpliceProximityResult {
   distance: number;
@@ -49,54 +171,119 @@ export interface SpliceProximityResult {
 }
 
 /**
- * Fetch exon boundaries and structure for a given transcript ID from the Ensembl REST API.
- * Caches results to prevent redundant calls.
+ * Fetch exon boundaries and structure for a given transcript ID.
+ *
+ * Employs a multi-tier resilience architecture:
+ * 1. L1 in-memory LRU cache (`exonCache`).
+ * 2. In-flight single-flight promise deduplication (thundering herd protection).
+ * 3. L2 persistent SQLite cache (`AnalysisDatabase` `external_cache`).
+ * 4. Ensembl REST API lookup (for `ENST...`).
+ * 5. UCSC Genome Browser REST API fallback (`knownGene` for `ENST...`, `ncbiRefSeq` for `NM_...`).
  */
-export async function fetchTranscriptExons(transcriptId: string): Promise<TranscriptExonStructure | null> {
+export async function fetchTranscriptExons(
+  transcriptId: string,
+  variantChrom?: string | null,
+  genomicPos?: number | null
+): Promise<TranscriptExonStructure | null> {
   const cleanId = transcriptId.trim().split(".")[0]; // remove version suffix if any
+
+  // 1. Check L1 Memory Cache
   const cached = exonCache.get(cleanId);
   if (cached) return cached;
 
-  try {
-    const url = `https://rest.ensembl.org/lookup/id/${cleanId}?expand=1&content-type=application/json`;
-    const response = await fetchWithRetry(url, {
-      headers: { "Accept": "application/json" },
-      timeout: 7000
-    }, 2);
-    if (!response.ok) {
-      console.warn(`[Splice Resolver] Ensembl lookup failed for transcript ${cleanId} (status ${response.status})`);
-      return null;
+  // Single-flight in-flight promise deduplication
+  const existing = inFlightExonFetches.get(cleanId);
+  if (existing) return existing;
+
+  const fetchPromise = (async () => {
+    // 2. Check L2 Persistent SQLite Cache
+    try {
+      const db = AnalysisDatabase.getInstance();
+      const l2Entry = await db.getExternalCacheAsync<TranscriptExonStructure>(`exon:${cleanId}`);
+      if (l2Entry?.data && Array.isArray(l2Entry.data.exons) && l2Entry.data.exons.length > 0) {
+        exonCache.set(cleanId, l2Entry.data);
+        return l2Entry.data;
+      }
+    } catch (err: any) {
+      console.warn(`[Splice Resolver] L2 SQLite read warning for ${cleanId}:`, err.message);
     }
 
-    const data = await response.json() as any;
-    const exonsRaw = data?.Exon || [];
-    if (!Array.isArray(exonsRaw) || exonsRaw.length === 0) {
-      return null;
+    let structure: TranscriptExonStructure | null = null;
+    const isRefSeq = cleanId.startsWith("NM_") || cleanId.startsWith("NR_");
+
+    // 3. If RefSeq, skip Ensembl lookup/id (which 404s) and resolve directly via UCSC ncbiRefSeq
+    if (isRefSeq) {
+      if (variantChrom && typeof genomicPos === "number" && Number.isFinite(genomicPos)) {
+        structure = await fetchExonsFromUcsc(cleanId, variantChrom, genomicPos, "ncbiRefSeq");
+      }
+    } else {
+      // 4. For Ensembl IDs, attempt Ensembl REST API first
+      try {
+        const url = `https://rest.ensembl.org/lookup/id/${encodeURIComponent(cleanId)}?expand=1&content-type=application/json`;
+        const response = await fetchWithRetry(
+          url,
+          {
+            headers: { Accept: "application/json" },
+            timeout: 5000
+          },
+          1
+        );
+        if (response.ok) {
+          const data = (await response.json()) as any;
+          const exonsRaw = data?.Exon || [];
+          if (Array.isArray(exonsRaw) && exonsRaw.length > 0) {
+            const exons = exonsRaw
+              .map((ex: any) => ({
+                id: ex.id ? String(ex.id) : undefined,
+                start: parseInt(ex.start, 10),
+                end: parseInt(ex.end, 10),
+                strand: ex.strand !== undefined ? parseInt(ex.strand, 10) : (data.strand || 1),
+                seq_region_name: ex.seq_region_name || data.seq_region_name
+              }))
+              .filter(ex => !isNaN(ex.start) && !isNaN(ex.end));
+
+            if (exons.length > 0) {
+              exons.sort((a, b) => a.start - b.start);
+              structure = {
+                strand: data.strand !== undefined ? parseInt(data.strand, 10) : 1,
+                seqRegionName: data.seq_region_name,
+                exons
+              };
+            }
+          }
+        } else {
+          console.warn(`[Splice Resolver] Ensembl lookup failed for transcript ${cleanId} (status ${response.status})`);
+        }
+      } catch (err: any) {
+        console.warn(`[Splice Resolver Error] Ensembl request failed for ${cleanId}:`, err.message);
+      }
+
+      // 5. If Ensembl failed or timed out, fallback to UCSC knownGene
+      if (!structure && variantChrom && typeof genomicPos === "number" && Number.isFinite(genomicPos)) {
+        console.info(`[Splice Resolver] Falling back to UCSC Genome Browser knownGene for ${cleanId} at ${variantChrom}:${genomicPos}`);
+        structure = await fetchExonsFromUcsc(cleanId, variantChrom, genomicPos, "knownGene");
+      }
     }
 
-    const exons = exonsRaw.map((ex: any) => ({
-      id: ex.id ? String(ex.id) : undefined,
-      start: parseInt(ex.start, 10),
-      end: parseInt(ex.end, 10),
-      strand: ex.strand !== undefined ? parseInt(ex.strand, 10) : (data.strand || 1),
-      seq_region_name: ex.seq_region_name || data.seq_region_name
-    })).filter(ex => !isNaN(ex.start) && !isNaN(ex.end));
+    // 6. If resolved, populate L1 memory cache and L2 SQLite persistence (90 days TTL)
+    if (structure && structure.exons.length > 0) {
+      exonCache.set(cleanId, structure);
+      try {
+        const db = AnalysisDatabase.getInstance();
+        await db.saveExternalCacheAsync(`exon:${cleanId}`, structure, "transcript-exons", 90 * 86400);
+      } catch (err: any) {
+        console.warn(`[Splice Resolver] L2 SQLite write warning for ${cleanId}:`, err.message);
+      }
+      return structure;
+    }
 
-    // Sort ascending by genomic start coordinate
-    exons.sort((a, b) => a.start - b.start);
-
-    const structure: TranscriptExonStructure = {
-      strand: data.strand !== undefined ? parseInt(data.strand, 10) : 1,
-      seqRegionName: data.seq_region_name,
-      exons
-    };
-
-    exonCache.set(cleanId, structure);
-    return structure;
-  } catch (err: any) {
-    console.warn(`[Splice Resolver Error] Failed to resolve exons for ${cleanId}:`, err.message);
     return null;
-  }
+  })().finally(() => {
+    inFlightExonFetches.delete(cleanId);
+  });
+
+  inFlightExonFetches.set(cleanId, fetchPromise);
+  return fetchPromise;
 }
 
 /**
@@ -135,7 +322,10 @@ export async function resolveSpliceProximity(
   genomicPos: number,
   variantChrom?: string | null
 ): Promise<SpliceProximityResult | null> {
-  const structure = await fetchTranscriptExons(transcriptId);
+  if (!Number.isFinite(genomicPos) || genomicPos < 1) {
+    return null;
+  }
+  const structure = await fetchTranscriptExons(transcriptId, variantChrom, genomicPos);
   if (!structure || structure.exons.length === 0) return null;
 
   if (variantChrom && structure.seqRegionName) {

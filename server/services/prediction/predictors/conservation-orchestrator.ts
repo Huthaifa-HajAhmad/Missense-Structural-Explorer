@@ -810,7 +810,7 @@ export async function fetchConservationDataProgressive(
          */
         for (const src of ASSEMBLY_REFUSAL_SOURCES) {
           const reachable = src === "splice-proximity"
-            ? Boolean(pred?.transcriptId)
+            ? Boolean(pred?.canonicalEnsemblId || pred?.transcriptId)
             : src === "alphagenome"
             ? Boolean(alphagenomeApiKey || alphagenomeApiUrl)
             : true;
@@ -874,9 +874,12 @@ export async function fetchConservationDataProgressive(
          * position (F-6): a coordinate on another chromosome is refused by the resolver, not
          * measured against unrelated exons.
          */
-        if (pred?.transcriptId && usableBy("splice-proximity")) {
-          const geometryTranscript = pred.canonicalEnsemblId || pred.transcriptId;
+        if ((pred?.canonicalEnsemblId || pred?.transcriptId) && usableBy("splice-proximity")) {
+          const geometryTranscript = (pred.canonicalEnsemblId || pred.transcriptId)!;
           spliceProximity = await resolveSpliceProximity(geometryTranscript, parsedCoord.pos, parsedCoord.chrom).catch(() => null);
+          if (!spliceProximity && pred.canonicalEnsemblId && pred.transcriptId && pred.canonicalEnsemblId !== pred.transcriptId) {
+            spliceProximity = await resolveSpliceProximity(pred.transcriptId, parsedCoord.pos, parsedCoord.chrom).catch(() => null);
+          }
         }
       }
       return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult, liveSpliceAi, assemblyRefusals };

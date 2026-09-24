@@ -50,7 +50,8 @@ const CNNM2_FEATURES = {
 };
 
 /** Hand-counted from the live record: 3 domains, 3 TM helices, 1 phosphoserine, 2 regions, no
- *  active/binding/disulfide/other annotation. */
+ *  active/binding/disulfide/other annotation. Points are the features annotated at one residue;
+ *  spans are those annotated over a run. */
 const EXPECTED_CNNM2_COUNTS = {
   domain: 3,
   active: 0,
@@ -60,7 +61,62 @@ const EXPECTED_CNNM2_COUNTS = {
   transmembrane: 3,
   other: 0,
   region: 2,
-  plottedSites: 4,
+  spans: 5, // 3 transmembrane helices + 2 disordered regions
+  plottedSites: 1, // the phosphoserine; the TM helices are spans
+} as const;
+
+/**
+ * The real GZF1 / Q9H116 payload (711 aa), transcribed from
+ * `https://rest.uniprot.org/uniprotkb/Q9H116` with every feature type the server keeps.
+ *
+ * It is the case that exposed the geometry problem: ten C2H2 zinc fingers of 23–24 aa, five
+ * low-complexity segments, two disordered regions and two 1-aa mutagenesis points. Drawn by type
+ * name, all seventeen became lollipops — fifteen near-black dots claiming a 24-residue finger sits
+ * at one residue. Five of the low-complexity spans are nested inside the disordered regions, which
+ * is what the span lane's tiering exists for.
+ */
+const GZF1_FEATURES = {
+  geneName: "GZF1",
+  sequenceLength: 711,
+  isMultimer: false,
+  features: [
+    { type: "Domain", description: "BTB", start: 31, end: 103, interproId: "IPR000210" },
+    { type: "Zinc finger", description: "C2H2-type 1", start: 317, end: 340 },
+    { type: "Zinc finger", description: "C2H2-type 2", start: 348, end: 371 },
+    { type: "Zinc finger", description: "C2H2-type 3", start: 377, end: 400 },
+    { type: "Zinc finger", description: "C2H2-type 4", start: 407, end: 429 },
+    { type: "Zinc finger", description: "C2H2-type 5", start: 435, end: 457 },
+    { type: "Zinc finger", description: "C2H2-type 6", start: 463, end: 485 },
+    { type: "Zinc finger", description: "C2H2-type 7", start: 491, end: 513 },
+    { type: "Zinc finger", description: "C2H2-type 8", start: 519, end: 541 },
+    { type: "Zinc finger", description: "C2H2-type 9", start: 547, end: 569 },
+    { type: "Zinc finger", description: "C2H2-type 10", start: 575, end: 597 },
+    { type: "Region", description: "Disordered", start: 153, end: 220 },
+    { type: "Region", description: "Disordered", start: 243, end: 312 },
+    { type: "Compositional bias", description: "Low complexity", start: 153, end: 168 },
+    { type: "Compositional bias", description: "Basic and acidic residues", start: 197, end: 212 },
+    { type: "Compositional bias", description: "Basic and acidic residues", start: 243, end: 252 },
+    { type: "Compositional bias", description: "Basic and acidic residues", start: 265, end: 277 },
+    { type: "Compositional bias", description: "Acidic residues", start: 298, end: 309 },
+    { type: "Modified residue", description: "Phosphoserine", start: 613, end: 613 },
+    { type: "Mutagenesis", description: "Decreased repression activity.", start: 32, end: 32 },
+    { type: "Mutagenesis", description: "Decreased repression activity.", start: 50, end: 50 },
+  ],
+};
+
+/** Hand-counted from the record: 1 domain, 17 spans (10 zinc finger + 5 low-complexity + 2
+ *  disordered regions), 3 point sites (2 mutagenesis + 1 phosphoserine), 0 active/binding/disulfide
+ *  and no transmembrane helix. */
+const EXPECTED_GZF1_COUNTS = {
+  domain: 1,
+  active: 0,
+  binding: 0,
+  ptm: 1,
+  disulfide: 0,
+  transmembrane: 0,
+  other: 12, // 10 zinc fingers + 2 mutagenesis
+  spans: 17,
+  plottedSites: 3, // points only: 2 mutagenesis + 1 phosphoserine
 } as const;
 
 /**
@@ -77,16 +133,16 @@ const COVERAGE_FEATURES = {
   sequenceLength: 300,
   isMultimer: false,
   features: [
-    { type: "Domain", description: "Test domain", start: 10, end: 90 },
+    { type: "Domain", description: "Test domain", start: 10, end: 150 },
     { type: "Active site", description: "Proton acceptor", start: 40, end: 40 },
     { type: "Binding site", description: "Substrate", start: 60, end: 60 },
     { type: "Metal binding", description: "Zinc", start: 70, end: 70 },
     { type: "Disulfide bond", description: "Interchain", start: 100, end: 100 },
     { type: "Modified residue", description: "Phosphothreonine", start: 130, end: 130 },
-    { type: "Transmembrane", description: "Helical", start: 160, end: 180 },
-    { type: "Zinc finger", description: "RING-type", start: 200, end: 200 },
-    { type: "Motif", description: "Nuclear localisation", start: 220, end: 220 },
-    { type: "Region", description: "Disordered", start: 250, end: 280 },
+    { type: "Transmembrane", description: "Helical", start: 200, end: 220 },
+    { type: "Zinc finger", description: "RING-type", start: 240, end: 262 },
+    { type: "Motif", description: "Nuclear localisation", start: 270, end: 276 },
+    { type: "Region", description: "Disordered", start: 285, end: 299 },
   ],
 };
 
@@ -99,7 +155,8 @@ const EXPECTED_COVERAGE_COUNTS = {
   transmembrane: 1,
   other: 2, // "Zinc finger" + "Motif"
   region: 1,
-  plottedSites: 8, // every non-domain, non-region feature
+  spans: 4, // transmembrane + zinc finger + motif + region
+  plottedSites: 5, // points only: active, binding, metal, disulfide, modified residue
 } as const;
 
 /**
@@ -183,12 +240,14 @@ function freezeMotion(): void {
 freezeMotion();
 
 /** Variant inside CBS 1 (the reported case), inside the CNNM transmembrane domain, in the
- *  inter-domain gap, a zoomed window, plus the synthetic category-coverage case. */
+ *  inter-domain gap, a zoomed window, the real zinc-finger protein GZF1, plus the synthetic
+ *  category-coverage case. */
 const CASES = [
   { id: "cbs1", label: "p.Ser489Cys — inside CBS 1", residue: 489, width: 1010, kind: "cnnm2" },
   { id: "tm", label: "p.Ala300Val — inside CNNM transmembrane", residue: 300, width: 1010, wt: "Ala", mut: "Val", kind: "cnnm2" },
   { id: "gap", label: "p.Gly440Arg — inter-domain", residue: 440, width: 1010, wt: "Gly", mut: "Arg", kind: "cnnm2" },
   { id: "zoomed", label: "p.Ser489Cys at 3.5× — clipped bands", residue: 489, width: 1010, kind: "zoomed" },
+  { id: "gzf1", label: "GZF1 p.Arg591Trp — 17 nested spans, 3 point sites", residue: 591, width: 1010, wt: "Arg", mut: "Trp", kind: "gzf1" },
   { id: "coverage", label: "synthetic category coverage (all seven chips)", residue: 60, width: 1010, wt: "Asp", mut: "Asn", kind: "coverage" },
 ] as const;
 
@@ -274,6 +333,7 @@ interface Track {
   rail: Box;
   domains: Array<{ g: SVGGElement; block: SVGRectElement; blockBox: Box; label: Box | null; labelEl: SVGTextElement | null; name: string }>;
   sites: Array<{ g: SVGGElement; stem: SVGLineElement; stemBox: Box; pinEl: SVGCircleElement; pin: Box; hit: Box; hitRadius: number; name: string }>;
+  spans: Array<{ g: SVGGElement; bar: SVGRectElement; barBox: Box; underline: boolean; name: string }>;
   markerLabel: string | null;
   rulerStart: number | null;
   rulerEnd: number | null;
@@ -283,7 +343,7 @@ interface Track {
 function readTrack(host: HTMLElement): { track: Track } | { error: string } {
   // Anchor on a track shape first: the host also contains lucide icon <svg>s, so
   // `querySelector("svg")` would measure a 14px glyph.
-  const anchor = host.querySelector('g[aria-label^="Domain:"], g[aria-label^="Functional site:"]');
+  const anchor = host.querySelector('g[aria-label^="Domain:"], g[aria-label^="Functional site:"], g[aria-label^="Curated span:"]');
   const svg = (anchor?.closest("svg") ?? null) as SVGSVGElement | null;
   if (!svg) return { error: `no sequence-track <svg> in host (icons found: ${host.querySelectorAll("svg").length})` };
 
@@ -329,6 +389,19 @@ function readTrack(host: HTMLElement): { track: Track } | { error: string } {
     };
   });
 
+  // Curated spans are bars, not pins. A second rect inside the group is the amber underline that
+  // marks a span containing the variant residue.
+  const spans = Array.from(svg.querySelectorAll('g[aria-label^="Curated span:"]')).map((g) => {
+    const rects = Array.from(g.querySelectorAll("rect")) as SVGRectElement[];
+    return {
+      g: g as SVGGElement,
+      bar: rects[0],
+      barBox: box(rects[0]),
+      underline: rects.length > 1,
+      name: g.getAttribute("aria-label") || "",
+    };
+  });
+
   const calloutG = svg.querySelector('[data-track="variant-marker"]') as SVGGElement | null;
   let callout: Track["callout"] = null;
   if (calloutG) {
@@ -366,6 +439,7 @@ function readTrack(host: HTMLElement): { track: Track } | { error: string } {
       rail: box(railEl),
       domains,
       sites,
+      spans,
       markerLabel: calloutG?.getAttribute("aria-label") ?? null,
       rulerStart: Number.isFinite(rulerStart) ? rulerStart : null,
       rulerEnd: Number.isFinite(rulerEnd) ? rulerEnd : null,
@@ -485,6 +559,78 @@ function checkTrackGeometry(id: string, t: Track): Check[] {
  * is not a defect and is deliberately not detected here.
  */
 const MAPPING_TOLERANCE = 0.25;
+
+/** The track's span-lane lanes, mirrored from TRACK so the harness states its own expectations. */
+const SPAN_LANE = { top: 62, siteRailY: 74 } as const;
+
+/**
+ * 3f. The span lane. Curated features annotated over a run of residues must be drawn as bars, and
+ * point-annotated features as pins — the split is what removed fifteen near-black pins from GZF1,
+ * where ten 23-24 aa zinc fingers and five low-complexity segments had been plotted as if each sat
+ * at a single residue. Also checks the lane's own packing: nested spans (low-complexity inside
+ * disordered regions) must land on separate tiers, and a span containing the variant must carry the
+ * amber underline that says so.
+ */
+function checkSpanLane(
+  id: string,
+  t: Track,
+  expected: { spans: number; points: number; spanLaneTop: number; siteRailY: number }
+): Check[] {
+  const checks: Check[] = [];
+
+  checks.push({
+    name: `${id}: spans are bars and point sites are pins`,
+    pass: t.spans.length === expected.spans && t.sites.length === expected.points,
+    detail:
+      t.spans.length === expected.spans && t.sites.length === expected.points
+        ? `${t.spans.length} span bars, ${t.sites.length} pins (fixture)`
+        : `rendered ${t.spans.length} span bars / ${t.sites.length} pins; fixture expects ${expected.spans} / ${expected.points}`,
+  });
+
+  // Every bar must sit inside the lane the layout reserves for it.
+  const outsideLane = t.spans.filter(
+    (s) => s.barBox.y < expected.spanLaneTop - 0.5 || s.barBox.bottom > expected.siteRailY + 0.5
+  );
+  checks.push({
+    name: `${id}: span bars stay inside the span lane`,
+    pass: t.spans.length > 0 && outsideLane.length === 0,
+    detail: outsideLane.length
+      ? outsideLane.map((s) => `${s.name.slice(0, 24)} y=${s.barBox.y}..${s.barBox.bottom}`).join("; ")
+      : `${t.spans.length} bars within y ${expected.spanLaneTop}..${expected.siteRailY}`,
+  });
+
+  // Nested spans must not share a tier: any two bars at the same y may not overlap in x.
+  const collisions: string[] = [];
+  for (let i = 0; i < t.spans.length; i += 1) {
+    for (let j = i + 1; j < t.spans.length; j += 1) {
+      const a = t.spans[i];
+      const b = t.spans[j];
+      if (Math.abs(a.barBox.y - b.barBox.y) > 0.5) continue;
+      if (intersects(a.barBox, b.barBox)) collisions.push(`${a.name.slice(0, 18)} overlaps ${b.name.slice(0, 18)} on one tier`);
+    }
+  }
+  const tiers = new Set(t.spans.map((s) => px(s.barBox.y)));
+  checks.push({
+    name: `${id}: overlapping spans are packed onto separate tiers`,
+    pass: collisions.length === 0,
+    detail: collisions.length ? collisions.join("; ") : `${t.spans.length} bars across ${tiers.size} tier(s)`,
+  });
+
+  // The variant must be inside something, and that something must say so.
+  const enclosing = t.spans.filter((s) => /contains the variant residue/.test(s.name));
+  const underlined = enclosing.filter((s) => s.underline);
+  checks.push({
+    name: `${id}: a span containing the variant is underlined`,
+    pass: enclosing.length === 0 ? true : underlined.length === enclosing.length,
+    detail:
+      enclosing.length === 0
+        ? "no span contains the variant residue"
+        : `${underlined.length}/${enclosing.length} enclosing bars underlined`,
+  });
+
+  return checks;
+}
+
 
 function checkResidueMapping(id: string, t: Track, expected: { seqLength: number; domains: number; sites: number }): Check[] {
   if (t.rulerStart === null || t.rulerEnd === null) {
@@ -869,16 +1015,15 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
         : CHIP_SPEC.map(([k]) => `${k}=${want[k]}`).join(" "),
   });
 
-  // 9b. Curated regions are spans, not point sites, so they are counted but never plotted. They
-  //     must still be disclosed — silently dropping fetched annotations is the failure mode this
-  //     project keeps writing down — and the disclosure must render even when the count is zero,
-  //     like every other category.
-  const regionEl = Array.from(host.querySelectorAll("span")).find((n) => /Regions?/.test(n.textContent || "") && !/^\d+ (Domain|Active|Binding|PTM|Disulfide|Transmembrane|Other)/.test((n.textContent || "").trim()));
-  const regionCount = Number((regionEl?.textContent || "").match(/\d+/)?.[0] ?? NaN);
+  // 9b. Curated spans are drawn on the span lane, so the chip discloses how many there are and what
+  //     the lane means — previously these were withheld from the track and disclosed as "Regions
+  //     (not plotted)". The chip must render even at zero, like every other category.
+  const spanEl = Array.from(host.querySelectorAll("span")).find((n) => /^\d+ Spans?( \(band row\))?$/.test((n.textContent || "").trim()));
+  const spanCount = Number((spanEl?.textContent || "").match(/\d+/)?.[0] ?? NaN);
   checks.push({
-    name: `${id}: unplotted region annotations are disclosed`,
-    pass: !!regionEl && regionCount === want.region,
-    detail: regionEl ? `"${(regionEl.textContent || "").trim()}" (expected ${want.region})` : `no region chip (expected ${want.region})`,
+    name: `${id}: the plotted span count is disclosed`,
+    pass: !!spanEl && spanCount === want.spans,
+    detail: spanEl ? `"${(spanEl.textContent || "").trim()}" (expected ${want.spans})` : `no span chip (expected ${want.spans})`,
   });
 
   // 10. A category with nothing to show must not behave like a filter that empties the track.
@@ -991,13 +1136,13 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
 /**
  * The number of assertions a complete run must produce, written out rather than counted at
  * runtime: the point of the self-check is to fail when a case silently stops contributing.
- * Per 1× case: 6 geometry + 1 residue mapping + 1 contrast + 3 callout + 2 ring + 1 keyboard focus
- * + 4 inventory = 18; the zoomed case swaps the mapping check for the zoom-window check (18); the
- * reported case adds the default-read-out check, and the run adds this self-check.
- * Update this deliberately when assertions are added.
+ * Per 1× case: 6 geometry + 4 span lane + 1 residue mapping + 1 contrast + 3 callout + 2 ring
+ * + 1 keyboard focus + 4 inventory = 22; the zoomed case swaps the mapping check for the
+ * zoom-window check (22); the reported case adds the default-read-out check, and the run adds this
+ * self-check. Update this deliberately when assertions are added.
  */
 function expectedCheckCount(): number {
-  const perCase = 18;
+  const perCase = 22;
   const cbs1Extra = 1;
   return CASES.length * perCase + cbs1Extra + 1;
 }
@@ -1037,9 +1182,11 @@ function App(): React.ReactElement {
           continue;
         }
         const track = read.track;
-        const want = c.kind === "coverage" ? EXPECTED_COVERAGE_COUNTS : EXPECTED_CNNM2_COUNTS;
+        const want = c.kind === "coverage" ? EXPECTED_COVERAGE_COUNTS : c.kind === "gzf1" ? EXPECTED_GZF1_COUNTS : EXPECTED_CNNM2_COUNTS;
+        const fixture = c.kind === "coverage" ? COVERAGE_FEATURES : c.kind === "gzf1" ? GZF1_FEATURES : CNNM2_FEATURES;
         const isCoverage = c.kind === "coverage";
         const isZoomed = c.kind === "zoomed";
+        const spanExpectation = { spans: want.spans, points: want.plottedSites, spanLaneTop: SPAN_LANE.top, siteRailY: SPAN_LANE.siteRailY };
         if (isZoomed) {
           // Zoom the way a user does, then re-read: clipping, label suppression and stem anchoring
           // all differ once the window is narrower than the protein. Zooming alone starts at
@@ -1069,20 +1216,21 @@ function App(): React.ReactElement {
           }
           const zoomedTrack = reRead.track;
           checks.push(...checkTrackGeometry(c.id, zoomedTrack));
+          checks.push(...checkSpanLane(c.id, zoomedTrack, spanExpectation));
           checks.push(...checkZoomWindow(c.id, zoomedTrack, [c.residue]));
           checks.push(...checkNonTextContrast(c.id, zoomedTrack));
           checks.push(...checkVariantCallout(c.id, zoomedTrack));
           checks.push(...(await checkNoFocusRings(c.id, zoomedTrack)));
           checks.push(...checkKeyboardFocusIndicator(c.id, zoomedTrack));
-          checks.push(...(await checkInventory(host, c.id, want, CNNM2_FEATURES.features)));
+          checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
           publish(checks);
           continue;
         }
         checks.push(...checkTrackGeometry(c.id, track));
+        checks.push(...checkSpanLane(c.id, track, spanExpectation));
         checks.push(
           ...checkResidueMapping(c.id, track, {
-            // The coverage fixture has one region that is never plotted and two "other" sites.
-            seqLength: isCoverage ? COVERAGE_FEATURES.sequenceLength : CNNM2_FEATURES.sequenceLength,
+            seqLength: fixture.sequenceLength,
             domains: want.domain,
             sites: want.plottedSites,
           })
@@ -1091,7 +1239,7 @@ function App(): React.ReactElement {
         checks.push(...checkVariantCallout(c.id, track));
         checks.push(...(await checkNoFocusRings(c.id, track)));
         checks.push(...checkKeyboardFocusIndicator(c.id, track));
-        checks.push(...(await checkInventory(host, c.id, want, (isCoverage ? COVERAGE_FEATURES : CNNM2_FEATURES).features)));
+        checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
         publish(checks);
       }
 
@@ -1130,7 +1278,7 @@ function App(): React.ReactElement {
         ))}
       </div>
       {CASES.map((c) => {
-        const features = c.kind === "coverage" ? COVERAGE_FEATURES : CNNM2_FEATURES;
+        const features = c.kind === "coverage" ? COVERAGE_FEATURES : c.kind === "gzf1" ? GZF1_FEATURES : CNNM2_FEATURES;
         const wildType = (c as { wt?: string }).wt ?? "Ser";
         const mutant = (c as { mut?: string }).mut ?? "Cys";
         const result = resultFor(features, c.residue, wildType, mutant);
@@ -1164,5 +1312,23 @@ function App(): React.ReactElement {
     </div>
   );
 }
+
+/*
+ * A render-time crash leaves #geometry-result empty, which the runner can only report as "no report"
+ * — no message and no stack. These handlers publish the exception into the same sink the checks use,
+ * so a crash arrives as an assertion carrying the real error instead of as silence.
+ */
+function reportCrash(detail: string): void {
+  const sink = document.getElementById("geometry-result");
+  if (!sink) return;
+  const report = { ok: false, checks: [{ name: "harness: rendered", pass: false, detail }] };
+  sink.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(report))));
+  const visible = document.getElementById("geometry-report");
+  if (visible && !visible.textContent) visible.textContent = `FAIL harness: rendered — ${detail}`;
+}
+window.addEventListener("error", (event) => reportCrash(`uncaught: ${event.message}`));
+window.addEventListener("unhandledrejection", (event) =>
+  reportCrash(`unhandled rejection: ${String((event as PromiseRejectionEvent).reason)}`)
+);
 
 createRoot(document.getElementById("root")!).render(<App />);
