@@ -151,6 +151,12 @@ export const esmcEvalResultSchema = z.object({
   klDivergence: z.number().nullable().optional(),
   conformationState: z.string().nullable().optional(),
   provenance: z.string().optional(),
+  /**
+   * Fallback diagnostics. A card that silently serves another model's numbers has to be able to
+   * say which engine failed and why, per tier; both are free text from the failing tier itself.
+   */
+  remoteEngineNote: z.string().nullable().optional(),
+  fallbackReason: z.string().nullable().optional(),
   error: z.string().optional(),
   status: z.string().optional()
 });

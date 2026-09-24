@@ -43,6 +43,9 @@ class Esm2Response(BaseModel):
     localShiftMap: list[Esm2LocalShiftItem] | None = None
     klDivergence: float | None = None
     provenance: str | None = None
+    # Fallback diagnostics, matching the SaProt router: which engine failed and why, per tier.
+    remoteEngineNote: str | None = None
+    fallbackReason: str | None = None
     verdict: str | None = None
     error: str | None = None
 
@@ -169,6 +172,7 @@ def predict_esm2_3b_sync(req: Esm2Request):
     if sequence[pos - 1] != wt:
         raise HTTPException(status_code=400, detail="Wild-type AA mismatch.")
 
+    remote_engine_note = None
     if req.hfToken:
         try:
             print(f"[Model Server] Querying ESM-2 remotely via HF Serverless Inference API (model={req.modelName})...")
@@ -177,7 +181,8 @@ def predict_esm2_3b_sync(req: Esm2Request):
             return result
         except Exception as e:
             import traceback
-            print(f"[Model Server] ESM-2 remote run FAILED: {type(e).__name__}: {e}")
+            remote_engine_note = f"{type(e).__name__}: {e}"
+            print(f"[Model Server] ESM-2 remote run FAILED: {remote_engine_note}")
             print(traceback.format_exc())
             print(f"[Model Server] Remote failed — checking for CPU fallback path...")
 
@@ -187,6 +192,13 @@ def predict_esm2_3b_sync(req: Esm2Request):
         vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
         vesm_res["provenance"] = "VESM-150M (CPU Local - no GPU)" if not req.hfToken else "VESM-150M (CPU Fallback - remote failed)"
+        # The card serves another model's numbers here, so it has to carry both reasons: the remote
+        # engine that did not answer and the reason this host could not run ESM-2 locally.
+        vesm_res["remoteEngineNote"] = remote_engine_note
+        vesm_res["fallbackReason"] = (
+            "no CUDA device on this host and the remote engine did not answer"
+            if req.hfToken else "no CUDA device on this host"
+        )
         return vesm_res
 
     try:
@@ -266,6 +278,8 @@ def predict_esm2_3b_sync(req: Esm2Request):
         vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
         vesm_res["provenance"] = "VESM-150M (Local Fallback)"
+        vesm_res["remoteEngineNote"] = remote_engine_note
+        vesm_res["fallbackReason"] = f"{req.modelName.split('/')[-1]}: {type(e).__name__}: {e}"
         return vesm_res
 
 _inference_semaphore = asyncio.Semaphore(1)

@@ -165,6 +165,47 @@ def encode_pdb_to_3di(
         print(f"[Model Server Error] Foldseek 3Di encoding failed: {e}")
         return "#" * total_len
 
+# SaProt's vocabulary (446 tokens) holds the 400 residue/3Di pair tokens in *lower case* ("Rd", "Kd")
+# plus the 20 masked forms ("R#"). Foldseek/mini3di emit 3Di states in upper case, and an upper-case
+# pair is absent from the vocabulary: the tokenizer then collapses the whole input to a single <unk>,
+# the model returns three rows (one token plus the two specials), and the scorer indexes that
+# three-row tensor at the mutation position — IndexError "index 390 is out of bounds for dimension 0
+# with size 3". Every local SaProt candidate fails, the router falls back to VESM-150M, and the card
+# reports another model's numbers. The bug only shows when a *real* structure is supplied: an absent
+# PDB yields "#" states, whose AA# tokens do exist, so the masked path works and hides this.
+SAPROT_3DI_MASK = "#"
+
+def to_saprot_3di(seq_3di: str) -> str:
+    """Normalises a 3Di string to the alphabet SaProt's pair tokens actually use (lower case)."""
+    return "".join(SAPROT_3DI_MASK if c == SAPROT_3DI_MASK else c.lower() for c in seq_3di)
+
+def build_saprot_sequence(sequence: str, seq_3di: str, mask_index: int | None = None) -> str:
+    """
+    Pairs every residue with its 3Di state to form SaProt's input tokens.
+
+    `mask_index` (0-based) replaces that residue's pair with the tokenizer's <mask> token, which is
+    how the remote fill_mask path asks for the position's distribution.
+    """
+    states = to_saprot_3di(seq_3di)
+    parts = []
+    for idx, (aa, state) in enumerate(zip(sequence, states)):
+        parts.append("<mask>" if idx == mask_index else aa + state)
+    return "".join(parts)
+
+def validate_saprot_tokenization(token_count: int, residue_count: int) -> None:
+    """
+    Refuses a tokenisation that lost residues, instead of scoring a misaligned tensor.
+
+    Without this, a vocabulary mismatch surfaces as an IndexError from `logits[pos]` far away from
+    the cause, or — worse — as silently wrong numbers if the mutation index happens to be small.
+    """
+    if token_count < residue_count:
+        raise ValueError(
+            f"SaProt tokenizer collapsed {residue_count} residues into {token_count} tokens: the "
+            "residue/3Di pair tokens are missing from this checkpoint's vocabulary (check the 3Di "
+            "alphabet case — SaProt pairs are lower-case, e.g. 'Rd', never 'RD')."
+        )
+
 def compute_scientific_metrics(logits, pos_idx, wt_aa, mut_aa, vocab_map):
     aa_tokens = [vocab_map.get(aa, 3) for aa in AA_LIST]
     pos_logits = logits[pos_idx]

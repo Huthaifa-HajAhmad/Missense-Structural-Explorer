@@ -54,12 +54,32 @@ def _evict_if_needed(max_size: int = MAX_LOADED_MODELS):
         clear_gpu_cache()
 
 # Pinned Hugging Face Hub revisions for absolute reproducibility with env overrides
+#
+# Every revision here was verified to resolve against the Hub. The SaProt_35M pin previously named
+# `f9f257ef5352…`, which resolves 404 in *both* SaProt repositories: the pinned attempt could never
+# succeed, so each load burned a doomed round trip and fell through to the default branch behind a
+# warning that read like a model-config problem ("Unrecognized model … Should have a `model_type`
+# key"). A pin that does not exist is worse than no pin, because it makes a working load look like
+# a broken checkpoint.
 HF_MODEL_REVISIONS = {
     "facebook/esm2_t33_650M_UR50D": os.environ.get("HF_REV_ESM2_650M", "08e4846e537177426273712802403f7ba8261b6c"),
     "facebook/esm2_t30_150M_UR50D": os.environ.get("HF_REV_ESM2_150M", "a695f6045e2e32885fa60af20c13cb35398ce30c"),
     "westlake-repl/SaProt_650M_AF2": os.environ.get("HF_REV_SAPROT_650M", "d9b9ad00ef61c0990e611b2b43f2231c7de24b38"),
-    "westlake-repl/SaProt_35M_AF2": os.environ.get("HF_REV_SAPROT_35M", "f9f257ef5352c3c9c61230e7ea2054ffcfab51d9"),
+    "westlake-repl/SaProt_35M_AF2": os.environ.get("HF_REV_SAPROT_35M", "316cd4017d29f4657b959365f24b57f1ee278912"),
 }
+
+def _fallback_note(err: Exception) -> str:
+    """
+    Names the likeliest cause of a failed pinned-revision load in the log line itself.
+
+    A revision that no longer exists surfaces as "Unrecognized model … Should have a `model_type`
+    key", which points at the checkpoint rather than at the pin, and that is how a dead pin stayed
+    in this table unnoticed.
+    """
+    text = str(err)
+    if "404" in text or "not found" in text.lower() or "Unrecognized model" in text:
+        return " (the pinned revision may no longer exist on the Hub — verify HF_REV_* / HF_MODEL_REVISIONS)"
+    return ""
 
 def _safe_load_tokenizer(model_name: str, token: str = None, revision: str = None):
     from transformers import AutoTokenizer
@@ -67,7 +87,7 @@ def _safe_load_tokenizer(model_name: str, token: str = None, revision: str = Non
         try:
             return AutoTokenizer.from_pretrained(model_name, token=token, revision=revision)
         except Exception as e:
-            print(f"[Model Server Warning] Failed to load tokenizer {model_name} at revision {revision}: {e}. Falling back to default branch...")
+            print(f"[Model Server Warning] Failed to load tokenizer {model_name} at revision {revision}: {e}.{_fallback_note(e)} Falling back to default branch...")
     return AutoTokenizer.from_pretrained(model_name, token=token)
 
 def _safe_load_esm_model(model_name: str, dtype, token: str = None, revision: str = None):
@@ -82,7 +102,7 @@ def _safe_load_esm_model(model_name: str, dtype, token: str = None, revision: st
             except TypeError:
                 return EsmForMaskedLM.from_pretrained(model_name, torch_dtype=dtype, token=token, revision=revision)
         except Exception as e:
-            print(f"[Model Server Warning] Failed to load model {model_name} at revision {revision}: {e}. Falling back to default branch...")
+            print(f"[Model Server Warning] Failed to load model {model_name} at revision {revision}: {e}.{_fallback_note(e)} Falling back to default branch...")
     try:
         return EsmForMaskedLM.from_pretrained(model_name, **kwargs)
     except TypeError:

@@ -311,6 +311,140 @@ class TestSaProtScoreParser(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="H")
 
+    def test_zero_matched_tokens_blames_the_engine_not_the_parser(self):
+        """
+        The observed production failure: HF's serverless filler answers with tokens that carry no
+        residue at all, so 0/20 match. The message has to say the *engine* cannot serve SaProt's
+        3Di vocabulary — otherwise the card's only diagnostic reads like a bug in this parser, which
+        is exactly how it was read from the UI.
+        """
+        from model_server_app.routers.saprot import parse_saprot_fill_mask_scores
+        preds = [
+            {"token_str": "<mask>", "score": 0.90},
+            {"token_str": "▁", "score": 0.07},
+            {"token_str": "#", "score": 0.03},
+        ]
+        with self.assertRaises(ValueError) as ctx:
+            parse_saprot_fill_mask_scores(preds, expected_wt="R", expected_mut="W")
+
+        message = str(ctx.exception)
+        self.assertIn("0/20", message)
+        self.assertIn("no residue tokens", message)
+        self.assertIn("structure-aware", message)
+        self.assertIn("local engine", message)
+
+
+class TestSaProtFallbackDiagnostics(unittest.TestCase):
+    """
+    A fallback response replaces one model's numbers with another's. The response therefore has to
+    carry *why*, per tier: the local candidates' failure (which forces the fallback) and the remote
+    engine's failure (which only removes the first choice).
+    """
+
+    def _request(self):
+        from model_server_app.routers.saprot import SaprotRequest
+        return SaprotRequest(sequence="MKTAY", position=5, wt="Y", mut="W", engine="saprot-35m")
+
+    def test_local_failure_reason_reaches_the_response(self):
+        from unittest import mock
+        from model_server_app.routers import saprot as saprot_router
+
+        with mock.patch.object(
+            saprot_router.models, "get_saprot_model", side_effect=RuntimeError("weights unavailable")
+        ), mock.patch.object(
+            saprot_router, "predict_vesm_sync", return_value={"status": "success", "llr": -1.0}
+        ):
+            result = saprot_router.predict_saprot_sync(self._request())
+
+        self.assertEqual(result["provenance"], "VESM-150M (Local Fallback - SaProt unavailable)")
+        # The reason that actually forced the fallback, naming the candidate that failed.
+        self.assertIn("SaProt_35M_AF2", result["fallbackReason"])
+        self.assertIn("RuntimeError", result["fallbackReason"])
+        self.assertIn("weights unavailable", result["fallbackReason"])
+        # No remote attempt was made (no token), so no remote diagnostic may be invented.
+        self.assertIsNone(result["hfError"])
+        self.assertIsNone(result["remoteEngineNote"])
+
+    def test_remote_and_local_failures_are_reported_separately(self):
+        from unittest import mock
+        from model_server_app.routers import saprot as saprot_router
+
+        remote_error = ValueError(
+            "SaProt fill_mask returned insufficient valid amino acid tokens (0/20 matched): "
+            "the engine served a vocabulary with no residue tokens."
+        )
+        req = self._request()
+        req.hfToken = "hf_test_token"
+        req.preferRemote = True
+
+        with mock.patch.object(
+            saprot_router, "run_saprot_remote", side_effect=remote_error
+        ), mock.patch.object(
+            saprot_router.models, "get_saprot_model", side_effect=PermissionError("cache lock")
+        ), mock.patch.object(
+            saprot_router, "predict_vesm_sync", return_value={"status": "success", "llr": -1.0}
+        ):
+            result = saprot_router.predict_saprot_sync(req)
+
+        self.assertIn("0/20", result["remoteEngineNote"])
+        self.assertIn("cache lock", result["fallbackReason"])
+        # The two reasons describe different engines and must not be collapsed into one field.
+        self.assertNotEqual(result["remoteEngineNote"], result["fallbackReason"])
+        self.assertEqual(result["hfError"], result["remoteEngineNote"])
+
+class TestSaProtSequenceConstruction(unittest.TestCase):
+    """
+    SaProt's input is one residue/3Di pair token per position, and its 446-token vocabulary holds the
+    pairs in *lower case* ("Rd", "Kd") — 400/400 of them — with 0/400 upper-case pairs, plus the 20
+    masked "AA#" forms.
+
+    Foldseek/mini3di emit 3Di states in upper case. Pairing them verbatim therefore produced tokens
+    that do not exist, so the tokenizer collapsed a 510-residue input to a single <unk>: the model
+    returned three rows (one token plus the two specials) and the scorer raised
+
+        IndexError: index 390 is out of bounds for dimension 0 with size 3
+
+    which the router caught and reported as "SaProt unavailable", falling back to VESM-150M. Only a
+    *real* structure triggers it — an absent PDB yields '#' states, whose "AA#" tokens do exist, so
+    structure-less runs looked healthy and hid the defect.
+    """
+
+    def test_uppercase_3di_states_are_lowercased_into_pair_tokens(self):
+        from model_server_app.utils import build_saprot_sequence
+        self.assertEqual(build_saprot_sequence("RK", "DD"), "RdKd")
+
+    def test_lowercase_states_are_left_alone(self):
+        from model_server_app.utils import build_saprot_sequence
+        self.assertEqual(build_saprot_sequence("RK", "dd"), "RdKd")
+
+    def test_masked_states_keep_the_dedicated_hash_token(self):
+        from model_server_app.utils import build_saprot_sequence
+        self.assertEqual(build_saprot_sequence("RK", "##"), "R#K#")
+
+    def test_mask_index_replaces_exactly_one_position(self):
+        from model_server_app.utils import build_saprot_sequence
+        self.assertEqual(build_saprot_sequence("RKD", "ddd", mask_index=1), "Rd<mask>Dd")
+
+    def test_pair_tokens_are_always_lowercase_or_masked(self):
+        from model_server_app.utils import AA_LIST, to_saprot_3di
+        for aa in AA_LIST:
+            for state in to_saprot_3di("ACDEFGHIKLMNPQRSTVWY"):
+                token = aa + state
+                self.assertTrue(
+                    state == "#" or state.islower(),
+                    f"pair token {token!r} is not a form SaProt's vocabulary contains",
+                )
+
+    def test_collapsed_tokenisation_is_refused_with_its_cause(self):
+        from model_server_app.utils import validate_saprot_tokenization
+        validate_saprot_tokenization(512, 510)   # 510 pairs + <cls>/<eos>
+        with self.assertRaises(ValueError) as ctx:
+            validate_saprot_tokenization(3, 510)
+        message = str(ctx.exception)
+        self.assertIn("510 residues into 3 tokens", message)
+        self.assertIn("lower-case", message)
+
+
 if __name__ == "__main__":
     unittest.main()
 

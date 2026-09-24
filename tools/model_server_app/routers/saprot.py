@@ -8,7 +8,10 @@ from tools.model_server_app.utils import (
     validate_missense_residues,
     crop_sequence_around_mutation,
     encode_pdb_to_3di,
-    compute_scientific_metrics
+    compute_scientific_metrics,
+    build_saprot_sequence,
+    to_saprot_3di,
+    validate_saprot_tokenization
 )
 from tools.model_server_app import models
 from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync
@@ -49,6 +52,13 @@ class SaprotResponse(BaseModel):
     conformationState: str | None = None
     provenance: str | None = None
     hfError: str | None = None
+    # Why the remote tier produced no score. Distinct from hfError only in emphasis: the card must
+    # be able to say *which engine* it is describing rather than presenting one engine's failure as
+    # the reason the headline model is missing.
+    remoteEngineNote: str | None = None
+    # Why every local SaProt candidate failed, i.e. the reason this response is VESM's numbers under
+    # a SaProt heading. Previously printed and dropped, so the fallback was unexplainable.
+    fallbackReason: str | None = None
     verdict: str | None = None
     error: str | None = None
 
@@ -78,7 +88,11 @@ def parse_saprot_fill_mask_scores(preds, expected_wt: str = None, expected_mut: 
 
     matched_aas = [aa for aa in AA_LIST if aa in scores]
     if len(matched_aas) < 2:
-        raise ValueError(f"SaProt fill_mask returned insufficient valid amino acid tokens ({len(matched_aas)}/20 matched).")
+        raise ValueError(
+            f"SaProt fill_mask returned insufficient valid amino acid tokens ({len(matched_aas)}/20 matched): "
+            "the engine served a vocabulary with no residue tokens, so it cannot score SaProt's "
+            "structure-aware (3Di-pair) output. Score this model on the local engine instead."
+        )
 
     if (expected_wt and expected_mut) and (expected_wt not in scores and expected_mut not in scores):
         raise ValueError(f"SaProt fill_mask missing both expected WT ({expected_wt}) and MUT ({expected_mut}) in candidate scores.")
@@ -109,16 +123,12 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
     else:
         seq_3di = "#" * len(wt_sequence)
         
-    seq_sa_list = []
-    for idx, (a, d) in enumerate(zip(wt_sequence, seq_3di)):
-        if idx == pos - 1:
-            seq_sa_list.append("<mask>")
-        else:
-            seq_sa_list.append(a + d)
-            
-    masked_seq = "".join(seq_sa_list)
-    
-    s_pos = seq_3di[pos - 1]
+    # The 3Di alphabet is normalised to SaProt's lower-case pair tokens inside the helper: an
+    # upper-case state ("D") builds "RD", which is absent from the vocabulary and collapses the
+    # whole request to <unk>.
+    masked_seq = build_saprot_sequence(wt_sequence, seq_3di, mask_index=pos - 1)
+
+    s_pos = to_saprot_3di(seq_3di)[pos - 1]
     targets = [aa + s_pos for aa in AA_LIST]
 
     candidate_models = [model_name]
@@ -166,11 +176,11 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
             
     pos_entropy = float(-sum(p * np.log2(p) for p in probs.values() if p > 0))
     
-    wt_seq_sa = "".join(a + d for a, d in zip(wt_sequence, seq_3di))
+    wt_seq_sa = build_saprot_sequence(wt_sequence, seq_3di)
     mut_seq_chars = list(wt_sequence)
     mut_seq_chars[pos - 1] = mut
     mut_sequence = "".join(mut_seq_chars)
-    mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
+    mut_seq_sa = build_saprot_sequence(mut_sequence, seq_3di)
     
     # Left as None, not 0.0: HF's filler API exposes no per-residue feature extraction for
     # SaProt's 3Di tokens, and a coerced zero is indistinguishable from a measured zero shift
@@ -245,6 +255,11 @@ def predict_saprot_sync(req: SaprotRequest):
             req.modelName = "westlake-repl/SaProt_35M_AF2"
 
         hf_error_detail = None
+        remote_engine_note = None
+        # Tracks whether SaProt itself served this request, for the health status in the finally
+        # block: reporting "ready" after a fallback made a host that could never load SaProt look
+        # healthy from the outside.
+        saprot_available = False
         should_prefer_remote = getattr(req, "preferRemote", False) or getattr(req, "engine", None) == "remote-hf"
         if req.hfToken and should_prefer_remote:
             models.model_status["saprot"] = "remote_inference"
@@ -252,10 +267,12 @@ def predict_saprot_sync(req: SaprotRequest):
                 print(f"[Model Server] Querying SaProt remotely via HF Serverless Inference API (model={req.modelName})...")
                 result = run_saprot_remote(req.modelName, sequence, pos, wt, mut, req.hfToken, req.wtPdb, start_offset=start_offset)
                 print(f"[Model Server] SaProt remote call succeeded.")
+                saprot_available = True
                 return result
             except Exception as e:
                 import traceback
                 hf_error_detail = f"{type(e).__name__}: {e}"
+                remote_engine_note = hf_error_detail
                 print(f"[Model Server] SaProt remote run FAILED: {hf_error_detail}")
                 print(traceback.format_exc())
 
@@ -274,11 +291,15 @@ def predict_saprot_sync(req: SaprotRequest):
                 target_models.append("westlake-repl/SaProt_35M_AF2")
 
         last_local_err = None
+        # Every candidate's failure, kept so the fallback can report all of them rather than only
+        # whichever model happened to be tried last.
+        local_errors: list[str] = []
         for model_candidate in target_models:
             try:
                 print(f"[Model Server] Attempting local SaProt execution using {model_candidate}...")
                 models.model_status["saprot"] = "loading_into_ram"
                 tokenizer, model = models.get_saprot_model(model_candidate, token=req.hfToken)
+                saprot_available = True
                 device = next(model.parameters()).device
                 
                 if req.wtPdb:
@@ -288,10 +309,13 @@ def predict_saprot_sync(req: SaprotRequest):
                     seq_3di = "#" * len(sequence)
                     
                 models.model_status["saprot"] = "scoring_perturbation"
-                seq_sa = "".join(a + d for a, d in zip(sequence, seq_3di))
+                seq_sa = build_saprot_sequence(sequence, seq_3di)
                 
                 inputs = tokenizer(seq_sa, return_tensors="pt")
                 inputs = {k: v.to(device) for k, v in inputs.items()}
+                # A vocabulary mismatch is refused here, at the tokenisation that caused it, rather
+                # than surfacing as an IndexError from logits[pos] further down.
+                validate_saprot_tokenization(int(inputs["input_ids"].shape[-1]), len(sequence))
                 
                 with torch.inference_mode():
                     outputs = model(**inputs, output_hidden_states=True)
@@ -299,7 +323,7 @@ def predict_saprot_sync(req: SaprotRequest):
                 logits = outputs.logits[0]
                 hidden_states = outputs.hidden_states[-1][0]
                 
-                s_pos = seq_3di[pos - 1]
+                s_pos = to_saprot_3di(seq_3di)[pos - 1]
                 
                 vocab_map = {}
                 for aa in AA_LIST:
@@ -316,10 +340,11 @@ def predict_saprot_sync(req: SaprotRequest):
                 mut_seq_chars = list(sequence)
                 mut_seq_chars[pos - 1] = mut
                 mut_sequence = "".join(mut_seq_chars)
-                mut_seq_sa = "".join(a + d for a, d in zip(mut_sequence, seq_3di))
+                mut_seq_sa = build_saprot_sequence(mut_sequence, seq_3di)
                 
                 mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
                 mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
+                validate_saprot_tokenization(int(mut_inputs["input_ids"].shape[-1]), len(mut_sequence))
                 with torch.inference_mode():
                     mut_outputs = model(**mut_inputs, output_hidden_states=True)
                     
@@ -369,23 +394,32 @@ def predict_saprot_sync(req: SaprotRequest):
                     "klDivergence": round(kl_div, 4),
                     "conformationState": s_pos,
                     "provenance": provenance_label,
-                    "hfError": hf_error_detail
+                    "hfError": hf_error_detail,
+                    "remoteEngineNote": remote_engine_note
                 }
             except Exception as local_err:
                 print(f"[Model Server] SaProt candidate {model_candidate} failed: {local_err}")
                 last_local_err = local_err
+                local_errors.append(f"{model_candidate.split('/')[-1]}: {type(local_err).__name__}: {local_err}")
 
-        # Fallback to VESM-150M if all SaProt attempts fail
-        print(f"[Model Server] All SaProt candidates failed ({last_local_err}). Falling back to VESM-150M.")
+        # Fallback to VESM-150M if all SaProt attempts fail.
+        #
+        # The local failure is returned, not merely printed: without it a response whose numbers come
+        # from a different model can only say "SaProt unavailable", which is exactly the ambiguity
+        # that makes this ladder unreadable from the UI.
+        fallback_reason = "; ".join(local_errors) if local_errors else "no local SaProt candidate was attempted"
+        print(f"[Model Server] All SaProt candidates failed ({fallback_reason}). Falling back to VESM-150M.")
         vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
         vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM cannot compute 3Di structural KL divergence
         vesm_res["conformationState"] = "#"
         vesm_res["provenance"] = "VESM-150M (Local Fallback - SaProt unavailable)"
         vesm_res["hfError"] = hf_error_detail
+        vesm_res["remoteEngineNote"] = remote_engine_note
+        vesm_res["fallbackReason"] = fallback_reason
         return vesm_res
     finally:
-        models.model_status["saprot"] = "ready"
+        models.model_status["saprot"] = "ready" if saprot_available else "unavailable"
 
 _inference_semaphore = asyncio.Semaphore(1)
 

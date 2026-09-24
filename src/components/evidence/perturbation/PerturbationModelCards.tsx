@@ -177,6 +177,23 @@ export function PerturbationModelCards({
             : "var(--cs-text-success)";
         const shiftVal: number | null = typeof m.data.embeddingShift === "number" && Number.isFinite(m.data.embeddingShift) ? m.data.embeddingShift : null;
 
+        /**
+         * Two different tiers can each be the reason a card shows another model's numbers, and they
+         * fail for different reasons: the remote engine and the local candidates. Only the remote one
+         * used to be carried (`hfError`), so a card whose *local* SaProt load failed pointed the
+         * reader at the wrong engine — and at a parse error that read like a defect in this code.
+         * Each reason is now labelled with the tier that produced it.
+         */
+        const diagnostics: string[] = [];
+        const remoteEngineNote = typeof m.data?.remoteEngineNote === "string"
+          ? m.data.remoteEngineNote
+          : (typeof m.data?.hfError === "string" ? m.data.hfError : null);
+        if (remoteEngineNote) diagnostics.push(`Remote engine (HF serverless): ${remoteEngineNote}`);
+        const fallbackReason = typeof m.data?.fallbackReason === "string" ? m.data.fallbackReason : null;
+        if (fallbackReason) diagnostics.push(`Local SaProt candidates: ${fallbackReason}`);
+        const diagnosticTooltip = diagnostics.length > 0 ? diagnostics.join("\n") : null;
+        const isFallbackRun = /fallback|vesm/i.test(String(m.data?.provenance || ""));
+
         return (
           <div
             key={m.id}
@@ -199,33 +216,38 @@ export function PerturbationModelCards({
           >
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                {(() => {
-                  const prov = ((m.data as any).provenance || "").toLowerCase();
-                  if (prov.includes("fallback") || prov.includes("vesm")) {
-                    return (
-                      <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1">
+                  {(() => {
+                    const prov = ((m.data as any).provenance || "").toLowerCase();
+                    if (prov.includes("fallback") || prov.includes("vesm")) {
+                      return (
                         <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20">
                           Fallback (CPU)
                         </span>
-                        {m.data?.hfError && (
-                          <span 
-                            title={`HF Diagnostic: ${m.data.hfError}`}
-                            className="text-[10px] cursor-help px-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                          >
-                            ℹ️
-                          </span>
-                        )}
-                      </div>
-                    );
-                  }
-                  if (prov.includes("remote") || prov.includes("biohub") || prov.includes("hf")) {
-                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">Cloud Remote</span>;
-                  }
-                  if (prov.includes("gpu") || prov.includes("local")) {
-                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Local GPU</span>;
-                  }
-                  return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Active</span>;
-                })()}
+                      );
+                    }
+                    if (prov.includes("remote") || prov.includes("biohub") || prov.includes("hf")) {
+                      return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20">Cloud Remote</span>;
+                    }
+                    if (prov.includes("gpu") || prov.includes("local")) {
+                      return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Local GPU</span>;
+                    }
+                    return <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">Active</span>;
+                  })()}
+                  {/*
+                    Rendered whenever *either* tier has something to report, not only on a fallback
+                    card: a run that recovered locally after a failed remote attempt has a diagnostic
+                    the reader is entitled to see too.
+                  */}
+                  {diagnosticTooltip && (
+                    <span
+                      title={diagnosticTooltip}
+                      className="text-[10px] cursor-help px-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                    >
+                      ℹ️
+                    </span>
+                  )}
+                </div>
                 <div className="p-1 rounded" style={{ background: isSelected ? "rgba(196, 104, 73, 0.1)" : "var(--cs-bg-subtle)", color: isSelected ? "var(--cs-accent-clay)" : "var(--cs-text-secondary)" }}>
                   <IconComponent className="w-3.5 h-3.5" />
                 </div>
@@ -234,6 +256,19 @@ export function PerturbationModelCards({
               <p className="text-[10px] mt-0.5 leading-normal truncate text-cs-text-muted text-left">
                 {(m.data as any).provenance ? (m.data as any).provenance : m.description}
               </p>
+              {/*
+                The cause is visible without a hover. "SaProt unavailable" was previously the whole
+                explanation, which left the reader to guess between a token problem, an unserved
+                model, a cache fault and a real scientific result.
+              */}
+              {isFallbackRun && fallbackReason && (
+                <p
+                  className="text-[9.5px] mt-0.5 leading-snug line-clamp-2 text-amber-600 dark:text-amber-400 text-left"
+                  title={fallbackReason}
+                >
+                  Cause: {fallbackReason}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t text-left" style={{ borderColor: "var(--cs-border-subtle)" }}>

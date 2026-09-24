@@ -23,6 +23,10 @@ export interface SaprotEvalResult {
   conformationState?: string | null;
   provenance?: string;
   hfError?: string | null;
+  /** Why the remote tier produced no score (labelled by tier in the UI). */
+  remoteEngineNote?: string | null;
+  /** Why every local SaProt candidate failed — the reason this response is VESM's numbers. */
+  fallbackReason?: string | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
@@ -160,7 +164,14 @@ export async function runSaprotAnalysis(
           klDivergence,
           conformationState,
           provenance,
-          hfError: data.hfError || undefined
+          hfError: data.hfError || undefined,
+          /**
+           * Both tier reasons are carried verbatim and labelled by tier in the UI, so the card no
+           * longer presents the remote engine's failure as the reason the SaProt result is missing
+           * when it was the local candidates that actually failed.
+           */
+          remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined,
+          fallbackReason: typeof data.fallbackReason === "string" ? data.fallbackReason : undefined
         };
       }
       return { error: `SaProt sidecar returned unexpected response format`, status: "error" };

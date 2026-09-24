@@ -21,6 +21,9 @@ export interface EsmcEvalResult {
   localShiftMap?: EsmcLocalShift[];
   klDivergence?: number | null;
   provenance?: string;
+  /** Why the remote engine produced no score, and why the local candidates failed. */
+  remoteEngineNote?: string | null;
+  fallbackReason?: string | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
@@ -117,7 +120,9 @@ export async function runEsm2Analysis(
           localEmbeddingShift,
           localShiftMap,
           klDivergence,
-          provenance
+          provenance,
+          remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined,
+          fallbackReason: typeof data.fallbackReason === "string" ? data.fallbackReason : undefined
         };
       }
       return { error: `ESM-2 sidecar returned unexpected response format`, status: "error" };
