@@ -5,9 +5,11 @@ import { useSettings } from "../../context/SettingsContext";
 import {
   buildEngineOutcomes,
   formatDdg,
+  summarizeCoverage,
   type EngineTone,
   type RemoteStatus,
 } from "../../shared/engineStatus";
+import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
 interface EnergeticsInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -135,6 +137,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
     [outcomes]
   );
 
+  const coverage = useMemo(() => summarizeCoverage(outcomes), [outcomes]);
+
   const provenanceRows = useMemo(() => {
     const prov = energetics?.structureProvenance;
     if (!prov) return [] as Array<{ label: string; value: string }>;
@@ -172,35 +176,84 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
       </div>
 
       {/* ── 2. Engine telemetry: one row per engine, from the canonical state ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Stability Engine Telemetry
-        </span>
+      <div 
+        id={INSPECTOR_SECTIONS.stabilityTelemetry}
+        tabIndex={-1}
+        role="region"
+        aria-label="Stability Engine Telemetry"
+        className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay rounded-lg transition-shadow"
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Stability Engine Telemetry
+          </span>
+          <span className="text-[9.5px] font-mono text-cs-text-muted">
+            {coverage.computed}/{coverage.intended} active
+          </span>
+        </div>
 
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          {outcomes.map(outcome => (
-            <div key={outcome.id} className="flex items-start justify-between gap-2 text-[11px]">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span
-                  aria-hidden="true"
-                  className={`w-2 h-2 rounded-full shrink-0 ${outcome.state === "running" ? "animate-ping" : ""}`}
-                  style={{ background: TONE_DOT[outcome.excluded ? "muted" : outcome.tone] }}
-                />
-                <span className="font-semibold text-cs-text-primary truncate">{outcome.engine.name}</span>
-              </div>
-              <div className="flex flex-col items-end text-right min-w-0">
-                <span className="font-mono text-[10px] text-cs-text-secondary">
-                  {outcome.excluded ? "Not counted" : outcome.label}
-                </span>
-                {outcome.canonicalDdg !== null && (
-                  <span className="font-mono text-[10px] text-cs-text-muted">
-                    {formatDdg(outcome.canonicalDdg, energyUnit)}
+        <div className="rounded-lg border border-cs-border bg-cs-surface-2 divide-y divide-cs-border-subtle/50 overflow-hidden">
+          {outcomes.map(outcome => {
+            const isComputed = outcome.state === "computed";
+            const isRunning = outcome.state === "running";
+            const isExcluded = outcome.excluded;
+
+            return (
+              <div 
+                key={outcome.id} 
+                className="px-3 py-2 flex items-center justify-between gap-3 text-[11px] hover:bg-cs-surface-3/30 transition-colors"
+              >
+                {/* Left: Engine identifier & live indicator */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    {isRunning && (
+                      <span
+                        aria-hidden="true"
+                        className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                        style={{ background: TONE_DOT[outcome.tone] }}
+                      />
+                    )}
+                    <span
+                      aria-hidden="true"
+                      className="relative inline-flex rounded-full h-2 w-2"
+                      style={{ background: TONE_DOT[isExcluded ? "muted" : outcome.tone] }}
+                    />
                   </span>
-                )}
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-semibold text-cs-text-primary text-[11px] truncate">
+                      {outcome.engine.name}
+                    </span>
+                    <span className="text-[9.5px] text-cs-text-muted truncate">
+                      {outcome.engine.taxonomy}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right: Aligned status and ΔΔG readout */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {outcome.canonicalDdg !== null && (
+                    <span className="font-mono text-[11px] font-bold tabular-nums text-cs-text-primary">
+                      {formatDdg(outcome.canonicalDdg, energyUnit)}
+                    </span>
+                  )}
+                  <span
+                    className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded border ${
+                      isExcluded
+                        ? "bg-cs-surface text-cs-text-muted border-cs-border"
+                        : isComputed
+                          ? "bg-cs-bg-subtle text-cs-text-secondary border-cs-border-subtle"
+                          : isRunning
+                            ? "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border-[var(--cs-border)] animate-pulse"
+                            : "bg-cs-surface text-cs-text-muted border-cs-border"
+                    }`}
+                  >
+                    {isExcluded ? "Not counted" : outcome.label}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

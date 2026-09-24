@@ -35,7 +35,9 @@ export const INSPECTOR_SECTIONS = {
   /** P2Rank cavity interpretation in the Residue Shifts inspector. */
   residueShiftPocket: "inspector-residue-shift-pocket",
   /** Relocated ACMG/AMP evidence-code key in the Thresholds inspector pane. */
-  thresholdKey: "inspector-threshold-key"
+  thresholdKey: "inspector-threshold-key",
+  /** Stability engine telemetry in the Energetics inspector. */
+  stabilityTelemetry: "inspector-stability-telemetry"
 } as const;
 
 export type InspectorSectionId = (typeof INSPECTOR_SECTIONS)[keyof typeof INSPECTOR_SECTIONS];

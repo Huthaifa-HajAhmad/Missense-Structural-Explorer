@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import EnergeticsView from "../EnergeticsView";
 import { deriveConsensus } from "../ClinicalInsightsCard";
 import { SettingsProvider } from "../../context/SettingsContext";
+import { INSPECTOR_FOCUS_EVENT, INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
 /**
  * First component coverage for the Energetics tab.
@@ -378,3 +379,89 @@ describe("EnergeticsView — a fully populated run", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("EnergeticsView — UI polish & interactive affordances", () => {
+  it("renders docked polarity chips in the table card footer and avoids orphan footnote", () => {
+    const { container } = renderView();
+    expect(screen.getByText("+ΔΔG Destabilizing")).toBeInTheDocument();
+    expect(screen.getByText("−ΔΔG Stabilizing")).toBeInTheDocument();
+    expect(screen.getByText(/Normalized convention · Engine-specific calibrated cut-points/)).toBeInTheDocument();
+    expect(container.querySelector("p.font-mono.text-cs-text-muted")).toBeNull();
+  });
+
+  it("renders inline structure provenance badge inside consensus header row", () => {
+    renderView({
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        structureProvenance: {
+          source: "alphafold",
+          uniprotId: "Q9H257",
+        } as any,
+      },
+    });
+    expect(screen.getByText("AlphaFold prediction")).toBeInTheDocument();
+  });
+
+  it("dispatches inspector focus request when 'Inspect Live Telemetry' is clicked", () => {
+    let dispatchedDetail: any = null;
+    const listener = (e: Event) => {
+      dispatchedDetail = (e as CustomEvent).detail;
+    };
+    window.addEventListener(INSPECTOR_FOCUS_EVENT, listener);
+    try {
+      renderView();
+      const inspectBtn = screen.getByRole("button", { name: /Inspect Live Telemetry/i });
+      fireEvent.click(inspectBtn);
+      expect(dispatchedDetail).toEqual({ sectionId: INSPECTOR_SECTIONS.stabilityTelemetry });
+    } finally {
+      window.removeEventListener(INSPECTOR_FOCUS_EVENT, listener);
+    }
+  });
+
+  it("renders experimental structure provenance with PDB link and resolution", () => {
+    renderView({
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        structureProvenance: {
+          source: "experimental",
+          pdbId: "1abc",
+          chainId: "A",
+          resolution: 1.8,
+        } as any,
+      },
+    });
+    expect(screen.getByText("Experimental structure")).toBeInTheDocument();
+    const pdbLink = screen.getByTitle("Open 1ABC in RCSB PDB");
+    expect(pdbLink).toHaveAttribute("href", "https://www.rcsb.org/structure/1ABC");
+    expect(screen.getByText("1.8 Å")).toBeInTheDocument();
+  });
+
+  it("renders structural homolog provenance with sequence identity", () => {
+    renderView({
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        structureProvenance: {
+          source: "homolog",
+          identity: 85,
+        } as any,
+      },
+    });
+    expect(screen.getByText("Structural homolog")).toBeInTheDocument();
+    expect(screen.getByText(/\(85% id\)/)).toBeInTheDocument();
+  });
+
+  it("suppresses provenance badge while folding simulation is in flight", () => {
+    renderView({
+      isFolding: true,
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        structureProvenance: {
+          source: "alphafold",
+          uniprotId: "Q9H257",
+        } as any,
+      },
+    });
+    expect(screen.queryByText("AlphaFold prediction")).toBeNull();
+  });
+});
+

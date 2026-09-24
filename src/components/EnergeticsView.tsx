@@ -5,11 +5,13 @@ import {
   ExternalLink,
   Circle,
   Database,
-  FlaskConical
+  FlaskConical,
+  ArrowRight
 } from "lucide-react";
 import { AnalysisState, EnergeticsData, StructureProvenance } from "../types";
 import { useSettings } from "../context/SettingsContext";
 import { computeCalibratedConsensus, calibrateRawScore } from "../shared/thresholds";
+import { requestInspectorFocus, INSPECTOR_SECTIONS } from "../lib/inspectorFocus";
 import {
   buildEngineOutcomes,
   describeCoverage,
@@ -22,6 +24,14 @@ import {
   type EngineTone,
   type ProvenanceSource,
 } from "../shared/engineStatus";
+
+const TONE_DOT: Record<EngineTone, string> = {
+  good: "var(--cs-text-success)",
+  warn: "var(--cs-text-warning)",
+  danger: "var(--cs-text-danger)",
+  neutral: "var(--cs-text-muted)",
+  muted: "var(--cs-border)",
+};
 
 interface EnergeticsViewProps {
   isDark: boolean;
@@ -281,11 +291,21 @@ const EnergeticsView = memo(function EnergeticsView({
   if (!result) {
     return (
       <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full`} id="energetics-view">
-        <div className="px-5 py-5 border-b flex-shrink-0" style={{ borderColor: "var(--cs-border)" }}>
-          <h1 className="screen-title">Energetics</h1>
-          <p className="screen-tab-description">
-            Shows how each computational method estimates the free-energy cost of your substitution — positive ΔΔG values indicate predicted structural destabilization.
-          </p>
+        <div className="px-5 py-3 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface flex-shrink-0 min-h-[52px]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-1.5 rounded-lg bg-cs-accent-clay/10 text-cs-accent-clay shrink-0">
+              <Activity className="w-4 h-4" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-xs font-bold font-sans text-cs-text-primary tracking-tight">Energetics</h1>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">ΔΔG Stability</span>
+              </div>
+              <p className="text-[10.5px] font-sans text-cs-text-muted truncate">
+                Multi-engine free-energy estimation (positive ΔΔG = predicted structural destabilization)
+              </p>
+            </div>
+          </div>
         </div>
         <div className="p-5 flex-grow flex flex-col justify-center text-center py-12">
           <Activity className="w-10 h-10 mx-auto stroke-[1.5] mb-2 animate-pulse" style={{ color: "var(--cs-accent-clay)" }} />
@@ -402,100 +422,128 @@ const EnergeticsView = memo(function EnergeticsView({
    * `formatDdg(canonicalDdg)`. Keeping both, explicitly named, is what stops the two conventions
    * from leaking into each other again.
    */
-  const rawByEngine: Record<EnergyEngineId, number | null | undefined> = {
-    foldx: foldxMeanVal ?? foldxDdG,
-    dynamut2,
-    ddmut,
-    rasp,
-    thermompnn,
-    stabilityoracle,
-  };
+  const rawByEngine: Record<EnergyEngineId, number | null | undefined> = useMemo(
+    () => ({
+      foldx: foldxMeanVal ?? foldxDdG,
+      dynamut2,
+      ddmut,
+      rasp,
+      thermompnn,
+      stabilityoracle,
+    }),
+    [foldxMeanVal, foldxDdG, dynamut2, ddmut, rasp, thermompnn, stabilityoracle]
+  );
+
+  const calibratedBreakdownRows = useMemo(() => {
+    return engineOutcomes
+      .filter(o => o.contributesToConsensus && o.canonicalDdg !== null)
+      .map(o => {
+        const raw = rawByEngine[o.id] ?? null;
+        const cal = raw === null ? null : calibrateRawScore(o.id, raw);
+        return cal ? { outcome: o, cal } : null;
+      })
+      .filter((row): row is { outcome: EngineOutcome; cal: NonNullable<ReturnType<typeof calibrateRawScore>> } => row !== null);
+  }, [engineOutcomes, rawByEngine]);
 
   return (
     <div className={`${classCard} overflow-hidden flex flex-col transition-all h-full font-mono text-xs`} id="energetics-view" role="region" aria-label="Biophysical Energetics Analysis">
-      <div className="px-5 py-5 border-b flex-shrink-0" style={{ borderColor: "var(--cs-border)" }}>
-        <h1 className="screen-title">Energetics</h1>
-        <p className="screen-tab-description">
-          Shows how each computational method estimates the free-energy cost of your substitution — positive ΔΔG values indicate predicted structural destabilization.
-        </p>
+      <div className="px-5 py-3 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface flex-shrink-0 min-h-[52px]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-1.5 rounded-lg bg-cs-accent-clay/10 text-cs-accent-clay shrink-0">
+            <Activity className="w-4 h-4" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xs font-bold font-sans text-cs-text-primary tracking-tight">Energetics</h1>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">ΔΔG Stability</span>
+            </div>
+            <p className="text-[10.5px] font-sans text-cs-text-muted truncate">
+              Multi-engine free-energy estimation (positive ΔΔG = predicted structural destabilization)
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="p-5 flex-grow overflow-y-auto space-y-4">
-        <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--cs-accent-clay)" }}>Consensus Biophysical Stability (ΔΔG)</h4>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h4 className="font-bold text-xs uppercase tracking-wider font-mono text-cs-accent-clay">
+            Consensus Biophysical Stability (ΔΔG)
+          </h4>
 
-        {/* ── Structure Provenance Badge ──────────────────────────────────── */}
-        {foldingEnergetics?.structureProvenance && !isFolding && (
-          (() => {
-            const prov: StructureProvenance = foldingEnergetics.structureProvenance!;
-            // Provenance labels come from the shared contract. Previously a `client-provided`
-            // structure fell through to "AlphaFold Prediction" — a false claim about the very
-            // template the FoldX number depends on.
-            const provView = describeProvenance(prov.source as ProvenanceSource, {
-              pdbId: prov.pdbId,
-              resolution: prov.resolution,
-              identity: prov.identity,
-            });
-            const isTemplate = provView.isTemplate;
-            const isHomolog = prov.source === "homolog";
-            const label = provView.label;
-            const methodClean = prov.method
-              ? prov.method.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
-              : null;
-            return (
-              <div
-                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-lg border text-[10px] font-mono animate-fade-in"
-                style={{
-                  background: isTemplate
-                    ? "color-mix(in srgb, var(--cs-bg-success) 30%, transparent)"
-                    : "var(--cs-surface-2)",
-                  borderColor: isTemplate
-                    ? "color-mix(in srgb, var(--cs-text-success) 40%, transparent)"
-                    : "var(--cs-border-subtle)"
-                }}
-                title="Structure template used for FoldX ΔΔG computation"
-              >
-                {isTemplate
-                  ? <Database className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-success)" }} />
-                  : <FlaskConical className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-muted)" }} />
-                }
-                <span className="font-bold" style={{ color: isTemplate ? "var(--cs-text-success)" : "var(--cs-text-muted)" }}>
-                  {label}
-                </span>
-                {prov.pdbId && (
-                  <a
-                    href={`https://www.rcsb.org/structure/${prov.pdbId.toUpperCase()}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded border font-bold uppercase hover:opacity-80 transition-opacity"
-                    style={{
-                      background: "var(--cs-surface)",
-                      borderColor: "var(--cs-border)",
-                      color: "var(--cs-accent)"
-                    }}
-                    title={`Open ${prov.pdbId.toUpperCase()} in RCSB PDB`}
-                  >
-                    {prov.pdbId.toUpperCase()}
-                    {prov.chainId && <span style={{ color: "var(--cs-text-muted)" }}>:{prov.chainId}</span>}
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                )}
-                {methodClean && (
-                  <span style={{ color: "var(--cs-text-secondary)" }}>{methodClean}</span>
-                )}
-                {prov.resolution != null && (
-                  <span className="font-semibold" style={{ color: "var(--cs-text-secondary)" }}>
-                    {prov.resolution.toFixed(1)} Å
+          {/* ── Structure Provenance Inline Badge ──────────────────────────────── */}
+          {foldingEnergetics?.structureProvenance && !isFolding && (
+            (() => {
+              const prov: StructureProvenance = foldingEnergetics.structureProvenance!;
+              // Provenance labels come from the shared contract. Previously a `client-provided`
+              // structure fell through to "AlphaFold Prediction" — a false claim about the very
+              // template the FoldX number depends on.
+              const provView = describeProvenance(prov.source as ProvenanceSource, {
+                pdbId: prov.pdbId,
+                resolution: prov.resolution,
+                identity: prov.identity,
+              });
+              const isTemplate = provView.isTemplate;
+              const isHomolog = prov.source === "homolog";
+              const label = provView.label;
+              const methodClean = prov.method
+                ? prov.method.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+                : null;
+              return (
+                <div
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-mono animate-fade-in shadow-xs"
+                  style={{
+                    background: isTemplate
+                      ? "color-mix(in srgb, var(--cs-bg-success) 20%, var(--cs-surface-2))"
+                      : "var(--cs-surface-2)",
+                    borderColor: isTemplate
+                      ? "color-mix(in srgb, var(--cs-text-success) 35%, var(--cs-border))"
+                      : "var(--cs-border-subtle)"
+                  }}
+                  title="Structure template used for FoldX ΔΔG computation"
+                >
+                  {isTemplate
+                    ? <Database className="w-3 h-3 shrink-0" style={{ color: "var(--cs-text-success)" }} />
+                    : <FlaskConical className="w-3 h-3 shrink-0" style={{ color: "var(--cs-text-muted)" }} />
+                  }
+                  <span className="font-semibold" style={{ color: isTemplate ? "var(--cs-text-success)" : "var(--cs-text-secondary)" }}>
+                    {label}
                   </span>
-                )}
-                {isHomolog && prov.identity != null && (
-                  <span style={{ color: "var(--cs-text-muted)" }}>
-                    {prov.identity.toFixed(0)}% identity
-                  </span>
-                )}
-              </div>
-            );
-          })()
-        )}
+                  {prov.pdbId && (
+                    <a
+                      href={`https://www.rcsb.org/structure/${prov.pdbId.toUpperCase()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border font-bold uppercase hover:opacity-80 transition-opacity"
+                      style={{
+                        background: "var(--cs-surface)",
+                        borderColor: "var(--cs-border)",
+                        color: "var(--cs-accent)"
+                      }}
+                      title={`Open ${prov.pdbId.toUpperCase()} in RCSB PDB`}
+                    >
+                      {prov.pdbId.toUpperCase()}
+                      {prov.chainId && <span style={{ color: "var(--cs-text-muted)" }}>:{prov.chainId}</span>}
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                  {methodClean && (
+                    <span style={{ color: "var(--cs-text-muted)" }}>• {methodClean}</span>
+                  )}
+                  {prov.resolution != null && (
+                    <span className="font-semibold" style={{ color: "var(--cs-text-secondary)" }}>
+                      {prov.resolution.toFixed(1)} Å
+                    </span>
+                  )}
+                  {isHomolog && prov.identity != null && (
+                    <span style={{ color: "var(--cs-text-muted)" }}>
+                      ({prov.identity.toFixed(0)}% id)
+                    </span>
+                  )}
+                </div>
+              );
+            })()
+          )}
+        </div>
         {/* ─────────────────────────────────────────────────────────────────── */}
 
         {isFolding && !hidePendingEngines && (
@@ -598,10 +646,20 @@ const EnergeticsView = memo(function EnergeticsView({
                 })}
             </tbody>
           </table>
+          <div className="px-3.5 py-2 bg-cs-surface-2 border-t border-cs-border-subtle flex flex-wrap items-center justify-between gap-2 text-[11px]">
+            <div className="flex items-center gap-2 font-mono text-[10px]">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cs-bg-danger/60 text-cs-text-danger-on-soft border border-cs-border font-semibold">
+                +ΔΔG Destabilizing
+              </span>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cs-bg-success/60 text-cs-text-success border border-cs-border font-semibold">
+                −ΔΔG Stabilizing
+              </span>
+            </div>
+            <span className="text-[10px] text-cs-text-muted font-mono">
+              Normalized convention · Engine-specific calibrated cut-points
+            </span>
+          </div>
         </div>
-        <p className="text-[10px] text-cs-text-muted mt-1.5 px-1 font-mono">
-          * Values are shown in one normalised convention: positive ΔΔG = destabilizing, negative = stabilizing. Each engine is classified using its own calibrated cut-points, not FoldX&rsquo;s.
-        </p>
       </div>
 
         {/* Consensus verdict and per-engine breakdown.
@@ -748,58 +806,61 @@ const EnergeticsView = memo(function EnergeticsView({
               );
             })()}
 
-            <div className="space-y-2 pl-2 mt-4">
-              <span className="text-[9px] font-bold uppercase tracking-wider font-mono block mb-2" style={{ color: "var(--cs-text-muted)" }}>
+            <div className="mt-4 pt-3 border-t border-cs-border-subtle">
+              <span className="text-[10px] font-bold uppercase tracking-wider font-mono block mb-2 text-cs-text-muted">
                 Calibrated Tool Breakdown:
               </span>
-              {(() => {
-                /**
-                 * Calibration curves are fitted in each provider's NATIVE sign convention, so the
-                 * raw value drives the probability while the canonical value drives the display.
-                 * This panel previously printed the raw sign while the table above negated it, so
-                 * the same measurement appeared as both −0.09 and +0.09 on one card.
-                 */
-                const rows = engineOutcomes
-                  .filter(o => o.contributesToConsensus && o.canonicalDdg !== null)
-                  .map(o => {
-                    const raw = rawByEngine[o.id] ?? null;
-                    const cal = raw === null ? null : calibrateRawScore(o.id, raw);
-                    return cal ? { outcome: o, cal } : null;
-                  })
-                  .filter((row): row is { outcome: EngineOutcome; cal: NonNullable<ReturnType<typeof calibrateRawScore>> } => row !== null);
-
-                if (rows.length === 0) {
-                  return (
-                    <p className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
-                      No calibrated per-engine probabilities are available for this run.
-                    </p>
-                  );
-                }
-
-                return rows.map(({ outcome, cal }) => (
-                  <div
-                    key={outcome.id}
-                    className="flex justify-between items-center text-[10px] font-mono py-1.5 border-b border-dashed"
-                    style={{ borderColor: "var(--cs-border-subtle)" }}
-                  >
-                    <span style={{ color: "var(--cs-text-secondary)" }}>{outcome.engine.name}:</span>
-                    <div className="flex gap-2">
-                      <span className="font-bold" style={{ color: "var(--cs-text-primary)" }}>
-                        {formatDdg(outcome.canonicalDdg, energyUnit)}
-                      </span>
-                      <span style={{ color: "var(--cs-text-muted)" }}>
-                        | P: {Math.round(cal.p * 100)}% [{Math.round(cal.lower * 100)}%–{Math.round(cal.upper * 100)}%]
-                      </span>
+              {calibratedBreakdownRows.length === 0 ? (
+                <p className="text-[11px] italic py-1 text-cs-text-muted">
+                  No calibrated per-engine probabilities are available for this run.
+                </p>
+              ) : (
+                <div className="rounded-lg border border-cs-border-subtle bg-cs-surface-2 divide-y divide-cs-border-subtle/60 overflow-hidden">
+                  {calibratedBreakdownRows.map(({ outcome, cal }) => (
+                    <div
+                      key={outcome.id}
+                      className="flex items-center justify-between px-3 py-1.5 text-[11px] font-mono hover:bg-cs-bg-subtle/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-semibold text-cs-text-primary">{outcome.engine.name}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-cs-surface text-cs-text-muted border border-cs-border-subtle">
+                          {outcome.engine.taxonomy}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="font-bold tabular-nums text-cs-text-primary">
+                          {formatDdg(outcome.canonicalDdg, energyUnit)}
+                        </span>
+                        <span className="text-[10px] tabular-nums text-cs-text-muted">
+                          P: <span className="font-semibold text-cs-text-secondary">{Math.round(cal.p * 100)}%</span> [{Math.round(cal.lower * 100)}%–{Math.round(cal.upper * 100)}%]
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ));
-              })()}
+                  ))}
+                </div>
+              )}
             </div>
 
         </div>
 
-        <div className="text-[9px] p-2.5 rounded border italic" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
-          * Calibrated consensus integrates physics-based force fields (FoldX), normal mode dynamics (DynaMut2), structural graph ML (StabilityOracle), deep learning (DDMut, RaSP), and language modeling (ThermoMPNN) with isotonic probability calibration. It is only as broadly supported as the number of engines that returned a value.
+        <div className="p-3.5 rounded-lg border border-cs-border bg-cs-surface-2 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] animate-fade-in">
+          <div className="flex items-start gap-2.5 text-cs-text-secondary leading-relaxed">
+            <Info className="w-4 h-4 shrink-0 text-cs-accent-clay mt-0.5" />
+            <div>
+              <span className="font-semibold text-cs-text-primary">Multi-Method Biophysical Consensus</span>
+              <p className="text-[10px] text-cs-text-muted mt-0.5">
+                Integrates physics-based force fields (FoldX), normal mode dynamics (DynaMut2), 3D graph ML (StabilityOracle), deep learning (DDMut, RaSP), and protein language modeling (ThermoMPNN) with isotonic probability calibration.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityTelemetry)}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium bg-cs-surface hover:bg-cs-bg-subtle text-cs-text-primary border border-cs-border-subtle hover:border-cs-border shadow-xs transition-[transform,colors,border-color] duration-150 shrink-0 cursor-pointer active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay"
+          >
+            <span>Inspect Live Telemetry</span>
+            <ArrowRight className="w-3.5 h-3.5 text-cs-accent-clay" />
+          </button>
         </div>
       </div>
 

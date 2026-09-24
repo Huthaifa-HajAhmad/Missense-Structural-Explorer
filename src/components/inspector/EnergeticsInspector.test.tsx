@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import EnergeticsInspector from "./EnergeticsInspector";
 import { SettingsProvider } from "../../context/SettingsContext";
+import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
 /**
  * The inspector's first tests — 368 changed lines that had none.
@@ -127,4 +128,14 @@ describe("EnergeticsInspector — the diagnostics it renders", () => {
 
     expect(screen.queryByText("Not counted")).toBeNull();
   });
+
+  it("renders the stability telemetry section as an accessible focus target with canonical ID", () => {
+    const { container } = renderInspector();
+    const telemetrySection = container.querySelector(`#${INSPECTOR_SECTIONS.stabilityTelemetry}`);
+    expect(telemetrySection).not.toBeNull();
+    expect(telemetrySection?.getAttribute("tabIndex")).toBe("-1");
+    expect(telemetrySection?.getAttribute("role")).toBe("region");
+    expect(telemetrySection?.getAttribute("aria-label")).toBe("Stability Engine Telemetry");
+  });
 });
+
