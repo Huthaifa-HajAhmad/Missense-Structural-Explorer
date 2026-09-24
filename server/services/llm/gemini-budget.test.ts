@@ -77,15 +77,16 @@ describe("narrative synthesis time budget", () => {
     else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
   });
 
-  it("bounds the total time even if every candidate hangs", async () => {
-    const { sliceForAttempt, NARRATIVE_SYNTHESIS_BUDGET_MS } = await import("./gemini.ts");
+  it("never plans more than the budget it has, however many attempts hang", async () => {
+    const { planAttemptTimeout, NARRATIVE_SYNTHESIS_BUDGET_MS, MAX_ATTEMPTS_PER_REQUEST } = await import("./gemini.ts");
 
-    for (const candidates of [1, 2, 3, 4, 7]) {
+    for (const maxAttempts of [1, 2, 3, 4, 7, MAX_ATTEMPTS_PER_REQUEST]) {
       let remaining = NARRATIVE_SYNTHESIS_BUDGET_MS;
       let total = 0;
-      for (let i = 0; i < candidates; i++) {
-        const slice = sliceForAttempt(remaining, candidates - i);
+      for (let i = 0; i < maxAttempts; i++) {
+        const slice = planAttemptTimeout(remaining, i, maxAttempts);
         if (slice === 0) break;
+        // Every attempt actually consumes its slice: the worst case is a hung provider.
         total += slice;
         remaining -= slice;
       }
@@ -96,62 +97,115 @@ describe("narrative synthesis time budget", () => {
     }
   });
 
-  it("hands unused time from a fast failure to the next candidate", async () => {
-    const { sliceForAttempt, NARRATIVE_SYNTHESIS_BUDGET_MS, MAX_ATTEMPT_TIMEOUT_MS } = await import("./gemini.ts");
+  it("hands unused time from a fast failure back to the pool", async () => {
+    const {
+      planAttemptTimeout,
+      NARRATIVE_SYNTHESIS_BUDGET_MS,
+      MAX_ATTEMPT_TIMEOUT_MS,
+      MAX_ATTEMPTS_PER_REQUEST
+    } = await import("./gemini.ts");
 
-    // First candidate 503s after ~1s: the healthy candidate that follows must get the ceiling,
-    // not the small leftover share a static split would have given it.
-    const afterFastFailure = NARRATIVE_SYNTHESIS_BUDGET_MS - 1_000;
-    expect(sliceForAttempt(afterFastFailure, 3)).toBe(MAX_ATTEMPT_TIMEOUT_MS);
-
-    // Right at the start it still reserves a floor for the remaining candidates.
-    const first = sliceForAttempt(NARRATIVE_SYNTHESIS_BUDGET_MS, 4);
+    // Right at the start a screening attempt is capped, so one slow model cannot eat the
+    // long-shot reserve.
+    const first = planAttemptTimeout(NARRATIVE_SYNTHESIS_BUDGET_MS, 0, MAX_ATTEMPTS_PER_REQUEST);
     expect(first).toBeLessThanOrEqual(MAX_ATTEMPT_TIMEOUT_MS);
     expect(first).toBeGreaterThanOrEqual(15_000);
+
+    // A candidate that 503s after ~1s returns ~104s, so the next attempt may screen again
+    // rather than being handed the leftovers: the retry loop only ends when the budget does.
+    const afterFastFailure = NARRATIVE_SYNTHESIS_BUDGET_MS - 1_000;
+    expect(planAttemptTimeout(afterFastFailure, 1, MAX_ATTEMPTS_PER_REQUEST)).toBe(MAX_ATTEMPT_TIMEOUT_MS);
+    expect(planAttemptTimeout(afterFastFailure, 4, MAX_ATTEMPTS_PER_REQUEST)).toBe(MAX_ATTEMPT_TIMEOUT_MS);
   });
 
-  it("never allocates a slice below the floor, or any slice at all on an exhausted budget", async () => {
-    const { sliceForAttempt, MIN_ATTEMPT_TIMEOUT_MS } = await import("./gemini.ts");
+  it("never plans a slice on an exhausted budget, and still attempts once on a thin one", async () => {
+    const { planAttemptTimeout, MIN_ATTEMPT_TIMEOUT_MS, MAX_ATTEMPTS_PER_REQUEST } = await import("./gemini.ts");
 
-    expect(sliceForAttempt(0, 4)).toBe(0);
-    expect(sliceForAttempt(-5, 4)).toBe(0);
-    expect(sliceForAttempt(100_000, 0)).toBe(0);
-
-    // A floor is always met while any attempt is still affordable.
-    const slice = sliceForAttempt(MIN_ATTEMPT_TIMEOUT_MS * 2, 7);
-    expect(slice).toBeGreaterThanOrEqual(MIN_ATTEMPT_TIMEOUT_MS);
-  });
-
-  it("still attempts once when the budget only affords a single candidate", async () => {
-    const { sliceForAttempt, MIN_ATTEMPT_TIMEOUT_MS } = await import("./gemini.ts");
+    expect(planAttemptTimeout(0, 0, 4)).toBe(0);
+    expect(planAttemptTimeout(-5, 0, 4)).toBe(0);
 
     // Regression: an over-eager reserve would return 0 here and the caller would never call
-    // the provider at all.
-    const slice = sliceForAttempt(MIN_ATTEMPT_TIMEOUT_MS * 2, 4);
+    // the provider at all. Whatever is left is spent on the attempt rather than wasted.
+    const slice = planAttemptTimeout(MIN_ATTEMPT_TIMEOUT_MS * 2, 0, MAX_ATTEMPTS_PER_REQUEST);
     expect(slice).toBeGreaterThan(0);
     expect(slice).toBeGreaterThanOrEqual(MIN_ATTEMPT_TIMEOUT_MS);
   });
 
-  it("gives the final candidate everything that is left, not a cap it already exceeds", async () => {
-    const { sliceForAttempt, MAX_ATTEMPT_TIMEOUT_MS } = await import("./gemini.ts");
+  it("reserves the end of the budget for one attempt long enough to answer", async () => {
+    const {
+      planAttemptTimeout,
+      MAX_ATTEMPT_TIMEOUT_MS,
+      MAX_ATTEMPTS_PER_REQUEST,
+      FINAL_ATTEMPT_RESERVE_FRACTION,
+      NARRATIVE_SYNTHESIS_BUDGET_MS
+    } = await import("./gemini.ts");
 
     /*
-     * Regression: the fallback that actually answers in production needs ~37s for the
-     * full narrative prompt, against a 35s per-attempt ceiling — so the old rule
-     * aborted it as it was answering, and whether the user saw a real narrative came
-     * down to provider jitter. The last candidate is the last chance, so it may use
-     * whatever the budget has left.
+     * Regression: the fallback that answers in production needs ~37s for the full narrative
+     * prompt (43-60s during a load spike) against a 35s screening ceiling, so a capped attempt
+     * aborted it as it was answering and whether the user saw a real narrative came down to
+     * provider jitter. The last attempt is the last chance, so it gets whatever is left.
      */
     const remaining = 80_000;
-    const lastSlice = sliceForAttempt(remaining, 1);
+    const lastSlice = planAttemptTimeout(remaining, MAX_ATTEMPTS_PER_REQUEST - 1, MAX_ATTEMPTS_PER_REQUEST);
     expect(lastSlice).toBe(remaining);
     expect(lastSlice).toBeGreaterThan(MAX_ATTEMPT_TIMEOUT_MS);
 
-    // ...while a non-final candidate is still capped, so one slow model cannot eat the ladder.
-    expect(sliceForAttempt(remaining, 2)).toBeLessThanOrEqual(MAX_ATTEMPT_TIMEOUT_MS);
+    // ...while a screening attempt is still capped.
+    expect(planAttemptTimeout(remaining, 0, MAX_ATTEMPTS_PER_REQUEST)).toBeLessThanOrEqual(MAX_ATTEMPT_TIMEOUT_MS);
 
-    // An exhausted budget still allocates nothing, last candidate or not.
-    expect(sliceForAttempt(0, 1)).toBe(0);
+    // The reserve is proportional, so the smaller biophysical budget still gets a ladder
+    // instead of handing its first attempt everything.
+    const smallBudget = 45_000;
+    const biophysicalFirst = planAttemptTimeout(smallBudget, 0, MAX_ATTEMPTS_PER_REQUEST);
+    expect(biophysicalFirst).toBeGreaterThanOrEqual(15_000);
+    expect(biophysicalFirst).toBeLessThan(smallBudget);
+    expect(biophysicalFirst).toBeLessThan(NARRATIVE_SYNTHESIS_BUDGET_MS * FINAL_ATTEMPT_RESERVE_FRACTION);
+  });
+
+  it("retries the ladder instead of giving up while budget remains", async () => {
+    /*
+     * The defect this pins: a 503 storm made every candidate fail in about a second, the old
+     * loop stopped after MAX_MODELS_PER_REQUEST=4 *distinct models* (~20s of a 105s budget),
+     * and the caller reported "AI service busy" with ~85s unspent — while a probe a moment
+     * later got a complete narrative from `gemini-3.5-flash-lite`, one of the models that had
+     * just returned 503. Attempts are now bounded by the budget, not by the ladder length.
+     */
+    process.env.GEMINI_MODEL = "a";
+    process.env.GEMINI_MODEL_FALLBACKS = "b";
+    mockGenerateContent.mockRejectedValue(OVERLOAD_ERROR);
+
+    const { MAX_ATTEMPTS_PER_REQUEST, NARRATIVE_SYNTHESIS_BUDGET_MS } = await import("./gemini.ts");
+
+    const startedAt = Date.now();
+    await expect(runAnalysis()).rejects.toMatchObject({ code: "PROVIDER_OVERLOADED" });
+    const elapsed = Date.now() - startedAt;
+
+    expect(MAX_ATTEMPTS_PER_REQUEST).toBeGreaterThan(2);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(MAX_ATTEMPTS_PER_REQUEST);
+    // ...and the retry spacing stays a small fraction of the budget rather than the old
+    // 1s + 2s + 4s + 8s escalation.
+    expect(elapsed).toBeLessThan(NARRATIVE_SYNTHESIS_BUDGET_MS * 0.35);
+  });
+
+  it("round-robins the ladder so a retry does not re-pay the same 503", async () => {
+    const { pickModelForAttempt, MAX_ATTEMPTS_PER_REQUEST } = await import("./gemini.ts");
+
+    const models = ["alpha", "beta", "gamma"];
+    const counts = new Map<string, number>();
+    const order: string[] = [];
+    for (let i = 0; i < MAX_ATTEMPTS_PER_REQUEST; i++) {
+      const model = pickModelForAttempt(models, counts);
+      expect(model).not.toBeNull();
+      order.push(model!);
+      counts.set(model!, (counts.get(model!) ?? 0) + 1);
+    }
+
+    // Every candidate is tried before any is tried a second time...
+    expect(order.slice(0, 3).sort()).toEqual(["alpha", "beta", "gamma"]);
+    // ...and the last four attempts are spread evenly rather than piling onto one model.
+    const perModel = [...counts.values()];
+    expect(Math.max(...perModel) - Math.min(...perModel)).toBeLessThanOrEqual(1);
   });
 
   it("caps how long a single unresponsive model can hold the request", async () => {
@@ -176,23 +230,23 @@ describe("narrative synthesis time budget", () => {
     expect(secondSlice).toBeGreaterThanOrEqual(MIN_ATTEMPT_TIMEOUT_MS);
   });
 
-  it("does not burn multi-second backoff between distinct models", async () => {
+  it("does not burn multi-second backoff between attempts", async () => {
     process.env.GEMINI_MODEL = "a";
     process.env.GEMINI_MODEL_FALLBACKS = "b,c,d";
-    // Every candidate is overloaded; the loop should exhaust quickly rather than
-    // sleeping 1s + 2s + 4s between hops.
+    // Every candidate is overloaded; the retry spacing must stay well under the second-scale
+    // escalation the budget could not afford (1s + 2s + 4s + 8s = 15s of a 105s budget).
     mockGenerateContent.mockRejectedValue(OVERLOAD_ERROR);
 
     const startedAt = Date.now();
+    const { MAX_ATTEMPTS_PER_REQUEST } = await import("./gemini.ts");
     await expect(runAnalysis()).rejects.toMatchObject({
       code: "PROVIDER_OVERLOADED",
-      status: 503
     });
     const elapsed = Date.now() - startedAt;
 
-    expect(mockGenerateContent).toHaveBeenCalledTimes(4);
-    // Old behaviour allowed up to 15s of backoff here.
-    expect(elapsed).toBeLessThan(4000);
+    // 12 attempts at roughly a second of spacing each, not at 12 × the old escalation.
+    expect(mockGenerateContent).toHaveBeenCalledTimes(MAX_ATTEMPTS_PER_REQUEST);
+    expect(elapsed).toBeLessThan(MAX_ATTEMPTS_PER_REQUEST * 1_400);
   });
 });
 
@@ -300,21 +354,48 @@ describe("configured model ladder", () => {
     const ladder = getConfiguredGeminiModels();
 
     expect(ladder[0]).toBe("gemini-3.5-flash");
-    // Within the four attempts a request is allowed, not merely present in the list.
-    expect(ladder.slice(0, 4)).toContain(DEFAULT_GEMINI_MODEL);
+    // Present in the list, which is what the retry loop walks — not merely inside some
+    // fixed prefix of it.
+    expect(ladder).toContain(DEFAULT_GEMINI_MODEL);
+  });
+
+  it("lists the models measured answering a full narrative when their siblings were 503ing", async () => {
+    /*
+     * During the storm that produced "All of these models are busy", the candidates that
+     * completed the narrative prompt were 3.5-flash-lite, flash-lite-latest, 3-flash-preview
+     * and 2.5-flash. The shipped ladder named two of those and omitted the other two, so the
+     * request had no healthy candidate to reach even if it had kept trying.
+     */
+    delete process.env.GEMINI_MODEL;
+    delete process.env.GEMINI_MODEL_FALLBACKS;
+
+    const { getConfiguredGeminiModels } = await import("./gemini.ts");
+    const ladder = getConfiguredGeminiModels();
+
+    for (const model of ["gemini-flash-lite-latest", "gemini-3-flash-preview", "gemini-2.5-flash"]) {
+      expect(ladder).toContain(model);
+    }
+    // The key is not entitled to the pro tier (429 "exceeded your current quota"), so spending
+    // one of the attempt slots on a pro model can only fail.
+    expect(ladder.some(model => model.includes("-pro"))).toBe(false);
   });
 
   it("drops models the provider has retired, however they were configured", async () => {
-    // The API answers gemini-2.5-pro and gemini-2.5-flash-lite with 404 "no longer
-    // available to new users", so an attempt spent on either can only fail.
+    /*
+     * The API answers gemini-2.5-pro and gemini-2.5-flash-lite with 404 "no longer
+     * available to new users", so an attempt spent on either can only fail. 2.5-flash is
+     * *not* retired — it answered a full narrative during the storm — so the retired list
+     * must not be widened by name prefix.
+     */
     process.env.GEMINI_MODEL = "gemini-2.5-pro";
-    process.env.GEMINI_MODEL_FALLBACKS = "gemini-2.5-flash-lite,gemini-3.7-flash";
+    process.env.GEMINI_MODEL_FALLBACKS = "gemini-2.5-flash-lite,gemini-2.5-flash";
 
     const { getConfiguredGeminiModels, DEFAULT_GEMINI_MODEL } = await import("./gemini.ts");
     const ladder = getConfiguredGeminiModels();
 
     expect(ladder).not.toContain("gemini-2.5-pro");
     expect(ladder).not.toContain("gemini-2.5-flash-lite");
+    expect(ladder).toContain("gemini-2.5-flash");
     // A retired primary falls back to the built-in default rather than to nothing.
     expect(ladder[0]).toBe(DEFAULT_GEMINI_MODEL);
   });
@@ -384,11 +465,29 @@ describe("provider failure classification", () => {
     geminiService.resetModelHealth();
 
     try {
-      await expect(runAnalysis()).rejects.toMatchObject({
-        code: "PROVIDER_OVERLOADED",
-        attemptedModels: ["a", "b"],
-        providerDetail: "This model is currently experiencing high demand."
-      });
+      /*
+       * The diagnostics list is what the degraded panel now renders ("Attempted: a -> b -> a"),
+       * so it must name the models in the order they were tried, repeats included — that list
+       * is how a reader sees that every candidate was retried rather than tried once.
+       */
+      let thrown: any = null;
+      try {
+        await runAnalysis();
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown?.code).toBe("PROVIDER_OVERLOADED");
+      expect(thrown?.providerDetail).toBe("This model is currently experiencing high demand.");
+      expect(Array.isArray(thrown?.attemptedModels)).toBe(true);
+      expect(thrown.attemptedModels.length).toBe(geminiService.MAX_ATTEMPTS_PER_REQUEST);
+      expect(new Set(thrown.attemptedModels)).toEqual(new Set(["a", "b"]));
+      // Spread evenly across the two candidates, not four attempts at the first one.
+      const counts = thrown.attemptedModels.reduce((acc: Record<string, number>, m: string) => {
+        acc[m] = (acc[m] ?? 0) + 1;
+        return acc;
+      }, {});
+      expect(Math.abs(counts.a - counts.b)).toBeLessThanOrEqual(1);
     } finally {
       if (oldModel === undefined) delete process.env.GEMINI_MODEL;
       else process.env.GEMINI_MODEL = oldModel;

@@ -122,7 +122,12 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     const oldModel = process.env.GEMINI_MODEL;
     const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
     process.env.GEMINI_MODEL = "primary";
-    process.env.GEMINI_MODEL_FALLBACKS = "";
+    /*
+     * A blank GEMINI_MODEL_FALLBACKS now means "use the shipped ladder" rather than "no
+     * fallbacks", so a test that wants a single candidate names it. The same list is the
+     * retry pool, so a one-entry ladder also pins the attempt count to one.
+     */
+    process.env.GEMINI_MODEL_FALLBACKS = "primary";
     mockGenerateContent.mockResolvedValueOnce({
       text: JSON.stringify({ analysis: "Signal-aware analysis", plausibility: "Unknown", acmgCriteria: [] })
     });
@@ -139,8 +144,9 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
         expect.any(AbortSignal)
       );
       expect(mockGenerateContent.mock.calls[0][0].config.abortSignal).toBeInstanceOf(AbortSignal);
-      // The per-attempt SDK timeout is the model's adaptive budget slice, not a flat 60s.
-      // With a single configured candidate and a full 105s budget, it clamps to the 35s ceiling.
+      // The per-attempt SDK timeout is the model's adaptive slice, not a flat 60s: a screening
+      // attempt is capped at the 35s ceiling, and the rest of the budget is reserved so the
+      // final attempt can finish a reply the cap would have killed.
       expect(mockGenerateContent.mock.calls[0][0].config.httpOptions.timeout).toBe(35000);
     } finally {
       if (oldModel === undefined) delete process.env.GEMINI_MODEL;
@@ -192,7 +198,7 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
     const oldSystemKey = process.env.GEMINI_API_KEY;
     process.env.GEMINI_MODEL = "primary";
-    process.env.GEMINI_MODEL_FALLBACKS = "";
+    process.env.GEMINI_MODEL_FALLBACKS = "primary";
     delete process.env.GEMINI_API_KEY;
     mockGenerateContent.mockRejectedValueOnce({ message: "model unavailable", status: 500 });
 
@@ -226,7 +232,8 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     const oldModel = process.env.GEMINI_MODEL;
     const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
     process.env.GEMINI_MODEL = "primary";
-    process.env.GEMINI_MODEL_FALLBACKS = "";
+    // One candidate: this test is about error → GeminiError mapping, not about the ladder.
+    process.env.GEMINI_MODEL_FALLBACKS = "primary";
     
     const testErrorMapping = async (apiErrorMsg: string, apiStatus: number, expectedCode: string, expectedStatus: number) => {
       mockGenerateContent.mockReset();

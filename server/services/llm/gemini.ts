@@ -20,33 +20,31 @@ const geminiClientCache = new LRUCache<string, GoogleGenAI>({
 export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
 
 /**
- * Fallback ladder, ordered by **measured** synthesis latency rather than by recency.
+ * Fallback ladder, ordered by **measured** reliability and latency rather than recency.
  *
- * The ladder previously led with `gemini-3.8-flash` and omitted `gemini-3.7-flash`
- * entirely — so a deployment whose `.env` pinned the overloaded `gemini-3.5-flash`
- * as primary never tried the one model this repository's own default and this
- * budget were calibrated against.
+ * Measured on the production key with the narrative workload (full markdown analysis plus
+ * the five response-schema fields), each against the per-attempt ceiling:
  *
- * Measured on the production key with the narrative workload (full markdown analysis
- * plus the five response-schema fields), each against the 35 s per-attempt ceiling:
+ *   gemini-3.1-flash-lite     3.8 s  OK        gemini-3.7-flash       10.6 s  OK
+ *   gemini-3.5-flash-lite    11.6 s  OK        gemini-flash-lite-latest 16.0 s OK
+ *   gemini-3-flash-preview   20.8 s  OK        gemini-2.5-flash       36.7 s  OK
+ *   gemini-3.5-flash         16.5 s  503       gemini-3.8-flash        2.2 s  503 / 504
+ *   gemini-3.1-pro-preview   --      429 ("exceeded your current quota" — this key is not
+ *                                    entitled to the pro tier, so no pro model is listed)
  *
- *   gemini-3.1-flash-lite    3.8 s  OK
- *   gemini-3.7-flash        10.6 s  OK   ← the built-in default
- *   gemini-3.5-flash-lite   11.6 s  OK
- *   gemini-2.5-flash        36.7 s  OK   ← answers, but over a whole attempt slice
- *   gemini-3.5-flash        16.5 s  503 "currently experiencing high demand"
- *   gemini-3.8-flash         2.2 s  503, and 504 "deadline expired" on another run
- *
- * A candidate that needs longer than one slice cannot finish inside it, so the
- * cheap-and-fast models come first and the two large thinking models come last:
- * by the time the ladder reaches them the budget is nearly spent, and reaching
- * them at all means the fast ones just failed.
+ * A later probe during a provider-wide 503 storm found the *same model* answering seconds
+ * after returning 503, which is why the ladder is now retried rather than walked once
+ * (see `planAttemptTimeout` / `pickModelForAttempt`): a single pass over any ordering loses
+ * to intermittency.
  */
 export const DEFAULT_GEMINI_FALLBACK_MODELS = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-3-flash-preview",
   "gemini-3.7-flash",
   "gemini-3.6-flash",
+  "gemini-2.5-flash",
   "gemini-3.5-flash",
   "gemini-3.8-flash",
 ] as const;
@@ -120,54 +118,58 @@ export const BIOPHYSICAL_SYNTHESIS_BUDGET_MS = 45_000;
 
 /** No attempt is made with less time than this left in the budget. */
 export const MIN_ATTEMPT_TIMEOUT_MS = 15_000;
-/** Ceiling for a single attempt, however much budget is free. */
+/** Ceiling for a single screening attempt, however much budget is free. */
 export const MAX_ATTEMPT_TIMEOUT_MS = 35_000;
 
-/** Upper bound on distinct models tried for one request (keeps a request bounded). */
-const MAX_MODELS_PER_REQUEST = 4;
+/**
+ * How many provider calls one request may make, across all models and retries.
+ *
+ * This replaces the previous hard cap of four *distinct models*. That cap is what
+ * abandoned a live request: during a 503 storm every candidate fails in about a second,
+ * so four attempts cost ~20s of a 105s budget and the handler returned "AI service busy"
+ * with ~85s unspent — while the same models were answering seconds later. The bound that
+ * matters is the budget, not the number of models; this is only a backstop so a pathological
+ * ladder cannot spin.
+ */
+export const MAX_ATTEMPTS_PER_REQUEST = 12;
 
 /**
- * Time slice for the next attempt, given what is left of the budget.
+ * Fraction of the budget held back for the final attempt.
  *
- * The allocation is adaptive rather than a fixed split, because the dominant failure mode is
- * *fast*: an overloaded model returns 503 in about a second. A static split therefore gave the
- * later (healthy) candidates the smallest slices — a 105s budget handed the third candidate only
- * 21s and it timed out at 21s having needed about 20s. Here a fast failure hands its unused time
- * to the next candidate, while the reserve guarantees every remaining candidate its floor, so the
- * plan can never overrun the budget.
+ * Measured on the production key: a full narrative takes 16–37s on the models that answer,
+ * and 43–60s during a load spike. A screening attempt is capped at MAX_ATTEMPT_TIMEOUT_MS
+ * and is killed mid-answer if the model is merely slow, so the last attempt is given
+ * whatever is left instead of another capped slice. Reserving it up front is what stops the
+ * earlier attempts from consuming the only slice long enough to succeed.
  *
- * Worst case (every candidate hangs) sums to exactly `budgetMs`, by construction.
- * Exported for testing.
+ * Proportional rather than fixed so the smaller biophysical budget still gets a ladder
+ * (a fixed 60s reserve would hand its first attempt the entire 45s).
  */
-export function sliceForAttempt(remainingBudgetMs: number, attemptsRemaining: number): number {
-  if (remainingBudgetMs <= 0 || attemptsRemaining <= 0) return 0;
+export const FINAL_ATTEMPT_RESERVE_FRACTION = 0.55;
+
+/** Time slice for one attempt. Exported for testing. */
+export function planAttemptTimeout(
+  remainingBudgetMs: number,
+  attemptsMade: number,
+  maxAttempts: number
+): number {
+  if (remainingBudgetMs <= 0) return 0;
 
   /*
-   * The last candidate is the last chance, so it gets everything that is left
-   * rather than a cap it is known to exceed.
-   *
-   * Measured on the production key: the only fallback that answered the real
-   * narrative prompt, `gemini-2.5-flash`, needed 36.7 s for the full markdown
-   * analysis plus the five response-schema fields. Against the 35 s ceiling the
-   * old rule aborted it *as it was answering* — in one live run of
-   * `performGeminiAnalysis` the same model finished at 35.0 s and succeeded, in
-   * the next it needed 36.7 s and the whole request degraded to "Not
-   * synthesized". The outcome was decided by provider jitter, not by the model.
-   *
-   * The budget is the real bound: `NARRATIVE_SYNTHESIS_BUDGET_MS` (105 s) already
-   * sits below the route deadline (130 s) and the client timeout (140 s), so a
-   * final attempt may safely consume whatever remains of it.
+   * The last permitted attempt is the long shot: it gets everything that is left rather
+   * than a cap it is known to exceed. The budget already sits below the route deadline
+   * (130s) and the client timeout (140s), so it is the real bound.
    */
-  if (attemptsRemaining === 1) return remainingBudgetMs;
+  if (attemptsMade >= maxAttempts - 1) return remainingBudgetMs;
 
-  // Only reserve floors for candidates the budget can actually afford, otherwise a small budget
-  // would reserve more than it has and no attempt could ever be made.
-  const affordableAttempts = Math.max(1, Math.floor(remainingBudgetMs / MIN_ATTEMPT_TIMEOUT_MS));
-  const effectiveRemaining = Math.min(attemptsRemaining, affordableAttempts);
-  const reserveForRest = MIN_ATTEMPT_TIMEOUT_MS * (effectiveRemaining - 1);
-  const available = remainingBudgetMs - reserveForRest;
-  if (available <= 0) return 0;
-  return Math.min(available, MAX_ATTEMPT_TIMEOUT_MS);
+  const reserve = remainingBudgetMs * FINAL_ATTEMPT_RESERVE_FRACTION;
+  const screening = Math.min(MAX_ATTEMPT_TIMEOUT_MS, remainingBudgetMs - reserve);
+
+  /*
+   * Too little left to both screen and keep a meaningful reserve: spend it all here rather
+   * than breaking out and leaving the remainder unused.
+   */
+  return screening >= MIN_ATTEMPT_TIMEOUT_MS ? screening : remainingBudgetMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +237,33 @@ export function resetModelHealth(): void {
   modelHealth.clear();
 }
 
+/**
+ * Which model to try next: round-robin over the ladder, healthy candidates first.
+ *
+ * A single pass loses to an intermittent provider — during the storm that produced the
+ * "all of these models are busy" report, `gemini-3.5-flash-lite` returned 503 on one call
+ * and a complete narrative on the next. Repeated passes are what turn that into a result,
+ * and the fewest-attempts-first rule is what keeps a pass from re-paying the same 503 while
+ * another candidate has not been tried at all.
+ */
+export function pickModelForAttempt(
+  models: readonly string[],
+  attemptCounts: ReadonlyMap<string, number>,
+  now: number = Date.now()
+): string | null {
+  const healthyFirst = orderModelsByHealth([...models], now);
+  let chosen: string | null = null;
+  let fewest = Number.POSITIVE_INFINITY;
+  for (const model of healthyFirst) {
+    const attempts = attemptCounts.get(model) ?? 0;
+    if (attempts < fewest) {
+      fewest = attempts;
+      chosen = model;
+    }
+  }
+  return chosen;
+}
+
 // ---------------------------------------------------------------------------
 // Provider failure classification
 // ---------------------------------------------------------------------------
@@ -287,6 +316,26 @@ export function isTransientFailure(kind: GeminiFailureKind): boolean {
   return TRANSIENT_FAILURE_KINDS.has(kind);
 }
 
+/**
+ * Whether re-trying the *same* candidate later in the same request could help.
+ *
+ * Narrower than `isTransientFailure`, which answers "is this worth another model". A
+ * per-minute quota (429) or a retired model (404) will not clear while the request is still
+ * in flight, so the candidate is dropped from the pool and its slot goes to a model that has
+ * not failed yet. An overload 503, a network fault and a timeout are all worth another pass —
+ * during the storm that produced this fix, the same model returned 503 and then a complete
+ * narrative seconds later.
+ */
+const RETRYABLE_IN_REQUEST_KINDS: ReadonlySet<GeminiFailureKind> = new Set<GeminiFailureKind>([
+  "overload",
+  "timeout",
+  "network",
+]);
+
+export function isRetryableInRequest(kind: GeminiFailureKind): boolean {
+  return RETRYABLE_IN_REQUEST_KINDS.has(kind);
+}
+
 export function failureKindToFallbackReason(kind: GeminiFailureKind): NarrativeFallbackReason {
   switch (kind) {
     case "auth": return "API_KEY_INVALID";
@@ -319,9 +368,17 @@ export function sanitizeProviderError(err: any): string {
   return collapsed.length > 240 ? `${collapsed.slice(0, 237)}...` : collapsed;
 }
 
-/** Jittered delay before trying a *different* model. Deliberately short. */
+/**
+ * Jittered delay before the next attempt. Deliberately short and tightly capped.
+ *
+ * The loop now retries the ladder rather than walking it once, so this delay is paid up to
+ * MAX_ATTEMPTS_PER_REQUEST times. The old ceiling of 1.5s would have spent ~15s of a 105s
+ * budget on waiting alone; a 1s ceiling keeps the total spacing near 10s while still spacing
+ * attempts far enough apart to ride out the kind of intermittent 503 the probe observed
+ * (the same model answering a second after refusing).
+ */
 function interModelDelayMs(attempt: number): number {
-  return Math.min(400 * Math.pow(2, attempt - 1), 1_500) + Math.random() * 250;
+  return Math.min(400 * Math.pow(2, attempt - 1), 1_000) + Math.random() * 250;
 }
 
 export function getGeminiClient(customApiKey?: string): GoogleGenAI {
@@ -714,12 +771,10 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
 
 
   const modelsToTry = getConfiguredGeminiModels();
-  // A model that just returned 503/504 is almost certainly still unhealthy, so order
-  // healthy candidates first rather than re-paying a broken primary's timeout every request.
-  const orderedModels = orderModelsByHealth(modelsToTry).slice(0, MAX_MODELS_PER_REQUEST);
   console.log(
-    `[Gemini Entry] budget=${NARRATIVE_SYNTHESIS_BUDGET_MS}ms candidates=[${orderedModels.join(", ")}] ` +
-    `slice=${MIN_ATTEMPT_TIMEOUT_MS}-${MAX_ATTEMPT_TIMEOUT_MS}ms, hasKey=${!!customApiKey}, signalAborted=${timeoutSignal?.aborted}`
+    `[Gemini Entry] budget=${NARRATIVE_SYNTHESIS_BUDGET_MS}ms candidates=[${modelsToTry.join(", ")}] ` +
+    `screening<=${MAX_ATTEMPT_TIMEOUT_MS}ms attempts<=${MAX_ATTEMPTS_PER_REQUEST} ` +
+    `reserve=${Math.round(FINAL_ATTEMPT_RESERVE_FRACTION * 100)}%, hasKey=${!!customApiKey}, signalAborted=${timeoutSignal?.aborted}`
   );
 
   // When customApiKey is provided, evaluate only the custom key to ensure authentic BYOK diagnostics
@@ -740,10 +795,14 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     }
 
     let spentMs = 0;
+    /** How many times each candidate has been tried *in this request*. */
+    const attemptCounts = new Map<string, number>();
+    /** Candidates still worth trying; a quota or 404 failure removes one. */
+    const pool = [...modelsToTry];
 
-    // Short jittered pause before trying the NEXT model. Each iteration already switches
-    // model, so the old 1s/2s/4s/8s exponential backoff spent up to 15s of the budget
-    // waiting to do something it was about to do anyway.
+    // Short jittered pause between attempts. The previous version only waited when it was
+    // about to switch model; with retries the wait also covers re-trying one that just 503'd,
+    // and it stays deliberately short because the budget is the scarce resource.
     const interModelWait = async (attempt: number) => {
       const waitMs = interModelDelayMs(attempt);
       await new Promise<void>((resolve, reject) => {
@@ -760,14 +819,15 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
       });
     };
 
-    for (let attemptIndex = 0; attemptIndex < orderedModels.length; attemptIndex++) {
-      const modelName = orderedModels[attemptIndex];
-      const remainingMs = NARRATIVE_SYNTHESIS_BUDGET_MS - spentMs;
+    for (let attemptIndex = 0; attemptIndex < MAX_ATTEMPTS_PER_REQUEST; attemptIndex++) {
+      const modelName = pickModelForAttempt(pool, attemptCounts, Date.now());
+      if (!modelName) break;
 
+      const remainingMs = NARRATIVE_SYNTHESIS_BUDGET_MS - spentMs;
       if (remainingMs < MIN_ATTEMPT_TIMEOUT_MS) {
         console.warn(
-          `[Gemini Budget] Budget of ${NARRATIVE_SYNTHESIS_BUDGET_MS}ms consumed after ${spentMs}ms; ` +
-          `${orderedModels.length - attemptIndex} model(s) left untried.`
+          `[Gemini Budget] ${NARRATIVE_SYNTHESIS_BUDGET_MS}ms budget exhausted after ${spentMs}ms ` +
+          `and ${attemptIndex} attempt(s); not enough left for another (${remainingMs}ms).`
         );
         break;
       }
@@ -783,17 +843,19 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
         );
       }
 
-      // Never let one attempt (or the sum of them) overrun the budget.
-      const attemptTimeoutMs = sliceForAttempt(remainingMs, orderedModels.length - attemptIndex);
+      // Never let one attempt (or the sum of them) overrun the budget, and keep the final
+      // attempt long enough to finish a reply the screening cap would have killed.
+      const attemptTimeoutMs = planAttemptTimeout(remainingMs, attemptIndex, MAX_ATTEMPTS_PER_REQUEST);
       if (attemptTimeoutMs < MIN_ATTEMPT_TIMEOUT_MS) {
         console.warn(`[Gemini Budget] Only ${remainingMs}ms left; skipping ${modelName}.`);
         break;
       }
       const attemptStartedAt = Date.now();
       attemptedModels.push(modelName);
+      attemptCounts.set(modelName, (attemptCounts.get(modelName) ?? 0) + 1);
 
       try {
-        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${orderedModels.length}, slice ${attemptTimeoutMs}ms)`);
+        console.log(`[Gemini Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${MAX_ATTEMPTS_PER_REQUEST}, slice ${attemptTimeoutMs}ms)`);
         const attemptController = new AbortController();
         const signal = timeoutSignal 
           ? anySignal([timeoutSignal, attemptController.signal])
@@ -886,7 +948,24 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
         // Auth failures are configuration problems; another model cannot fix them.
         if (kind === "auth") break;
 
-        if (isTransientFailure(kind) && attemptIndex < orderedModels.length - 1) {
+        /*
+         * A quota (429) or retired-model (404) failure will not clear while this request is
+         * in flight, so the candidate is dropped: its slot goes to a model that has not
+         * failed yet. Overload, timeout and network faults stay in the pool to be re-tried —
+         * that is what rides out an intermittent 503.
+         */
+        if (!isRetryableInRequest(kind)) {
+          const index = pool.indexOf(modelName);
+          if (index >= 0) pool.splice(index, 1);
+          if (pool.length === 0) break;
+        }
+
+        /*
+         * Wait briefly before the next attempt — whether that is a different candidate or the
+         * same one again. An intermittent 503 is worth re-trying inside the same request;
+         * `pickModelForAttempt` decides which candidate that is.
+         */
+        if (isTransientFailure(kind) && attemptIndex < MAX_ATTEMPTS_PER_REQUEST - 1) {
           try {
             await interModelWait(attemptIndex + 1);
           } catch {
@@ -1038,10 +1117,10 @@ Generate a JSON object with:
 `;
 
   const modelsToTry = getConfiguredGeminiModels();
-  // Same budget discipline as the narrative call: healthy models first, bounded slices.
-  const orderedModels = orderModelsByHealth(modelsToTry).slice(0, MAX_MODELS_PER_REQUEST);
+  // Same budget discipline as the narrative call: round-robin over the ladder, healthy
+  // candidates first, retried while the budget allows.
   console.log(
-    `[Gemini Biophysical Entry] budget=${BIOPHYSICAL_SYNTHESIS_BUDGET_MS}ms candidates=[${orderedModels.join(", ")}]`
+    `[Gemini Biophysical Entry] budget=${BIOPHYSICAL_SYNTHESIS_BUDGET_MS}ms candidates=[${modelsToTry.join(", ")}]`
   );
 
   // Do not replace a valid BYOK failure with a misleading missing-system-key error.
@@ -1064,9 +1143,13 @@ Generate a JSON object with:
     }
 
     let spentMs = 0;
+    const attemptCounts = new Map<string, number>();
+    /** Candidates still worth trying; a quota or 404 failure removes one. */
+    const pool = [...modelsToTry];
 
-    for (let attemptIndex = 0; attemptIndex < orderedModels.length; attemptIndex++) {
-      const modelName = orderedModels[attemptIndex];
+    for (let attemptIndex = 0; attemptIndex < MAX_ATTEMPTS_PER_REQUEST; attemptIndex++) {
+      const modelName = pickModelForAttempt(pool, attemptCounts, Date.now());
+      if (!modelName) break;
       const remainingMs = BIOPHYSICAL_SYNTHESIS_BUDGET_MS - spentMs;
 
       if (remainingMs < MIN_ATTEMPT_TIMEOUT_MS) {
@@ -1077,15 +1160,16 @@ Generate a JSON object with:
         throw new GeminiError("DEADLINE_EXCEEDED", "Biophysical synthesis was cancelled before any model responded.", 504);
       }
 
-      const attemptTimeoutMs = sliceForAttempt(remainingMs, orderedModels.length - attemptIndex);
+      const attemptTimeoutMs = planAttemptTimeout(remainingMs, attemptIndex, MAX_ATTEMPTS_PER_REQUEST);
       if (attemptTimeoutMs < MIN_ATTEMPT_TIMEOUT_MS) {
         console.warn(`[Gemini Biophysical Budget] Only ${remainingMs}ms left; skipping ${modelName}.`);
         break;
       }
       const attemptStartedAt = Date.now();
+      attemptCounts.set(modelName, (attemptCounts.get(modelName) ?? 0) + 1);
 
       try {
-        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${orderedModels.length}, slice ${attemptTimeoutMs}ms)`);
+        console.log(`[Gemini Biophysical Analysis] Attempting content generation with model: ${modelName} using ${apiKey ? "custom" : "system"} API key (attempt ${attemptIndex + 1}/${MAX_ATTEMPTS_PER_REQUEST}, slice ${attemptTimeoutMs}ms)`);
         const attemptController = new AbortController();
         const signal = timeoutSignal 
           ? anySignal([timeoutSignal, attemptController.signal])
@@ -1161,6 +1245,13 @@ Generate a JSON object with:
         lastError = err;
         if (kind === "auth") break;
         recordModelFailure(modelName, isTransientFailure(kind), err);
+        // Same policy as the narrative loop: a quota or retired model is dropped from the
+        // pool rather than re-tried inside this request.
+        if (!isRetryableInRequest(kind)) {
+          const index = pool.indexOf(modelName);
+          if (index >= 0) pool.splice(index, 1);
+          if (pool.length === 0) break;
+        }
         continue;
       }
     }
