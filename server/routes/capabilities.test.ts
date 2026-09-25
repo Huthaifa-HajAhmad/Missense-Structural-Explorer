@@ -1,10 +1,12 @@
-﻿import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import express from "express";
 import type { Server } from "http";
 import type { AddressInfo } from "net";
 import * as fs from "fs";
+import * as path from "path";
 import { registerCapabilitiesRoutes } from "./capabilities.ts";
 import { hasLoaderVerifiedRaspIndex, RASP_SQLITE_PATH } from "../services/stability/energy-models.ts";
+import { buildRaspSqliteDatabase } from "../services/stability/build-rasp-sqlite.ts";
 
 /**
  * `/capabilities` had no test at all, and the gap showed in production terms: the route reported RaSP
@@ -45,8 +47,48 @@ async function raspEntry(): Promise<any> {
   return entry;
 }
 
+/**
+ * A healthy RaSP index at the path the route actually reads.
+ *
+ * The readiness rule is three-state, and `unverified` — a healthy index that nothing has counted —
+ * is the state this route was fixed to stop reporting as `unavailable`, which reads as "down" and
+ * invites someone to rebuild a perfectly good 725 MB index.
+ *
+ * This suite never created that index. It appeared only when `energy-models.test.ts` happened to
+ * have built one first, and that suite deletes it again in `afterAll`, so the case below passed
+ * only when a cross-file race went its way. On a clean runner — which is every CI job — it does
+ * not: observed as "an uncounted index must not read as down: expected 'unavailable' to be
+ * 'unverified'". Arranging the precondition here makes the case deterministic while keeping the
+ * assertion strict, rather than weakening it to match whatever happens to be on disk.
+ *
+ * It writes only the SQLite file the route inspects, built from a private CSV, and never deletes:
+ * the sibling suite reads this same index concurrently, and on Windows an open handle makes an
+ * unlink unreliable anyway.
+ */
+async function ensureHealthyRaspIndex(): Promise<void> {
+  if (fs.existsSync(RASP_SQLITE_PATH)) return;
+
+  const dataDir = path.dirname(RASP_SQLITE_PATH);
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+  // The same five-column shape the lookup suite uses: a completeness record plus a row to probe.
+  const fixtureCsv = path.join(dataDir, "capabilities-rasp-fixture.csv");
+  fs.writeFileSync(
+    fixtureCsv,
+    [
+      "uniprot_id,pdb_chain,pdb,chain_id,variant,RaSP;score_ml,clinvar;Clinvar_signifiance,gnomad;AF",
+      "P00439,X,X,X,R408H,1.45,Pathogenic,0.0001",
+      "P00439,X,X,X,D12E,-0.32,Benign,0.05",
+    ].join("\n") + "\n"
+  );
+
+  await buildRaspSqliteDatabase(fixtureCsv, RASP_SQLITE_PATH);
+}
+
 describe("GET /capabilities â€” RaSP readiness", () => {
   it("does not call an uncounted index ready", async () => {
+    // Arrange the precondition this case is about; see ensureHealthyRaspIndex.
+    await ensureHealthyRaspIndex();
     // Nothing has performed a RaSP lookup in this process, so nothing has counted the index â€” whatever
     // happens to be on disk. This is the state the route used to misreport.
     expect(hasLoaderVerifiedRaspIndex()).toBe(false);
