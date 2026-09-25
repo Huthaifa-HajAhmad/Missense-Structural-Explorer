@@ -188,8 +188,52 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       geminiService.performGeminiAnalysis(
         "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", controller.signal
       )
-    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED", status: 504 });
+    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED", status: 504, failureKind: "timeout" });
     expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
+  it("reports a mid-ladder cancellation with the attempts it actually made", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    process.env.GEMINI_MODEL = "primary";
+    process.env.GEMINI_MODEL_FALLBACKS = "primary";
+
+    const controller = new AbortController();
+    // Abort while the first attempt is in flight: the provider call never returns.
+    mockGenerateContent.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          setTimeout(() => {
+            controller.abort(new Error("client disconnected"));
+            reject(new Error("This operation was aborted"));
+          }, 0);
+        })
+    );
+
+    try {
+      const err: any = await geminiService
+        .performGeminiAnalysis(
+          "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", controller.signal
+        )
+        .catch((e: any) => e);
+
+      // A cancellation stays in the timeout family — the combined signal carries both a client
+      // disconnect and the request deadline, and the engine cannot tell which fired — but it
+      // must not say that no model responded while naming the model it did try.
+      expect(err).toBeInstanceOf(geminiService.GeminiError);
+      expect(err.code).toBe("DEADLINE_EXCEEDED");
+      expect(err.status).toBe(504);
+      expect(err.failureKind).toBe("timeout");
+      expect(err.attemptedModels).toEqual(["primary"]);
+      expect(err.message).toMatch(/cancelled after 1 model attempt/i);
+      expect(err.message).not.toMatch(/before any model responded/i);
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
   });
 
   it("should preserve a custom-key model error when no system key is configured", async () => {

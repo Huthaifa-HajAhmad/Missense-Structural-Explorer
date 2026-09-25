@@ -442,12 +442,25 @@ export class GeminiError extends Error {
   public providerDetail?: string;
   /** Models the request actually attempted, in order. */
   public attemptedModels?: string[];
+  /**
+   * The attempt loop's own verdict for this failure, when the error came out of it.
+   *
+   * The loop already classifies every provider failure to decide pool membership and
+   * cooldowns, and that classification is what the thrown code is chosen from. The narrative
+   * route used to classify the same error a second time to rebuild the client's
+   * `fallbackReason`, which let one fact have two derivations: a 503-coded unclassified
+   * failure was re-read as "overload" from its status, so a slow-but-working provider was
+   * reported to the user as "AI service busy". Carrying the verdict makes the engine's
+   * decision the only derivation. Absent on errors thrown outside the loop (key validation),
+   * where there is no verdict to carry.
+   */
+  public failureKind?: GeminiFailureKind;
 
   constructor(
     code: string,
     message: string,
     status: number,
-    options?: { providerDetail?: string; attemptedModels?: string[] }
+    options?: { providerDetail?: string; attemptedModels?: string[]; failureKind?: GeminiFailureKind }
   ) {
     super(message);
     this.name = "GeminiError";
@@ -455,6 +468,7 @@ export class GeminiError extends Error {
     this.status = status;
     this.providerDetail = options?.providerDetail;
     this.attemptedModels = options?.attemptedModels;
+    this.failureKind = options?.failureKind;
   }
 }
 
@@ -902,6 +916,7 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
           {
             providerDetail: lastError ? sanitizeProviderError(lastError) : "request cancelled by client",
             attemptedModels: [...attemptedModels],
+            failureKind: "timeout",
           }
         );
       }
@@ -1014,14 +1029,24 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
           `[Gemini Model Error] model=${modelName} kind=${kind} status=${Number(err?.status || 0)} detail=${sanitizeProviderError(err)}`
         );
 
-        // A client disconnect must be reported as a cancellation, not as a provider
-        // deadline — the old code checked the abort flag before classifying the error.
+        /*
+         * A cancellation is reported as what it is. The message used to read "before any model
+         * responded" while the attached `attemptedModels` could name several — false whenever
+         * the client went away mid-ladder. The status stays in the timeout family because the
+         * signal carries two inputs, `AbortSignal.any([client disconnect, request deadline])`,
+         * and the engine cannot tell which one fired; the request deadline is the case this
+         * path exists for, and a client that disconnected is not there to read the reason.
+         */
         if (timeoutSignal?.aborted) {
           throw new GeminiError(
             "DEADLINE_EXCEEDED",
-            "Narrative synthesis was cancelled before any model responded.",
+            `Narrative synthesis was cancelled after ${attemptedModels.length} model attempt(s).`,
             504,
-            { providerDetail: sanitizeProviderError(err), attemptedModels: [...attemptedModels] }
+            {
+              providerDetail: sanitizeProviderError(err),
+              attemptedModels: [...attemptedModels],
+              failureKind: "timeout",
+            }
           );
         }
 
@@ -1077,26 +1102,35 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
     const providerDetail = sanitizeProviderError(lastError);
     const attempted = [...attemptedModels];
 
+    /*
+     * Every error below carries the verdict (`kind`) it was derived from, so the route can
+     * build the client's `fallbackReason` from the engine's decision instead of re-deriving
+     * it. The default branch is the one place where the two derivations visibly disagreed:
+     * kind "unknown" with status 503 was re-read as "overload" from the status, so an
+     * unclassified failure was presented as "AI service busy / retry shortly" — a retry that
+     * the engine had already decided was not the answer. It now reports the unclassified
+     * failure it actually was.
+     */
     if (/placeholder|must not be a placeholder|is required/.test(String(lastError?.message || ""))) {
-      throw new GeminiError("API_KEY_MISSING", "No Gemini API key is configured.", 401, { providerDetail, attemptedModels: attempted });
+      throw new GeminiError("API_KEY_MISSING", "No Gemini API key is configured.", 401, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
     }
     if (customApiKey && kind === "auth") {
-      throw new GeminiError("API_KEY_INVALID", "The provided Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted });
+      throw new GeminiError("API_KEY_INVALID", "The provided Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
     }
 
     switch (kind) {
       case "auth":
-        throw new GeminiError("API_KEY_INVALID", "The Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted });
+        throw new GeminiError("API_KEY_INVALID", "The Gemini API key was rejected by the provider.", 403, { providerDetail, attemptedModels: attempted, failureKind: "auth" });
       case "quota":
-        throw new GeminiError("QUOTA_EXHAUSTED", "Gemini API quota is exhausted.", 429, { providerDetail, attemptedModels: attempted });
+        throw new GeminiError("QUOTA_EXHAUSTED", "Gemini API quota is exhausted.", 429, { providerDetail, attemptedModels: attempted, failureKind: "quota" });
       case "overload":
-        throw new GeminiError("PROVIDER_OVERLOADED", "Gemini reports that the requested models are overloaded.", 503, { providerDetail, attemptedModels: attempted });
+        throw new GeminiError("PROVIDER_OVERLOADED", "Gemini reports that the requested models are overloaded.", 503, { providerDetail, attemptedModels: attempted, failureKind: "overload" });
       case "timeout":
-        throw new GeminiError("DEADLINE_EXCEEDED", "No Gemini model responded within the synthesis time budget.", 504, { providerDetail, attemptedModels: attempted });
+        throw new GeminiError("DEADLINE_EXCEEDED", "No Gemini model responded within the synthesis time budget.", 504, { providerDetail, attemptedModels: attempted, failureKind: "timeout" });
       case "network":
-        throw new GeminiError("NETWORK_ERROR", "The Gemini endpoint could not be reached from the server.", 502, { providerDetail, attemptedModels: attempted });
+        throw new GeminiError("NETWORK_ERROR", "The Gemini endpoint could not be reached from the server.", 502, { providerDetail, attemptedModels: attempted, failureKind: "network" });
       default:
-        throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted });
+        throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted, failureKind: "unknown" });
     }
   }
 

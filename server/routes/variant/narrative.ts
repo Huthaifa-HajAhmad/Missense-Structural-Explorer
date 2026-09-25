@@ -32,6 +32,7 @@ import {
   failureKindToFallbackReason,
   isTransientFailure,
   sanitizeProviderError,
+  type GeminiFailureKind,
 } from "../../services/gemini.ts";
 import { computeRuleBasedACMG } from "../../services/acmg.ts";
 import { type AnalysisResult } from "../../../src/shared/contracts.ts";
@@ -224,9 +225,18 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           ? err.code === "API_KEY_MISSING"
           : Boolean(err.message && (err.message.includes("placeholder") || err.message.includes("required")));
 
-        // Classify once, here, and hand the client a stable reason code. The client must
-        // never have to guess degradation state from prose.
-        const failureKind = classifyGeminiFailure(err);
+        /*
+         * The verdict comes from the engine when the engine produced the error: the attempt
+         * loop already classified this failure to decide pool membership and cooldowns, and
+         * the code it threw was chosen from that verdict. Classifying the raw error a second
+         * time here is what let a 503-coded unclassified failure be re-read as "overload" from
+         * its status and presented to the user as "AI service busy". A foreign error — one
+         * that never passed through the loop — still has to be classified.
+         */
+        const failureKind: GeminiFailureKind =
+          isGeminiErr && err.failureKind ? err.failureKind : classifyGeminiFailure(err);
+        // Hand the client a stable reason code. The client must never have to guess
+        // degradation state from prose.
         const fallbackReason: NarrativeFallbackReason = isKeyMissing
           ? "API_KEY_MISSING"
           : failureKindToFallbackReason(failureKind);

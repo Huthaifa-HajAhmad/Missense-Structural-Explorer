@@ -139,6 +139,16 @@ export function assembleCoreResponsePayload(
       mutant,
       pdbId: coreData.resolvedPdbId,
       pdbSource: coreData.resolvedPdbSource,
+      /*
+       * The wild-type sequence the pipeline analysed.
+       *
+       * `metadataSchema` has declared this field all along and the clinical report's
+       * re-synthesis sends it to the narrative route, but no builder populated it — so the
+       * request asked for a sequence that never arrived and the route always fell back to its
+       * optional branch. `mutatedSequence` is not a substitute: it differs at exactly the
+       * residue the narrative is asked to explain.
+       */
+      sequence: sequence ?? null,
       alternativeVariants: generateAltVariants(sequence),
       mutatedSequence,
       serviceStatus: coreData.serviceStatus,

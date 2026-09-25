@@ -120,6 +120,8 @@ export function StructureTab({
           burialStatus={result.disruptionPredictor.burialStatus}
           neighbourCount={result.disruptionPredictor.neighborCount}
           rsa={result.disruptionPredictor.rsa}
+          pdbId={result.metadata?.pdbId}
+          pdbSource={result.metadata?.pdbSource}
           onExplainMetric={setSelectedMetric}
         />
       ) : (

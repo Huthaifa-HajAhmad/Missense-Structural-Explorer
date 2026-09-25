@@ -31,6 +31,10 @@ export interface ResidueEnvironmentPanelProps {
   neighbourCount?: number | null;
   /** Relative solvent accessibility as a fraction (0.12 = 12%). */
   rsa?: number | null;
+  /** PDB entry or model id the coordinates came from, when the payload names one. */
+  pdbId?: string | null;
+  /** Provenance of that entry: "RCSB PDB" (experimental) or "AlphaFold" (predicted). */
+  pdbSource?: string | null;
   /** Opens the metric-explanation modal for one of the two indicators. */
   onExplainMetric: (metric: "burial_status" | "contact_density") => void;
 }
@@ -44,6 +48,22 @@ const INDICATOR_TITLE: Record<BurialIndicator["key"], string> = {
   rsa: "Solvent Exposure",
   packing: "Packing Density"
 };
+
+/**
+ * Name the structure these numbers came from, or say plainly that it is unnamed.
+ *
+ * The header used to read "in the modelled structure" whatever the source was — including an
+ * RCSB entry, which is an experimental structure rather than a model — and never named the
+ * entry, so a reader could not tell which coordinates produced the values or whether the
+ * burial word came from measured or predicted coordinates.
+ */
+export function describeStructureSource(pdbId?: string | null, pdbSource?: string | null): string {
+  const id = typeof pdbId === "string" && pdbId.trim() ? pdbId.trim() : null;
+  if (!id) return "the structure used for this analysis";
+  if (pdbSource === "RCSB PDB") return `experimental structure ${id} (RCSB PDB)`;
+  if (pdbSource === "AlphaFold") return `the AlphaFold model ${id}`;
+  return `structure ${id}`;
+}
 
 /**
  * A filled track with the band thresholds marked.
@@ -146,6 +166,8 @@ export function ResidueEnvironmentPanel({
   burialStatus,
   neighbourCount,
   rsa,
+  pdbId,
+  pdbSource,
   onExplainMetric
 }: ResidueEnvironmentPanelProps) {
   const evidence = useMemo(
@@ -163,8 +185,8 @@ export function ResidueEnvironmentPanel({
             Residue Environment
           </span>
           <p className="text-[10.5px] mt-1 leading-snug" style={{ color: "var(--cs-text-muted)" }}>
-            Burial and packing of the wild-type position in the modelled structure. The two indicators
-            below measure different things, and the one that decided the status is marked.
+            Burial and packing of the wild-type position in {describeStructureSource(pdbId, pdbSource)}. The two
+            indicators below measure different things, and the one that decided the status is marked.
           </p>
         </div>
         <span className="badge-data-source shrink-0">{evidence.basisLabel}</span>

@@ -133,10 +133,32 @@ const BURIAL_LABELS: Record<BurialWord | "undetermined", string> = {
   undetermined: "Undetermined",
 };
 
+/**
+ * What each word means when a *measured* accessible surface decided it.
+ *
+ * "It sits in a pocket" used to be in the boundary sentence. An RSA band does not establish a
+ * pocket — that is the pocket predictor's measurement, reported elsewhere on the same tab — so
+ * the sentence claimed more than the number behind it.
+ */
 const BURIAL_DETAILS: Record<BurialWord | "undetermined", string> = {
   core: "The side chain is buried, with little or no solvent contact, so a polar or charged substitution here has to pay a desolvation cost.",
-  boundary: "The side chain is partly buried: it sits in a pocket or at a boundary rather than fully inside the core or fully exposed.",
+  boundary: "The side chain is partly buried: it sits at the boundary between the core and the surface rather than fully inside the core or fully exposed.",
   surface: "The side chain is solvent-exposed, where substitutions mostly change the surface a partner or ligand sees rather than the fold.",
+  undetermined: "No burial measurement was reported for this position, so no statement about exposure can be made.",
+};
+
+/**
+ * The same words when the word is an *estimate from Cα packing density*.
+ *
+ * The measured sentences above assert solvent contact, which packing density does not
+ * establish. Appending "(Estimated from packing density.)" to one of them left the panel
+ * making the stronger claim and qualifying it in the same breath — beside a caveat saying
+ * packing is a proxy for burial rather than a measurement of it.
+ */
+const BURIAL_DETAILS_FROM_PACKING: Record<BurialWord | "undetermined", string> = {
+  core: "The side chain sits in a densely packed region — many Cα neighbours — which is where a polar or charged substitution is most likely to cost folding stability.",
+  boundary: "The side chain sits in a region of intermediate packing, between the densely packed core and the sparsely packed surface.",
+  surface: "The side chain sits in a sparsely packed region, with few Cα neighbours — consistent with a position that contacts solvent rather than the fold interior.",
   undetermined: "No burial measurement was reported for this position, so no statement about exposure can be made.",
 };
 
@@ -290,9 +312,12 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
   return {
     status,
     label: BURIAL_LABELS[status],
-    /* When the word is a packing estimate, say so in the sentence that defines the word. */
+    /*
+     * When the word is a packing estimate, the sentence that defines it has to be a sentence
+     * about packing — not the accessibility sentence with a parenthetical bolted on.
+     */
     detail:
-      basis === "residue-packing" ? `${BURIAL_DETAILS[status]} (Estimated from packing density.)` : BURIAL_DETAILS[status],
+      basis === "residue-packing" ? BURIAL_DETAILS_FROM_PACKING[status] : BURIAL_DETAILS[status],
     basis,
     basisLabel: BASIS_LABELS[basis],
     basisDetail:

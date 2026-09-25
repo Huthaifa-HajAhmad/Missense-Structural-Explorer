@@ -65,3 +65,19 @@ describe("assembleCoreResponsePayload — numbering disclosure", () => {
     expect(payload.numberingUnverifiedReason).toBeUndefined();
   });
 });
+
+describe("assembleCoreResponsePayload — the sequence the narrative request asks for", () => {
+  it("carries the wild-type sequence beside the mutated one", () => {
+    const payload = assembleCoreResponsePayload(coreData, context({}));
+    const wildType = "M".repeat(100);
+
+    // The report's re-synthesis sends `metadata.sequence` to the narrative route. It was
+    // declared in the schema and read by the client, but no builder populated it, so the
+    // request always asked for a sequence that never arrived. `mutatedSequence` is not a
+    // substitute: it differs at exactly the residue the narrative is asked to explain.
+    expect(payload.metadata.sequence).toBe(wildType);
+    expect(payload.metadata.sequence).not.toBe(payload.metadata.mutatedSequence);
+    expect(payload.metadata.sequence[63]).toBe("M");
+    expect(payload.metadata.mutatedSequence[63]).toBe("A");
+  });
+});

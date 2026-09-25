@@ -117,11 +117,19 @@ describe("deriveBurialEvidence", () => {
     expect(evidence.indicators.packing.isBasis).toBe(false);
   });
 
-  it("marks a packing-derived word as an estimate in its own sentence", () => {
+  it("describes a packing-derived word in packing terms, not accessibility terms", () => {
     const evidence = deriveBurialEvidence({ burialStatus: "core", neighbourCount: 20 });
 
     expect(evidence.basis).toBe("residue-packing");
-    expect(evidence.detail).toMatch(/Estimated from packing density/i);
+    // Packing density does not measure solvent contact. The measured sentence asserted it and
+    // the panel qualified it in the same breath, beside a caveat calling packing a proxy.
+    expect(evidence.detail).toMatch(/densely packed/i);
+    expect(evidence.detail).not.toMatch(/solvent contact|accessible surface/i);
+    expect(evidence.basisDetail).toMatch(/packing density/i);
+    // ...and the accessibility sentence is still what a measured word gets.
+    const measured = deriveBurialEvidence({ burialStatus: "core", rsa: 0.05 });
+    expect(measured.basis).toBe("solvent-accessibility");
+    expect(measured.detail).toMatch(/little or no solvent contact/i);
   });
 
   it("stretches the meter domain to contain the value instead of saturating", () => {

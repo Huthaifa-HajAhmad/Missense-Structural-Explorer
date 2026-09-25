@@ -214,6 +214,9 @@ export async function streamCoreAnalysis(
       residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
       wildType,
       mutant,
+      // Same reason as the assembled payload: the report's re-synthesis asks the narrative
+      // route for this sequence, and a chunk that omits it leaves that request incomplete.
+      sequence: sequence ?? null,
       mutatedSequence,
       serviceStatus: {
         clinvar: clinvarOutcome.status,

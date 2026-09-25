@@ -188,6 +188,48 @@ describe("StructureTab residue environment panel", () => {
     expect(screen.getByText(/proxy for burial rather than a measurement/i)).toBeInTheDocument();
   });
 
+  it("describes a packing-derived word in packing terms on screen, not accessibility terms", () => {
+    // Packing density does not measure solvent contact. The panel used to print the
+    // accessibility sentence and add "(Estimated from packing density.)" — asserting the
+    // stronger claim and qualifying it in the same breath.
+    renderTab({
+      analysisState: {
+        result: {
+          ...RESULT,
+          disruptionPredictor: { ...RESULT.disruptionPredictor, burialStatus: "core", neighborCount: 20 }
+        },
+        isLoading: false
+      }
+    });
+
+    expect(screen.getByText(/densely packed region/i)).toBeInTheDocument();
+    expect(screen.queryByText(/little or no solvent contact/i)).not.toBeInTheDocument();
+  });
+
+  it("names the structure the burial word came from, and its provenance", () => {
+    // "the modelled structure" was printed whatever the source was — including an RCSB entry,
+    // which is experimental — and the entry was never named.
+    renderTab({
+      analysisState: {
+        result: {
+          ...RESULT,
+          metadata: { ...RESULT.metadata, pdbId: "1ABC", pdbSource: "RCSB PDB" }
+        },
+        isLoading: false
+      }
+    });
+
+    expect(screen.getByText(/experimental structure 1ABC \(RCSB PDB\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/modelled structure/)).not.toBeInTheDocument();
+  });
+
+  it("does not call an unnamed structure a modelled one", () => {
+    renderTab();
+
+    expect(screen.getByText(/the structure used for this analysis/)).toBeInTheDocument();
+    expect(screen.queryByText(/modelled structure/)).not.toBeInTheDocument();
+  });
+
   it("credits the accessibility measurement when there is one, and bands it on the shared cutoffs", () => {
     // 12% RSA is core under the app's single definition (core at or below 15%). The
     // SASA sidecar used 5% here, so the badge said "boundary" while the panel's own

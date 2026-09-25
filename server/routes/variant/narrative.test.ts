@@ -236,6 +236,41 @@ describe("Variant narrative route wiring", () => {
     }
   });
 
+  it("reports the engine's own verdict, not one re-derived from the status", async () => {
+    const handler = getNarrativeHandler();
+
+    const resolveSpy = vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+    const geminiSpy = vi.spyOn(geminiService, "performGeminiAnalysis").mockRejectedValue(
+      new geminiService.GeminiError(
+        "MODEL_UNAVAILABLE",
+        "Gemini analysis failed for an unclassified reason.",
+        503,
+        {
+          providerDetail: "unclassified",
+          attemptedModels: ["gemini-3.7-flash"],
+          failureKind: "unknown",
+        }
+      )
+    );
+
+    const { req, res } = makeHarness();
+
+    try {
+      await handler(req, res, () => {});
+      const body = res.body;
+
+      // Status 503 on its own classifies as "overload". The engine classified this failure as
+      // "unknown", and that verdict — not the status — is what the client's reason must carry;
+      // otherwise a slow-but-working provider is reported as "AI service busy, retry shortly".
+      expect(body.fallbackReason).toBe("SERVICE_UNAVAILABLE");
+      expect(body.fallbackMessage).toMatch(/unclassified/i);
+      expect(body.analysis).not.toContain("AI service busy");
+    } finally {
+      resolveSpy.mockRestore();
+      geminiSpy.mockRestore();
+    }
+  });
+
   it("treats an unexpected transport failure as a retryable service error", async () => {
     const handler = getNarrativeHandler();
 
