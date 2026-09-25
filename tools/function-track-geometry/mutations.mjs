@@ -69,6 +69,31 @@ const MUTATIONS = [
     expect: "pin and caret colours clear 3:1 (the track and the legend move together, so the legend equality check stays green)",
   },
   {
+    id: "domain-row-does-not-highlight",
+    file: COMPONENT,
+    from: "                            fill={isTargetInside || isSelected ? \"url(#activeDomainGradOpaque)\" : \"url(#domainGradOpaque)\"}",
+    to: "                            fill={isTargetInside ? \"url(#activeDomainGradOpaque)\" : \"url(#domainGradOpaque)\"}",
+    expect: "an annotation row highlights its domain band (the band ignores the selection)",
+  },
+  {
+    id: "span-row-does-not-stroke",
+    file: COMPONENT,
+    from: "                              isSelected\n                                ? \"stroke-amber-600 stroke-[1.5]\"",
+    to: "                              isSelected\n                                ? \"stroke-transparent stroke-[0.75]\"",
+    expect: "an annotation row strokes its span bar (the bar ignores the selection)",
+  },
+  {
+    id: "focus-variant-keeps-the-zoom",
+    file: COMPONENT,
+    from: "    const targetZoom = Math.min(5, Math.max(2.5, seqLength / 250));",
+    // A fixed 2× rather than the working zoom: one effect, so the failure text attributes cleanly. Reading
+    // `zoomLevel` here instead would go through a stale closure (`focusOnVariant` depends on [pos,
+    // seqLength]) and reset the track to 1×, which then also breaks the pan family — true, but a muddier
+    // signal than the mutation deserves.
+    to: "    const targetZoom = 2;",
+    expect: '"Focus Variant" jumps to the working zoom (it keeps a fixed 2x instead)',
+  },
+  {
     id: "pan-ignored",
     file: COMPONENT,
     from: "                        onChange={(e) => setPanOffset(parseFloat(e.target.value))}",

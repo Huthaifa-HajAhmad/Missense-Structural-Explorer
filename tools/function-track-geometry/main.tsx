@@ -210,6 +210,9 @@ function categoryMatchesType(type: string, category: string): boolean {
     case "ptm": return t.includes("modified") || t.includes("phospho") || t.includes("methyl") || t.includes("acetyl");
     case "disulfide": return t.includes("disulfide") || t.includes("cysteine");
     case "transmembrane": return t.includes("transmembrane") || t.includes("membrane");
+    // Regions have a painting of their own since the third round, so the legend's colour check needs to
+    // find the bar they are painted as rather than falling through to "other".
+    case "region": return t === "region";
     case "other":
       return (
         t !== "domain" &&
@@ -649,6 +652,14 @@ const MAPPING_TOLERANCE = 0.25;
 const SPAN_LANE = { top: 62, siteRailY: 74 } as const;
 
 /**
+ * The pin-tiering rule, as this harness understands it: how far apart two pins sharing a tier must be,
+ * how many tiers the layout offers, and the vertical step between them. Declared here rather than read
+ * from the component so the packing assertion compares the render against a rule instead of against
+ * itself.
+ */
+const PIN_RULE = { separation: 14, tiers: 3, step: 14 } as const;
+
+/**
  * 3f. The span lane. Curated features annotated over a run of residues must be drawn as bars, and
  * point-annotated features as pins — the split is what removed fifteen near-black pins from GZF1,
  * where ten 23-24 aa zinc fingers and five low-complexity segments had been plotted as if each sat
@@ -844,19 +855,20 @@ function checkNonTextContrast(id: string, t: Track): Check[] {
 }
 
 /**
- * 3g. The pin tiers.
+ * 3g. The pin tiers: the invariant, and the rule.
  *
  * Pins that would collide are stacked in tiers, and the tier assignment is interval packing: each pin
- * takes the lowest tier whose rightmost pin is far enough away. Pins sharing a tier must therefore not
- * be drawn on top of each other — the one thing a reader cannot undo.
+ * takes the lowest tier whose rightmost pin is far enough away, and when every tier is occupied it joins
+ * the one furthest left. Two things are asserted — that same-tier pins are not drawn on top of each
+ * other (the one thing a reader cannot undo) and that the rendered tiers *are* that packing, computed
+ * here from the fixture's residues and the printed ruler rather than by calling the component.
  *
- * Honest scope: this is a regression guard, not a reproducer. It was written against the previous rule
- * (compare with the immediate predecessor only, cycle the tier modulo three), and the crowded-cluster
- * fixture shows that rule passing it too — a cluster dense enough to break the cyclic rule is also
- * dense enough to exhaust three tiers, where *any* assignment overlaps. What fails it is a mutation
- * that ignores tiers altogether ("every pin on tier 0"), which is in `mutations.mjs`.
+ * Honest scope: the overlap half is a regression guard, not a reproducer. The rule it replaced (compare
+ * with the immediate predecessor, cycle the tier modulo three) passes it, because a cluster dense enough
+ * for the cyclic rule to collide also exhausts three tiers, where *any* assignment overlaps. What fails
+ * it is ignoring tiers entirely (`pins-share-one-tier` in `mutations.mjs`).
  */
-function checkPinTiers(id: string, t: Track): Check[] {
+function checkPinTiers(id: string, t: Track, expected: { separation: number; tiers: number }): Check[] {
   const collisions: string[] = [];
   for (let i = 0; i < t.sites.length; i += 1) {
     for (let j = i + 1; j < t.sites.length; j += 1) {
@@ -867,13 +879,42 @@ function checkPinTiers(id: string, t: Track): Check[] {
     }
   }
   const tiers = new Set(t.sites.map((s) => px(s.pin.y)));
-  return [
-    {
-      name: `${id}: pins sharing a tier are not drawn on top of each other`,
-      pass: collisions.length === 0,
-      detail: collisions.length ? collisions.join("; ") : `${t.sites.length} pins across ${tiers.size} tier(s)`,
-    },
-  ];
+  const overlapCheck: Check = {
+    name: `${id}: pins sharing a tier are not drawn on top of each other`,
+    pass: collisions.length === 0,
+    detail: collisions.length ? collisions.join("; ") : `${t.sites.length} pins across ${tiers.size} tier(s)`,
+  };
+
+  // The packing rule, implemented here over the residues the track drew. `t.sites` is in ascending
+  // start order (the component sorts before placing), so index i of the oracle matches index i of the
+  // render.
+  const order = t.rulerStart !== null && t.rulerEnd !== null ? t.sites.map((s) => Number((s.name.match(/residue (\d+)/) || [])[1])) : [];
+  const xOf = (residue: number) =>
+    t.rail.x + ((residue - (t.rulerStart as number)) / Math.max((t.rulerEnd as number) - (t.rulerStart as number), 1)) * (t.rail.right - t.rail.x);
+  const rightmost: number[] = [];
+  const oracle = order.map((residue) => {
+    const x = xOf(residue);
+    let tier = rightmost.findIndex((placed) => x - placed >= expected.separation);
+    if (tier === -1) tier = rightmost.length < expected.tiers ? rightmost.length : rightmost.indexOf(Math.min(...rightmost));
+    rightmost[tier] = x;
+    return tier;
+  });
+  const rendered = t.sites.map((s) => Math.round((px(s.pin.y) - SPAN_LANE.siteRailY) / PIN_RULE.step));
+  const mismatches = oracle
+    .map((want, i) => (rendered[i] === want ? null : `${t.sites[i].name.slice(0, 22)} on tier ${rendered[i]}, packing says ${want}`))
+    .filter((entry): entry is string => entry !== null);
+  const ruleCheck: Check = {
+    name: `${id}: the tiers are the packing the rule describes`,
+    pass: order.length === t.sites.length && mismatches.length === 0,
+    detail:
+      order.length !== t.sites.length
+        ? `${t.sites.length} pins but ${order.length} readable residues`
+        : mismatches.length
+          ? mismatches.join("; ")
+          : `${t.sites.length} pins packed onto tiers [${oracle.join(", ")}]`,
+  };
+
+  return [overlapCheck, ruleCheck];
 }
 
 /**
@@ -887,12 +928,15 @@ function checkPinTiers(id: string, t: Track): Check[] {
  */
 async function checkAnnotationControls(id: string, host: HTMLElement, t: Track): Promise<Check[]> {
   const sizeName = `${id}: every drawn annotation is also a large-target control`;
-  const wiredName = `${id}: activating an annotation row selects the same feature in the track`;
   const details = host.querySelector("[data-annotation-list]") as HTMLDetailsElement | null;
   if (!details) {
+    // Four assertions, because that is what this family declares — a missing disclosure must not quietly
+    // shrink the family and be read as "fewer things to check".
     return [
       { name: sizeName, pass: false, detail: "no [data-annotation-list] disclosure in the tab" },
-      { name: wiredName, pass: false, detail: "no [data-annotation-list] disclosure in the tab" },
+      { name: `${id}: an annotation row drives its pin`, pass: false, detail: "no [data-annotation-list] disclosure" },
+      { name: `${id}: an annotation row highlights its domain band`, pass: false, detail: "no [data-annotation-list] disclosure" },
+      { name: `${id}: an annotation row strokes its span bar`, pass: false, detail: "no [data-annotation-list] disclosure" },
     ];
   }
   // A closed <details> has no layout. Opening it the way a keyboard user would also proves the
@@ -917,96 +961,240 @@ async function checkAnnotationControls(id: string, host: HTMLElement, t: Track):
           : `${rows.length} rows, shortest ${Math.round(Math.min(...boxes.map((b) => b.height)))}px tall`,
   };
 
-  const sitesByResidue = new Map<number, Track["sites"][number]>();
+  /**
+   * Click a row and read a shape's state around it. Returns the row's pressed state and the shape's
+   * reading before, during and after, so each shape kind can assert its own idea of "selected" without
+   * three copies of the click dance (and three chances to get the ordering wrong).
+   */
+  const driveRow = async (target: HTMLButtonElement, read: () => string) => {
+    // An earlier check clicks a pin directly, so this feature may already be selected; clear it first or
+    // the transition below would be a deselection and the check would fail for the wrong reason.
+    if (target.getAttribute("aria-pressed") === "true") {
+      target.click();
+      await nextFrame();
+    }
+    const before = read();
+    target.click();
+    await nextFrame();
+    const pressed = target.getAttribute("aria-pressed");
+    const during = read();
+    target.click(); // the selection toggles, so this leaves the track as it was found
+    await nextFrame();
+    const cleared = target.getAttribute("aria-pressed");
+    return { before, pressed, during, cleared, restored: read() === before };
+  };
+
+  const rowFor = (kind: "domain" | "site", start: number, end: number) =>
+    rows.find(
+      (r) =>
+        r.getAttribute("data-annotation-kind") === kind &&
+        Number(r.getAttribute("data-annotation-start")) === start &&
+        Number(r.getAttribute("data-annotation-end")) === end
+    );
+  // Start AND end: two GZF1 spans begin at residue 153 (a disordered region and a low-complexity
+  // segment), and matching on the start alone clicked one row and measured the other bar.
+  const spanOf = (label: string) => {
+    const match = label.match(/residues (\d+) to (\d+)/);
+    return match ? { start: Number(match[1]), end: Number(match[2]) } : null;
+  };
+
+  // (1) A pin row: the pin head grows and changes colour.
+  const pinResidues = new Map<number, Track["sites"][number]>();
   for (const site of t.sites) {
     const residue = Number((site.name.match(/residue (\d+)/) || [])[1]);
-    if (Number.isFinite(residue)) sitesByResidue.set(residue, site);
+    if (Number.isFinite(residue)) pinResidues.set(residue, site);
   }
-  const row = rows.find(
-    (r) =>
-      r.getAttribute("data-annotation-kind") === "site" &&
-      sitesByResidue.has(Number(r.getAttribute("data-annotation-start")))
-  );
-  const site = row ? sitesByResidue.get(Number(row.getAttribute("data-annotation-start"))) : undefined;
-  if (!row || !site) {
-    return [sizeCheck, { name: wiredName, pass: false, detail: "no annotation row maps to a drawn pin" }];
-  }
-  // An earlier check clicks a pin directly, so this feature may already be selected; clear it first or
-  // the transition below would be a deselection and the check would fail for the wrong reason.
-  if (row.getAttribute("aria-pressed") === "true") {
-    row.click();
-    await nextFrame();
-  }
-  const pinRadius = () => (site.g.querySelectorAll("circle")[1] as SVGCircleElement)?.r.baseVal.value ?? 0;
-  const before = { r: pinRadius(), fill: getComputedStyle(site.pinEl).fill };
-  row.click();
-  await nextFrame();
-  const pressed = row.getAttribute("aria-pressed");
-  const after = { r: pinRadius(), fill: getComputedStyle(site.pinEl).fill };
-  row.click(); // the selection toggles, so this leaves the track as it was found
-  await nextFrame();
-  const cleared = row.getAttribute("aria-pressed") === "false" && pinRadius() === before.r;
-  return [
-    sizeCheck,
-    {
-      name: wiredName,
-      pass: pressed === "true" && after.r > before.r && after.fill !== before.fill && cleared,
-      detail: `pressed=${pressed}, pin r ${before.r}→${after.r}, fill ${before.fill}→${after.fill}, clears again=${cleared}`,
-    },
-  ];
+  const pinRow = rows.find((r) => r.getAttribute("data-annotation-kind") === "site" && pinResidues.has(Number(r.getAttribute("data-annotation-start"))));
+  const pinSite = pinRow ? pinResidues.get(Number(pinRow.getAttribute("data-annotation-start"))) : undefined;
+  const pinRadius = () => (pinSite?.g.querySelectorAll("circle")[1] as SVGCircleElement)?.r.baseVal.value ?? 0;
+  const pinResult = pinRow && pinSite
+    ? await driveRow(pinRow, () => `${pinRadius()}|${getComputedStyle(pinSite.pinEl).fill}`)
+    : null;
+  const pinCheck: Check = {
+    name: `${id}: an annotation row drives its pin`,
+    pass:
+      !!pinResult &&
+      pinResult.pressed === "true" &&
+      pinResult.cleared === "false" &&
+      pinResult.restored &&
+      Number(pinResult.during.split("|")[0]) > Number(pinResult.before.split("|")[0]) &&
+      pinResult.during.split("|")[1] !== pinResult.before.split("|")[1],
+    detail: pinResult
+      ? `pressed=${pinResult.pressed}, r|fill ${pinResult.before} → ${pinResult.during}, clears again=${pinResult.cleared}`
+      : "no annotation row maps to a drawn pin",
+  };
+
+  // (2) A domain row: the band shows the highlight gradient while the row is pressed. Not "the fill
+  // changed" — when the variant sits inside the band it is *already* highlighted, and demanding a
+  // transition there failed three cases in the first run of this check for a reason that was not a bug.
+  const domain = t.domains[0];
+  const domainSpan = domain ? spanOf(domain.name) : null;
+  const domainRow = domain && domainSpan ? rowFor("domain", domainSpan.start, domainSpan.end) : undefined;
+  const domainFill = () => (domain ? getComputedStyle(domain.block).fill : "none");
+  const domainResult = domainRow ? await driveRow(domainRow, domainFill) : null;
+  const domainCheck: Check = {
+    name: `${id}: an annotation row highlights its domain band`,
+    pass:
+      !!domainResult &&
+      domainResult.pressed === "true" &&
+      domainResult.cleared === "false" &&
+      domainResult.during.includes("activeDomainGradOpaque") &&
+      domainResult.restored,
+    detail: domainResult
+      ? `pressed=${domainResult.pressed}, band fill ${domainResult.before} → ${domainResult.during}, restores=${domainResult.restored}`
+      : "no annotation row maps to a drawn domain band",
+  };
+
+  // (3) A span row: the bar takes the amber selection stroke and a thicker one, which is how a bar says
+  // "this one".
+  const span = t.spans[0];
+  const spanLoc = span ? spanOf(span.name) : null;
+  const spanRow = span && spanLoc ? rowFor("site", spanLoc.start, spanLoc.end) : undefined;
+  const spanStroke = () => (span ? `${getComputedStyle(span.bar).stroke}|${getComputedStyle(span.bar).strokeWidth}` : "none");
+  const spanResult = spanRow ? await driveRow(spanRow, spanStroke) : null;
+  const spanCheck: Check = {
+    name: `${id}: an annotation row strokes its span bar`,
+    pass:
+      !!spanResult &&
+      spanResult.pressed === "true" &&
+      spanResult.cleared === "false" &&
+      spanResult.during !== spanResult.before &&
+      spanResult.restored,
+    detail: spanResult
+      ? `pressed=${spanResult.pressed}, bar stroke|width ${spanResult.before} → ${spanResult.during}, restores=${spanResult.restored}`
+      : `no annotation row maps to the drawn span bar (${span ? span.name.slice(0, 30) : "no span"})`,
+  };
+
+  return [sizeCheck, pinCheck, domainCheck, spanCheck];
 }
 
 /**
- * 3j. Panning moves the window without resizing it.
+ * 3j. Panning moves the window without resizing it — swept, not sampled once.
  *
- * The scrubber renders only above 1×, so this belongs to the zoomed cases. Zoom had coverage — the
- * window narrows, clipping is applied — but nothing asserted that panning does anything, or that it
- * does not also change the scale, which is the one thing a pan control must not do.
+ * The scrubber renders only above 1×, so this belongs to the zoomed cases. Zoom had coverage (the window
+ * narrows, clipping is applied); panning had none, and a single position could not tell "moves
+ * proportionally" from "jumps to the far end". Three positions, each holding the width constant and the
+ * later two requiring the window to move rightwards.
+ *
+ * The direction claim starts at the second position on purpose: where a case *starts* is set by "Focus
+ * Variant" (pan ≈ 0.58 for `zoomed`, 0 for `zoomed2`), and that is the focus-variant family's business,
+ * not this one's.
  */
 async function checkPan(id: string, host: HTMLElement): Promise<Check[]> {
-  const name = `${id}: panning moves the window without resizing it`;
+  const positions = [0.7, 0.8, 0.95];
+  const nameAt = (position: number) => `${id}: panning to ${position} moves the window without resizing it`;
   const pan = Array.from(host.querySelectorAll("input[type=range]")).find((input) =>
     /Pan horizontally/.test(input.getAttribute("title") || "")
   ) as HTMLInputElement | undefined;
-  if (!pan) return [{ name, pass: false, detail: "no pan scrubber in the toolbar (it renders only above 1×)" }];
-
   const readWindow = () => {
     const read = readTrack(host);
     if ("error" in read) return null;
     const { rulerStart, rulerEnd } = read.track;
     return rulerStart === null || rulerEnd === null ? null : { start: rulerStart, end: rulerEnd };
   };
-  const before = readWindow();
-  if (!before) return [{ name, pass: false, detail: "could not read the ruler's window before panning" }];
+  // Every early exit returns one failure per position: a family that shrinks on failure is a family whose
+  // count no longer means anything.
+  if (!pan) return positions.map((p) => ({ name: nameAt(p), pass: false, detail: "no pan scrubber in the toolbar (it renders only above 1×)" }));
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  if (!nativeSetter) return positions.map((p) => ({ name: nameAt(p), pass: false, detail: "no native value setter on HTMLInputElement" }));
+  const initial = readWindow();
+  if (!initial) return positions.map((p) => ({ name: nameAt(p), pass: false, detail: "could not read the ruler's window" }));
+  const initialWidth = initial.end - initial.start;
+  const originalValue = pan.value;
 
   // A controlled range input ignores a plain `value = …`: React reads its own tracker, so the write has
   // to go through the native setter and be announced with the event React listens for.
-  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-  if (!nativeSetter) return [{ name, pass: false, detail: "no native value setter on HTMLInputElement" }];
-  const original = pan.value;
-  nativeSetter.call(pan, "0.9");
-  pan.dispatchEvent(new Event("input", { bubbles: true }));
-  await nextFrame();
-  const after = readWindow();
+  const setPan = async (value: number) => {
+    nativeSetter.call(pan, String(value));
+    pan.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextFrame();
+  };
+
+  const results: Check[] = [];
+  let previous = initial;
+  for (const [index, position] of positions.entries()) {
+    await setPan(position);
+    const current = readWindow();
+    if (!current) {
+      results.push({ name: nameAt(position), pass: false, detail: "could not read the ruler's window after panning" });
+      continue;
+    }
+    const widthHeld = Math.abs(current.end - current.start - initialWidth) <= 1;
+    const movedRight = current.start > previous.start;
+    const ok = widthHeld && (index === 0 || movedRight);
+    results.push({
+      name: nameAt(position),
+      pass: ok,
+      detail: `window ${previous.start}–${previous.end} → ${current.start}–${current.end}; width ${initialWidth} → ${current.end - current.start}${index === 0 ? " (direction not asserted on the first position)" : ""}`,
+    });
+    previous = current;
+  }
+
   // Put the scrubber back where it was, so the case's screenshot and any later check see the window the
   // assertions above were about.
-  nativeSetter.call(pan, original);
-  pan.dispatchEvent(new Event("input", { bubbles: true }));
-  await nextFrame();
+  await setPan(Number(originalValue));
   const restored = readWindow();
-  if (!after || !restored) return [{ name, pass: false, detail: "could not read the ruler's window after panning" }];
+  const restoredOk = !!restored && Math.abs(restored.start - initial.start) <= 1 && Math.abs(restored.end - initial.end) <= 1;
+  const last = results[results.length - 1];
+  if (last) {
+    last.pass = last.pass && restoredOk;
+    last.detail += `; restored to ${restored ? `${restored.start}–${restored.end}` : "an unreadable window"}`;
+  }
+  return results;
+}
 
-  const widthBefore = before.end - before.start;
-  const widthAfter = after.end - after.start;
-  const moved = after.start > before.start;
-  // The ruler labels are rounded integers, so a resize shows up as a width change of a residue or more.
-  const sameWidth = Math.abs(widthAfter - widthBefore) <= 1;
-  const putBack = Math.abs(restored.start - before.start) <= 1 && Math.abs(restored.end - before.end) <= 1;
+/**
+ * 3k. "Focus Variant" jumps to the working zoom, rather than keeping the reader's.
+ *
+ * Intended behaviour, and it surprised this harness: `focusOnVariant` sets
+ * `min(5, max(2.5, seqLength / 250))` — 3.5× for these 875 residues — so clicking it after two zoom-in
+ * clicks lands back at 3.5× and discards them. `zoomed2` was written assuming the clicks would survive,
+ * and for one round both zoom cases silently measured the same 364–613 window. The window is asserted
+ * here against the same rule, so the next person to rely on this finds out from the harness instead of
+ * from two cases that agree by accident.
+ */
+async function checkFocusVariantZoom(id: string, host: HTMLElement, seqLength: number, residue: number): Promise<Check[]> {
+  const name = `${id}: "Focus Variant" jumps to the working zoom and centres the variant`;
+  const expectedZoom = Math.min(5, Math.max(2.5, seqLength / 250));
+  const expectedWidth = seqLength / expectedZoom;
+
+  // Step away from the working zoom first, or this check cannot tell "jumps to the working zoom" from
+  // "keeps whatever zoom the reader had": the case's own click sequence already lands on 3.5× here, so
+  // focusing it would change only the position and the assertion would pass either way.
+  const zoomOut = Array.from(host.querySelectorAll("button")).find((b) => /Zoom out/.test(b.getAttribute("title") || ""));
+  if (!zoomOut) return [{ name, pass: false, detail: 'no button titled "Zoom out (-0.5x)"' }];
+  for (let i = 0; i < 2; i += 1) {
+    (zoomOut as HTMLButtonElement).click();
+    await nextFrame();
+  }
+  const beforeRead = readTrack(host);
+  const before = beforeRead && !("error" in beforeRead) ? beforeRead.track.rulerStart !== null && beforeRead.track.rulerEnd !== null
+    ? beforeRead.track.rulerEnd - beforeRead.track.rulerStart + 1
+    : null : null;
+
+  const focusVariant = Array.from(host.querySelectorAll("button")).find((b) => /Focus Variant/.test(b.textContent || ""));
+  if (!focusVariant) return [{ name, pass: false, detail: 'no button labelled "Focus Variant"' }];
+  (focusVariant as HTMLButtonElement).click();
+  await nextFrame();
+  await nextFrame();
+
+  const read = readTrack(host);
+  if ("error" in read) return [{ name, pass: false, detail: read.error }];
+  const { rulerStart, rulerEnd } = read.track;
+  if (rulerStart === null || rulerEnd === null) {
+    return [{ name, pass: false, detail: "could not read the ruler's window after focusing the variant" }];
+  }
+  const width = rulerEnd - rulerStart + 1;
+  const centre = (rulerStart + rulerEnd) / 2;
+  // The ruler labels are rounded integers, so allow a residue of slack on each measurement.
+  const widthOk = Math.abs(width - expectedWidth) <= 2;
+  const centredOk = Math.abs(centre - residue) <= 2;
+  const overrodeTheReadersZoom = before !== null && before !== width;
   return [
     {
       name,
-      pass: moved && sameWidth && putBack,
-      detail: `window ${before.start}–${before.end} → ${after.start}–${after.end} (width ${widthBefore} → ${widthAfter}); returned to ${restored.start}–${restored.end}`,
+      pass: widthOk && centredOk && overrodeTheReadersZoom,
+      detail: `zoomed out to width ${before} first; focus ⇒ zoom ${expectedZoom.toFixed(1)}x, width ${width} (expected ≈${Math.round(expectedWidth)}); window ${rulerStart}–${rulerEnd}, centre ${centre} for residue ${residue}`,
     },
   ];
 }
@@ -1451,32 +1639,42 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
         : `${filterable.length} filter(s) exercised over ${renderedShapes} shapes — ${transcripts.join(", ")}`,
   });
 
-  // 12. The default (unfiltered) residue read-out must agree with the Domain filter: the
-  //     variant is inside CBS 1, so the Domain pill finds it — but it used to report "no direct
-  //     annotations" by default because the default set excluded domains.
+  return checks;
+}
+
+/**
+ * 12. The default (unfiltered) read-out must agree with the Domain filter: the variant is inside CBS 1,
+ * so the Domain pill finds it — but it used to report "no direct annotations" by default because the
+ * default set excluded domains.
+ *
+ * Its own function, and its own family, because it runs for one case only: keeping it inside
+ * `checkInventory` made that family's size depend on the case id, which is the sort of thing a declared
+ * family size is supposed to rule out.
+ */
+async function checkPositionReadOut(id: string, host: HTMLElement): Promise<Check[]> {
   const annotationHeading = () => {
     const heads = Array.from(host.querySelectorAll("span, p")).map((n) => n.textContent || "");
     return heads.find((s) => /Direct Curated Annotations/i.test(s)) ?? "";
   };
   const domainChip = pillByText(host, /Domain/i);
-  if (domainChip && id === "cbs1") {
-    const unfilteredHeading = annotationHeading();
-    const emptyStateUnfiltered = (host.textContent || "").includes("No domain, catalytic active site");
-    const listsCbs1 = (host.textContent || "").includes("CBS 1");
-    domainChip.click();
-    await nextFrame();
-    const filteredHeading = annotationHeading();
-    const domainMatch = /1 match/i.test(host.textContent || "");
-    domainChip.click();
-    await nextFrame();
-    checks.push({
-      name: `${id}: default read-out and the Domain filter agree on CBS 1`,
+  const name = `${id}: default read-out and the Domain filter agree on CBS 1`;
+  if (!domainChip) return [{ name, pass: false, detail: "no Domain chip to press" }];
+  const unfilteredHeading = annotationHeading();
+  const emptyStateUnfiltered = (host.textContent || "").includes("No domain, catalytic active site");
+  const listsCbs1 = (host.textContent || "").includes("CBS 1");
+  domainChip.click();
+  await nextFrame();
+  const filteredHeading = annotationHeading();
+  const domainMatch = /1 match/i.test(host.textContent || "");
+  domainChip.click();
+  await nextFrame();
+  return [
+    {
+      name,
       pass: unfilteredHeading !== "" && listsCbs1 && domainMatch && !emptyStateUnfiltered,
       detail: `unfiltered heading "${unfilteredHeading}" (filtered: "${filteredHeading}"); domain filter finds=${domainMatch}; unfiltered empty-state=${emptyStateUnfiltered}`,
-    });
-  }
-
-  return checks;
+    },
+  ];
 }
 
 /* ── Legend ────────────────────────────────────────────────────────────────────── */
@@ -1495,7 +1693,7 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
  * The category list is written out rather than imported from the palette: an oracle that reads the
  * module it is checking agrees with it by construction.
  */
-const LEGEND_KINDS = ["domain", "active", "binding", "ptm", "disulfide", "transmembrane", "other"] as const;
+const LEGEND_KINDS = ["domain", "active", "binding", "ptm", "disulfide", "transmembrane", "region", "other"] as const;
 const LEGEND_SHAPES = ["point", "span"] as const;
 
 /** "Functional site: … at residue 761" / "Curated span: … at residues 317 to 340". */
@@ -1616,27 +1814,242 @@ function checkLegend(
         : `rows [${shapeRows.join(", ")}] — a legend that only names kinds cannot explain why some annotations are bars`,
   });
 
+  // The swatches are painted on the legend's own panel, not on the track, and the palette was validated
+  // against the *track* surface. A colour that clears 3:1 there can still fail here, and a swatch nobody
+  // can see is a legend row that does not exist.
+  const panel = swatches[0]?.closest("[data-legend-root]") as HTMLElement | null;
+  const panelBackground = panel ? parseRgb(getComputedStyle(panel).backgroundColor) : null;
+  const unreadable: string[] = [];
+  const readable: string[] = [];
+  for (const key of LEGEND_KINDS) {
+    const swatch = swatches.find((s) => s.getAttribute("data-legend-kind") === key) as HTMLElement | undefined;
+    if (!swatch || !panelBackground) continue;
+    const rgb = parseRgb(getComputedStyle(swatch).backgroundColor);
+    if (!rgb) {
+      unreadable.push(`${key}: unparseable swatch colour`);
+      continue;
+    }
+    const ratio = contrastRatio(rgb, panelBackground);
+    readable.push(`${key} ${ratio.toFixed(2)}:1`);
+    if (ratio < 3) unreadable.push(`${key} ${ratio.toFixed(2)}:1 (< 3:1)`);
+  }
+  checks.push({
+    name: "legend: every swatch clears 3:1 against the legend's own panel",
+    pass: !!panelBackground && unreadable.length === 0 && readable.length === LEGEND_KINDS.length,
+    detail: !panelBackground
+      ? "no [data-legend-root] panel to measure against"
+      : unreadable.length
+        ? unreadable.join("; ")
+        : readable.join(", "),
+  });
+
+  // Two categories nobody can tell apart are one category with two names. CIE76 ΔE*ab, computed here in
+  // sRGB→Lab rather than imported, with a floor of 12 — roughly "distinguishable side by side at this
+  // size" — because the palette has twice grown a colour that sat next to an existing one.
+  const labOf = ([r, g, b]: [number, number, number]) => {
+    const linear = (c: number) => {
+      const s = c / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    };
+    const [R, G, B] = [linear(r), linear(g), linear(b)];
+    // D65, sRGB
+    const x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+    const y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    const z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+    const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    const [fx, fy, fz] = [f(x), f(y), f(z)];
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  };
+  const entries = LEGEND_KINDS.map((key) => {
+    const swatch = swatches.find((s) => s.getAttribute("data-legend-kind") === key) as HTMLElement | undefined;
+    const rgb = swatch ? parseRgb(getComputedStyle(swatch).backgroundColor) : null;
+    return { key, lab: rgb ? labOf(rgb) : null };
+  });
+  const tooClose: string[] = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    for (let j = i + 1; j < entries.length; j += 1) {
+      const a = entries[i].lab;
+      const b = entries[j].lab;
+      if (!a || !b) continue;
+      const deltaE = Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+      if (deltaE < 12) tooClose.push(`${entries[i].key}/${entries[j].key} ΔE ${deltaE.toFixed(1)}`);
+    }
+  }
+  const closest = entries
+    .flatMap((entry, i) =>
+      entries.slice(i + 1).map((other) => ({ pair: `${entry.key}/${other.key}`, lab: [entry.lab, other.lab] as const }))
+    )
+    .map(({ pair, lab }) => ({
+      pair,
+      deltaE: lab[0] && lab[1] ? Math.sqrt((lab[0][0] - lab[1][0]) ** 2 + (lab[0][1] - lab[1][1]) ** 2 + (lab[0][2] - lab[1][2]) ** 2) : NaN,
+    }))
+    .filter((entry) => Number.isFinite(entry.deltaE))
+    .sort((a, b) => a.deltaE - b.deltaE);
+  checks.push({
+    name: "legend: no two categories are close enough to be confused",
+    pass: tooClose.length === 0 && entries.every((entry) => entry.lab),
+    detail: tooClose.length
+      ? `under ΔE 12: ${tooClose.join(", ")}`
+      : `closest pair ${closest[0]?.pair} at ΔE ${closest[0]?.deltaE.toFixed(1)}`,
+  });
+
   return checks;
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────────────── */
 
 /**
- * The number of assertions a complete run must produce, written out rather than counted at
- * runtime: the point of the self-check is to fail when a case silently stops contributing.
- * Per case: 6 geometry + 4 span lane + 1 residue mapping (or 1 zoom window) + 1 contrast + 3 callout
- * + 2 ring + 1 keyboard focus + 4 inventory + 1 pin tiers + 1 badge box + 2 annotation controls = 26;
- * a zoomed case adds the pan check, because the scrubber only renders above 1×; the reported case adds
- * the default-read-out check, the run adds the three legend checks (the legend is one component,
- * measured once), and the self-check. Update this deliberately when assertions are added.
+ * How many assertions each check family contributes.
+ *
+ * The expected total used to be arithmetic written by hand — "cases × 26 + zoomed + legend + self" —
+ * which had to be re-derived whenever an assertion moved (twice in two rounds), and which could only
+ * fail with a bare count, leaving "130 assertions, expected 134" to be reverse-engineered. Now each
+ * family declares its size, `expectedCheckCount()` sums the families the plan says will run, and
+ * `family()` checks each declaration against what the function actually returned — so a drift names the
+ * family that moved, and adding an assertion means editing exactly one number here.
  */
+const FAMILY_SIZE = {
+  trackGeometry: 6,
+  spanLane: 4,
+  residueMapping: 1,
+  zoomWindow: 1,
+  pan: 3,
+  focusVariantZoom: 1,
+  contrast: 1,
+  callout: 3,
+  focusRings: 2,
+  keyboardFocus: 1,
+  inventory: 4,
+  positionReadOut: 1,
+  pinTiers: 2,
+  badgeBox: 1,
+  annotationControls: 4,
+  legend: 5,
+  selfCheck: 1,
+} as const;
+
+type Family = keyof typeof FAMILY_SIZE;
+/** Families that run per case. `legend` is one component measured once; `selfCheck` closes the run. */
+type PerCaseFamily = Exclude<Family, "legend" | "selfCheck">;
+
+/** Run a family and report a failure if it did not produce the number of assertions it declares. */
+function family(name: Family, produced: Check[]): Check[] {
+  const expected = FAMILY_SIZE[name];
+  if (produced.length === expected) return produced;
+  return [
+    ...produced,
+    {
+      name: `harness: the ${name} family produced ${produced.length} assertions, expected ${expected}`,
+      pass: false,
+      detail: `if that is deliberate, update FAMILY_SIZE.${name} — the expected total is derived from it`,
+    },
+  ];
+}
+
+/**
+ * The assertions one case runs, in order, as family names.
+ *
+ * The runner executes this list and the self-check counts it, so which checks apply to a case is
+ * decided once: a new case, or a new flag on one, updates both by construction.
+ */
+function planFamilies(c: (typeof CASES)[number]): PerCaseFamily[] {
+  const zoomed = ((c as { zoomClicks?: number }).zoomClicks ?? 0) > 0;
+  const usesFocusVariant = (c as { focusVariant?: boolean }).focusVariant !== false;
+  return [
+    "trackGeometry",
+    "spanLane",
+    zoomed ? "zoomWindow" : "residueMapping",
+    ...(zoomed ? (["pan"] as PerCaseFamily[]) : []),
+    ...(zoomed && usesFocusVariant ? (["focusVariantZoom"] as PerCaseFamily[]) : []),
+    "contrast",
+    "callout",
+    "focusRings",
+    "keyboardFocus",
+    "inventory",
+    ...(c.id === "cbs1" ? (["positionReadOut"] as PerCaseFamily[]) : []),
+    "pinTiers",
+    "badgeBox",
+    "annotationControls",
+  ];
+}
+
 function expectedCheckCount(): number {
-  const perCase = 26;
-  const perZoomedCase = 1;
-  const zoomedCases = CASES.filter((c) => (c as { zoomClicks?: number }).zoomClicks).length;
-  const cbs1Extra = 1;
-  const legend = 3;
-  return CASES.length * perCase + zoomedCases * perZoomedCase + cbs1Extra + legend + 1;
+  const perCase = CASES.reduce(
+    (total, c) => total + planFamilies(c).reduce((sum, name) => sum + FAMILY_SIZE[name], 0),
+    0
+  );
+  return perCase + FAMILY_SIZE.legend + FAMILY_SIZE.selfCheck;
+}
+
+/** Everything a family needs in order to run for one case. */
+interface CaseContext {
+  id: string;
+  host: HTMLElement;
+  track: Track;
+  want: ExpectedCounts;
+  fixture: Fixture;
+  spanExpectation: { spans: number; points: number; spanLaneTop: number; siteRailY: number; enclosing: number };
+  residue: number;
+}
+
+/**
+ * Run one family.
+ *
+ * The `never` assignment in the default branch is the exhaustiveness check: add a family to
+ * `FAMILY_SIZE` and put it in a plan without wiring it here, and this stops compiling instead of the
+ * assertion quietly never running.
+ */
+async function runFamily(name: PerCaseFamily, ctx: CaseContext): Promise<Check[]> {
+  const { id, host, track, want, fixture, spanExpectation, residue } = ctx;
+  switch (name) {
+    case "trackGeometry":
+      return family(name, checkTrackGeometry(id, track));
+    case "spanLane":
+      return family(name, checkSpanLane(id, track, spanExpectation));
+    case "residueMapping":
+      return family(
+        name,
+        checkResidueMapping(id, track, {
+          seqLength: fixture.sequenceLength,
+          domains: want.domain,
+          sites: want.plottedSites,
+        })
+      );
+    case "zoomWindow":
+      return family(name, checkZoomWindow(id, track, [residue]));
+    case "pan":
+      return family(name, await checkPan(id, host));
+    case "focusVariantZoom":
+      return family(name, await checkFocusVariantZoom(id, host, fixture.sequenceLength, residue));
+    case "contrast":
+      return family(name, checkNonTextContrast(id, track));
+    case "callout":
+      return family(name, checkVariantCallout(id, track));
+    case "focusRings":
+      return family(name, await checkNoFocusRings(id, track));
+    case "keyboardFocus":
+      return family(name, checkKeyboardFocusIndicator(id, track));
+    case "inventory":
+      return family(name, await checkInventory(host, id, want, fixture.features));
+    case "positionReadOut":
+      return family(name, await checkPositionReadOut(id, host));
+    case "pinTiers":
+      return family(name, checkPinTiers(id, track, { separation: PIN_RULE.separation, tiers: PIN_RULE.tiers }));
+    case "badgeBox":
+      return family(name, checkBadgeGrammar(id, host));
+    case "annotationControls":
+      return family(name, await checkAnnotationControls(id, host, track));
+    default: {
+      const unhandled: never = name;
+      return [
+        {
+          name: `harness: ${String(unhandled)} has no runner`,
+          pass: false,
+          detail: "declared in FAMILY_SIZE but missing from runFamily",
+        },
+      ];
+    }
+  }
 }
 
 function App(): React.ReactElement {
@@ -1670,11 +2083,8 @@ function App(): React.ReactElement {
           checks.push({ name: `${c.id}: renders a sequence track`, pass: false, detail: read.error });
           continue;
         }
-        const track = read.track;
         const { features: fixture, want } = payloadFor(c.kind);
-        const isCoverage = c.kind === "coverage";
         const zoomClicks = (c as { zoomClicks?: number }).zoomClicks ?? 0;
-        const isZoomed = zoomClicks > 0;
         const spanExpectation = {
           spans: want.spans,
           points: want.plottedSites,
@@ -1686,23 +2096,18 @@ function App(): React.ReactElement {
             (f) => isSpanType(f.type) && c.residue >= f.start && c.residue <= (f.end ?? f.start)
           ).length,
         };
-        /** The four checks added with the control list, the badge row and the pin tiers. */
-        const perCaseExtras = async (t: Track): Promise<Check[]> => [
-          ...checkPinTiers(c.id, t),
-          ...checkBadgeGrammar(c.id, host),
-          ...(await checkAnnotationControls(c.id, host, t)),
-        ];
-        if (isZoomed) {
-          // Zoom the way a user does, then re-read: clipping, label suppression and stem anchoring
-          // all differ once the window is narrower than the protein. Zooming alone starts at
-          // residue 1, so the variant is centred with the track's own "Focus Variant" control —
-          // which exercises that path too.
+        if (zoomClicks > 0) {
+          // Zoom the way a user does, then re-read: clipping, label suppression and stem anchoring all
+          // differ once the window is narrower than the protein. A case that also focuses the variant is
+          // centreing it with the track's own control, which exercises that path — and is pinned by the
+          // focusVariantZoom family, because "Focus Variant" silently sets the zoom from the protein
+          // length and that is what made two cases measure the same window.
+          const zoomIn = Array.from(host.querySelectorAll("button")).find((b) => /Zoom in/.test(b.getAttribute("title") || ""));
+          if (!zoomIn) {
+            checks.push({ name: `${c.id}: zoom control found`, pass: false, detail: 'no button titled "Zoom in (+0.5x)"' });
+            continue;
+          }
           for (let i = 0; i < zoomClicks; i += 1) {
-            const zoomIn = Array.from(host.querySelectorAll("button")).find((b) => /Zoom in/.test(b.getAttribute("title") || ""));
-            if (!zoomIn) {
-              checks.push({ name: `${c.id}: zoom control found`, pass: false, detail: 'no button titled "Zoom in (+0.5x)"' });
-              break;
-            }
             (zoomIn as HTMLButtonElement).click();
             await nextFrame();
           }
@@ -1710,47 +2115,28 @@ function App(): React.ReactElement {
             const focusVariant = Array.from(host.querySelectorAll("button")).find((b) => /Focus Variant/.test(b.textContent || ""));
             if (!focusVariant) {
               checks.push({ name: `${c.id}: focus-variant control found`, pass: false, detail: 'no button labelled "Focus Variant"' });
-            } else {
-              (focusVariant as HTMLButtonElement).click();
-              await nextFrame();
-              await nextFrame();
+              continue;
             }
+            (focusVariant as HTMLButtonElement).click();
+            await nextFrame();
+            await nextFrame();
           }
-          const reRead = readTrack(host);
-          if ("error" in reRead) {
-            checks.push({ name: `${c.id}: renders after zooming`, pass: false, detail: reRead.error });
-            continue;
-          }
-          const zoomedTrack = reRead.track;
-          checks.push(...checkTrackGeometry(c.id, zoomedTrack));
-          checks.push(...checkSpanLane(c.id, zoomedTrack, spanExpectation));
-          checks.push(...checkZoomWindow(c.id, zoomedTrack, [c.residue]));
-          checks.push(...checkNonTextContrast(c.id, zoomedTrack));
-          checks.push(...checkVariantCallout(c.id, zoomedTrack));
-          checks.push(...(await checkNoFocusRings(c.id, zoomedTrack)));
-          checks.push(...checkKeyboardFocusIndicator(c.id, zoomedTrack));
-          checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
-          checks.push(...(await perCaseExtras(zoomedTrack)));
-          // Last, because it moves the window and then puts it back.
-          checks.push(...(await checkPan(c.id, host)));
-          publish(checks);
+        }
+        const settled = readTrack(host);
+        if ("error" in settled) {
+          checks.push({ name: `${c.id}: renders after zooming`, pass: false, detail: settled.error });
           continue;
         }
-        checks.push(...checkTrackGeometry(c.id, track));
-        checks.push(...checkSpanLane(c.id, track, spanExpectation));
-        checks.push(
-          ...checkResidueMapping(c.id, track, {
-            seqLength: fixture.sequenceLength,
-            domains: want.domain,
-            sites: want.plottedSites,
-          })
-        );
-        checks.push(...checkNonTextContrast(c.id, track));
-        checks.push(...checkVariantCallout(c.id, track));
-        checks.push(...(await checkNoFocusRings(c.id, track)));
-        checks.push(...checkKeyboardFocusIndicator(c.id, track));
-        checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
-        checks.push(...(await perCaseExtras(track)));
+        const ctx: CaseContext = {
+          id: c.id,
+          host,
+          track: settled.track,
+          want,
+          fixture,
+          spanExpectation,
+          residue: c.residue,
+        };
+        for (const name of planFamilies(c)) checks.push(...(await runFamily(name, ctx)));
         publish(checks);
       }
 
@@ -1760,22 +2146,29 @@ function App(): React.ReactElement {
       const coverageHost = document.getElementById("host-coverage");
       const coverageRead = coverageHost ? readTrack(coverageHost) : null;
       checks.push(
-        ...checkLegend(
-          legendProbe ?? document,
-          coverageRead && !("error" in coverageRead) ? coverageRead.track : null,
-          COVERAGE_FEATURES.features
+        ...family(
+          "legend",
+          checkLegend(
+            legendProbe ?? document,
+            coverageRead && !("error" in coverageRead) ? coverageRead.track : null,
+            COVERAGE_FEATURES.features
+          )
         )
       );
       publish(checks);
 
       // The runner must not be able to report success for a run that measured nothing: a missing
-      // host, a renamed selector or a truncated virtual-time budget all shrink this number.
-      // `+ 1` is this check itself, which is counted in `expectedCheckCount()`.
-      checks.push({
-        name: "harness: every case produced its full assertion set",
-        pass: checks.length + 1 === expectedCount,
-        detail: `${checks.length + 1} assertions from ${CASES.length} cases (expected ${expectedCount})`,
-      });
+      // host, a renamed selector or a truncated virtual-time budget all shrink this number, and the
+      // number is derived from the plan and each family's declared size rather than written out here.
+      checks.push(
+        ...family("selfCheck", [
+          {
+            name: "harness: every case produced its full assertion set",
+            pass: checks.length + FAMILY_SIZE.selfCheck === expectedCount,
+            detail: `${checks.length + FAMILY_SIZE.selfCheck} assertions from ${CASES.length} cases (expected ${expectedCount})`,
+          },
+        ])
+      );
       } catch (error) {
         // A throwing assertion must be a reported failure, never a silent exit-2.
         checks.push({ name: "harness", pass: false, detail: `threw: ${(error as Error)?.stack || String(error)}` });

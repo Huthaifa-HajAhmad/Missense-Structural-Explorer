@@ -475,4 +475,106 @@ suite is therefore red, and attributing that correctly matters more than reporti
 about a picture. No vision-capable review was obtained, so the numbers above remain the whole of the
 evidence, and `function-track.png` is written by `TRACK_SHOT=1` for a human to look at.
 
+---
+
+# Fourth round — the coverage gaps, the derived count, and the region colour
+
+Scope agreed by interview: close the three coverage gaps, derive the harness's expected count, consolidate
+the two annotation lists, add legend assertions, extract the duplicated flank handlers, pin the
+"Focus Variant" behaviour, give regions their own colour and legend row, add the house focus indicator to
+five app-wide offenders, and fix the failing `describeStructureSource` test.
+
+**Delivered in this round: the three coverage gaps, the derived count, the legend assertions, the
+focus-variant pin, and the region colour.** The other three — consolidation, the flank-handler extraction,
+and the app-wide focus offenders — are recorded below as not done, with the reason.
+
+## 1. The coverage gaps, closed
+
+| Gap | Was | Now |
+| --- | --- | --- |
+| Annotation-row wiring | asserted for the first row that mapped to a **pin** | asserted for one row of each kind: the pin head grows and changes colour, the domain band shows the highlight gradient while pressed, the span bar takes the amber selection stroke — each with the row's `aria-pressed` and the toggle-back |
+| Pan | one position (0.9) | swept at 0.7 / 0.8 / 0.95 of the scrubber's range, each holding the width constant, the later two requiring rightward movement, then reset. The direction claim starts at the second position because where a case *starts* is "Focus Variant"'s doing (pan ≈ 0.58 for `zoomed`, 0 for `zoomed2`) |
+| Pin-tier overflow policy | implied by "no two pins overlap" | the harness re-implements first-fit packing over the fixture's residues and the printed ruler and asserts the rendered tiers *are* that packing. `crowded` exercises it: six pins in eleven residues come out `[0, 1, 2, 0, 1, 2]` |
+
+**These three checks failed their own first run, and all four failures were the checks' fault.** The
+domain band is already on the highlight gradient when the variant sits inside it, so "the fill changed"
+was the wrong claim for `tm`, `zoomed2` and `coverage`; and the row lookup matched on the start residue
+alone, which is ambiguous on GZF1, where a disordered region and a low-complexity segment both begin at
+residue 153 — it clicked one row and measured the other bar. Both were fixed by making the assertion
+narrower and the lookup exact. Recorded because "the new guard failed" and "the app is broken" are
+different findings and the first run did not distinguish them.
+
+## 2. The expected count is derived, and each family is verified
+
+`expectedCheckCount()` used to be `cases × 26 + zoomed + legend + self` — arithmetic that had to be
+re-derived whenever an assertion moved (twice in two rounds) and that could only fail with a bare count.
+Now `FAMILY_SIZE` declares each family's size, the count sums the families the plan says will run per case,
+and `family()` checks every declaration against what the function actually returned. A family that is
+declared but not wired into `runFamily` is a compile error, via a `never` assignment in that switch's
+default branch.
+
+The plan (`planFamilies`) is also the single place that decides which checks a case runs, so the
+duplicated zoomed / non-zoomed branches in the runner are gone: one loop, one context, one dispatch.
+
+## 3. The legend, measured where it is rendered
+
+Two assertions added, and the first one had to be:
+
+- **swatch contrast against the legend's own panel.** The palette was validated against the *track*
+  surface (#FAF9F6); the legend sits on a card. Measured on the panel: domain 3.58:1, active 4.46, binding
+  5.11, ptm 3.89, disulfide 3.03 (tightest), transmembrane 3.50, region 4.56, other 7.20 — all clear 3:1,
+  and the ratios differ from the track's, which is the point of measuring.
+- **swatch-vs-swatch distinguishability**, CIE76 ΔE\*ab with a floor of 12. The closest pair is
+  `region`/`other` at **21.2**, which is the separation the new stone-vs-slate choice was made for.
+
+## 4. Disordered regions get a colour, and still no chip
+
+`featurePalette` gains a `region` kind (stone-500, `chipped: false`) and an optional `chipped` flag.
+`FEATURE_KINDS` feeds the legend (eight rows now) while `CHIPPED_KINDS` feeds the chip row and the
+inventory counts, so adding a kind for the legend's sake cannot silently add a filter. The harness's own
+oracle gained a `region` branch for the same reason — otherwise the legend's colour check would have
+looked for the region swatch among the "other" bars and found nothing.
+
+## 5. "Focus Variant", pinned
+
+`focusOnVariant` sets `min(5, max(2.5, seqLength / 250))` — 3.5× here — and discards the reader's zoom.
+The interview decided that is intended, so it is now asserted rather than merely documented. The check
+zooms *out* first: the `zoomed` case's own clicks already land on 3.5×, so without stepping away,
+"jumps to the working zoom" and "keeps whatever you had" would be indistinguishable — which is exactly
+how the previous round shipped a `zoomed2` that measured the same window as `zoomed`.
+
+## 6. The two items that needed nothing
+
+- **`describeStructureSource`**: its owner completed the implementation (`ResidueEnvironmentPanel.tsx`,
+  committed) and the file, by then tracked, passes 6/6. Nothing was changed here.
+- **The full suite is green**: 165 passed / 2 skipped files, 1934 passed / 5 skipped tests, exit 0 — the
+  RaSP failure from the previous round and both `describeStructureSource` failures are gone.
+
+## Not done in this round
+
+- **Consolidating the two annotation lists.** The direction chosen was to keep the accessible control list
+  as the single surface and fold the "Direct Curated Annotations at Position N" cards into it as an "at
+  this position" filter. Not started: it removes a surface the harness reads (`checkPositionReadOut`
+  targets the card heading) and the audit trail for that heading, so it wants its own round rather than
+  being bolted onto this one.
+- **Extracting the duplicated flank click/keydown handlers.** A behaviour-preserving refactor with no
+  user-visible effect, and the lowest-value item on the list.
+- **The five app-wide focus-indicator offenders** (three `DevConsolePanel` selects, two modal close
+  buttons). Outside this tab, and not started in this round.
+
+## Verification
+
+| Layer | Result |
+| --- | --- |
+| `npm run test:geometry:function-track` | **246/246 pass** (8 cases; the expected count is now derived from the plan and each family's declared size) |
+| Same harness, 3 defects reintroduced | **17/246** red for the batch (domain band 5, span bar 8, focus variant 1 plus a pan knock-on); the focus mutation alone, retuned to a single effect, **2/246**. Restored files byte-identical (SHA-256) |
+| `tsc --noEmit` | clean |
+| `npx tsx scripts/check-boundaries.ts` | 0 violations |
+| `npm test` | **165 passed \| 2 skipped** (167 files), **1934 passed \| 5 skipped** (1939 tests), exit 0 |
+
+**Still not verified: what the render looks like** — unchanged from the previous round, and the new
+legend row and the control list's three-shape wiring are the parts a reader would notice. The interview
+answer was that the reviewer will screenshot the app themselves.
+
+
 

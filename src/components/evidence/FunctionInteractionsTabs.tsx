@@ -16,8 +16,9 @@ import {
 } from "lucide-react";
 import { TabComponentProps } from "./types";
 import {
+  CHIPPED_KINDS,
+  CHIPPED_KIND_KEYS,
   FEATURE_KINDS,
-  FEATURE_KIND_KEYS,
   featureColorFor,
   featureGeometryFor,
   featureKindLabel,
@@ -72,7 +73,7 @@ const SELECTED_PIN_COLOR = "#b45309"; // amber-700
  * a thing we show" while "0 Active Sites" looked like a finding — and each chip's label, tooltip
  * noun and colours come from the same entry the pin colour does.
  */
-const INVENTORY_CHIPS = FEATURE_KINDS.map((kind) => ({
+const INVENTORY_CHIPS = CHIPPED_KINDS.map((kind) => ({
   id: kind.key,
   singular: kind.singular,
   plural: kind.plural,
@@ -305,7 +306,7 @@ export function FunctionTab({
   const inventory = useMemo(() => {
     const counts = {} as Record<InventoryCategory, number>;
     const has = {} as Record<InventoryCategory, boolean>;
-    for (const category of FEATURE_KIND_KEYS) {
+    for (const category of CHIPPED_KIND_KEYS) {
       const n = features.filter((f) => featureMatchesKind(f, category)).length;
       counts[category] = n;
       has[category] = n > 0;

@@ -13,7 +13,15 @@
  * predicates as its own oracle and measures every colour's contrast against the track surface. Do
  * not import this module there.
  */
-export type FeatureKindKey = "domain" | "active" | "binding" | "ptm" | "disulfide" | "transmembrane" | "other";
+export type FeatureKindKey =
+  | "domain"
+  | "active"
+  | "binding"
+  | "ptm"
+  | "disulfide"
+  | "transmembrane"
+  | "region"
+  | "other";
 
 export interface FeatureKind {
   key: FeatureKindKey;
@@ -32,6 +40,15 @@ export interface FeatureKind {
   /** Active / inactive filter-chip classes, kept beside the colour they express. */
   onClass: string;
   offClass: string;
+  /**
+   * Whether the category also gets an inventory chip. Omitted means it does; only disordered regions
+   * opt out. They are a structural descriptor rather than a functional annotation, so they are painted
+   * as span bars, listed in the legend and counted by the Spans chip, but they are not a filter of
+   * their own, and they stay out of the default match set and the flank vectors. They briefly shared
+   * the neutral "other" colour, which made an ordered low-complexity segment indistinguishable from an
+   * unclassified curated site.
+   */
+  chipped?: boolean;
   matches: (type?: string | null) => boolean;
 }
 
@@ -102,6 +119,27 @@ const NAMED_KINDS: FeatureKind[] = [
     offClass: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20",
     matches: (t) => lower(t).includes("transmembrane") || lower(t).includes("membrane"),
   },
+  /**
+   * Disordered / low-complexity regions: a structural descriptor rather than a functional annotation,
+   * so it is painted and legended but not chipped, and it is not part of any filter.
+   *
+   * stone-500 rather than a grey borrowed from "other": these bars sit in the same lane as the
+   * zinc-finger and low-complexity bars, and on GZF1 there are enough of both that one neutral for the
+   * two of them made an ordered segment and an unclassified site the same colour. Warm stone against
+   * cool slate separates them by hue and by lightness, and the harness checks both the 3:1 non-text bar
+   * and a minimum perceptual distance between every pair of swatches.
+   */
+  {
+    key: "region",
+    singular: "Disordered Region",
+    plural: "Disordered Regions",
+    noun: "disordered region",
+    color: "#78716c", // stone-500
+    onClass: "bg-stone-500 text-white border-stone-600",
+    offClass: "bg-stone-500/10 text-stone-600 dark:text-stone-300 border-stone-500/20 hover:bg-stone-500/20",
+    chipped: false,
+    matches: (t) => lower(t) === "region",
+  },
 ];
 
 /**
@@ -112,7 +150,7 @@ const NAMED_KINDS: FeatureKind[] = [
  *
  * It is a real complement, not a catch-all: a predicate that always matched would make this chip's
  * count the whole protein and its filter dim nothing. `chain` and `region` are excluded — a chain is
- * a sequence construct rather than an annotation, and regions are spans the Spans chip accounts for.
+ * a sequence construct rather than an annotation, and a region has its own kind above.
  */
 const OTHER_KIND: FeatureKind = {
   key: "other",
@@ -129,8 +167,15 @@ const OTHER_KIND: FeatureKind = {
   },
 };
 
-/** Every kind, in display order, with the complement last. */
+/**
+ * Every kind, in display order, with the complement last. The legend renders all of them; the chip row
+ * renders `CHIPPED_KINDS` only, so adding a kind for the legend's sake cannot silently add a filter.
+ */
 export const FEATURE_KINDS: FeatureKind[] = [...NAMED_KINDS, OTHER_KIND];
+
+/** The kinds that are also inventory filters. */
+export const CHIPPED_KINDS: FeatureKind[] = FEATURE_KINDS.filter((kind) => kind.chipped !== false);
+export const CHIPPED_KIND_KEYS = CHIPPED_KINDS.map((kind) => kind.key);
 
 /**
  * How a feature should be drawn.

@@ -72,7 +72,7 @@ would let a wrong fixture silently redefine the expectation — that mistake is 
 `IPR082550` error survived a green run. One `payloadFor(kind)` maps a case to its payload and its
 expectations, because the two used to be picked by separate ternary chains in three places.
 
-## What it asserts (215 assertions over eight cases)
+## What it asserts (246 assertions over eight cases)
 
 | Assertion | Catches |
 | --- | --- |
@@ -82,7 +82,8 @@ expectations, because the two used to be picked by separate ternary chains in th
 | Pin hit areas centred and ≥22 units across | A target too small to hit (see the gap below) |
 | **Residue→x mapping matches the printed ruler** | Any coordinate error that moves every shape together (off-by-one, `end` used for `start`). Binds band edges and stems to the ruler's own endpoints, and counts the rendered bands, pins *and* span bars |
 | **Zooming narrows the window and keeps the track consistent** | A broken zoom path. Asserts the window narrows, the variant is inside it, something is still visible (band, span or pin), and every off-window shape is inside a clipped group |
-| **Panning moves the window without resizing it** | A pan control that does nothing, and a pan control that quietly changes the scale. Drives the scrubber through the native value setter (a controlled range input ignores a plain `value = …`), then puts it back |
+| **Panning moves the window without resizing it** | A pan control that does nothing, and one that quietly changes the scale. Swept across three positions of the scrubber through the native value setter (a controlled range input ignores a plain `value = …`), then put back. The direction claim starts at the second position: where a case *starts* is "Focus Variant"'s business |
+| **"Focus Variant" jumps to the working zoom and centres the variant** | The behaviour that made two zoom cases measure the same window. `focusOnVariant` sets `min(5, max(2.5, seqLength/250))` and discards the reader's zoom; the check steps away from that zoom first, so "jumps to it" and "keeps whatever you had" are distinguishable |
 | **Pin, span bar and caret colours clear 3:1 on the light track** | A category colour too faint to read as a category (WCAG 1.4.11). Bars are sampled too: on CNNM2 a transmembrane helix is a bar and nothing else, and equality with the legend says only that the legend and the track agree. Colours are painted into a canvas and read back, so `oklch()` and any future syntax convert themselves |
 | **A span is drawn as a bar, a point annotation as a pin** | Spans plotted as point lollipops — the 15 near-black dots on GZF1, and the silent claim that a 23-residue zinc finger sits at one residue |
 | **Span bars stay inside the span lane** | A bar escaping into the band, the rail or the ruler |
@@ -102,9 +103,12 @@ expectations, because the two used to be picked by separate ternary chains in th
 | **Every legend swatch matches the colour the track paints for that category** | The legend drifting from the track: the four wrong swatches it shipped with, and any future hand-written one. Pins and bars must match the swatch exactly; a domain band is a gradient, so the swatch must be one of its stops |
 | **The legend's shape rows cover the geometries a site can have** | A legend that names kinds only, leaving "why is this one a bar?" unanswerable |
 | **Pins sharing a tier are not drawn on top of each other** | Tier assignment that is not a packing rule. Non-vacuous only because of the `crowded` case — see the honest scope below |
+| **The tiers are the packing the rule describes** | A tier assignment that drifts from the documented rule. The harness re-implements first-fit packing over the fixture's residues and the printed ruler, so this compares the render against a rule rather than against itself. `crowded` is the case that exercises it: six pins in eleven residues come out as tiers `[0, 1, 2, 0, 1, 2]` |
 | **The metric chip and the provenance chip share one box** | Two chips in one row with different heights, padding, radii or type sizes. Compares nine measured properties, not class names |
 | **Every drawn annotation is also a large-target control** | A control list that is decoration: one row per drawn shape, in CSS pixels, every one at least 24px in both dimensions (WCAG 2.5.8) |
-| **Activating an annotation row selects the same feature in the track** | An interactive control that ships inert. Asserts the pin head grows, its fill changes, the row reports itself pressed, and toggling clears both |
+| **An annotation row drives its pin, highlights its domain band, and strokes its span bar** | An interactive control that ships inert — for any of the three shapes, not just the pins the list was first measured on. The band assertion is "shows the highlight gradient while pressed", not "the fill changed": when the variant sits inside the band it is highlighted already |
+| **Every swatch clears 3:1 against the legend's own panel** | A swatch that is legible on the track and invisible on the panel it actually sits on — the palette was validated against the track surface, which is a different colour |
+| **No two categories are close enough to be confused** | Two names for one colour. CIE76 ΔE*ab between every pair, floor 12; the closest pair is `region`/`other` at 21.2, which is the separation the stone-vs-slate choice was made for |
 | The run produced its full assertion set | A missing host, a renamed selector or a truncated virtual-time budget — see below |
 
 ### Motion is frozen before anything renders
@@ -208,12 +212,44 @@ Two claims that are easy to overstate, so they are written down precisely:
   than the defect itself. The second keeps the class and overrides the box, and the check then fails on
   the measured properties, which is the claim actually being made.
 
-**The runner cannot report success for a run that measured nothing.** `check.mjs` requires the
-report to contain the expected number of assertions (215). This was a real hole: `every()` over an
-empty array is `true`, so a report of zero checks printed "all 0 assertions passed" and exited 0.
-It was exercised for real when a thrown check truncated a run — the runner printed
-`incomplete run — 13 assertions, expected 70` and exited 1 — and again when a mutation made one
-case contribute one assertion fewer.
+### Fourth round: the coverage gaps, the region colour, and the derived count
+
+Three defects, one run (independent surfaces), after a clean run of 246/246:
+
+| Reintroduced defect | Assertions that failed | Failure text (abridged) |
+| --- | --- | --- |
+| The domain band ignores the selection | 5 × `an annotation row highlights its domain band` | `pressed=true, band fill url("#domainGradOpaque") → url("#domainGradOpaque")` |
+| The span bar ignores the selection | 8 × `an annotation row strokes its span bar` | `pressed=true, bar stroke|width rgba(0, 0, 0, 0)|0.75px → rgba(0, 0, 0, 0)|0.75px` |
+| "Focus Variant" uses a fixed 2× instead of the working zoom | `"Focus Variant" jumps to the working zoom…` (and one pan assertion) | `zoomed out to width 875 first; focus ⇒ zoom 3.5x, width 438 (expected ≈250)` |
+
+The focus mutation also takes one pan assertion with it — it changes the case's starting window, and the
+pan family restores to the window it started from — which is recorded here rather than smoothed over.
+A first attempt at that mutation read `zoomLevel` in `focusOnVariant`, whose callback depends on
+`[pos, seqLength]`: the stale closure reset the track to 1× and broke the pan family entirely, which is
+true but a muddier signal than the mutation deserves.
+
+**The coverage-gap checks found a bug in themselves before they found anything in the app.** The first
+run of the three-wiring version failed four assertions, and all four were the checks' fault: the domain
+band is *already* on the highlight gradient when the variant sits inside it (so "the fill changed" was
+the wrong claim — it now asserts the highlight gradient is what is shown while pressed), and the row
+lookup matched on the start residue alone, which is ambiguous for GZF1 where a disordered region and a
+low-complexity segment both begin at 153 (it now matches start *and* end).
+
+**The runner cannot report success for a run that measured nothing, and the number it expects is derived.**
+`check.mjs` requires the report to contain the expected number of assertions (246). This was a real hole:
+`every()` over an empty array is `true`, so a report of zero checks printed "all 0 assertions passed" and
+exited 0. It was exercised for real when a thrown check truncated a run — the runner printed
+`incomplete run — 13 assertions, expected 70` and exited 1 — and again when a mutation made one case
+contribute one assertion fewer.
+
+The total used to be arithmetic written by hand — `cases × 26 + zoomed + legend + self` — which had to be
+re-derived every time an assertion moved (twice in two rounds) and which could only fail with a bare
+count, leaving `130 assertions, expected 134` to be reverse-engineered. Now each family declares its size
+in `FAMILY_SIZE`, `expectedCheckCount()` sums the families the plan says will run for each case, and
+`family()` checks each declaration against what the function actually returned. A drift names the family
+that moved; adding an assertion means editing one number next to the family it belongs to. Adding a
+*family* without wiring it into `runFamily` is a compile error, via the `never` assignment in that
+switch's default branch.
 
 **Honest scope of that claim.** Two assertion families (pin centring / rail clearance, and callout
 pill geometry) are *regression* guards, not reproducers: their maths is numerically identical to the
@@ -234,13 +270,13 @@ Reviewer-found; the fix is why the mutation table above can list it.
   argued from the CSS spec and Chrome's behaviour, **not measured**: untrusted events cannot set the
   input modality, so the harness proves the keyboard half (focus → indicator painted) and the click
   half only for the click handlers themselves.
-- **Zoom and pan are covered at two windows and one pan position.** `zoomed` (3.5×, focused on the
+- **Zoom and pan are covered at two windows and three pan positions.** `zoomed` (3.5×, focused on the
   variant) and `zoomed2` (2× from the N-terminus, not focused) are genuinely different windows — the
   harness output is what proved the first attempt at `zoomed2` was not, since "Focus Variant" sets the
-  zoom from the protein length and both ended up at 364–613. Panning is asserted at 0.9 of the
-  scrubber's range and then reset; it is not swept, and other pan positions combined with other zoom
-  levels are untested. The mapping check does not run at zoom (a clipped band legitimately has a
-  different extent than its residue range); the zoom cases assert clipping and visibility instead.
+  zoom from the protein length and both ended up at 364–613. Panning is asserted at 0.7, 0.8 and 0.95 of
+  the scrubber's range and then reset; other combinations of pan and zoom are untested. The mapping check
+  does not run at zoom (a clipped band legitimately has a different extent than its residue range); the
+  zoom cases assert clipping and visibility instead.
 - **WCAG 2.5.8 is covered by the control list, not by the pins.** The pins remain ~14 CSS px targets at
   the container's `min-w-[500px]` floor (r=11 SVG units is ~28 CSS px only at 1010px), and that is
   deliberate: at 875 aa adjacent pins are ~25 units apart, so r>12 makes neighbouring targets overlap.
@@ -248,13 +284,15 @@ Reviewer-found; the fix is why the mutation table above can list it.
   documented path for a small viewport or a crowded cluster. The rows are measured at one container
   width, not at 500px.
 - Hover (`:hover` cannot be forced), real pointer input, `<title>` tooltips.
-- **The annotation row → track wiring is asserted for one row per case** — the first row that maps to a
-  drawn pin. Rows for domains and span bars are measured for size and counted, and clicking one is not
-  asserted to brighten the band or stroke the bar, though they call the same handler.
-- **Regions keep borrowing the neutral colour.** A disordered region is drawn as a span bar in the
-  "other" slate and is not a category of its own: it has no chip, no legend row, and it stays out of
-  the default match set and the flank vectors. That is a decision, not a gap — the Spans chip accounts
-  for it — but it does mean a region bar's colour is the same as an unclassified site's.
+- **The annotation row → track wiring is asserted for one row of each kind per case** — the first row
+  that maps to a pin, the first that maps to a domain band, the first that maps to a span bar. Rows for
+  the remaining annotations are measured for size and counted, and clicking them is assumed to behave the
+  same way because they go through the same handler; nothing asserts that per row.
+- **Disordered regions have a colour but no chip.** Since the fourth round a region is painted stone-500
+  and has its own legend row, so it no longer shares the "other" slate with unclassified curated sites
+  (the closest pair of swatches is now `region`/`other` at ΔE 21.2). It is still not a category anywhere
+  else: no inventory chip, no entry in the default match set, no place in the flank vectors. That is a
+  decision, not a gap — the Spans chip accounts for it.
 - **The legend is asserted, but only in the three ways above.** The harness mounts
   `FeaturePaletteLegend` directly — not the whole inspector with its prop graph — and checks its
   keys, its swatch colours against the painted track, and its shape rows. It does not check the
