@@ -43,8 +43,8 @@ Chromium, drives it (clicks every filter chip, focuses every shape) and measures
 | `cbs1` | **Real** CNNM2 / Q9H8M5 (875 aa), p.Ser489Cys — inside CBS 1 (450–511) |
 | `tm` | Real CNNM2, p.Ala300Val — inside the CNNM transmembrane domain (251–431) |
 | `gap` | Real CNNM2, p.Gly440Arg — between domains |
-| `zoomed` | Real CNNM2, zoomed to 3.5× and centred on the variant — clipped bands |
-| `zoomed2` | Real CNNM2, zoomed to 2× and centred on the variant — a second window width, so "the window narrows" is not one data point |
+| `zoomed` | Real CNNM2, zoomed to 3.5× and centred with the track's own "Focus Variant" — clipped bands |
+| `zoomed2` | Real CNNM2 at 2× from the N-terminus, **without** "Focus Variant" — a genuinely different window (1–438 against `zoomed`'s 364–613). An earlier revision of this case clicked it, and "Focus Variant" sets the zoom from the protein length (`min(5, max(2.5, seqLength / 250))` = 3.5× here), so both cases measured the *same* window until the harness output showed it |
 | `gzf1` | **Real** GZF1 / Q9H116 (711 aa), p.Arg591Trp — the span-heavy shape: 1 domain, 10 zinc fingers, 5 low-complexity segments, 2 disordered regions, 1 phosphoserine, 2 mutagenesis points |
 | `coverage` | **Synthetic** payload with one feature of every type the server keeps, so all seven chips are exercised |
 | `crowded` | **Synthetic** payload with six point sites inside eleven residues — the only fixture where the tier assignment has anything to do, and the only one that reaches its overflow branch |
@@ -72,7 +72,7 @@ would let a wrong fixture silently redefine the expectation — that mistake is 
 `IPR082550` error survived a green run. One `payloadFor(kind)` maps a case to its payload and its
 expectations, because the two used to be picked by separate ternary chains in three places.
 
-## What it asserts (213 assertions over eight cases)
+## What it asserts (215 assertions over eight cases)
 
 | Assertion | Catches |
 | --- | --- |
@@ -81,7 +81,8 @@ expectations, because the two used to be picked by separate ternary chains in th
 | Pinheads centred on their stems; clear of the rail; stems pointing down | Drift between stem, pin and tier lanes |
 | Pin hit areas centred and ≥22 units across | A target too small to hit (see the gap below) |
 | **Residue→x mapping matches the printed ruler** | Any coordinate error that moves every shape together (off-by-one, `end` used for `start`). Binds band edges and stems to the ruler's own endpoints, and counts the rendered bands, pins *and* span bars |
-| **Zooming narrows the window and keeps the track consistent** | A broken zoom/pan path. Asserts the window narrows, the variant is inside it, something is still visible (band, span or pin), and every off-window shape is inside a clipped group |
+| **Zooming narrows the window and keeps the track consistent** | A broken zoom path. Asserts the window narrows, the variant is inside it, something is still visible (band, span or pin), and every off-window shape is inside a clipped group |
+| **Panning moves the window without resizing it** | A pan control that does nothing, and a pan control that quietly changes the scale. Drives the scrubber through the native value setter (a controlled range input ignores a plain `value = …`), then puts it back |
 | **Pin, span bar and caret colours clear 3:1 on the light track** | A category colour too faint to read as a category (WCAG 1.4.11). Bars are sampled too: on CNNM2 a transmembrane helix is a bar and nothing else, and equality with the legend says only that the legend and the track agree. Colours are painted into a canvas and read back, so `oklch()` and any future syntax convert themselves |
 | **A span is drawn as a bar, a point annotation as a pin** | Spans plotted as point lollipops — the 15 near-black dots on GZF1, and the silent claim that a 23-residue zinc finger sits at one residue |
 | **Span bars stay inside the span lane** | A bar escaping into the band, the rail or the ruler |
@@ -176,8 +177,7 @@ palette cannot see.
 
 ### Third round: pin packing, the badge row and the control list
 
-Six defects, two runs (no second pass was needed — the mutations touch five independent surfaces, so
-none could mask another):
+Eight defects, four runs (the first five touch independent surfaces, so none could mask another):
 
 | Reintroduced defect | Assertions that failed | Failure text (abridged) |
 | --- | --- | --- |
@@ -187,9 +187,12 @@ none could mask another):
 | Annotation rows made inert | `activating an annotation row selects the same feature in the track` | `pressed=false, pin r 3.5→3.5, fill unchanged` |
 | Annotation rows shrunk below the minimum | `every drawn annotation is also a large-target control` | `under 24px: "DomainTest domainResid" 962x22px; …` |
 | Span bars painted slate-200 | `pin, span bar and caret colours clear 3:1` **and** the legend equality check | `span Curated span: Region Dis 1.17:1 (< 3:1)`; `transmembrane: track painted rgb(226, 232, 240) (bar 200–220) but the legend says rgb(8, 145, 178)` |
+| The pan scrubber ignores its value | `panning moves the window without resizing it` (both zoomed cases) | `window 364–613 → 364–613 (width 249 → 249)` |
+| Panning also nudges the zoom | same check, the other conjunct | `window 364–613 → 591–809 (width 249 → 218)` |
 
-34 of 213 went red for the five in one run, and 8 of 213 for the badge-box override alone; the restored
-files are byte-identical (SHA-256 checked) and the unmutated revision is 213/213.
+34 of 213 went red for the first five in one run, 8 of 213 for the badge-box override alone, and 2 of
+215 for each pan mutation; the restored files are byte-identical (SHA-256 checked) and the unmutated
+revision is 215/215.
 
 Two claims that are easy to overstate, so they are written down precisely:
 
@@ -206,7 +209,7 @@ Two claims that are easy to overstate, so they are written down precisely:
   the measured properties, which is the claim actually being made.
 
 **The runner cannot report success for a run that measured nothing.** `check.mjs` requires the
-report to contain the expected number of assertions (213). This was a real hole: `every()` over an
+report to contain the expected number of assertions (215). This was a real hole: `every()` over an
 empty array is `true`, so a report of zero checks printed "all 0 assertions passed" and exited 0.
 It was exercised for real when a thrown check truncated a run — the runner printed
 `incomplete run — 13 assertions, expected 70` and exited 1 — and again when a mutation made one
@@ -231,12 +234,13 @@ Reviewer-found; the fix is why the mutation table above can list it.
   argued from the CSS spec and Chrome's behaviour, **not measured**: untrusted events cannot set the
   input modality, so the harness proves the keyboard half (focus → indicator painted) and the click
   half only for the click handlers themselves.
-- **Zoom/pan.** Two zoom levels are covered (`zoomed` at 3.5×, `zoomed2` at 2×), both centred on the
-  variant with the track's own "Focus Variant" control. Pan positions are not: the pan scrubber is a
-  controlled range input, and driving it would need the native value setter — until then, "the window
-  narrows and the shapes stay consistent" is two data points, not a sweep. The mapping check does not
-  run at zoom (a clipped band legitimately has a different extent than its residue range); the zoom
-  cases assert clipping and visibility instead.
+- **Zoom and pan are covered at two windows and one pan position.** `zoomed` (3.5×, focused on the
+  variant) and `zoomed2` (2× from the N-terminus, not focused) are genuinely different windows — the
+  harness output is what proved the first attempt at `zoomed2` was not, since "Focus Variant" sets the
+  zoom from the protein length and both ended up at 364–613. Panning is asserted at 0.9 of the
+  scrubber's range and then reset; it is not swept, and other pan positions combined with other zoom
+  levels are untested. The mapping check does not run at zoom (a clipped band legitimately has a
+  different extent than its residue range); the zoom cases assert clipping and visibility instead.
 - **WCAG 2.5.8 is covered by the control list, not by the pins.** The pins remain ~14 CSS px targets at
   the container's `min-w-[500px]` floor (r=11 SVG units is ~28 CSS px only at 1010px), and that is
   deliberate: at 875 aa adjacent pins are ~25 units apart, so r>12 makes neighbouring targets overlap.

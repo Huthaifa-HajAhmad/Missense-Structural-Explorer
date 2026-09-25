@@ -303,7 +303,11 @@ const CASES = [
   { id: "tm", label: "p.Ala300Val — inside CNNM transmembrane", residue: 300, width: 1010, wt: "Ala", mut: "Val", kind: "cnnm2" },
   { id: "gap", label: "p.Gly440Arg — inter-domain", residue: 440, width: 1010, wt: "Gly", mut: "Arg", kind: "cnnm2" },
   { id: "zoomed", label: "p.Ser489Cys at 3.5× — clipped bands", residue: 489, width: 1010, kind: "cnnm2", zoomClicks: 5 },
-  { id: "zoomed2", label: "p.Ser489Cys at 2× — a second window width", residue: 489, width: 1010, kind: "cnnm2", zoomClicks: 2 },
+  // `focusVariant: false` on purpose. "Focus Variant" sets the zoom from the protein length
+  // (`min(5, max(2.5, seqLength / 250))`, i.e. 3.5× for these 875 residues) and discards the clicks, so
+  // an earlier revision of this case clicked it and silently measured the *same* window as `zoomed` —
+  // 364–613 for both. Leaving it out is what makes this a genuinely different window (1–437 at 2×).
+  { id: "zoomed2", label: "p.Ala300Val at 2× from the N-terminus — a second window width", residue: 300, width: 1010, wt: "Ala", mut: "Val", kind: "cnnm2", zoomClicks: 2, focusVariant: false },
   { id: "gzf1", label: "GZF1 p.Arg591Trp — 17 nested spans, 3 point sites", residue: 591, width: 1010, wt: "Arg", mut: "Trp", kind: "gzf1" },
   { id: "coverage", label: "synthetic category coverage (all seven chips)", residue: 60, width: 1010, wt: "Asp", mut: "Asn", kind: "coverage" },
   { id: "crowded", label: "synthetic crowded cluster (six points in 11 residues)", residue: 204, width: 1010, wt: "Pro", mut: "Leu", kind: "crowded" },
@@ -953,6 +957,61 @@ async function checkAnnotationControls(id: string, host: HTMLElement, t: Track):
 }
 
 /**
+ * 3j. Panning moves the window without resizing it.
+ *
+ * The scrubber renders only above 1×, so this belongs to the zoomed cases. Zoom had coverage — the
+ * window narrows, clipping is applied — but nothing asserted that panning does anything, or that it
+ * does not also change the scale, which is the one thing a pan control must not do.
+ */
+async function checkPan(id: string, host: HTMLElement): Promise<Check[]> {
+  const name = `${id}: panning moves the window without resizing it`;
+  const pan = Array.from(host.querySelectorAll("input[type=range]")).find((input) =>
+    /Pan horizontally/.test(input.getAttribute("title") || "")
+  ) as HTMLInputElement | undefined;
+  if (!pan) return [{ name, pass: false, detail: "no pan scrubber in the toolbar (it renders only above 1×)" }];
+
+  const readWindow = () => {
+    const read = readTrack(host);
+    if ("error" in read) return null;
+    const { rulerStart, rulerEnd } = read.track;
+    return rulerStart === null || rulerEnd === null ? null : { start: rulerStart, end: rulerEnd };
+  };
+  const before = readWindow();
+  if (!before) return [{ name, pass: false, detail: "could not read the ruler's window before panning" }];
+
+  // A controlled range input ignores a plain `value = …`: React reads its own tracker, so the write has
+  // to go through the native setter and be announced with the event React listens for.
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  if (!nativeSetter) return [{ name, pass: false, detail: "no native value setter on HTMLInputElement" }];
+  const original = pan.value;
+  nativeSetter.call(pan, "0.9");
+  pan.dispatchEvent(new Event("input", { bubbles: true }));
+  await nextFrame();
+  const after = readWindow();
+  // Put the scrubber back where it was, so the case's screenshot and any later check see the window the
+  // assertions above were about.
+  nativeSetter.call(pan, original);
+  pan.dispatchEvent(new Event("input", { bubbles: true }));
+  await nextFrame();
+  const restored = readWindow();
+  if (!after || !restored) return [{ name, pass: false, detail: "could not read the ruler's window after panning" }];
+
+  const widthBefore = before.end - before.start;
+  const widthAfter = after.end - after.start;
+  const moved = after.start > before.start;
+  // The ruler labels are rounded integers, so a resize shows up as a width change of a residue or more.
+  const sameWidth = Math.abs(widthAfter - widthBefore) <= 1;
+  const putBack = Math.abs(restored.start - before.start) <= 1 && Math.abs(restored.end - before.end) <= 1;
+  return [
+    {
+      name,
+      pass: moved && sameWidth && putBack,
+      detail: `window ${before.start}–${before.end} → ${after.start}–${after.end} (width ${widthBefore} → ${widthAfter}); returned to ${restored.start}–${restored.end}`,
+    },
+  ];
+}
+
+/**
  * 3h. The metric chip and the provenance chip must be the same box.
  *
  * "Length: 711 aa" sits immediately beside "UniProtKB & InterPro" and was reported as discrepant. The
@@ -1567,15 +1626,17 @@ function checkLegend(
  * runtime: the point of the self-check is to fail when a case silently stops contributing.
  * Per case: 6 geometry + 4 span lane + 1 residue mapping (or 1 zoom window) + 1 contrast + 3 callout
  * + 2 ring + 1 keyboard focus + 4 inventory + 1 pin tiers + 1 badge box + 2 annotation controls = 26;
- * the reported case adds the default-read-out check, the run adds the three legend checks (the legend
- * is one component, measured once), and the self-check. Update this deliberately when assertions are
- * added.
+ * a zoomed case adds the pan check, because the scrubber only renders above 1×; the reported case adds
+ * the default-read-out check, the run adds the three legend checks (the legend is one component,
+ * measured once), and the self-check. Update this deliberately when assertions are added.
  */
 function expectedCheckCount(): number {
   const perCase = 26;
+  const perZoomedCase = 1;
+  const zoomedCases = CASES.filter((c) => (c as { zoomClicks?: number }).zoomClicks).length;
   const cbs1Extra = 1;
   const legend = 3;
-  return CASES.length * perCase + cbs1Extra + legend + 1;
+  return CASES.length * perCase + zoomedCases * perZoomedCase + cbs1Extra + legend + 1;
 }
 
 function App(): React.ReactElement {
@@ -1645,13 +1706,15 @@ function App(): React.ReactElement {
             (zoomIn as HTMLButtonElement).click();
             await nextFrame();
           }
-          const focusVariant = Array.from(host.querySelectorAll("button")).find((b) => /Focus Variant/.test(b.textContent || ""));
-          if (!focusVariant) {
-            checks.push({ name: `${c.id}: focus-variant control found`, pass: false, detail: 'no button labelled "Focus Variant"' });
-          } else {
-            (focusVariant as HTMLButtonElement).click();
-            await nextFrame();
-            await nextFrame();
+          if ((c as { focusVariant?: boolean }).focusVariant !== false) {
+            const focusVariant = Array.from(host.querySelectorAll("button")).find((b) => /Focus Variant/.test(b.textContent || ""));
+            if (!focusVariant) {
+              checks.push({ name: `${c.id}: focus-variant control found`, pass: false, detail: 'no button labelled "Focus Variant"' });
+            } else {
+              (focusVariant as HTMLButtonElement).click();
+              await nextFrame();
+              await nextFrame();
+            }
           }
           const reRead = readTrack(host);
           if ("error" in reRead) {
@@ -1668,6 +1731,8 @@ function App(): React.ReactElement {
           checks.push(...checkKeyboardFocusIndicator(c.id, zoomedTrack));
           checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
           checks.push(...(await perCaseExtras(zoomedTrack)));
+          // Last, because it moves the window and then puts it back.
+          checks.push(...(await checkPan(c.id, host)));
           publish(checks);
           continue;
         }

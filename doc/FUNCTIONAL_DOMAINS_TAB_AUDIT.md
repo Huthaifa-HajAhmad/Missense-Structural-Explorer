@@ -426,8 +426,21 @@ places, so a fourth fixture had to be added in all three or silently fall throug
 
 - `crowded` — six point sites inside eleven residues, the only fixture where the tier assignment has
   anything to do and the only one that reaches the overflow branch.
-- `zoomed2` — the same variant at 2× rather than 3.5×, so "the window narrows and the shapes stay
-  consistent" is two data points rather than one.
+- `zoomed2` — 2× from the N-terminus at p.Ala300Val, a genuinely different window (1–438) from
+  `zoomed`'s focused 364–613.
+- **Pan**, which the first revision of this round documented as uncovered and then covered: the
+  scrubber is asserted to move the window *and* keep its width, driving the controlled range input
+  through the native value setter and then putting it back. Both conjuncts are mutation-proven
+  (`pan-ignored`, `pan-also-zooms`).
+
+**A false claim this round shipped, and how it was caught.** The first revision of `zoomed2` also
+clicked "Focus Variant", on the assumption that the two zoom-in clicks would set the scale. It does
+not: `focusOnVariant` sets `min(5, max(2.5, seqLength / 250))` — 3.5× for these 875 residues —
+discarding the clicks, so both zoom cases measured the *same* window (364–613). The README and commit
+`3620ec6` said "a second window width" in good faith and it was wrong; the harness output for the two
+cases is what exposed it, and the case now sets `focusVariant: false`. The lesson is cheap to state and
+worth keeping: two cases producing identical measurements is a signal to read the measurements, not to
+trust that two cases are two conditions.
 
 ## 5. The two items that were already done by other agents
 
@@ -443,8 +456,8 @@ places, so a fourth fixture had to be added in all three or silently fall throug
 
 | Layer | Result |
 | --- | --- |
-| `npm run test:geometry:function-track` | **213/213 pass** (8 cases: + `crowded`, + `zoomed2`, + 4 checks per case) |
-| Same harness, 6 defects reintroduced in 2 runs | **34/213** red for the five independent defects in one run; **8/213** for the badge-box override alone. Restored files byte-identical (SHA-256) |
+| `npm run test:geometry:function-track` | **215/215 pass** (8 cases: + `crowded`, + `zoomed2`, + pan, + 4 checks per case) |
+| Same harness, 8 defects reintroduced in 4 runs | **34/213** red for the five independent defects in one run; **8/213** for the badge-box override alone; **2/215** for each pan mutation. Restored files byte-identical (SHA-256) |
 | `tsc --noEmit` | clean |
 | `npx tsx scripts/check-boundaries.ts` | 0 violations |
 | `npm test` | **2 failed \| 164 passed \| 2 skipped** (167 files), **2 failed \| 1930 passed \| 5 skipped** (1937 tests) |

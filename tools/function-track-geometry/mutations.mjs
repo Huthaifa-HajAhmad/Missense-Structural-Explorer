@@ -69,6 +69,20 @@ const MUTATIONS = [
     expect: "pin and caret colours clear 3:1 (the track and the legend move together, so the legend equality check stays green)",
   },
   {
+    id: "pan-ignored",
+    file: COMPONENT,
+    from: "                        onChange={(e) => setPanOffset(parseFloat(e.target.value))}",
+    to: "                        onChange={() => {}}",
+    expect: "panning moves the window without resizing it — the window does not move",
+  },
+  {
+    id: "pan-also-zooms",
+    file: COMPONENT,
+    from: "                        onChange={(e) => setPanOffset(parseFloat(e.target.value))}",
+    to: "                        onChange={(e) => { setPanOffset(parseFloat(e.target.value)); setZoomLevel((z) => Math.min(10, z + 0.5)); }}",
+    expect: "panning moves the window without resizing it — the width changes too",
+  },
+  {
     id: "pins-share-one-tier",
     file: COMPONENT,
     from: "      let tier = rightmostX.findIndex((placedX) => x - placedX >= TRACK.pinSeparation);",
