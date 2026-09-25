@@ -128,6 +128,25 @@ the visual claims rest on the code and the DOM-level tests.
 
 ---
 
+## Found while landing this
+
+- **The "not measured" microenvironment was still being presented as a finding.**
+  B2's fix stopped `esm3_forge.ts` asserting "Hydrophobic core" from the `rsa = 0.12`
+  placeholder and made it report `"Burial not measured"` instead — but that string reached the
+  Perturbation tab through a chip renderer that painted every entry identically (same purple,
+  same bold, same uppercase). The assertion the server-side fix removed was still being made
+  one layer up: on screen, an absence of evidence carried the authority of a measurement.
+
+  Fixed in `e78a866`. The entry is now shared vocabulary
+  (`UNMEASURED_BURIAL_ENVIRONMENT` / `isUnmeasuredEnvironment` in
+  `src/shared/burialEvidence.ts`), so the producer and the renderer cannot drift on the
+  string; the chip marks the absence with muted surface tones in sentence case, and
+  `data-environment` carries the distinction for tests instead of a presentation class. The
+  four distinction guards were mutation-tested — inverting the predicate fails exactly those
+  four and leaves the two unrelated tests passing.
+
+---
+
 ## Work outside this surface (not touched)
 
 At the time of writing, 22 paths in the working tree belong to two *other* workstreams and
