@@ -12,7 +12,8 @@ verified and landed as commit `da643fa`. Findings are reproduced from the interr
 session's review record; every disposition below is grounded in the committed diff, not in
 that record's claims.
 
-**Verified against:** `da643fa` on `main` (working tree clean for this surface).
+**Verified against:** `da643fa` on `main` (working tree clean for this surface), and `06774d7`
+for the closure recorded in "Closed after this resolution".
 
 ---
 
@@ -43,6 +44,9 @@ cannot be swept into an unrelated commit.
 | Surface suites present in that run | — | `gemini` 11, `gemini-budget` 24, `useNarrativeResynthesis` 7, `burialEvidence` 16, `burialBandsSingleSource` 3, `StructureTab` 20, `ResidueShiftInspector` 20, `ContrastScale` 14 |
 | Guard can fail | mutated the stale-variant guard to an always-equal comparison | **1 failed / 6 passed** — exactly the stale-variant test, no other |
 | Mutation reverted | SHA-256 of `useNarrativeResynthesis.ts` | `D289BEBF…D7045` before and after — byte-identical |
+| Typecheck at `06774d7` | `node node_modules/typescript/lib/tsc.js --noEmit` | exit 0, **0 errors** |
+| Full suite at `06774d7` | `node node_modules/vitest/vitest.mjs run` | **164 files passed, 1920 tests passed, 5 skipped, exit 0** — reproduced in both file-parallel and `--no-file-parallelism` modes |
+| The closure's guards can fail | reintroduced all five source defects at once (route re-derives the kind; cancellation message; `sequence` unwired; packing sentence; unnamed structure) | **7 failed / 53 passed** in the five touched suites — exactly the assertions covering the five, nothing else. Restored byte-identical (SHA-256 of all 12 files) |
 
 The suite cannot start under the confined sandbox (`esbuild` needs a named pipe), so those
 two runs used a one-shot escalation.
@@ -101,30 +105,31 @@ the visual claims rest on the code and the DOM-level tests.
 
 ---
 
-## Deliberately not changed
+## Closed after this resolution
 
-- **F1 — the route re-derives the failure kind** (`server/routes/variant/narrative.ts:229-232`).
-  The attempt loop now acts on its own `classifyGeminiFailure(err)` verdict, and the route
-  independently re-derives the same kind from the raw error to build the client's
-  `fallbackReason`. The two derivations agree today (this is what makes G1's `status = 504`
-  fix work), but they are two derivations of one fact and can drift. Deferred by the
-  interrupted session as outside its change surface. Re-verified as still present in
-  `da643fa`. Not a confirmed defect — a de-duplication follow-up.
+`06774d7` closes F1, F2, and the three MINOR findings the review record carried but this
+document never listed.
 
-- **F2 — `metadata.sequence` is never populated by any server builder.**
-  `useNarrativeResynthesis` sends `sequence: result.metadata?.sequence || null`, but neither
-  `payload-assembler.ts` (`metadata` at :133) nor `analysis-orchestrator.ts` (:210) sets a
-  `sequence` field — both carry `mutatedSequence` instead. So the narrative request asks for
-  a sequence that never arrives. Benign today (the route's schema has it optional), but the
-  wiring is dead. Re-verified in `da643fa`.
+| # | Finding | Fix |
+|---|---|---|
+| F1 | The route re-derived the failure kind from the raw error after the attempt loop had already classified it to decide pool membership and cooldowns — one fact, two derivations, and they disagreed in a reachable case: a 503-coded unclassified failure was re-read as "overload", so a slow-but-working provider was presented as "AI service busy". | `GeminiError` carries the verdict it was chosen from (`failureKind`) and the route reads it; only a foreign error that never passed through the loop is classified there. The unclassified case now reports `SERVICE_UNAVAILABLE`. |
+| F2 | `metadata.sequence` was declared in `metadataSchema`, sent by the report's re-synthesis, and populated by no builder — so the narrative request asked for a sequence that never arrived. | Both builders carry the wild-type sequence beside `mutatedSequence`. |
+| M1 | A packing-derived word was described with the accessibility sentence plus "(Estimated from packing density.)", asserting solvent contact that packing density does not measure — beside a caveat calling packing a proxy. The boundary sentence also claimed "it sits in a pocket", which an RSA band does not establish. | Words derived from packing get sentences about packing; the pocket claim is gone. |
+| M2 | The panel header said "in the modelled structure" whatever the source was — including an RCSB entry, which is experimental — and never named the entry. | The header names the entry and its provenance, or says plainly that the structure is unnamed. |
+| M3 | The catch-side cancellation said "before any model responded" while attaching the models it had already tried. | It reports the attempt count. The status stays `DEADLINE_EXCEEDED` by decision: the signal is `AbortSignal.any([client disconnect, request deadline])`, the engine cannot tell which input fired, and a client that disconnected reads nothing. |
 
-- **F3 — the inspector's retry is not gated on a key being configured.**
-  Pressing retry with no Gemini key performs a request that is known to fail. The
-  interrupted session recorded a decision not to change this; the full reasoning is not
-  recoverable from the transcript, so this is listed as an open question rather than as
-  settled.
+## Still open
+
+- **F3 — the inspector's retry is not gated on a key being configured.** Re-checked while
+  closing F1, and it is narrower than recorded here: the button renders only when the server's
+  `fallbackRetryable` is true (`ResidueShiftInspector.tsx:320`), and a *missing* key is
+  `API_KEY_MISSING` → status 401 → kind `auth` → non-transient, and not `API_KEY_INVALID`, so
+  `fallbackRetryable` is false and no button is offered at all. The forced-retryable case is a
+  *rejected* key, where retrying after the credential is fixed is the point. Left as is, but
+  restated rather than carried as an open question.
 
 - **F4 — `BiochemicalNarrativeOptions` remains exported** as a public signature type.
+  Retained deliberately.
 
 ---
 
@@ -147,6 +152,23 @@ the visual claims rest on the code and the DOM-level tests.
 
 ---
 
+## Found while verifying the closure
+
+- **The suite has a cross-file race on the shared job registry** — not this surface, and not
+  fixed here. `src/test/setup.ts` redirects `JOB_REGISTRY_PATH` to one file for the whole run
+  (`<tmp>/missense-test-state/temp_jobs/job_registry.json`), while `recordJobInRegistry`
+  (`server/routes/shared.ts:98`) is an unserialized read-modify-write: two workers writing at
+  once lose an entry. One full run at `06774d7` failed
+  `biophysics.test.ts > should backfill completed DynaMut2 prediction into FoldX cache upon
+  DONE status` for exactly that reason — the entry it had just recorded was clobbered, so the
+  poll handler fell back to a computed cache key
+  (`cf4dda3d…_SA489C_pH:7_temp:298_ion:0.05_seed:12345_version:v2`) instead of the registry's
+  `test_cache_key_489`. The same commit then passed twice (file-parallel and serial), and the
+  failing run was by far the slowest of the three (88.5 s against 38.2 s and 57.7 s). A
+  per-worker registry path would remove it; that belongs to the route/registry surface.
+
+---
+
 ## Work outside this surface (not touched)
 
 At the time of writing, 22 paths in the working tree belong to two *other* workstreams and
@@ -161,4 +183,5 @@ were deliberately left unstaged, per the concurrent-commit hygiene rule:
   `useProteinSequence.ts`, `uniprotAccession.ts`, `alphagenomeRegion.ts`, `searchSlice.ts`,
   `sequence/types.ts`, and their tests.
 
-These are uncommitted and unverified by this resolution.
+Both workstreams have since landed on `main` (`f2ae4a7`, `0250f18`), with their own
+verification. This resolution still does not verify them.
