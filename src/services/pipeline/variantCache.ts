@@ -29,8 +29,14 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * `assemblyRefusals`, no lifted coordinates, and pre-fix splice geometry. The surfaces degrade
  * honestly on such payloads, but replaying one would hide the fix for up to 24 h on a
  * recently-viewed variant (external review UI#7).
+ *
+ * v3.9: discards bundles whose burial word was computed under the retired 5%/25% RSA cutoffs.
+ * A payload carrying `rsa: 0.30, burialStatus: "surface"` would otherwise render a "Surface"
+ * badge beside a "30.0% · BOUNDARY" measure for up to 24 h. The panel now detects that
+ * contradiction and says so, but the honest bundle is the one that was never written under the
+ * old definition (external review §cache).
  */
-export const CACHE_VERSION = "v3.8";
+export const CACHE_VERSION = "v3.9";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

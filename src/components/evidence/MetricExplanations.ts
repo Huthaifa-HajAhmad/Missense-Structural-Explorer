@@ -195,7 +195,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "Cα Contact Density",
     category: "Local Structural Density",
     description: "Contact density counts the number of Cα atoms within a 10Å radius of the mutation site. This quantifies whether the residue is located in a densely packed core or a flexible surface loop.",
-    interpretation: "Core residues have ≥ 15 neighbors, surface residues have ≤ 7, and boundary residues fall between the two. The bands are the shared definition in src/shared/burialEvidence.ts, so this panel and the server's classification cannot disagree.",
+    interpretation: "Core residues have ≥ 15 neighbors, surface residues have ≤ 7, and boundary residues fall between the two. The same bands decide the burial status shown beside this metric.",
     paperTitle: "Pejaver et al. Nat Methods (2020)",
     paperUrl: "https://doi.org/10.1038/s41592-020-0962-8"
   },
@@ -335,7 +335,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     architecture: "Shrake-Rupley / Lee-Richards Rolling Sphere SASA Algorithm",
     modality: "3D Macromolecular Coordinates",
     description: "Calculates the Relative Solvent Accessibility (RSA) of the wild-type residue in the 3D model relative to an extended Gly-X-Gly tripeptide reference conformation using a 1.4Å water probe sphere.",
-    interpretation: "Core residues have RSA ≤ 15% (deeply buried within the hydrophobic core, where polar substitutions disrupt thermodynamic stability). Surface residues have RSA ≥ 35% (accessible to solvent and ligand interactions). Boundary residues fall between those cutoffs. These are the shared bands in src/shared/burialEvidence.ts — the same cutoffs the SASA sidecar applies, so the badge and this explanation cannot disagree.",
+    interpretation: "Core residues have RSA ≤ 15% (deeply buried within the hydrophobic core, where polar substitutions disrupt thermodynamic stability). Surface residues have RSA ≥ 35% (accessible to solvent and ligand interactions). Boundary residues fall between those cutoffs. These are the same cutoffs the SASA engine applies, so a residue between the two is reported as boundary rather than as core or surface.",
     strengths: [
       "Gold standard biophysical descriptor for identifying hydrophobic core integrity.",
       "Directly correlates with evolutionary conservation and tolerance to charge alterations."

@@ -220,8 +220,28 @@ describe("StructureTab residue environment panel", () => {
       }
     });
 
-    expect(screen.getByText("Burial and packing indicators disagree")).toBeInTheDocument();
+    expect(screen.getByText("Reported classification and measurements disagree")).toBeInTheDocument();
     expect(screen.getByText(/point different ways/i)).toBeInTheDocument();
+  });
+
+  it("flags a word that disagrees with the accessibility value beside it, and names no basis", () => {
+    // A payload written before the shared bands existed: 0.30 reads as boundary under the
+    // current cutoffs while the badge says surface. Both indicators agree with each other, so
+    // only a word-vs-measurement check can see it.
+    renderTab({
+      analysisState: {
+        result: {
+          ...RESULT,
+          disruptionPredictor: { ...RESULT.disruptionPredictor, burialStatus: "surface", rsa: 0.3, neighborCount: 10 }
+        },
+        isLoading: false
+      }
+    });
+
+    expect(screen.getByText("Reported classification and measurements disagree")).toBeInTheDocument();
+    expect(screen.getByText(/does not match the accessibility measurement/i)).toBeInTheDocument();
+    // Nothing can be named as the basis, so no card claims to have decided the word.
+    expect(screen.queryByText("decides status")).not.toBeInTheDocument();
   });
 
   it("opens the explanation for whichever indicator the reader clicked", () => {

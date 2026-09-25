@@ -107,7 +107,7 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 * **Inputs**: `{ gene: string, variant: string, uniprotId: string }`
 * **Orchestration**: Executes parallel and cascade processing streams:
   1. **Structural Triage**: Runs a local, fast rule-based classifier (`predictStructuralDisruption`) in parallel to assess secondary structure patterns, volume changes in the hydrophobic core, and residue chemical indices.
-  2. **Narrative Generation**: Calls `gemini-3.5-flash` (falling back to `gemini-2.5-flash` or `gemini-2.5-pro`) with a tailored biophysical prompt to obtain detailed, professional clinical markdown.
+  2. **Narrative Generation**: Round-robins the configured Gemini ladder (see `DEFAULT_GEMINI_FALLBACK_MODELS`, ordered by measured reliability and latency) with a tailored biophysical prompt to obtain detailed, professional clinical markdown.
   3. **Structured JSON Validation**: Calls the model with a defined JSON schema request, extracting `biochemicalShift`, `structuralImpact`, and structural pathogenicity `acmgCriteria` arrays containing clinical codes and reasoning.
 * **Error Resilience**: Intercepts absent Gemini keys and returns a structured configuration error to the front-end, gracefully falling back to preconfigured high-fidelity clinical records (defined in `src/data.ts`) to maintain a fully interactive prototype.
 

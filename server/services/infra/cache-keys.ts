@@ -22,8 +22,14 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
  * Bumped with every shape OR finding change: a profile built by the previous build can call a
  * genuinely ambiguous position "canonical" while having exactly the same shape, so a shape-based guard
  * alone would have kept serving it. Rows of an older generation are purged at startup.
+ *
+ * v8: the burial word in a cached payload was computed with the retired 5%/25% RSA cutoffs, so a
+ * record can carry `burialStatus: "surface"` beside `rsa: 0.30` — a pair the current 15%/35%
+ * definition bands as boundary. Same shape, different finding, which is exactly what this version
+ * exists to discard; otherwise the panel flags its own stored result as contradictory for up to
+ * 30 days.
  */
-export const CACHE_SCHEMA_VERSION = "v7";
+export const CACHE_SCHEMA_VERSION = "v8";
 export const DATA_SOURCES_VERSION = {
   dbnsfp: "4.4a",
   gnomad: "v4.1.0",

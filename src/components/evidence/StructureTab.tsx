@@ -3,7 +3,9 @@ import { PanelRightOpen, RotateCw, ShieldAlert, Box, Info } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { AMINO_ACID_NAMES_MAP } from "../../useVariantAnalysis";
 import { BiochemicalContrastScales } from "./ContrastScale";
-import { ResidueEnvironmentPanel } from "./ResidueEnvironmentPanel";
+// The default export is the memoized component; importing the named one silently dropped the
+// memo (found in review), so this pane re-rendered on every parent update.
+import ResidueEnvironmentPanel from "./ResidueEnvironmentPanel";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import { useResidueScalesLoading } from "../../lib/residueScalesLoading";
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";

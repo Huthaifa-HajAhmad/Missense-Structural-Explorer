@@ -228,48 +228,61 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
 
   it("should map specific SDK errors to correct GeminiError instances", async () => {
     const geminiService = await import("./gemini.ts");
-    
+
     const oldModel = process.env.GEMINI_MODEL;
     const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
     process.env.GEMINI_MODEL = "primary";
     // One candidate: this test is about error → GeminiError mapping, not about the ladder.
     process.env.GEMINI_MODEL_FALLBACKS = "primary";
-    
-    const testErrorMapping = async (apiErrorMsg: string, apiStatus: number, expectedCode: string, expectedStatus: number) => {
+
+    /*
+     * Assertions are made directly, not inside a `try { … } catch { /* expected *\/ }` wrapper.
+     *
+     * The previous version wrapped both the `rejects` expectation and the code/status checks in
+     * an outer catch, so *every* assertion in it was swallowed: a wrong code, a wrong status or
+     * even "did not throw at all" all passed. It asserted `RESOURCE_EXHAUSTED` for a 429, a code
+     * this module never throws (it throws `QUOTA_EXHAUSTED`), and the suite was green.
+     *
+     * The cases below are the non-retryable kinds, which terminate after one attempt. The
+     * `timeout` kind is retryable by design (a slice expiry must stay in the pool), so its
+     * mapping is pinned through the pure decision functions rather than by burning the budget —
+     * `performGeminiAnalysis`'s throw site for it is the same switch these three exercise.
+     */
+    const expectMapping = async (
+      apiErrorMsg: string,
+      apiStatus: number,
+      expectedCode: string,
+      expectedStatus: number
+    ) => {
       mockGenerateContent.mockReset();
-      mockGenerateContent.mockRejectedValue({
-        message: apiErrorMsg,
-        status: apiStatus
-      });
-      
+      mockGenerateContent.mockRejectedValue({ message: apiErrorMsg, status: apiStatus });
+
+      let thrown: any = null;
       try {
-        await expect(
-          geminiService.performGeminiAnalysis(
-            "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
-          )
-        ).rejects.toThrowError(geminiService.GeminiError);
-        
-        try {
-          await geminiService.performGeminiAnalysis(
-            "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
-          );
-        } catch (err: any) {
-          expect(err.code).toBe(expectedCode);
-          expect(err.status).toBe(expectedStatus);
-        }
-      } catch (e) {
-        // expected to throw
+        await geminiService.performGeminiAnalysis(
+          "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
+        );
+      } catch (err) {
+        thrown = err;
       }
+
+      expect(thrown).toBeInstanceOf(geminiService.GeminiError);
+      expect({ code: thrown?.code, status: thrown?.status }).toEqual({ code: expectedCode, status: expectedStatus });
     };
-    
+
     try {
-      await testErrorMapping("API key is invalid or unauthorized", 403, "API_KEY_INVALID", 403);
-      await testErrorMapping("Resource exhausted or quota exceeded", 429, "RESOURCE_EXHAUSTED", 429);
-      await testErrorMapping("Deadline exceeded or request timed out", 504, "DEADLINE_EXCEEDED", 504);
-      await testErrorMapping("Internal server error or unknown code", 500, "MODEL_UNAVAILABLE", 503);
+      await expectMapping("API key is invalid or unauthorized", 403, "API_KEY_INVALID", 403);
+      await expectMapping("Resource exhausted or quota exceeded", 429, "QUOTA_EXHAUSTED", 429);
+      await expectMapping("Internal server error or unknown code", 500, "MODEL_UNAVAILABLE", 503);
+
+      // The retryable kinds' classification, which is what the throw site switches on.
+      expect(geminiService.failureKindToFallbackReason(geminiService.classifyGeminiFailure({ status: 504, message: "Deadline expired" }))).toBe("DEADLINE_EXCEEDED");
+      expect(geminiService.failureKindToFallbackReason(geminiService.classifyGeminiFailure({ status: 503, message: "high demand" }))).toBe("PROVIDER_OVERLOADED");
     } finally {
-      process.env.GEMINI_MODEL = oldModel;
-      process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
     }
   });
 

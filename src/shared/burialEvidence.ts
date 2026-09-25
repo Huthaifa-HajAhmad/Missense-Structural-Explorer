@@ -39,6 +39,9 @@ export const PACKING_NEIGHBOUR_BANDS = {
   radiusAngstrom: 10,
 } as const;
 
+/** Drawing domain for the packing meter, in Cα neighbours: a picture bound, not a maximum. */
+const PACKING_METER_BASE_DOMAIN = 24;
+
 export type BurialWord = "core" | "boundary" | "surface";
 
 /** How the reported word was decided. These are different measurements. */
@@ -150,14 +153,27 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
   const status: BurialWord | "undetermined" = hasReported ? (reported as BurialWord) : "undetermined";
 
   /*
-   * Which indicator the word rests on. The engine measures solvent accessibility when
-   * the SASA sidecar runs and falls back to Cα packing when it does not, so an RSA
-   * value being present is the signal that the word is the measured one.
+   * Which indicator the word rests on. The engine measures solvent accessibility when the
+   * SASA sidecar runs and falls back to Cα packing when it does not, so an RSA value being
+   * present is the signal that the word is the measured one.
+   *
+   * Only claimed when the indicator actually *agrees* with the word it is supposed to have
+   * decided. Otherwise the panel asserted a basis that its own card contradicted — the
+   * engine's "residue not found in the structure" path returns `boundary` with a neighbour
+   * count of 0, which bands as surface, and the panel printed "Decided by C̲α packing density"
+   * beside a packing card reading SURFACE for a word reading Boundary.
    */
-  const basis: BurialBasis =
+  const measuredBasis: BurialBasis =
     rsaBand !== null ? "solvent-accessibility" : packingBand !== null ? "residue-packing" : "none";
+  const basisIsReproduced =
+    status !== "undetermined" &&
+    ((measuredBasis === "solvent-accessibility" && rsaBand === status) ||
+      (measuredBasis === "residue-packing" && packingBand === status));
+  const basis: BurialBasis = basisIsReproduced ? measuredBasis : "none";
+  const hasAnyMeasurement = rsaBand !== null || packingBand !== null;
 
   const rsaPercent = rsa === null ? null : rsa * 100;
+  const packingMarker = neighbourCount;
 
   const indicators: BurialEvidence["indicators"] = {
     rsa: {
@@ -174,45 +190,70 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
         { value: BURIAL_RSA_BANDS.coreMax * 100, label: `${(BURIAL_RSA_BANDS.coreMax * 100).toFixed(0)}%` },
         { value: BURIAL_RSA_BANDS.surfaceMin * 100, label: `${(BURIAL_RSA_BANDS.surfaceMin * 100).toFixed(0)}%` },
       ],
-      domainMax: 100,
+      /*
+       * A drawing domain, not a maximum: RSA can exceed 100% (a side chain more exposed than
+       * the Gly-X-Gly reference), and a bar that saturates at the edge beside a value that
+       * says 140.0% is a picture contradicting its own label. The domain stretches to contain
+       * the marker, and the ticks stay where the classifier's thresholds are.
+       */
+      domainMax: rsaPercent === null ? 100 : Math.max(100, Math.ceil(rsaPercent / 10) * 10),
       marker: rsaPercent,
     },
     packing: {
       key: "packing",
       label: `Cα neighbours within ${PACKING_NEIGHBOUR_BANDS.radiusAngstrom} Å`,
       band: packingBand,
-      valueLabel: neighbourCount === null ? null : `${neighbourCount}`,
+      valueLabel: packingMarker === null ? null : `${packingMarker}`,
       isBasis: basis === "residue-packing",
       detail: `Core is at or above ${PACKING_NEIGHBOUR_BANDS.coreMin} neighbours, surface at or below ${PACKING_NEIGHBOUR_BANDS.surfaceMax}.`,
       ticks: [
         { value: PACKING_NEIGHBOUR_BANDS.surfaceMax, label: `${PACKING_NEIGHBOUR_BANDS.surfaceMax}` },
         { value: PACKING_NEIGHBOUR_BANDS.coreMin, label: `${PACKING_NEIGHBOUR_BANDS.coreMin}` },
       ],
-      domainMax: 24,
-      marker: neighbourCount,
+      // Same reasoning: real structures reach 41 Cα neighbours, so 24 is a drawing domain and
+      // it stretches rather than saturating.
+      domainMax:
+        packingMarker === null
+          ? PACKING_METER_BASE_DOMAIN
+          : Math.max(PACKING_METER_BASE_DOMAIN, Math.ceil(packingMarker / 8) * 8),
+      marker: packingMarker,
     },
   };
 
   /*
    * A disagreement is informative, never an error to resolve: the two quantities are
    * different measurements (accessible surface vs. Cα shell occupancy), and a position
-   * can genuinely be tightly packed yet solvent-reachable. The word shown is still the
-   * one the engine reported.
+   * can genuinely be tightly packed yet solvent-reachable. The word shown is still the one
+   * the engine reported.
+   *
+   * The reported-word-vs-accessibility check comes FIRST. A payload written before the
+   * shared band existed (a client bundle or a persisted record from the 5%/25% engine) can
+   * carry a word that no longer matches the RSA it ships beside — and because the accessible
+   * surface is the measurement the word is supposed to come from, that is the contradiction
+   * worth naming. Checking the two indicators first would have described it as a
+   * packing-vs-accessibility difference and asserted, wrongly, that the badge follows the
+   * accessibility measurement.
    */
   let disagreement: string | null = null;
-  if (rsaBand !== null && packingBand !== null && rsaBand !== packingBand) {
+  if (rsaBand !== null && status !== "undetermined" && rsaBand !== status) {
+    disagreement =
+      `The reported classification (${BURIAL_LABELS[status].toLowerCase()}) does not match the accessibility ` +
+      `measurement beside it: ${rsaPercent?.toFixed(1)}% relative accessibility reads as ` +
+      `${BURIAL_LABELS[rsaBand].toLowerCase()} under the current cutoffs. A word that disagrees with the value it ` +
+      `is derived from is usually a stale result — treat this position's burial status as unreliable.`;
+  } else if (rsaBand !== null && packingBand !== null && rsaBand !== packingBand) {
     disagreement =
       `The two indicators point different ways: ${rsaPercent?.toFixed(1)}% relative accessibility reads as ` +
       `${BURIAL_LABELS[rsaBand].toLowerCase()}, while ${neighbourCount} Cα neighbours read as ` +
-      `${BURIAL_LABELS[packingBand].toLowerCase()}. The badge shows the accessibility measurement, because ` +
+      `${BURIAL_LABELS[packingBand].toLowerCase()}. The badge follows the accessibility measurement, because ` +
       `that is the one taken from the solvent-accessible surface.`;
   } else if (packingBand !== null && rsaBand === null && status !== "undetermined" && packingBand !== status) {
     /*
-     * No accessibility measurement, so the word should be the packing band — and it is
-     * not. The engine has exactly one such case: when the variant residue is missing
-     * from the modelled structure it returns `boundary` with a neighbour count of 0
-     * ("Target residue not found in structure"). Rendering that as a confident
-     * "boundary, 0 neighbours" pair hid both the placeholder and the contradiction.
+     * No accessibility measurement, so the word should be the packing band — and it is not.
+     * The engine has exactly one such case: when the variant residue is missing from the
+     * modelled structure it returns `boundary` with a neighbour count of 0 ("Target residue
+     * not found in structure"). Rendering that as a confident "boundary, 0 neighbours" pair
+     * hid both the placeholder and the contradiction.
      */
     disagreement =
       `The reported classification (${BURIAL_LABELS[status].toLowerCase()}) does not match its own packing ` +
@@ -225,13 +266,17 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
     basis === "residue-packing"
       ? `The classification rests on Cα packing density, not on a measured accessible surface: the SASA step did not run for this variant, and packing density is a proxy for burial rather than a measurement of it.`
       : basis === "none"
-        ? "Absence of a burial result is missing evidence, not evidence that the position is exposed."
+        ? hasAnyMeasurement
+          ? "The measurements reported for this position do not reproduce the classification beside them, so this panel cannot say which of them decided it."
+          : "Absence of a burial result is missing evidence, not evidence that the position is exposed."
         : null;
 
   return {
     status,
     label: BURIAL_LABELS[status],
-    detail: BURIAL_DETAILS[status],
+    /* When the word is a packing estimate, say so in the sentence that defines the word. */
+    detail:
+      basis === "residue-packing" ? `${BURIAL_DETAILS[status]} (Estimated from packing density.)` : BURIAL_DETAILS[status],
     basis,
     basisLabel: BASIS_LABELS[basis],
     basisDetail:
@@ -239,7 +284,9 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
         ? "Decided by the measured relative solvent accessibility."
         : basis === "residue-packing"
           ? "Decided by Cα packing density, because no accessibility measurement was available."
-          : "No burial or packing measurement was reported for this position.",
+          : hasAnyMeasurement
+            ? "Not reproducible from the measurements reported for this position."
+            : "No burial or packing measurement was reported for this position.",
     indicators,
     disagreement,
     caveat,

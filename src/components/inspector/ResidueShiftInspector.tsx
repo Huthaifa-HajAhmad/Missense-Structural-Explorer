@@ -24,6 +24,7 @@ import {
   deriveBiochemicalNarrative,
   derivePocketNarrative,
   findNarrativeDiscrepancies,
+  rankContrastRowsByMagnitude,
   type BiochemicalNarrative,
   type NarrativeState,
   type PocketNarrative
@@ -83,6 +84,18 @@ const TONE_CLASS: Record<PocketNarrative["badgeTone"], string> = {
   danger: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
 };
 
+/**
+ * Tones for the degradation-reason chip, keyed by the shared vocabulary's own tone words.
+ * "neutral" is a setup state (no key configured) and "bad" is a failure (key rejected); only
+ * "warn" is transient. Mapping them here rather than hard-coding amber in the markup is what
+ * keeps this chip consistent with the report bar's status strip.
+ */
+const REASON_TONE_CLASS: Record<"neutral" | "warn" | "bad", string> = {
+  neutral: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
+  warn: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25",
+  bad: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25"
+};
+
 /** Direction glyphs stay textual here: the sidebar is too narrow for marker tracks. */
 function deltaGlyph(delta: number): string {
   if (delta > 0) return "\u2191";
@@ -105,8 +118,10 @@ function buildCopyText(params: {
   lines.push("Biochemical shift (AI synthesis):");
   lines.push(
     narrative.prose ??
-      `Not available \u2014 ${narrative.reasonLabel ?? "no AI narrative was returned"}. ` +
-        "The interpretation below is derived from the residue property scales."
+      (narrative.state === "loading"
+        ? "Synthesis in progress \u2014 no narrative yet."
+        : `Not available \u2014 ${narrative.reasonLabel ?? "no AI narrative was returned"}. ` +
+          "The interpretation below is derived from the residue property scales.")
   );
   lines.push("");
   lines.push("Derived from the 0\u2013100 property scales:");
@@ -273,9 +288,14 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
               {narrative.badge}
             </span>
             {/* The *why*, when the server classified it. Without this the reader only
-                learned that synthesis had failed, never whether retrying could help. */}
+                learned that synthesis had failed, never whether retrying could help. The tone
+                comes from the shared vocabulary, not from this component. */}
             {narrative.reasonLabel && (
-              <span className="inline-block text-[9.5px] font-mono uppercase px-2 py-0.5 rounded border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25">
+              <span
+                className={`inline-block text-[9.5px] font-mono uppercase px-2 py-0.5 rounded border ${
+                  REASON_TONE_CLASS[narrative.reasonTone ?? "warn"]
+                }`}
+              >
                 {narrative.reasonLabel}
               </span>
             )}
@@ -345,7 +365,9 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
             </div>
 
             <div className="rounded-lg border border-cs-border bg-cs-surface-2 divide-y divide-cs-border-subtle">
-              {contrast.rows.map(row => (
+              {/* Same ranking as the main column's tracks, so the two panes the shared module
+                  exists to keep consistent do not list the same four axes in different orders. */}
+              {rankContrastRowsByMagnitude(contrast.rows).map(row => (
                 <div key={row.key} className="p-2.5 space-y-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10.5px] text-cs-text-secondary truncate">{row.label}</span>

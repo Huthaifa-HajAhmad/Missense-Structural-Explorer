@@ -164,12 +164,15 @@ export async function fetchEsm3StructureEval(
   let isSheet = false;
   let meanPlddt: number | null = null;
   let targetPlddt: number | null = null;
-  let rsa = 0.12; // default core
+  /** Whether `rsa` below is a measurement or the placeholder it is initialised to. */
+  let hasMeasuredRsa = false;
+  let rsa = 0.12; // placeholder only; not a measurement until the sidecar answers
 
   if (wtPdbText) {
     const sasaRes = await runSasaEval(wtPdbText, "A", position);
     if (sasaRes) {
       rsa = sasaRes.rsa;
+      hasMeasuredRsa = true;
       isHelix = sasaRes.sse === "a";
       isSheet = sasaRes.sse === "b";
     }
@@ -239,11 +242,18 @@ export async function fetchEsm3StructureEval(
    * literals: those numbers disagreed with the SASA engine that produces
    * `burialStatus` for the same residue, so the perturbation panel and the Residue
    * Shifts panel could call one RSA value "Hydrophobic core" and "boundary".
+   *
+   * Only when accessibility was actually measured. `rsa` starts at a hard-coded 0.12
+   * ("default core") and stays there whenever the sidecar does not run — which is the common
+   * case — so the panel used to assert "Hydrophobic core" for every variant with no structure
+   * or SASA at all, and the perturbation rules below then reasoned about core packing on the
+   * strength of that placeholder.
    */
-  const burialBand = classifyBurialRsa(rsa);
+  const burialBand = hasMeasuredRsa ? classifyBurialRsa(rsa) : null;
   if (burialBand === "core") microenvironments.push("Hydrophobic core");
   else if (burialBand === "surface") microenvironments.push("Surface");
-  else microenvironments.push("Binding pocket");
+  else if (burialBand === "boundary") microenvironments.push("Binding pocket");
+  else microenvironments.push("Burial not measured");
 
   if (isHelix) microenvironments.push("Alpha-Helix");
   else if (isSheet) microenvironments.push("Beta-Sheet");

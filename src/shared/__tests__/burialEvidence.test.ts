@@ -85,14 +85,67 @@ describe("deriveBurialEvidence", () => {
     expect(evidence.status).toBe("surface");
   });
 
-  it("flags the engine's own not-found default as a disagreement", () => {
+  it("flags a word that disagrees with the accessibility value beside it", () => {
+    /*
+     * The stale-payload case, and the one the first version of this module missed: a bundle
+     * written before the shared bands existed carries a word computed under 5%/25% next to an
+     * RSA the panel bands under 15%/35%. `rsa: 0.30` reads as boundary while the badge says
+     * surface, and no indicator-vs-indicator comparison can see it — both indicators agree.
+     */
+    const evidence = deriveBurialEvidence({ burialStatus: "surface", rsa: 0.30, neighbourCount: 10 });
+
+    expect(evidence.indicators.rsa.band).toBe("boundary");
+    expect(evidence.disagreement).toMatch(/does not match the accessibility measurement/i);
+    expect(evidence.disagreement).toMatch(/stale result/i);
+    // Nothing decided the word in a way this panel can reproduce.
+    expect(evidence.basis).toBe("none");
+    expect(evidence.indicators.rsa.isBasis).toBe(false);
+  });
+
+  it("flags the engine's own not-found default as a disagreement, without claiming a basis", () => {
     // `predictStructuralDisruption` returns burialStatus "boundary" with neighborCount 0
-    // when the residue is missing from the model. Zero neighbours is a surface reading,
-    // so the pair cannot be presented as two agreeing indicators.
+    // when the residue is missing from the model. Zero neighbours is a surface reading, so the
+    // pair cannot be presented as two agreeing indicators — and the panel must not then claim
+    // the word was "decided by Cα packing density" while its own packing card reads SURFACE.
     const evidence = deriveBurialEvidence({ burialStatus: "boundary", neighbourCount: 0 });
 
     expect(evidence.indicators.packing.band).toBe("surface");
     expect(evidence.disagreement).not.toBeNull();
+    expect(evidence.basis).toBe("none");
+    expect(evidence.basisLabel).toBe("Not measured");
+    expect(evidence.basisDetail).toMatch(/not reproducible/i);
+    expect(evidence.indicators.packing.isBasis).toBe(false);
+  });
+
+  it("marks a packing-derived word as an estimate in its own sentence", () => {
+    const evidence = deriveBurialEvidence({ burialStatus: "core", neighbourCount: 20 });
+
+    expect(evidence.basis).toBe("residue-packing");
+    expect(evidence.detail).toMatch(/Estimated from packing density/i);
+  });
+
+  it("stretches the meter domain to contain the value instead of saturating", () => {
+    // 41 Cα neighbours and RSA > 100% both occur in real structures; a bar that saturates at
+    // its edge beside a value label that says otherwise is a picture contradicting its label.
+    const dense = deriveBurialEvidence({ burialStatus: "core", neighbourCount: 41, rsa: 1.4 });
+
+    expect(dense.indicators.packing.domainMax).toBeGreaterThanOrEqual(41);
+    expect(dense.indicators.packing.marker).toBe(41);
+    expect(dense.indicators.rsa.domainMax).toBeGreaterThanOrEqual(140);
+    // The thresholds stay where the classifier's cutoffs are, whatever the domain.
+    expect(dense.indicators.packing.ticks.map(t => t.value)).toEqual([7, 15]);
+    expect(dense.indicators.rsa.ticks.map(t => t.value)).toEqual([15, 35]);
+  });
+
+  it("does not claim a basis when only a measurement is reported and no word is", () => {
+    // The schema permits `rsa` without `burialStatus`; nothing decided a word, so nothing can
+    // be named as its basis even though a measurement exists.
+    const evidence = deriveBurialEvidence({ rsa: 0.2 });
+
+    expect(evidence.status).toBe("undetermined");
+    expect(evidence.basis).toBe("none");
+    expect(evidence.indicators.rsa.isBasis).toBe(false);
+    expect(evidence.basisDetail).toMatch(/not reproducible/i);
   });
 
   it("states absence as absence rather than defaulting to a word", () => {
@@ -144,5 +197,28 @@ describe("burial band single-source guard", () => {
     // The pair that made one RSA value read as "boundary" in the badge and "core" in prose.
     expect(source).not.toMatch(/rsa\s*<\s*0\.05/);
     expect(source).not.toMatch(/rsa\s*>\s*0\.25/);
+  });
+
+  it("pins the sidecar's comparison *direction*, not just its literals", () => {
+    /*
+     * The first version of this guard only asserted the two constants and the absence of the
+     * old literals, which passes for `if rsa < BURIAL_RSA_CORE_MAX` (exclusive) — a boundary
+     * change that makes the sidecar and the classifier disagree at exactly 0.15 and 0.35.
+     * Asserting the comparisons is what makes the guard able to fail.
+     */
+    const source = readFileSync(new URL("../../../tools/sasa_eval.py", import.meta.url), "utf8");
+
+    expect(source).toMatch(/if\s+rsa\s*<=\s*BURIAL_RSA_CORE_MAX\s*:/);
+    expect(source).toMatch(/elif\s+rsa\s*>=\s*BURIAL_RSA_SURFACE_MIN\s*:/);
+  });
+
+  it("bands the value the sidecar actually emits", () => {
+    // The sidecar ships `round(rsa, 4)`; if it bands a more precise value, a true 0.15004 is
+    // "core" there and "boundary" in the panel — a silent 5e-5 disagreement window.
+    const source = readFileSync(new URL("../../../tools/sasa_eval.py", import.meta.url), "utf8");
+
+    expect(source).toMatch(/rsa\s*=\s*round\(sasa\s*\/\s*max_sasa,\s*4\)/);
+    // ...and the emission must not re-round a different value into the payload.
+    expect(source).not.toMatch(/"rsa":\s*round\(/);
   });
 });

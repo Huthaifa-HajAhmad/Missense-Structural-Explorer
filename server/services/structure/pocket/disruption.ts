@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { parseAtomsFromPdb } from "../pdb-parser.ts";
-import { classifyPackingDensity } from "../../../../src/shared/burialEvidence.ts";
+import { PACKING_NEIGHBOUR_BANDS, classifyPackingDensity } from "../../../../src/shared/burialEvidence.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -144,7 +144,9 @@ export async function predictStructuralDisruption(
   for (const a of atoms) {
     if (a.name === "CA" && (a.resSeq !== position || a.chain !== resolvedChain)) {
       const dist = Math.sqrt(Math.pow(a.x - targetCa.x, 2) + Math.pow(a.y - targetCa.y, 2) + Math.pow(a.z - targetCa.z, 2));
-      if (dist <= 10.0) {
+      // The radius is the shared constant the client's meter and tick labels use, so the count
+      // and the shell it is described as cannot drift apart.
+      if (dist <= PACKING_NEIGHBOUR_BANDS.radiusAngstrom) {
         neighborCount++;
       }
     }

@@ -70,7 +70,10 @@ def main():
             return
 
         max_sasa = MAX_SASA.get(resname, 200.0) # fallback
-        rsa = sasa / max_sasa
+        # Band the value that is actually shipped, not a more precise one: the payload carries
+        # round(rsa, 4) below, and the panel bands that, so banding the unrounded fraction let
+        # a true 0.15004 be "core" here and "boundary" on screen (a 5e-5 disagreement window).
+        rsa = round(sasa / max_sasa, 4)
 
         # The single burial definition for the whole app, mirrored in
         # src/shared/burialEvidence.ts (BURIAL_RSA_BANDS) and pinned by
@@ -113,7 +116,9 @@ def main():
             "resId": pos,
             "sasa": round(sasa, 2),
             "maxSasa": max_sasa,
-            "rsa": round(rsa, 4),
+            # Already rounded before banding, so this is the exact value the status was
+            # computed from.
+            "rsa": rsa,
             "burialStatus": burial_status,
             "sse": sse_char # 'a' = helix, 'b' = sheet, 'c' = coil/loop
         }))

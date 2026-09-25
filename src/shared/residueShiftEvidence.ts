@@ -17,7 +17,11 @@
  * this module stays dependency-free and unit-testable.
  */
 
-import { describeFallbackReason, isNarrativeFallbackReason } from "./narrativeFallback.ts";
+import {
+  describeFallbackReason,
+  isNarrativeFallbackReason,
+  type NarrativeFallbackPresentation,
+} from "./narrativeFallback.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Amino-acid property scales
@@ -529,6 +533,13 @@ export interface BiochemicalNarrative {
    * vocabulary. Null when there is nothing structured to say.
    */
   reasonLabel: string | null;
+  /**
+   * Presentation tone for `reasonLabel`, from the same shared vocabulary the report bar
+   * uses. A renderer must not choose a colour of its own: "AI not configured" is a setup
+   * state and a rejected key is a failure, and painting both amber asserts a severity the
+   * reason does not carry.
+   */
+  reasonTone: NarrativeFallbackPresentation["tone"] | null;
   /** Whether re-running synthesis has a realistic chance of succeeding. */
   retryable: boolean;
   /**
@@ -620,6 +631,7 @@ export function deriveBiochemicalNarrative(
       badge: "AI synthesis",
       detail: null,
       reasonLabel: null,
+      reasonTone: null,
       retryable: false,
       diagnostics: null,
     };
@@ -632,6 +644,7 @@ export function deriveBiochemicalNarrative(
       badge: "Synthesising",
       detail: "The language model is composing the biochemical interpretation for this substitution.",
       reasonLabel: null,
+      reasonTone: null,
       retryable: false,
       diagnostics: null,
     };
@@ -655,6 +668,7 @@ export function deriveBiochemicalNarrative(
       ? presentation.detail
       : stripped || "No AI biochemical narrative was returned for this substitution. The derived interpretation in this panel is computed from the residue property scales and is unaffected.",
     reasonLabel: hasReason ? presentation.label : null,
+    reasonTone: hasReason ? presentation.tone : null,
     retryable: options.retryable ?? presentation.retryable,
     diagnostics,
   };

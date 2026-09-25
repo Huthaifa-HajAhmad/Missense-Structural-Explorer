@@ -17,9 +17,10 @@ import {
  * execute, a packing estimate was presented with the authority of a measured accessible
  * surface.
  *
- * This panel states the word once, shows both indicators with the bands drawn on their
- * own scales, and names which indicator decided the word. When the two disagree, that is
- * reported rather than silently resolved — they measure different things.
+ * This panel states the classification once and shows both indicators with the bands drawn on
+ * their own scales, then names the indicator that decided the word — or says plainly that
+ * neither reported measurement reproduces it. When the two disagree, that is reported rather
+ * than silently resolved: they measure different things.
  *
  * Every threshold and band word comes from `src/shared/burialEvidence.ts`, which the
  * server's classification and `tools/sasa_eval.py` also use.
@@ -188,18 +189,26 @@ export function ResidueEnvironmentPanel({
         <IndicatorCard indicator={indicators.packing} onExplain={() => onExplainMetric(METRIC_FOR_INDICATOR.packing)} />
       </div>
 
-      {evidence.disagreement ? (
+      {evidence.disagreement && (
         <div className="p-3 rounded-lg border text-[10.5px] leading-relaxed border-amber-500/25 bg-cs-bg-warning space-y-1">
           <span className="block font-bold text-[10.5px]" style={{ color: "var(--cs-text-primary)" }}>
-            Burial and packing indicators disagree
+            Reported classification and measurements disagree
           </span>
           <p style={{ color: "var(--cs-text-secondary)" }}>{evidence.disagreement}</p>
         </div>
-      ) : evidence.caveat ? (
+      )}
+
+      {/*
+        The caveat renders alongside the disagreement, not instead of it. It used to be an
+        `else` branch, which suppressed exactly the sentence that scopes the estimate in the
+        one state where it matters most: a packing-derived word that also contradicts its own
+        count.
+      */}
+      {evidence.caveat && (
         <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
           {evidence.caveat}
         </p>
-      ) : null}
+      )}
     </div>
   );
 }
