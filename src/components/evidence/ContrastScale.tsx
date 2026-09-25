@@ -9,36 +9,33 @@ import {
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from "../../lib/inspectorFocus";
 
 /**
- * Polished renderer for the four amino-acid property contrasts.
+ * Dumbbell renderer for the four amino-acid property contrasts.
  *
- * Why this replaced the previous two-segment bar
- * ----------------------------------------------
- * The old track drew a fixed clay segment from 0 to `min(wt, mut)` and a second
- * segment from there to `max(wt, mut)`, coloured green for a decrease and red for
- * an increase. Three things made it hard to read:
+ * Design history — three iterations, each fixing a real readability failure:
  *
- *   1. The clay lead-in had no meaning — it was not the wild-type position, so
- *      the eye could not tell which end of the bar was which residue.
- *   2. Direction was encoded as red/green, which readers correctly interpret as
- *      bad/good. A property axis is neither, so the colour asserted a
- *      pathogenicity claim the data does not support.
- *   3. When the two residues had the same value the bar still rendered full
- *      width, so "no change" looked like the largest possible change.
- *
- * The track below instead keeps the whole 0–100 axis visible, marks both residues
- * with labelled ticks, joins them with a neutral span whose width *is* the delta,
- * and states direction and magnitude as text. Colour is reserved for the two
- * residues, never for the change itself.
+ *  1. The original two-segment bar drew a meaningless lead-in from 0 to the
+ *     smaller value, coloured the delta green/red (asserting a verdict the data
+ *     does not support), and rendered "no change" as a full-width fill.
+ *  2. The marker-and-span version kept the full 0–100 axis, ranked the rows by
+ *     magnitude and added a direction chevron — but marked the two residues with
+ *     3px half-height ticks. At that size the upper/lower split that carried
+ *     identity was too small to see at all, which is the complaint this
+ *     iteration answers.
+ *  3. The current design marks the residues the way dumbbell charts do: a HOLLOW
+ *     RING at the wild-type position and a SOLID DOT at the variant position,
+ *     both 10px. Identity is carried by fill — present or absent — which
+ *     survives greyscale, colour-vision deficiency and small sizes; the
+ *     emerald/rose hues only reinforce it. The span keeps carrying magnitude
+ *     (its width is the delta) and the chevron keeps carrying direction, now
+ *     seated beside the larger variant dot rather than at the span's edge.
  *
  * Reading the four changes against each other
  * -------------------------------------------
  * Every track is drawn on the same normalised 0–100 range, so the span widths *are*
  * comparable — but only once the rows are in an order worth comparing. They are therefore
  * ranked by magnitude, largest first (`rankContrastRowsByMagnitude`, the same ranking the
- * prose summary names its headline axis from), the span is drawn dark enough to read at a
- * glance, and its leading edge carries a chevron so the direction of the change is legible
- * without consulting the chip. No value is stated twice: the graphic stays decoration and
- * the numbers stay text.
+ * prose summary names its headline axis from). No value is stated twice: the graphic stays
+ * decoration and the numbers stay text.
  */
 
 const MAGNITUDE_LABEL: Record<ShiftMagnitude, string> = {
@@ -56,63 +53,68 @@ const MAGNITUDE_PIP_CLASS: Record<ShiftMagnitude, string> = {
   marked: "bg-cs-accent-clay"
 };
 
-/** Marker width in px, mirrored in markerLeft so the two stay in step. */
-const MARKER_WIDTH_PX = 3;
+/** Dot diameter in px, mirrored in markerLeft so the two stay in step. */
+const DOT_SIZE_PX = 10;
 
 /**
- * Marker identity: position *and* shape, not hue alone.
- *
- * Colour was the only thing mapping a tick on the track back to one of the two
- * residues, and the two colours used were the semantic `success`/`danger` tokens —
- * the same "mutant equals bad" claim the header above rejects, relocated from the
- * delta to the residue. They also did not match the wild-type/mutant cards, which
- * use the emerald/rose palette rather than those tokens.
- *
- * So the wild type occupies the **upper half** of the track and the variant the
- * **lower half**, in the same emerald/rose hues as the cards. A reader who cannot
- * separate the two hues by luminance — or who prints the page in greyscale — can
- * still tell which tick is which, and can see at a glance when the two residues
- * coincide.
+ * Minimum move (as a % of the track) for which the direction chevron is drawn.
+ * Below this the two dots nearly touch and a chevron seated between them would be
+ * mostly hidden under a dot; the chip and the printed value pair still state the
+ * direction, so nothing is lost.
  */
-const WILD_TYPE_MARKER_CLASS = "top-0 h-1/2 rounded-full bg-emerald-500";
-const MUTANT_MARKER_CLASS = "bottom-0 h-1/2 rounded-[1px] bg-rose-500";
-const SHARED_POSITION_MARKER_CLASS = "top-0 h-1/2 rounded-full bg-cs-text-muted";
-const SHARED_POSITION_LOWER_CLASS = "bottom-0 h-1/2 rounded-[1px] bg-cs-text-muted";
+const MIN_CHEVRON_SPAN_PERCENT = 5;
 
 /**
- * Left offset for a marker centred on `position` (0–100).
+ * Marker identity: fill first, hue as reinforcement only.
+ *
+ * The previous version distinguished the residues by hue alone, then — in an
+ * accessibility fix — by half-height position on a 3px tick. Both failed the same
+ * test: at 3px the split was invisible, and hue is not separable for every reader.
+ * A hollow ring versus a solid dot needs no learned convention and no colour
+ * discrimination: "was here" is an outline, "is here" is filled. The hues match
+ * the wild-type/mutant cards above and are never the semantic success/danger
+ * tokens, which would assert a verdict about the residue.
+ */
+const WILD_TYPE_MARKER_CLASS = "border-2 border-emerald-500 bg-cs-bg-subtle";
+const MUTANT_MARKER_CLASS = "bg-rose-500";
+const SHARED_POSITION_MARKER_CLASS = "bg-cs-text-muted";
+
+type ScaleMarkerKind = "wild-type" | "variant" | "shared";
+
+const MARKER_CLASS: Record<ScaleMarkerKind, string> = {
+  "wild-type": WILD_TYPE_MARKER_CLASS,
+  variant: MUTANT_MARKER_CLASS,
+  shared: SHARED_POSITION_MARKER_CLASS
+};
+
+/**
+ * Left offset for a dot centred on `position` (0–100).
  *
  * The track clips its overflow, so the naive `left: X%; translateX(-50%)` loses
- * half the marker at either extreme — and a value of exactly 0 (the wild-type
- * charge of Glu, for instance) is a common case, not a corner case. Clamping
- * keeps the whole marker inside the track at both ends.
+ * half the dot at either extreme — and a value of exactly 0 or 100 is reachable
+ * with the shipped scale table (Lys→Glu charge starts at 0, Ala→Ile hydrophobicity
+ * ends at 100), not a corner case. Clamping keeps the whole dot inside the track.
  */
 function markerLeft(position: number): string {
-  return `clamp(0px, calc(${position}% - ${MARKER_WIDTH_PX / 2}px), calc(100% - ${MARKER_WIDTH_PX}px))`;
+  return `clamp(0px, calc(${position}% - ${DOT_SIZE_PX / 2}px), calc(100% - ${DOT_SIZE_PX}px))`;
 }
 
 /**
  * A residue's position on the axis.
  *
- * Only `left` is dynamic; width, height, position within the track and fill are
- * static, so they live in classes rather than an inline style object.
+ * Only `left` is dynamic; the size, fill and separation ring are static, so they
+ * live in classes and constants rather than an inline style object. The
+ * `data-scale-marker` kind makes the identity testable without matching on
+ * presentation classes.
  */
-function Marker({ position, className }: { position: number; className: string }) {
+function Marker({ position, kind }: { position: number; kind: ScaleMarkerKind }) {
   return (
     <span
-      className={`absolute w-[3px] shadow-[0_0_0_1.5px_var(--cs-bg-subtle)] ${className}`}
-      style={{ left: markerLeft(position) }}
+      data-scale-marker={kind}
+      className={`absolute top-1/2 -translate-y-1/2 rounded-full shadow-[0_0_0_1.5px_var(--cs-bg-subtle)] ${MARKER_CLASS[kind]}`}
+      style={{ left: markerLeft(position), width: DOT_SIZE_PX, height: DOT_SIZE_PX }}
       aria-hidden="true"
     />
-  );
-}
-
-/** Legend key: the same half-height shape the track uses, in a small swatch. */
-function MarkerSwatch({ className }: { className: string }) {
-  return (
-    <span className="relative w-2 h-3.5 rounded-sm overflow-hidden bg-cs-bg-subtle" aria-hidden="true">
-      <span className={`absolute left-0 right-0 ${className}`} />
-    </span>
   );
 }
 
@@ -150,6 +152,7 @@ function DeltaChip({ row }: { row: BiochemicalContrastRow }) {
  */
 function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
   const isUnchanged = row.direction === "unchanged";
+  const hasChevron = !isUnchanged && row.spanWidth >= MIN_CHEVRON_SPAN_PERCENT;
 
   return (
     <div className="space-y-1.5">
@@ -179,12 +182,12 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         immediately above and below it, so each of the four rows was announced
         roughly twice. The text is the accessible content; this only draws it.
 
-        Taller than it was: at h-3 the span and the two half-height markers were the
-        faintest elements in the card even though the span is the number the reader came
-        for.
+        h-5 rather than the earlier h-3/h-4: the 10px dots carry a 1.5px
+        separation ring, and the markers must not be the faintest elements in the
+        card when they are what tells the two residues apart.
       */}
       <div
-        className="relative h-4 rounded-full border overflow-hidden bg-cs-bg-subtle border-cs-border-subtle"
+        className="relative h-5 rounded-full border overflow-hidden bg-cs-bg-subtle border-cs-border-subtle"
         aria-hidden="true"
       >
         {/* Quarter gridlines give the axis a readable scale without a chart library.
@@ -211,21 +214,26 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         )}
 
         {/*
-          Direction chevron on the leading edge of the span.
+          Direction chevron, seated beside the variant dot and pointing at it.
 
-          Increase and decrease are otherwise distinguishable only from the chip's arrow,
-          which sits in a different corner of the row; the span itself reads as a width
-          with no sign. Drawn as a CSS triangle rather than an icon so it scales with the
-          span's own edge instead of needing a second positioned element.
+          A left border makes a triangle that points right, so an increase (variant
+          to the right of wild type) seats the chevron 11px left of the variant
+          position and a decrease seats it 6px right of it — both clear the 10px dot
+          with a gap, and both are clamped so the chevron can never leave the track.
+          The clamp matters: a change ending at 0% or 100% is reachable with the
+          shipped scale table (Ala→Ile hydrophobicity ends at 100%, Lys→Glu charge
+          starts at 0%), and an unclamped chevron there is clipped to a sliver.
+          Suppressed entirely when the move is too small to seat one between the dots.
         */}
-        {!isUnchanged && row.spanWidth > 0 && (
+        {hasChevron && (
           <span
+            data-move-arrow={row.direction}
             className="absolute top-1/2 -translate-y-1/2 w-0 h-0"
             style={{
               left:
                 row.direction === "increase"
-                  ? `calc(${row.spanStart + row.spanWidth}% - 1px)`
-                  : `calc(${row.spanStart}% - 4px)`,
+                  ? `clamp(0px, calc(${row.mutantPosition}% - 11px), calc(100% - 5px))`
+                  : `clamp(0px, calc(${row.mutantPosition}% + 6px), calc(100% - 5px))`,
               borderTop: "4px solid transparent",
               borderBottom: "4px solid transparent",
               ...(row.direction === "increase"
@@ -237,14 +245,11 @@ function ContrastScaleRow({ row }: { row: BiochemicalContrastRow }) {
         )}
 
         {isUnchanged ? (
-          <>
-            <Marker position={row.wildTypePosition} className={SHARED_POSITION_MARKER_CLASS} />
-            <Marker position={row.wildTypePosition} className={SHARED_POSITION_LOWER_CLASS} />
-          </>
+          <Marker position={row.wildTypePosition} kind="shared" />
         ) : (
           <>
-            <Marker position={row.wildTypePosition} className={WILD_TYPE_MARKER_CLASS} />
-            <Marker position={row.mutantPosition} className={MUTANT_MARKER_CLASS} />
+            <Marker position={row.wildTypePosition} kind="wild-type" />
+            <Marker position={row.mutantPosition} kind="variant" />
           </>
         )}
       </div>
@@ -289,29 +294,29 @@ export function BiochemicalContrastScales({ contrast, isLoading = false }: Bioch
             Biochemical Property Contrast
           </span>
           <p className="text-[10.5px] mt-1 font-sans leading-snug text-cs-text-muted">
-            Rows are ordered by the size of the change, largest first, so the width of each span is
-            directly comparable with the row above it. The markers are the two side chains and the bar
-            between them is the size of the change on that descriptor&rsquo;s own 0&ndash;100 range.
+            Ordered by the size of the change, largest first, so the largest move is the first row
+            and the flat axes are last. Every track spans its descriptor&rsquo;s own 0&ndash;100 range, so
+            the span widths are comparable row to row: the hollow ring is the wild-type side chain,
+            the solid dot is the variant, and the chevron points the way the value moved.
           </p>
         </div>
 
         <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono flex-wrap justify-end text-cs-text-secondary">
           <span className="inline-flex items-center gap-1.5">
-            <MarkerSwatch className={WILD_TYPE_MARKER_CLASS} />
-            {contrast.wildTypeLabel} <span className="text-cs-text-muted">upper</span>
+            <span className={`w-2.5 h-2.5 rounded-full ${WILD_TYPE_MARKER_CLASS}`} aria-hidden="true" />
+            <span>{contrast.wildTypeLabel}</span>
+            <span className="text-cs-text-muted">wild type</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <MarkerSwatch className={MUTANT_MARKER_CLASS} />
-            {contrast.mutantLabel} <span className="text-cs-text-muted">lower</span>
+            <span className={`w-2.5 h-2.5 rounded-full ${MUTANT_MARKER_CLASS}`} aria-hidden="true" />
+            <span>{contrast.mutantLabel}</span>
+            <span className="text-cs-text-muted">variant</span>
           </span>
           {/* Only shown when it can occur, so the legend never explains an absent case. */}
           {contrast.rows.some(row => row.direction === "unchanged") && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="relative w-2 h-3.5 rounded-sm overflow-hidden bg-cs-bg-subtle" aria-hidden="true">
-                <span className={`absolute left-0 right-0 ${SHARED_POSITION_MARKER_CLASS}`} />
-                <span className={`absolute left-0 right-0 ${SHARED_POSITION_LOWER_CLASS}`} />
-              </span>
-              same position
+              <span className={`w-2.5 h-2.5 rounded-full ${SHARED_POSITION_MARKER_CLASS}`} aria-hidden="true" />
+              <span>same position</span>
             </span>
           )}
         </div>
