@@ -27,6 +27,10 @@ tools/p2rank/
 # Dev scratch scripts
 scratch/
 
+# Recovered session transcripts and the decoder that produced them: evidence, not
+# source. ~45 MB of decoded .jsonl — kept on disk deliberately, never committed.
+.session-recovery/
+
 # OS / editor cruft
 Thumbs.db
 Desktop.ini
