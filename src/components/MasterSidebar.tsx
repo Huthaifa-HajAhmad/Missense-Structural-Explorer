@@ -2,8 +2,7 @@ import React, { useRef, useCallback } from "react";
 import {
   Dna, BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
-  PanelLeftClose, PanelLeftOpen,
-  CheckCircle2, Circle, BookOpen,
+  PanelLeftClose, BookOpen, Info,
 } from "lucide-react";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
@@ -20,7 +19,30 @@ export type MasterView =
   | "insights"
   | "report"
   | "literature"
-  | "console";
+  | "console"
+  | "about";
+
+/**
+ * Sidebar geometry, shared by the pointer drag, the keyboard resize path and App's
+ * persisted-value guard — one authority for the bounds instead of three copies of
+ * `Math.max(180, Math.min(420, …))` drifting apart.
+ */
+export const SIDEBAR_WIDTH_MIN = 180;
+export const SIDEBAR_WIDTH_MAX = 420;
+export const SIDEBAR_WIDTH_DEFAULT = 220;
+export const SIDEBAR_WIDTH_COLLAPSED = 56;
+
+/**
+ * Clamps any candidate width into the legal range. Deliberately tolerates NaN —
+ * `parseInt` of a corrupt `cs-sidebar-width` localStorage entry produces NaN, and an
+ * unguarded read used to flow `width: NaN` straight into the aside's inline style.
+ * The ViewInspector clamps its own persisted width the same way.
+ */
+export function clampSidebarWidth(raw: number): number {
+  return Number.isFinite(raw)
+    ? Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(raw)))
+    : SIDEBAR_WIDTH_DEFAULT;
+}
 
 interface MasterSidebarProps {
   activeView: MasterView;
@@ -107,6 +129,26 @@ const STRUCTURE_SUB_ITEMS = [
   { id: "structure_esmfold",   label: "ESMFold-2 Model"   },
 ];
 
+/**
+ * Which evidence sub-tabs are still waiting on their backing data for the current
+ * run. Was a nested-ternary chain inlined per sub-item per render — same logic,
+ * but now it reads as the small lookup it is and can be reasoned about once.
+ */
+function isEvidenceSubStreaming(
+  subId: string,
+  isBiophysicalLoading: boolean,
+  result: AnalysisResult | null | undefined
+): boolean {
+  if (!isBiophysicalLoading) return false;
+  switch (subId) {
+    case "alphagenome": return !result?.conservationData?.alphagenome;
+    case "splicing":    return !result?.conservationData?.spliceai;
+    case "predictors":  return !result?.conservationData?.revel;
+    case "structure":    return !result?.insights?.biochemicalShift;
+    default:             return false;
+  }
+}
+
 /** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */
 function StepIcon({ status }: { status: WorkflowStatusType }) {
   if (status === "complete") {
@@ -151,6 +193,54 @@ function StepIcon({ status }: { status: WorkflowStatusType }) {
   );
 }
 
+/**
+ * One sub-navigation row, shared by the Evidence tabs and the structure models.
+ * The two lists were ~90% copy-pasted blocks that had already drifted (only the
+ * evidence copy had a streaming branch); one component keeps them identical.
+ */
+function SubNavItem({
+  label,
+  isActive,
+  isStreaming = false,
+  onClick,
+}: {
+  label: string;
+  isActive: boolean;
+  isStreaming?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ms-sub-btn flex items-center gap-2 py-1.5 px-2 rounded-md w-full text-left cursor-pointer"
+      data-active={isActive}
+      aria-current={isActive ? "page" : undefined}
+    >
+      <span className="ms-sub-dot" data-active={isActive} aria-hidden="true" />
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: isActive ? 500 : 400,
+          color: isActive ? "var(--cs-accent-clay)" : "var(--cs-text-muted)",
+        }}
+        className="truncate"
+      >
+        {label}
+      </span>
+      {isStreaming && (
+        <span
+          /* Same amber progress ring as StepIcon — this used to be the only indigo
+             element in a clay/mag/amber/emerald sidebar. */
+          className="ml-auto w-2 h-2 rounded-full border border-amber-500 border-t-transparent animate-spin shrink-0"
+          title="Streaming in background"
+          aria-label="Streaming in background"
+        />
+      )}
+    </button>
+  );
+}
+
 function MasterSidebar({
   activeView,
   onViewChange,
@@ -177,27 +267,65 @@ function MasterSidebar({
   const defaultStructureView: MasterView =
     settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
 
+  /**
+   * Set + persist a width in one place. Pointer drags commit once on mouseup (the
+   * drag itself only updates state — writing localStorage on every mousemove was
+   * hundreds of synchronous writes per gesture); keyboard steps commit per press.
+   */
+  const commitWidth = useCallback(
+    (next: number) => {
+      const clamped = clampSidebarWidth(next);
+      setSidebarWidth(clamped);
+      localStorage.setItem("cs-sidebar-width", String(clamped));
+    },
+    [setSidebarWidth]
+  );
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       if (isCollapsed) return;
       const startX = e.clientX;
       const startWidth = sidebarWidth;
+      let lastWidth = startWidth;
       const handleMouseMove = (me: MouseEvent) => {
-        const newWidth = Math.max(180, Math.min(420, startWidth + me.clientX - startX));
-        setSidebarWidth(newWidth);
-        localStorage.setItem("cs-sidebar-width", String(newWidth));
+        lastWidth = startWidth + me.clientX - startX;
+        setSidebarWidth(clampSidebarWidth(lastWidth));
       };
       const handleMouseUp = () => {
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
         document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        localStorage.setItem("cs-sidebar-width", String(clampSidebarWidth(lastWidth)));
       };
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "col-resize";
+      /* Without this, dragging across the main content selected text mid-gesture —
+         `select-none` only covers the sidebar's own subtree. */
+      document.body.style.userSelect = "none";
     },
     [sidebarWidth, isCollapsed, setSidebarWidth]
+  );
+
+  /**
+   * Keyboard resize for the separator: ArrowLeft/Right ±16px, Home/End for the
+   * bounds. Before this the handle was a mouse-only div — a keyboard user could
+   * collapse, navigate and toggle everything else, but not resize.
+   */
+  const handleResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      switch (e.key) {
+        case "ArrowLeft":  commitWidth(sidebarWidth - 16); break;
+        case "ArrowRight": commitWidth(sidebarWidth + 16); break;
+        case "Home":       commitWidth(SIDEBAR_WIDTH_MIN); break;
+        case "End":        commitWidth(SIDEBAR_WIDTH_MAX); break;
+        default: return;
+      }
+      e.preventDefault();
+    },
+    [commitWidth, sidebarWidth]
   );
 
   const toggleCollapse = () => {
@@ -206,7 +334,7 @@ function MasterSidebar({
     localStorage.setItem("cs-sidebar-collapsed", String(next));
   };
 
-  const currentWidth = isCollapsed ? 56 : sidebarWidth;
+  const currentWidth = isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : sidebarWidth;
 
   return (
     <aside
@@ -273,7 +401,7 @@ function MasterSidebar({
           <button
             type="button"
             onClick={toggleCollapse}
-            className="p-1 rounded cursor-pointer active:scale-95 transition-all"
+            className="p-1 rounded cursor-pointer active:scale-95 transition-all hover:text-[var(--cs-text-primary)]"
             style={{ color: "var(--cs-text-muted)" }}
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
@@ -291,7 +419,9 @@ function MasterSidebar({
       >
         {NAV_ZONES.map((zone, zoneIdx) => (
           <div key={zone.zoneLabel}>
-            {/* Zone label — 11px uppercase, muted, whitespace-only separation */}
+            {/* Zone label — 11px uppercase, muted. Spacing comes from the inline
+                style below: it is the single source of truth for the 8/20 rhythm
+                (first zone vs. rest), so no :first-child margin rule is needed. */}
             {!isCollapsed && (
               <span
                 className="sidebar-zone-label"
@@ -330,16 +460,11 @@ function MasterSidebar({
                         onViewChange(id);
                       }
                     }}
-                    className="flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left transition-all duration-150 active:scale-[0.98] group"
+                    className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left transition-colors duration-150 active:scale-[0.98] group"
+                    data-active={isActive}
                     style={{
                       padding: isCollapsed ? "9px 0" : "8px 10px",
                       justifyContent: isCollapsed ? "center" : "flex-start",
-                      background: isActive
-                        ? "rgba(196,104,73,0.08)"
-                        : "transparent",
-                      border: isActive
-                        ? "1px solid rgba(196,104,73,0.22)"
-                        : "1px solid transparent",
                       position: "relative",
                     }}
                     aria-label={label}
@@ -347,19 +472,7 @@ function MasterSidebar({
                     aria-current={isActive ? "page" : undefined}
                   >
                     {/* 2px left accent rail on active */}
-                    {isActive && (
-                      <span
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          top: "18%",
-                          height: "64%",
-                          width: 2,
-                          borderRadius: "0 2px 2px 0",
-                          background: "var(--cs-accent-clay)",
-                        }}
-                      />
-                    )}
+                    {isActive && <span className="ms-active-rail" aria-hidden="true" />}
 
                     {/* Nav icon */}
                     <span
@@ -430,150 +543,33 @@ function MasterSidebar({
 
                   {/* ── Evidence sub-items ── */}
                   {id === "evidence" && !isCollapsed && (
-                    <div
-                      className="flex flex-col"
-                      style={{
-                        marginLeft: 14,
-                        paddingLeft: 12,
-                        borderLeft: "1px solid var(--cs-border-subtle)",
-                        gap: 2,
-                        marginTop: 3,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {EVIDENCE_SUB_ITEMS.map((sub) => {
-                        const isSubActive =
-                          activeView === "evidence" && activeEvidenceTab === sub.id;
-                        return (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={() => {
-                              onViewChange("evidence");
-                              onEvidenceTabChange(sub.id);
-                            }}
-                            className="flex items-center gap-2 py-1.5 px-2 rounded-md w-full text-left transition-all duration-150 cursor-pointer"
-                            style={{
-                              background: isSubActive
-                                ? "rgba(196,104,73,0.07)"
-                                : "transparent",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 5,
-                                height: 5,
-                                borderRadius: "50%",
-                                flexShrink: 0,
-                                background: isSubActive
-                                  ? "var(--cs-accent-clay)"
-                                  : "transparent",
-                                border: isSubActive
-                                  ? "none"
-                                  : "1px solid var(--cs-text-muted)",
-                                transition: "background 0.12s",
-                              }}
-                            />
-                            <span
-                              style={{
-                                fontSize: 12,
-                                fontWeight: isSubActive ? 500 : 400,
-                                color: isSubActive
-                                  ? "var(--cs-accent-clay)"
-                                  : "var(--cs-text-muted)",
-                              }}
-                              className="truncate"
-                            >
-                              {sub.label}
-                            </span>
-                            {(() => {
-                              const isSubLoading =
-                                sub.id === "alphagenome"
-                                  ? (isBiophysicalLoading && !analysisResult?.conservationData?.alphagenome)
-                                  : sub.id === "splicing"
-                                  ? (isBiophysicalLoading && !analysisResult?.conservationData?.spliceai)
-                                  : sub.id === "predictors"
-                                  ? (isBiophysicalLoading && !analysisResult?.conservationData?.revel)
-                                  : sub.id === "structure"
-                                  ? (isBiophysicalLoading && !analysisResult?.insights?.biochemicalShift)
-                                  : false;
-
-                              if (isSubLoading) {
-                                return (
-                                  <span
-                                    className="ml-auto w-2 h-2 rounded-full border border-indigo-400 border-t-transparent animate-spin shrink-0"
-                                    title="Streaming in background"
-                                    aria-label="Streaming in background"
-                                  />
-                                );
-                              }
-                              return null;
-                            })()}
-                          </button>
-                        );
-                      })}
+                    <div className="ms-sub-list">
+                      {EVIDENCE_SUB_ITEMS.map((sub) => (
+                        <SubNavItem
+                          key={sub.id}
+                          label={sub.label}
+                          isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
+                          isStreaming={isEvidenceSubStreaming(sub.id, isBiophysicalLoading, analysisResult)}
+                          onClick={() => {
+                            onViewChange("evidence");
+                            onEvidenceTabChange(sub.id);
+                          }}
+                        />
+                      ))}
                     </div>
                   )}
 
                   {/* ── 3D Structure sub-items ── */}
                   {id === "structure" && !isCollapsed && (
-                    <div
-                      className="flex flex-col"
-                      style={{
-                        marginLeft: 14,
-                        paddingLeft: 12,
-                        borderLeft: "1px solid var(--cs-border-subtle)",
-                        gap: 2,
-                        marginTop: 3,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {STRUCTURE_SUB_ITEMS.map((sub) => {
-                        const isSubActive = activeView === sub.id;
-                        return (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={() => {
-                              onViewChange(sub.id as MasterView);
-                            }}
-                            className="flex items-center gap-2 py-1.5 px-2 rounded-md w-full text-left transition-all duration-150 cursor-pointer"
-                            style={{
-                              background: isSubActive
-                                ? "rgba(196,104,73,0.07)"
-                                : "transparent",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 5,
-                                height: 5,
-                                borderRadius: "50%",
-                                flexShrink: 0,
-                                background: isSubActive
-                                  ? "var(--cs-accent-clay)"
-                                  : "transparent",
-                                border: isSubActive
-                                  ? "none"
-                                  : "1px solid var(--cs-text-muted)",
-                                transition: "background 0.12s",
-                              }}
-                            />
-                            <span
-                              style={{
-                                fontSize: 12,
-                                fontWeight: isSubActive ? 500 : 400,
-                                color: isSubActive
-                                  ? "var(--cs-accent-clay)"
-                                  : "var(--cs-text-muted)",
-                              }}
-                              className="truncate"
-                            >
-                              {sub.label}
-                            </span>
-                          </button>
-                        );
-                      })}
+                    <div className="ms-sub-list">
+                      {STRUCTURE_SUB_ITEMS.map((sub) => (
+                        <SubNavItem
+                          key={sub.id}
+                          label={sub.label}
+                          isActive={activeView === sub.id}
+                          onClick={() => onViewChange(sub.id as MasterView)}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
@@ -583,14 +579,85 @@ function MasterSidebar({
         ))}
       </nav>
 
-      {/* ── Resize drag handle ── */}
+      {/* ── Pinned footer: About — outside the scroll area, so it is always
+            reachable no matter how far the nav is scrolled ── */}
+      <div
+        className="flex-shrink-0"
+        style={{
+          borderTop: "1px solid var(--cs-border)",
+          padding: "6px 6px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => onViewChange("about")}
+          className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left transition-colors duration-150 active:scale-[0.98]"
+          data-active={activeView === "about"}
+          style={{
+            padding: isCollapsed ? "9px 0" : "8px 10px",
+            justifyContent: isCollapsed ? "center" : "flex-start",
+            position: "relative",
+          }}
+          aria-label="About"
+          aria-current={activeView === "about" ? "page" : undefined}
+          title={isCollapsed ? "About — Workspace guide & data sources" : undefined}
+        >
+          {activeView === "about" && <span className="ms-active-rail" aria-hidden="true" />}
+          <span
+            style={{
+              color: activeView === "about"
+                ? "var(--cs-accent-clay)"
+                : "var(--cs-text-secondary)",
+              display: "flex",
+              flexShrink: 0,
+            }}
+          >
+            <Info className="w-4 h-4" />
+          </span>
+          {!isCollapsed && (
+            <span className="flex flex-col min-w-0 flex-1">
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 500,
+                  lineHeight: "1.3",
+                  color: activeView === "about"
+                    ? "var(--cs-accent-clay)"
+                    : "var(--cs-text-primary)",
+                }}
+              >
+                About
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 400,
+                  lineHeight: "1.3",
+                  color: "var(--cs-text-muted)",
+                }}
+                className="truncate"
+              >
+                Workspace guide & data sources
+              </span>
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Resize drag handle — pointer + keyboard, 12px hit area with a
+            4px visible strip (see .ms-resize-handle) ── */}
       {!isCollapsed && (
         <div
           ref={resizeRef}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Sidebar width. Press ArrowLeft or ArrowRight to resize, Home or End for the limits."
+          title="Drag to resize · double-click to reset"
+          tabIndex={0}
           onMouseDown={handleMouseDown}
-          className="absolute top-0 right-0 w-1 h-full transition-colors hover:bg-slate-500/10"
-          style={{ cursor: "col-resize", zIndex: 10 }}
-          title="Drag to resize sidebar"
+          onKeyDown={handleResizeKeyDown}
+          onDoubleClick={() => commitWidth(SIDEBAR_WIDTH_DEFAULT)}
+          className="ms-resize-handle"
         />
       )}
     </aside>

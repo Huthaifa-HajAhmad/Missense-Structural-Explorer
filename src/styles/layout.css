@@ -11,34 +11,113 @@
   background: var(--cs-bg);
 }
 
-/* Master sidebar (collapsible & resizable) */
-.master-sidebar {
-  display: flex;
-  flex-direction: column;
-  background: var(--cs-surface);
-  z-index: 30;
-  overflow: hidden;
+/* ── Master sidebar interactive chrome ──
+   The nav buttons express their hover/active/focus grammar through these classes
+   and data attributes: inline styles cannot carry :hover or :focus-visible, which
+   is exactly why the previous `.master-sidebar-icon` hover rule was dead — no
+   element ever carried that class, so the sidebar's nav had no hover state at all. */
+
+.ms-nav-btn {
+  border: 1px solid transparent;
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1),
+              border-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.ms-nav-btn:hover {
+  background: var(--cs-bg-subtle);
+}
+.ms-nav-btn[data-active="true"] {
+  background: rgba(196, 104, 73, 0.08);
+  border-color: rgba(196, 104, 73, 0.22);
+}
+.ms-nav-btn[data-active="true"]:hover {
+  background: rgba(196, 104, 73, 0.13);
 }
 
-.master-sidebar-icon {
-  width: 100%;
+/* 2px clay rail on the active nav row */
+.ms-active-rail {
+  position: absolute;
+  left: 0;
+  top: 18%;
+  height: 64%;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--cs-accent-clay);
+}
+
+/* Sub-navigation (Evidence tabs, structure models) */
+.ms-sub-list {
   display: flex;
-  align-items: center;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  color: var(--cs-text-muted);
-  position: relative;
-  border: none;
-  background: transparent;
+  flex-direction: column;
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 1px solid var(--cs-border-subtle);
+  gap: 2px;
+  margin-top: 3px;
+  margin-bottom: 4px;
 }
-.master-sidebar-icon:hover {
+.ms-sub-btn {
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.ms-sub-btn:hover {
   background: var(--cs-bg-subtle);
-  color: var(--cs-text-primary);
 }
-.master-sidebar-icon.active {
-  background: rgba(196, 104, 73, 0.1);
-  color: var(--cs-accent-clay);
+.ms-sub-btn[data-active="true"] {
+  background: rgba(196, 104, 73, 0.07);
+}
+.ms-sub-btn[data-active="true"]:hover {
+  background: rgba(196, 104, 73, 0.11);
+}
+.ms-sub-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid var(--cs-text-muted);
+  background: transparent;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.ms-sub-dot[data-active="true"] {
+  background: var(--cs-accent-clay);
+  border-color: var(--cs-accent-clay);
+}
+
+/* Keyboard focus — the house idiom (see scripts/check-focus-indicators.mjs),
+   written as plain CSS because these are custom classes, not Tailwind utilities. */
+.ms-nav-btn:focus-visible,
+.ms-sub-btn:focus-visible,
+.ms-resize-handle:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 1px;
+}
+
+/* Resize handle: 12px hit area with a 4px visible strip that appears on hover,
+   focus and active drag — previously a 4px strip with a slate-tinted hover. */
+.ms-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+.ms-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 3px;
+  width: 4px;
+  border-radius: 2px 0 0 2px;
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+.ms-resize-handle:hover::before,
+.ms-resize-handle:focus-visible::before {
+  background: var(--cs-border);
+}
+.ms-resize-handle:active::before {
+  background: rgba(196, 104, 73, 0.5);
 }
 
 /* Main content area (right of master sidebar) */
@@ -190,7 +269,9 @@
   margin: 4px 0 16px;
 }
 
-/* SIDEBAR ZONE LABEL */
+/* SIDEBAR ZONE LABEL — vertical rhythm (8px first zone / 20px rest) is set by the
+   inline style in MasterSidebar, which is the single source of truth; the old
+   `margin-top` + `:first-child` overrides here were dead because inline always won. */
 .sidebar-zone-label {
   font-family: var(--cs-font-sans);
   font-size: 11px;
@@ -199,13 +280,9 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0 10px 4px;
-  margin-top: 20px;
   display: block;
   user-select: none;
   pointer-events: none;
-}
-.sidebar-zone-label:first-child {
-  margin-top: 8px;
 }
 
 /* ============================================================

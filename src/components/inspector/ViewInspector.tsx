@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { 
-  PanelRightClose, 
-  PanelRightOpen, 
-  Layers, 
-  BarChart2, 
-  Activity, 
-  Map, 
-  FlaskConical, 
-  FileText, 
-  BookOpen, 
-  SlidersHorizontal 
+import {
+  PanelRightClose,
+  PanelRightOpen,
+  Layers,
+  BarChart2,
+  Activity,
+  Map,
+  FlaskConical,
+  FileText,
+  BookOpen,
+  SlidersHorizontal,
+  Info
 } from "lucide-react";
 import { AnalysisResult, PdbHomolog, EnergeticsData, PocketResult } from "../../types";
 import { MasterView } from "../MasterSidebar";
@@ -92,6 +93,9 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },
   literature: { title: "Literature Tools", subtitle: "Query Provenance & Citation Export", Icon: BookOpen },
   console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
+  /* The inspector rail is hidden on the About view, but the record is exhaustive
+     by type — a programmatic navigation must not render an undefined title. */
+  about: { title: "Workspace Guide", subtitle: "Version & Data Sources", Icon: Info },
 };
 
 /**

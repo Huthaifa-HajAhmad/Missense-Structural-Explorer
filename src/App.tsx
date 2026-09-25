@@ -4,7 +4,7 @@ import { ShieldAlert } from "lucide-react";
 import useVariantAnalysis from "./useVariantAnalysis";
 import { useApiClient } from "./apiClient";
 import { useSettings } from "./context/SettingsContext";
-import MasterSidebar, { MasterView } from "./components/MasterSidebar";
+import MasterSidebar, { MasterView, SIDEBAR_WIDTH_DEFAULT, clampSidebarWidth } from "./components/MasterSidebar";
 import HeaderBar from "./components/HeaderBar";
 import VariantHeader from "./components/VariantHeader";
 import AppViews from "./components/AppViews";
@@ -55,8 +55,10 @@ export default function App() {
   const [windowSize, setWindowSize] = useState<number>(() => settings.seqScrollStep || 31);
   const [activeEvidenceTab, setActiveEvidenceTab] = useState<string>("clinical");
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    const val = localStorage.getItem("cs-sidebar-width");
-    return val ? parseInt(val, 10) : 220;
+    /* Corrupt `cs-sidebar-width` entries used to parse to NaN and flow straight
+       into the aside's inline style. clampSidebarWidth sends NaN (and any value
+       outside the drag range) back to a legal width. */
+    return clampSidebarWidth(parseInt(localStorage.getItem("cs-sidebar-width") ?? "", 10));
   });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("cs-sidebar-collapsed") === "true";
@@ -141,8 +143,10 @@ export default function App() {
             handleSelectHistoryItem={actions.handleSelectHistoryItem}
           />
 
-          {/* ── Global Variant Header ── */}
-          {gene && masterView !== "search" && (
+          {/* ── Global Variant Header — hidden on the Search workspace and the
+              About view: About is app-level chrome, and a leftover variant banner
+              above it would read as if the guide were about that variant. ── */}
+          {gene && masterView !== "search" && masterView !== "about" && (
             <VariantHeader
               gene={gene}
               variant={variant}

@@ -9,6 +9,12 @@
 import type { AnalysisResult, StructureProvenance, EnergeticsData } from "./contracts.ts";
 import { variantNumberingView } from "./numbering.ts";
 
+/**
+ * The project repository. Exported so the provenance manifest and the About view
+ * state the same URL — two hand-written copies of a link always drift.
+ */
+export const APP_REPOSITORY = "https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer";
+
 export const PROVENANCE_DATA_SOURCES = {
   dbnsfp: "4.4a",
   /**
@@ -212,7 +218,7 @@ export function generateProvenanceManifest(
     application: {
       name: "Missense-Structural-Explorer",
       version: "1.0.0",
-      repository: "https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer"
+      repository: APP_REPOSITORY
     },
     queryCoordinate: {
       gene,

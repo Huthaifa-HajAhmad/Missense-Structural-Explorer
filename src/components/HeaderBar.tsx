@@ -64,6 +64,8 @@ export function HeaderBar({
         return "Report";
       case "console":
         return "Developer Console";
+      case "about":
+        return "About";
       default:
         return "";
     }

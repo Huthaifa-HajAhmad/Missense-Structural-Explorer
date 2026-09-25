@@ -7,6 +7,7 @@ import SequenceVisualizer from "./SequenceVisualizer";
 import ClinicalInsightsCard from "./ClinicalInsightsCard";
 import ClinicalReportBar from "./ClinicalReportBar";
 import DevConsolePanel from "./DevConsolePanel";
+import AboutView from "./AboutView";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
 import LiteratureView, { type Citation } from "./LiteratureView";
@@ -623,10 +624,20 @@ export function AppViews({
                 <DevConsolePanel />
               </ErrorBoundary>
             )}
+
+            {/* ABOUT VIEW — static guide page; no inspector rail (like Search & Console) */}
+            {masterView === "about" && (
+              <ErrorBoundary
+                name="About View"
+                onError={createErrorHandler("About View")}
+              >
+                <AboutView />
+              </ErrorBoundary>
+            )}
           </div>
 
-          {/* DYNAMIC CONTEXT & PROVENANCE INSPECTOR (HIDDEN ON SEARCH & CONSOLE VIEWS) */}
-          {masterView !== "search" && masterView !== "console" && (
+          {/* DYNAMIC CONTEXT & PROVENANCE INSPECTOR (HIDDEN ON SEARCH, CONSOLE & ABOUT VIEWS) */}
+          {masterView !== "search" && masterView !== "console" && masterView !== "about" && (
             <ViewInspector
               activeView={masterView}
               onViewChange={setMasterView}
