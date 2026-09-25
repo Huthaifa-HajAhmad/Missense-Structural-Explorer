@@ -1,6 +1,17 @@
 import React from "react";
 import { THRESHOLDS } from "../../shared/thresholds";
 import { SequenceRowGridProps } from "./types";
+import {
+  DensityLegend,
+  DensityTrack,
+  formatThresholdValue,
+  type DensitySeries
+} from "./DensityTrack";
+
+/** Three saturation columns of 10px each, so the two heatmaps stay codon-aligned. */
+const RESIDUE_COLUMN_WIDTH = 30;
+/** REVEL and AlphaMissense are probabilities, so the track domain is fixed at [0, 1]. */
+const PROBABILITY_DOMAIN = [0, 1] as const;
 
 export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
   wildWindow,
@@ -20,11 +31,59 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
   hoveredResidue,
   setHoveredResidue
 }) => {
+  const densitySeries: DensitySeries[] = React.useMemo(() => {
+    const revel: Array<number | null> = [];
+    const am: Array<number | null> = [];
+    for (let i = 0; i < wildWindow.length; i++) {
+      const pos = relativeStartIndex + i;
+      revel.push(getRevelScore(pos));
+      am.push(getAmScore(pos));
+    }
+    return [
+      {
+        key: "revel",
+        name: "REVEL",
+        color: "var(--cs-danger)",
+        points: revel
+      },
+      {
+        key: "am",
+        name: "AlphaMissense",
+        color: "var(--cs-accent-clay)",
+        // Second, non-colour channel: the two series stay separable under CVD.
+        dash: "4 2",
+        points: am
+      }
+    ];
+  }, [wildWindow, relativeStartIndex, getRevelScore, getAmScore]);
+
+  const densityGuides = [
+    {
+      value: THRESHOLDS.revel.pathogenicStrong,
+      color: "var(--cs-danger)",
+      label: `REVEL ${formatThresholdValue(THRESHOLDS.revel.pathogenicStrong)}`
+    },
+    {
+      value: THRESHOLDS.alphaMissense.pathogenicSupporting,
+      color: "var(--cs-accent-clay)",
+      label: `AM ${formatThresholdValue(THRESHOLDS.alphaMissense.pathogenicSupporting)}`
+    }
+  ];
+
+  const densitySummary = `Pathogenicity density across ${wildWindow.length} residues, from position ${relativeStartIndex} to ${
+    relativeStartIndex + wildWindow.length - 1
+  }. Scale 0 to 1. Reference lines: REVEL pathogenic-supporting boundary ${THRESHOLDS.revel.pathogenicStrong}, AlphaMissense boundary ${THRESHOLDS.alphaMissense.pathogenicSupporting}.`;
+
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-start gap-4">
       {/* Main Visualizer Window */}
       <div className="relative overflow-x-auto rounded-xl border border-cs-border p-4 flex flex-col justify-center scrollbar-thin select-none transition-colors bg-cs-surface-2 w-fit max-w-full shrink-0">
-        
+
+        <DensityLegend
+          series={densitySeries}
+          caption={`per-position ${metricMode === "mean" ? "mean" : "maximum"} pathogenicity`}
+        />
+
         {/* Top Coordinate indexes */}
         <div className="flex font-mono text-[9px] h-4 pl-[76px] mb-1 text-cs-text-muted">
           {wildWindow.map((_, i) => {
@@ -45,6 +104,18 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
           })}
         </div>
 
+        {/* 1D Density Track — the same component the AlphaGenome panel renders */}
+        <DensityTrack
+          series={densitySeries}
+          guides={densityGuides}
+          columnWidth={RESIDUE_COLUMN_WIDTH}
+          domain={PROBABILITY_DOMAIN}
+          unitLabel="p(path) 0–1"
+          modeLabel={metricMode === "mean" ? "MEAN" : "MAX"}
+          ariaLabel={densitySummary}
+          emptyNotice="No REVEL or AlphaMissense scores were returned for this window"
+        />
+
         {/* Wild-Type Row */}
         <div className="flex items-center font-mono text-xs pl-2">
           <span className="w-[68px] text-[9px] font-semibold text-cs-good pr-2 shrink-0 select-none uppercase tracking-wider text-right">
@@ -61,16 +132,21 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
               if (isTarget) {
                 colorClass = "bg-cs-good-soft text-cs-good border-cs-good/30";
               }
+              const announceHover = () =>
+                setHoveredResidue && setHoveredResidue({ symbol: residue, pos: absolutePos, type: isTarget ? "wild" : "normal" });
+              const clearHover = () => setHoveredResidue && setHoveredResidue(null);
               
               return (
                 <button
                   key={i}
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
-                  onMouseEnter={() => setHoveredResidue && setHoveredResidue({ symbol: residue, pos: absolutePos, type: isTarget ? "wild" : "normal" })}
-                  onMouseLeave={() => setHoveredResidue && setHoveredResidue(null)}
+                  onMouseEnter={announceHover}
+                  onMouseLeave={clearHover}
+                  onFocus={announceHover}
+                  onBlur={clearHover}
                   className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all cursor-pointer ${colorClass} ${
                     isTarget
-                      ? "ring-2 ring-cs-good scale-105 z-10 font-black animate-pulse"
+                      ? "ring-2 ring-cs-good scale-105 z-10 font-black animate-pulse motion-reduce:animate-none"
                       : isSelected
                         ? "ring-1 ring-cs-border scale-102 z-10"
                         : isHovered
@@ -78,6 +154,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                           : ""
                   }`}
                   title={`Wild-Type residue ${residue} at index #${absolutePos}`}
+                  aria-label={`Wild-type ${residue} at position ${absolutePos}${isTarget ? ", the queried residue" : ""}`}
                 >
                   {residue}
                 </button>
@@ -101,27 +178,37 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
               let displayRes = residue;
               let colorClass = getResidueBaseColor(residue);
               
-              if (isTarget) {
+              if (isTarget && mutation.mut) {
                 displayRes = mutation.mut;
                 colorClass = "bg-cs-danger-soft text-cs-danger border-cs-danger/30";
               }
+              const announceHover = () =>
+                setHoveredResidue && setHoveredResidue({ symbol: displayRes, pos: absolutePos, type: isTarget ? "mutant" : "normal" });
+              const clearHover = () => setHoveredResidue && setHoveredResidue(null);
               
               return (
                 <button
                   key={i}
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
-                  onMouseEnter={() => setHoveredResidue && setHoveredResidue({ symbol: displayRes, pos: absolutePos, type: isTarget ? "mutant" : "normal" })}
-                  onMouseLeave={() => setHoveredResidue && setHoveredResidue(null)}
+                  onMouseEnter={announceHover}
+                  onMouseLeave={clearHover}
+                  onFocus={announceHover}
+                  onBlur={clearHover}
                   className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded transition-all cursor-pointer ${colorClass} ${
                     isTarget
-                      ? "ring-2 ring-cs-danger scale-105 z-10 font-black animate-pulse"
+                      ? "ring-2 ring-cs-danger scale-105 z-10 font-black animate-pulse motion-reduce:animate-none"
                       : isSelected
                         ? "ring-1 ring-cs-border scale-102 z-10"
                         : isHovered
                           ? "ring-1 ring-cs-border-subtle"
                           : ""
                   }`}
-                  title={isTarget ? `Mutated residue ${mutation.wt}→${mutation.mut} at index #${absolutePos}` : `Residue ${residue} at index #${absolutePos}`}
+                  title={isTarget && mutation.mut ? `Mutated residue ${mutation.wt}→${mutation.mut} at index #${absolutePos}` : `Residue ${residue} at index #${absolutePos}`}
+                  aria-label={
+                    isTarget && mutation.mut
+                      ? `Mutant ${mutation.wt} changed to ${mutation.mut} at position ${absolutePos}`
+                      : `Residue ${residue} at position ${absolutePos}`
+                  }
                 >
                   {displayRes}
                 </button>
@@ -139,12 +226,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
             {wildWindow.map((_, i) => {
               const absolutePos = relativeStartIndex + i;
               const match = landscapeMap.get(absolutePos);
-              
-              const score = getRevelScore 
-                ? getRevelScore(absolutePos)
-                : (match 
-                    ? (metricMode === "mean" ? (match.revelMean ?? match.revelMax ?? null) : (match.revelMax ?? match.revelMean ?? null))
-                    : null);
+              const score = getRevelScore(absolutePos);
                 
               const isTarget = absolutePos === mutationIndex;
               const isSelected = absolutePos === residueIndex;
@@ -170,15 +252,16 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
                   className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
                     isTarget
-                      ? "ring-2 ring-cs-accent-clay scale-105 z-10 font-black animate-pulse"
+                      ? "ring-2 ring-cs-accent-clay scale-105 z-10 font-black animate-pulse motion-reduce:animate-none"
                       : isSelected
                         ? "ring-1 ring-cs-border scale-102 z-10"
                         : ""
                   }`}
-                  title={isTarget
-                    ? `Target Mutation ${mutation.wt}→${mutation.mut} Score: ${score !== null ? score.toFixed(3) : "N/A"}${metricMode === "mean" && match?.revelMean ? ` (Positional Mean Intolerance: ${match.revelMean.toFixed(3)})` : ""}`
-                    : `Neighbor Position #${absolutePos} ${metricMode === "mean" ? "Mean Intolerance" : "Peak Constraint"}: ${score !== null ? score.toFixed(3) : "N/A"}`
+                  title={isTarget && mutation.mut
+                    ? `Target Mutation ${mutation.wt}→${mutation.mut} REVEL: ${score !== null ? score.toFixed(3) : "N/A"}${metricMode === "mean" && match?.revelMean ? ` (window mean REVEL: ${match.revelMean.toFixed(3)})` : ""}`
+                    : `Position #${absolutePos} ${metricMode === "mean" ? "window mean" : "window max"} REVEL: ${score !== null ? score.toFixed(3) : "N/A"}`
                   }
+                  aria-label={`Position ${absolutePos} REVEL ${score !== null ? score.toFixed(2) : "not available"}`}
                 >
                   {formatted}
                 </button>
@@ -196,12 +279,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
             {wildWindow.map((_, i) => {
               const absolutePos = relativeStartIndex + i;
               const match = landscapeMap.get(absolutePos);
-              
-              const score = getAmScore 
-                ? getAmScore(absolutePos)
-                : (match 
-                    ? (metricMode === "mean" ? (match.amMean ?? match.amMax ?? null) : (match.amMax ?? match.amMean ?? null))
-                    : null);
+              const score = getAmScore(absolutePos);
                 
               const isTarget = absolutePos === mutationIndex;
               const isSelected = absolutePos === residueIndex;
@@ -225,15 +303,16 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                   onClick={() => onResidueClick && onResidueClick(absolutePos)}
                   className={`w-[30px] h-8 shrink-0 flex items-center justify-center font-bold border rounded text-[8px] transition-all cursor-pointer ${colorClass} ${
                     isTarget
-                      ? "ring-2 ring-cs-accent-clay scale-105 z-10 font-black animate-pulse"
+                      ? "ring-2 ring-cs-accent-clay scale-105 z-10 font-black animate-pulse motion-reduce:animate-none"
                       : isSelected
                         ? "ring-1 ring-cs-border scale-102 z-10"
                         : ""
                   }`}
-                  title={isTarget 
-                    ? `Target Mutation ${mutation.wt}→${mutation.mut} Score: ${score !== null ? score.toFixed(3) : "N/A"}${metricMode === "mean" && match?.amMean ? ` (Positional Mean Intolerance: ${match.amMean.toFixed(3)})` : ""}`
-                    : `Neighbor Position #${absolutePos} ${metricMode === "mean" ? "Mean Intolerance" : "Peak Constraint"}: ${score !== null ? score.toFixed(3) : "N/A"}`
+                  title={isTarget && mutation.mut
+                    ? `Target Mutation ${mutation.wt}→${mutation.mut} AlphaMissense: ${score !== null ? score.toFixed(3) : "N/A"}${metricMode === "mean" && match?.amMean ? ` (window mean AlphaMissense: ${match.amMean.toFixed(3)})` : ""}`
+                    : `Position #${absolutePos} ${metricMode === "mean" ? "window mean" : "window max"} AlphaMissense: ${score !== null ? score.toFixed(3) : "N/A"}`
                   }
+                  aria-label={`Position ${absolutePos} AlphaMissense ${score !== null ? score.toFixed(2) : "not available"}`}
                 >
                   {formatted}
                 </button>
@@ -279,6 +358,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                         : ""
                   }`}
                   title={`GERP++ Score: ${score !== null ? score.toFixed(3) : "N/A"} at residue #${absolutePos}`}
+                  aria-label={`Position ${absolutePos} GERP++ ${score !== null ? score.toFixed(2) : "not available"}`}
                 >
                   {formatted}
                 </button>
@@ -324,6 +404,7 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                         : ""
                   }`}
                   title={`PhyloP Score: ${score !== null ? score.toFixed(3) : "N/A"} at residue #${absolutePos}`}
+                  aria-label={`Position ${absolutePos} PhyloP ${score !== null ? score.toFixed(2) : "not available"}`}
                 >
                   {formatted}
                 </button>
@@ -352,8 +433,12 @@ export const SequenceRowGrid: React.FC<SequenceRowGridProps> = ({
                   <span>Pathogenic (≥{THRESHOLDS.revel.pathogenicStrong.toFixed(2)})</span>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded bg-cs-danger-soft/60 border border-cs-danger/20 shrink-0"></span>
+                  <span>Supporting ({THRESHOLDS.revel.pathogenicSupporting.toFixed(2)}–{THRESHOLDS.revel.pathogenicStrong.toFixed(2)})</span>
+                </div>
+                <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded bg-cs-warn-soft border border-cs-warn/30 shrink-0"></span>
-                  <span>VUS ({THRESHOLDS.revel.benign.toFixed(2)}–{THRESHOLDS.revel.pathogenicStrong.toFixed(2)})</span>
+                  <span>VUS ({THRESHOLDS.revel.benign.toFixed(2)}–{THRESHOLDS.revel.pathogenicSupporting.toFixed(2)})</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded bg-cs-good-soft border border-cs-good/20 shrink-0"></span>

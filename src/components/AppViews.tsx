@@ -535,13 +535,9 @@ export function AppViews({
                 variant={variant}
                 residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
                 hoveredResidueIndex={hoveredResidueIndex}
-                gene={gene}
                 predictorData={analysisState.result?.predictorData}
                 conservationData={analysisState.result?.conservationData}
                 landscapeData={analysisState.result?.landscapeData}
-                computedResiduesCache={computedResiduesCache}
-                disruptionPredictor={disruptionPredictor}
-                uniprotFeatures={analysisState.result?.uniprotFeatures?.features || undefined}
                 metricMode={metricMode}
                 windowSize={windowSize}
                 onResidueClick={handleResidueClickMemo}

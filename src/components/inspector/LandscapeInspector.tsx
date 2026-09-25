@@ -2,6 +2,7 @@ import React from "react";
 import { Sliders, Map as MapIcon, Compass, Bookmark, Atom, Sparkles, Activity, Dna } from "lucide-react";
 import { AnalysisResult, UniprotFeatureItem } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { selectResidueLetter } from "../../stores/slices/searchSlice";
 import { getNearestResidues } from "../../data";
 import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
@@ -36,6 +37,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const variant = useVariantAnalysisStore((s) => s.variant);
   const activeResIndex = selectedResidueProp ?? storeSelectedRes ?? storeHoveredRes;
   const selectedGenomicVariant = selectedGenomicVariantProp ?? storeGenomicVariant;
+  const residueLetter = useVariantAnalysisStore((s) => selectResidueLetter(s, activeResIndex));
 
   const domains: UniprotFeatureItem[] = (analysisResult?.uniprotFeatures?.features || []).filter(
     (f: any) => f.type === "DOMAIN" || f.type === "REGION"
@@ -102,11 +104,14 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     if (activeResidueMatch?.residue) {
       return activeResidueMatch.residue;
     }
+    if (residueLetter) {
+      return residueLetter;
+    }
     if (isTargetResidue && targetWildType) {
       return targetWildType;
     }
     return "";
-  }, [activeResIndex, activeResidueMatch, isTargetResidue, targetWildType]);
+  }, [activeResIndex, activeResidueMatch, residueLetter, isTargetResidue, targetWildType]);
 
   const aaData = resSymbol ? AMINO_ACID_MAP_FULL[resSymbol] : null;
 
@@ -205,7 +210,9 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-bold text-xs text-cs-text-primary">
-                        {aaData?.name || `Residue #${activeResIndex}`} {resSymbol ? `(${resSymbol}${activeResIndex})` : `#${activeResIndex}`}
+                        {resSymbol
+                          ? `${aaData?.name ? `${aaData.name} ` : ""}${resSymbol}${activeResIndex}`
+                          : `Residue #${activeResIndex}`}
                       </span>
                       {isTargetResidue && (targetWildType || targetMutant) && (
                         <span className="text-[8px] font-mono uppercase bg-cs-danger-soft text-cs-danger border border-cs-danger/20 px-1 py-0.5 rounded font-bold">

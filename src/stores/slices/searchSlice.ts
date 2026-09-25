@@ -1,12 +1,22 @@
 import { StateCreator } from "zustand";
 import { VariantPreset, SearchHistoryItem } from "../../types";
 import { getCachedVariant } from "../../services/pipeline/variantCache";
+import { normalizeUniprotAccession } from "../../shared/uniprotAccession";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
 
 export interface SearchState {
   gene: string;
   variant: string;
   uniprotId: string;
+  /**
+   * Full UniProt sequence for the queried protein, published by the sequence hook after fetch so
+   * residue-level views (inspector telemetry) can resolve amino-acid identity by index.
+   *
+   * Keyed by the accession it was fetched for: an unkeyed string survives an accession change on
+   * the paths that set `uniprotId` directly, and the consumer would read letters off the previous
+   * protein. Consumers must compare `accession` before use.
+   */
+  proteinSequence: { accession: string; sequence: string } | null;
   selectedResidueIndex: number | null;
   hoveredResidueIndex: number | null;
   selectedGenomicVariant: any | null;
@@ -33,6 +43,7 @@ export interface SearchActions {
   setGene: (gene: string) => void;
   setVariant: (variant: string) => void;
   setUniprotId: (uniprotId: string) => void;
+  setProteinSequence: (accession: string, sequence: string) => void;
   setSelectedResidueIndex: (index: number | null) => void;
   setHoveredResidueIndex: (index: number | null) => void;
   setSelectedGenomicVariant: (variant: any | null) => void;
@@ -115,6 +126,7 @@ export const createSearchSlice: StateCreator<
   gene: initial.gene,
   variant: initial.variant,
   uniprotId: initial.uniprotId,
+  proteinSequence: null,
   selectedResidueIndex: initialResidueIndex,
   hoveredResidueIndex: null,
   selectedGenomicVariant: null,
@@ -135,7 +147,9 @@ export const createSearchSlice: StateCreator<
     variant,
     ...(state.primaryBiophysics ? { primaryBiophysics: { ...state.primaryBiophysics, variant } } : {})
   })),
-  setUniprotId: (uniprotId) => set({ uniprotId }),
+  setUniprotId: (uniprotId) => set({ uniprotId, proteinSequence: null }),
+  setProteinSequence: (accession, sequence) =>
+    set({ proteinSequence: accession ? { accession, sequence } : null }),
   setSelectedResidueIndex: (selectedResidueIndex) => set({ selectedResidueIndex }),
   setHoveredResidueIndex: (hoveredResidueIndex) => set({ hoveredResidueIndex }),
   setSelectedGenomicVariant: (selectedGenomicVariant) => set({ selectedGenomicVariant }),
@@ -272,3 +286,20 @@ export const createSearchSlice: StateCreator<
     }
   }
 });
+
+/**
+ * Amino acid at a 1-based residue index, or "" when it cannot be resolved.
+ *
+ * Returns "" rather than a placeholder whenever the published sequence was fetched for a
+ * different accession, so a viewer mid-switch reports "unknown" instead of another protein's
+ * residue identity.
+ */
+export function selectResidueLetter(
+  state: Pick<SearchState, "uniprotId" | "proteinSequence">,
+  residueIndex: number | null | undefined
+): string {
+  const entry = state.proteinSequence;
+  if (!entry || residueIndex === null || residueIndex === undefined) return "";
+  if (entry.accession !== normalizeUniprotAccession(state.uniprotId)) return "";
+  return entry.sequence.charAt(residueIndex - 1);
+}

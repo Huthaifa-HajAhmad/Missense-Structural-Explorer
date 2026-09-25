@@ -9,6 +9,13 @@ interface LandscapePoint {
   revelMax?: number | null;
 }
 
+interface ScatterPoint {
+  x: number;
+  y: number;
+  am: number;
+  revel: number;
+}
+
 interface LandscapeMinimapProps {
   landscapeData?: LandscapePoint[] | null;
   currentAM?: number | null;
@@ -16,13 +23,13 @@ interface LandscapeMinimapProps {
   metricMode?: "mean" | "max";
 }
 
-// Relaxed expanded coordinate resolution for higher fidelity rendering and label separation
-const W = 240;
-const H = 220;
-const PAD_LEFT = 45;   // Increased to prevent y-axis overlap
-const PAD_BOTTOM = 40; // Increased to prevent x-axis overlap
-const PAD_RIGHT = 12;
-const PAD_TOP = 15;
+// Wide, low viewBox so the scatter fills the inspector column instead of a fixed 240px square
+const W = 320;
+const H = 150;
+const PAD_LEFT = 34;
+const PAD_BOTTOM = 26;
+const PAD_RIGHT = 10;
+const PAD_TOP = 12;
 const PLOT_W = W - PAD_LEFT - PAD_RIGHT;
 const PLOT_H = H - PAD_TOP - PAD_BOTTOM;
 
@@ -32,33 +39,33 @@ export default function LandscapeMinimap({
   currentREVEL,
   metricMode = "mean",
 }: LandscapeMinimapProps) {
-  const points = useMemo(() => {
-    if (!landscapeData?.length) return [];
-    return landscapeData
-      .map((d) => {
-        // Respect the selected metricMode (default to max for clinical safety)
-        const revel = metricMode === "mean"
-          ? (d.revelMean ?? d.revelMax ?? null)
-          : (d.revelMax ?? d.revelMean ?? null);
-        const am = metricMode === "mean"
-          ? (d.amMean ?? d.amMax ?? null)
-          : (d.amMax ?? d.amMean ?? null);
-        return { revel, am };
-      })
-      // Keep points where at least ONE predictor has data (not requiring both)
-      .filter((d) => d.am !== null || d.revel !== null)
-      .map((d) => ({
-        // If only one score is available, use 0.5 as the neutral position for the missing axis
-        x: d.revel != null
-          ? PAD_LEFT + d.revel * PLOT_W
-          : PAD_LEFT + 0.5 * PLOT_W,
+  const { points, omitted } = useMemo(() => {
+    if (!landscapeData?.length) return { points: [] as ScatterPoint[], omitted: 0 };
+    let skipped = 0;
+    const placed: ScatterPoint[] = [];
+    for (const d of landscapeData) {
+      // Use the selected metricMode's aggregate, falling back to the other only when it is absent
+      const revel = metricMode === "mean"
+        ? (d.revelMean ?? d.revelMax ?? null)
+        : (d.revelMax ?? d.revelMean ?? null);
+      const am = metricMode === "mean"
+        ? (d.amMean ?? d.amMax ?? null)
+        : (d.amMax ?? d.amMean ?? null);
+      // A scatter point needs BOTH axes. Plotting the missing one at a neutral mid-plot
+      // position would assert a score the backend never returned, so it is left out and counted.
+      if (revel === null || am === null) {
+        skipped += 1;
+        continue;
+      }
+      placed.push({
+        x: PAD_LEFT + revel * PLOT_W,
         // y is inverted (1.0 pathogenicity at top, 0.0 at bottom)
-        y: d.am != null
-          ? PAD_TOP + ((1 - d.am) * PLOT_H)
-          : PAD_TOP + 0.5 * PLOT_H,
-        am: d.am,
-        revel: d.revel,
-      }));
+        y: PAD_TOP + (1 - am) * PLOT_H,
+        am,
+        revel,
+      });
+    }
+    return { points: placed, omitted: skipped };
   }, [landscapeData, metricMode]);
 
   // Current query variant dot coordinates (representing single variant)
@@ -72,15 +79,19 @@ export default function LandscapeMinimap({
 
   const hasData = points.length > 0 || currentPoint;
 
-  const dotColor = (am: number | null, revel: number | null): string => {
-    const amVal = am ?? 0;
-    const revVal = revel ?? 0;
+  const plotSummary =
+    `AlphaMissense versus REVEL landscape, ${metricMode} scores: ` +
+    `${points.length} positions plotted with both scores` +
+    (omitted > 0 ? `, ${omitted} positions missing one score and not plotted. ` : ". ") +
+    "Dashed ClinGen thresholds and a 1:1 concordance diagonal are drawn.";
+
+  const dotColor = (am: number, revel: number): string => {
     // Pathogenic: AM Likely Pathogenic or REVEL Strong
-    if (amVal >= THRESHOLDS.alphaMissense.pathogenicSupporting || revVal >= THRESHOLDS.revel.pathogenicStrong) {
+    if (am >= THRESHOLDS.alphaMissense.pathogenicSupporting || revel >= THRESHOLDS.revel.pathogenicStrong) {
       return "var(--cs-danger)";
     }
     // Ambiguous/Supporting: AM Ambiguous or REVEL Supporting
-    if (amVal > THRESHOLDS.alphaMissense.likelyBenign || revVal >= THRESHOLDS.revel.pathogenicSupporting) {
+    if (am > THRESHOLDS.alphaMissense.likelyBenign || revel >= THRESHOLDS.revel.pathogenicSupporting) {
       return "var(--cs-warn)";
     }
     return "var(--cs-good)";
@@ -101,18 +112,18 @@ export default function LandscapeMinimap({
     <div className="flex flex-col gap-2 animate-fade-in w-full items-center justify-center">
       <div 
         className="relative flex items-center justify-center overflow-visible select-none w-full" 
-        title="Pathogenicity scatter plot comparing REVEL vs AlphaMissense scores across all positions of the gene, with the current query variant highlighted."
+        title="Pathogenicity scatter plot comparing REVEL vs AlphaMissense scores across the gene's positions that carry both, with the current query variant highlighted. Dashed lines mark ClinGen calibrated thresholds; the diagonal is the 1:1 concordance line where both predictors agree."
       >
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          className="w-full h-auto max-w-[240px]"
+          className="w-full h-auto"
           style={{ display: "block", overflow: "visible" }}
           role="img"
-          aria-label="AlphaMissense vs REVEL pathogenicity landscape"
+          aria-label={plotSummary}
         >
           <title>Pathogenicity Scatter Map</title>
           <desc>
-            A two-dimensional scatter plot graphing AlphaMissense pathogenicity scores on the Y-axis against REVEL pathogenicity scores on the X-axis, with ClinGen decision boundary lines.
+            A two-dimensional scatter plot graphing AlphaMissense pathogenicity scores on the Y-axis against REVEL pathogenicity scores on the X-axis, with ClinGen decision boundary lines and a dashed 1:1 concordance diagonal.
           </desc>
 
           {/* Grid Decision boundaries (translucent ClinGen quadrants) */}
@@ -159,6 +170,28 @@ export default function LandscapeMinimap({
             stroke="var(--cs-border)"
             strokeWidth={0.75}
           />
+
+          {/* 1:1 concordance diagonal: the locus where REVEL == AlphaMissense */}
+          <line
+            x1={PAD_LEFT}
+            y1={PAD_TOP + PLOT_H}
+            x2={PAD_LEFT + PLOT_W}
+            y2={PAD_TOP}
+            stroke="var(--cs-border)"
+            strokeWidth={0.6}
+            strokeDasharray="2 2.5"
+          />
+          <text
+            x={PAD_LEFT + 3}
+            y={PAD_TOP + 7}
+            textAnchor="start"
+            stroke="var(--cs-surface-2)"
+            strokeWidth={2.5}
+            style={{ paintOrder: "stroke" }}
+            className="font-sans text-[7px] fill-cs-text-muted"
+          >
+            1:1 concordance
+          </text>
 
           {/* X Axis Tick Labels (0, 0.5, 1.0) */}
           {[0, 0.5, 1.0].map((val) => {
@@ -220,12 +253,12 @@ export default function LandscapeMinimap({
             REVEL
           </text>
           
-          {/* Rotated Y Axis Title - offset to x=12 to clear tick values */}
+          {/* Rotated Y Axis Title - offset to clear tick values */}
           <text
-            x={12}
+            x={7}
             y={PAD_TOP + PLOT_H / 2}
             textAnchor="middle"
-            transform={`rotate(-90 12,${PAD_TOP + PLOT_H / 2})`}
+            transform={`rotate(-90 7,${PAD_TOP + PLOT_H / 2})`}
             className="font-sans text-[9px] fill-cs-text-muted uppercase tracking-wider font-semibold"
           >
             AlphaMissense
@@ -238,7 +271,7 @@ export default function LandscapeMinimap({
               textAnchor="middle"
               className="font-sans text-[9px] fill-cs-text-muted"
             >
-              No landscape scores
+              {omitted > 0 ? "No position scored by both predictors" : "No landscape scores"}
             </text>
           )}
 
@@ -248,7 +281,7 @@ export default function LandscapeMinimap({
               key={i}
               cx={p.x}
               cy={p.y}
-              r={0.9}
+              r={1.1}
               fill={dotColor(p.am, p.revel)}
               className="opacity-[var(--cs-dot-opacity-faint)]"
             />
@@ -264,7 +297,7 @@ export default function LandscapeMinimap({
                 fill="none"
                 stroke="var(--cs-accent-clay)"
                 strokeWidth={1}
-                className="opacity-50 animate-pulse"
+                className="opacity-50 animate-pulse motion-reduce:animate-none"
               />
               <circle
                 cx={currentPoint.x}
@@ -278,12 +311,21 @@ export default function LandscapeMinimap({
         </svg>
       </div>
 
-      {currentPoint && (
-        <div className="flex items-center gap-1.5 justify-center mt-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay shrink-0" />
-          <span className="text-[9px] font-mono text-cs-text-muted uppercase tracking-wide">
-            Clay Dot: Query Variant
-          </span>
+      {(currentPoint || omitted > 0) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 justify-center mt-1">
+          {currentPoint && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay shrink-0" />
+              <span className="text-[9px] font-mono text-cs-text-muted uppercase tracking-wide">
+                Clay Dot: Query Variant
+              </span>
+            </span>
+          )}
+          {omitted > 0 && (
+            <span className="text-[9px] font-mono text-cs-text-muted uppercase tracking-wide">
+              {omitted} positions without both scores are not plotted
+            </span>
+          )}
         </div>
       )}
     </div>

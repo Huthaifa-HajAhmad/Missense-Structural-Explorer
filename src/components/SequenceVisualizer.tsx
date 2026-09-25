@@ -1,12 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { Dna, Atom } from "lucide-react";
+import React, { useState, useMemo, useCallback, memo } from "react";
+import { Dna } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
-import { useApiClient } from "../apiClient";
+import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
-import { AMINO_ACID_1_TO_3_TITLE } from "../aminoAcids";
-import { NearestResidue } from "../types";
-import { getNearestResidues } from "../data";
-import { THRESHOLDS } from "../shared/thresholds";
 import { parseGenomicCoordinateString } from "../shared/contracts";
 
 interface SequenceVisualizerProps {
@@ -14,18 +10,12 @@ interface SequenceVisualizerProps {
   variant: string;
   residueIndex: number | null;
   hoveredResidueIndex?: number | null;
-  gene: string;
-  theme?: "dark" | "light";
   onResidueClick?: (index: number) => void;
   onSelectGenomicVariant?: (variant: any) => void;
   seqColorScheme?: "chemical" | "hydrophobic" | "minimal";
-  seqScrollStep?: number;
   predictorData?: any;
   conservationData?: any;
   landscapeData?: any[] | null;
-  computedResiduesCache?: Record<string, NearestResidue[]>;
-  disruptionPredictor?: any;
-  uniprotFeatures?: any[];
   metricMode?: "mean" | "max";
   windowSize?: number;
 }
@@ -41,30 +31,21 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   variant, 
   residueIndex, 
   hoveredResidueIndex: hoveredResidueIndexProp, 
-  gene, 
-  theme,
   onResidueClick,
   onSelectGenomicVariant,
   seqColorScheme: seqColorSchemeProp,
-  seqScrollStep: seqScrollStepProp,
   predictorData,
   conservationData,
   landscapeData,
-  computedResiduesCache,
-  disruptionPredictor,
-  uniprotFeatures,
   metricMode = "mean",
   windowSize = 31
 }: SequenceVisualizerProps) {
   const { settings } = useSettings();
-  const { fetchWithAuth } = useApiClient();
   const storeHoveredIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
   const hoveredResidueIndex = hoveredResidueIndexProp !== undefined ? hoveredResidueIndexProp : storeHoveredIndex;
   const seqColorScheme = seqColorSchemeProp || settings.seqColorScheme;
 
-  const [sequence, setSequence] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const { sequence, isLoading: loading } = useProteinSequence(uniprotId);
   const [hoveredResidue, setHoveredResidue] = useState<HoveredResidueInfo | null>(null);
 
   const landscapeMap = useMemo(() => {
@@ -121,53 +102,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
 
 
 
-  useEffect(() => {
-    let active = true;
-    const fetchSequence = async () => {
-      if (!uniprotId) {
-        setSequence("");
-        setLoading(false);
-        setError(null);
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      
-      const cleanUniprot = uniprotId.trim().toUpperCase();
-      if (!/^[A-Z0-9\-]+$/i.test(cleanUniprot)) {
-        setError("Invalid UniProt ID identifier.");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await fetchWithAuth(`/api/v1/sequence/${encodeURIComponent(cleanUniprot)}`);
-        if (!response.ok) {
-          throw new Error(`Failed to retrieve sequence data: ${response.statusText}`);
-        }
-        const data = await response.json();
-        if (active) {
-          setSequence(data.sequence || "");
-        }
-      } catch (err: any) {
-        if (active) {
-          console.warn("Unable to fetch UniProt sequence:", err);
-          setError("UniProt sequence data unavailable. Check network or server connection.");
-          setSequence("");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchSequence();
-    return () => {
-      active = false;
-    };
-  }, [uniprotId]);
-
   // Decode variant (e.g. p.Arg215Trp or p.R215W) to get target components
   const parseClinicalMutation = () => {
     const clean = variant.replace(/^p\./i, "");
@@ -199,14 +133,15 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       };
     }
 
-    // Backup parse if customized text
-    const targetIdx = residueIndex || parseInt(clean.replace(/\D/g, ""), 10) || 1;
+    // Fallback: genomic/cDNA notation or free text carries no residue token. Stripping
+    // non-digits from e.g. "20-23369727-C-T" yields a nonsense position (2023369727), so fall
+    // back to the app-resolved residue index and mark the target unknown (pos 0) otherwise.
     return {
       wtCode3: null,
       mutCode3: null,
-      wt: "X",
-      pos: targetIdx,
-      mut: "Z"
+      wt: "",
+      pos: residueIndex && residueIndex > 0 ? residueIndex : 0,
+      mut: ""
     };
   };
 
@@ -215,38 +150,27 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
 
   // If we don't have a loaded sequence, or if mutation position is out of bounds,
   // we dynamically align using a mock/synthesized region centered perfectly
-  const { wildWindow, mutWindow, relativeStartIndex, targetOffset } = useMemo(() => {
-    if (!sequence) return { wildWindow: [], mutWindow: [], relativeStartIndex: 1, targetOffset: 0 };
+  const { wildWindow, relativeStartIndex } = useMemo(() => {
+    if (!sequence) return { wildWindow: [] as string[], relativeStartIndex: 1 };
 
     const seqLen = sequence.length;
     const half = Math.floor(windowSize / 2);
-    
-    // Centralize window on target residue
-    let startIdx = Math.max(0, mutationIndex - 1 - half);
+
+    // Unknown target (genomic notation without a resolved residue) centers on the sequence
+    const target = mutationIndex > 0 ? Math.min(mutationIndex, seqLen) : Math.ceil(seqLen / 2);
+    let startIdx = Math.max(0, target - 1 - half);
     let endIdx = Math.min(seqLen, startIdx + windowSize);
-    
+
     // Adjust if running near end boundary
     if (endIdx - startIdx < windowSize) {
       startIdx = Math.max(0, endIdx - windowSize);
     }
 
-    const wildWindowSeq = sequence.slice(startIdx, endIdx);
-    const wildArr = wildWindowSeq.split("");
-    
-    // Construct mutant sequence alignment side of the window
-    const mutArr = [...wildArr];
-    const targetOffset = mutationIndex - 1 - startIdx;
-    if (targetOffset >= 0 && targetOffset < mutArr.length) {
-      mutArr[targetOffset] = mutation.mut;
-    }
-
     return {
-      wildWindow: wildArr,
-      mutWindow: mutArr,
-      relativeStartIndex: startIdx + 1,
-      targetOffset
+      wildWindow: sequence.slice(startIdx, endIdx).split(""),
+      relativeStartIndex: startIdx + 1
     };
-  }, [sequence, mutationIndex, mutation.mut, windowSize]);
+  }, [sequence, mutationIndex, windowSize]);
 
   const parsedGenomic = useMemo(
     () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
@@ -260,49 +184,65 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     useVariantAnalysisStore.getState().setSelectedGenomicVariant(v);
   }, [onSelectGenomicVariant]);
 
-  const getRevelScore = (pos: number) => {
-    if (pos === mutationIndex && conservationData?.revel !== undefined && conservationData?.revel !== null) {
-      const parsed = parseFloat(String(conservationData.revel));
-      if (!isNaN(parsed)) return parsed;
-    }
-    const match = landscapeMap.get(pos);
-    if (!match) return null;
-    if (metricMode === "mean") {
-      return match.revelMean !== undefined && match.revelMean !== null ? match.revelMean : null;
-    }
-    return match.revelMax !== undefined && match.revelMax !== null ? match.revelMax : null;
-  };
+  /*
+   * These getters are dependencies of the density-track memo in SequenceRowGrid. As plain
+   * closures they would be new every render and the memo would never hold.
+   */
+  const getRevelScore = useCallback(
+    (pos: number) => {
+      if (pos === mutationIndex && conservationData?.revel !== undefined && conservationData?.revel !== null) {
+        const parsed = parseFloat(String(conservationData.revel));
+        if (!isNaN(parsed)) return parsed;
+      }
+      const match = landscapeMap.get(pos);
+      if (!match) return null;
+      if (metricMode === "mean") {
+        return match.revelMean !== undefined && match.revelMean !== null ? match.revelMean : null;
+      }
+      return match.revelMax !== undefined && match.revelMax !== null ? match.revelMax : null;
+    },
+    [mutationIndex, conservationData, landscapeMap, metricMode]
+  );
 
-  const getAmScore = (pos: number) => {
-    if (pos === mutationIndex && predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null) {
-      const parsed = parseFloat(String(predictorData.amPathogenicity));
-      if (!isNaN(parsed)) return parsed;
-    }
-    const match = landscapeMap.get(pos);
-    if (!match) return null;
-    if (metricMode === "mean") {
-      return match.amMean !== undefined && match.amMean !== null ? match.amMean : null;
-    }
-    return match.amMax !== undefined && match.amMax !== null ? match.amMax : null;
-  };
+  const getAmScore = useCallback(
+    (pos: number) => {
+      if (pos === mutationIndex && predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null) {
+        const parsed = parseFloat(String(predictorData.amPathogenicity));
+        if (!isNaN(parsed)) return parsed;
+      }
+      const match = landscapeMap.get(pos);
+      if (!match) return null;
+      if (metricMode === "mean") {
+        return match.amMean !== undefined && match.amMean !== null ? match.amMean : null;
+      }
+      return match.amMax !== undefined && match.amMax !== null ? match.amMax : null;
+    },
+    [mutationIndex, predictorData, landscapeMap, metricMode]
+  );
 
-  const getGerpScore = (pos: number) => {
-    if (pos === mutationIndex && conservationData?.gerp !== undefined && conservationData?.gerp !== null) {
-      const parsed = parseFloat(String(conservationData.gerp));
-      if (!isNaN(parsed)) return parsed;
-    }
-    const match = landscapeMap.get(pos);
-    return match?.gerp !== undefined && match?.gerp !== null ? match.gerp : null;
-  };
+  const getGerpScore = useCallback(
+    (pos: number) => {
+      if (pos === mutationIndex && conservationData?.gerp !== undefined && conservationData?.gerp !== null) {
+        const parsed = parseFloat(String(conservationData.gerp));
+        if (!isNaN(parsed)) return parsed;
+      }
+      const match = landscapeMap.get(pos);
+      return match?.gerp !== undefined && match?.gerp !== null ? match.gerp : null;
+    },
+    [mutationIndex, conservationData, landscapeMap]
+  );
 
-  const getPhyloPScore = (pos: number) => {
-    if (pos === mutationIndex && conservationData?.phylop !== undefined && conservationData?.phylop !== null) {
-      const parsed = parseFloat(String(conservationData.phylop));
-      if (!isNaN(parsed)) return parsed;
-    }
-    const match = landscapeMap.get(pos);
-    return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
-  };
+  const getPhyloPScore = useCallback(
+    (pos: number) => {
+      if (pos === mutationIndex && conservationData?.phylop !== undefined && conservationData?.phylop !== null) {
+        const parsed = parseFloat(String(conservationData.phylop));
+        if (!isNaN(parsed)) return parsed;
+      }
+      const match = landscapeMap.get(pos);
+      return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
+    },
+    [mutationIndex, conservationData, landscapeMap]
+  );
 
   return (
     <div 
@@ -320,7 +260,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
               REVEL & AlphaMissense Local Pathogenicity Landscape
             </h3>
             <p className="text-xs mt-0.5 text-cs-text-muted">
-              Visualizing missense constraint and pathogenicity scores across residues surrounding mutation position #{mutationIndex}
+              {mutationIndex > 0
+                ? `Visualizing missense constraint and pathogenicity scores across residues surrounding mutation position #${mutationIndex}`
+                : "Visualizing missense constraint and pathogenicity scores across the queried residue window"}
             </p>
           </div>
         </div>
@@ -369,10 +311,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             genomicPos={parsedGenomic?.pos || conservationData?.spliceProximity?.genomicPos || null}
             genomicAlt={parsedGenomic?.alt || null}
             spliceProximity={conservationData?.spliceProximity}
-            wildWindow={wildWindow}
-            relativeStartIndex={relativeStartIndex}
             mutationIndex={mutationIndex}
-            mutation={mutation}
             residueIndex={residueIndex}
             hoveredResidueIndex={hoveredResidueIndex}
             onResidueClick={onResidueClick}

@@ -5,6 +5,7 @@ import {
   useVariantAnalysisActions,
   getVariantAnalysisActions
 } from "../useVariantAnalysisStore";
+import { selectResidueLetter } from "../slices/searchSlice";
 
 describe("useVariantAnalysisStore State Normalization", () => {
   beforeEach(() => {
@@ -280,5 +281,56 @@ describe("useVariantAnalysisStore State Normalization", () => {
     store.clearHistory();
     history = useVariantAnalysisStore.getState().history;
     expect(history).toEqual([]);
+  });
+});
+
+describe("published protein sequence", () => {
+  const published = () => useVariantAnalysisStore.getState().proteinSequence;
+
+  it("resolves a residue letter for the accession the sequence was fetched under", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setUniprotId("P15056");
+    store.setProteinSequence("P15056", "MVRKIQ");
+
+    expect(selectResidueLetter(useVariantAnalysisStore.getState(), 1)).toBe("M");
+    expect(selectResidueLetter(useVariantAnalysisStore.getState(), 2)).toBe("V");
+  });
+
+  it("matches the accession case-insensitively, as the sequence route does", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setUniprotId(" p15056 ");
+    store.setProteinSequence("P15056", "MVRKIQ");
+
+    expect(selectResidueLetter(useVariantAnalysisStore.getState(), 4)).toBe("K");
+  });
+
+  it("yields no letter once the accession changes, even if the new fetch has not published yet", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setUniprotId("P15056");
+    store.setProteinSequence("P15056", "MVRKIQ");
+
+    // History and preset selection write uniprotId through a bulk set that never touches the
+    // publication, so the guard has to come from the key rather than from clearing.
+    useVariantAnalysisStore.setState({ uniprotId: "P01116" });
+
+    expect(selectResidueLetter(useVariantAnalysisStore.getState(), 2)).toBe("");
+    expect(published()?.accession).toBe("P15056");
+  });
+
+  it("yields no letter past the end of the sequence rather than an empty-but-present residue", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setUniprotId("P15056");
+    store.setProteinSequence("P15056", "MVRKIQ");
+
+    expect(selectResidueLetter(useVariantAnalysisStore.getState(), 7)).toBe("");
+    expect(selectResidueLetter(useVariantAnalysisStore.getState(), null)).toBe("");
+  });
+
+  it("drops the publication when set without an accession", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setProteinSequence("P15056", "MVRKIQ");
+    store.setProteinSequence("", "");
+
+    expect(published()).toBeNull();
   });
 });
