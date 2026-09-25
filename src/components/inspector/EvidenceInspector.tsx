@@ -28,6 +28,7 @@ import {
 import { variantNumberingView } from "../../shared/numbering";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
+import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 
 type PopulationFrequencyThresholds = typeof THRESHOLDS.populationFrequency;
 
@@ -302,34 +303,11 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             Domain &amp; Feature Architecture
           </span>
 
-          {/* Feature Legend */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
-              Feature Types &amp; Palette
-            </span>
-            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 shrink-0" />
-                <span className="text-cs-text-secondary">Domains</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 shrink-0" />
-                <span className="text-cs-text-secondary">Active / Catalytic</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 shrink-0" />
-                <span className="text-cs-text-secondary">Binding Sites</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 shrink-0" />
-                <span className="text-cs-text-secondary">PTM Anchors</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-cyan-500 shrink-0" />
-                <span className="text-cs-text-secondary">Disulfide Bridges</span>
-              </div>
-            </div>
-          </div>
+          {/* Feature Legend — rendered from the palette the track paints with, instead of a second
+              hand-written list. That list had four of five swatches wrong (indigo domains, amber
+              binding sites, emerald PTMs, cyan disulfides) and no entry at all for transmembrane
+              regions or the other curated sites, so reading it to interpret the track misled. */}
+          <FeaturePaletteLegend />
 
           {/* Interactive Navigation Guide */}
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">

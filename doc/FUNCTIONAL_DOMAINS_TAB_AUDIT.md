@@ -22,7 +22,9 @@ Two layers, and they are not interchangeable:
 
 - **Measured in a browser.** `tools/function-track-geometry` (`npm run test:geometry:function-track`)
   renders the real component with the real stylesheet in headless Chromium and measures live SVG
-  geometry: 70 assertions over four cases, all passing.
+  geometry: 70 assertions over four cases, all passing. (The counts in this section are the first
+  round's, taken on the revision named above; the harness has since grown to **137 assertions over
+  six cases** — see *Second review round* at the end.)
 - **Read from source.** The "was" column below, and any statement about which Tailwind class applied
   to what. Where a claim is derived by reading rather than measuring, it says so.
 
@@ -210,3 +212,159 @@ uncommitted files", which was wrong within the hour.)
 Not verified in this environment (sandbox blocks the piped child processes they need): the
 `check-boundaries` and `npm test` runs, which were executed with an explicit escalation; and the
 harness itself, which cannot run without one.
+
+---
+
+# Second review round
+
+Reported items, in the reporter's words: **"black rings are unnecessary"**, **"the length badge next
+to uniprot and interpro badge is discrepant!"**, **"the bottom section box: direct annotation … needs
+polish and feature highlight in the seq tract"**, **"audit the feature and palette legend in the
+inspector!"**, and **"What else?"**
+
+Revision this section describes: the working tree at `HEAD` `f2ae4a7` (another agent's commit; this
+work is uncommitted), with
+
+| Path | SHA-256 |
+| --- | --- |
+| `src/components/evidence/FunctionInteractionsTabs.tsx` | `33D42FD7C1B060439FD9D78FCBDB951A42B4C0357F82E63762793586FDF5CC65` |
+| `src/shared/featurePalette.ts` (new) | `5171FD160D2F096A2EDF277B80480381753A0B7E0029C3BD2250A7B62D4C3D9F` |
+| `src/components/inspector/FeaturePaletteLegend.tsx` (new) | `8D7ADB647ECE54FB000930BD58300F610E0F28E00B3EAD1E1D0012CA1A1A2C5D` |
+| `src/components/inspector/EvidenceInspector.tsx` | `A235529E564FD61BE82E04E29AB6280CB8D24395AE08BA1E716A89BEECCE2013` |
+| `src/styles/typography-tables.css` | `31BD3EBB6A61832865A0C2C8DA7E62659DDD5FAC32E2A65F8E68074ACDDEC13E` |
+| `tools/function-track-geometry/main.tsx` | `120DC52E71DDCC83F0BEAB6F4EDF8081E7FB265F950CF359395DDA7C5D6FF9CB` |
+| `tools/function-track-geometry/check.mjs` | `33B5F163EF954B0619742C28B68CE8B7D1901ADD7C78DEAC0DE300EAA193C25F` |
+
+The reports were all about one protein, **GZF1 / Q9H116 (711 aa), p.Arg591Trp**, whose shape is the
+opposite of the CNNM2 case the first round was fixed against. Its record was fetched from
+`https://rest.uniprot.org/uniprotkb/Q9H116`: 1 Domain (BTB, 31–103), 10 Zinc finger, 5 Compositional
+bias, 2 Region (disordered), 1 Modified residue (phosphoserine 613), 2 Mutagenesis.
+
+## 1. "Black rings are unnecessary"
+
+The dark shapes were the **"Other Sites" pins**: 17 of them, in slate-600 (`#475569`), with a 1.5-unit
+white stroke on a 3.5-unit radius disc — a dark core inside a pale rim, which is what reads as a
+"ring" at this size.
+
+The count was **not** a bug. 10 zinc fingers + 5 compositional-bias segments + 2 mutagenesis = 17, and
+the screenshot's "17 Other Sites" is exactly right; the first reading of it as a discrepancy came from
+a partial UniProt field list that had not requested `ft_compbias`. What the count *did* reveal is the
+real defect: **15 of those 17 are spans**, not point annotations — a C2H2 zinc finger is 23–24
+residues, a low-complexity segment 10–16 — and all of them were drawn as lollipops at their first
+residue, which asserts that a 24-residue finger sits at one residue while putting fifteen near-black
+dots on the track.
+
+Fix — geometry, not colour:
+
+- `featureGeometryFor(type)` in the new `featurePalette.ts` classifies each curated annotation as
+  `band` (domains), `span` (transmembrane, region, zinc finger, repeat, coiled coil, compositional
+  bias, motif, DNA binding) or `point` (everything else).
+- Spans are drawn as thin bars in a **span lane** between the domain band and the site rail
+  (`TRACK.spanLaneTop` 62, `spanHeight` 3.5, three tiers), packed by interval so nested spans — five
+  low-complexity segments inside GZF1's two disordered regions — never hide one another.
+- A span containing the variant gets an amber underline, because the bar alone cannot say "the
+  variant is in here" once several bars share the window.
+- Point pins keep the lollipop language. On GZF1 that is 3 pins instead of 17 dark dots; on CNNM2 it
+  is 1 (the phosphoserine), because its three transmembrane helices became bars — the cyan pins in
+  the first screenshot are now cyan bars in a lane.
+
+Consequence for the chip row: `N Regions (not plotted)` became **`N Spans (span lane)`** — regions are
+spans, and they are now plotted, so the old wording was both misleading and obsolete.
+
+## 2. "The length badge … is discrepant"
+
+The **value** was right: UniProt Q9H116 is 711 aa and the badge said 711 aa. The **chip** was the
+problem. "Length: 711 aa" was `text-[9.5px] px-2 py-0.5 rounded` in muted grey on `--cs-surface-2`
+while the neighbouring provenance chip used `.badge-data-source` — `2.5px 7px` padding,
+`--cs-radius-badge`, `--cs-font-size-badge`, and a hard-coded blue. Side by side, two chips in one row
+had different padding, radius, type size and colour language.
+
+Fix: `.badge-metric` in `typography-tables.css` shares the provenance badge's box metrics exactly —
+same padding, radius and font tokens, so the pair cannot present two different chip heights — and
+differs only in tone, because one is a measurement and the other is a source.
+
+## 3. The direct-curated-annotations box
+
+The cards were read-only text: the box named the feature sitting at the variant while the track above
+it showed the same feature with no way to connect the two. Each card is now a `<button>` that selects
+its feature (the track's existing selection language: amber stroke on the bar, brightened band,
+enlarged amber pin, inspector bar), with `aria-pressed`, a hover/focus affordance ("Highlight in the
+track" / "Selected — highlighted in the track"), and the geometry made explicit — `Span 575–597
+(23 aa)` versus `Residue 613` — so a span is not presented as a point in prose either.
+
+## 4. The legend audit
+
+The inspector's "Feature Types & Palette" legend is a hand-written list claiming to describe a track
+painted from a different one. Audited line by line:
+
+| Legend row | Legend swatch | Painted by the track |
+| --- | --- | --- |
+| Domains | indigo-500 | emerald gradient (`#059669`→`#047857`) — **wrong** |
+| Active / Catalytic | rose-500 | rose-600 — close (500 vs 600) |
+| Binding Sites | amber-500 | purple-600 — **wrong** |
+| PTM Anchors | emerald-500 | sky-600 — **wrong** |
+| Disulfide Bridges | cyan-500 | amber-600 — **wrong** |
+| Transmembrane | *absent* | cyan-600 |
+| Other Sites | *absent* | slate-600 |
+| Span bars | *absent* | the category's own colour — and the row added for it below was **wrong too** |
+
+Fix: one palette module, two consumers.
+
+- `src/shared/featurePalette.ts` owns the kind keys, labels, chip classes, colours and predicates;
+  the track paints from it and the legend renders from it.
+- `FeaturePaletteLegend.tsx` renders the seven colour rows plus **two shape rows** (Point site, Span).
+  The shape rows are deliberately monochrome: a span bar is painted in its *category's* colour, so a
+  coloured swatch there would invent a fifth palette entry — which the first attempt at this fix did,
+  in slate-400, while CNNM2's transmembrane bars are cyan.
+- The "other" predicate is a true complement (`chain` and `region` excluded), not a catch-all: the
+  first version made it match everything, which would have made that chip count the whole protein and
+  its filter dim nothing.
+
+## 5. "What else?" — found while auditing, not reported
+
+- **The component kept a second copy of the category taxonomy.** Six predicates (`isActiveSite`,
+  `isBindingSite`, `isPtmSite`, `isDisulfideSite`, `isTransmembraneSite`, `isRegionFeature`) and the
+  six group lists built from them were computed on every render and **never consumed** — the palette
+  had replaced them. Removed: exactly the drift hazard the legend audit was about.
+- **A type assertion hid a real crash.** `INVENTORY_MATCHERS` was built with
+  `Object.fromEntries(...) as Record<InventoryCategory, …>`, which suppressed a genuine
+  argument-type mismatch (feature objects passed where type strings were expected). It threw at
+  render time — the harness's new crash handler reported `Uncaught TypeError: (type || "").toLowerCase
+  is not a function` instead of an empty report. The cast and the duplicate construction are gone.
+- **The harness could not report a render-time crash.** A thrown render left `#geometry-result`
+  empty, which the runner can only print as "no report" — no message, no stack. `window.onerror` /
+  `unhandledrejection` now publish the exception into the same sink.
+- **The harness screenshot was unusable.** The assertion report grew taller than the window, so the
+  cases it exists to show fell below the fold; the report box is now capped and scrollable, and
+  `TRACK_SHOT` captures every case.
+- **Vocabulary.** "band row" (for the span lane) is gone; the chip says "span lane".
+
+## Verification
+
+| Layer | Result |
+| --- | --- |
+| `npm run test:geometry:function-track` | **137/137 pass** (6 cases, including the new real-GZF1 case and the legend) |
+| Same harness, 7 defects reintroduced in 4 batches | **31/137**, **8/137**, **7/137** and **1/137** red; each named in the failure text. The unmutated revision is 137/137 |
+| `tsc --noEmit` | clean |
+| `npx tsx scripts/check-boundaries.ts` | 0 violations |
+| `npm test` | **1 failed \| 163 passed \| 2 skipped** (166 files), **1 failed \| 1913 passed \| 5 skipped** (1919 tests) |
+
+The single suite failure is `server/routes/capabilities.test.ts > GET /capabilities — RaSP readiness >
+does not call an uncounted index ready` (`expected 'unavailable' to be 'unverified'`) — the
+server-side RaSP index-count concern already documented in the first round's table, in a file this
+change does not touch.
+
+**One of the new guards was vacuous when first written, and the mutation run is what exposed it.** The
+"a span containing the variant is underlined" check read *which* bars claim containment off the
+rendered `aria-label` and then asked whether those same shapes were underlined — so forcing
+`isEnclosing` to `false` made the expected set empty and the check passed. It now takes both the
+expected span count and the expected enclosing count from the fixture.
+
+**Not verified: what the render looks like.** Everything above is live geometry and computed colour.
+Whether the span lane *reads* well — 3.5-unit bars, up to three tiers, a 13 px-wide shortest bar at
+this container width — is a judgement about a picture. A vision-capable model was called to review
+`tools/function-track-geometry/function-track.png` and returned nothing usable (the first call's
+answer contained a GZF1 section it had no image for, and the retry returned `null`), so **the render
+has not been visually reviewed by the agent that wrote it.** The screenshot is written by
+`TRACK_SHOT=1` and the numbers above are the whole of the evidence.
+

@@ -122,6 +122,29 @@
   border-color: rgba(59, 130, 246, 0.3);
 }
 
+/*
+ * A measured read-out sitting in the same row as the provenance badges ("Length: 711 aa" beside
+ * "UniProtKB & InterPro"). Same box as `.badge-data-source` — padding, radius and font tokens —
+ * so the pair can never present two different chip heights or type sizes side by side; only the
+ * tone differs, because one is a measurement and the other is a source.
+ */
+.badge-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3.5px;
+  padding: 2.5px 7px;
+  border-radius: var(--cs-radius-badge);
+  font-size: var(--cs-font-size-badge);
+  font-weight: var(--cs-font-weight-badge);
+  background: var(--cs-surface-2);
+  color: var(--cs-text-secondary);
+  border: 1px solid var(--cs-border);
+}
+.badge-metric strong {
+  color: var(--cs-text-primary);
+  font-weight: 600;
+}
+
 /* METRIC CARD LAYOUT */
 .metric-card {
   padding: 12px;

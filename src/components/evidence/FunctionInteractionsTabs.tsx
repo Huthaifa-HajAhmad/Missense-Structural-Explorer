@@ -15,6 +15,14 @@ import {
   Sparkles
 } from "lucide-react";
 import { TabComponentProps } from "./types";
+import {
+  FEATURE_KINDS,
+  FEATURE_KIND_KEYS,
+  featureColorFor,
+  featureGeometryFor,
+  featureKindLabel,
+  type FeatureKindKey,
+} from "../../shared/featurePalette";
 
 function getType(f?: { type?: string } | null): string {
   return f?.type?.toLowerCase() || "";
@@ -24,92 +32,31 @@ function isDomainFeature(f?: { type?: string } | null): boolean {
   return getType(f) === "domain";
 }
 
-function isActiveSite(f?: { type?: string } | null): boolean {
-  const t = getType(f);
-  return t.includes("active") || t.includes("catalytic");
-}
-
-function isBindingSite(f?: { type?: string } | null): boolean {
-  const t = getType(f);
-  return t.includes("binding") || t.includes("metal");
-}
-
-function isPtmSite(f?: { type?: string } | null): boolean {
-  const t = getType(f);
-  return t.includes("modified") || t.includes("phospho") || t.includes("methyl") || t.includes("acetyl");
-}
-
-function isDisulfideSite(f?: { type?: string } | null): boolean {
-  const t = getType(f);
-  return t.includes("disulfide") || t.includes("cysteine");
-}
-
-function isTransmembraneSite(f?: { type?: string } | null): boolean {
-  const t = getType(f);
-  return t.includes("transmembrane") || t.includes("membrane");
-}
-
 /**
- * The one place that knows what each inventory chip means.
+ * The inventory categories, their colours and their predicates all come from
+ * `src/shared/featurePalette.ts`, which the inspector's palette legend also reads. They used to be
+ * duplicated here, which is how the legend ended up advertising colours the track never painted.
  *
- * The chip's count and the chip's filter used to be two independent predicates — the count used
- * the `isXxxSite` helpers while the track dimming re-derived the same question inline — so a chip
- * could claim "3 Transmembrane" and then filter by a different rule. Count and filter now read
- * `INVENTORY_MATCHERS`, and `null` (no chip selected) matches everything.
+ * `featurePalette` deals in UniProt *type strings* (a taxonomy); the track has feature objects, so
+ * the adaptation happens here — once, with no cast. An earlier version built this table with
+ * `Object.fromEntries(...) as Record<InventoryCategory, …>`, and that assertion hid a real
+ * argument-type mismatch until the browser threw it at render time.
  */
-type InventoryCategory = "domain" | "active" | "binding" | "ptm" | "disulfide" | "transmembrane" | "other";
+type InventoryCategory = FeatureKindKey;
 
-function isRegionFeature(f?: { type?: string } | null): boolean {
-  return getType(f) === "region";
+function featureMatchesKind(f: { type?: string } | null | undefined, key: InventoryCategory): boolean {
+  const kind = FEATURE_KINDS.find((k) => k.key === key);
+  return kind ? kind.matches(getType(f)) : false;
 }
-
-/**
- * A point annotation the six named categories do not describe: UniProt's `Site`, `Motif`,
- * `Repeat`, `Zinc finger`, `DNA binding`, `Coiled coil`, `Compositional bias`, `Mutagenesis` —
- * all of which the server keeps (`RELEVANT_FEATURE_TYPES`) and the track plots as lollipops.
- * Without this category they were plotted but faded by every chip, with no chip able to restore
- * them, and the inventory row silently under-reported them.
- */
-function isOtherSiteFeature(f?: { type?: string } | null): boolean {
-  const t = getType(f);
-  if (!t || t === "domain" || t === "chain" || t === "region") return false;
-  return !(isActiveSite(f) || isBindingSite(f) || isPtmSite(f) || isDisulfideSite(f) || isTransmembraneSite(f));
-}
-
-/**
- * `satisfies` is load-bearing: adding a member to `InventoryCategory` without adding its matcher
- * is a compile error, so a category can no longer half-land (a missing key used to make a chip
- * with a non-zero count render as non-selectable, and a missing switch case silently matched
- * nothing and faded the whole track).
- */
-const INVENTORY_MATCHERS = {
-  domain: isDomainFeature,
-  active: isActiveSite,
-  binding: isBindingSite,
-  ptm: isPtmSite,
-  disulfide: isDisulfideSite,
-  transmembrane: isTransmembraneSite,
-  other: isOtherSiteFeature,
-} satisfies Record<InventoryCategory, (f?: { type?: string } | null) => boolean>;
 
 function matchesInventoryCategory(f: { type?: string } | null | undefined, category: InventoryCategory | null): boolean {
   if (!category) return true;
-  return INVENTORY_MATCHERS[category](f);
+  return featureMatchesKind(f, category);
 }
 
-/**
- * Pin colour per curated-site category. Same precedence the track always used, with the light-mode
- * values darkened one step (sky/cyan/amber/rose/purple 500 → 600) because the 500s measure
- * 2.1–2.7:1 against the light track surface, below the 3:1 non-text bar. The harness measures every
- * ratio rather than trusting these numbers.
- */
+/** Pin colour per curated-site category, from the shared palette. */
 function sitePinColor(f?: { type?: string } | null): string {
-  if (isActiveSite(f)) return "#e11d48";    // rose-600
-  if (isBindingSite(f)) return "#9333ea";   // purple-600
-  if (isPtmSite(f)) return "#0284c7";       // sky-600
-  if (isDisulfideSite(f)) return "#d97706"; // amber-600
-  if (isTransmembraneSite(f)) return "#0891b2"; // cyan-600
-  return "#475569";                          // slate-600
+  return featureColorFor(getType(f));
 }
 
 /**
@@ -120,82 +67,23 @@ function sitePinColor(f?: { type?: string } | null): string {
 const SELECTED_PIN_COLOR = "#b45309"; // amber-700
 
 /**
- * The inventory chips, in display order, with the colour language each category already had.
- * Every category is rendered on every protein — a conditional chip made "no disulfides" look
- * like "disulfides are not a thing we show" while "0 Active Sites" looked like a finding.
- *
- * `noun` is what the tooltips and the empty-state sentence use, because the chip label itself is
- * an adjective for the transmembrane category ("3 Transmembrane", not "3 Transmembranes").
+ * The inventory chips, in display order, rendered from the shared palette. Every category is
+ * rendered on every protein — a conditional chip made "no disulfides" look like "disulfides are not
+ * a thing we show" while "0 Active Sites" looked like a finding — and each chip's label, tooltip
+ * noun and colours come from the same entry the pin colour does.
  */
-const INVENTORY_CHIPS: Array<{
-  id: InventoryCategory;
-  singular: string;
-  plural: string;
-  noun: string;
-  onClass: string;
-  offClass: string;
-}> = [
-  {
-    id: "domain",
-    singular: "Domain",
-    plural: "Domains",
-    noun: "domain",
-    onClass: "bg-emerald-500 text-white border-emerald-600",
-    offClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20",
-  },
-  {
-    id: "active",
-    singular: "Active Site",
-    plural: "Active Sites",
-    noun: "active site",
-    onClass: "bg-rose-500 text-white border-rose-600",
-    offClass: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20",
-  },
-  {
-    id: "binding",
-    singular: "Binding Site",
-    plural: "Binding Sites",
-    noun: "binding site",
-    onClass: "bg-purple-500 text-white border-purple-600",
-    offClass: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20",
-  },
-  {
-    id: "ptm",
-    singular: "PTM",
-    plural: "PTMs",
-    noun: "PTM",
-    onClass: "bg-sky-500 text-white border-sky-600",
-    offClass: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20 hover:bg-sky-500/20",
-  },
-  {
-    id: "disulfide",
-    singular: "Disulfide",
-    plural: "Disulfides",
-    noun: "disulfide bond",
-    onClass: "bg-amber-500 text-white border-amber-600",
-    offClass: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20",
-  },
-  {
-    id: "transmembrane",
-    singular: "Transmembrane",
-    plural: "Transmembrane",
-    noun: "transmembrane region",
-    onClass: "bg-cyan-500 text-white border-cyan-600",
-    offClass: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20",
-  },
-  {
-    id: "other",
-    singular: "Other Site",
-    plural: "Other Sites",
-    noun: "other curated site",
-    onClass: "bg-slate-600 text-white border-slate-700",
-    offClass: "bg-slate-500/10 text-slate-600 dark:text-slate-300 border-slate-500/20 hover:bg-slate-500/20",
-  },
-];
+const INVENTORY_CHIPS = FEATURE_KINDS.map((kind) => ({
+  id: kind.key,
+  singular: kind.singular,
+  plural: kind.plural,
+  noun: kind.noun,
+  onClass: kind.onClass,
+  offClass: kind.offClass,
+}));
 
 /** Display name for a category, for copy that must not leak the internal id ("No ptm annotation…"). */
 function inventoryCategoryLabel(category: InventoryCategory | null): string {
-  return INVENTORY_CHIPS.find((c) => c.id === category)?.singular ?? "curated";
+  return featureKindLabel(category);
 }
 
 /**
@@ -215,6 +103,17 @@ const TRACK = {
   bandTop: 33,
   bandHeight: 28,
   labelBaseline: 50,
+  /**
+   * The span lane: curated features annotated over a run of residues (transmembrane helices, zinc
+   * fingers, repeats, low-complexity segments, disordered regions, motifs) are drawn as thin bars
+   * here rather than as point lollipops on the site rail. It sits between the domain band's bottom
+   * edge and the site rail, and holds up to three tiers so nested spans (a low-complexity segment
+   * inside a disordered region) stay legible.
+   */
+  spanLaneTop: 62,
+  spanHeight: 3.5,
+  spanTierStep: 5,
+  spanTiers: 3,
   siteRailY: 74,
   tierStep: 14,
   rulerY: 118,
@@ -370,63 +269,48 @@ export function FunctionTab({
     return residue >= start && residue <= end;
   }, []);
 
-  // Group features by category
-  const { domains, activeDomain, activeSites, bindingSites, ptms, disulfides, transmembranes, regions, otherSites, functionalSites } = useMemo(() => {
+  // Group features for drawing
+  const { domains, activeDomain, pointSites, spanFeatures } = useMemo(() => {
     const d = features.filter(isDomainFeature);
     const actDom = typeof pos === "number" ? d.find((item) => coversResidue(item, pos)) : undefined;
-    const actSites = features.filter(isActiveSite);
-    const bindSites = features.filter(isBindingSite);
-    const ptmList = features.filter(isPtmSite);
-    const disulfList = features.filter(isDisulfideSite);
-    const tmList = features.filter(isTransmembraneSite);
-    // Disordered/structural regions are curated, but they are spans rather than point sites, so
-    // they are counted for the inventory and deliberately not plotted as lollipops.
-    const regionList = features.filter(isRegionFeature);
-    const otherList = features.filter(isOtherSiteFeature);
-    const fSites = features.filter((f) => {
+    // Drawn by geometry, not by type name: a feature annotated over a run of residues goes to the
+    // span lane, a feature annotated at a residue becomes a lollipop. Chains are sequence
+    // constructs rather than annotations and are dropped entirely.
+    const plotted = features.filter((f) => {
       const t = getType(f);
-      return t !== "domain" && t !== "chain" && t !== "region";
+      return t !== "domain" && t !== "chain";
     });
+    const points = plotted.filter((f) => featureGeometryFor(getType(f)) === "point");
+    const spans = plotted.filter((f) => featureGeometryFor(getType(f)) === "span");
 
-    return {
-      domains: d,
-      activeDomain: actDom,
-      activeSites: actSites,
-      bindingSites: bindSites,
-      ptms: ptmList,
-      disulfides: disulfList,
-      transmembranes: tmList,
-      regions: regionList,
-      otherSites: otherList,
-      functionalSites: fSites,
-    };
+    return { domains: d, activeDomain: actDom, pointSites: points, spanFeatures: spans };
   }, [features, pos, coversResidue]);
 
   /** True once the curated-annotation payload has actually arrived (or definitively failed). */
   const curatedAnnotationsAvailable = !!result?.uniprotFeatures;
 
   /**
-   * Count and filter for every inventory chip, both read from `INVENTORY_MATCHERS`. A category
-   * with nothing annotated cannot narrow anything: selecting it dims the whole track and can only
-   * ever produce an empty result, so it is rendered as information instead of a filter.
+   * Count and filter for every inventory chip, both read from the shared palette's predicates. A
+   * category with nothing annotated cannot narrow anything: selecting it dims the whole track and
+   * can only ever produce an empty result, so it is rendered as information instead of a filter.
    */
   const inventory = useMemo(() => {
     const counts = {} as Record<InventoryCategory, number>;
     const has = {} as Record<InventoryCategory, boolean>;
-    for (const category of Object.keys(INVENTORY_MATCHERS) as InventoryCategory[]) {
-      const n = features.filter((f) => INVENTORY_MATCHERS[category](f)).length;
+    for (const category of FEATURE_KIND_KEYS) {
+      const n = features.filter((f) => featureMatchesKind(f, category)).length;
       counts[category] = n;
       has[category] = n > 0;
     }
     return {
       counts,
       has,
-      regions: regions.length,
-      /** Curated features the track actually plots (domains + point sites) vs everything fetched. */
-      plotted: functionalSites.length + domains.length,
+      spans: spanFeatures.length,
+      /** Curated features the track actually plots (bands + spans + points) vs everything fetched. */
+      plotted: domains.length + spanFeatures.length + pointSites.length,
       curated: features.filter((f) => getType(f) !== "chain").length,
     };
-  }, [features, regions, functionalSites, domains]);
+  }, [features, spanFeatures, pointSites, domains]);
 
   /**
    * A category can lose every feature it counted while a chip is selected (a re-run, a streamed
@@ -439,8 +323,8 @@ export function FunctionTab({
 
   // Staggered non-colliding tier heights for functional site lollipops
   const sortedFunctionalSites = useMemo(() => {
-    return [...functionalSites].sort((a, b) => a.start - b.start);
-  }, [functionalSites]);
+    return [...pointSites].sort((a, b) => a.start - b.start);
+  }, [pointSites]);
 
   const siteTiers = useMemo(() => {
     const tiers: number[] = [];
@@ -474,6 +358,42 @@ export function FunctionTab({
       ),
     [sortedFunctionalSites, domains, coversResidue]
   );
+
+  /**
+   * Span-lane layout.
+   *
+   * Spans overlap by nature — five of GZF1's low-complexity segments sit inside its two disordered
+   * regions — so each is packed into the first tier whose already-placed intervals do not overlap
+   * it. A span that would need a fourth tier shares the last one rather than disappearing.
+   */
+  const spanLayout = useMemo(() => {
+    const sorted = [...spanFeatures]
+      .map((f) => ({
+        feature: f,
+        start: typeof f.start === "number" && Number.isFinite(f.start) ? f.start : 0,
+        end: typeof f.end === "number" && Number.isFinite(f.end) ? f.end : f.start,
+      }))
+      .sort((a, b) => a.start - b.start);
+    const tierEnds: number[] = [];
+    const placed = sorted.map((span) => {
+      let tier = tierEnds.findIndex((end) => span.start > end);
+      if (tier === -1) {
+        if (tierEnds.length < TRACK.spanTiers) {
+          tierEnds.push(span.end);
+          tier = tierEnds.length - 1;
+        } else {
+          // Deeper nesting than the lane can show: share the last tier rather than dropping the
+          // annotation silently.
+          tier = TRACK.spanTiers - 1;
+          tierEnds[tier] = Math.max(tierEnds[tier], span.end);
+        }
+      } else {
+        tierEnds[tier] = span.end;
+      }
+      return { ...span, tier };
+    });
+    return { placed, tierCount: Math.max(1, tierEnds.length) };
+  }, [spanFeatures]);
 
   // Flanking proximity calculations
   const { nearestUpstream, nearestDownstream } = useMemo(() => {
@@ -571,8 +491,8 @@ export function FunctionTab({
                 Full-Length Domain Architecture &amp; Curated Sites
               </h4>
               <div className="flex items-center gap-2">
-                <span className="text-[9.5px] font-mono px-2 py-0.5 rounded border bg-cs-surface-2 border-cs-border text-cs-text-muted">
-                  Length: <strong className="text-cs-text-primary">{seqLength} aa</strong>
+                <span className="badge-metric">
+                  Length: <strong>{seqLength} aa</strong>
                 </span>
                 <span className="badge-data-source">
                   UniProtKB &amp; InterPro
@@ -625,9 +545,9 @@ export function FunctionTab({
               {curatedAnnotationsAvailable && (
                 <span
                   className="px-2.5 py-1 rounded-full text-[9.5px] font-mono font-bold border bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
-                  title={`${inventory.regions} curated region annotation${inventory.regions === 1 ? "" : "s"} (e.g. disordered regions). Regions are residue spans rather than point sites, so they are counted here but not plotted as lollipops.`}
+                  title={`${inventory.spans} curated annotation${inventory.spans === 1 ? "" : "s"} drawn on the span lane below the backbone — features annotated over a run of residues (transmembrane helices, zinc fingers, repeats, low-complexity segments, disordered regions, motifs). They are not point sites, so they are drawn as spans, not lollipops.`}
                 >
-                  {inventory.regions} Region{inventory.regions === 1 ? "" : "s"} <span className="font-normal">(not plotted)</span>
+                  {inventory.spans} Span{inventory.spans === 1 ? "" : "s"} <span className="font-normal">(span lane)</span>
                 </span>
               )}
               {selectedCategory && (
@@ -928,6 +848,85 @@ export function FunctionTab({
                       className="stroke-slate-300 dark:stroke-slate-700 stroke-[0.75]"
                       strokeDasharray="2 3"
                     />
+
+                    {/*
+                      Curated spans: features annotated over a run of residues, drawn as thin bars in
+                      their own lane instead of as point lollipops. GZF1's ten C2H2 zinc fingers are
+                      23–24 residues each; as pins they were fifteen near-black dots claiming a
+                      24-residue finger sits at one residue. Bars are painted after the lollipops so a
+                      stem passing behind one does not cut it in half.
+                    */}
+                    {spanLayout.placed.map((span, idx) => {
+                      const x1 = getTrackX(span.start);
+                      const x2 = getTrackX(span.end);
+                      const w = Math.max(x2 - x1, 2.5);
+                      const y = TRACK.spanLaneTop + span.tier * TRACK.spanTierStep;
+                      const isSelected = isFeatureSelected({ type: "site", start: span.start, end: span.end });
+                      const isEnclosing = coversResidue(span.feature, pos);
+                      const matchesCategory = matchesInventoryCategory(span.feature, selectedCategory);
+                      const distance = isEnclosing ? 0 : pos < span.start ? span.start - pos : pos - span.end;
+                      const selectSpan = () => handleFeatureSelect({
+                        type: "site",
+                        name: span.feature.description || span.feature.type,
+                        start: span.start,
+                        end: span.end,
+                        category: span.feature.type,
+                        description: span.feature.description,
+                        isEnclosing,
+                        distanceFromVariant: distance,
+                      });
+                      return (
+                        <g
+                          key={`span-${idx}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={isSelected}
+                          aria-label={
+                            `Curated span: ${span.feature.type} ${span.feature.description || ""} at residues ${span.start} to ${span.end}`.trim() +
+                            (isEnclosing ? `, contains the variant residue ${pos}` : "") +
+                            (isSelected ? ", selected" : "")
+                          }
+                          className="cursor-pointer group focus-visible:outline-hidden"
+                          style={{ opacity: matchesCategory ? 1 : 0.2, transition: "opacity 0.2s" }}
+                          onClick={selectSpan}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              selectSpan();
+                            }
+                          }}
+                        >
+                          <title>{`${span.feature.type}: ${span.feature.description || ""} (${span.start}–${span.end}, ${span.end - span.start + 1} aa)`}</title>
+                          <rect
+                            x={x1}
+                            y={y}
+                            width={w}
+                            height={TRACK.spanHeight}
+                            rx={TRACK.spanHeight / 2}
+                            fill={sitePinColor(span.feature)}
+                            className={`transition-colors ${
+                              isSelected
+                                ? "stroke-amber-600 stroke-[1.5]"
+                                : isEnclosing
+                                  ? "stroke-amber-500/60 stroke-[0.75] group-hover:stroke-amber-500"
+                                  : "stroke-transparent group-hover:stroke-slate-400 stroke-[0.75] group-focus-visible:stroke-amber-300 group-focus-visible:stroke-[2]"
+                            }`}
+                          />
+                          {/* A span that contains the variant gets an underline: the bar alone cannot
+                              say "the variant is in here" once several spans share the window. */}
+                          {isEnclosing && (
+                            <rect
+                              x={x1}
+                              y={y + TRACK.spanHeight + 0.75}
+                              width={w}
+                              height="1.25"
+                              rx="0.6"
+                              className="fill-amber-600 dark:fill-amber-400 pointer-events-none"
+                            />
+                          )}
+                        </g>
+                      );
+                    })}
 
                     {/* Staggered curated-site lollipops, each anchored to the edge its residue sits on */}
                     {sortedFunctionalSites.map((s: any, idx: number) => {
@@ -1521,24 +1520,57 @@ export function FunctionTab({
                 </div>
                 {displayedMatchingFeatures.map((f, idx) => {
                   const badgeClass = getFeatureBadgeStyle(f.type);
+                  const isDom = isDomainFeature(f);
+                  const featEnd = typeof f.end === "number" && Number.isFinite(f.end) ? f.end : f.start;
+                  const spanLength = featEnd - f.start + 1;
+                  const geometry = featureGeometryFor(f.type);
+                  const isSelected = isFeatureSelected({ type: isDom ? "domain" : "site", start: f.start, end: featEnd });
+                  const select = () => handleFeatureSelect({
+                    type: isDom ? "domain" : "site",
+                    name: f.description || f.type,
+                    start: f.start,
+                    end: featEnd,
+                    category: f.type,
+                    description: f.description,
+                    interproId: f.interproId,
+                    isEnclosing: true,
+                    distanceFromVariant: 0,
+                  });
                   return (
-                    <div
+                    /*
+                     * A button, not a card: the point of this box is to link the residue to the
+                     * track, and the track already has a selection language (amber pin, amber span
+                     * stroke, brightened band, inspector bar). Read-only text left the two views
+                     * unconnected.
+                     */
+                    <button
                       key={idx}
-                      className="p-3 rounded-lg border leading-relaxed text-xs shadow-sm transition-all"
-                      style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={select}
+                      className={`w-full text-left p-3 rounded-lg border leading-relaxed text-xs shadow-sm transition-colors cursor-pointer group focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 ${
+                        isSelected ? "border-amber-500/70 bg-amber-500/10" : "hover:border-cs-accent-clay"
+                      }`}
+                      style={isSelected ? undefined : { background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
                     >
-                      <div className="flex items-center justify-between">
+                      <span className="flex items-center justify-between gap-2">
                         <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold font-mono uppercase ${badgeClass}`}>
                           {f.type}
                         </span>
                         <span className="text-[10px] font-mono font-bold" style={{ color: "var(--cs-text-muted)" }}>
-                          Residue {f.start === f.end ? f.start : `${f.start}–${f.end}`}
+                          {geometry === "band" ? "Residues" : geometry === "span" ? "Span" : "Residue"}{" "}
+                          {f.start === featEnd ? f.start : `${f.start}–${featEnd}`}
+                          {spanLength > 1 ? ` (${spanLength} aa)` : ""}
                         </span>
-                      </div>
-                      <p className="mt-1.5 text-xs font-sans" style={{ color: "var(--cs-text-secondary)" }}>
+                      </span>
+                      <span className="block mt-1.5 text-xs font-sans" style={{ color: "var(--cs-text-secondary)" }}>
                         {f.description || "Curated functional feature at this site."}
-                      </p>
-                    </div>
+                      </span>
+                      <span className="mt-1.5 flex items-center gap-1 text-[9.5px] font-mono font-semibold text-cs-accent-clay opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+                        <Crosshair className="w-3 h-3" />
+                        {isSelected ? "Selected — highlighted in the track" : "Highlight in the track"}
+                      </span>
+                    </button>
                   );
                 })}
               </div>

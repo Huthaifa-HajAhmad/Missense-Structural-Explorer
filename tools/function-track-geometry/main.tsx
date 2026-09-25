@@ -4,6 +4,7 @@ import "@fontsource-variable/source-sans-3";
 import "@fontsource-variable/source-code-pro";
 import "./harness.css";
 import { FunctionTab } from "../../src/components/evidence/FunctionInteractionsTabs";
+import { FeaturePaletteLegend } from "../../src/components/inspector/FeaturePaletteLegend";
 import type { AnalysisState, AnalysisResult } from "../../src/types";
 import type { TabComponentProps } from "../../src/components/evidence/types";
 
@@ -60,7 +61,6 @@ const EXPECTED_CNNM2_COUNTS = {
   disulfide: 0,
   transmembrane: 3,
   other: 0,
-  region: 2,
   spans: 5, // 3 transmembrane helices + 2 disordered regions
   plottedSites: 1, // the phosphoserine; the TM helices are spans
 } as const;
@@ -114,8 +114,8 @@ const EXPECTED_GZF1_COUNTS = {
   ptm: 1,
   disulfide: 0,
   transmembrane: 0,
-  other: 12, // 10 zinc fingers + 2 mutagenesis
-  spans: 17,
+  other: 17, // 10 zinc fingers + 5 low-complexity segments + 2 mutagenesis points
+  spans: 17, // 10 zinc fingers + 5 low-complexity segments + 2 disordered regions
   plottedSites: 3, // points only: 2 mutagenesis + 1 phosphoserine
 } as const;
 
@@ -187,6 +187,26 @@ function categoryMatchesType(type: string, category: string): boolean {
       );
     default: return false;
   }
+}
+
+/**
+ * Which fixture features are annotated over a run of residues, so the harness knows how many bars a
+ * case must draw — and how many of them *should* claim the variant — from the fixture rather than
+ * from the render. Reading that off the rendered aria-labels instead made the underline check
+ * vacuous: when the render stopped marking the enclosing span, the expected count fell to zero and
+ * the check passed on an empty set.
+ */
+function isSpanType(type: string): boolean {
+  return [
+    "transmembrane",
+    "region",
+    "zinc finger",
+    "repeat",
+    "coiled coil",
+    "compositional bias",
+    "motif",
+    "dna binding",
+  ].includes(type.toLowerCase());
 }
 
 /** Which fixture features the track plots as lollipops (not domains, not regions, not chains). */
@@ -574,7 +594,7 @@ const SPAN_LANE = { top: 62, siteRailY: 74 } as const;
 function checkSpanLane(
   id: string,
   t: Track,
-  expected: { spans: number; points: number; spanLaneTop: number; siteRailY: number }
+  expected: { spans: number; points: number; spanLaneTop: number; siteRailY: number; enclosing: number }
 ): Check[] {
   const checks: Check[] = [];
 
@@ -616,16 +636,18 @@ function checkSpanLane(
     detail: collisions.length ? collisions.join("; ") : `${t.spans.length} bars across ${tiers.size} tier(s)`,
   });
 
-  // The variant must be inside something, and that something must say so.
+  // The variant must be inside something, and that something must say so. How many spans *should*
+  // contain it comes from the fixture, so an implementation that simply stops claiming containment
+  // fails here instead of quietly agreeing with itself.
   const enclosing = t.spans.filter((s) => /contains the variant residue/.test(s.name));
   const underlined = enclosing.filter((s) => s.underline);
   checks.push({
     name: `${id}: a span containing the variant is underlined`,
-    pass: enclosing.length === 0 ? true : underlined.length === enclosing.length,
+    pass: enclosing.length === expected.enclosing && underlined.length === enclosing.length,
     detail:
-      enclosing.length === 0
-        ? "no span contains the variant residue"
-        : `${underlined.length}/${enclosing.length} enclosing bars underlined`,
+      enclosing.length === expected.enclosing
+        ? `${underlined.length}/${enclosing.length} enclosing bars underlined`
+        : `${enclosing.length} bar(s) claim to contain the variant, the fixture has ${expected.enclosing} that do; ${underlined.length} underlined`,
   });
 
   return checks;
@@ -775,9 +797,13 @@ function checkZoomWindow(id: string, t: Track, expectedResidues: number[]): Chec
   const unclipped = t.sites.filter((s) => !s.g.closest("[clip-path]"));
   if (unclipped.length) errors.push(`${unclipped.length} pin(s) are not inside a clipped group — off-window sites would paint outside the track`);
   const visibleBands = t.domains.filter((d) => d.blockBox.right > t.rail.x && d.blockBox.x < t.rail.right);
-  if (!visibleBands.length) errors.push("no domain band is visible in the zoomed window");
+  const visibleSpans = t.spans.filter((s) => s.barBox.right > t.rail.x && s.barBox.x < t.rail.right);
   const visiblePins = t.sites.filter((s) => s.pin.x + s.pin.w > t.rail.x && s.pin.x < t.rail.right);
-  if (!visiblePins.length) errors.push("no lollipop pin is visible in the zoomed window");
+  // "Something is visible" is the real requirement — the phosphoserine may be the only point site
+  // and it may sit outside the window, in which case bands or spans carry the view.
+  if (!visibleBands.length && !visibleSpans.length && !visiblePins.length) {
+    errors.push("nothing is visible in the zoomed window (no band, span or pin)");
+  }
 
   return [
     {
@@ -785,7 +811,7 @@ function checkZoomWindow(id: string, t: Track, expectedResidues: number[]): Chec
       pass: errors.length === 0,
       detail: errors.length
         ? errors.join("; ")
-        : `window ${start}–${end}, ${visibleBands.length}/${t.domains.length} bands and ${visiblePins.length}/${t.sites.length} pins visible, all shapes clipped`, 
+        : `window ${start}–${end}, ${visibleBands.length}/${t.domains.length} bands, ${visibleSpans.length}/${t.spans.length} spans and ${visiblePins.length}/${t.sites.length} pins visible, all shapes clipped`,
     },
   ];
 }
@@ -858,8 +884,8 @@ async function checkNoFocusRings(id: string, t: Track): Promise<Check[]> {
   const checks: Check[] = [];
 
   const ptm = t.sites.find((s) => /761/.test(s.name)) ?? t.sites.find((s) => /residue \d+/.test(s.name));
-  if (!ptm || t.sites.length < 2) {
-    checks.push({ name: `${id}: selecting a site paints no ring around the pinhead`, pass: false, detail: "no selectable site to click" });
+  if (!ptm) {
+    checks.push({ name: `${id}: selecting a site paints no ring around the pinhead`, pass: false, detail: "no point site to click" });
     return checks;
   }
   const pinRadius = (s: typeof ptm) => (s.g.querySelectorAll("circle")[1] as SVGCircleElement)?.r.baseVal.value ?? 0;
@@ -977,7 +1003,10 @@ function chipByText(host: HTMLElement, re: RegExp): { el: Element; button: HTMLB
   };
 }
 
-type ExpectedCounts = typeof EXPECTED_CNNM2_COUNTS | typeof EXPECTED_COVERAGE_COUNTS;
+type ExpectedCounts =
+  | typeof EXPECTED_CNNM2_COUNTS
+  | typeof EXPECTED_COVERAGE_COUNTS
+  | typeof EXPECTED_GZF1_COUNTS;
 
 const CHIP_SPEC: Array<[keyof ExpectedCounts, RegExp]> = [
   ["domain", /Domain/i],
@@ -1018,7 +1047,7 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
   // 9b. Curated spans are drawn on the span lane, so the chip discloses how many there are and what
   //     the lane means — previously these were withheld from the track and disclosed as "Regions
   //     (not plotted)". The chip must render even at zero, like every other category.
-  const spanEl = Array.from(host.querySelectorAll("span")).find((n) => /^\d+ Spans?( \(band row\))?$/.test((n.textContent || "").trim()));
+  const spanEl = Array.from(host.querySelectorAll("span")).find((n) => /^\d+ Spans?( \(span lane\))?$/.test((n.textContent || "").trim()));
   const spanCount = Number((spanEl?.textContent || "").match(/\d+/)?.[0] ?? NaN);
   checks.push({
     name: `${id}: the plotted span count is disclosed`,
@@ -1050,12 +1079,33 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
     checks.push({ name: `${id}: a zero-count category is not offered as a filter`, pass: false, detail: "no Active Site chip or domain group" });
   }
 
-  // 11. Every filterable chip must (a) mark itself pressed, (b) dim exactly the pins it excludes,
-  //     and (c) clear when clicked again. Checked for EVERY filterable category, not just PTM:
-  //     with the CNNM2 payload alone, four of the seven chips were never exercised at all.
-  //     Which pins a chip must keep lit is decided by the harness's own oracle over the fixture
-  //     types, not by reading the pins' labels back out of the DOM.
-  const siteGroups = Array.from(host.querySelectorAll('g[aria-label^="Functional site:"]')) as SVGGElement[];
+  // 11. Every filterable chip must (a) mark itself pressed, (b) dim exactly the annotations it
+  //     excludes, and (c) clear when clicked again. Checked for EVERY filterable category, not just
+  //     PTM, and over BOTH rendered geometries — a chip counts features, and a feature is drawn as
+  //     a pin or as a span bar depending on how it is annotated, so a filter that only dims pins
+  //     would leave the transmembrane helices lit under every chip.
+  const shapes: Array<{ el: SVGGElement; type: string }> = [
+    ...Array.from(host.querySelectorAll('g[aria-label^="Functional site:"]')).map((g) => ({
+      el: g as SVGGElement,
+      type: (g.getAttribute("aria-label") || "").replace(/^Functional site:\s*/, "").split(" at residue")[0].trim(),
+    })),
+    ...Array.from(host.querySelectorAll('g[aria-label^="Curated span:"]')).map((g) => ({
+      el: g as SVGGElement,
+      // "Curated span: Zinc finger C2H2-type 1 at residues 317 to 340" — the type is the first two
+      // words only when the description is multi-word, so the type comes from the fixture instead.
+      type: (g.getAttribute("aria-label") || "").replace(/^Curated span:\s*/, "").split(" at residues")[0].trim(),
+    })),
+  ];
+  const typeOfSpanShape = (label: string): string => {
+    const description = label.replace(/^Curated span:\s*/, "").split(" at residues")[0].trim();
+    // Match the fixture's longest type that prefixes the description, so "Zinc finger C2H2-type 1"
+    // resolves to "Zinc finger" and "Compositional bias Low complexity" to "Compositional bias".
+    const known = Array.from(new Set(features.map((f) => f.type))).sort((a, b) => b.length - a.length);
+    return known.find((t) => description.toLowerCase().startsWith(t.toLowerCase())) ?? description;
+  };
+  for (const shape of shapes) {
+    if (shape.type.includes(" ") && !features.some((f) => f.type === shape.type)) shape.type = typeOfSpanShape(shape.type);
+  }
   const filterable = CHIP_SPEC.filter(([key]) => want[key] > 0);
   const failures: string[] = [];
   const transcripts: string[] = [];
@@ -1065,15 +1115,15 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
       failures.push(`${key}: not a selectable button although its count is ${want[key]}`);
       continue;
     }
-    // The chip counts every feature in the category (bands included); the opacity expectation
-    // only covers the ones the track draws as pins — the Domain filter legitimately keeps none.
+    // The chip counts every feature in the category, so the rendered shapes it must keep lit are
+    // those whose type matches the harness's own oracle for that category.
     const matching = features.filter((f) => categoryMatchesType(f.type, key));
-    const expectedKept = matching.filter((f) => isPlottedSite(f.type)).length;
     if (matching.length !== want[key]) {
       failures.push(`${key}: the fixture has ${matching.length} matching features but the expected count is ${want[key]} — the oracle is wrong`);
       continue;
     }
-    const opacityOf = () => siteGroups.map((g) => settledOpacity(g));
+    const expectedKept = shapes.filter((s) => categoryMatchesType(s.type, key)).length;
+    const opacityOf = () => shapes.map((s) => settledOpacity(s.el));
     const before = opacityOf();
     chip.button.click();
     await nextFrame();
@@ -1093,14 +1143,16 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
     }
     transcripts.push(`${key}: kept ${kept}/${expectedKept}`);
   }
+  const renderedShapes = shapes.length;
+  const expectedShapes = want.plottedSites + want.spans;
   checks.push({
     name: `${id}: every filterable chip dims exactly what it excludes`,
-    pass: failures.length === 0 && filterable.length > 0 && siteGroups.length === want.plottedSites,
+    pass: failures.length === 0 && filterable.length > 0 && renderedShapes === expectedShapes,
     detail: failures.length
       ? failures.join("; ")
-      : siteGroups.length !== want.plottedSites
-        ? `rendered ${siteGroups.length} pins, fixture plots ${want.plottedSites} — filter comparison would be incomplete`
-        : `${filterable.length} filter(s) exercised over ${siteGroups.length} pins — ${transcripts.join(", ")}`,
+      : renderedShapes !== expectedShapes
+        ? `rendered ${renderedShapes} annotation shapes (${want.plottedSites} pins + ${want.spans} spans expected) — filter comparison would be incomplete`
+        : `${filterable.length} filter(s) exercised over ${renderedShapes} shapes — ${transcripts.join(", ")}`,
   });
 
   // 12. The default (unfiltered) residue read-out must agree with the Domain filter: the
@@ -1131,6 +1183,146 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
   return checks;
 }
 
+/* ── Legend ────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The inspector's "Feature Types & Palette" legend, measured against the track it claims to
+ * describe.
+ *
+ * The legend is a second surface that makes a claim about every other surface, and it was wrong:
+ * four of its five swatches named colours no shape in the track was painted with (indigo domains,
+ * amber binding sites, emerald PTMs, cyan disulfides) and transmembrane regions and the remaining
+ * curated sites had no entry at all. Reading the markup cannot catch a wrong hex — that is how those
+ * swatches survived — so the legend is rendered here and every swatch is compared with the colour
+ * the track actually painted for that category, read off the rendered shapes.
+ *
+ * The category list is written out rather than imported from the palette: an oracle that reads the
+ * module it is checking agrees with it by construction.
+ */
+const LEGEND_KINDS = ["domain", "active", "binding", "ptm", "disulfide", "transmembrane", "other"] as const;
+const LEGEND_SHAPES = ["point", "span"] as const;
+
+/** "Functional site: … at residue 761" / "Curated span: … at residues 317 to 340". */
+function residueSpanFromLabel(label: string): { start: number; end: number } | null {
+  const span = label.match(/at residues (\d+) to (\d+)/);
+  if (span) return { start: Number(span[1]), end: Number(span[2]) };
+  const point = label.match(/at residue (\d+)/);
+  if (point) return { start: Number(point[1]), end: Number(point[1]) };
+  return null;
+}
+
+/** A domain band is filled with a gradient, so its colour lives in the gradient's stops. */
+function gradientStopColors(svg: SVGSVGElement, fill: string): string[] {
+  const id = fill.match(/url\(["']?#([^)"']+)/)?.[1];
+  if (!id) return [];
+  const gradient = svg.querySelector(`#${CSS.escape(id)}`);
+  if (!gradient) return [];
+  return Array.from(gradient.querySelectorAll("stop")).map((stop) => getComputedStyle(stop).stopColor);
+}
+
+function checkLegend(
+  root: ParentNode,
+  t: Track | null,
+  features: Array<{ type: string; start: number }>
+): Check[] {
+  const checks: Check[] = [];
+  const swatches = Array.from(root.querySelectorAll("[data-legend-kind]"));
+  const keys = swatches.map((s) => s.getAttribute("data-legend-kind") || "");
+  const missing = LEGEND_KINDS.filter((k) => !keys.includes(k));
+  const unexpected = keys.filter((k) => !(LEGEND_KINDS as readonly string[]).includes(k));
+  checks.push({
+    name: "legend: lists every category the track can paint, and nothing else",
+    pass: missing.length === 0 && unexpected.length === 0 && keys.length === LEGEND_KINDS.length,
+    detail:
+      missing.length || unexpected.length || keys.length !== LEGEND_KINDS.length
+        ? `${keys.length} swatch(es) [${keys.join(", ")}]; missing ${missing.join(", ") || "none"}; unexpected ${unexpected.join(", ") || "none"}`
+        : `${keys.length} swatches, one per category`,
+  });
+
+  // What the track painted, per category, from the rendered shapes of the coverage case (the one
+  // fixture with a feature in every category). Pins and bars have a flat fill that must equal the
+  // swatch exactly; a domain band is filled with a gradient, so the swatch has to be one of its
+  // stops rather than all of them.
+  const painted = new Map<string, Array<{ fill: string; source: string; flat: boolean }>>();
+  const record = (key: string, fill: string, source: string, flat: boolean) => {
+    painted.set(key, [...(painted.get(key) ?? []), { fill, source, flat }]);
+  };
+  if (t) {
+    const featureAt = (start: number) => features.find((f) => f.start === start);
+    const shapes: Array<{ label: string; fill: string; what: string }> = [
+      ...t.sites.map((s) => ({ label: s.name, fill: getComputedStyle(s.pinEl).fill, what: "pin" })),
+      ...t.spans.map((s) => ({ label: s.name, fill: getComputedStyle(s.bar).fill, what: "bar" })),
+    ];
+    for (const shape of shapes) {
+      const loc = residueSpanFromLabel(shape.label);
+      const feature = loc ? featureAt(loc.start) : undefined;
+      if (!feature) continue;
+      const where = shape.what === "pin" ? `pin @${loc!.start}` : `bar ${loc!.start}–${loc!.end}`;
+      for (const key of LEGEND_KINDS) if (categoryMatchesType(feature.type, key)) record(key, shape.fill, where, true);
+    }
+    const domainBlock = t.domains[0]?.block;
+    if (domainBlock) {
+      for (const stop of gradientStopColors(t.svg, getComputedStyle(domainBlock).fill)) {
+        record("domain", stop, "band gradient stop", false);
+      }
+    }
+  }
+
+  const sameColor = (a: string, b: string) => {
+    const rgbA = parseRgb(a);
+    const rgbB = parseRgb(b);
+    return !!rgbA && !!rgbB && rgbA.join(",") === rgbB.join(",");
+  };
+
+  const mismatches: string[] = [];
+  const agreed: string[] = [];
+  const nothingPainted: string[] = [];
+  for (const key of LEGEND_KINDS) {
+    const swatch = swatches.find((s) => s.getAttribute("data-legend-kind") === key) as HTMLElement | undefined;
+    if (!swatch) continue; // the coverage check above already reports a missing swatch
+    const legendCss = getComputedStyle(swatch).backgroundColor;
+    const sources = painted.get(key) ?? [];
+    const flat = sources.filter((s) => s.flat);
+    const stops = sources.filter((s) => !s.flat);
+    if (!sources.length) {
+      nothingPainted.push(key);
+      continue;
+    }
+    const wrongFill = flat.find((s) => !sameColor(s.fill, legendCss));
+    if (wrongFill) {
+      mismatches.push(`${key}: track painted ${wrongFill.fill} (${wrongFill.source}) but the legend says ${legendCss}`);
+    } else if (stops.length && !stops.some((s) => sameColor(s.fill, legendCss))) {
+      mismatches.push(
+        `${key}: the legend says ${legendCss}, which is not one of the band's gradient stops (${stops.map((s) => s.fill).join(", ")})`
+      );
+    } else {
+      agreed.push(`${key} ${legendCss} across ${sources.length} source(s)`);
+    }
+  }
+  checks.push({
+    name: "legend: every swatch matches the colour the track paints for that category",
+    pass: mismatches.length === 0 && nothingPainted.length === 0 && agreed.length === LEGEND_KINDS.length,
+    detail: mismatches.length || nothingPainted.length
+      ? [...mismatches, `nothing painted: ${nothingPainted.join(", ")}`].join("; ")
+      : agreed.join(", "),
+  });
+
+  const shapeRows = Array.from(root.querySelectorAll("[data-legend-shape]")).map(
+    (s) => s.getAttribute("data-legend-shape") || ""
+  );
+  const missingShapes = LEGEND_SHAPES.filter((s) => !shapeRows.includes(s));
+  checks.push({
+    name: "legend: the shape rows cover the geometries a site can have",
+    pass: missingShapes.length === 0 && shapeRows.length === LEGEND_SHAPES.length,
+    detail:
+      missingShapes.length || shapeRows.length !== LEGEND_SHAPES.length
+        ? `rows [${shapeRows.join(", ")}]; missing ${missingShapes.join(", ") || "none"}`
+        : `rows [${shapeRows.join(", ")}] — a legend that only names kinds cannot explain why some annotations are bars`,
+  });
+
+  return checks;
+}
+
 /* ── Page ──────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -1138,13 +1330,15 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
  * runtime: the point of the self-check is to fail when a case silently stops contributing.
  * Per 1× case: 6 geometry + 4 span lane + 1 residue mapping + 1 contrast + 3 callout + 2 ring
  * + 1 keyboard focus + 4 inventory = 22; the zoomed case swaps the mapping check for the
- * zoom-window check (22); the reported case adds the default-read-out check, and the run adds this
- * self-check. Update this deliberately when assertions are added.
+ * zoom-window check (22); the reported case adds the default-read-out check, the run adds the three
+ * legend checks (the legend is one component, measured once), and the self-check. Update this
+ * deliberately when assertions are added.
  */
 function expectedCheckCount(): number {
   const perCase = 22;
   const cbs1Extra = 1;
-  return CASES.length * perCase + cbs1Extra + 1;
+  const legend = 3;
+  return CASES.length * perCase + cbs1Extra + legend + 1;
 }
 
 /** How many times the harness clicks "Zoom in (+0.5x)" for the zoomed case (→ 3.5×, a 250 aa window). */
@@ -1186,7 +1380,17 @@ function App(): React.ReactElement {
         const fixture = c.kind === "coverage" ? COVERAGE_FEATURES : c.kind === "gzf1" ? GZF1_FEATURES : CNNM2_FEATURES;
         const isCoverage = c.kind === "coverage";
         const isZoomed = c.kind === "zoomed";
-        const spanExpectation = { spans: want.spans, points: want.plottedSites, spanLaneTop: SPAN_LANE.top, siteRailY: SPAN_LANE.siteRailY };
+        const spanExpectation = {
+          spans: want.spans,
+          points: want.plottedSites,
+          spanLaneTop: SPAN_LANE.top,
+          siteRailY: SPAN_LANE.siteRailY,
+          // How many spans *should* claim the variant, from the fixture: the render's own claim
+          // cannot be the expectation, or an implementation that stops claiming containment passes.
+          enclosing: fixture.features.filter(
+            (f) => isSpanType(f.type) && c.residue >= f.start && c.residue <= (f.end ?? f.start)
+          ).length,
+        };
         if (isZoomed) {
           // Zoom the way a user does, then re-read: clipping, label suppression and stem anchoring
           // all differ once the window is narrower than the protein. Zooming alone starts at
@@ -1243,6 +1447,20 @@ function App(): React.ReactElement {
         publish(checks);
       }
 
+      // The legend describes every shape above, so it is measured against them — once, over the
+      // coverage case, which is the only fixture with a feature in every category.
+      const legendProbe = document.getElementById("legend-probe");
+      const coverageHost = document.getElementById("host-coverage");
+      const coverageRead = coverageHost ? readTrack(coverageHost) : null;
+      checks.push(
+        ...checkLegend(
+          legendProbe ?? document,
+          coverageRead && !("error" in coverageRead) ? coverageRead.track : null,
+          COVERAGE_FEATURES.features
+        )
+      );
+      publish(checks);
+
       // The runner must not be able to report success for a run that measured nothing: a missing
       // host, a renamed selector or a truncated virtual-time budget all shrink this number.
       // `+ 1` is this check itself, which is counted in `expectedCheckCount()`.
@@ -1270,12 +1488,16 @@ function App(): React.ReactElement {
 
   return (
     <div style={{ background: "var(--cs-bg)", padding: 12 }}>
-      <div id="geometry-report">
+      <div id="geometry-report" style={{ maxHeight: 220, overflow: "auto", borderBottom: "1px solid #ddd", marginBottom: 8 }}>
         {report?.checks.map((c, i) => (
           <div key={i} style={{ font: "11px monospace", color: c.pass ? "#166534" : "#B91C1C", whiteSpace: "pre-wrap" }}>
             {c.pass ? "PASS" : "FAIL"} {c.name} — {c.detail}
           </div>
         ))}
+      </div>
+      {/* The inspector's legend, rendered once and measured against every case's track below. */}
+      <div id="legend-probe" style={{ width: 380, marginBottom: 16 }}>
+        <FeaturePaletteLegend />
       </div>
       {CASES.map((c) => {
         const features = c.kind === "coverage" ? COVERAGE_FEATURES : c.kind === "gzf1" ? GZF1_FEATURES : CNNM2_FEATURES;
