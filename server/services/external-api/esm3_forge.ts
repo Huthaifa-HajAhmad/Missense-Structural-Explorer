@@ -1,6 +1,6 @@
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
-import { classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
+import { UNMEASURED_BURIAL_ENVIRONMENT, classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
@@ -253,7 +253,9 @@ export async function fetchEsm3StructureEval(
   if (burialBand === "core") microenvironments.push("Hydrophobic core");
   else if (burialBand === "surface") microenvironments.push("Surface");
   else if (burialBand === "boundary") microenvironments.push("Binding pocket");
-  else microenvironments.push("Burial not measured");
+  // The shared string, not a literal: the Perturbation tab's chips key their "this is an
+  // absence, not a finding" styling off it.
+  else microenvironments.push(UNMEASURED_BURIAL_ENVIRONMENT);
 
   if (isHelix) microenvironments.push("Alpha-Helix");
   else if (isSheet) microenvironments.push("Beta-Sheet");

@@ -42,6 +42,22 @@ export const PACKING_NEIGHBOUR_BANDS = {
 /** Drawing domain for the packing meter, in Cα neighbours: a picture bound, not a maximum. */
 const PACKING_METER_BASE_DOMAIN = 24;
 
+/**
+ * The microenvironment entry that stands in for "accessibility was never measured".
+ *
+ * Shared because the producer and the renderer have to agree on it: `esm3_forge.ts` pushes
+ * this string into `microenvironments`, and the Perturbation tab's chips must paint it
+ * differently from a classification — the absence of a measurement must not wear the same
+ * chip as a finding. A literal copied into the view is exactly how those two drift, which is
+ * the failure this module exists to stop.
+ */
+export const UNMEASURED_BURIAL_ENVIRONMENT = "Burial not measured";
+
+/** True when a microenvironment entry reports the absence of a measurement, not a finding. */
+export function isUnmeasuredEnvironment(value: string): boolean {
+  return value === UNMEASURED_BURIAL_ENVIRONMENT;
+}
+
 export type BurialWord = "core" | "boundary" | "surface";
 
 /** How the reported word was decided. These are different measurements. */

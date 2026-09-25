@@ -1,5 +1,6 @@
 import React from "react";
 import { Sparkles } from "lucide-react";
+import { isUnmeasuredEnvironment } from "../../../shared/burialEvidence";
 
 interface Esm3ExploratorySectionProps {
   esm3Eval: any;
@@ -58,11 +59,30 @@ export function Esm3ExploratorySection({ esm3Eval }: Esm3ExploratorySectionProps
           <div className="p-2.5 border rounded-lg flex flex-col justify-between" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
             <span className="text-[9.5px] font-bold uppercase tracking-wider font-mono text-cs-text-muted">Microenvironment</span>
             <div className="mt-1 flex flex-wrap gap-1">
-              {esm3Eval.microenvironments?.map((env: string, i: number) => (
-                <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10 font-bold uppercase">
-                  {env}
-                </span>
-              )) || "N/A"}
+              {esm3Eval.microenvironments?.map((env: string, i: number) => {
+                /*
+                 * One of these entries is not a finding: when accessibility was never
+                 * measured the server sends the shared "not measured" entry instead of a
+                 * band. Painting it as a classification chip would assert exactly the
+                 * authority that string exists to disclaim — the same defect the burial
+                 * panel fixed by caveating a packing-derived word. So it is muted and left
+                 * in sentence case while the measured entries keep the full-strength chip.
+                 */
+                const unmeasured = isUnmeasuredEnvironment(env);
+                return (
+                  <span
+                    key={i}
+                    data-environment={unmeasured ? "unmeasured" : "measured"}
+                    className={
+                      unmeasured
+                        ? "text-[8px] px-1 py-0.5 rounded bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle font-medium"
+                        : "text-[8px] px-1 py-0.5 rounded bg-purple-500/5 text-purple-400 border border-purple-500/10 font-bold uppercase"
+                    }
+                  >
+                    {env}
+                  </span>
+                );
+              }) || "N/A"}
             </div>
             <span className="text-[10px] mt-0.5 text-cs-text-muted">Local coordinate classification</span>
           </div>
