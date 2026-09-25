@@ -2,7 +2,7 @@ import { generateAltVariants } from "../../routes/shared.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import type { PdbBestStructureMapping, ClinVarData, StringInteraction, GnomadVariantFrequency, GnomadGeneConstraint, UniprotFeaturesResult } from "../external.ts";
-import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, PdbSource } from "../../../src/shared/contracts.ts";
 import type { DisruptionPrediction } from "../stability/biophysics.ts";
 import type { RuleBasedInsights } from "../prediction/acmg.ts";
 
@@ -45,7 +45,7 @@ export interface CoreAnalysisData {
   gnomadFrequency: GnomadVariantFrequency | null;
   aouFrequency: ConservationData["aouFrequency"] | null;
   resolvedPdbId: string | null;
-  resolvedPdbSource: "RCSB PDB" | "AlphaFold";
+  resolvedPdbSource: PdbSource;
   ruleBasedInsights: RuleBasedInsights | null;
   serviceStatus: ServiceStatusMap;
   serviceTimings?: Record<string, number>;
@@ -142,11 +142,12 @@ export function assembleCoreResponsePayload(
       /*
        * The wild-type sequence the pipeline analysed.
        *
-       * `metadataSchema` has declared this field all along and the clinical report's
-       * re-synthesis sends it to the narrative route, but no builder populated it — so the
-       * request asked for a sequence that never arrived and the route always fell back to its
-       * optional branch. `mutatedSequence` is not a substitute: it differs at exactly the
-       * residue the narrative is asked to explain.
+       * The client's narrative re-synthesis sends this to the narrative route, which feeds it
+       * to `computeRuleBasedACMG` — PVS1's C-terminal demotion and the PM4/BP3 repeat test both
+       * key on it — and hashes it into the evidence cache key. No builder populated it, so the
+       * report's own criteria were computed without a sequence while the pipeline's were
+       * computed with one, and the two could disagree in front of a reader. `mutatedSequence`
+       * is not a substitute: it differs at exactly the residue the narrative explains.
        */
       sequence: sequence ?? null,
       alternativeVariants: generateAltVariants(sequence),

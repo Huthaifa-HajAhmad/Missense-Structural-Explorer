@@ -1,4 +1,5 @@
 import type { NumberingChoice, NumberingRemapRecord } from "../../shared/contracts";
+import { PDB_SOURCE_ALPHAFOLD } from "../../shared/contracts";
 
 export interface AnalysisVersionInfo {
   thresholds: string;
@@ -268,7 +269,7 @@ export function createTopLevelErrorAnalysisState(
         wildType: wildType || "",
         mutant: mutant || "",
         pdbId: null,
-        pdbSource: "AlphaFold",
+        pdbSource: PDB_SOURCE_ALPHAFOLD,
         analysisVersion: createAnalysisVersion()
       },
       insights: {

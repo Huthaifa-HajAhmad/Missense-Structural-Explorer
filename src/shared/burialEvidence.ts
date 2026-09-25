@@ -154,12 +154,15 @@ const BURIAL_DETAILS: Record<BurialWord | "undetermined", string> = {
  * establish. Appending "(Estimated from packing density.)" to one of them left the panel
  * making the stronger claim and qualifying it in the same breath — beside a caveat saying
  * packing is a proxy for burial rather than a measurement of it.
+ *
+ * Keyed by `BurialWord`, not by the status union: a packing basis requires the reported word
+ * to equal the packing band, so "undetermined" cannot reach this map. Typing it that way stops
+ * a sentence from being written for a state that cannot occur.
  */
-const BURIAL_DETAILS_FROM_PACKING: Record<BurialWord | "undetermined", string> = {
+const BURIAL_DETAILS_FROM_PACKING: Record<BurialWord, string> = {
   core: "The side chain sits in a densely packed region — many Cα neighbours — which is where a polar or charged substitution is most likely to cost folding stability.",
   boundary: "The side chain sits in a region of intermediate packing, between the densely packed core and the sparsely packed surface.",
   surface: "The side chain sits in a sparsely packed region, with few Cα neighbours — consistent with a position that contacts solvent rather than the fold interior.",
-  undetermined: "No burial measurement was reported for this position, so no statement about exposure can be made.",
 };
 
 const BASIS_LABELS: Record<BurialBasis, string> = {
@@ -314,10 +317,14 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
     label: BURIAL_LABELS[status],
     /*
      * When the word is a packing estimate, the sentence that defines it has to be a sentence
-     * about packing — not the accessibility sentence with a parenthetical bolted on.
+     * about packing — not the accessibility sentence with a parenthetical bolted on. The
+     * `status` check restates the invariant the basis computation already enforces (a packing
+     * basis needs the packing band to equal the word) so the compiler can see it.
      */
     detail:
-      basis === "residue-packing" ? BURIAL_DETAILS_FROM_PACKING[status] : BURIAL_DETAILS[status],
+      basis === "residue-packing" && status !== "undetermined"
+        ? BURIAL_DETAILS_FROM_PACKING[status]
+        : BURIAL_DETAILS[status],
     basis,
     basisLabel: BASIS_LABELS[basis],
     basisDetail:

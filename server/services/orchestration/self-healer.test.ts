@@ -64,6 +64,28 @@ describe("self-healer service", () => {
     expect(mockPersistVariantAnalysisPayload).not.toHaveBeenCalled();
   });
 
+  it("backfills the wild-type sequence into a payload persisted before the builders carried it", () => {
+    // A row written before `metadata.sequence` existed replays verbatim for up to 30 days, and
+    // the report's rule-based criteria are computed from whatever the client sends back. The
+    // backfill has to run on the "nothing else to heal" path too, which is the common one.
+    const completePayload = {
+      serviceStatus: { clinvar: "ok", conservationData: "ok" },
+      conservationData: { spliceai: 0.1 },
+      metadata: { gene: "BRAF", variant: "V600E" }
+    };
+
+    const healed = healCachedAnalysisIfPossible(completePayload, dummyContext);
+    expect(healed.metadata.sequence).toBe("MAALSGGGG...");
+
+    // ...and a sequence the payload already carries is left alone.
+    const withSequence = {
+      serviceStatus: { clinvar: "ok" },
+      conservationData: { spliceai: 0.1 },
+      metadata: { gene: "BRAF", variant: "V600E", sequence: "MK" }
+    };
+    expect(healCachedAnalysisIfPossible(withSequence, dummyContext).metadata.sequence).toBe("MK");
+  });
+
   it("heals timed-out services and missing spliceai from SQLite external_cache", () => {
     const timedOutPayload = {
       serviceStatus: {

@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { AnalysisResult, PdbHomolog } from "../../types";
+import { PDB_SOURCE_RCSB } from "../../shared/contracts";
 
 import type { StructuralMetrics } from "../../types";
 
@@ -649,7 +650,11 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
               )}
               {analysisResult?.metadata?.pdbId && (
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-cs-text-secondary">AlphaFold Model ID:</span>
+                  {/* The source is not always AlphaFold: an RCSB entry is an experimental
+                      structure, and labelling its accession a model id is a false identity. */}
+                  <span className="text-cs-text-secondary">
+                    {analysisResult.metadata.pdbSource === PDB_SOURCE_RCSB ? "PDB Entry:" : "Model ID:"}
+                  </span>
                   <span className="font-mono text-[10px] text-cs-text-muted truncate max-w-[130px]">
                     {analysisResult.metadata.pdbId}
                   </span>

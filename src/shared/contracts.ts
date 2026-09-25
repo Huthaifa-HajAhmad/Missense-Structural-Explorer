@@ -421,8 +421,22 @@ export const biophysicalAnalysisResponseSchema = z.object({
     uniprotId: z.string().optional(),
     residueIndex: z.number().nullable().optional(),
     wildType: z.string().optional(),
-    mutant: z.string().optional()
-  }).optional()
+    mutant: z.string().optional(),
+    /**
+     * The rest of what the server's builders put in `metadata` and what the client reads:
+     * the structure viewer and the report name `pdbId`/`pdbSource`, the inspector shows
+     * `mutatedSequence`, the narrative re-synthesis sends `sequence`, and `pdbId` gates the
+     * 3D view's source. They were absent here, and a zod object strips what it does not
+     * declare — so the parse at the end of both `biophysicsApi` calls deleted every one of
+     * them before the store saw the payload, while the TypeScript types said they were
+     * present. Declared to match `VariantMetadata`, with `passthrough` so the next field the
+     * server adds is not silently dropped the same way.
+     */
+    sequence: z.string().nullable().optional(),
+    mutatedSequence: z.string().nullable().optional(),
+    pdbId: z.string().nullable().optional(),
+    pdbSource: z.string().nullable().optional()
+  }).passthrough().optional()
 }).passthrough().transform((data: any) => {
   const shift = data.insights?.biochemicalShift || data.biochemicalShift;
   const impact = data.insights?.structuralImpact || data.structuralImpact;
@@ -1032,6 +1046,27 @@ export interface PdbHomolog {
   coversPosition?: boolean;
 }
 
+/**
+ * Where the coordinates in an analysis came from.
+ *
+ * Single source for the strings the producers (`core-data-fetcher`, `payload-assembler`, the
+ * pipeline state factory) and the reader that names the structure in the UI
+ * (`ResidueEnvironmentPanel`) each used to carry their own copy of. With a copy on both sides,
+ * renaming one silently degraded the other to a generic sentence; both refer here now.
+ *
+ * The wire format stays a free-form string — a payload from an older or newer server must not
+ * fail to parse — so readers narrow with `isPdbSource` and say nothing about a source they do
+ * not recognise, rather than guessing.
+ */
+export const PDB_SOURCE_RCSB = "RCSB PDB";
+export const PDB_SOURCE_ALPHAFOLD = "AlphaFold";
+export const PDB_SOURCES = [PDB_SOURCE_RCSB, PDB_SOURCE_ALPHAFOLD] as const;
+export type PdbSource = (typeof PDB_SOURCES)[number];
+
+export function isPdbSource(value: unknown): value is PdbSource {
+  return typeof value === "string" && (PDB_SOURCES as readonly string[]).includes(value);
+}
+
 export interface VariantMetadata {
   gene: string;
   variant: string;
@@ -1045,9 +1080,10 @@ export interface VariantMetadata {
   /**
    * The canonical sequence the pipeline analysed.
    *
-   * Declared here because `metadataSchema` has carried it all along while this
-   * interface did not, which forced every caller that needed it (the clinical
-   * report's re-synthesis call) to reach through `as any`.
+   * Declared here because this interface did not carry it while the client's re-synthesis
+   * already sent it, which forced every caller that needed it to reach through `as any`. It is
+   * populated by both payload builders and parsed by `biophysicalAnalysisResponseSchema` — the
+   * schema the client actually parses the analysis with.
    */
   sequence?: string | null;
   alternativeVariants?: any;

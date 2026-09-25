@@ -29,6 +29,13 @@ export const NARRATIVE_FALLBACK_REASONS = [
   "MODEL_UNAVAILABLE",
   /** Provider unreachable (DNS, connection refused/reset). */
   "NETWORK_ERROR",
+  /**
+   * The caller aborted the request — in practice a client disconnect. The engine cannot tell
+   * that apart from the route's own deadline (it receives one combined signal), so it names
+   * what it observed: the caller aborted. No client is left to read this response; it exists
+   * so the audit trail does not record a cancellation as a provider deadline.
+   */
+  "REQUEST_CANCELLED",
   /** Unclassified failure. */
   "SERVICE_UNAVAILABLE",
 ] as const;
@@ -94,6 +101,13 @@ const FALLBACK_PRESENTATION: Record<NarrativeFallbackReason, NarrativeFallbackPr
     detail: "The Gemini endpoint could not be reached from the server. Verify outbound network access, then retry.",
     retryable: true,
     tone: "warn",
+  },
+  REQUEST_CANCELLED: {
+    label: "Synthesis cancelled",
+    detail: "The request was cancelled before synthesis finished, so this report was assembled from database metrics and rule-based ACMG criteria.",
+    // Nothing was learned about the provider, so a fresh request is a fresh attempt.
+    retryable: true,
+    tone: "neutral",
   },
   SERVICE_UNAVAILABLE: {
     label: "AI synthesis failed",

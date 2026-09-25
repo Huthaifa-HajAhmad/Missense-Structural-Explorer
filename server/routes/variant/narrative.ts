@@ -30,7 +30,6 @@ import {
   isGeminiApiKeyPlaceholder,
   classifyGeminiFailure,
   failureKindToFallbackReason,
-  isTransientFailure,
   sanitizeProviderError,
   type GeminiFailureKind,
 } from "../../services/gemini.ts";
@@ -362,7 +361,17 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           isFallback: true,
           fallbackReason,
           fallbackMessage: describeFallbackReason(fallbackReason).detail,
-          fallbackRetryable: isTransientFailure(failureKind) || fallbackReason === "API_KEY_INVALID",
+          /*
+           * Retryability is the shared vocabulary's answer, not a second classification of the
+           * error. `narrativeFallback.ts` already carries a `retryable` verdict per reason, and
+           * re-deciding it here from `isTransientFailure` disagreed with it for the unclassified
+           * case: the report's own prose offered "Re-synthesize" while the server withheld the
+           * button, so the affordance vanished for exactly the provider-storm failure this
+           * surface was hardened for. API_KEY_INVALID is the documented exception — the
+           * vocabulary calls it non-retryable because re-running with the same credential
+           * cannot help, but replacing the credential and re-running is what it asks for.
+           */
+          fallbackRetryable: describeFallbackReason(fallbackReason).retryable || fallbackReason === "API_KEY_INVALID",
           providerDetail,
           attemptedModels,
           insights: {

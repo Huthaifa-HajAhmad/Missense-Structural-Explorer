@@ -160,6 +160,42 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.insights?.structuralImpact).toBe("Loss of hydrogen bonding");
   });
 
+  /**
+   * The parse this schema performs is the last step before the payload reaches the store, and a
+   * zod object deletes what it does not declare. `metadata` declared six keys while the server
+   * also sends the sequence, the mutated sequence and the structure id/provenance — all four of
+   * which the client reads (the structure viewer and the report name the PDB entry, the
+   * inspector shows the mutated sequence's length, and the narrative re-synthesis sends the
+   * sequence, which the report's own ACMG criteria are computed from). They were being deleted
+   * here, while the TypeScript types said they were present.
+   */
+  it("keeps the metadata fields the client reads instead of stripping them", () => {
+    const payload = {
+      metadata: {
+        gene: "PAH",
+        variant: "p.Arg408Trp",
+        uniprotId: "P00439",
+        residueIndex: 408,
+        wildType: "Arg",
+        mutant: "Trp",
+        sequence: "M".repeat(452),
+        mutatedSequence: "M".repeat(407) + "W" + "M".repeat(44),
+        pdbId: "2PAH",
+        pdbSource: "RCSB PDB",
+        somethingAddedLater: "kept"
+      }
+    };
+
+    const parsed = biophysicalAnalysisResponseSchema.parse(payload);
+
+    expect(parsed.metadata?.sequence).toBe("M".repeat(452));
+    expect(parsed.metadata?.mutatedSequence).toBe("M".repeat(407) + "W" + "M".repeat(44));
+    expect(parsed.metadata?.pdbId).toBe("2PAH");
+    expect(parsed.metadata?.pdbSource).toBe("RCSB PDB");
+    // ...and a field the server adds later is not silently dropped either.
+    expect((parsed.metadata as any)?.somethingAddedLater).toBe("kept");
+  });
+
   it("should validate esmFoldResponseSchema successfully", () => {
     const validSinglePayload = {
       pdb: "ATOM 1...",

@@ -118,18 +118,43 @@ describe("deriveBurialEvidence", () => {
   });
 
   it("describes a packing-derived word in packing terms, not accessibility terms", () => {
-    const evidence = deriveBurialEvidence({ burialStatus: "core", neighbourCount: 20 });
-
-    expect(evidence.basis).toBe("residue-packing");
     // Packing density does not measure solvent contact. The measured sentence asserted it and
-    // the panel qualified it in the same breath, beside a caveat calling packing a proxy.
-    expect(evidence.detail).toMatch(/densely packed/i);
-    expect(evidence.detail).not.toMatch(/solvent contact|accessible surface/i);
-    expect(evidence.basisDetail).toMatch(/packing density/i);
-    // ...and the accessibility sentence is still what a measured word gets.
+    // the panel qualified it in the same breath, beside a caveat calling packing a proxy. All
+    // three words are checked, not just core: re-adding a measured claim to the boundary or
+    // surface sentence has to fail something.
+    const cases: Array<[string, number, RegExp]> = [
+      ["core", 20, /densely packed/i],
+      ["boundary", 10, /intermediate packing/i],
+      ["surface", 3, /sparsely packed/i],
+    ];
+
+    for (const [word, neighbours, sentence] of cases) {
+      const evidence = deriveBurialEvidence({ burialStatus: word, neighbourCount: neighbours });
+
+      expect(evidence.basis, `${word} should rest on packing`).toBe("residue-packing");
+      expect(evidence.detail).toMatch(sentence);
+      // The surface sentence does say the position "contacts solvent" — a packing statement —
+      // so the guard is against the *measured* vocabulary, not against that word.
+      expect(evidence.detail).not.toMatch(
+        /little or no solvent contact|accessible surface|relative solvent accessibility|sits in a pocket/i
+      );
+      expect(evidence.basisDetail).toMatch(/packing density/i);
+    }
+  });
+
+  it("keeps the accessibility sentence for a word the measurement decided", () => {
     const measured = deriveBurialEvidence({ burialStatus: "core", rsa: 0.05 });
+
     expect(measured.basis).toBe("solvent-accessibility");
     expect(measured.detail).toMatch(/little or no solvent contact/i);
+
+    // ...and the measured boundary sentence no longer claims a pocket: an RSA band does not
+    // establish one — the pocket predictor is a different measurement, reported elsewhere.
+    const boundary = deriveBurialEvidence({ burialStatus: "boundary", rsa: 0.2 });
+
+    expect(boundary.basis).toBe("solvent-accessibility");
+    expect(boundary.detail).toMatch(/partly buried/i);
+    expect(boundary.detail).not.toMatch(/pocket/i);
   });
 
   it("stretches the meter domain to contain the value instead of saturating", () => {

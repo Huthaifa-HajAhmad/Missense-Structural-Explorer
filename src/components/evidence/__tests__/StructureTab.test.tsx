@@ -223,6 +223,24 @@ describe("StructureTab residue environment panel", () => {
     expect(screen.queryByText(/modelled structure/)).not.toBeInTheDocument();
   });
 
+  it("names a predicted model, which is what the payload carries when no PDB entry resolved", () => {
+    // The production AlphaFold state: `resolvedPdbSource` is "AlphaFold" and `resolvedPdbId` is
+    // null, so a helper keyed off the id alone loses the provenance for every predicted
+    // structure — the half of the cases the old "modelled structure" wording did get right.
+    renderTab({
+      analysisState: {
+        result: {
+          ...RESULT,
+          metadata: { ...RESULT.metadata, pdbId: null, pdbSource: "AlphaFold" }
+        },
+        isLoading: false
+      }
+    });
+
+    expect(screen.getByText(/an AlphaFold model of this protein/)).toBeInTheDocument();
+    expect(screen.queryByText(/the structure used for this analysis/)).not.toBeInTheDocument();
+  });
+
   it("does not call an unnamed structure a modelled one", () => {
     renderTab();
 

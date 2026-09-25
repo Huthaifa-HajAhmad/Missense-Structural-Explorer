@@ -20,7 +20,12 @@ import {
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
 import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
-import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
+import {
+  parseGenomicCoordinateString,
+  PDB_SOURCE_ALPHAFOLD,
+  PDB_SOURCE_RCSB,
+  type PdbSource
+} from "../../../src/shared/contracts.ts";
 import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, type AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
@@ -392,10 +397,12 @@ export async function fetchCoreVariantData(
   }
 
   let resolvedPdbId: string | null = null;
-  let resolvedPdbSource: "RCSB PDB" | "AlphaFold" = "AlphaFold";
+  // "AlphaFold" is the default because it is what the structural models fall back to; the id
+  // stays null until a PDB mapping resolves, which is why the UI's predicted case has no id.
+  let resolvedPdbSource: PdbSource = PDB_SOURCE_ALPHAFOLD;
   if (pdbMapRes && pdbMapRes.pdbId) {
     resolvedPdbId = pdbMapRes.pdbId.toUpperCase();
-    resolvedPdbSource = "RCSB PDB";
+    resolvedPdbSource = PDB_SOURCE_RCSB;
   }
 
   const serviceStatus: ServiceStatusMap = {

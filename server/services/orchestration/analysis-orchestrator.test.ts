@@ -135,6 +135,9 @@ describe("Analysis Orchestrator Unit Tests", () => {
     // Chunk 1: fast triage preview
     expect(chunks[0].chunkIndex).toBe(1);
     expect(chunks[0].data.clinvar).toBeDefined();
+    // The preview carries the sequence too: the client merges this chunk before the final
+    // payload arrives, and the report's re-synthesis needs it from whichever chunk it has.
+    expect(chunks[0].data.metadata.sequence).toBe("MKVLIVGLGNCGVFSLLDKN");
     // Chunk 2: full complete payload
     expect(chunks[1].chunkIndex).toBe(2);
     expect(chunks[1].isFinal).toBe(true);

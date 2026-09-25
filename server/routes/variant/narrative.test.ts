@@ -264,7 +264,48 @@ describe("Variant narrative route wiring", () => {
       // otherwise a slow-but-working provider is reported as "AI service busy, retry shortly".
       expect(body.fallbackReason).toBe("SERVICE_UNAVAILABLE");
       expect(body.fallbackMessage).toMatch(/unclassified/i);
-      expect(body.analysis).not.toContain("AI service busy");
+      // Retryability comes from the shared vocabulary, which says an unclassified failure is
+      // worth another attempt. Deriving it from `isTransientFailure` here withheld the
+      // "Re-synthesize" affordance for exactly the storm this surface was hardened for.
+      expect(body.fallbackRetryable).toBe(true);
+      // The message must not carry the overload label the old derivation produced: it is what
+      // the panel renders, so "overloaded" here would be the same misreport one layer down.
+      expect(body.fallbackMessage).not.toMatch(/overload/i);
+    } finally {
+      resolveSpy.mockRestore();
+      geminiSpy.mockRestore();
+    }
+  });
+
+  it("reports a retired ladder as an unavailable model, not as an unclassified failure", async () => {
+    const handler = getNarrativeHandler();
+
+    const resolveSpy = vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+    const geminiSpy = vi.spyOn(geminiService, "performGeminiAnalysis").mockRejectedValue(
+      new geminiService.GeminiError(
+        "MODEL_UNAVAILABLE",
+        "Gemini analysis failed for an unclassified reason.",
+        503,
+        {
+          providerDetail: "models/gemini-2.5-pro is not found",
+          attemptedModels: ["gemini-2.5-pro"],
+          failureKind: "not_found",
+        }
+      )
+    );
+
+    const { req, res } = makeHarness();
+
+    try {
+      await handler(req, res, () => {});
+      const body = res.body;
+
+      // `not_found` is the version of the 503-coded MODEL_UNAVAILABLE branch that can be acted
+      // on: the reader is told to check the model configuration, and a retry without changing it
+      // cannot help.
+      expect(body.fallbackReason).toBe("MODEL_UNAVAILABLE");
+      expect(body.fallbackMessage).toMatch(/model configuration/i);
+      expect(body.fallbackRetryable).toBe(false);
     } finally {
       resolveSpy.mockRestore();
       geminiSpy.mockRestore();

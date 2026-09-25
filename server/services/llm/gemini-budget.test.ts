@@ -339,7 +339,51 @@ describe("narrative synthesis time budget", () => {
     process.env.GEMINI_MODEL_FALLBACKS = "empty";
     mockGenerateContent.mockResolvedValue({ text: "" });
 
-    await expect(runAnalysis()).rejects.toMatchObject({ code: "MODEL_UNAVAILABLE", status: 503 });
+    await expect(runAnalysis()).rejects.toMatchObject({ code: "MODEL_UNAVAILABLE", status: 503, failureKind: "unknown" });
+  });
+
+  it("carries the timeout and network verdicts, which only surface after the ladder is walked", async () => {
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    process.env.GEMINI_MODEL = "primary";
+    process.env.GEMINI_MODEL_FALLBACKS = "primary";
+
+    /* Same fake-timer reason as the diagnostics test above: both kinds are retryable, so each
+       case walks the ladder to the runaway guard — ~50s of real retry spacing otherwise. */
+    const cases: Array<[string, any, string, string]> = [
+      ["timeout", { message: "Deadline expired", status: 504 }, "DEADLINE_EXCEEDED", "timeout"],
+      ["network", { message: "fetch failed", status: 502 }, "NETWORK_ERROR", "network"],
+    ];
+
+    try {
+      for (const [branch, providerError, code, kind] of cases) {
+        mockGenerateContent.mockReset();
+        mockRetrieveRelevantLiterature.mockReset();
+        mockRetrieveRelevantLiterature.mockResolvedValue([]);
+        mockGenerateContent.mockRejectedValue(providerError);
+        const geminiService = await import("./gemini.ts");
+        geminiService.resetModelHealth();
+
+        vi.useFakeTimers();
+        try {
+          let thrown: any = null;
+          const pending = runAnalysis(AbortSignal.timeout(600_000)).catch((err: any) => {
+            thrown = err;
+          });
+          await vi.advanceTimersByTimeAsync(600_000);
+          await pending;
+
+          expect({ branch, code: thrown?.code, kind: thrown?.failureKind }).toEqual({ branch, code, kind });
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
   });
 });
 
@@ -577,6 +621,7 @@ describe("provider failure classification", () => {
       await pending;
 
       expect(thrown?.code).toBe("PROVIDER_OVERLOADED");
+      expect(thrown?.failureKind).toBe("overload");
       expect(thrown?.providerDetail).toBe("This model is currently experiencing high demand.");
       expect(Array.isArray(thrown?.attemptedModels)).toBe(true);
       // Every attempt the runaway guard allows, because instant failures never exhaust the budget.

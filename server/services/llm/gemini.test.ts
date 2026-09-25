@@ -179,17 +179,90 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
     }
   });
 
-  it("should stop before model generation when the narrative deadline is already expired", async () => {
+  it("should stop before model generation when the request signal is already aborted", async () => {
     const geminiService = await import("./gemini.ts");
     const controller = new AbortController();
     controller.abort(new Error("Deadline exceeded or request timed out"));
 
+    // A caller that has already aborted is a cancellation, not a provider deadline: the
+    // engine cannot tell the route's deadline from a client disconnect (one combined signal),
+    // so it reports what it observed — the caller aborted — rather than blaming the provider.
     await expect(
       geminiService.performGeminiAnalysis(
         "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", controller.signal
       )
-    ).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED", status: 504, failureKind: "timeout" });
+    ).rejects.toMatchObject({ code: "REQUEST_CANCELLED", status: 499, failureKind: "cancelled" });
     expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
+  it("carries the verdict on every branch that fails fast", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    process.env.GEMINI_MODEL = "primary";
+    process.env.GEMINI_MODEL_FALLBACKS = "primary";
+
+    /*
+     * One provider error per branch that empties the pool and exits at once. A retryable kind
+     * walks the whole ladder instead, which the budget suite covers with fake timers. Without
+     * these, deleting one branch's `failureKind` leaves the suite green while the route falls
+     * back to classifying the raw error and tells the reader the wrong reason — the defect
+     * this field exists to prevent.
+     */
+    const cases: Array<[string, any, string, string]> = [
+      ["auth", { message: "API key not valid", status: 403 }, "API_KEY_INVALID", "auth"],
+      ["quota", { message: "quota exceeded", status: 429 }, "QUOTA_EXHAUSTED", "quota"],
+      ["unknown", { message: "kaboom", status: 500 }, "MODEL_UNAVAILABLE", "unknown"],
+    ];
+
+    try {
+      for (const [branch, providerError, code, kind] of cases) {
+        geminiService.resetModelHealth();
+        mockGenerateContent.mockReset();
+        mockGenerateContent.mockRejectedValue(providerError);
+
+        const err: any = await geminiService
+          .performGeminiAnalysis(
+            "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(8000)
+          )
+          .catch((e: any) => e);
+
+        expect({ branch, code: err?.code, kind: err?.failureKind }).toEqual({ branch, code, kind });
+      }
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
+  });
+
+  it("carries the not_found verdict when every candidate has been retired", async () => {
+    const geminiService = await import("./gemini.ts");
+    const oldModel = process.env.GEMINI_MODEL;
+    const oldFallbacks = process.env.GEMINI_MODEL_FALLBACKS;
+    process.env.GEMINI_MODEL = "retired-model";
+    process.env.GEMINI_MODEL_FALLBACKS = "retired-model";
+
+    mockGenerateContent.mockRejectedValue({ message: "models/retired-model is not found", status: 404 });
+
+    try {
+      // `not_found` reaches the switch's default branch. The verdict — not a literal — has to
+      // ride the error, or a retired model is reported as an unclassified failure and the
+      // MODEL_UNAVAILABLE mapping row becomes unreachable from the engine.
+      await expect(
+        geminiService.performGeminiAnalysis(
+          "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", AbortSignal.timeout(5000)
+        )
+      ).rejects.toMatchObject({ code: "MODEL_UNAVAILABLE", status: 503, failureKind: "not_found" });
+
+      expect(geminiService.failureKindToFallbackReason("not_found")).toBe("MODEL_UNAVAILABLE");
+    } finally {
+      if (oldModel === undefined) delete process.env.GEMINI_MODEL;
+      else process.env.GEMINI_MODEL = oldModel;
+      if (oldFallbacks === undefined) delete process.env.GEMINI_MODEL_FALLBACKS;
+      else process.env.GEMINI_MODEL_FALLBACKS = oldFallbacks;
+    }
   });
 
   it("reports a mid-ladder cancellation with the attempts it actually made", async () => {
@@ -218,13 +291,12 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
         )
         .catch((e: any) => e);
 
-      // A cancellation stays in the timeout family — the combined signal carries both a client
-      // disconnect and the request deadline, and the engine cannot tell which fired — but it
-      // must not say that no model responded while naming the model it did try.
+      // A cancellation is named as one, with the attempts it actually made: the old message
+      // claimed no model had responded while attaching the model it did try.
       expect(err).toBeInstanceOf(geminiService.GeminiError);
-      expect(err.code).toBe("DEADLINE_EXCEEDED");
-      expect(err.status).toBe(504);
-      expect(err.failureKind).toBe("timeout");
+      expect(err.code).toBe("REQUEST_CANCELLED");
+      expect(err.status).toBe(499);
+      expect(err.failureKind).toBe("cancelled");
       expect(err.attemptedModels).toEqual(["primary"]);
       expect(err.message).toMatch(/cancelled after 1 model attempt/i);
       expect(err.message).not.toMatch(/before any model responded/i);

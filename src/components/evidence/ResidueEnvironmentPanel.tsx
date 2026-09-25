@@ -4,6 +4,14 @@ import {
   deriveBurialEvidence,
   type BurialIndicator
 } from "../../shared/burialEvidence";
+import {
+  PDB_SOURCE_ALPHAFOLD,
+  PDB_SOURCE_RCSB,
+  isPdbSource
+} from "../../shared/contracts";
+
+/** A four-character PDB entry id, e.g. `1ABC` — the only id shape "RCSB PDB" may be fused to. */
+const PDB_ENTRY_ID = /^[0-9][A-Za-z0-9]{3}$/;
 
 /**
  * The residue's local environment: burial/exposure and packing density.
@@ -33,7 +41,7 @@ export interface ResidueEnvironmentPanelProps {
   rsa?: number | null;
   /** PDB entry or model id the coordinates came from, when the payload names one. */
   pdbId?: string | null;
-  /** Provenance of that entry: "RCSB PDB" (experimental) or "AlphaFold" (predicted). */
+  /** Provenance of that entry, from the shared `PDB_SOURCES` vocabulary. */
   pdbSource?: string | null;
   /** Opens the metric-explanation modal for one of the two indicators. */
   onExplainMetric: (metric: "burial_status" | "contact_density") => void;
@@ -52,17 +60,31 @@ const INDICATOR_TITLE: Record<BurialIndicator["key"], string> = {
 /**
  * Name the structure these numbers came from, or say plainly that it is unnamed.
  *
- * The header used to read "in the modelled structure" whatever the source was — including an
- * RCSB entry, which is an experimental structure rather than a model — and never named the
- * entry, so a reader could not tell which coordinates produced the values or whether the
- * burial word came from measured or predicted coordinates.
+ * The header used to read "in the modelled structure" whatever the source was — wrong for an
+ * RCSB entry, which is experimental — and never named the entry. The inverse mistake is just
+ * as bad, so the id is fused to a provenance label only when the two agree: a PDB-shaped id
+ * with RCSB PDB, or a non-PDB-shaped id with AlphaFold. `pdbId` and `pdbSource` are
+ * independent optional strings in the contract, so a mismatched pair is representable and
+ * must not be printed as a false identity.
+ *
+ * AlphaFold ships with no id at all — `core-data-fetcher` only sets `resolvedPdbId` from a
+ * PDB mapping — so the predicted case needs its own sentence rather than the unnamed
+ * fallback, which is where the provenance used to disappear.
  */
 export function describeStructureSource(pdbId?: string | null, pdbSource?: string | null): string {
   const id = typeof pdbId === "string" && pdbId.trim() ? pdbId.trim() : null;
-  if (!id) return "the structure used for this analysis";
-  if (pdbSource === "RCSB PDB") return `experimental structure ${id} (RCSB PDB)`;
-  if (pdbSource === "AlphaFold") return `the AlphaFold model ${id}`;
-  return `structure ${id}`;
+  const source = isPdbSource(pdbSource) ? pdbSource : null;
+
+  if (source === PDB_SOURCE_ALPHAFOLD) {
+    return id && !PDB_ENTRY_ID.test(id)
+      ? `the AlphaFold model ${id}`
+      : "an AlphaFold model of this protein";
+  }
+  if (source === PDB_SOURCE_RCSB) {
+    if (id && PDB_ENTRY_ID.test(id)) return `experimental structure ${id} (RCSB PDB)`;
+    return id ? `structure ${id}` : "an experimental structure (RCSB PDB)";
+  }
+  return id ? `structure ${id}` : "the structure used for this analysis";
 }
 
 /**

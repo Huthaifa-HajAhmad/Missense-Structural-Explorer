@@ -22,6 +22,24 @@ export function healCachedAnalysisIfPossible(
   context: ParsedVariantContext
 ): any {
   if (!payload) return payload;
+
+  /*
+   * Backfill the wild-type sequence into a payload persisted before the builders carried it.
+   *
+   * Rows live for 30 days and replay verbatim, so without this every already-analysed variant
+   * keeps sending `sequence: null` to the narrative route, and the report's rule-based criteria
+   * keep being computed without the sequence the pipeline's own run used (PVS1's C-terminal
+   * demotion and the PM4/BP3 repeat test both key on it). The context is in hand here, and this
+   * runs before the "nothing else to heal" early return below on purpose: the field is missing
+   * on every row written before the builders changed, whether or not that row has timeouts.
+   *
+   * In-memory only. Persisting it would rewrite rows on every read, and the next full analysis
+   * writes it anyway.
+   */
+  if (payload.metadata) {
+    payload.metadata.sequence ??= context.sequence ?? null;
+  }
+
   const status = payload.serviceStatus || {};
   const hasTimeouts = Object.values(status).includes("timeout");
   const missingSplice = !payload.conservationData?.spliceai;

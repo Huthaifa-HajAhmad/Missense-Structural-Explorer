@@ -296,6 +296,8 @@ export type GeminiFailureKind =
   | "timeout"
   | "network"
   | "not_found"
+  /** The caller aborted the request (a client disconnect); no provider verdict exists. */
+  | "cancelled"
   | "unknown";
 
 export function classifyGeminiFailure(err: any): GeminiFailureKind {
@@ -365,6 +367,7 @@ export function failureKindToFallbackReason(kind: GeminiFailureKind): NarrativeF
     case "overload": return "PROVIDER_OVERLOADED";
     case "timeout": return "DEADLINE_EXCEEDED";
     case "network": return "NETWORK_ERROR";
+    case "cancelled": return "REQUEST_CANCELLED";
     case "not_found": return "MODEL_UNAVAILABLE";
     default: return "SERVICE_UNAVAILABLE";
   }
@@ -451,8 +454,9 @@ export class GeminiError extends Error {
    * `fallbackReason`, which let one fact have two derivations: a 503-coded unclassified
    * failure was re-read as "overload" from its status, so a slow-but-working provider was
    * reported to the user as "AI service busy". Carrying the verdict makes the engine's
-   * decision the only derivation. Absent on errors thrown outside the loop (key validation),
-   * where there is no verdict to carry.
+   * decision the only derivation. It is set wherever the attempt loop reached a verdict; the
+   * key-validation throws below do not set it, and their only consumer reads `code`/`status`
+   * (`server/routes/session.ts`), so nothing classifies them.
    */
   public failureKind?: GeminiFailureKind;
 
@@ -910,13 +914,13 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
       }
       if (timeoutSignal?.aborted) {
         throw new GeminiError(
-          "DEADLINE_EXCEEDED",
+          "REQUEST_CANCELLED",
           `Narrative synthesis was cancelled after ${attemptedModels.length} model attempt(s).`,
-          504,
+          499,
           {
             providerDetail: lastError ? sanitizeProviderError(lastError) : "request cancelled by client",
             attemptedModels: [...attemptedModels],
-            failureKind: "timeout",
+            failureKind: "cancelled",
           }
         );
       }
@@ -1030,22 +1034,24 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
         );
 
         /*
-         * A cancellation is reported as what it is. The message used to read "before any model
-         * responded" while the attached `attemptedModels` could name several — false whenever
-         * the client went away mid-ladder. The status stays in the timeout family because the
-         * signal carries two inputs, `AbortSignal.any([client disconnect, request deadline])`,
-         * and the engine cannot tell which one fired; the request deadline is the case this
-         * path exists for, and a client that disconnected is not there to read the reason.
+         * A cancellation is reported as a cancellation. The signal carries two inputs,
+         * `AbortSignal.any([client disconnect, request deadline])`, and this function cannot
+         * tell which one fired — but it does not have to: either way the *caller* aborted the
+         * request, which is not a provider deadline. Naming it matters because the audit trail
+         * records this code and reason. The message used to claim "before any model responded"
+         * while attaching the models it had already tried; it now reports the count. In practice
+         * this path is the client disconnect: the route's 130s deadline cannot fire before this
+         * loop's 105s budget is exhausted (the loop breaks between attempts on the floor).
          */
         if (timeoutSignal?.aborted) {
           throw new GeminiError(
-            "DEADLINE_EXCEEDED",
+            "REQUEST_CANCELLED",
             `Narrative synthesis was cancelled after ${attemptedModels.length} model attempt(s).`,
-            504,
+            499,
             {
               providerDetail: sanitizeProviderError(err),
               attemptedModels: [...attemptedModels],
-              failureKind: "timeout",
+              failureKind: "cancelled",
             }
           );
         }
@@ -1130,7 +1136,15 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
       case "network":
         throw new GeminiError("NETWORK_ERROR", "The Gemini endpoint could not be reached from the server.", 502, { providerDetail, attemptedModels: attempted, failureKind: "network" });
       default:
-        throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted, failureKind: "unknown" });
+        /*
+         * `kind` — not a literal — because `default` is reached by two different verdicts:
+         * `not_found` (the provider answered 404, e.g. a retired model or a stale configured
+         * ladder) and `unknown`. Hard-coding "unknown" here discarded the `not_found` verdict
+         * and reported a retired model as an unclassified failure, which hides MODEL_UNAVAILABLE's
+         * "check the model configuration" from the reader and leaves
+         * `failureKindToFallbackReason("not_found")` reachable from no throw site at all.
+         */
+        throw new GeminiError("MODEL_UNAVAILABLE", "Gemini analysis failed for an unclassified reason.", 503, { providerDetail, attemptedModels: attempted, failureKind: kind });
     }
   }
 
