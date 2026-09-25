@@ -368,3 +368,98 @@ answer contained a GZF1 section it had no image for, and the retry returned `nul
 has not been visually reviewed by the agent that wrote it.** The screenshot is written by
 `TRACK_SHOT=1` and the numbers above are the whole of the evidence.
 
+---
+
+# Third round — the open items, worked
+
+Scope agreed by interview: the three guards that were missing, point-pin tiering by interval packing,
+the WCAG 2.5.8 fix, wider interaction coverage, the stale cross-reference, and the pre-existing RaSP
+test failure. **Regions stay as they are** (neutral colour, no category of their own, out of the
+default match set and the flank vectors) — chosen explicitly when the scope list and the dedicated
+question disagreed.
+
+Revision: working tree at `HEAD` `4373d4d`, with `FunctionInteractionsTabs.tsx` at
+`10053360FF60AD004591A1A2C00035E62A087806DF59D46EF3AE84A2BB57E8FC`,
+`tools/function-track-geometry/{main.tsx,check.mjs,mutations.mjs}` modified, and `featurePalette.ts` /
+`FeaturePaletteLegend.tsx` unchanged since `0250f18`.
+
+## 1. Pin tiering is now interval packing
+
+`siteTiers` assigned a tier by comparing each site with its **immediate predecessor** and cycling
+`(curTier + 1) % 3`. That is not a packing rule: it never asks whether the tier it wraps onto is free.
+It is now first-fit packing over the actual occupancy — each pin takes the lowest tier whose rightmost
+pin is at least `TRACK.pinSeparation` (14 units) away — with a defined overflow policy: when all three
+tiers are occupied the pin joins the tier whose rightmost pin is furthest left, the same policy the
+span lane uses.
+
+**What this does not claim.** The old rule passes the new guard too. A cluster dense enough for the
+cyclic rule to collide is also dense enough to exhaust three tiers, where *any* assignment overlaps, so
+the guard (`pins sharing a tier are not drawn on top of each other`) is a **regression guard**: what
+fails it is ignoring tiers altogether. Packing is better because it is correct by construction and
+because overflow has a stated behaviour, not because it separates more pins. Three tiers is a layout
+budget; for a cluster that cannot be separated the answer is the control list below, not more tiers.
+
+## 2. WCAG 2.5.8: the track's shapes as full-size controls
+
+The pins are r=11 user units — about 28 CSS px at a 1010px container, but about 14 CSS px at the
+container's `min-w-[500px]` floor, under the 24px minimum — and enlarging them is not available: at
+875 aa adjacent pins are ~25 units apart, so r>12 makes neighbouring targets overlap and steal each
+other's clicks. The fix the README has pointed at since the first round is now in place: a `<details>`
+below the track listing **every annotation the track draws** (domains, span bars and pins alike) as a
+full-width button at least 28px tall, keyboard-reachable through a real `summary` element, selecting
+through the same `handleFeatureSelect` path the SVG uses. The `crowded` fixture exists partly for this:
+six point sites inside eleven residues is a cluster no pointer can resolve on the track.
+
+## 3. The three guards that were missing
+
+| Guard | Was | Now |
+| --- | --- | --- |
+| Span-bar contrast | `checkNonTextContrast` sampled pins and the caret only. Span bars were compared with the *legend* but never with the surface, and on CNNM2 a transmembrane helix is a bar and nothing else | bars are sampled too; the assertion is `pin, span bar and caret colours clear 3:1`. Mutation: painting the bars slate-200 fails it with `span Curated span: Region Dis 1.17:1` — naming a span, which is what proves the sample is live |
+| Badge box parity | the length chip and the provenance chip were fixed by sharing `.badge-metric`, with nothing measuring it | nine properties compared (height in CSS px, four paddings, radius, border width, font size, font weight). Mutated twice: restoring the old inline classes fails as `metric chip MISSING`; keeping the class and overriding the box fails as `height 17.5px vs 23.5px; paddingTop 1px vs 2.5px; fontSize 9px vs 11px` |
+| Annotation row → track | the cards became interactive in the second round and nothing asserted it | activating a row must grow the matching pin head, change its fill, report `aria-pressed`, and clear again on the second click. Mutation: an inert row fails with `pressed=false, pin r 3.5→3.5, fill unchanged` |
+
+## 4. Wider interaction coverage
+
+Two cases added, and the fixture/expectation plumbing consolidated into one `payloadFor(kind)`
+(the payload and its hand-counted expectations used to be selected by separate ternary chains in three
+places, so a fourth fixture had to be added in all three or silently fall through to CNNM2):
+
+- `crowded` — six point sites inside eleven residues, the only fixture where the tier assignment has
+  anything to do and the only one that reaches the overflow branch.
+- `zoomed2` — the same variant at 2× rather than 3.5×, so "the window narrows and the shapes stay
+  consistent" is two data points rather than one.
+
+## 5. The two items that were already done by other agents
+
+- **The RaSP failure is fixed, not by me.** `7d1ab34 test(capabilities): arrange the RaSP index the
+  readiness cases assert on` (three hours after the vitest run that reported it red) builds the missing
+  index in the test instead of relying on a sibling suite's leftover — the assertion stays strict. The
+  full suite in this round confirms it is green. Nothing here touches it.
+- **The stale cross-reference is fixed, not by me.** `doc/RESIDUE_SHIFT_REVIEW_RESOLUTION.md` no longer
+  calls this work "uncommitted and unverified"; a later commit names `0250f18` and says both
+  workstreams landed on `main`. Nothing was left to correct.
+
+## Verification
+
+| Layer | Result |
+| --- | --- |
+| `npm run test:geometry:function-track` | **213/213 pass** (8 cases: + `crowded`, + `zoomed2`, + 4 checks per case) |
+| Same harness, 6 defects reintroduced in 2 runs | **34/213** red for the five independent defects in one run; **8/213** for the badge-box override alone. Restored files byte-identical (SHA-256) |
+| `tsc --noEmit` | clean |
+| `npx tsx scripts/check-boundaries.ts` | 0 violations |
+| `npm test` | **2 failed \| 164 passed \| 2 skipped** (167 files), **2 failed \| 1930 passed \| 5 skipped** (1937 tests) |
+
+**The two suite failures are not this surface, and are not a pre-existing defect either.** They are in
+`src/components/evidence/__tests__/describeStructureSource.test.ts`, an **untracked** file in another
+agent's in-flight working set at the time of the run: the test imports `describeStructureSource` from
+`ResidueEnvironmentPanel.tsx` (also modified and uncommitted by them) and expects it to name an
+AlphaFold model or an RCSB structure, while the implementation still returns the generic
+`"the structure used for this analysis"`. The RaSP failure this round was asked to take *is* green. The
+suite is therefore red, and attributing that correctly matters more than reporting a number.
+
+**Still not verified: what the render looks like.** The control list adds 8–21 rows per case and the
+`crowded` case adds nine overlapping pin pairs' worth of geometry; that they *read* well is a judgement
+about a picture. No vision-capable review was obtained, so the numbers above remain the whole of the
+evidence, and `function-track.png` is written by `TRACK_SHOT=1` for a human to look at.
+
+

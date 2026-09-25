@@ -21,6 +21,13 @@ as filters. Every defect it exists to catch is a *measured* fact:
   track never painted (indigo domains, amber binding sites, emerald PTMs, cyan disulfides), had no
   entry for transmembrane regions or the remaining curated sites, and then advertised a fifth
   invented colour for spans — whose bars are in fact painted in their category's colour;
+- a metric chip and a provenance chip sitting side by side in one row — "Length: 711 aa" and
+  "UniProtKB & InterPro" — with different heights, padding, radii and type sizes, because one was
+  hand-rolled and the other used the shared badge;
+- pins stacked onto a tier that was already occupied, because the tier came from comparing with the
+  immediate predecessor and cycling modulo three rather than from asking which tiers were free;
+- and a control list that existed to give every annotation a target large enough to hit, where nothing
+  measured that the targets were large enough — or that activating one did anything at all;
 - and — found by review, not by this harness — `focus-visible:outline-none` on all three SVG groups
   with nothing replacing it, i.e. **no visible keyboard focus anywhere in the track**. That is now
   what check 7b measures.
@@ -37,8 +44,10 @@ Chromium, drives it (clicks every filter chip, focuses every shape) and measures
 | `tm` | Real CNNM2, p.Ala300Val — inside the CNNM transmembrane domain (251–431) |
 | `gap` | Real CNNM2, p.Gly440Arg — between domains |
 | `zoomed` | Real CNNM2, zoomed to 3.5× and centred on the variant — clipped bands |
+| `zoomed2` | Real CNNM2, zoomed to 2× and centred on the variant — a second window width, so "the window narrows" is not one data point |
 | `gzf1` | **Real** GZF1 / Q9H116 (711 aa), p.Arg591Trp — the span-heavy shape: 1 domain, 10 zinc fingers, 5 low-complexity segments, 2 disordered regions, 1 phosphoserine, 2 mutagenesis points |
 | `coverage` | **Synthetic** payload with one feature of every type the server keeps, so all seven chips are exercised |
+| `crowded` | **Synthetic** payload with six point sites inside eleven residues — the only fixture where the tier assignment has anything to do, and the only one that reaches its overflow branch |
 
 The page also renders the inspector's `FeaturePaletteLegend` once, in `#legend-probe`, outside every
 case host — one legend serves the whole page, so it is asserted once rather than six times.
@@ -57,11 +66,13 @@ earlier revision carried `IPR082550`, which is **not** in the record at all (it 
 off a screenshot), and `serviceStatus: "success"`, which is not in the server's vocabulary
 (`"ok" | "not_found" | "timeout" | "error" | "unsupported-build"`).
 
-`EXPECTED_CNNM2_COUNTS` / `EXPECTED_GZF1_COUNTS` / `EXPECTED_COVERAGE_COUNTS` are written by hand from
-those fetches. Deriving them from the fixture object would let a wrong fixture silently redefine the
-expectation — that mistake is exactly how the `IPR082550` error survived a green run.
+`EXPECTED_CNNM2_COUNTS` / `EXPECTED_GZF1_COUNTS` / `EXPECTED_COVERAGE_COUNTS` /
+`EXPECTED_CROWDED_COUNTS` are written by hand from those fetches. Deriving them from the fixture object
+would let a wrong fixture silently redefine the expectation — that mistake is exactly how the
+`IPR082550` error survived a green run. One `payloadFor(kind)` maps a case to its payload and its
+expectations, because the two used to be picked by separate ternary chains in three places.
 
-## What it asserts (137 assertions over six cases)
+## What it asserts (213 assertions over eight cases)
 
 | Assertion | Catches |
 | --- | --- |
@@ -71,7 +82,7 @@ expectation — that mistake is exactly how the `IPR082550` error survived a gre
 | Pin hit areas centred and ≥22 units across | A target too small to hit (see the gap below) |
 | **Residue→x mapping matches the printed ruler** | Any coordinate error that moves every shape together (off-by-one, `end` used for `start`). Binds band edges and stems to the ruler's own endpoints, and counts the rendered bands, pins *and* span bars |
 | **Zooming narrows the window and keeps the track consistent** | A broken zoom/pan path. Asserts the window narrows, the variant is inside it, something is still visible (band, span or pin), and every off-window shape is inside a clipped group |
-| **Pin and caret colours clear 3:1 on the light track** | A category colour too faint to read as a category (WCAG 1.4.11). Colours are painted into a canvas and read back, so `oklch()` and any future syntax convert themselves |
+| **Pin, span bar and caret colours clear 3:1 on the light track** | A category colour too faint to read as a category (WCAG 1.4.11). Bars are sampled too: on CNNM2 a transmembrane helix is a bar and nothing else, and equality with the legend says only that the legend and the track agree. Colours are painted into a canvas and read back, so `oklch()` and any future syntax convert themselves |
 | **A span is drawn as a bar, a point annotation as a pin** | Spans plotted as point lollipops — the 15 near-black dots on GZF1, and the silent claim that a 23-residue zinc finger sits at one residue |
 | **Span bars stay inside the span lane** | A bar escaping into the band, the rail or the ruler |
 | **Overlapping spans are packed onto separate tiers** | Two bars on one tier overlapping in x, so a nested low-complexity segment hides the region containing it |
@@ -89,6 +100,10 @@ expectation — that mistake is exactly how the `IPR082550` error survived a gre
 | **Legend lists every category, and nothing else** | A legend row for something the track cannot paint (a resurrected "Spans" colour swatch is caught here as an unexpected kind) |
 | **Every legend swatch matches the colour the track paints for that category** | The legend drifting from the track: the four wrong swatches it shipped with, and any future hand-written one. Pins and bars must match the swatch exactly; a domain band is a gradient, so the swatch must be one of its stops |
 | **The legend's shape rows cover the geometries a site can have** | A legend that names kinds only, leaving "why is this one a bar?" unanswerable |
+| **Pins sharing a tier are not drawn on top of each other** | Tier assignment that is not a packing rule. Non-vacuous only because of the `crowded` case — see the honest scope below |
+| **The metric chip and the provenance chip share one box** | Two chips in one row with different heights, padding, radii or type sizes. Compares nine measured properties, not class names |
+| **Every drawn annotation is also a large-target control** | A control list that is decoration: one row per drawn shape, in CSS pixels, every one at least 24px in both dimensions (WCAG 2.5.8) |
+| **Activating an annotation row selects the same feature in the track** | An interactive control that ships inert. Asserts the pin head grows, its fill changes, the row reports itself pressed, and toggling clears both |
 | The run produced its full assertion set | A missing host, a renamed selector or a truncated virtual-time budget — see below |
 
 ### Motion is frozen before anything renders
@@ -159,8 +174,39 @@ contrast assertion is what catches that. The equality check catches *disagreemen
 legend and the track, which is the defect it was written for and the only one of the two that the
 palette cannot see.
 
+### Third round: pin packing, the badge row and the control list
+
+Six defects, two runs (no second pass was needed — the mutations touch five independent surfaces, so
+none could mask another):
+
+| Reintroduced defect | Assertions that failed | Failure text (abridged) |
+| --- | --- | --- |
+| Every pin on tier 0 | `pins sharing a tier are not drawn on top of each other` — on `crowded` alone, 9 pairs | `Functional site: Bindi overlaps Functional site: Activ on one tier` |
+| The length chip hand-rolled again (the reported defect) | `the metric chip and the provenance chip share one box` | `metric chip MISSING, provenance chip found in the same row` |
+| The shared class kept, its box overridden inline | same check, by measurement | `height 17.5px vs 23.5px; paddingTop 1px vs 2.5px; fontSize 9px vs 11px` |
+| Annotation rows made inert | `activating an annotation row selects the same feature in the track` | `pressed=false, pin r 3.5→3.5, fill unchanged` |
+| Annotation rows shrunk below the minimum | `every drawn annotation is also a large-target control` | `under 24px: "DomainTest domainResid" 962x22px; …` |
+| Span bars painted slate-200 | `pin, span bar and caret colours clear 3:1` **and** the legend equality check | `span Curated span: Region Dis 1.17:1 (< 3:1)`; `transmembrane: track painted rgb(226, 232, 240) (bar 200–220) but the legend says rgb(8, 145, 178)` |
+
+34 of 213 went red for the five in one run, and 8 of 213 for the badge-box override alone; the restored
+files are byte-identical (SHA-256 checked) and the unmutated revision is 213/213.
+
+Two claims that are easy to overstate, so they are written down precisely:
+
+- **The pin-tier guard is a regression guard, not a reproducer.** The rule it replaced — compare with
+  the immediate predecessor, cycle the tier modulo three — passes it. A cluster dense enough for the
+  cyclic rule to collide is also dense enough to exhaust three tiers, where *any* assignment overlaps.
+  Interval packing is better because it asks which tiers are free and defines what happens when none
+  is, not because it separates more pins. What fails the guard is a mutation that ignores tiers
+  entirely (`pins-share-one-tier` above), and for a cluster that cannot be separated the answer is the
+  accessible control list, not more tiers.
+- **The badge guard was mutated twice on purpose.** The first mutation restored the old inline classes,
+  which *removes* the shared class, so the check failed as "missing" — a proxy for the defect rather
+  than the defect itself. The second keeps the class and overrides the box, and the check then fails on
+  the measured properties, which is the claim actually being made.
+
 **The runner cannot report success for a run that measured nothing.** `check.mjs` requires the
-report to contain the expected number of assertions (137). This was a real hole: `every()` over an
+report to contain the expected number of assertions (213). This was a real hole: `every()` over an
 empty array is `true`, so a report of zero checks printed "all 0 assertions passed" and exited 0.
 It was exercised for real when a thrown check truncated a run — the runner printed
 `incomplete run — 13 assertions, expected 70` and exited 1 — and again when a mutation made one
@@ -185,17 +231,26 @@ Reviewer-found; the fix is why the mutation table above can list it.
   argued from the CSS spec and Chrome's behaviour, **not measured**: untrusted events cannot set the
   input modality, so the harness proves the keyboard half (focus → indicator painted) and the click
   half only for the click handlers themselves.
-- **Zoom/pan beyond one window.** The `zoomed` case covers 3.5× centred on the variant; other zoom
-  levels and pan positions, and tier staggering under them, are untested. The mapping check does not
+- **Zoom/pan.** Two zoom levels are covered (`zoomed` at 3.5×, `zoomed2` at 2×), both centred on the
+  variant with the track's own "Focus Variant" control. Pan positions are not: the pan scrubber is a
+  controlled range input, and driving it would need the native value setter — until then, "the window
+  narrows and the shapes stay consistent" is two data points, not a sweep. The mapping check does not
   run at zoom (a clipped band legitimately has a different extent than its residue range); the zoom
-  case asserts clipping and visibility instead.
-- **WCAG 2.5.8 on a narrow viewport.** The hit-radius assertion is in SVG units (r=11 → 22 units):
-  ~28 CSS px at the harness's 1010px width, but ~14 CSS px at the container's `min-w-[500px]`, below
-  the 24px minimum. Documented as a known gap; the real fix is an HTML list of large-target controls
-  beside the track, since at 875 aa adjacent pins are ~25 units apart and r>12 would make
-  neighbouring targets overlap.
-- Hover (`:hover` cannot be forced), real pointer input, `<title>` tooltips, and the HTML card list
-  (only the SVG track is measured).
+  cases assert clipping and visibility instead.
+- **WCAG 2.5.8 is covered by the control list, not by the pins.** The pins remain ~14 CSS px targets at
+  the container's `min-w-[500px]` floor (r=11 SVG units is ~28 CSS px only at 1010px), and that is
+  deliberate: at 875 aa adjacent pins are ~25 units apart, so r>12 makes neighbouring targets overlap.
+  The assertion is on the list rows (≥24px in CSS pixels at the harness's width), which is now the
+  documented path for a small viewport or a crowded cluster. The rows are measured at one container
+  width, not at 500px.
+- Hover (`:hover` cannot be forced), real pointer input, `<title>` tooltips.
+- **The annotation row → track wiring is asserted for one row per case** — the first row that maps to a
+  drawn pin. Rows for domains and span bars are measured for size and counted, and clicking one is not
+  asserted to brighten the band or stroke the bar, though they call the same handler.
+- **Regions keep borrowing the neutral colour.** A disordered region is drawn as a span bar in the
+  "other" slate and is not a category of its own: it has no chip, no legend row, and it stays out of
+  the default match set and the flank vectors. That is a decision, not a gap — the Spans chip accounts
+  for it — but it does mean a region bar's colour is the same as an unclassified site's.
 - **The legend is asserted, but only in the three ways above.** The harness mounts
   `FeaturePaletteLegend` directly — not the whole inspector with its prop graph — and checks its
   keys, its swatch colours against the painted track, and its shape rows. It does not check the
@@ -203,11 +258,13 @@ Reviewer-found; the fix is why the mutation table above can list it.
   *from each other* at 10 px. It is also measured against the `coverage` case alone, the only fixture
   with a feature in every category.
 - **No screenshot judgement.** Everything here is geometry and computed colour: whether the span lane
-  *looks* right — 3.5-unit bars, up to three tiers — is a question about a picture, and the harness
-  cannot answer it. A vision-model read of `function-track.png` was attempted while writing this and
-  returned nothing usable, so the span-lane render has **not** been visually reviewed by the agent
-  that wrote it; the numbers above are the whole of the evidence.
-- **Screen pixels.** Measurements are SVG user units, not CSS px.
+  or the crowded cluster *looks* right — 3.5-unit bars, 28px rows, pins 7 units wide — is a question
+  about a picture, and the harness cannot answer it. A vision-model read of `function-track.png` was
+  attempted while writing this and returned nothing usable, so the render has **not** been visually
+  reviewed by the agent that wrote it; the numbers above are the whole of the evidence.
+- **Screen pixels.** Measurements are SVG user units, not CSS px, except the control-list target sizes
+  and the badge box, which are read from `getBoundingClientRect` in CSS px precisely because WCAG
+  2.5.8 is stated in CSS px.
 - The dimming oracle reads settled computed opacity through the ancestor chain, not a screenshot.
 
 ## Requirements

@@ -116,6 +116,14 @@ const TRACK = {
   spanTiers: 3,
   siteRailY: 74,
   tierStep: 14,
+  /**
+   * Point-lollipop tiering. Pins that would collide are stacked in tiers: two pins on the same tier
+   * must be at least `pinSeparation` apart in x, and there are `pinTiers` tiers to spend. Three tiers
+   * cannot separate more than three mutually-close pins — that is a layout budget, not an algorithm —
+   * which is why every annotation is also offered as a large-target control in the list below.
+   */
+  pinSeparation: 14,
+  pinTiers: 3,
   rulerY: 118,
   /** The variant callout lane, above the band. `gap` is the connector's length. */
   callout: {
@@ -326,22 +334,51 @@ export function FunctionTab({
     return [...pointSites].sort((a, b) => a.start - b.start);
   }, [pointSites]);
 
+  /**
+   * Tier assignment for the point lollipops: first-fit interval packing.
+   *
+   * Each pin takes the lowest tier whose rightmost pin is at least `TRACK.pinSeparation` away in x,
+   * reading the actual occupancy of every tier. The previous rule compared each site with its
+   * immediate predecessor only and cycled the tier modulo three, which is not a packing rule at all:
+   * it never asks whether the tier it wraps onto is free, and it compares against one neighbour when
+   * the conflict is with any of them.
+   *
+   * When every tier is occupied the pin joins the tier whose rightmost pin is furthest left — the same
+   * policy the span lane uses — so an over-subscribed cluster degrades predictably instead of doubling
+   * up on tier 0.
+   */
   const siteTiers = useMemo(() => {
-    const tiers: number[] = [];
-    let lastX = -999;
-    let curTier = 0;
-    for (const s of sortedFunctionalSites) {
+    const rightmostX: number[] = [];
+    return sortedFunctionalSites.map((s) => {
       const x = getTrackX(s.start);
-      if (Math.abs(x - lastX) < 14) {
-        curTier = (curTier + 1) % 3;
-      } else {
-        curTier = 0;
+      let tier = rightmostX.findIndex((placedX) => x - placedX >= TRACK.pinSeparation);
+      if (tier === -1) {
+        tier =
+          rightmostX.length < TRACK.pinTiers
+            ? rightmostX.length
+            : rightmostX.indexOf(Math.min(...rightmostX));
       }
-      tiers.push(curTier);
-      lastX = x;
-    }
-    return tiers;
+      rightmostX[tier] = x;
+      return tier;
+    });
   }, [sortedFunctionalSites, getTrackX]);
+
+  /**
+   * Every annotation the track draws, flat and in N→C order, for the large-target control list below
+   * the track. Domains, span bars and pins are three different shapes in the SVG but one thing to a
+   * reader, so the list is the accessible twin of the picture rather than a subset of it.
+   */
+  const plottedAnnotations = useMemo(() => {
+    const rows: Array<{ feature: any; kind: "domain" | "site"; start: number; end: number }> = [
+      ...domains.map((f: any) => ({ feature: f, kind: "domain" as const })),
+      ...spanFeatures.map((f: any) => ({ feature: f, kind: "site" as const })),
+      ...pointSites.map((f: any) => ({ feature: f, kind: "site" as const })),
+    ].map((row) => {
+      const end = typeof row.feature.end === "number" && Number.isFinite(row.feature.end) ? row.feature.end : row.feature.start;
+      return { ...row, start: row.feature.start, end };
+    });
+    return rows.sort((a, b) => a.start - b.start || a.end - b.end);
+  }, [domains, spanFeatures, pointSites]);
 
   /**
    * Where each lollipop stem attaches.
@@ -1174,6 +1211,82 @@ export function FunctionTab({
                   </text>
                 </svg>
               </div>
+
+              {/*
+                WCAG 2.5.8 (Target Size). The SVG pins are r=11 user units: roughly 28 CSS px at a wide
+                container, but about 14 CSS px at this container's 500px floor, below the 24px minimum.
+                Enlarging the radius is not the fix — at 875 aa adjacent pins are ~25 units apart, so
+                r>12 makes neighbouring targets overlap and steal each other's clicks, and a cluster
+                denser than the three tiers can separate cannot be fixed by geometry at all.
+
+                So the track's shapes are also offered here as controls: full width, at least 24px tall,
+                keyboard-reachable (a summary element, so it is a real disclosure rather than a div with
+                a click handler), and selecting a row uses the same selection language the SVG does.
+              */}
+              {plottedAnnotations.length > 0 && (
+                <details className="rounded-xl border bg-cs-surface-2 border-cs-border" data-annotation-list>
+                  <summary className="px-3 py-2 min-h-[28px] flex items-center cursor-pointer text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50">
+                    All curated annotations ({plottedAnnotations.length})
+                    <span className="ml-2 font-sans font-normal normal-case tracking-normal">
+                      — every shape on the track as a full-size control
+                    </span>
+                  </summary>
+                  <div className="px-2 pb-2 space-y-1">
+                    {plottedAnnotations.map((row, idx) => {
+                      const f = row.feature;
+                      const geometry = featureGeometryFor(f.type);
+                      const isSelected = isFeatureSelected({ type: row.kind, start: row.start, end: row.end });
+                      const length = row.end - row.start + 1;
+                      const isEnclosing = typeof pos === "number" && pos >= row.start && pos <= row.end;
+                      return (
+                        <button
+                          key={`${row.kind}-${f.type}-${row.start}-${idx}`}
+                          type="button"
+                          data-annotation-row
+                          data-annotation-kind={row.kind}
+                          data-annotation-start={row.start}
+                          data-annotation-end={row.end}
+                          aria-pressed={isSelected}
+                          onClick={() =>
+                            handleFeatureSelect({
+                              type: row.kind,
+                              name: f.description || f.type,
+                              start: row.start,
+                              end: row.end,
+                              category: f.type,
+                              description: f.description,
+                              interproId: f.interproId,
+                              isEnclosing,
+                              distanceFromVariant: isEnclosing
+                                ? 0
+                                : pos < row.start
+                                  ? row.start - pos
+                                  : pos - row.end,
+                            })
+                          }
+                          className={`w-full min-h-[28px] flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 ${
+                            isSelected
+                              ? "border-amber-500/70 bg-amber-500/10"
+                              : "border-cs-border hover:border-cs-accent-clay"
+                          }`}
+                        >
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold font-mono uppercase shrink-0 ${getFeatureBadgeStyle(f.type)}`}>
+                            {f.type}
+                          </span>
+                          <span className="text-[11px] font-sans truncate flex-1" style={{ color: "var(--cs-text-secondary)" }}>
+                            {f.description || "Curated functional feature"}
+                          </span>
+                          <span className="text-[9.5px] font-mono shrink-0" style={{ color: "var(--cs-text-muted)" }}>
+                            {geometry === "band" ? "Residues" : geometry === "span" ? "Span" : "Residue"}{" "}
+                            {row.start === row.end ? row.start : `${row.start}–${row.end}`}
+                            {length > 1 ? ` (${length} aa)` : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
 
               {/* Interactive Selected Feature Inspector Bar. A live region, because selecting a
                   domain or a lollipop in the SVG changes only this bar — otherwise activation is

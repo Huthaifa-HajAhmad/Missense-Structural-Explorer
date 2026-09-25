@@ -154,9 +154,45 @@ const EXPECTED_COVERAGE_COUNTS = {
   disulfide: 1,
   transmembrane: 1,
   other: 2, // "Zinc finger" + "Motif"
-  region: 1,
   spans: 4, // transmembrane + zinc finger + motif + region
   plottedSites: 5, // points only: active, binding, metal, disulfide, modified residue
+} as const;
+
+/**
+ * SYNTHETIC crowded-cluster payload — not a real protein.
+ *
+ * Every other fixture keeps its point sites far apart (the coverage payload says so explicitly: "the
+ * positions are invented to be well separated so each pin lands in its own tier"), so nothing
+ * exercised the tier assignment at all, let alone its overflow branch. Six point sites sit within
+ * eleven residues here — close enough that three tiers cannot hold them all — which is the state the
+ * packing rule exists to resolve and the state the accessible control list exists to make clickable.
+ */
+const CROWDED_FEATURES = {
+  geneName: "CROWDED",
+  sequenceLength: 500,
+  isMultimer: false,
+  features: [
+    { type: "Domain", description: "Test domain", start: 100, end: 160 },
+    { type: "Binding site", description: "Substrate", start: 200, end: 200 },
+    { type: "Binding site", description: "Substrate", start: 202, end: 202 },
+    { type: "Active site", description: "Proton acceptor", start: 204, end: 204 },
+    { type: "Binding site", description: "Substrate", start: 206, end: 206 },
+    { type: "Binding site", description: "Substrate", start: 208, end: 208 },
+    { type: "Disulfide bond", description: "Interchain", start: 210, end: 210 },
+    { type: "Region", description: "Disordered", start: 250, end: 280 },
+  ],
+};
+
+const EXPECTED_CROWDED_COUNTS = {
+  domain: 1,
+  active: 1,
+  binding: 4,
+  ptm: 0,
+  disulfide: 1,
+  transmembrane: 0,
+  other: 0,
+  spans: 1, // the disordered region; the bar keeps the span-lane checks meaningful here
+  plottedSites: 6, // the six clustered points
 } as const;
 
 /**
@@ -266,10 +302,35 @@ const CASES = [
   { id: "cbs1", label: "p.Ser489Cys — inside CBS 1", residue: 489, width: 1010, kind: "cnnm2" },
   { id: "tm", label: "p.Ala300Val — inside CNNM transmembrane", residue: 300, width: 1010, wt: "Ala", mut: "Val", kind: "cnnm2" },
   { id: "gap", label: "p.Gly440Arg — inter-domain", residue: 440, width: 1010, wt: "Gly", mut: "Arg", kind: "cnnm2" },
-  { id: "zoomed", label: "p.Ser489Cys at 3.5× — clipped bands", residue: 489, width: 1010, kind: "zoomed" },
+  { id: "zoomed", label: "p.Ser489Cys at 3.5× — clipped bands", residue: 489, width: 1010, kind: "cnnm2", zoomClicks: 5 },
+  { id: "zoomed2", label: "p.Ser489Cys at 2× — a second window width", residue: 489, width: 1010, kind: "cnnm2", zoomClicks: 2 },
   { id: "gzf1", label: "GZF1 p.Arg591Trp — 17 nested spans, 3 point sites", residue: 591, width: 1010, wt: "Arg", mut: "Trp", kind: "gzf1" },
   { id: "coverage", label: "synthetic category coverage (all seven chips)", residue: 60, width: 1010, wt: "Asp", mut: "Asn", kind: "coverage" },
+  { id: "crowded", label: "synthetic crowded cluster (six points in 11 residues)", residue: 204, width: 1010, wt: "Pro", mut: "Leu", kind: "crowded" },
 ] as const;
+
+/** Every fixture has the shape the component reads; only the contents differ. */
+interface Fixture {
+  geneName: string;
+  sequenceLength: number;
+  isMultimer: boolean;
+  features: Array<{ type: string; description: string; start: number; end: number }>;
+}
+
+/**
+ * One place that maps a case to its payload and its hand-counted expectations. The two used to be
+ * selected by separate ternary chains in three different places, so a fourth fixture would have had to
+ * be added in all three or (worse) silently fall through to CNNM2.
+ */
+function payloadFor(kind: string): { features: Fixture; want: ExpectedCounts } {
+  switch (kind) {
+    case "coverage": return { features: COVERAGE_FEATURES, want: EXPECTED_COVERAGE_COUNTS };
+    case "gzf1": return { features: GZF1_FEATURES, want: EXPECTED_GZF1_COUNTS };
+    case "crowded": return { features: CROWDED_FEATURES, want: EXPECTED_CROWDED_COUNTS };
+    default: return { features: CNNM2_FEATURES, want: EXPECTED_CNNM2_COUNTS };
+  }
+}
+
 
 /* ── Report plumbing (identical shape to tools/header-geometry) ─────────────────── */
 interface Check {
@@ -744,6 +805,13 @@ function checkNonTextContrast(id: string, t: Track): Check[] {
   // Every distinct pin colour plus the variant caret; the caret is the only thing marking the
   // residue on the track, so it is a meaningful non-text element too.
   const samples: Array<[string, string]> = t.sites.map((s) => [s.name.slice(0, 26), getComputedStyle(s.pinEl).fill]);
+  /*
+   * Span bars belong in this set, not only in the legend's colour-equality check: on CNNM2 a
+   * transmembrane helix is a bar and NOTHING else, so if its colour is too faint to read the
+   * annotation is simply not there for a low-vision reader. Equality with the legend says the legend
+   * and the track agree; it says nothing about either against the surface they are painted on.
+   */
+  samples.push(...t.spans.map((s): [string, string] => [`span ${s.name.slice(0, 24)}`, getComputedStyle(s.bar).fill]));
   const caret = t.callout?.marker ? t.callout.g.querySelector("polygon") : null;
   if (caret) samples.push(["variant caret", getComputedStyle(caret).fill]);
 
@@ -764,9 +832,177 @@ function checkNonTextContrast(id: string, t: Track): Check[] {
   }
   return [
     {
-      name: `${id}: pin and caret colours clear 3:1 on the light track`,
+      name: `${id}: pin, span bar and caret colours clear 3:1 on the light track`,
       pass: failing.length === 0 && measured.length > 0,
       detail: failing.length ? failing.join("; ") : measured.join(", "),
+    },
+  ];
+}
+
+/**
+ * 3g. The pin tiers.
+ *
+ * Pins that would collide are stacked in tiers, and the tier assignment is interval packing: each pin
+ * takes the lowest tier whose rightmost pin is far enough away. Pins sharing a tier must therefore not
+ * be drawn on top of each other — the one thing a reader cannot undo.
+ *
+ * Honest scope: this is a regression guard, not a reproducer. It was written against the previous rule
+ * (compare with the immediate predecessor only, cycle the tier modulo three), and the crowded-cluster
+ * fixture shows that rule passing it too — a cluster dense enough to break the cyclic rule is also
+ * dense enough to exhaust three tiers, where *any* assignment overlaps. What fails it is a mutation
+ * that ignores tiers altogether ("every pin on tier 0"), which is in `mutations.mjs`.
+ */
+function checkPinTiers(id: string, t: Track): Check[] {
+  const collisions: string[] = [];
+  for (let i = 0; i < t.sites.length; i += 1) {
+    for (let j = i + 1; j < t.sites.length; j += 1) {
+      const a = t.sites[i];
+      const b = t.sites[j];
+      if (Math.abs(a.pin.y - b.pin.y) > 0.5) continue;
+      if (intersects(a.pin, b.pin)) collisions.push(`${a.name.slice(0, 22)} overlaps ${b.name.slice(0, 22)} on one tier`);
+    }
+  }
+  const tiers = new Set(t.sites.map((s) => px(s.pin.y)));
+  return [
+    {
+      name: `${id}: pins sharing a tier are not drawn on top of each other`,
+      pass: collisions.length === 0,
+      detail: collisions.length ? collisions.join("; ") : `${t.sites.length} pins across ${tiers.size} tier(s)`,
+    },
+  ];
+}
+
+/**
+ * 3i. The annotation control list: target size, and whether a row actually drives the track.
+ *
+ * The list exists for WCAG 2.5.8 — at this container's 500px floor an r=11 SVG pin is about 14 CSS px,
+ * below the 24px minimum, and enlarging the radius is not available (at 875 aa neighbouring pins are
+ * ~25 units apart, so r>12 makes the targets overlap and steal each other's clicks) — and for the
+ * clusters three tiers cannot separate. So it has to be a real control rather than decoration:
+ * measured in CSS pixels, and measured to move the picture.
+ */
+async function checkAnnotationControls(id: string, host: HTMLElement, t: Track): Promise<Check[]> {
+  const sizeName = `${id}: every drawn annotation is also a large-target control`;
+  const wiredName = `${id}: activating an annotation row selects the same feature in the track`;
+  const details = host.querySelector("[data-annotation-list]") as HTMLDetailsElement | null;
+  if (!details) {
+    return [
+      { name: sizeName, pass: false, detail: "no [data-annotation-list] disclosure in the tab" },
+      { name: wiredName, pass: false, detail: "no [data-annotation-list] disclosure in the tab" },
+    ];
+  }
+  // A closed <details> has no layout. Opening it the way a keyboard user would also proves the
+  // disclosure has content rather than being an empty affordance.
+  details.open = true;
+  await nextFrame();
+  const rows = Array.from(details.querySelectorAll("[data-annotation-row]")) as HTMLButtonElement[];
+  const expectedRows = t.domains.length + t.spans.length + t.sites.length;
+  const boxes = rows.map((row) => row.getBoundingClientRect());
+  const tooSmall = rows
+    .map((row, i) => ({ row, box: boxes[i] }))
+    .filter(({ box }) => box.height < 24 || box.width < 24)
+    .map(({ row, box }) => `"${(row.textContent || "").trim().slice(0, 22)}" ${Math.round(box.width)}x${Math.round(box.height)}px`);
+  const sizeCheck: Check = {
+    name: sizeName,
+    pass: rows.length === expectedRows && tooSmall.length === 0,
+    detail:
+      rows.length !== expectedRows
+        ? `${rows.length} row(s) for the ${expectedRows} annotation(s) the track drew`
+        : tooSmall.length
+          ? `under 24px: ${tooSmall.join("; ")}`
+          : `${rows.length} rows, shortest ${Math.round(Math.min(...boxes.map((b) => b.height)))}px tall`,
+  };
+
+  const sitesByResidue = new Map<number, Track["sites"][number]>();
+  for (const site of t.sites) {
+    const residue = Number((site.name.match(/residue (\d+)/) || [])[1]);
+    if (Number.isFinite(residue)) sitesByResidue.set(residue, site);
+  }
+  const row = rows.find(
+    (r) =>
+      r.getAttribute("data-annotation-kind") === "site" &&
+      sitesByResidue.has(Number(r.getAttribute("data-annotation-start")))
+  );
+  const site = row ? sitesByResidue.get(Number(row.getAttribute("data-annotation-start"))) : undefined;
+  if (!row || !site) {
+    return [sizeCheck, { name: wiredName, pass: false, detail: "no annotation row maps to a drawn pin" }];
+  }
+  // An earlier check clicks a pin directly, so this feature may already be selected; clear it first or
+  // the transition below would be a deselection and the check would fail for the wrong reason.
+  if (row.getAttribute("aria-pressed") === "true") {
+    row.click();
+    await nextFrame();
+  }
+  const pinRadius = () => (site.g.querySelectorAll("circle")[1] as SVGCircleElement)?.r.baseVal.value ?? 0;
+  const before = { r: pinRadius(), fill: getComputedStyle(site.pinEl).fill };
+  row.click();
+  await nextFrame();
+  const pressed = row.getAttribute("aria-pressed");
+  const after = { r: pinRadius(), fill: getComputedStyle(site.pinEl).fill };
+  row.click(); // the selection toggles, so this leaves the track as it was found
+  await nextFrame();
+  const cleared = row.getAttribute("aria-pressed") === "false" && pinRadius() === before.r;
+  return [
+    sizeCheck,
+    {
+      name: wiredName,
+      pass: pressed === "true" && after.r > before.r && after.fill !== before.fill && cleared,
+      detail: `pressed=${pressed}, pin r ${before.r}→${after.r}, fill ${before.fill}→${after.fill}, clears again=${cleared}`,
+    },
+  ];
+}
+
+/**
+ * 3h. The metric chip and the provenance chip must be the same box.
+ *
+ * "Length: 711 aa" sits immediately beside "UniProtKB & InterPro" and was reported as discrepant. The
+ * value was right; the chip was a hand-rolled `text-[9.5px] px-2 py-0.5 rounded` with muted text while
+ * its neighbour used `.badge-data-source` with its own padding, radius and type size — two chips in one
+ * row with different heights and type. They now share one box, and this measures that rather than
+ * trusting the class names, because class names are exactly what drifted.
+ */
+const BADGE_BOX_PROPERTIES = [
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "borderTopLeftRadius",
+  "borderTopWidth",
+  "fontSize",
+  "fontWeight",
+] as const;
+
+function checkBadgeGrammar(id: string, host: HTMLElement): Check[] {
+  const metric = host.querySelector(".badge-metric") as HTMLElement | null;
+  const source = host.querySelector(".badge-data-source") as HTMLElement | null;
+  const name = `${id}: the metric chip and the provenance chip share one box`;
+  if (!metric || !source) {
+    return [
+      {
+        name,
+        pass: false,
+        detail: `metric chip ${metric ? "found" : "MISSING"}, provenance chip ${source ? "found" : "MISSING"} in the same row`,
+      },
+    ];
+  }
+  const differences: string[] = [];
+  const metricBox = metric.getBoundingClientRect();
+  const sourceBox = source.getBoundingClientRect();
+  if (Math.abs(metricBox.height - sourceBox.height) > 0.5) {
+    differences.push(`height ${metricBox.height}px vs ${sourceBox.height}px`);
+  }
+  for (const property of BADGE_BOX_PROPERTIES) {
+    const a = getComputedStyle(metric)[property];
+    const b = getComputedStyle(source)[property];
+    if (a !== b) differences.push(`${property} ${a} vs ${b}`);
+  }
+  return [
+    {
+      name,
+      pass: differences.length === 0,
+      detail: differences.length
+        ? differences.join("; ")
+        : `identical box: ${Math.round(metricBox.height)}px tall, padding ${getComputedStyle(metric).padding}, radius ${getComputedStyle(metric).borderTopLeftRadius}, font ${getComputedStyle(metric).fontSize}`,
     },
   ];
 }
@@ -1006,7 +1242,8 @@ function chipByText(host: HTMLElement, re: RegExp): { el: Element; button: HTMLB
 type ExpectedCounts =
   | typeof EXPECTED_CNNM2_COUNTS
   | typeof EXPECTED_COVERAGE_COUNTS
-  | typeof EXPECTED_GZF1_COUNTS;
+  | typeof EXPECTED_GZF1_COUNTS
+  | typeof EXPECTED_CROWDED_COUNTS;
 
 const CHIP_SPEC: Array<[keyof ExpectedCounts, RegExp]> = [
   ["domain", /Domain/i],
@@ -1328,21 +1565,18 @@ function checkLegend(
 /**
  * The number of assertions a complete run must produce, written out rather than counted at
  * runtime: the point of the self-check is to fail when a case silently stops contributing.
- * Per 1× case: 6 geometry + 4 span lane + 1 residue mapping + 1 contrast + 3 callout + 2 ring
- * + 1 keyboard focus + 4 inventory = 22; the zoomed case swaps the mapping check for the
- * zoom-window check (22); the reported case adds the default-read-out check, the run adds the three
- * legend checks (the legend is one component, measured once), and the self-check. Update this
- * deliberately when assertions are added.
+ * Per case: 6 geometry + 4 span lane + 1 residue mapping (or 1 zoom window) + 1 contrast + 3 callout
+ * + 2 ring + 1 keyboard focus + 4 inventory + 1 pin tiers + 1 badge box + 2 annotation controls = 26;
+ * the reported case adds the default-read-out check, the run adds the three legend checks (the legend
+ * is one component, measured once), and the self-check. Update this deliberately when assertions are
+ * added.
  */
 function expectedCheckCount(): number {
-  const perCase = 22;
+  const perCase = 26;
   const cbs1Extra = 1;
   const legend = 3;
   return CASES.length * perCase + cbs1Extra + legend + 1;
 }
-
-/** How many times the harness clicks "Zoom in (+0.5x)" for the zoomed case (→ 3.5×, a 250 aa window). */
-const ZOOM_IN_CLICKS = 5;
 
 function App(): React.ReactElement {
   const [report, setReport] = React.useState<{ ok: boolean; checks: Check[] } | null>(null);
@@ -1376,10 +1610,10 @@ function App(): React.ReactElement {
           continue;
         }
         const track = read.track;
-        const want = c.kind === "coverage" ? EXPECTED_COVERAGE_COUNTS : c.kind === "gzf1" ? EXPECTED_GZF1_COUNTS : EXPECTED_CNNM2_COUNTS;
-        const fixture = c.kind === "coverage" ? COVERAGE_FEATURES : c.kind === "gzf1" ? GZF1_FEATURES : CNNM2_FEATURES;
+        const { features: fixture, want } = payloadFor(c.kind);
         const isCoverage = c.kind === "coverage";
-        const isZoomed = c.kind === "zoomed";
+        const zoomClicks = (c as { zoomClicks?: number }).zoomClicks ?? 0;
+        const isZoomed = zoomClicks > 0;
         const spanExpectation = {
           spans: want.spans,
           points: want.plottedSites,
@@ -1391,12 +1625,18 @@ function App(): React.ReactElement {
             (f) => isSpanType(f.type) && c.residue >= f.start && c.residue <= (f.end ?? f.start)
           ).length,
         };
+        /** The four checks added with the control list, the badge row and the pin tiers. */
+        const perCaseExtras = async (t: Track): Promise<Check[]> => [
+          ...checkPinTiers(c.id, t),
+          ...checkBadgeGrammar(c.id, host),
+          ...(await checkAnnotationControls(c.id, host, t)),
+        ];
         if (isZoomed) {
           // Zoom the way a user does, then re-read: clipping, label suppression and stem anchoring
           // all differ once the window is narrower than the protein. Zooming alone starts at
           // residue 1, so the variant is centred with the track's own "Focus Variant" control —
           // which exercises that path too.
-          for (let i = 0; i < ZOOM_IN_CLICKS; i += 1) {
+          for (let i = 0; i < zoomClicks; i += 1) {
             const zoomIn = Array.from(host.querySelectorAll("button")).find((b) => /Zoom in/.test(b.getAttribute("title") || ""));
             if (!zoomIn) {
               checks.push({ name: `${c.id}: zoom control found`, pass: false, detail: 'no button titled "Zoom in (+0.5x)"' });
@@ -1427,6 +1667,7 @@ function App(): React.ReactElement {
           checks.push(...(await checkNoFocusRings(c.id, zoomedTrack)));
           checks.push(...checkKeyboardFocusIndicator(c.id, zoomedTrack));
           checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
+          checks.push(...(await perCaseExtras(zoomedTrack)));
           publish(checks);
           continue;
         }
@@ -1444,6 +1685,7 @@ function App(): React.ReactElement {
         checks.push(...(await checkNoFocusRings(c.id, track)));
         checks.push(...checkKeyboardFocusIndicator(c.id, track));
         checks.push(...(await checkInventory(host, c.id, want, fixture.features)));
+        checks.push(...(await perCaseExtras(track)));
         publish(checks);
       }
 
@@ -1500,7 +1742,7 @@ function App(): React.ReactElement {
         <FeaturePaletteLegend />
       </div>
       {CASES.map((c) => {
-        const features = c.kind === "coverage" ? COVERAGE_FEATURES : c.kind === "gzf1" ? GZF1_FEATURES : CNNM2_FEATURES;
+        const features = payloadFor(c.kind).features;
         const wildType = (c as { wt?: string }).wt ?? "Ser";
         const mutant = (c as { mut?: string }).mut ?? "Cys";
         const result = resultFor(features, c.residue, wildType, mutant);
