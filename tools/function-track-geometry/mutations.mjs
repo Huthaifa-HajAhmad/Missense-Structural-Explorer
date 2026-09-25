@@ -69,6 +69,13 @@ const MUTATIONS = [
     expect: "pin and caret colours clear 3:1 (the track and the legend move together, so the legend equality check stays green)",
   },
   {
+    id: "position-filter-inert",
+    file: COMPONENT,
+    from: "                        onClick={() => setShowAtPositionOnly((prev) => !prev)}",
+    to: "                        onClick={() => {}}",
+    expect: "default read-out and the Domain filter agree on CBS 1 — the list's at-position filter does nothing",
+  },
+  {
     id: "domain-row-does-not-highlight",
     file: COMPONENT,
     from: "                            fill={isTargetInside || isSelected ? \"url(#activeDomainGradOpaque)\" : \"url(#domainGradOpaque)\"}",

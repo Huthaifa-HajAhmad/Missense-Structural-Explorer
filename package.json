@@ -13,7 +13,7 @@
     "build": "npm run build:client && npm run build:server && npm run build:workers && npm run build:protos",
     "start": "node dist/server.cjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "lint": "tsx scripts/check-boundaries.ts && tsc --noEmit",
+    "lint": "tsx scripts/check-boundaries.ts && node scripts/check-focus-indicators.mjs && tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:smoke": "vitest run server/tests/smoke.test.ts",

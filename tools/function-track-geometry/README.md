@@ -98,7 +98,7 @@ expectations, because the two used to be picked by separate ternary chains in th
 | Zero-count categories are not offered as filters | A chip that can only empty the track |
 | **Every** filterable chip dims exactly what it excludes | A filter whose count and filter disagree. The expected pins come from the harness's own oracle over the fixture types, not from the app's predicate |
 | The plotted span count is disclosed, even at zero | Curated annotations fetched, drawn, and then unaccounted for in the chip row |
-| The default read-out agrees with the Domain filter | "No direct annotations at 489" by default vs "1 match" under the Domain chip |
+| **The default read-out agrees with the Domain filter, and the list's "at this position" filter works** | "No direct annotations at 489" by default vs "1 match" under the Domain chip; and, since the two annotation lists were consolidated, the filter that replaced the card list narrowing 9 rows to the 1 that covers the residue, with the covering row marked and every row restored on release |
 | **Legend lists every category, and nothing else** | A legend row for something the track cannot paint (a resurrected "Spans" colour swatch is caught here as an unexpected kind) |
 | **Every legend swatch matches the colour the track paints for that category** | The legend drifting from the track: the four wrong swatches it shipped with, and any future hand-written one. Pins and bars must match the swatch exactly; a domain band is a gradient, so the swatch must be one of its stops |
 | **The legend's shape rows cover the geometries a site can have** | A legend that names kinds only, leaving "why is this one a bar?" unanswerable |
@@ -234,6 +234,18 @@ band is *already* on the highlight gradient when the variant sits inside it (so 
 the wrong claim — it now asserts the highlight gradient is what is shown while pressed), and the row
 lookup matched on the start residue alone, which is ambiguous for GZF1 where a disordered region and a
 low-complexity segment both begin at 153 (it now matches start *and* end).
+
+### Fifth round: the consolidated list and the flank handlers
+
+One defect, one run:
+
+| Reintroduced defect | Assertions that failed | Failure text (abridged) |
+| --- | --- | --- |
+| The list's "at this position" filter does nothing | `default read-out and the Domain filter agree on CBS 1` | `9 rows → 9 at position (marked 1); pressed=false; restores=true` |
+
+The assertion count did not move: the filter check was folded into the position-read-out family, which
+already existed, so `FAMILY_SIZE` needed no edit and the derived total stayed 246 — which is the shape the
+derived count was built for.
 
 **The runner cannot report success for a run that measured nothing, and the number it expects is derived.**
 `check.mjs` requires the report to contain the expected number of assertions (246). This was a real hole:

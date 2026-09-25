@@ -1643,21 +1643,27 @@ async function checkInventory(host: HTMLElement, id: string, want: ExpectedCount
 }
 
 /**
- * 12. The default (unfiltered) read-out must agree with the Domain filter: the variant is inside CBS 1,
- * so the Domain pill finds it — but it used to report "no direct annotations" by default because the
- * default set excluded domains.
+ * 12. The default (unfiltered) read-out must agree with the Domain filter, and the annotation list must
+ * be able to answer the residue's own question.
+ *
+ * The variant is inside CBS 1, so the Domain pill finds it — but it used to report "no direct
+ * annotations" by default because the default set excluded domains. Since the two lists were
+ * consolidated, this also asserts the surviving list's "at this position" filter: pressing it narrows
+ * the rows to the ones that cover the residue, the rows carrying the residue are marked, and releasing
+ * it restores every row. That filter is what replaced the deleted card list, so it is the part that must
+ * not silently stop working.
  *
  * Its own function, and its own family, because it runs for one case only: keeping it inside
  * `checkInventory` made that family's size depend on the case id, which is the sort of thing a declared
  * family size is supposed to rule out.
  */
 async function checkPositionReadOut(id: string, host: HTMLElement): Promise<Check[]> {
+  const name = `${id}: default read-out and the Domain filter agree on CBS 1`;
   const annotationHeading = () => {
     const heads = Array.from(host.querySelectorAll("span, p")).map((n) => n.textContent || "");
     return heads.find((s) => /Direct Curated Annotations/i.test(s)) ?? "";
   };
   const domainChip = pillByText(host, /Domain/i);
-  const name = `${id}: default read-out and the Domain filter agree on CBS 1`;
   if (!domainChip) return [{ name, pass: false, detail: "no Domain chip to press" }];
   const unfilteredHeading = annotationHeading();
   const emptyStateUnfiltered = (host.textContent || "").includes("No domain, catalytic active site");
@@ -1668,11 +1674,38 @@ async function checkPositionReadOut(id: string, host: HTMLElement): Promise<Chec
   const domainMatch = /1 match/i.test(host.textContent || "");
   domainChip.click();
   await nextFrame();
+
+  // The list's own filter, which is what replaced the deleted card list.
+  const details = host.querySelector("[data-annotation-list]") as HTMLDetailsElement | null;
+  if (details) details.open = true;
+  await nextFrame();
+  const toggle = Array.from(host.querySelectorAll("button")).find((b) =>
+    /Direct Curated Annotations at Position/i.test(b.textContent || "")
+  ) as HTMLButtonElement | undefined;
+  const rowCount = () => host.querySelectorAll("[data-annotation-row]").length;
+  const markedRows = () => host.querySelectorAll('[data-annotation-at-position="true"]').length;
+  let filterReport = "no [data-annotation-list] to filter";
+  let filterOk = false;
+  if (toggle) {
+    const all = rowCount();
+    const marked = markedRows();
+    toggle.click();
+    await nextFrame();
+    const narrowed = rowCount();
+    const pressed = toggle.getAttribute("aria-pressed");
+    toggle.click();
+    await nextFrame();
+    const restored = rowCount() === all;
+    // CBS 1 is the only curated annotation covering 489, and an annotation that covers it is marked.
+    filterOk = pressed === "true" && narrowed === 1 && marked === 1 && restored;
+    filterReport = `${all} rows → ${narrowed} at position (marked ${marked}); pressed=${pressed}; restores=${restored}`;
+  }
+
   return [
     {
       name,
-      pass: unfilteredHeading !== "" && listsCbs1 && domainMatch && !emptyStateUnfiltered,
-      detail: `unfiltered heading "${unfilteredHeading}" (filtered: "${filteredHeading}"); domain filter finds=${domainMatch}; unfiltered empty-state=${emptyStateUnfiltered}`,
+      pass: unfilteredHeading !== "" && listsCbs1 && domainMatch && !emptyStateUnfiltered && filterOk,
+      detail: `unfiltered heading "${unfilteredHeading}" (filtered: "${filteredHeading}"); domain filter finds=${domainMatch}; unfiltered empty-state=${emptyStateUnfiltered}; ${filterReport}`,
     },
   ];
 }

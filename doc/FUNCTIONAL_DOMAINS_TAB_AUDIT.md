@@ -576,5 +576,76 @@ how the previous round shipped a `zoomed2` that measured the same window as `zoo
 legend row and the control list's three-shape wiring are the parts a reader would notice. The interview
 answer was that the reviewer will screenshot the app themselves.
 
+---
+
+# Fifth round — the three remaining items
+
+The three items the fourth round left open: consolidating the two annotation lists, extracting the
+duplicated flank handlers, and the five app-wide focus-indicator offenders. All three are done.
+
+## 1. One annotation list instead of two
+
+The tab carried both a control list of every drawn annotation and a card list of the annotations at the
+variant residue — the same features, the same selection behaviour, saying the same things one surface
+apart. The card list is gone and the control list now answers its question directly:
+
+- a toggle, **"Direct Curated Annotations at Position \<pos\> (n)"**, narrows the rows to those covering
+  the residue (9 → 1 on the CBS 1 case) and restores them on release;
+- rows that cover the residue carry an **`at <pos>`** marker, because containment is not selection;
+- the **absence sentence** moved with the framing, still gated on the payload having arrived — the
+  round-one rule that a tab mid-retrieval must not claim a protein with three domains has none — along
+  with the **"Filtered by \<chip\> (n matches)"** copy;
+- the heading string was kept verbatim on purpose: `checkPositionReadOut` reads it, so the harness check
+  survived the consolidation unchanged and now also asserts the filter.
+
+Dropped, not moved: the card list's **"Nearest functional anchors"** row, which repeated the flank cards
+directly above it. Also removed: the now-unused `ShieldCheck` import.
+
+## 2. The flank handlers, four copies to one
+
+`onClick` and `onKeyDown` each carried a full copy of the same 17-line selection body, for each of the two
+flank cards — four copies, so a behaviour fix had to be made in all four or in none. `selectFlank(flank)`
+is now the single implementation; the keyboard path is the same call plus `preventDefault` on the
+activating key, which is the only difference that was ever real. Behaviour-preserving: `tsc`, the geometry
+harness and the full suite are unchanged and green.
+
+Honest scope: the flank cards' click behaviour is still **not asserted** by anything — the harness
+measures the SVG track and the annotation list's rows, not those two cards. That was true before this
+extraction too; the extraction did not weaken it, but it did not fix it either.
+
+## 3. The five focus offenders, and an inventory that cannot rot
+
+Three `DevConsolePanel` selects and the two modal close buttons suppressed the focus outline with nothing
+replacing it. All five now use the house idiom —
+`rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50`.
+
+The hand-kept inventory in the first round's audit table is replaced by `scripts/check-focus-indicators.mjs`,
+wired into `npm run lint`. It flags a `focus:outline-none` only when no `focus:` / `focus-visible:` ring,
+border, background or shadow appears in the same string literal, because nine such suppressions are
+correct (the literature search fields, the perturbation model cards, the view-resize handle, the
+AlphaGenome search). It reports what it scanned — "9 outline suppression(s), every one with a replacement"
+— and refuses to report success when it finds no source files at all.
+
+Proven by reverting one fix: the check exits 1 naming
+`src/components/modals/HowToInspectModal.tsx:46` and the exact className, then passes again once restored.
+Its limit is stated rather than hidden: it is a text audit, so a companion declared in a *different*
+attribute would be reported as missing.
+
+## Verification
+
+| Layer | Result |
+| --- | --- |
+| `npm run test:geometry:function-track` | **246/246 pass** (8 cases; the count did not move, because the new filter assertion was folded into the existing position-read-out family) |
+| That harness, filter made inert | **1/246** red: `9 rows → 9 at position (marked 1); pressed=false` |
+| `npx tsx scripts/check-boundaries.ts` | 0 violations |
+| `node scripts/check-focus-indicators.mjs` | passes at 9 suppressions; fails naming the file and line when one fix is reverted |
+| `tsc --noEmit` | clean |
+| `npm test` | **165 passed \| 2 skipped** (167 files), **1934 passed \| 5 skipped** (1939 tests), exit 0 |
+
+**Still not verified: what the render looks like.** The consolidation changes the tab's default shape —
+one disclosure instead of a card list — so it is exactly the kind of change that wants a person to look at
+it. The reviewer's answer remains that they will screenshot the app.
+
+
 
 

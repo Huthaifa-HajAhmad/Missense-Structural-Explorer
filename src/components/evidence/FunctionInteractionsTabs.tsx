@@ -10,7 +10,6 @@ import {
   ZoomOut,
   RotateCcw,
   Crosshair,
-  ShieldCheck,
   Sliders,
   Sparkles
 } from "lucide-react";
@@ -202,6 +201,12 @@ export function FunctionTab({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<number>(0);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeatureState | null>(null);
+  /**
+   * The annotation control list can be narrowed to the features that cover the variant residue. It is the
+   * one place the "what is at my residue?" question is answered now: the separate card list that used to
+   * answer it said the same things about the same features one surface further down.
+   */
+  const [showAtPositionOnly, setShowAtPositionOnly] = useState(false);
 
   const result = analysisState.result;
   const features = useMemo(() => result?.uniprotFeatures?.features ?? [], [result?.uniprotFeatures?.features]);
@@ -500,6 +505,41 @@ export function FunctionTab({
     const newPan = Math.max(0, Math.min(1, (idealStart - 1) / maxPan));
     setPanOffset(newPan);
   }, [pos, seqLength]);
+
+  /**
+   * Selecting one of the flank cards, from the pointer or from the keyboard.
+   *
+   * The click handler and the keydown handler each carried their own copy of this body — two copies per
+   * flank, four in all, ~17 lines each — so any behaviour fix had to be made in all four or in none. The
+   * keyboard path is the same selection plus `preventDefault` on the activating key, which is all that is
+   * left of the duplication.
+   */
+  const selectFlank = useCallback(
+    (
+      flank: {
+        feature: { type: string; description?: string; start: number; end?: number; interproId?: string };
+        distance: number;
+      } | null
+    ) => {
+      if (!flank || typeof pos !== "number") return;
+      const featEnd =
+        typeof flank.feature.end === "number" && Number.isFinite(flank.feature.end)
+          ? flank.feature.end
+          : flank.feature.start;
+      handleFeatureSelect({
+        type: isDomainFeature(flank.feature) ? "domain" : "site",
+        name: flank.feature.description || flank.feature.type,
+        start: flank.feature.start,
+        end: featEnd,
+        category: flank.feature.type,
+        description: flank.feature.description,
+        interproId: flank.feature.interproId,
+        isEnclosing: pos >= flank.feature.start && pos <= featEnd,
+        distanceFromVariant: flank.distance,
+      });
+    },
+    [handleFeatureSelect, pos]
+  );
 
   if (!result || typeof pos !== "number") return null;
 
@@ -1232,8 +1272,58 @@ export function FunctionTab({
                       — every shape on the track as a full-size control
                     </span>
                   </summary>
+                  {/*
+                    The variant-position framing lives here rather than in a second list below. The tab
+                    used to carry both: these rows for the whole protein and a card list filtered to the
+                    residue, saying the same things about the same features in two places. The filter is
+                    the cards' question ("what is at my residue?") asked of the one list, and the absence
+                    sentence — which must not appear until the payload has arrived, or it claims a
+                    protein with three domains has none — moved here with it.
+                  */}
+                  <div className="px-2 pb-2" data-annotation-position-heading>
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={showAtPositionOnly}
+                        onClick={() => setShowAtPositionOnly((prev) => !prev)}
+                        title={
+                          showAtPositionOnly
+                            ? `Showing only the annotations containing residue ${pos} — click to show every annotation`
+                            : `Show only the annotations containing residue ${pos}`
+                        }
+                        className={`inline-flex items-center gap-1.5 min-h-[28px] px-2 rounded-full text-[9.5px] font-mono font-bold border cursor-pointer transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 ${
+                          showAtPositionOnly
+                            ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40"
+                            : "bg-cs-surface border-cs-border text-cs-text-muted hover:text-cs-text-primary"
+                        }`}
+                      >
+                        <Crosshair className="w-3 h-3" />
+                        <span>Direct Curated Annotations at Position {pos} ({displayedMatchingFeatures.length})</span>
+                      </button>
+                      {selectedCategory && (
+                        <span className="text-[9.5px] font-mono text-cs-accent-clay">
+                          Filtered by {inventoryCategoryLabel(selectedCategory)} ({displayedMatchingFeatures.length}{" "}
+                          match{displayedMatchingFeatures.length === 1 ? "" : "es"})
+                        </span>
+                      )}
+                    </div>
+                    {displayedMatchingFeatures.length === 0 && (
+                      <p className="px-1 pb-1.5 text-[11px] font-sans leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                        {!curatedAnnotationsAvailable
+                          ? hasServiceNotice
+                            ? "Curated UniProtKB annotations could not be retrieved for this run, so nothing is claimed about this residue."
+                            : "Curated UniProtKB annotations are still being retrieved, so nothing is claimed about this residue yet."
+                          : selectedCategory
+                            ? `No ${inventoryCategoryLabel(selectedCategory)} annotation is recorded at residue ${pos} in UniProtKB.`
+                            : `No domain, catalytic active site, binding pocket, metal coordination, or post-translational modification contains wild-type residue ${wt}${pos} in UniProtKB.`}
+                      </p>
+                    )}
+                  </div>
                   <div className="px-2 pb-2 space-y-1">
-                    {plottedAnnotations.map((row, idx) => {
+                    {(showAtPositionOnly
+                      ? plottedAnnotations.filter((row) => displayedMatchingFeatures.includes(row.feature))
+                      : plottedAnnotations
+                    ).map((row, idx) => {
                       const f = row.feature;
                       const geometry = featureGeometryFor(f.type);
                       const isSelected = isFeatureSelected({ type: row.kind, start: row.start, end: row.end });
@@ -1247,6 +1337,7 @@ export function FunctionTab({
                           data-annotation-kind={row.kind}
                           data-annotation-start={row.start}
                           data-annotation-end={row.end}
+                          data-annotation-at-position={isEnclosing ? "true" : undefined}
                           aria-pressed={isSelected}
                           onClick={() =>
                             handleFeatureSelect({
@@ -1265,7 +1356,7 @@ export function FunctionTab({
                                   : pos - row.end,
                             })
                           }
-                          className={`w-full min-h-[28px] flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 ${
+                          className={`w-full min-h-[28px] flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors cursor-pointer group focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 ${
                             isSelected
                               ? "border-amber-500/70 bg-amber-500/10"
                               : "border-cs-border hover:border-cs-accent-clay"
@@ -1277,10 +1368,19 @@ export function FunctionTab({
                           <span className="text-[11px] font-sans truncate flex-1" style={{ color: "var(--cs-text-secondary)" }}>
                             {f.description || "Curated functional feature"}
                           </span>
+                          {/* Containment is not selection: this row holds the residue under inspection. */}
+                          {isEnclosing && (
+                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                              at {pos}
+                            </span>
+                          )}
                           <span className="text-[9.5px] font-mono shrink-0" style={{ color: "var(--cs-text-muted)" }}>
                             {geometry === "band" ? "Residues" : geometry === "span" ? "Span" : "Residue"}{" "}
                             {row.start === row.end ? row.start : `${row.start}–${row.end}`}
                             {length > 1 ? ` (${length} aa)` : ""}
+                          </span>
+                          <span className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity shrink-0">
+                            <Crosshair className="w-3 h-3 text-cs-accent-clay" />
                           </span>
                         </button>
                       );
@@ -1472,38 +1572,11 @@ export function FunctionTab({
                     ? {
                         role: "button" as const,
                         tabIndex: 0,
-                        onClick: () => {
-                          if (!nearestUpstream) return;
-                          const isDom = isDomainFeature(nearestUpstream.feature);
-                          const featEnd = typeof nearestUpstream.feature.end === "number" && Number.isFinite(nearestUpstream.feature.end) ? nearestUpstream.feature.end : nearestUpstream.feature.start;
-                          handleFeatureSelect({
-                            type: isDom ? "domain" : "site",
-                            name: nearestUpstream.feature.description || nearestUpstream.feature.type,
-                            start: nearestUpstream.feature.start,
-                            end: featEnd,
-                            category: nearestUpstream.feature.type,
-                            description: nearestUpstream.feature.description,
-                            interproId: nearestUpstream.feature.interproId,
-                            isEnclosing: typeof pos === "number" && pos >= nearestUpstream.feature.start && pos <= featEnd,
-                            distanceFromVariant: nearestUpstream.distance
-                          });
-                        },
+                        onClick: () => selectFlank(nearestUpstream),
                         onKeyDown: (e: React.KeyboardEvent) => {
-                          if ((e.key === "Enter" || e.key === " ") && nearestUpstream) {
+                          if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            const isDom = isDomainFeature(nearestUpstream.feature);
-                            const featEnd = typeof nearestUpstream.feature.end === "number" && Number.isFinite(nearestUpstream.feature.end) ? nearestUpstream.feature.end : nearestUpstream.feature.start;
-                            handleFeatureSelect({
-                              type: isDom ? "domain" : "site",
-                              name: nearestUpstream.feature.description || nearestUpstream.feature.type,
-                              start: nearestUpstream.feature.start,
-                              end: featEnd,
-                              category: nearestUpstream.feature.type,
-                              description: nearestUpstream.feature.description,
-                              interproId: nearestUpstream.feature.interproId,
-                              isEnclosing: typeof pos === "number" && pos >= nearestUpstream.feature.start && pos <= featEnd,
-                              distanceFromVariant: nearestUpstream.distance
-                            });
+                            selectFlank(nearestUpstream);
                           }
                         },
                       }
@@ -1556,38 +1629,11 @@ export function FunctionTab({
                     ? {
                         role: "button" as const,
                         tabIndex: 0,
-                        onClick: () => {
-                          if (!nearestDownstream) return;
-                          const isDom = isDomainFeature(nearestDownstream.feature);
-                          const featEnd = typeof nearestDownstream.feature.end === "number" && Number.isFinite(nearestDownstream.feature.end) ? nearestDownstream.feature.end : nearestDownstream.feature.start;
-                          handleFeatureSelect({
-                            type: isDom ? "domain" : "site",
-                            name: nearestDownstream.feature.description || nearestDownstream.feature.type,
-                            start: nearestDownstream.feature.start,
-                            end: featEnd,
-                            category: nearestDownstream.feature.type,
-                            description: nearestDownstream.feature.description,
-                            interproId: nearestDownstream.feature.interproId,
-                            isEnclosing: typeof pos === "number" && pos >= nearestDownstream.feature.start && pos <= featEnd,
-                            distanceFromVariant: nearestDownstream.distance
-                          });
-                        },
+                        onClick: () => selectFlank(nearestDownstream),
                         onKeyDown: (e: React.KeyboardEvent) => {
-                          if ((e.key === "Enter" || e.key === " ") && nearestDownstream) {
+                          if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            const isDom = isDomainFeature(nearestDownstream.feature);
-                            const featEnd = typeof nearestDownstream.feature.end === "number" && Number.isFinite(nearestDownstream.feature.end) ? nearestDownstream.feature.end : nearestDownstream.feature.start;
-                            handleFeatureSelect({
-                              type: isDom ? "domain" : "site",
-                              name: nearestDownstream.feature.description || nearestDownstream.feature.type,
-                              start: nearestDownstream.feature.start,
-                              end: featEnd,
-                              category: nearestDownstream.feature.type,
-                              description: nearestDownstream.feature.description,
-                              interproId: nearestDownstream.feature.interproId,
-                              isEnclosing: typeof pos === "number" && pos >= nearestDownstream.feature.start && pos <= featEnd,
-                              distanceFromVariant: nearestDownstream.distance
-                            });
+                            selectFlank(nearestDownstream);
                           }
                         },
                       }
@@ -1618,116 +1664,14 @@ export function FunctionTab({
               </div>
             </div>
 
-            {/* 4. Curated feature matches at the variant residue, or the residue-level assessment */}
-            {displayedMatchingFeatures.length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10.5px] font-mono font-bold uppercase text-cs-text-muted block">
-                    {/* The set includes domains, so the heading must not call every match a "site" */}
-                    Direct Curated Annotations at Position {pos}:
-                  </span>
-                  {selectedCategory && (
-                    <span className="text-[9.5px] font-mono text-cs-accent-clay">
-                      Filtered by {inventoryCategoryLabel(selectedCategory)} ({displayedMatchingFeatures.length} match{displayedMatchingFeatures.length === 1 ? "" : "es"})
-                    </span>
-                  )}
-                </div>
-                {displayedMatchingFeatures.map((f, idx) => {
-                  const badgeClass = getFeatureBadgeStyle(f.type);
-                  const isDom = isDomainFeature(f);
-                  const featEnd = typeof f.end === "number" && Number.isFinite(f.end) ? f.end : f.start;
-                  const spanLength = featEnd - f.start + 1;
-                  const geometry = featureGeometryFor(f.type);
-                  const isSelected = isFeatureSelected({ type: isDom ? "domain" : "site", start: f.start, end: featEnd });
-                  const select = () => handleFeatureSelect({
-                    type: isDom ? "domain" : "site",
-                    name: f.description || f.type,
-                    start: f.start,
-                    end: featEnd,
-                    category: f.type,
-                    description: f.description,
-                    interproId: f.interproId,
-                    isEnclosing: true,
-                    distanceFromVariant: 0,
-                  });
-                  return (
-                    /*
-                     * A button, not a card: the point of this box is to link the residue to the
-                     * track, and the track already has a selection language (amber pin, amber span
-                     * stroke, brightened band, inspector bar). Read-only text left the two views
-                     * unconnected.
-                     */
-                    <button
-                      key={idx}
-                      type="button"
-                      aria-pressed={isSelected}
-                      onClick={select}
-                      className={`w-full text-left p-3 rounded-lg border leading-relaxed text-xs shadow-sm transition-colors cursor-pointer group focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 ${
-                        isSelected ? "border-amber-500/70 bg-amber-500/10" : "hover:border-cs-accent-clay"
-                      }`}
-                      style={isSelected ? undefined : { background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
-                    >
-                      <span className="flex items-center justify-between gap-2">
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold font-mono uppercase ${badgeClass}`}>
-                          {f.type}
-                        </span>
-                        <span className="text-[10px] font-mono font-bold" style={{ color: "var(--cs-text-muted)" }}>
-                          {geometry === "band" ? "Residues" : geometry === "span" ? "Span" : "Residue"}{" "}
-                          {f.start === featEnd ? f.start : `${f.start}–${featEnd}`}
-                          {spanLength > 1 ? ` (${spanLength} aa)` : ""}
-                        </span>
-                      </span>
-                      <span className="block mt-1.5 text-xs font-sans" style={{ color: "var(--cs-text-secondary)" }}>
-                        {f.description || "Curated functional feature at this site."}
-                      </span>
-                      <span className="mt-1.5 flex items-center gap-1 text-[9.5px] font-mono font-semibold text-cs-accent-clay opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
-                        <Crosshair className="w-3 h-3" />
-                        {isSelected ? "Selected — highlighted in the track" : "Highlight in the track"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              /* Prominent Residue-Level Curated Site Assessment Card */
-              <div className="p-4 rounded-xl border bg-cs-surface border-cs-border space-y-2.5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-slate-500/10 dark:bg-slate-500/20 text-slate-600 dark:text-slate-400 flex items-center justify-center">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                    </div>
-                    <span className="text-xs font-mono font-bold uppercase text-cs-text-primary tracking-wide">
-                      Residue-Level Curated Site Assessment
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase bg-slate-500/10 text-slate-700 dark:text-slate-400 border border-slate-500/20">
-                    Position {pos} ({wt}{pos}{mut ? `→${mut}` : ""})
-                  </span>
-                </div>
-                <p className="text-xs text-cs-text-secondary leading-relaxed">
-                  {!curatedAnnotationsAvailable
-                    ? hasServiceNotice
-                      ? "Curated UniProtKB annotations could not be retrieved for this run, so nothing is claimed about this residue."
-                      : "Curated UniProtKB annotations are still being retrieved, so nothing is claimed about this residue yet."
-                    : selectedCategory
-                      ? `No ${inventoryCategoryLabel(selectedCategory)} annotation is recorded at residue ${pos} in UniProtKB.`
-                      : `No domain, catalytic active site, binding pocket, metal coordination, or post-translational modification contains wild-type residue ${wt}${pos} in UniProtKB.`}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-cs-border-subtle text-[10px] font-mono text-cs-text-muted">
-                  <span className="font-semibold text-cs-text-secondary">Nearest functional anchors:</span>
-                  {nearestUpstream && (
-                    <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
-                      {nearestUpstream.feature.description || nearestUpstream.feature.type} (← {nearestUpstream.distance} aa at res {nearestUpstream.boundaryRes})
-                    </span>
-                  )}
-                  {nearestDownstream && (
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                      {nearestDownstream.feature.description || nearestDownstream.feature.type} (+{nearestDownstream.distance} aa → at res {nearestDownstream.boundaryRes})
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
+            {/*
+              4. There is deliberately no second list of the annotations at this residue here. The
+              position framing — the count, the active chip's "Filtered by … (n match)", the absence
+              sentence and the "at 489" marker on the rows that hold the residue — lives in the
+              annotation control list above, which is the same set of features with the same selection
+              behaviour. What used to be a card list here also repeated the nearest-anchor row that the
+              flank cards above already show.
+            */}
       </div>
     </div>
   );

@@ -43,7 +43,7 @@ export function HowToInspectModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="text-cs-text-muted hover:text-cs-text-secondary focus:outline-none cursor-pointer"
+                className="text-cs-text-muted hover:text-cs-text-secondary rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>

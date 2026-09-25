@@ -514,7 +514,7 @@ export default function DevConsolePanel() {
                 aria-label="Filter by error impact"
                 value={currentStreamState.impactFilter}
                 onChange={(e) => dispatch({ type: "SET_IMPACT_FILTER", stream: activeTab, impact: e.target.value as ErrorImpact | "all" })}
-                className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono focus:outline-none"
+                className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
               >
                 {impactOptions.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -531,7 +531,7 @@ export default function DevConsolePanel() {
             aria-label="Filter by subsystem"
             value={currentStreamState.sourceFilter}
             onChange={(e) => dispatch({ type: "SET_SOURCE_FILTER", stream: activeTab, source: e.target.value as LogSource | "all" })}
-            className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono focus:outline-none"
+            className="text-xs px-2 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
           >
             {sourceOptions.map((opt) => (
               <option key={opt.id} value={opt.id}>
@@ -639,7 +639,7 @@ export default function DevConsolePanel() {
                 aria-label="Trace session"
                 value={activeTrace?.traceId || ""}
                 onChange={(e) => dispatch({ type: "SET_ACTIVE_TRACE_RUN", traceId: e.target.value })}
-                className="text-xs px-2.5 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono font-medium focus:outline-none"
+                className="text-xs px-2.5 py-1 rounded border border-[var(--cs-border)] bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] font-mono font-medium rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
               >
                 {state.traceRuns.length === 0 ? (
                   <option value="">No traces recorded yet</option>
