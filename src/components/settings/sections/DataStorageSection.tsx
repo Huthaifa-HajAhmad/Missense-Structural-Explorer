@@ -22,7 +22,7 @@ const IMPORT_SCHEMA = z.object({
   __type: z.string().optional(),
   version: z.number().optional(),
   settings: z.record(z.string(), z.unknown()).optional()
-});
+}).passthrough();
 
 function ActionButton({
   onClick,
@@ -65,8 +65,24 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
 
   const historyStats = useMemo(() => {
     try {
-      const raw = localStorage.getItem("variantHistoryObfuscated") || localStorage.getItem("variantHistory") || "";
-      const count = raw ? (JSON.parse(raw) as unknown[]).length : 0;
+      const raw = localStorage.getItem("variantHistoryObfuscated")
+        || localStorage.getItem("variant_search_history")
+        || localStorage.getItem("variantHistory")
+        || "";
+      if (!raw) return { count: 0, bytes: "0" };
+
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        try {
+          parsed = JSON.parse(decodeURIComponent(escape(atob(raw))));
+        } catch {
+          parsed = null;
+        }
+      }
+
+      const count = Array.isArray(parsed) ? parsed.length : 0;
       const bytes = new Blob([raw]).size;
       return { count, bytes: (bytes / 1024).toFixed(1) };
     } catch {
@@ -139,6 +155,7 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
     setConfirmHistoryClear(false);
     try {
       localStorage.removeItem("variantHistoryObfuscated");
+      localStorage.removeItem("variant_search_history");
       localStorage.removeItem("variantHistory");
       flashStatus("Search history cleared from this browser.");
     } catch {

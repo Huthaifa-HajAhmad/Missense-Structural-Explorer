@@ -118,6 +118,8 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
   useEffect(() => {
     if (!isSettingsOpen) {
       setSearchQuery("");
+      setConfirmingReset(false);
+      window.clearTimeout(resetTimer.current);
       return;
     }
 
@@ -139,7 +141,14 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
       }
 
       if (e.key === "Tab" && drawerRef.current) {
-        const focusable = drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+        const focusable = Array.from(
+          drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+        ).filter(
+          (el) =>
+            el.tabIndex >= 0 &&
+            !el.hasAttribute("disabled") &&
+            (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0)
+        );
         if (focusable.length === 0) return;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -298,7 +307,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                         role="tab"
                         aria-selected={active}
                         aria-controls="settings-panel"
-                        tabIndex={active ? 0 : -1}
+                        tabIndex={section.id === settingsTab ? 0 : -1}
                         onClick={() => {
                           setSettingsTab(section.id);
                           setSearchQuery("");

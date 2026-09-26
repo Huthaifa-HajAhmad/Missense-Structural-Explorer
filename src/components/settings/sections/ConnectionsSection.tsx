@@ -224,7 +224,7 @@ export function ConnectionsSection() {
         </div>
         <p className="text-[11px] leading-normal text-cs-text-muted">
           Readiness is reported by the server diagnostics endpoint; cache tables and purge controls live
-          in “About &amp; data”.
+          in “Data &amp; storage”.
         </p>
       </SettingsSection>
     </div>

@@ -214,6 +214,7 @@ export default function App() {
               navigate("evidence");
             }}
             onSelectHistory={actions.handleSelectHistoryItem}
+            onRunQuery={actions.handleSearchSubmit}
           />
 
           {/* How to Inspect Modal Popup */}

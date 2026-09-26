@@ -19,7 +19,7 @@ export function ColorSwatches({ colors, value, onChange, ariaLabel }: ColorSwatc
   return (
     <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-2">
       {colors.map((color) => {
-        const selected = value === color.hex;
+        const selected = value?.toLowerCase() === color.hex.toLowerCase();
         return (
           <button
             key={color.hex}
@@ -28,7 +28,7 @@ export function ColorSwatches({ colors, value, onChange, ariaLabel }: ColorSwatc
             aria-label={`${color.name}${selected ? " (selected)" : ""}`}
             aria-pressed={selected}
             onClick={() => onChange(color.hex)}
-            className={`w-6.5 h-6.5 rounded-full border flex items-center justify-center transition-all duration-150 cursor-pointer active:scale-90 ${
+            className={`relative w-6.5 h-6.5 rounded-full border flex items-center justify-center transition-all duration-150 cursor-pointer active:scale-90 after:absolute after:-inset-2 after:content-[''] ${
               selected ? "ring-2 ring-offset-1.5 shadow-sm scale-105" : "hover:scale-110 border-transparent opacity-85 hover:opacity-100"
             }`}
             style={{

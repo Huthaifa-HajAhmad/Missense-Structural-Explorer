@@ -26,7 +26,7 @@ const MUTED_SWATCHES = [
 export function ViewportSection() {
   const { settings, updateSetting } = useSettings();
   const [paletteMode, setPaletteMode] = useState<"vibrant" | "muted">(() =>
-    MUTED_SWATCHES.some((s) => s.hex === settings.residueColor) ? "muted" : "vibrant"
+    MUTED_SWATCHES.some((s) => s.hex.toLowerCase() === settings.residueColor?.toLowerCase()) ? "muted" : "vibrant"
   );
 
   const activeColorName =
