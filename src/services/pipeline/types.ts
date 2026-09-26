@@ -55,6 +55,7 @@ export interface PipelineBiophysicalSink {
   setThermompnnJobId: (id: string | null) => void;
   setThermompnnStatus: (status: "pending" | "unavailable" | "done" | "error" | null) => void;
   setThermompnnError: (err: string | null) => void;
+  setStructureProvenance?: (provenance: StructureProvenance | null) => void;
   lastFetchedFoldRef: React.MutableRefObject<string>;
 }
 

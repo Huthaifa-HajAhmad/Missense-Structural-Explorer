@@ -198,19 +198,28 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       thermompnnJobId: data.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
     };
 
-    // Helper to update energetics with structure provenance
-    const applyEnergetics = (energeticsData: any, prov: any) => {
-      if (!energeticsData) return;
+    // Helper to update energetics with structureProvenance
+    const applyEnergetics = (energeticsData: any, prov: any): StructureProvenance | undefined => {
+      if (!energeticsData) return undefined;
       const rawSource = prov?.source ?? prov?.structureSource;
       const rawPdbId = prov?.pdbId ?? prov?.structurePdbId;
+
+      const rawRes = prov?.resolution ?? prov?.structureResolution;
+      const numRes = typeof rawRes === "number" ? rawRes : (rawRes ? parseFloat(String(rawRes)) : undefined);
+      const resolution = Number.isFinite(numRes) ? numRes : undefined;
+
+      const rawIdentity = prov?.identity ?? prov?.structureIdentity;
+      const numIdentity = typeof rawIdentity === "number" ? rawIdentity : (rawIdentity ? parseFloat(String(rawIdentity)) : undefined);
+      const identity = Number.isFinite(numIdentity) ? numIdentity : undefined;
+
       const structureProvenance: StructureProvenance | undefined = prov
         ? {
             source: rawSource ?? (rawPdbId ? "experimental" : "alphafold"),
             pdbId: rawPdbId ?? undefined,
             chainId: prov.chainId ?? prov.structureChainId ?? undefined,
-            resolution: prov.resolution ?? prov.structureResolution ?? undefined,
+            resolution,
             method: prov.method ?? prov.structureMethod ?? undefined,
-            identity: prov.identity ?? prov.structureIdentity ?? undefined,
+            identity,
             afdbVersion: prov.afdbVersion,
             foldxVersion: prov.foldxVersion,
             foldxRuns: prov.foldxRuns,
@@ -221,6 +230,10 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
             timestamp: prov.timestamp
           }
         : undefined;
+
+      if (structureProvenance && sink.setStructureProvenance) {
+        sink.setStructureProvenance(structureProvenance);
+      }
 
       sink.setFoldingEnergetics((prev: any) => {
         const base = (prev && typeof prev === "object") ? prev : {};
@@ -234,6 +247,8 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           structureProvenance: structureProvenance ?? base?.structureProvenance
         };
       });
+
+      return structureProvenance;
     };
 
     // `settleUnreachableRemoteEngines` is defined above the `try`, so the catch can reach it.
@@ -251,8 +266,9 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         sink.setFoldingError(data.error || data.energetics?.foldxError || "FoldX simulation failed");
       }
 
+      let resolvedProvenance: StructureProvenance | undefined;
       if (data.energetics) {
-        applyEnergetics(data.energetics, data.provenance);
+        resolvedProvenance = applyEnergetics(data.energetics, data.provenance);
       }
       // The run is over: nobody will resolve an engine that is still pending without an id.
       //
@@ -266,7 +282,12 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         mutantPdb: data.pdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
-        foldingEnergetics: data.energetics ?? null,
+        foldingEnergetics: data.energetics
+          ? {
+              ...data.energetics,
+              ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
+            }
+          : null,
         foldingStatus: effectiveFoldingStatus,
         dynamut2JobId: data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
         dynamut2Status: data.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
@@ -402,8 +423,9 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
                 sink.setFoldingError(resResult.error || resResult.energetics?.foldxError || "FoldX simulation failed");
               }
 
+              let resolvedProvenance: StructureProvenance | undefined;
               if (resResult.energetics) {
-                applyEnergetics(resResult.energetics, resResult.provenance);
+                resolvedProvenance = applyEnergetics(resResult.energetics, resResult.provenance);
               }
 
               const d2Status = resResult.energetics?.dynamut2 != null ? "done" : (pollData.dynamut2Status ?? data.dynamut2Status ?? null);
@@ -425,7 +447,12 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
                 mutantPdb: resResult.pdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
                 foldingDdG: resResult.ddG ?? null,
-                foldingEnergetics: resResult.energetics ?? null,
+                foldingEnergetics: resResult.energetics
+                  ? {
+                      ...resResult.energetics,
+                      ...(resolvedProvenance ? { structureProvenance: resolvedProvenance } : {})
+                    }
+                  : null,
                 foldingStatus: effectiveFoldingStatus,
                 dynamut2JobId: pollData.dynamut2JobId ?? data.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
                 dynamut2Status: d2Status,

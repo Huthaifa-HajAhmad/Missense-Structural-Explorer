@@ -85,6 +85,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setThermompnnJobId: flat.setThermompnnJobId || (() => {}),
         setThermompnnStatus: flat.setThermompnnStatus || (() => {}),
         setThermompnnError: flat.setThermompnnError || (() => {}),
+        setStructureProvenance: flat.setStructureProvenance || (() => {}),
         lastFetchedFoldRef: flat.lastFetchedFoldRef || { current: "" }
       },
       structure: {

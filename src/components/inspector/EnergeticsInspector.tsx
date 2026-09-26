@@ -4,9 +4,11 @@ import { AnalysisResult, EnergeticsData } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import {
   buildEngineOutcomes,
+  describeProvenance,
   formatDdg,
   summarizeCoverage,
   type EngineTone,
+  type ProvenanceSource,
   type RemoteStatus,
 } from "../../shared/engineStatus";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
@@ -113,6 +115,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         foldxRepairFailed: energetics?.foldxRepairFailed,
         foldxBinaryMissing: energetics?.foldxBinaryMissing,
         isFolding,
+        structureProvenance: energetics?.structureProvenance ?? null,
       }),
     [
       // `foldingDdG` MUST be here. Without it the memo never recomputes when only the FoldX
@@ -143,6 +146,17 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
     const prov = energetics?.structureProvenance;
     if (!prov) return [] as Array<{ label: string; value: string }>;
     const rows: Array<{ label: string; value: string }> = [];
+    if (prov.source) {
+      const provView = describeProvenance(prov.source as ProvenanceSource, {
+        pdbId: prov.pdbId,
+        resolution: prov.resolution,
+        identity: prov.identity,
+      });
+      rows.push({
+        label: "Source",
+        value: provView.label,
+      });
+    }
     if (prov.pdbId) rows.push({ label: "Template", value: `${prov.pdbId.toUpperCase()}${prov.chainId ? `:${prov.chainId}` : ""}` });
     if (prov.resolution != null) rows.push({ label: "Resolution", value: `${prov.resolution.toFixed(1)} Å` });
     if (prov.identity != null) rows.push({ label: "Sequence identity", value: `${prov.identity.toFixed(0)}%` });

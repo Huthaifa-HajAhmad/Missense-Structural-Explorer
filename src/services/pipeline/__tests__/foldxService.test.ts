@@ -17,7 +17,8 @@ const makeSink = () => ({
   setDdmutStatus: vi.fn(),
   setThermompnnJobId: vi.fn(),
   setThermompnnStatus: vi.fn(),
-  setThermompnnError: vi.fn()
+  setThermompnnError: vi.fn(),
+  setStructureProvenance: vi.fn()
 });
 
 describe("foldxService", () => {
@@ -548,5 +549,108 @@ describe("foldxService", () => {
 
     expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
+  });
+
+  it("normalizes canonical provenance and dispatches to sink.setStructureProvenance", async () => {
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM 1 N ...",
+        foldedResidueIndex: 489,
+        ddG: 1.25,
+        energetics: { totalEnergy: 12.0 },
+        provenance: {
+          source: "experimental",
+          pdbId: "6N7E",
+          chainId: "A",
+          resolution: 3.5,
+          method: "X-RAY DIFFRACTION",
+          identity: 100,
+          foldxVersion: "5.0"
+        }
+      })
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "Q9H8M5",
+      variant: "p.Ser489Cys",
+      residueIndex: 489,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    expect(sink.setStructureProvenance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "experimental",
+        pdbId: "6N7E",
+        chainId: "A",
+        resolution: 3.5,
+        method: "X-RAY DIFFRACTION",
+        identity: 100,
+        foldxVersion: "5.0"
+      })
+    );
+
+    const updater = sink.setFoldingEnergetics.mock.calls[0][0];
+    const prev = {};
+    const updated = typeof updater === "function" ? updater(prev) : updater;
+    expect(updated.structureProvenance).toEqual(
+      expect.objectContaining({
+        source: "experimental",
+        pdbId: "6N7E",
+        chainId: "A",
+        resolution: 3.5
+      })
+    );
+  });
+
+  it("normalizes legacy prefixed keys and string resolutions safely", async () => {
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM 1 N ...",
+        foldedResidueIndex: 489,
+        ddG: 1.25,
+        energetics: { totalEnergy: 12.0 },
+        provenance: {
+          structureSource: "experimental",
+          structurePdbId: "6n7e",
+          structureChainId: "A",
+          structureResolution: "3.5",
+          structureMethod: "X-RAY DIFFRACTION",
+          structureIdentity: "100"
+        }
+      })
+    });
+
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "Q9H8M5",
+      variant: "p.Ser489Cys",
+      residueIndex: 489,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    expect(sink.setStructureProvenance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "experimental",
+        pdbId: "6n7e",
+        chainId: "A",
+        resolution: 3.5,
+        identity: 100
+      })
+    );
   });
 });

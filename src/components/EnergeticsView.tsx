@@ -393,12 +393,14 @@ const EnergeticsView = memo(function EnergeticsView({
         foldxRepairFailed,
         foldxBinaryMissing,
         isFolding,
+        structureProvenance: foldingEnergetics?.structureProvenance ?? null,
         hidePending: hidePendingEngines,
       }),
     [
       foldxMeanVal, foldxDdG, foldxSd, dynamut2, ddmut, rasp, thermompnn, stabilityoracle,
       dynamut2Status, ddmutStatus, thermompnnStatus, raspReason, thermompnnError, foldingError,
-      foldingStatus, foldxRepairFailed, foldxBinaryMissing, isFolding, hidePendingEngines,
+      foldingStatus, foldxRepairFailed, foldxBinaryMissing, isFolding,
+      foldingEnergetics?.structureProvenance, hidePendingEngines,
     ]
   );
 

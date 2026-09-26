@@ -463,5 +463,32 @@ describe("EnergeticsView — UI polish & interactive affordances", () => {
     });
     expect(screen.queryByText("AlphaFold prediction")).toBeNull();
   });
+
+  it("renders contextualized repair failure explanation for experimental template 6N7E (3.5 Å)", () => {
+    renderView({
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        foldx: -2.12,
+        foldxMean: -2.12,
+        foldxRepairFailed: true,
+        structureProvenance: {
+          source: "experimental",
+          pdbId: "6N7E",
+          chainId: "A",
+          resolution: 3.5,
+        } as any,
+      },
+    });
+
+    expect(screen.getByText("Experimental structure")).toBeInTheDocument();
+    expect(screen.getByText("6N7E")).toBeInTheDocument();
+    expect(screen.getByText("3.5 Å")).toBeInTheDocument();
+
+    // In the "What is missing, and why" card or diagnostics section
+    expect(
+      screen.getByText(/Structure repair failed on experimental model 6N7E \(3.5 Å\)/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Shown for reference only — excluded from the consensus\./)).toBeInTheDocument();
+  });
 });
 

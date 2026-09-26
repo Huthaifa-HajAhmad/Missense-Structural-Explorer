@@ -226,7 +226,13 @@ export async function executeFullAnalysisWorkflow({
       }
       if (cached.foldedResidueIndex != null) biophysicalSink.setFoldedResidueIndex(cached.foldedResidueIndex);
       if (cached.foldingDdG != null) biophysicalSink.setFoldingDdG(cached.foldingDdG);
-      if (cached.foldingEnergetics) biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
+      if (cached.foldingEnergetics) {
+        biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
+        if (cached.foldingEnergetics.structureProvenance) {
+          biophysicalSink.setStructureProvenance?.(cached.foldingEnergetics.structureProvenance);
+          structureSink.setStructureProvenance?.(cached.foldingEnergetics.structureProvenance);
+        }
+      }
       if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);
       /**
        * Decides whether a restored remote status is still actionable.

@@ -421,6 +421,17 @@ describe("engineStatus — provenance labels", () => {
     expect(experimental.detail).toBe("1ABC · 2.0 Å · 98% identity");
     // A missing source cannot claim to be a template.
     expect(describeProvenance(null).isTemplate).toBe(false);
+    expect(describeProvenance(null).label).toBe("Template Unresolved");
+  });
+
+  it("infers experimental structure when pdbId is present without an explicit source", () => {
+    const view = describeProvenance(undefined, {
+      pdbId: "6n7e",
+      resolution: 3.5,
+    });
+    expect(view.label).toBe("Experimental structure");
+    expect(view.isTemplate).toBe(true);
+    expect(view.detail).toBe("6N7E · 3.5 Å");
   });
 });
 
@@ -547,6 +558,42 @@ describe("engineStatus — review regressions", () => {
       expect(outcome.contributesToConsensus).toBe(false);
       expect(outcome.reason).toContain("Structure repair failed");
       expect(outcome.reason).toContain("excluded from the consensus");
+    });
+
+    it("enriches repair-failed reason with experimental template and resolution context", () => {
+      const outcome = foldxOf({
+        foldxMean: -2.12,
+        foldxRepairFailed: true,
+        structureProvenance: {
+          source: "experimental",
+          pdbId: "6N7E",
+          resolution: 3.5,
+        },
+      });
+      expect(outcome.state).toBe("computed");
+      expect(outcome.canonicalDdg).toBe(-2.12);
+      expect(outcome.contributesToConsensus).toBe(false);
+      expect(outcome.reason).toBe(
+        "Structure repair failed on experimental model 6N7E (3.5 Å), so this estimate came from an unminimised model. Shown for reference only — excluded from the consensus."
+      );
+    });
+
+    it("enriches repair-failed reason with homology template and resolution context", () => {
+      const outcome = foldxOf({
+        foldxMean: 1.45,
+        foldxRepairFailed: true,
+        structureProvenance: {
+          source: "homolog",
+          pdbId: "2XYZ",
+          resolution: 2.4,
+        },
+      });
+      expect(outcome.state).toBe("computed");
+      expect(outcome.canonicalDdg).toBe(1.45);
+      expect(outcome.contributesToConsensus).toBe(false);
+      expect(outcome.reason).toBe(
+        "Structure repair failed on homology template 2XYZ (2.4 Å), so this estimate came from an unminimised model. Shown for reference only — excluded from the consensus."
+      );
     });
 
     it("does not claim an estimate exists when none does", () => {

@@ -31,6 +31,7 @@
  */
 
 import { THRESHOLDS } from "./thresholds/constants.ts";
+import type { StructureProvenance } from "./contracts.ts";
 
 // ---------------------------------------------------------------------------
 // Engines
@@ -411,6 +412,8 @@ export interface EngineObservation {
    * inconsistency where the table implied an engine contributed while the maths ignored it.
    */
   excludeFromConsensus?: boolean;
+  /** Template provenance context when known (source, PDB ID, resolution) for contextual diagnostics */
+  templateProvenance?: { source?: ProvenanceSource | null; pdbId?: string; resolution?: number | null } | null;
 }
 
 export interface EngineOutcome {
@@ -574,6 +577,16 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
    * The cause now depends on whether a value is actually present, and the caller appends the
    * exclusion note instead of discarding the cause.
    */
+  const modelType = obs.templateProvenance?.source === "homolog"
+    ? "homology template"
+    : "experimental model";
+
+  const templateNote = obs.templateProvenance?.pdbId
+    ? ` on ${modelType} ${obs.templateProvenance.pdbId.toUpperCase()}${
+        obs.templateProvenance.resolution != null ? ` (${obs.templateProvenance.resolution.toFixed(1)} Å)` : ""
+      }`
+    : "";
+
   const foldxCause =
     obs.id !== "foldx"
       ? null
@@ -581,8 +594,8 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
         ? "The FoldX binary is not installed, so no force-field estimate could be computed. Install it and re-run to include FoldX in the consensus."
         : obs.problem === "repair-failed"
           ? canonicalDdg !== null
-            ? "Structure repair failed, so this estimate came from an unminimised model."
-            : "Structure repair failed and no estimate could be produced."
+            ? `Structure repair failed${templateNote}, so this estimate came from an unminimised model.`
+            : `Structure repair failed${templateNote} and no estimate could be produced.`
           : null;
 
   const exclusionNote = "Shown for reference only — excluded from the consensus.";
@@ -651,6 +664,7 @@ export interface EngineFacts {
   foldxRepairFailed?: boolean;
   foldxBinaryMissing?: boolean;
   isFolding?: boolean;
+  structureProvenance?: StructureProvenance | null;
   /** Presentation-only: collapse still-running rows. Never changes coverage. */
   hidePending?: boolean;
 }
@@ -745,6 +759,13 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
             : null;
 
   const raspReason = typeof facts.raspReason === "string" ? facts.raspReason : null;
+  const templateProvenance = facts.structureProvenance
+    ? {
+        source: facts.structureProvenance.source as ProvenanceSource | undefined,
+        pdbId: facts.structureProvenance.pdbId,
+        resolution: facts.structureProvenance.resolution,
+      }
+    : null;
 
   const observations: EngineObservation[] = [
     {
@@ -755,6 +776,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       runActive: isFolding,
       // Mirrors the consensus, which excludes FoldX after a failed repair or a missing binary.
       excludeFromConsensus: Boolean(facts.foldxRepairFailed || facts.foldxBinaryMissing),
+      templateProvenance,
     },
     {
       id: "dynamut2",
@@ -900,12 +922,17 @@ export function describeProvenance(
   source: ProvenanceSource | null | undefined,
   extras: { pdbId?: string; resolution?: number | null; identity?: number | null } = {}
 ): ProvenanceView {
-  const resolved: ProvenanceSource = source ?? "alphafold";
+  const resolved: ProvenanceSource | undefined =
+    source ?? (extras.pdbId ? "experimental" : undefined);
   const bits: string[] = [];
   if (extras.pdbId) bits.push(extras.pdbId.toUpperCase());
   if (extras.resolution != null) bits.push(`${extras.resolution.toFixed(1)} Å`);
   if (extras.identity != null) bits.push(`${extras.identity.toFixed(0)}% identity`);
   const detail = bits.join(" · ");
+
+  if (!resolved) {
+    return { label: "Template Unresolved", isTemplate: false, detail };
+  }
 
   switch (resolved) {
     case "experimental":
@@ -915,8 +942,9 @@ export function describeProvenance(
     case "client-provided":
       return { label: "Structure supplied by you", isTemplate: false, detail };
     case "alphafold":
-    default:
       return { label: "AlphaFold prediction", isTemplate: false, detail };
+    default:
+      return { label: "Template Unresolved", isTemplate: false, detail };
   }
 }
 

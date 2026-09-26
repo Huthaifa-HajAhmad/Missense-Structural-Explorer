@@ -113,3 +113,22 @@ if (process.env.ANALYSIS_DB_PATH !== ":memory:") {
     `clearAllCaches(true) would delete real rows.`
   );
 }
+
+/**
+ * jsdom ships no ResizeObserver, and libraries that measure their own list throw on mount without
+ * one — that is exactly how `cmdk` sizes its scroll area, so the command palette could not render
+ * in a component test at all. A no-op observer is sufficient here: jsdom computes no layout, so
+ * every assertion that runs afterwards is about content and behaviour, never geometry.
+ */
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class StubResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  globalThis.ResizeObserver = StubResizeObserver as unknown as typeof ResizeObserver;
+}
+
+if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView === "undefined") {
+  Element.prototype.scrollIntoView = function () {};
+}

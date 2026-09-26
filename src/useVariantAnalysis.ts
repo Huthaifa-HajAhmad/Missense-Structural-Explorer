@@ -118,10 +118,12 @@ export default function useVariantAnalysis() {
             setThermompnnJobId: currentStore.setThermompnnJobId,
             setThermompnnStatus: currentStore.setThermompnnStatus,
             setThermompnnError: currentStore.setThermompnnError,
+            setStructureProvenance: currentStore.setStructureProvenance,
             lastFetchedFoldRef: biophysical.lastFetchedFoldRef
           },
           structure: {
             setPdbText: currentStore.setPdbText,
+            setStructureProvenance: currentStore.setStructureProvenance,
             setComputedPocket: currentStore.setComputedPocket,
             setIsPocketLoading: currentStore.setIsPocketLoading,
             setPocketError: currentStore.setPocketError,
