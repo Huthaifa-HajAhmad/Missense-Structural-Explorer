@@ -298,8 +298,6 @@ function SplicingTabComponent({
   // Unoriented candidate chip width centered at junction x=480:
   const unorientedChipWidth = Math.max(160, Math.min(260, chipText.length * 7.5 + 28));
 
-  // Off-scale break mark on the axis/body between pin and junction, clear of the pin circle:
-  const breakX = pinX < 480 ? pinX + 35 : pinX - 35;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -784,25 +782,6 @@ function SplicingTabComponent({
             <line x1={rightTickX} y1="166" x2={rightTickX} y2="174" stroke="var(--cs-text-muted)" strokeWidth="1.5" />
             <text x={rightTickX} y="186" fill="var(--cs-text-muted)" style={{ fontFamily: "var(--cs-font-mono)" }} className="text-[11px]" textAnchor="middle">+25 bp</text>
 
-            {/* Off-scale break symbol if distance > 60 bp (positioned between pin and junction, clear of the circle) */}
-            {isOffScale && (
-              <g aria-label="Scale break symbol">
-                {orientationKnown ? (
-                  <>
-                    <line x1={breakX - 4} y1="83" x2={breakX + 1} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
-                    <line x1={breakX + 2} y1="83" x2={breakX + 7} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
-                  </>
-                ) : (
-                  <>
-                    {/* Render break marks symmetrically on both candidate pipes when orientation is unresolved */}
-                    <line x1={102 + 35 - 4} y1="83" x2={102 + 35 + 1} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
-                    <line x1={102 + 35 + 2} y1="83" x2={102 + 35 + 7} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
-                    <line x1={858 - 35 - 4} y1="83" x2={858 - 35 + 1} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
-                    <line x1={858 - 35 + 2} y1="83" x2={858 - 35 + 7} y2="107" stroke="var(--cs-text-muted)" strokeWidth="2" strokeLinecap="round" />
-                  </>
-                )}
-              </g>
-            )}
 
             {/* Dynamic Variant Position Marker Pin.
                 Known orientation: one pin on the measured side. Unknown orientation: TWO
