@@ -96,7 +96,13 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     kind: "dataset",
     role: "Curated clinical significance, review status and reported conditions, retrieved through the E-utilities esearch/esummary endpoints for a gene plus protein change.",
     url: "https://www.ncbi.nlm.nih.gov/clinvar/",
-    release: "2024-latest (NCBI E-utilities)",
+    /*
+     * Not established. "2024-latest" is a hand-maintained string (server/services/infra/
+     * cache-keys.ts) that the app uses to version its cache keys; no code reads a version back
+     * from NCBI. It is repeated here only so the reader can see exactly what the workspace
+     * claims for itself, and not because the value was observed.
+     */
+    release: "Not established by this code. \"2024-latest\" is a hand-maintained cache-key string, not a version read from NCBI.",
     citation:
       "Landrum, M. J., et al. (2020). ClinVar: improvements to accessing data. Nucleic Acids Research 48, D835–D844. https://doi.org/10.1093/nar/gkz972",
     usedBy: ["server/services/external-api/clinvar.ts"]
@@ -108,7 +114,14 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     kind: "dataset",
     role: "Precomputed per-substitution predictor columns — REVEL, CADD, AlphaMissense, MetaRNN, ClinPred, Eigen, DANN, BayesDel, ESM-1b, GERP++, phyloP — used to answer predictor lookups locally instead of over the network.",
     url: "https://sites.google.com/site/jpopgen/dbNSFP",
-    release: "4.4a (opt-in local SQLite ingest; remote dbnsfp.org queries otherwise)",
+    /*
+     * The release is deliberately NOT stated as "4.4a", even though that is the string in
+     * `PROVENANCE_DATA_SOURCES` and the cache-key registry. The ingest writes its artefact to
+     * `data/dbnsfp_v5.sqlite` (tools/ingest_dbnsfp.ts:13), so the manifest and the artefact
+     * name disagree and the code establishes neither. A reader told "4.4a" would have no way
+     * to know that.
+     */
+    release: "Not established by this code. The cache-key registry declares \"4.4a\"; the local ingest writes data/dbnsfp_v5.sqlite. The release held locally is unresolved — see doc/ARCHITECTURE.md.",
     citation:
       "Liu, H., et al. (2020). dbNSFP v4: a comprehensive database of transcript-specific functional predictions and annotations for human nonsynonymous and splice-site SNVs. Genome Medicine 12, 103. https://doi.org/10.1186/s13073-020-00803-9",
     licence:
@@ -456,7 +469,7 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "FoldX 5 — BuildModel & RepairPDB",
     provider: "Centre for Genomic Regulation (CRG), Barcelona",
     kind: "service",
-    role: "Repairs a modelled structure, rebuilds the mutant side chain on the wild-type backbone, and scores the change in folding free energy (ΔΔG). BuildModel is run three times so a mean and a standard deviation exist rather than a single draw.",
+    role: "Repairs a modelled structure, rebuilds the mutant side chain on the wild-type backbone, and scores the change in folding free energy (ΔΔG). BuildModel is asked for five stochastic runs (--numberOfRuns=5) so a mean and a standard deviation exist rather than a single draw.",
     url: "https://foldxsuite.crg.eu/",
     release: "FoldX 5.0 (local binary; the exact executable name is recorded per run)",
     citation:
@@ -679,16 +692,22 @@ export const QUERY_TRANSMISSION = {
     { host: "rest.variantvalidator.org", sent: "Gene symbol and HGVS notation", note: "Consulted for validation and isoform numbering only." },
     { host: "myvariant.info", sent: "Gene symbol and protein change", note: "Fallback route; its records are hg19-keyed." },
     { host: "eutils.ncbi.nlm.nih.gov", sent: "Gene symbol, variant term, publication id", note: "ClinVar and PubMed lookups." },
+    { host: "rest.uniprot.org", sent: "Gene symbol or UniProt accession", note: "Returns the canonical sequence and the curated feature annotations." },
     { host: "gnomad.broadinstitute.org", sent: "Variant id (chromosome–position–ref–alt) and gene symbol", note: null },
-    { host: "alphafold.ebi.ac.uk · files.rcsb.org · search.rcsb.org", sent: "UniProt accession or PDB id", note: "Structure retrieval only — no variant data." },
+    { host: "api.genome.ucsc.edu", sent: "Gene symbol or genomic coordinate", note: "Genome sequence and annotation used to resolve the splice architecture." },
+    { host: "consurfdb.tau.ac.il", sent: "PDB identifier and residue selection", note: "Conservation grading for the sequence track." },
+    { host: "query.dbnsfp.org", sent: "Gene symbol and protein change", note: "Used only when the local dbNSFP ingest is absent; the columns are otherwise read from the local SQLite file." },
+    { host: "alphafold.ebi.ac.uk · files.rcsb.org · search.rcsb.org · data.rcsb.org", sent: "UniProt accession or PDB id", note: "Structure retrieval only — no variant data." },
     { host: "string-db.org", sent: "Gene symbol", note: null },
-    { host: "spliceai-38/37-*.run.app", sent: "Genomic coordinate", note: "Per-build SpliceAI endpoints." },
-    { host: "query.genos.us", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace." },
+    { host: "spliceai-38-xwkwwwxdwq-uc.a.run.app · spliceai-37-xwkwwwxdwq-uc.a.run.app", sent: "Genomic coordinate", note: "One endpoint per genome build. Named in full because the hostnames are opaque, which is also how a reader can recognise them in a network log." },
+    { host: "query.genos.us · genos.app", sent: "Gene and coordinate", note: "Requires a credential configured for this workspace. The second host serves the adapter's health probe." },
     { host: "data.evemodel.org", sent: "RefSeq transcript id", note: null },
-    { host: "huggingface.co · api.japanfold.aiand.com · api.biohub.ai", sent: "Sequence, structure payloads, model weight downloads", note: "Structure-aware model execution. The Biohub / EvolutionaryScale tier is optional and falls back to the local VESM model." },
-    { host: "deepmind.google.com/science/alphagenome", sent: "GRCh38 interval", note: "GRCh38 only — a GRCh37 coordinate is refused here rather than sent." },
-    { host: "ebi.ac.uk/europepmc/webservices", sent: "Literature text query and gene symbol", note: null },
-    { host: "generativelanguage.googleapis.com (Gemini)", sent: "The assembled evidence bundle for this run, plus your optional directions field", note: "Directions are screened for identifiers before they are sent, and that screening is best-effort — never type patient data into that field." }
+    { host: "huggingface.co · api.japanfold.aiand.com · forge.evolutionaryscale.ai · biohub.ai", sent: "Sequence, structure payloads, model weight downloads", note: "Structure-aware model execution. The Biohub / EvolutionaryScale tier is optional and falls back to the local VESM model. Server-side encode calls go to forge.evolutionaryscale.ai, falling back to biohub.ai." },
+    { host: "api.esmatlas.com", sent: "Amino-acid sequence", note: "Keyless de novo folding fallback, used when no Biohub token is configured." },
+    { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },
+    { host: "deepmind.google.com", sent: "GRCh38 interval", note: "GRCh38 only — a GRCh37 coordinate is refused here rather than sent." },
+    { host: "www.ebi.ac.uk", sent: "Literature text query and gene symbol", note: "Europe PMC's RESTful search endpoint." },
+    { host: "generativelanguage.googleapis.com", sent: "The assembled evidence bundle for this run, plus your optional directions field", note: "Directions are screened for identifiers before they are sent, and that screening is best-effort — never type patient data into that field." }
   ]
 } as const;
 

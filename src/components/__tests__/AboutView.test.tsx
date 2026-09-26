@@ -120,6 +120,25 @@ describe("AboutView — attribution and acknowledgments", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/copy failed/i);
   });
 
+  it("survives a browser with no clipboard API at all", async () => {
+    // Served over plain HTTP — which this deployment is, hence the duckdns origin — the
+    // Clipboard API is simply absent. `navigator.clipboard.writeText` then throws a
+    // TypeError synchronously on an undefined property, before any promise exists, so this
+    // is a different failure path from a rejected write and is asserted separately.
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true
+    });
+
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /copy bibtex/i }));
+
+    // No unhandled rejection, and the reader is told rather than shown a button that
+    // silently did nothing.
+    expect(await screen.findByRole("status")).toHaveTextContent(/copy failed/i);
+    expect(screen.getByRole("button", { name: /copy bibtex/i })).toBeTruthy();
+  });
+
   it("keeps the research-use framing on the page", () => {
     renderPage();
     expect(screen.getByRole("heading", { name: /research use only/i })).toBeTruthy();

@@ -116,7 +116,7 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
 * **Process**:
   1. Writes the heavy wild-type template coordinate data block to a temporary workspace file (`wt_temp_${timestamp}_${randomId}.pdb`) to allow native CLI processors to access the coordinate matrix.
   2. Formulates localized command-line instruction files with standard biophysical mutation descriptions (e.g., `RA408W;` mapping the residue sequence).
-  3. Prepares a child process execution context to run FoldX `BuildModel` across **3 independent runs** for stochastic averaging (extracting mean $\Delta\Delta G$ and standard deviation).
+  3. Prepares a child process execution context to run FoldX `BuildModel` across **5 stochastic runs** (`--numberOfRuns=5`, see `server/services/stability/foldx/runner.ts`) for stochastic averaging (extracting mean $\Delta\Delta G$ and standard deviation). This line previously said 3, which the code contradicts.
   4. Computes a consensus stability verdict based on FoldX and DynaMut2 ( NMA ) predictions.
   5. Calculates local sidechain packing RMSD using a physical alignment algorithm on wild-type and mutant rotamers.
   7. **Fails Loud**: In environments lacking FoldX binaries or where execution fails, the engine throws a hard `503` error instead of falling back to silent wild-type coordinate returns, ensuring data integrity.
@@ -166,3 +166,19 @@ To ensure MissenseResolve® provides instant UI responsiveness (<1.5s initial lo
 ### C. Asynchronous Progressive Enhancement (UI/UX)
 - Heavy LLM narrative text generations (e.g., `POST /api/v1/analyze-variant-narrative`) MUST be invoked asynchronously by the client AFTER the initial JSON evidence payload is set, allowing UI components to render structured evidence metrics instantly while narratives stream in the background.
 - The UI MUST gracefully handle `null` or `unavailable` states from slow or timed-out sub-modules without crashing or blocking other evidence cards.
+
+## 6. Unresolved: which dbNSFP release the local ingest holds
+
+`PROVENANCE_DATA_SOURCES.dbnsfp` and `DATA_SOURCES_VERSION.dbnsfp` both declare **"4.4a"**,
+but `tools/ingest_dbnsfp.ts` writes its artefact to `data/dbnsfp_v5.sqlite`. Nothing in the
+code resolves the conflict: the declared string is hand-maintained (it versions a cache key,
+and no code reads a version back from the dbNSFP distribution), while the file name is the
+only other signal and may reflect the ingest's own schema rather than the upstream release.
+
+**This is unresolved, not documented as settled.** Until someone confirms which release the
+ingested SQLite actually contains, no surface — including the exported provenance manifest and
+the About page's credit roll — should state a dbNSFP release as fact. Both currently decline
+to (`src/shared/attributions.ts` renders it as "Not established by this code").
+
+Resolving it means: re-run the ingest, record the upstream release string the source archive
+declares, and update both registries from that.

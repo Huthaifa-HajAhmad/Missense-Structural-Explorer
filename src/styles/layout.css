@@ -1288,16 +1288,23 @@
   line-height: 1.6;
   color: var(--cs-text-muted);
 }
-/* The icon is decorative; the label beside it carries the meaning, so the row still reads
-   correctly with the SVG removed. */
+/* The icon is decorative and the label beside it carries the meaning, so the 3:1 non-text
+   bar applies rather than 4.5:1. It is kept at 0.85 rather than lower: at 0.75 it measured
+   3.27:1 (light) / 3.40:1 (dark), which clears 3:1 by a margin too thin to trust. */
 .about-credit-icon {
   width: 12px;
   height: 12px;
   flex-shrink: 0;
   align-self: center;
   color: var(--cs-text-muted);
-  opacity: 0.75;
+  opacity: 0.85;
 }
+/*
+ * No opacity here. This label is REAL TEXT ("Provider", "Release", "Cite"), so it owes the
+ * 4.5:1 body-text ratio, and at opacity 0.8 it measured 3.61:1 on --cs-surface and 3.48:1 on
+ * --cs-surface-2 in light mode. The uppercase, letter-spaced, medium-weight treatment already
+ * separates it from the value beside it, so the dimming bought nothing and cost the ratio.
+ */
 .about-meta-label {
   font-family: var(--cs-font-mono);
   font-size: var(--cs-text-micro);
@@ -1305,7 +1312,6 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--cs-text-muted);
-  opacity: 0.8;
 }
 .about-meta-sep {
   width: 3px;

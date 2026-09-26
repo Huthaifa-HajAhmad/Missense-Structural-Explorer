@@ -46,38 +46,47 @@ const RETIRED_DOIS = [
   "10.1016/j.cels.2023.01.001"
 ];
 
+interface DeclaredCitation {
+  title: string | null;
+  url: string | null;
+}
+
+const SHARED_TABLE = "src/components/evidence/MetricExplanations.ts";
+const CLONE_TABLE = "src/components/EnergeticsView.tsx";
+
 /**
- * Reads the method-id → `paperUrl` pairs a source file declares, so two files can be
- * compared without importing the second one (importing `EnergeticsView` would pull in the
- * whole viewer).
+ * Reads the method-id → citation pairs a source file declares, so two files can be compared
+ * without importing the second one (importing `EnergeticsView` would pull in the whole
+ * viewer).
  *
- * Both entry shapes are accepted, because the two tables are not written the same way: the
- * shared module keys its entries `gpn_star: {` and the clone does too, but only some entries
- * carry an explicit `id:` field. Missing either shape would silently compare zero entries,
- * so the caller asserts the scan found something.
+ * It tracks BOTH halves of a citation. An earlier version compared only the URL, and a
+ * mutation proved that was not enough: reverting the clone's journal name to the wrong one
+ * while keeping the correct DOI passed every assertion — which is half the defect this file
+ * exists to catch.
+ *
+ * Both entry shapes are accepted, because the two tables are not written the same way: an
+ * entry may open as a bare object key (`rasp: {`) or carry an explicit `id:` field. Missing
+ * either shape would silently compare zero entries, which the caller guards against.
  */
-function readDeclaredCitations(relativePath: string): Map<string, string> {
+function readDeclaredCitations(relativePath: string): Map<string, DeclaredCitation> {
   const source = fs.readFileSync(path.join(REPO_ROOT, relativePath), "utf-8");
-  const found = new Map<string, string>();
+  const found = new Map<string, DeclaredCitation>();
   let currentId: string | null = null;
 
   for (const line of source.split("\n")) {
-    // An entry opens either as `id: "x",` or as a bare object key `x: {`.
     const idField = line.match(/^\s*id:\s*"([^"]+)"/);
     const bareKey = line.match(/^\s*([a-z0-9_]+):\s*\{\s*$/);
-    if (idField) {
-      currentId = idField[1];
+    if (idField || bareKey) {
+      currentId = (idField ?? bareKey)![1];
+      if (!found.has(currentId)) found.set(currentId, { title: null, url: null });
       continue;
     }
-    if (bareKey) {
-      currentId = bareKey[1];
-      continue;
-    }
+    if (!currentId) continue;
+    const entry = found.get(currentId)!;
+    const title = line.match(/^\s*paperTitle:\s*"([^"]+)"/);
+    if (title && entry.title === null) entry.title = title[1];
     const url = line.match(/^\s*paperUrl:\s*"([^"]+)"/);
-    if (url && currentId) {
-      // First declaration wins, so a later re-declaration in the same file cannot shadow it.
-      if (!found.has(currentId)) found.set(currentId, url[1]);
-    }
+    if (url && entry.url === null) entry.url = url[1];
   }
   return found;
 }
@@ -115,28 +124,60 @@ describe("method citations", () => {
     }
   });
 
+  it("resolves a complete citation for every method in the shared table", () => {
+    // The anti-mis-attribution check. The scanner attributes a citation to the most
+    // recently opened entry, so a field reorder would silently move a URL onto its
+    // neighbour; requiring every documented method to come back with a title AND a url turns
+    // that silent mis-attribution into a failure.
+    const scanned = readDeclaredCitations(SHARED_TABLE);
+    const missing: string[] = [];
+    for (const id of Object.keys(METRIC_EXPLANATIONS)) {
+      const found = scanned.get(id);
+      if (!found) missing.push(`${id} (not found by the scanner)`);
+      else if (!found.url || !found.title) missing.push(`${id} (${JSON.stringify(found)})`);
+    }
+    expect(
+      missing,
+      `Citations the scanner could not resolve:\n  ${missing.join("\n  ")}`
+    ).toEqual([]);
+  });
+
   it("keeps the Energetics tab's copy of the table in agreement on every citation", () => {
     // The failure this prevents is real and has already happened once: a correction applied
     // to the shared table while the tab's clone kept the old DOI, so two surfaces opened on
-    // the same method cited different journals.
-    const shared = readDeclaredCitations("src/components/evidence/MetricExplanations.ts");
-    const clone = readDeclaredCitations("src/components/EnergeticsView.tsx");
+    // the same method cited different journals. BOTH halves are compared — URL and journal —
+    // and an entry that simply lost its citation is a failure, not something to skip over.
+    const shared = readDeclaredCitations(SHARED_TABLE);
+    const clone = readDeclaredCitations(CLONE_TABLE);
 
     // Both must have been scanned, or the comparison below would pass on zero entries — the
     // way a source scanner "passes" when it was pointed at nothing.
     expect(shared.size, "no citations found in the shared table").toBeGreaterThan(5);
     expect(clone.size, "no citations found in the Energetics clone").toBeGreaterThan(5);
-    const sharedIds = new Set(shared.keys());
-    const compared = [...clone.keys()].filter((id) => sharedIds.has(id));
-    expect(compared.length, "the two tables share no method ids to compare").toBeGreaterThan(0);
 
-    const drift = compared
-      .filter((id) => shared.get(id) !== clone.get(id))
-      .map((id) => `  ${id}: shared "${shared.get(id)}" vs clone "${clone.get(id)}"`);
+    const problems: string[] = [];
+    for (const [id, cited] of clone) {
+      if (!cited.url || !cited.title) {
+        problems.push(`  ${id}: the clone's citation is incomplete (${JSON.stringify(cited)})`);
+        continue;
+      }
+      const original = shared.get(id);
+      if (!original) {
+        problems.push(`  ${id}: the clone cites a method the shared table does not describe`);
+        continue;
+      }
+      if (original.url !== cited.url) {
+        problems.push(`  ${id}: URL — shared "${original.url}" vs clone "${cited.url}"`);
+      }
+      if (original.title !== cited.title) {
+        problems.push(`  ${id}: journal — shared "${original.title}" vs clone "${cited.title}"`);
+      }
+    }
+
     expect(
-      drift,
-      drift.length
-        ? `The two method tables disagree on a citation:\n${drift.join("\n")}\n` +
+      problems,
+      problems.length
+        ? `The two method tables disagree on a citation:\n${problems.join("\n")}\n` +
           `Cite one source. Correct BOTH copies.`
         : ""
     ).toEqual([]);
