@@ -1,24 +1,18 @@
 import React, { useState, useCallback, useMemo } from "react";
 import Markdown from "react-markdown";
 import { 
-  Copy, 
-  Check, 
   FileText, 
-  Sparkles, 
   RefreshCw, 
-  KeyRound,
   Compass,
   Maximize2,
   Minimize2
 } from "lucide-react";
 import { AnalysisState } from "../types";
-import { useSettings } from "../context/SettingsContext";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
+import type { ReportSectionKey } from "../stores/slices/uiSlice";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
-import { useNarrativeResynthesis } from "../hooks/useNarrativeResynthesis";
 import { variantNumberingView } from "../shared/numbering";
 import {
-  AiStatusStrip,
   AcmgEvidenceList,
   EvidenceInventory,
   EnergeticsSummary,
@@ -30,7 +24,6 @@ import {
 } from "./report/ReportBlocks";
 import {
   buildEvidenceInventory,
-  deriveAiStatus,
   formatDeltaG,
   summarizeEvidence,
 } from "./report/reportStatus";
@@ -55,14 +48,16 @@ function classifyVerdict(classification: string): "pathogenic" | "benign" | "unc
 
 function ClinicalReportBar({ 
   analysisState, 
-  isDark, 
-  onRetryNarrative: propOnRetryNarrative,
+  isDark: _isDark, 
+  onRetryNarrative: _onRetryNarrative,
   isNarrativeLoading: propIsNarrativeLoading,
   onNavigateToView,
 }: ClinicalReportBarProps) {
   const result = analysisState.result;
   const hasResult = !!result;
-  const [copied, setCopied] = useState(false);
+
+  const reportSections = useVariantAnalysisStore(s => s.reportSections);
+  const toggleReportSection = useVariantAnalysisStore(s => s.toggleReportSection);
 
   // Section disclosure state for controlled expand / collapse
   const [sectionOpenState, setSectionOpenState] = useState<Record<string, boolean>>({
@@ -101,6 +96,11 @@ function ClinicalReportBar({
   }, []);
 
   const handleNavigateSection = useCallback((sectionKey: string) => {
+    // If the section is disabled in store reportSections, re-enable it so it mounts in the DOM
+    const key = sectionKey as ReportSectionKey;
+    if (reportSections && reportSections[key] === false) {
+      toggleReportSection(key);
+    }
     setSectionOpenState(prev => ({ ...prev, [sectionKey]: true }));
     setTimeout(() => {
       const el = document.getElementById(`report-${sectionKey}`);
@@ -108,20 +108,12 @@ function ClinicalReportBar({
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }, 50);
-  }, []);
-
-  const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady } = useSettings();
+  }, [reportSections, toggleReportSection]);
 
   const storeIsNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
   const gene = useVariantAnalysisStore(s => s.gene);
   const variant = useVariantAnalysisStore(s => s.variant);
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
-  const addNotification = useVariantAnalysisStore(s => s.addNotification);
-  const reportSections = useVariantAnalysisStore(s => s.reportSections);
-
-  // One re-synthesis path, shared with the Residue Shifts inspector. The report used to
-  // own the only implementation, so no other surface could offer a retry at all.
-  const { resynthesize, isResynthesizing } = useNarrativeResynthesis();
 
   // Live biophysical state subscriptions
   const storeFoldingEnergetics = useVariantAnalysisStore(
@@ -134,8 +126,7 @@ function ClinicalReportBar({
     s => s.primaryBiophysics?.foldingStatus ?? s.foldingStatus
   );
 
-  const isNarrativeLoading = propIsNarrativeLoading ?? (storeIsNarrativeLoading || isResynthesizing);
-  const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
+  const isNarrativeLoading = propIsNarrativeLoading ?? storeIsNarrativeLoading;
 
   const classification = result?.clinvar?.classification ?? result?.ruleBasedInsights?.acmgVerdict ?? "";
   const narrative     = result?.analysis ?? "";
@@ -166,118 +157,11 @@ function ClinicalReportBar({
     [variant, uniprotId, result]
   );
 
-  const aiStatus = useMemo(
-    () =>
-      deriveAiStatus({
-        isFallback,
-        fallbackReason: result?.fallbackReason,
-        fallbackMessage: result?.fallbackMessage,
-        fallbackRetryable: result?.fallbackRetryable,
-        providerDetail: result?.providerDetail,
-        attemptedModels: result?.attemptedModels,
-        isKeyActive,
-        hasNarrative: Boolean(narrative),
-        isNarrativeLoading,
-      }),
-    [
-      isFallback,
-      result?.fallbackReason,
-      result?.fallbackMessage,
-      result?.fallbackRetryable,
-      result?.providerDetail,
-      result?.attemptedModels,
-      isKeyActive,
-      narrative,
-      isNarrativeLoading,
-    ]
-  );
-
   const evidenceSources = useMemo(
     () => buildEvidenceInventory(result, storeFoldingEnergetics, storeFoldingDdG),
     [result, storeFoldingEnergetics, storeFoldingDdG]
   );
   const evidenceSummary = useMemo(() => summarizeEvidence(evidenceSources), [evidenceSources]);
-
-  // EHR-Ready structured clinical assessment export
-  const handleCopy = async () => {
-    if (!result && !hasResult) return;
-    const dateStr = new Date().toISOString().split("T")[0];
-    const lines = [
-      "=======================================================",
-      "CLINICAL GENOMICS & BIOPHYSICAL ASSESSMENT REPORT",
-      "=======================================================",
-      `Gene:               ${gene || result?.metadata?.gene || "Unknown"}`,
-      `Reported Variant:   ${numbering.reported || numbering.display}`,
-      `Modelled Variant:   ${numbering.modelled}`,
-      `Canonical UniProt:  ${uniprotId || result?.metadata?.uniprotId || "N/A"}`,
-      numbering.reportedTranscriptId ? `Transcript:         ${numbering.reportedTranscriptId}` : null,
-      numbering.basisNote ? `Numbering Note:     ${numbering.basisNote}` : null,
-      `Assessment Date:    ${dateStr}`,
-      `Headline Verdict:   ${headlineVerdict || "No classification available"}`,
-      plausibility ? `Plausibility:       ${plausibility}` : null,
-      "-------------------------------------------------------",
-      "ACMG / AMP EVIDENCE CRITERIA",
-      "-------------------------------------------------------",
-      acmgCriteria.length > 0
-        ? acmgCriteria.map((c) => `[${c.code}] ${c.reason || "Applied"}${c.source ? ` (Source: ${c.source})` : ""}`).join("\n")
-        : "No ACMG/AMP criteria recorded.",
-      "-------------------------------------------------------",
-      "BIOPHYSICAL STABILITY & FREE-ENERGY ESTIMATES",
-      "-------------------------------------------------------",
-      `FoldX ΔΔG:          ${formatDeltaG(storeFoldingEnergetics?.foldx ?? storeFoldingEnergetics?.foldxMean ?? storeFoldingDdG ?? (result as any)?.foldingDdG)}`,
-      (storeFoldingEnergetics?.consensusVerdict || (result as any)?.consensusVerdict)
-        ? `Consensus Verdict:  ${storeFoldingEnergetics?.consensusVerdict ?? (result as any)?.consensusVerdict}${
-            typeof (storeFoldingEnergetics?.consensusProbability ?? (result as any)?.consensusProbability) === "number"
-              ? ` (P = ${(((storeFoldingEnergetics?.consensusProbability ?? (result as any)?.consensusProbability) as number) * 100).toFixed(0)}%)`
-              : ""
-          }${
-            typeof (storeFoldingEnergetics?.consensusConfMin ?? (result as any)?.consensusConfMin) === "number" &&
-            typeof (storeFoldingEnergetics?.consensusConfMax ?? (result as any)?.consensusConfMax) === "number"
-              ? `, 95% CI: [${formatDeltaG(storeFoldingEnergetics?.consensusConfMin ?? (result as any)?.consensusConfMin)}, ${formatDeltaG(storeFoldingEnergetics?.consensusConfMax ?? (result as any)?.consensusConfMax)}]`
-              : ""
-          }`
-        : null,
-      (storeFoldingEnergetics?.dynamut2 ?? (result as any)?.dynamut2) != null
-        ? `DynaMut2 ΔΔG:       ${formatDeltaG(storeFoldingEnergetics?.dynamut2 ?? (result as any)?.dynamut2)}`
-        : null,
-      (storeFoldingEnergetics?.ddmut ?? (result as any)?.ddmut) != null
-        ? `DDMut ΔΔG:          ${formatDeltaG(storeFoldingEnergetics?.ddmut ?? (result as any)?.ddmut)}`
-        : null,
-      (storeFoldingEnergetics?.thermompnn ?? (result as any)?.thermompnn) != null
-        ? `ThermoMPNN ΔΔG:     ${formatDeltaG(storeFoldingEnergetics?.thermompnn ?? (result as any)?.thermompnn)}`
-        : null,
-      (storeFoldingEnergetics?.rasp ?? (result as any)?.rasp) != null
-        ? `RaSP ΔΔG:           ${formatDeltaG(storeFoldingEnergetics?.rasp ?? (result as any)?.rasp)}`
-        : null,
-      (storeFoldingEnergetics?.stabilityoracle ?? (result as any)?.stabilityoracle) != null
-        ? `StabilityOracle ΔΔG: ${formatDeltaG(storeFoldingEnergetics?.stabilityoracle ?? (result as any)?.stabilityoracle)}`
-        : null,
-      "-------------------------------------------------------",
-      "CLINICAL NARRATIVE & SYNTHESIS",
-      "-------------------------------------------------------",
-      narrative || "No narrative generated. Rule-based databases and structural metrics recorded above.",
-      "=======================================================",
-      `Evidence Completeness: ${evidenceSummary.present} of ${evidenceSummary.total} sources retrieved.`,
-      "Generated by Missense Structural Explorer (Validated Biomolecular Protocol)"
-    ].filter(Boolean).join("\n");
-
-    try {
-      await navigator.clipboard.writeText(lines);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      addNotification("success", "Structured EHR assessment copied to clipboard.");
-    } catch {
-      addNotification("error", "Unable to access clipboard.");
-    }
-  };
-
-  const handleSynthesizeNarrative = useCallback(async () => {
-    if (propOnRetryNarrative) {
-      propOnRetryNarrative();
-      return;
-    }
-    await resynthesize();
-  }, [propOnRetryNarrative, resynthesize]);
 
   if (!hasResult && !isNarrativeLoading) return (
     <div className="flex flex-col items-center justify-center h-full gap-3 p-8" style={{ color: "var(--cs-text-muted)" }}>
@@ -289,7 +173,7 @@ function ClinicalReportBar({
   return (
     <div className="report-page p-6 flex flex-col gap-5 w-full shrink-0" style={{ color: "var(--cs-text-primary)" }}>
 
-      {/* Screen title + actions */}
+      {/* Screen title */}
       <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <h1 className="screen-title flex items-center gap-2">
@@ -300,58 +184,6 @@ function ClinicalReportBar({
             A structured, evidence-backed summary assembled from biophysical, evolutionary and
             clinical databases, with the provenance of every contributing source.
           </p>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0 report-screen-only">
-          {hasResult && !isNarrativeLoading && (
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="report-press flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg cursor-pointer shadow-sm hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-              style={{
-                color: copied ? "var(--cs-good)" : "var(--cs-text-primary)",
-                background: "var(--cs-surface-2)",
-                border: "1px solid var(--cs-border)",
-              }}
-            >
-              {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy Report</>}
-            </button>
-          )}
-
-          {isKeyActive ? (
-            <button
-              type="button"
-              onClick={handleSynthesizeNarrative}
-              disabled={isNarrativeLoading}
-              className="report-press flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer shadow-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-              style={{
-                background: "var(--cs-accent-clay)",
-                color: "#FFFFFF",
-              }}
-            >
-              {isNarrativeLoading ? (
-                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Synthesizing…</>
-              ) : isFallback ? (
-                <><Sparkles className="w-3.5 h-3.5" /> Generate AI Narrative</>
-              ) : (
-                <><RefreshCw className="w-3.5 h-3.5" /> Re-synthesize</>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => openSettingsTab("connections")}
-              className="report-press flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-              style={{
-                color: "var(--cs-text-secondary)",
-                background: "var(--cs-surface-2)",
-                borderColor: "var(--cs-border)",
-              }}
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              Configure Gemini
-            </button>
-          )}
         </div>
       </header>
 
@@ -444,13 +276,6 @@ function ClinicalReportBar({
         )}
       </div>
 
-      {/* One honest status statement — never "ready" while degraded */}
-      <AiStatusStrip
-        status={aiStatus}
-        onRetry={handleSynthesizeNarrative}
-        onOpenConsole={onNavigateToView ? () => onNavigateToView("console") : undefined}
-      />
-
       {/* Headline verdict + synthesis provenance */}
       <div className="flex flex-wrap items-center gap-2.5">
         {headlineVerdict ? (
@@ -471,22 +296,22 @@ function ClinicalReportBar({
       {/* Sticky Table of Contents (TOC) Toolbar */}
       <nav
         aria-label="Report Table of Contents"
-        className="report-screen-only sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl border backdrop-blur-md shadow-sm"
+        className="report-screen-only sticky top-0 z-10 flex items-center justify-between gap-3 px-3 py-2 rounded-xl border backdrop-blur-md shadow-sm"
         style={{
-          background: "color-mix(in srgb, var(--cs-surface) 88%, transparent)",
+          background: "color-mix(in srgb, var(--cs-surface) 92%, transparent)",
           borderColor: "var(--cs-border-subtle)",
         }}
       >
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-[10.5px] font-mono uppercase tracking-wider font-semibold px-2 py-0.5 text-cs-text-muted flex items-center gap-1">
-            <Compass className="w-3 h-3 text-cs-accent-clay" strokeWidth={1.75} />
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 py-0.5">
+          <span className="shrink-0 text-[10.5px] font-mono uppercase tracking-wider font-semibold text-cs-text-muted flex items-center gap-1 mr-1">
+            <Compass className="w-3.5 h-3.5 text-cs-accent-clay" strokeWidth={1.75} />
             Jump to:
           </span>
           {reportSections.summary && (
             <button
               type="button"
               onClick={() => handleNavigateSection("summary")}
-              className="report-press text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary"
+              className="report-press shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary border border-cs-border-subtle/60"
             >
               Summary
             </button>
@@ -495,16 +320,19 @@ function ClinicalReportBar({
             <button
               type="button"
               onClick={() => handleNavigateSection("acmg")}
-              className="report-press text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary"
+              className="report-press shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary border border-cs-border-subtle/60"
             >
-              ACMG ({acmgCriteria.length})
+              <span>ACMG</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[9.5px] font-mono font-semibold bg-cs-surface border border-cs-border-subtle text-cs-accent-clay">
+                {acmgCriteria.length}
+              </span>
             </button>
           )}
           {reportSections.energetics && (
             <button
               type="button"
               onClick={() => handleNavigateSection("energetics")}
-              className="report-press text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary"
+              className="report-press shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary border border-cs-border-subtle/60"
             >
               Energetics
             </button>
@@ -513,7 +341,7 @@ function ClinicalReportBar({
             <button
               type="button"
               onClick={() => handleNavigateSection("structure")}
-              className="report-press text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary"
+              className="report-press shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary border border-cs-border-subtle/60"
             >
               Structure
             </button>
@@ -522,7 +350,7 @@ function ClinicalReportBar({
             <button
               type="button"
               onClick={() => handleNavigateSection("literature")}
-              className="report-press text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary"
+              className="report-press shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary border border-cs-border-subtle/60"
             >
               Literature
             </button>
@@ -530,13 +358,16 @@ function ClinicalReportBar({
           <button
             type="button"
             onClick={() => handleNavigateSection("provenance")}
-            className="report-press text-[11px] font-medium px-2 py-1 rounded-md transition-colors hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary"
+            className="report-press shrink-0 flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-text-primary border border-cs-border-subtle/60"
           >
-            Provenance ({evidenceSummary.present}/{evidenceSummary.total})
+            <span>Provenance</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[9.5px] font-mono font-semibold bg-cs-surface border border-cs-border-subtle text-cs-text-secondary">
+              {evidenceSummary.present}/{evidenceSummary.total}
+            </span>
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-cs-border-subtle">
           <button
             type="button"
             onClick={expandAll}
@@ -544,7 +375,7 @@ function ClinicalReportBar({
             title="Expand all report sections"
           >
             <Maximize2 className="w-3 h-3 text-cs-accent-clay" strokeWidth={1.75} />
-            Expand all
+            <span>Expand all</span>
           </button>
           <button
             type="button"
@@ -553,7 +384,7 @@ function ClinicalReportBar({
             title="Collapse all report sections"
           >
             <Minimize2 className="w-3 h-3 text-cs-accent-clay" strokeWidth={1.75} />
-            Collapse all
+            <span>Collapse all</span>
           </button>
         </div>
       </nav>
@@ -567,12 +398,23 @@ function ClinicalReportBar({
           onToggle={() => toggleSection("summary")}
         >
           {plausibility ? (
-            <p
-              className="text-[13px] leading-relaxed m-0 mb-3 pb-3"
-              style={{ color: "var(--cs-text-secondary)", borderBottom: "1px solid var(--cs-border-subtle)" }}
+            <div
+              className="p-3.5 rounded-xl border mb-4 flex items-start gap-2.5 text-[13px] leading-relaxed"
+              style={{
+                background: "color-mix(in srgb, var(--cs-accent-clay) 5%, var(--cs-surface-2))",
+                borderColor: "color-mix(in srgb, var(--cs-accent-clay) 20%, var(--cs-border-subtle))",
+              }}
             >
-              {plausibility}
-            </p>
+              <FileText className="w-4 h-4 mt-0.5 shrink-0 text-cs-accent-clay" strokeWidth={1.75} />
+              <div className="flex-1 min-w-0">
+                <span className="block text-[10px] font-mono uppercase tracking-wider font-bold text-cs-accent-clay mb-0.5">
+                  Clinical Plausibility & Prior Assessment
+                </span>
+                <p className="m-0 text-[12.5px] leading-relaxed text-cs-text-primary text-justify">
+                  {plausibility}
+                </p>
+              </div>
+            </div>
           ) : null}
 
           {isNarrativeLoading ? (
@@ -583,8 +425,8 @@ function ClinicalReportBar({
               aria-label="Synthesizing clinical narrative"
             >
               <div className="flex items-center gap-2.5">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: "var(--cs-accent-clay)" }} />
-                <span className="text-[11px] font-mono font-semibold" style={{ color: "var(--cs-accent-clay)" }}>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-cs-accent-clay" />
+                <span className="text-[11px] font-mono font-semibold text-cs-accent-clay">
                   Synthesizing narrative from curated evidence…
                 </span>
               </div>
@@ -595,18 +437,18 @@ function ClinicalReportBar({
               </div>
             </div>
           ) : narrative ? (
-            <div className="report-prose-wrapper">
+            <div className="report-prose-wrapper w-full">
               <div className="report-prose">
                 <Markdown
                   components={{
-                    h1: ({ children }) => <h1 className="text-lg font-bold mt-4 mb-2">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-base font-semibold mt-4 mb-2">{children}</h2>,
+                    h1: ({ children }) => <h1 className="text-lg font-bold mt-4 mb-2 pb-1 border-b border-cs-border-subtle">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-base font-semibold mt-4 mb-2 pb-1 border-b border-cs-border-subtle">{children}</h2>,
                     h3: ({ children }) => (
                       <h3 className="text-sm font-semibold mt-4 mb-2 flex items-center gap-2 pb-1 border-b" style={{ borderColor: "var(--cs-border-subtle)" }}>
                         {children}
                       </h3>
                     ),
-                    p: ({ children }) => <p className="mb-4 leading-relaxed">{children}</p>,
+                    p: ({ children }) => <p className="mb-4 leading-relaxed text-justify">{children}</p>,
                     ul: ({ children }) => <ul className="list-disc pl-5 mb-4 space-y-1">{children}</ul>,
                     ol: ({ children }) => <ol className="list-decimal pl-5 mb-4 space-y-1">{children}</ol>,
                     li: ({ children }) => <li className="leading-relaxed">{children}</li>,
@@ -629,7 +471,7 @@ function ClinicalReportBar({
             </div>
           ) : (
             <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
-              No narrative has been generated for this variant yet.
+              No narrative has been generated for this variant yet. Use the Report Generator inspector on the right to synthesize.
             </p>
           )}
         </ReportSection>
@@ -714,12 +556,12 @@ function ClinicalReportBar({
           total={evidenceSummary.total}
           onNavigateSection={handleNavigateSection}
         />
-        {aiStatus.diagnostics?.providerDetail ? (
+        {result?.providerDetail ? (
           <p
             className="text-[10px] font-mono mt-3 mb-0 pt-2.5 leading-relaxed break-words"
             style={{ color: "var(--cs-text-muted)", borderTop: "1px solid var(--cs-border-subtle)" }}
           >
-            Last model error: {aiStatus.diagnostics.providerDetail}
+            Last model error: {result.providerDetail}
           </p>
         ) : null}
       </ReportSection>

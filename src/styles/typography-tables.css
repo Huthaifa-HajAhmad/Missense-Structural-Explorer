@@ -32,9 +32,10 @@
 
 /* REPORT PROSE — editorial mode, serif body for clinical narrative */
 .report-prose-wrapper {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 0 8px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
 }
 .report-prose {
   font-family: var(--cs-font-serif);
@@ -45,6 +46,11 @@
 .report-prose p {
   margin-bottom: 1.1em;
   margin-top: 0;
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  text-wrap: pretty;
 }
 .report-prose h1,
 .report-prose h2,

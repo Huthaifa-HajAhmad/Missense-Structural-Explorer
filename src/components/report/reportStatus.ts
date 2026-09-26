@@ -357,3 +357,144 @@ export async function computeReportFingerprint(
     return null;
   }
 }
+
+export interface GenerateStructuredEhrReportParams {
+  gene?: string | null;
+  variant?: string | null;
+  reportedVariant?: string | null;
+  modelledVariant?: string | null;
+  uniprotId?: string | null;
+  reportedTranscriptId?: string | null;
+  basisNote?: string | null;
+  assessmentDate?: string;
+  headlineVerdict?: string | null;
+  plausibility?: string | null;
+  acmgCriteria?: Array<{ code: string; reason?: string; source?: string }> | null;
+  energetics?: EnergeticsData | null;
+  foldingDdG?: number | null;
+  result?: any;
+  narrative?: string | null;
+  evidenceSummary?: { present: number; total: number };
+  sections?: Record<string, boolean>;
+}
+
+/**
+ * Generate a standardized, EHR-ready structured clinical assessment report.
+ *
+ * Formatted for medical record text pasting with verified section dividers,
+ * genomic & biophysical provenance, and algorithmic integrity notes.
+ */
+export function generateStructuredEhrReport(params: GenerateStructuredEhrReportParams): string {
+  const {
+    gene,
+    variant,
+    reportedVariant,
+    modelledVariant,
+    uniprotId,
+    reportedTranscriptId,
+    basisNote,
+    assessmentDate = new Date().toISOString().split("T")[0],
+    headlineVerdict,
+    plausibility,
+    acmgCriteria = [],
+    energetics,
+    foldingDdG,
+    result,
+    narrative,
+    evidenceSummary,
+    sections,
+  } = params;
+
+  const resolvedGene = gene || result?.metadata?.gene || "Unknown";
+  const resolvedReported = reportedVariant || variant || result?.metadata?.variant || "Unknown";
+  const resolvedModelled = modelledVariant || variant || result?.metadata?.variant || "Unknown";
+  const resolvedUniProt = uniprotId || result?.metadata?.uniprotId || "N/A";
+  const resolvedTranscript = reportedTranscriptId || (result?.metadata as any)?.transcriptId;
+  const resolvedVerdict = headlineVerdict || "No classification available";
+
+  const showAcmg = sections ? sections.acmg !== false : true;
+  const showEnergetics = sections ? sections.energetics !== false : true;
+  const showNarrative = sections ? sections.summary !== false : true;
+
+  const lines: (string | null)[] = [
+    "=======================================================",
+    "CLINICAL GENOMICS & BIOPHYSICAL ASSESSMENT REPORT",
+    "=======================================================",
+    `Gene:               ${resolvedGene}`,
+    `Reported Variant:   ${resolvedReported}`,
+    `Modelled Variant:   ${resolvedModelled}`,
+    `Canonical UniProt:  ${resolvedUniProt}`,
+    resolvedTranscript ? `Transcript:         ${resolvedTranscript}` : null,
+    basisNote ? `Numbering Note:     ${basisNote}` : null,
+    `Assessment Date:    ${assessmentDate}`,
+    `Headline Verdict:   ${resolvedVerdict}`,
+    plausibility ? `Plausibility:       ${plausibility}` : null,
+  ];
+
+  if (showAcmg) {
+    lines.push(
+      "-------------------------------------------------------",
+      "ACMG / AMP EVIDENCE CRITERIA",
+      "-------------------------------------------------------",
+      acmgCriteria && acmgCriteria.length > 0
+        ? acmgCriteria.map((c) => `[${c.code}] ${c.reason || "Applied"}${c.source ? ` (Source: ${c.source})` : ""}`).join("\n")
+        : "No ACMG/AMP criteria recorded."
+    );
+  }
+
+  if (showEnergetics) {
+    lines.push(
+      "-------------------------------------------------------",
+      "BIOPHYSICAL STABILITY & FREE-ENERGY ESTIMATES",
+      "-------------------------------------------------------",
+      `FoldX ΔΔG:          ${formatDeltaG(energetics?.foldx ?? energetics?.foldxMean ?? foldingDdG ?? result?.foldingDdG)}`,
+      (energetics?.consensusVerdict || result?.consensusVerdict)
+        ? `Consensus Verdict:  ${energetics?.consensusVerdict ?? result?.consensusVerdict}${
+            typeof (energetics?.consensusProbability ?? result?.consensusProbability) === "number"
+              ? ` (P = ${(((energetics?.consensusProbability ?? result?.consensusProbability) as number) * 100).toFixed(0)}%)`
+              : ""
+          }${
+            typeof (energetics?.consensusConfMin ?? result?.consensusConfMin) === "number" &&
+            typeof (energetics?.consensusConfMax ?? result?.consensusConfMax) === "number"
+              ? `, 95% CI: [${formatDeltaG(energetics?.consensusConfMin ?? result?.consensusConfMin)}, ${formatDeltaG(energetics?.consensusConfMax ?? result?.consensusConfMax)}]`
+              : ""
+          }`
+        : null,
+      (energetics?.dynamut2 ?? result?.dynamut2) != null
+        ? `DynaMut2 ΔΔG:       ${formatDeltaG(energetics?.dynamut2 ?? result?.dynamut2)}`
+        : null,
+      (energetics?.ddmut ?? result?.ddmut) != null
+        ? `DDMut ΔΔG:          ${formatDeltaG(energetics?.ddmut ?? result?.ddmut)}`
+        : null,
+      (energetics?.thermompnn ?? result?.thermompnn) != null
+        ? `ThermoMPNN ΔΔG:     ${formatDeltaG(energetics?.thermompnn ?? result?.thermompnn)}`
+        : null,
+      (energetics?.rasp ?? result?.rasp) != null
+        ? `RaSP ΔΔG:           ${formatDeltaG(energetics?.rasp ?? result?.rasp)}`
+        : null,
+      (energetics?.stabilityoracle ?? result?.stabilityoracle) != null
+        ? `StabilityOracle ΔΔG: ${formatDeltaG(energetics?.stabilityoracle ?? result?.stabilityoracle)}`
+        : null
+    );
+  }
+
+  if (showNarrative) {
+    lines.push(
+      "-------------------------------------------------------",
+      "CLINICAL NARRATIVE & SYNTHESIS",
+      "-------------------------------------------------------",
+      narrative || "No narrative generated. Rule-based databases and structural metrics recorded above."
+    );
+  }
+
+  lines.push(
+    "=======================================================",
+    evidenceSummary
+      ? `Evidence Completeness: ${evidenceSummary.present} of ${evidenceSummary.total} sources retrieved.`
+      : null,
+    "Generated by Missense Structural Explorer (Validated Biomolecular Protocol)"
+  );
+
+  return lines.filter(Boolean).join("\n");
+}
+

@@ -11,15 +11,12 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDashed,
-  Cpu,
   ExternalLink,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
-  Terminal,
 } from "lucide-react";
 import { useApiClient } from "../../apiClient";
-import type { AiStatusModel, EvidenceSource } from "./reportStatus";
+import type { EvidenceSource } from "./reportStatus";
 import type { EnergeticsData } from "../../shared/contracts";
 
 // ---------------------------------------------------------------------------
@@ -84,8 +81,8 @@ export const ReportSection: React.FC<ReportSectionProps> = ({
             <ChevronRight className="w-3.5 h-3.5" strokeWidth={2} />
           </span>
           <span
-            className="text-[10.5px] font-mono font-bold uppercase tracking-widest"
-            style={{ color: "var(--cs-text-muted)" }}
+            className="text-[11px] font-mono font-bold uppercase tracking-widest transition-colors"
+            style={{ color: open ? "var(--cs-text-primary)" : "var(--cs-text-secondary)" }}
           >
             {title}
           </span>
@@ -93,130 +90,19 @@ export const ReportSection: React.FC<ReportSectionProps> = ({
         </button>
       </h2>
 
-      <div id={panelId} role="region" aria-labelledby={buttonId} className="report-disclosure" data-open={open}>
+      <div
+        id={panelId}
+        role="region"
+        aria-labelledby={buttonId}
+        className="report-disclosure"
+        data-open={open}
+        inert={!open ? true : undefined}
+      >
         <div className="overflow-hidden">
           <div className="px-4 pb-4 pt-0.5">{children}</div>
         </div>
       </div>
     </section>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// AI status
-// ---------------------------------------------------------------------------
-
-const STATUS_TONE: Record<AiStatusModel["tone"], { border: string; bg: string; fg: string }> = {
-  good: {
-    border: "color-mix(in srgb, var(--cs-good) 28%, transparent)",
-    bg: "color-mix(in srgb, var(--cs-good) 7%, transparent)",
-    fg: "var(--cs-good)",
-  },
-  warn: {
-    border: "color-mix(in srgb, var(--cs-warn) 30%, transparent)",
-    bg: "color-mix(in srgb, var(--cs-warn) 7%, transparent)",
-    fg: "var(--cs-warn)",
-  },
-  neutral: {
-    border: "var(--cs-border)",
-    bg: "var(--cs-surface-2)",
-    fg: "var(--cs-text-muted)",
-  },
-  bad: {
-    border: "color-mix(in srgb, var(--cs-warn) 42%, transparent)",
-    bg: "color-mix(in srgb, var(--cs-warn) 10%, transparent)",
-    fg: "var(--cs-warn)",
-  },
-};
-
-const STATUS_ICON: Record<AiStatusModel["state"], React.ElementType> = {
-  live: CheckCircle2,
-  degraded: AlertTriangle,
-  unconfigured: ShieldAlert,
-  idle: Cpu,
-};
-
-interface AiStatusStripProps {
-  status: AiStatusModel;
-  onRetry: () => void;
-  onOpenConsole?: () => void;
-  className?: string;
-}
-
-/**
- * The single, honest statement of AI state.
- *
- * Replaces a banner that branched on "is a key configured" and therefore announced
- * "AI Session Token Ready" immediately above an offline fallback notice.
- */
-export const AiStatusStrip: React.FC<AiStatusStripProps> = ({
-  status,
-  onRetry,
-  onOpenConsole,
-  className = "",
-}) => {
-  const tone = STATUS_TONE[status.tone];
-  const Icon = STATUS_ICON[status.state];
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={`rounded-xl border px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-3 ${className}`}
-      style={{ borderColor: tone.border, background: tone.bg }}
-    >
-      <span
-        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-        style={{ background: "var(--cs-surface)", color: tone.fg }}
-      >
-        <Icon className="w-3.5 h-3.5" strokeWidth={2} />
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-bold uppercase tracking-wider m-0" style={{ color: tone.fg }}>
-          {status.label}
-        </p>
-        <p className="text-xs leading-relaxed mt-0.5 mb-0" style={{ color: "var(--cs-text-secondary)" }}>
-          {status.detail}
-        </p>
-
-        {status.diagnostics?.attemptedModels?.length ? (
-          <p
-            className="text-[10px] font-mono mt-1.5 mb-0 truncate"
-            style={{ color: "var(--cs-text-muted)" }}
-            title={status.diagnostics.attemptedModels.join(" → ")}
-          >
-            models tried: {status.diagnostics.attemptedModels.join(" → ")}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0 self-stretch sm:self-center">
-        {onOpenConsole ? (
-          <button
-            type="button"
-            onClick={onOpenConsole}
-            className="report-press flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors hover:bg-cs-bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-            style={{ color: "var(--cs-text-secondary)", border: "1px solid var(--cs-border)" }}
-          >
-            <Terminal className="w-3 h-3" strokeWidth={1.5} />
-            Diagnostics
-          </button>
-        ) : null}
-
-        {status.retryable && status.canSynthesize && status.state !== "live" ? (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="report-press flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg cursor-pointer text-white shadow-sm hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-            style={{ background: "var(--cs-accent-clay)" }}
-          >
-            <RefreshCw className="w-3 h-3" strokeWidth={2} />
-            Retry synthesis
-          </button>
-        ) : null}
-      </div>
-    </div>
   );
 };
 

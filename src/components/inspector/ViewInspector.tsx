@@ -541,6 +541,9 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             analysisResult={analysisResult}
             gene={gene}
             variant={variant}
+            onRetryNarrative={onRetryNarrative}
+            isNarrativeLoading={isNarrativeLoading}
+            onNavigateToView={onViewChange}
           />
         )}
       </div>

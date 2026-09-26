@@ -151,6 +151,6 @@ describe("AboutView — attribution and acknowledgments", () => {
   it("still routes to the data and cache management the guide promises", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /manage data & caches/i }));
-    expect(openSettingsTab).toHaveBeenCalledWith("about");
+    expect(openSettingsTab).toHaveBeenCalledWith("data");
   });
 });

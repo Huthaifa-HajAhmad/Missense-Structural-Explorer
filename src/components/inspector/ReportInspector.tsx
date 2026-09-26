@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   FileText, Download, CheckSquare, Square, ShieldCheck, Printer, AlertTriangle, Lock,
+  Sparkles, RefreshCw, KeyRound, Terminal, Check, Copy,
 } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -8,9 +9,12 @@ import { useSettings } from "../../context/SettingsContext";
 import type { ReportSectionKey } from "../../stores/slices/uiSlice";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { generateProvenanceManifest } from "../../shared/provenance";
+import { variantNumberingView } from "../../shared/numbering";
 import {
   buildEvidenceInventory,
   computeReportFingerprint,
+  deriveAiStatus,
+  generateStructuredEhrReport,
   summarizeEvidence,
 } from "../report/reportStatus";
 
@@ -18,6 +22,9 @@ interface ReportInspectorProps {
   analysisResult: AnalysisResult | null;
   gene: string;
   variant: string;
+  onRetryNarrative?: () => void | Promise<void>;
+  isNarrativeLoading?: boolean;
+  onNavigateToView?: (view: any) => void;
 }
 
 /**
@@ -38,7 +45,10 @@ const REPORT_SECTIONS: Array<{ key: ReportSectionKey; label: string; hint: strin
 export const ReportInspector: React.FC<ReportInspectorProps> = ({
   analysisResult,
   gene,
-  variant
+  variant,
+  onRetryNarrative,
+  isNarrativeLoading: propIsNarrativeLoading,
+  onNavigateToView,
 }) => {
   const reportSections = useVariantAnalysisStore((s) => s.reportSections);
   const toggleReportSection = useVariantAnalysisStore((s) => s.toggleReportSection);
@@ -49,9 +59,15 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const storeFoldingDdG = useVariantAnalysisStore(
     (s) => s.primaryBiophysics?.foldingDdG ?? s.foldingDdG
   );
+  const storeIsNarrativeLoading = useVariantAnalysisStore((s) => s.isNarrativeLoading);
+  const addNotification = useVariantAnalysisStore((s) => s.addNotification);
 
-  const { settings } = useSettings();
+  const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
+  const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
+
+  const isNarrativeBusy = propIsNarrativeLoading ?? storeIsNarrativeLoading;
   const [fingerprint, setFingerprint] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const includedCount = useMemo(
     () => REPORT_SECTIONS.filter((section) => reportSections[section.key]).length,
@@ -62,6 +78,102 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
     () => summarizeEvidence(buildEvidenceInventory(analysisResult, storeFoldingEnergetics, storeFoldingDdG)),
     [analysisResult, storeFoldingEnergetics, storeFoldingDdG]
   );
+
+  /**
+   * Whether the AI narrative in this report is a degraded, rule-based one.
+   */
+  const isDegraded = isFallbackNarrative(
+    analysisResult?.analysis,
+    analysisResult?.isFallback,
+    analysisResult?.fallbackReason
+  );
+
+  const narrative = analysisResult?.analysis ?? "";
+
+  const aiStatus = useMemo(
+    () =>
+      deriveAiStatus({
+        isFallback: isDegraded,
+        fallbackReason: analysisResult?.fallbackReason,
+        fallbackMessage: analysisResult?.fallbackMessage,
+        fallbackRetryable: analysisResult?.fallbackRetryable,
+        providerDetail: analysisResult?.providerDetail,
+        attemptedModels: analysisResult?.attemptedModels,
+        isKeyActive,
+        hasNarrative: Boolean(narrative),
+        isNarrativeLoading: isNarrativeBusy,
+      }),
+    [
+      isDegraded,
+      analysisResult?.fallbackReason,
+      analysisResult?.fallbackMessage,
+      analysisResult?.fallbackRetryable,
+      analysisResult?.providerDetail,
+      analysisResult?.attemptedModels,
+      isKeyActive,
+      narrative,
+      isNarrativeBusy,
+    ]
+  );
+
+  const numbering = useMemo(
+    () =>
+      variantNumberingView({
+        variant: variant || analysisResult?.metadata?.variant || "",
+        uniprotId: uniprotId || analysisResult?.metadata?.uniprotId || null,
+        numberingRemap:
+          (analysisResult as any)?.numberingRemap ?? (analysisResult?.metadata as any)?.numberingRemap ?? null,
+      }),
+    [variant, uniprotId, analysisResult]
+  );
+
+  const acmgCriteria = useMemo(() => {
+    const items = analysisResult?.insights?.acmgCriteria?.length
+      ? analysisResult.insights.acmgCriteria
+      : analysisResult?.ruleBasedInsights?.acmgCriteria ?? [];
+    return items as Array<{ code: string; reason?: string; source?: string }>;
+  }, [analysisResult]);
+
+  const ruleVerdict = analysisResult?.ruleBasedInsights?.acmgVerdict;
+  const headlineVerdict = ruleVerdict || analysisResult?.insights?.acmgVerdict || analysisResult?.clinvar?.classification || "";
+  const plausibility = analysisResult?.insights?.plausibility || analysisResult?.ruleBasedInsights?.plausibility || "";
+
+  const handleSynthesize = useCallback(async () => {
+    if (onRetryNarrative) {
+      await onRetryNarrative();
+    }
+  }, [onRetryNarrative]);
+
+  const handleCopyReport = async () => {
+    if (!analysisResult) return;
+    const reportText = generateStructuredEhrReport({
+      gene,
+      variant,
+      reportedVariant: numbering.reported ? `${numbering.reported}${numbering.reportedBasisId ? ` (${numbering.reportedBasisId})` : ""}` : numbering.display,
+      modelledVariant: numbering.modelled,
+      uniprotId,
+      reportedTranscriptId: numbering.reportedTranscriptId || numbering.reportedRefSeqId || (analysisResult?.metadata as any)?.transcriptId || "MANE Select",
+      basisNote: numbering.basisNote,
+      headlineVerdict,
+      plausibility,
+      acmgCriteria,
+      energetics: storeFoldingEnergetics,
+      foldingDdG: storeFoldingDdG,
+      result: analysisResult,
+      narrative,
+      evidenceSummary: evidence,
+      sections: reportSections,
+    });
+
+    try {
+      await navigator.clipboard.writeText(reportText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      addNotification("success", "Structured EHR assessment copied to clipboard.");
+    } catch {
+      addNotification("error", "Unable to access clipboard.");
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -87,16 +199,6 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
       active = false;
     };
   }, [analysisResult, gene, variant, reportSections, storeFoldingEnergetics, storeFoldingDdG]);
-
-  /**
-   * Whether the AI narrative in this report is a degraded, rule-based one. Stated up front so a
-   * printed or exported report can never be mistaken for an AI-synthesised interpretation.
-   */
-  const isDegraded = isFallbackNarrative(
-    analysisResult?.analysis,
-    analysisResult?.isFallback,
-    analysisResult?.fallbackReason
-  );
 
   const handlePrintPdf = () => {
     window.print();
@@ -157,8 +259,82 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
 
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Report Section Inclusions ── */}
+      {/* ── 0. AI Synthesis & Status ── */}
       <div className="flex flex-col gap-2">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center justify-between gap-1.5">
+          <span className="flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" strokeWidth={1.75} />
+            AI Synthesis & Status
+          </span>
+          <span
+            className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider ${
+              aiStatus.tone === "good"
+                ? "bg-cs-good/15 text-cs-good border border-cs-good/30"
+                : aiStatus.tone === "warn"
+                ? "bg-cs-warn/15 text-cs-warn border border-cs-warn/30"
+                : "bg-cs-surface-2 text-cs-text-muted border border-cs-border"
+            }`}
+          >
+            {aiStatus.label}
+          </span>
+        </span>
+
+        <div className="p-3 rounded-2xl border border-cs-border-subtle bg-cs-surface-2 flex flex-col gap-2.5">
+          <p className="text-[11.5px] leading-relaxed text-cs-text-secondary m-0">
+            {aiStatus.detail}
+          </p>
+
+          {aiStatus.diagnostics?.attemptedModels?.length ? (
+            <div className="text-[10px] font-mono text-cs-text-muted truncate pt-1 border-t border-cs-border-subtle" title={aiStatus.diagnostics.attemptedModels.join(" → ")}>
+              Models: <span className="text-cs-text-secondary">{aiStatus.diagnostics.attemptedModels.join(" → ")}</span>
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-2 pt-0.5">
+            {isKeyActive ? (
+              <button
+                type="button"
+                onClick={handleSynthesize}
+                disabled={isNarrativeBusy}
+                className="report-press flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-white font-semibold text-[11px] cursor-pointer shadow-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+                style={{ background: "var(--cs-accent-clay)" }}
+              >
+                {isNarrativeBusy ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Synthesizing…</>
+                ) : isDegraded ? (
+                  <><Sparkles className="w-3.5 h-3.5" /> Generate AI Narrative</>
+                ) : (
+                  <><RefreshCw className="w-3.5 h-3.5" /> Re-synthesize</>
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openSettingsTab("connections")}
+                className="report-press flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-cs-border bg-cs-surface hover:bg-cs-bg-subtle text-cs-text-secondary font-semibold text-[11px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                Configure Gemini
+              </button>
+            )}
+
+            {onNavigateToView ? (
+              <button
+                type="button"
+                onClick={() => onNavigateToView("console")}
+                className="report-press flex items-center justify-center gap-1 py-2 px-2.5 rounded-lg border border-cs-border bg-cs-surface hover:bg-cs-bg-subtle text-cs-text-secondary text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+                title="Open Developer Console diagnostics"
+              >
+                <Terminal className="w-3.5 h-3.5" strokeWidth={1.5} />
+                <span className="sr-only">Diagnostics</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 1. Report Section Inclusions ── */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center justify-between gap-1.5">
           <span className="flex items-center gap-1.5">
             <FileText className="w-3.5 h-3.5 text-cs-accent-clay" strokeWidth={1.75} />
@@ -207,6 +383,28 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         </span>
 
         <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleCopyReport}
+            disabled={!analysisResult}
+            className="report-press w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-cs-border bg-cs-surface-2 hover:bg-cs-bg-subtle text-cs-text-primary font-semibold text-[11px] cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+            style={{
+              color: copied ? "var(--cs-good)" : "var(--cs-text-primary)",
+            }}
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-cs-good" strokeWidth={2} />
+                <span>Copied EHR Report</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-cs-accent-clay" strokeWidth={1.75} />
+                <span>Copy Report (EHR / Text)</span>
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={handlePrintPdf}

@@ -4,6 +4,7 @@ import {
   computeReportFingerprint,
   deriveAiStatus,
   formatDeltaG,
+  generateStructuredEhrReport,
   summarizeEvidence,
 } from "../reportStatus";
 
@@ -300,3 +301,86 @@ describe("ClinVar case-insensitive 'not found' detection in buildEvidenceInvento
     expect(clinvarSource?.detail).toBe("Pathogenic/Likely pathogenic");
   });
 });
+
+describe("generateStructuredEhrReport", () => {
+  it("generates a complete formatted EHR report with all clinical sections", () => {
+    const reportText = generateStructuredEhrReport({
+      gene: "CNNM2",
+      variant: "p.Ser489Cys",
+      reportedVariant: "p.Ser489Cys (NM_017649.5)",
+      modelledVariant: "p.Ser489Cys",
+      uniprotId: "Q9H8M5",
+      reportedTranscriptId: "MANE Select",
+      assessmentDate: "2026-09-26",
+      headlineVerdict: "Variant of Uncertain Significance (VUS)",
+      plausibility: "Plausibly uncertain in pathogenicity",
+      acmgCriteria: [
+        { code: "PM2", reason: "Absent from controls", source: "gnomad" },
+        { code: "PP3", reason: "Multiple computational evidence supports", source: "database_verified" },
+      ],
+      energetics: {
+        foldx: 1.85,
+        consensusVerdict: "Destabilizing",
+        consensusProbability: 0.88,
+        consensusConfMin: 1.2,
+        consensusConfMax: 2.5,
+        dynamut2: 1.4,
+      } as any,
+      narrative: "Wild-type Ser489 participates in key hydrogen bonds.",
+      evidenceSummary: { present: 6, total: 7 },
+    });
+
+    expect(reportText).toContain("CLINICAL GENOMICS & BIOPHYSICAL ASSESSMENT REPORT");
+    expect(reportText).toContain("Gene:               CNNM2");
+    expect(reportText).toContain("Reported Variant:   p.Ser489Cys (NM_017649.5)");
+    expect(reportText).toContain("Canonical UniProt:  Q9H8M5");
+    expect(reportText).toContain("Headline Verdict:   Variant of Uncertain Significance (VUS)");
+    expect(reportText).toContain("[PM2] Absent from controls (Source: gnomad)");
+    expect(reportText).toContain("[PP3] Multiple computational evidence supports (Source: database_verified)");
+    expect(reportText).toContain("FoldX ΔΔG:          +1.85 kcal/mol");
+    expect(reportText).toContain("Consensus Verdict:  Destabilizing (P = 88%), 95% CI: [+1.20 kcal/mol, +2.50 kcal/mol]");
+    expect(reportText).toContain("DynaMut2 ΔΔG:       +1.40 kcal/mol");
+    expect(reportText).toContain("Wild-type Ser489 participates in key hydrogen bonds.");
+    expect(reportText).toContain("Evidence Completeness: 6 of 7 sources retrieved.");
+  });
+
+  it("handles fallback and missing values cleanly without throwing", () => {
+    const reportText = generateStructuredEhrReport({
+      gene: "",
+      variant: "",
+    });
+
+    expect(reportText).toContain("Gene:               Unknown");
+    expect(reportText).toContain("Headline Verdict:   No classification available");
+    expect(reportText).toContain("No ACMG/AMP criteria recorded.");
+    expect(reportText).toContain("FoldX ΔΔG:          —");
+  });
+
+  it("filters omitted sections based on user-configured report sections", () => {
+    const reportText = generateStructuredEhrReport({
+      gene: "BRAF",
+      variant: "p.Val600Glu",
+      acmgCriteria: [{ code: "PS1", reason: "Same amino acid change" }],
+      energetics: { foldx: 2.1 } as any,
+      narrative: "Well-established pathogenic variant in melanoma.",
+      sections: {
+        acmg: false,
+        energetics: true,
+        summary: false,
+      },
+    });
+
+    expect(reportText).toContain("Gene:               BRAF");
+    // ACMG section is disabled
+    expect(reportText).not.toContain("ACMG / AMP EVIDENCE CRITERIA");
+    expect(reportText).not.toContain("[PS1]");
+    // Energetics section is enabled
+    expect(reportText).toContain("BIOPHYSICAL STABILITY & FREE-ENERGY ESTIMATES");
+    expect(reportText).toContain("FoldX ΔΔG:          +2.10 kcal/mol");
+    // Summary/narrative is disabled
+    expect(reportText).not.toContain("CLINICAL NARRATIVE & SYNTHESIS");
+    expect(reportText).not.toContain("Well-established pathogenic variant");
+  });
+});
+
+
