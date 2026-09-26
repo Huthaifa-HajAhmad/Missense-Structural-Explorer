@@ -136,8 +136,8 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     category: "Normal Mode Analysis / Machine Learning",
     description: "DynaMut2 predicts stability changes (ΔΔG) by combining normal mode analysis (NMA) metrics of protein flexibility and dynamics (using ENM models) with machine learning models trained on experimental stability data.",
     interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
-    paperTitle: "Rodrigues et al. Bioinformatics (2020)",
-    paperUrl: "https://doi.org/10.1093/bioinformatics/btaa784"
+    paperTitle: "Rodrigues et al. Protein Science (2021)",
+    paperUrl: "https://doi.org/10.1002/pro.3942"
   },
   ddmut: {
     name: "DDMut (Deep Learning)",
@@ -156,8 +156,8 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     // with the opposite sign, so this explanation contradicted both the app's own maths and the
     // Energetics tab's copy for the same method.
     interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; lower/negative scores represent neutral or stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
-    paperTitle: "Blaabjerg et al. Cell Systems (2023)",
-    paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
+    paperTitle: "Blaabjerg et al. eLife (2023)",
+    paperUrl: "https://doi.org/10.7554/eLife.82593"
   },
   bayesdel: {
     name: "BayesDel (noAF)",

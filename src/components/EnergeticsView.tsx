@@ -77,8 +77,8 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     category: "Normal Mode Analysis / Machine Learning",
     description: "DynaMut2 predicts stability changes (ΔΔG) by combining normal mode analysis (NMA) metrics of protein flexibility and dynamics (using ENM models) with machine learning models trained on experimental stability data.",
     interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative scores represent stabilizing variants. (Normalized: DynaMut2 natively reports negative values for destabilization, but values in this explorer are normalized so positive = destabilizing).",
-    paperTitle: "Rodrigues et al. Bioinformatics (2020)",
-    paperUrl: "https://doi.org/10.1093/bioinformatics/btaa784"
+    paperTitle: "Rodrigues et al. Protein Science (2021)",
+    paperUrl: "https://doi.org/10.1002/pro.3942"
   },
   ddmut: {
     name: "DDMut (Deep Learning)",
@@ -93,8 +93,8 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     category: "Structural Embeddings / MLP Stability Head",
     description: "RaSP predicts thermodynamic stability changes (ΔΔG) using ESM-IF1 structural embeddings combined with a pre-trained multi-layer perceptron head trained on ~350k experimental stability datapoints. It operates directly on 3D structure.",
     interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative/neutral scores represent stabilizing/neutral variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
-    paperTitle: "Blaabjerg et al. Cell Systems (2023)",
-    paperUrl: "https://doi.org/10.1016/j.cels.2023.01.001"
+    paperTitle: "Blaabjerg et al. eLife (2023)",
+    paperUrl: "https://doi.org/10.7554/eLife.82593"
   },
   thermompnn: {
     name: "ThermoMPNN",
