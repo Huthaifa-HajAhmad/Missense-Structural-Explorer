@@ -182,3 +182,15 @@ to (`src/shared/attributions.ts` renders it as "Not established by this code").
 
 Resolving it means: re-run the ingest, record the upstream release string the source archive
 declares, and update both registries from that.
+
+**Status: deferred.** The local ingest path is opt-in (`ENABLE_LOCAL_DBNSFP="false"` is the
+documented default — `doc/DEPLOY.md:49`, `doc/LIMITATIONS.md:98`) and this conflict only
+describes a deployment that has actually run it, so it is recorded here rather than fixed now.
+It is a *deferral*, not a resolution: nothing in the codebase agrees, and the two registries
+still carry an unsupported "4.4a" until someone re-runs the ingest. Any future change to the
+local dbNSFP path must re-open this.
+
+**The prohibition stands meanwhile:** no surface may state a dbNSFP release as fact, and the
+exported provenance manifest is the one place that still does — `PROVENANCE_DATA_SOURCES` is
+read straight into the manifest that ships with a report. Treat that as a known, dated gap in
+exported provenance rather than a settled value.
