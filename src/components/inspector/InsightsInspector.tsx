@@ -1,7 +1,9 @@
 import React from "react";
 import { Sparkles, Bot, ShieldAlert, CheckCircle2, XCircle, RotateCcw, FileText } from "lucide-react";
-import { AnalysisResult, ACMGCriteriaItem } from "../../types";
+import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../../context/VariantAnalysisContext";
+import { ACMG_SOURCE_LABEL, acmgCriteriaView } from "../../shared/acmgCriteriaView";
+import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
 
 interface InsightsInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -15,43 +17,35 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
   const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
   const { setUserDirections } = useVariantAnalysisActions();
 
-  const criteria: ACMGCriteriaItem[] = [
-    ...(analysisResult?.insights?.acmgCriteria || []),
-    ...(analysisResult?.ruleBasedInsights?.acmgCriteria || [])
-  ];
-
-  // Remove duplicate codes
-  const uniqueCriteria = Array.from(new Map(criteria.map(c => [c.code, c])).values());
+  /**
+   * The server's merged, source-tagged list — see `shared/acmgCriteriaView.ts` for why this is not
+   * re-derived here. Deriving it produced a rail that labelled the rule engine's own PP3/PP2/PM2 as
+   * "AI Inferred" while the card in the main column labelled the same codes "DATABASE-VERIFIED".
+   */
+  const uniqueCriteria = acmgCriteriaView(
+    analysisResult?.insights?.acmgCriteria,
+    analysisResult?.ruleBasedInsights?.acmgCriteria
+  );
 
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. AI Inference Provenance ── */}
+      {/* ── 1. AI Inference Provenance ──
+        *
+        * Every value below is read from the payload or from a shared constant. This card previously
+        * hardcoded all four — model, generation mode, sampling temperature and status — and three of
+        * the four were wrong (see `shared/narrativeSynthesis.ts`). In a clinical rail, a hardcoded
+        * parameter is a provenance claim nothing checks.
+        */}
       <div className="flex flex-col gap-2">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
           <Bot className="w-3.5 h-3.5 text-cs-accent-clay" />
           AI Synthesis Telemetry
         </span>
 
-        <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-surface-2 space-y-2">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-cs-text-secondary">Inference Model:</span>
-            <span className="font-mono font-bold text-cs-text-primary">Clinical LLM Engine</span>
-          </div>
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-cs-text-secondary">Generation Mode:</span>
-            <span className="font-mono text-cs-text-good-on-soft font-semibold">Structured Clinical Schema</span>
-          </div>
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-cs-text-secondary">Sampling Temperature:</span>
-            <span className="font-mono text-cs-text-primary">0.2 (Deterministic)</span>
-          </div>
-          <div className="flex justify-between items-center text-[11px] pt-1 border-t border-cs-border-subtle">
-            <span className="text-cs-text-secondary">Status:</span>
-            <span className="font-mono font-bold text-cs-text-accent">
-              {isNarrativeLoading ? "Synthesizing..." : "Inference Ready"}
-            </span>
-          </div>
-        </div>
+        <NarrativeProvenanceRow
+          analysisResult={analysisResult}
+          isNarrativeLoading={isNarrativeLoading}
+        />
       </div>
 
       {/* ── 2. ACMG / AMP Rule Verification Trace ── */}
@@ -66,7 +60,13 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
           </span>
         </div>
 
-        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
+        {/*
+          * A nested scroll region inside an already-scrolling rail puts a second scrollbar in a
+          * 320px column, and it hid the third of three criteria behind it — the header said "3 Met"
+          * while two cards were visible. The list is short by construction (the ACMG whitelist is
+          * 25 codes and a run records a handful), so it renders in full.
+          */}
+        <div className="space-y-1.5 pr-0.5">
           {uniqueCriteria.length > 0 ? (
             uniqueCriteria.map((crit) => (
               <div
@@ -77,12 +77,17 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
                   <span className="font-mono font-bold text-[11px] text-cs-text-accent">
                     {crit.code}
                   </span>
-                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold border ${
+                  {/*
+                    * The label comes from the shared vocabulary, and the tone from the provenance
+                    * itself rather than from a substring of it. This chip read "Rule Engine" before,
+                    * while the card beside it printed "DATABASE-VERIFIED" for the same code.
+                    */}
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold border uppercase ${
                     crit.source === "database_verified"
                       ? "text-cs-text-good-on-soft border-cs-good/30"
                       : "text-cs-text-accent border-cs-accent-clay/30"
                   }`} style={{ background: crit.source === "database_verified" ? "var(--cs-good-soft)" : "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)" }}>
-                    {crit.source === "database_verified" ? "Rule Engine" : "AI Inferred"}
+                    {ACMG_SOURCE_LABEL[crit.source]}
                   </span>
                 </div>
                 <p className="text-[11px] leading-snug text-cs-text-secondary">

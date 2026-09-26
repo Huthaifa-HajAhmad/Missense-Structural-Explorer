@@ -9,15 +9,53 @@
    Accent: magenta/pink #D946AA (pathogenic), clay #C46849 (brand)
    ============================================================ */
 
+/**
+ * THE LIGHT NEUTRAL RAMP — five levels, each at least 2.5 lightness points from its neighbour.
+ *
+ * A shadowless design carries its entire depth hierarchy in fill and hairline, so the ramp IS the
+ * hierarchy. It was not one:
+ *
+ *     --cs-surface-2  #FAF9F6  L 97.25%
+ *     --cs-bg         #F9F8F6  L 97.06%   -> a step of MINUS 0.19 points
+ *
+ * `--cs-surface-2` is the fill of most card bodies in this app (the inspectors' cards, the Insights
+ * card's panels, buttons, chips). It sat a fifth of a percentage point LIGHTER than the page it was
+ * drawn on — the same colour, so a card did not read as a card at all, and the 2.75-point gap to
+ * white was the only elevation cue left. Two of the levels (`-2` and `bg`) were in effect one token.
+ *
+ * The ramp below is monotonic and every adjacent step clears 2.5 points — the point at which a fill
+ * boundary survives a cheap laptop panel and a projector. Measured steps, in HSL lightness, walking
+ * down from the card top:
+ *
+ *     surface       #FFFFFF  100.00%   card
+ *                      ↓  2.94
+ *     bg            #F9F8F6   97.06%   page           (unchanged — the documented page colour)
+ *                      ↓  3.14          ← this step was MINUS 0.19 before
+ *     surface-2     #F5F2EA   93.92%   nested panel / card body
+ *                      ↓  2.94
+ *     bg-subtle     #EEEBE2   90.98%   hover / pressed
+ *                      ↓  3.53
+ *     border-subtle #E6E2D8   87.45%   divider
+ *                      ↓  5.49
+ *     border        #D9D4C9   81.96%   hairline boundary
+ *
+ * `--cs-surface-2` now sits BELOW the page rather than a fifth of a point above it, so a nested panel
+ * reads as a wash and a white card reads as raised. Hue is held in the 40-42 degrees band the rest of
+ * the palette uses, so this still reads as the same warm cream.
+ *
+ * `--cs-text-muted` was re-measured against the darker fills: it stays above AA everywhere it is
+ * actually painted (see its own note). `src/styles/__tests__/surfaceRamp.test.ts` parses these
+ * declarations and fails if a step drops under 2.5 points or the order inverts.
+ */
 :root {
   /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
-  --cs-bg:            #F9F8F6;   /* warm paper-white background */
-  --cs-bg-subtle:     #F3F0EA;   /* subtle hover state background */
+  --cs-bg:            #F9F8F6;   /* warm paper-white page background */
+  --cs-bg-subtle:     #EEEBE2;   /* subtle hover state background */
   --cs-surface:       #FFFFFF;   /* clean white card surfaces */
-  --cs-surface-2:     #FAF9F6;   /* nested panel sub-surface */
+  --cs-surface-2:     #F5F2EA;   /* nested panel sub-surface — a real step below the page */
 
-  --cs-border:        #E5E1DC;   /* hairline border color */
-  --cs-border-subtle: #ECEAE4;   /* divider line color */
+  --cs-border:        #D9D4C9;   /* hairline border color */
+  --cs-border-subtle: #E6E2D8;   /* divider line color */
 
   --cs-text-primary:  #191816;   /* near-black ink color */
   --cs-text-secondary:#666055;   /* elegant charcoal secondary text */
@@ -25,6 +63,14 @@
    * Dimmed label colour. Was #8F897E, which is only 3.3:1 on --cs-surface-2 — below
    * AA for the 9.5-10.5px explanatory copy and badge text the inspectors use it for.
    * #6E685E reaches 5.24:1 while staying visibly lighter than --cs-text-secondary.
+   *
+   * Re-measured when the neutral ramp darkened (see the ramp note above). The fills it is
+   * actually painted on, and its contrast on each, all clear AA for normal text:
+   *   --cs-surface-2  #F5F2EA  4.93:1
+   *   --cs-bg-subtle  #EEEBE2  4.63:1
+   *   --cs-bg         #F9F8F6  5.20:1
+   * The first two are the tight ones; do not darken those fills further without re-running
+   * `scratch/surface-ramp-final.ps1`, which prints this table.
    */
   --cs-text-muted:    #6E685E;
 
@@ -145,8 +191,17 @@
    * bright green already passes, so dark mode reuses --cs-text-success.
    */
   --cs-text-good-on-soft:       #166534;
-  --cs-surface-1:               #FFFFFF;
-  --cs-surface-2:               #FAF9F6;
+  /*
+   * `--cs-surface-1` and `--cs-surface-2` used to be re-declared HERE as well as at the top of this
+   * block. For the same property in the same declaration block CSS takes the LAST value, so the
+   * stragglers won the cascade and the surfaces above were inert: `--cs-surface-2` was still painting
+   * `#FAF9F6` — the value this file's ramp note above explains was the defect. The ramp fix looked
+   * applied in source, in review and in the guard, and was never in the browser.
+   *
+   * `--cs-surface-1` is now declared once, with its siblings at the top. `--cs-surface-2` is declared
+   * once there too. `surfaceRamp.test.ts` asserts no token is declared twice inside `:root`, so a
+   * duplicate cannot silently outrank the declaration it duplicates again.
+   */
 
   /**
    * Informational-but-not-a-verdict hues, for surfaces that rank or classify
@@ -223,8 +278,13 @@
   --cs-text-danger-on-soft:     #F87171;
   --cs-text-warning-on-soft:    #FBBF24;
   --cs-text-good-on-soft:       #4ADE80;
-  --cs-surface-1:               #2A2724;
-  --cs-surface-2:               #201E1B;
+  /* `--cs-surface-1` and `--cs-surface-2` were re-declared at this point in the block, for the same
+     reason and with the same consequence as in the light block above: for one property in one block,
+     CSS takes the LAST value, so the stragglers outranked the declarations at the top of `.dark`.
+     Here they happened to agree, so nothing was mis-painted — but an agreeing duplicate is one edit
+     away from a disagreeing one, and `surfaceRamp.test.ts` now fails on any token declared twice
+     inside a block rather than trusting that the duplicate will stay harmless. The light block's
+     version of this duplicate did NOT agree, and it silently reverted the ramp fix. */
 
   /* Informational hues, dark counterparts. Contrast on the translucent tints:
      teal 8.44:1, indigo 6.39:1. */

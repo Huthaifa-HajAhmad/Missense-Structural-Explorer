@@ -5,6 +5,14 @@ import { computeCalibratedConsensus } from "../shared/thresholds";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
 import { formatAlleleFrequency } from "../shared/frequencyEvidence";
+// One ACMG criteria list and one provenance vocabulary for every surface that renders criteria.
+import { ACMG_SOURCE_LABEL, acmgCriteriaView } from "../shared/acmgCriteriaView";
+// The condensed clinical summary this view shows in place of the full narrative, plus the shared
+// "is this narrative AI-authored or rule-based" verdict — the payload carries both kinds of text.
+import { summariseNarrative } from "../shared/narrativeSummary";
+import { deriveNarrativeAuthorship } from "../shared/narrativeAuthorship";
+import { isFallbackNarrative } from "../services/pipeline/variantCache";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { 
   FileText, 
   CheckCircle2, 
@@ -20,7 +28,7 @@ import {
   KeyRound,
   Settings,
   AlertTriangle,
-  ChevronDown
+  ChevronRight
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { 
@@ -32,6 +40,18 @@ import {
   ResponsiveContainer, 
   Tooltip 
 } from "recharts";
+
+/**
+ * Shown when no criterion carries `ai_suggested`.
+ *
+ * Deliberately covers both causes rather than asserting one. The server drops a model-suggested code
+ * when the rule engine already computed the same code (`uniqueAiCriteria` in
+ * `server/routes/shared.ts`), so an empty group means either that the model proposed nothing or that
+ * everything it proposed was already evidenced — and this card cannot tell which from the payload.
+ * "The model suggested no additional criteria" would be a claim it cannot support.
+ */
+const NO_AI_CRITERIA_NOTE =
+  "No additional criteria were proposed by the model — either it proposed none, or every code it proposed was already computed by the rule engine and is listed above.";
 
 function SafeResponsiveContainer({ children }: { children: React.ReactElement }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -74,9 +94,9 @@ function SafeResponsiveContainer({ children }: { children: React.ReactElement })
     </div>
   );
 }
-import Markdown from "react-markdown";
 import { VARIANT_PRESETS, getNearestResidues } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
+import type { MasterView } from "./MasterSidebar";
 import { resolveResidueShiftModel } from "../lib/residueShiftModel";
 import { deriveBiochemicalNarrative, getPropertyScaleDefinition } from "../shared/residueShiftEvidence";
 
@@ -204,6 +224,19 @@ interface ClinicalInsightsCardProps {
   /** The FoldX single-value fallback the Energetics badge applies; needed to match its verdict. */
   foldingDdG?: number | null;
   disruptionPredictor?: any;
+  /**
+   * Switch the workspace to another view.
+   *
+   * Used by the condensed clinical summary to send the reader to the Report, which owns the full
+   * narrative. Passing it is what makes "condensed here, complete there" a real affordance rather
+   * than a dead end — without it the summary would have to either duplicate the narrative or cite a
+   * document the reader cannot reach.
+   *
+   * Typed as `MasterView`, not `any`. The view keys are a shared vocabulary (`HeaderBar`'s breadcrumb
+   * and `VariantSearchPanel`'s preset targets both name them), so `any` here would let a renamed key
+   * compile and send the reader to a blank pane — the one failure a navigation prop must not have.
+   */
+  onNavigateToView?: (view: MasterView) => void;
 }
 
 const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
@@ -230,10 +263,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   isNarrativeLoading: propIsNarrativeLoading,
   foldingEnergetics,
   foldingDdG,
-  disruptionPredictor
+  disruptionPredictor,
+  onNavigateToView
 }: ClinicalInsightsCardProps) {
   const { openSettingsTab } = useSettings();
-  const [narrativeOpen, setNarrativeOpen] = useState(true);
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
   );
@@ -246,6 +279,58 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   const isNarrativeLoading = propIsNarrativeLoading !== undefined
     ? propIsNarrativeLoading
     : isClinicalLoading;
+
+  /**
+   * The condensed clinical summary this view shows in place of the narrative.
+   *
+   * `summariseNarrative` selects the narrative's own clinical section and trims on a sentence
+   * boundary; it authors nothing. See `shared/narrativeSummary.ts` for why the Insights view shows a
+   * summary at all — briefly, the Report is the narrative's home and duplicating the full text here
+   * created two copies of one AI artefact, only one of which was covered by the print pass, the EHR
+   * export and the report fingerprint.
+   */
+  const narrativeSummary = useMemo(
+    () => summariseNarrative(analysisState.result?.analysis),
+    [analysisState.result?.analysis]
+  );
+
+  /**
+   * Whether that narrative is AI-authored — from the shared predicate, so this card, the inspector rail
+   * and the report's synthesis chip cannot disagree. A degraded run also has an `analysis` string (the
+   * route assembles a rule-based report), so testing for text alone would label rule-based prose as a
+   * model's.
+   */
+  const narrativeAuthorship = deriveNarrativeAuthorship({
+    analysis: analysisState.result?.analysis,
+    isDegraded: isFallbackNarrative(
+      analysisState.result?.analysis,
+      analysisState.result?.isFallback,
+      analysisState.result?.fallbackReason
+    ),
+    declaredSource: (analysisState.result?.insights as { source?: string } | undefined)?.source,
+  });
+  const narrativeIsAi = narrativeAuthorship === "ai";
+  const narrativeModel = (analysisState.result?.insights as { model?: string } | undefined)?.model;
+
+  /**
+   * Take the reader to the complete text.
+   *
+   * The Report's summary section is user-toggleable, and a section switched off does not mount — so
+   * navigating to `#report-summary` while it was disabled would land on a report that does not
+   * contain the narrative. Re-enable it through the same store action the Report inspector's toggle
+   * uses, then scroll once the view has mounted. The scroll is a progressive enhancement: if the
+   * element is not there yet the reader is still on the Report view, which is the point.
+   */
+  const handleOpenFullNarrative = useCallback(() => {
+    const store = useVariantAnalysisStore.getState();
+    if (store.reportSections && store.reportSections.summary === false) {
+      store.toggleReportSection("summary");
+    }
+    onNavigateToView?.("report");
+    window.setTimeout(() => {
+      document.getElementById("report-summary")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }, [onNavigateToView]);
 
   /**
    * Shared with the Residue Shifts inspector: one classification of "is there a
@@ -588,7 +673,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           </div>
         ) : analysisState.error ? (
           /* Clean, modern empty/notice state inside insights card */
-          <div className="flex flex-col items-center justify-center p-6 rounded-xl my-4 max-w-lg mx-auto text-center border border-cs-border bg-cs-surface-2 shadow-xs">
+          <div className="flex flex-col items-center justify-center p-6 rounded-xl my-4 max-w-lg mx-auto text-center border border-cs-border bg-cs-surface-2">
             <div className="p-3 rounded-full border mb-3" style={{ background: "var(--cs-warn-soft)", borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", color: "var(--cs-warn)" }}>
               <KeyRound className="w-6 h-6" />
             </div>
@@ -601,7 +686,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             <button
               type="button"
               onClick={() => openSettingsTab("api")}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-all active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 cursor-pointer"
               style={{ background: "var(--cs-text-accent)", color: "var(--cs-bg)" }}
             >
               <Settings className="w-3.5 h-3.5" />
@@ -611,51 +696,92 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         ) : analysisState.result ? (
           /* Analysis result presenting structured key metrics and narrative report */
           <div className="flex flex-col gap-5 w-full text-cs-text-secondary">
-            {/* Raw Gemini narrative — keep the primary report visible in the Insights view. */}
-            {typeof analysisState.result.analysis === "string" && analysisState.result.analysis.trim() && (
-              <div className="rounded-xl border overflow-hidden" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-                <button
-                  type="button"
-                  onClick={() => setNarrativeOpen((v) => !v)}
-                  aria-expanded={narrativeOpen}
-                  aria-controls="clinical-narrative-panel"
-                  className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)] focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
-                  style={{ outlineColor: "var(--cs-accent-clay)" }}
-                >
+            {/*
+              * CONCISE clinical summary, not the narrative.
+              *
+              * The full AI narrative used to render here verbatim, in a collapsible panel — the same
+              * ~2,500 characters the Report view's "Executive Summary & Clinical Narrative" section
+              * prints, in a second pane of one viewport. Two copies of one AI text is a provenance
+              * problem before it is a layout problem: only the Report copy is covered by the section
+              * toggles, the print pass, the EHR export and the SHA-256 fingerprint, so the two could
+              * be read as different artefacts while being byte-identical.
+              *
+              * The Report keeps the narrative in full and unchanged; this surface shows the
+              * conclusion and points at the source of truth. `summariseNarrative` selects the
+              * narrative's own clinical section and trims on a sentence boundary — it writes no
+              * prose, so nothing here can be attributed to the model that the model did not say.
+              */}
+            {narrativeSummary.text && (
+              <div
+                className="rounded-xl border overflow-hidden"
+                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
+              >
+                <div className="flex items-center justify-between gap-2 px-4 py-3" style={{ borderBottom: "1px solid var(--cs-border-subtle)" }}>
                   <span className="flex items-center gap-1.5 font-bold font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>
                     <FileText className="w-3.5 h-3.5" />
-                    <span>Clinical Narrative</span>
+                    <span>Clinical summary</span>
                   </span>
-                  <ChevronDown
-                    className="w-4 h-4 shrink-0 transition-transform duration-200"
-                    style={{ color: "var(--cs-text-muted)", transform: narrativeOpen ? "rotate(180deg)" : "none" }}
-                  />
-                </button>
-                {narrativeOpen && (
-                  <div
-                    id="clinical-narrative-panel"
-                    role="region"
-                    aria-label="Clinical Narrative"
-                    className="px-4 pb-4 pt-1 space-y-3"
+                  {narrativeSummary.truncated && (
+                    /*
+                     * Named, not just chipped. The summary keeps whole sentences, so a claim can
+                     * survive the cut while the sentence qualifying or reversing it does not — which
+                     * is why the disclosure has to say the text continues rather than merely hint at
+                     * it with a one-word tag.
+                     */
+                    <span className="text-[10px] font-mono uppercase tracking-wider shrink-0" style={{ color: "var(--cs-text-muted)" }}>
+                      Excerpt — continues
+                    </span>
+                  )}
+                </div>
+
+                <div className="px-4 py-3 flex flex-col gap-2">
+                  {narrativeSummary.sourceSection && (
+                    <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: "var(--cs-text-muted)" }}>
+                      {narrativeSummary.sourceSection}
+                    </span>
+                  )}
+                  {/*
+                    * One <p> per paragraph. `summariseNarrative` preserves blank-line paragraph breaks
+                    * as `\n\n`, and a single <p> paints those as an ordinary space — so a summary that
+                    * reported two paragraphs rendered as one run-on block.
+                    */}
+                  {narrativeSummary.text.split("\n\n").map((paragraph, index) => (
+                    <p
+                      key={index}
+                      className="text-[12.5px] leading-relaxed font-sans m-0"
+                      style={{ color: "var(--cs-text-primary)" }}
+                    >
+                      {paragraph}
+                    </p>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={handleOpenFullNarrative}
+                    /*
+                     * The house focus idiom, not `outline-2`. This is the only `outline-2` in `src/`
+                     * and `scripts/check-focus-indicators.mjs` does not recognise it as a replacement
+                     * for a suppressed outline — so a keyboard user could have had no indicator at all
+                     * on the one control that navigates away. `focus-visible:ring-*` is what the rest of
+                     * the app uses and what that script audits.
+                     */
+                    className="self-start flex items-center gap-1 text-[11px] font-semibold cursor-pointer transition-colors hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+                    style={{ color: "var(--cs-text-accent)" }}
                   >
-                    <div className="pl-5 text-[12.5px] leading-relaxed font-sans" style={{ color: "var(--cs-text-primary)" }}>
-                      <Markdown
-                        components={{
-                          h1: ({ children }) => <h1 className="text-sm font-bold mt-2 mb-1">{children}</h1>,
-                          h2: ({ children }) => <h2 className="text-[13px] font-bold mt-3 mb-1.5" style={{ color: "var(--cs-text-accent)" }}>{children}</h2>,
-                          h3: ({ children }) => <h3 className="text-[12.5px] font-semibold mt-2 mb-1" style={{ color: "var(--cs-text-accent)" }}>{children}</h3>,
-                          p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
-                          ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                          strong: ({ children }) => <strong className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>{children}</strong>
-                        }}
-                      >
-                        {analysisState.result.analysis}
-                      </Markdown>
-                    </div>
-                  </div>
-                )}
+                    <span>{narrativeSummary.truncated ? "Read the full narrative in the Report" : "Open the full report"}</span>
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                  </button>
+
+                  {/*
+                    * Says who wrote the prose and whether it is complete. Derived from the payload,
+                    * so a degraded run cannot be presented here as an AI synthesis.
+                    */}
+                  <span className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
+                    {narrativeIsAi
+                      ? `AI-synthesised${narrativeModel ? ` by ${narrativeModel}` : ""} — condensed for this view; the Report holds the complete text.`
+                      : "Rule-based synthesis — assembled from retrieved database evidence, not from a language model."}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -902,7 +1028,19 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                           : "color-mix(in srgb, var(--cs-warn) 25%, transparent)";
                         
                         return (
-                          <div className="p-3.5 rounded-lg border flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm"
+                          /*
+                           * NO `shadow-*` UTILITY HERE. This card carried `shadow-sm` while every
+                           * sibling panel in the same column — the two plausibility blocks, the
+                           * criteria list, the radar card — carried none, so the verdict read as a
+                           * floating widget inside a flat card. Elevation in this design is not a
+                           * shadow: `--cs-shadow-card` and `--cs-shadow-sm` are both `none`, and
+                           * depth is carried by the fill ramp plus a hairline border (see the
+                           * "LIGHT NEUTRAL RAMP" note in `styles/variables.css`). A raw Tailwind
+                           * shadow bypasses the token and reintroduces the elevation this design
+                           * deliberately removed. `src/components/__tests__/clinicalElevation.test.ts`
+                           * fails if one comes back.
+                           */
+                          <div className="p-3.5 rounded-lg border flex flex-col md:flex-row md:items-center justify-between gap-3"
                             style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
                             <div>
                               <span className="block text-[10px] font-mono font-bold uppercase tracking-wider mb-0.5" style={{ color: "var(--cs-text-muted)" }}>
@@ -953,64 +1091,112 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                         ) : null}
                       </div>
 
-                      {/* Unified Suggested Criteria list */}
+                      {/* Unified Suggested Criteria list
+                        *
+                        * Both provenances render, from the ONE source-tagged list the server returns.
+                        * Two defects lived in the twelve lines this replaces:
+                        *
+                        *   1. The section is headed "…Evidence Suggester", and when the AI returned
+                        *      any criteria of its own this block filtered them straight out
+                        *      (`dbVerified = mergedList.filter(source === "database_verified")`) and
+                        *      printed only "No database-verified criteria met." — the AI's
+                        *      suggestions, the one thing the section exists to show, were never
+                        *      displayed. When the AI returned none, the same block re-tagged the rule
+                        *      engine's codes as `database_verified` locally, so this card and the
+                        *      Insights rail asserted opposite provenance for PP3/PP2/PM2.
+                        *   2. A single header over a single list could not say which codes were
+                        *      computed from retrieved database values and which a model proposed.
+                        *
+                        * `acmgCriteriaView` resolves the merge once for every surface; the grouping
+                        * and the labels below are shared vocabulary (`ACMG_SOURCE_LABEL`).
+                        */}
                       {(() => {
-                        const mergedList = analysisState.result.insights?.acmgCriteria || 
-                          analysisState.result.ruleBasedInsights?.acmgCriteria?.map(c => ({ ...c, source: "database_verified" as const })) || [];
+                        const criteria = acmgCriteriaView(
+                          analysisState.result.insights?.acmgCriteria,
+                          analysisState.result.ruleBasedInsights?.acmgCriteria
+                        );
+                        const database = criteria.filter(c => c.source === "database_verified");
+                        const inferred = criteria.filter(c => c.source === "ai_suggested");
 
-                        const dbVerified = mergedList.filter(item => item.source === "database_verified");
+                        const group = (
+                          key: "database_verified" | "ai_suggested",
+                          heading: string,
+                          items: typeof criteria,
+                          emptyNote: string
+                        ) => {
+                          const isDatabase = key === "database_verified";
+                          const badgeBg = isDatabase ? "var(--cs-accent-clay)" : "var(--cs-warn)";
+                          const containerBg = isDatabase
+                            ? "color-mix(in srgb, var(--cs-accent-clay) 4%, transparent)"
+                            : "color-mix(in srgb, var(--cs-warn) 4%, transparent)";
+                          const borderColor = isDatabase
+                            ? "color-mix(in srgb, var(--cs-accent-clay) 15%, transparent)"
+                            : "color-mix(in srgb, var(--cs-warn) 25%, transparent)";
 
-                        return (
-                          <div className="space-y-4">
-                            {/* 1. Database Verified Section */}
+                          return (
                             <div className="flex flex-col gap-2 pt-1">
-                              <span className="block text-[10px] font-mono font-bold uppercase tracking-wider mb-1" style={{ color: "var(--cs-text-muted)" }}>
-                                Database-Verified Criteria Codes (Rule Engine)
+                              <span className="flex items-baseline justify-between gap-2 text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: "var(--cs-text-muted)" }}>
+                                <span>{heading}</span>
+                                <span className="tabular-nums">{items.length}</span>
                               </span>
-                              {dbVerified.length > 0 ? (
+                              {items.length > 0 ? (
                                 <div className="space-y-2">
-                                  {dbVerified.map((item, idx) => {
-                                    const containerStyle = "color-mix(in srgb, var(--cs-accent-clay) 4%, transparent)";
-                                    const borderStyle = "color-mix(in srgb, var(--cs-accent-clay) 15%, transparent)";
-                                    const badgeBg = "var(--cs-accent-clay)";
-                                    const textStyle = "var(--cs-text-primary)";
-                                    const sourceBadge = "border border-cs-warn/30";
-                                    const sourceBadgeStyle = { background: "var(--cs-warn-soft)", color: "var(--cs-text-warning-on-soft)" };
-
-                                    return (
-                                      <div 
-                                        key={`db-${idx}`} 
-                                        className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
-                                        style={{ background: containerStyle, borderColor: borderStyle }}
-                                      >
-                                        <div className="flex items-center justify-between flex-wrap gap-2 w-full">
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded text-white shadow-sm shrink-0" style={{ background: badgeBg }}>
-                                              {item.code}
-                                            </span>
-                                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: textStyle }}>
-                                              Suggested Criteria Evidence
-                                            </span>
-                                          </div>
-                                          <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${sourceBadge}`} style={sourceBadgeStyle}>
-                                            Database-Verified
+                                  {items.map(item => (
+                                    <div
+                                      key={`${key}-${item.code}`}
+                                      className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
+                                      style={{ background: containerBg, borderColor }}
+                                    >
+                                      <div className="flex items-center justify-between flex-wrap gap-2 w-full">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded text-white shrink-0" style={{ background: badgeBg }}>
+                                            {item.code}
+                                          </span>
+                                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: "var(--cs-text-primary)" }}>
+                                            Suggested criteria evidence
                                           </span>
                                         </div>
-                                        <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                                          {item.reason}
-                                        </p>
+                                        <span
+                                          className="text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 border"
+                                          style={{
+                                            background: isDatabase ? "var(--cs-good-soft)" : "var(--cs-warn-soft)",
+                                            color: isDatabase ? "var(--cs-text-good-on-soft)" : "var(--cs-text-warning-on-soft)",
+                                            borderColor: isDatabase ? "color-mix(in srgb, var(--cs-good) 30%, transparent)" : "color-mix(in srgb, var(--cs-warn) 30%, transparent)",
+                                          }}
+                                        >
+                                          {ACMG_SOURCE_LABEL[key]}
+                                        </span>
                                       </div>
-                                    );
-                                  })}
+                                      <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
+                                        {item.reason}
+                                      </p>
+                                    </div>
+                                  ))}
                                 </div>
                               ) : (
                                 <span className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
-                                  No database-verified criteria met.
+                                  {emptyNote}
                                 </span>
                               )}
                             </div>
+                          );
+                        };
 
-                            </div>
+                        return (
+                          <div className="space-y-4">
+                            {group(
+                              "database_verified",
+                              "Criteria met, from the rule engine",
+                              database,
+                              "No criteria were computed from retrieved database values."
+                            )}
+                            {group(
+                              "ai_suggested",
+                              "Criteria proposed by the model (not computed)",
+                              inferred,
+                              NO_AI_CRITERIA_NOTE
+                            )}
+                          </div>
                         );
                       })()}
                     </div>
@@ -1026,7 +1212,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                     </div>
                     <div className="pl-5 space-y-3">
                       {analysisState.result.clinvar.uid ? (
-                        <div className="rounded-xl p-4 border transition-all duration-300 shadow-sm"
+                        <div className="rounded-xl p-4 border transition-all duration-300"
                           style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
                           {/* Grid of ClinVar metrics */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs mb-3">

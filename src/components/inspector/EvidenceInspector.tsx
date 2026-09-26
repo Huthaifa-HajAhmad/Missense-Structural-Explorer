@@ -29,6 +29,7 @@ import {
 import { variantNumberingView } from "../../shared/numbering";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
+import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 
 type PopulationFrequencyThresholds = typeof THRESHOLDS.populationFrequency;
@@ -453,14 +454,20 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
               {/* ACMG Rule Evaluation Count */}
               {(() => {
-                const allCriteria = [
-                  ...(analysisResult.insights?.acmgCriteria || []),
-                  ...(analysisResult.ruleBasedInsights?.acmgCriteria || [])
-                ];
-                const validCriteria = allCriteria.filter((c: any) => c && typeof c.code === "string");
-                const uniqueCriteria = Array.from(new Map(validCriteria.map((c: any) => [c.code, c])).values());
-                const pathCount = uniqueCriteria.filter((c: any) => c.category === "pathogenic" || (typeof c.code === "string" && c.code.toUpperCase().startsWith("P"))).length;
-                const benCount = uniqueCriteria.filter((c: any) => c.category === "benign" || (typeof c.code === "string" && c.code.toUpperCase().startsWith("B"))).length;
+                /*
+                 * Read through the shared view, not re-derived. This block concatenated
+                 * `insights.acmgCriteria` with the raw `ruleBasedInsights.acmgCriteria` and deduped
+                 * with a last-wins `Map`, which discarded every source tag — the same shape that made
+                 * the Insights rail label the rule engine's codes "AI Inferred". The counts here only
+                 * read the code prefix, so they were right by luck; the list they came from was not,
+                 * and the next reader of this block would have inherited the bug.
+                 */
+                const uniqueCriteria = acmgCriteriaView(
+                  analysisResult.insights?.acmgCriteria,
+                  analysisResult.ruleBasedInsights?.acmgCriteria
+                );
+                const pathCount = uniqueCriteria.filter(c => c.code.toUpperCase().startsWith("P")).length;
+                const benCount = uniqueCriteria.filter(c => c.code.toUpperCase().startsWith("B")).length;
 
                 return (
                   <div className="pt-2 border-t border-cs-border-subtle space-y-1 rail-row">

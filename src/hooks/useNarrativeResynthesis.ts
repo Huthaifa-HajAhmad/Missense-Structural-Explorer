@@ -85,6 +85,9 @@ export function useNarrativeResynthesis(): NarrativeResynthesis {
             gnomadFrequency: result.gnomadFrequency || null,
             uniprotFeatures: result.uniprotFeatures || null,
             sequence: result.metadata?.sequence || null,
+            // Same reason as `narrativeService`: the route needs the per-source outcomes to tell a
+            // failed ClinVar query from a ClinVar record that holds nothing.
+            serviceStatus: result.serviceStatus ?? result.metadata?.serviceStatus ?? null,
           },
           controller.signal
         );
@@ -133,6 +136,21 @@ export function useNarrativeResynthesis(): NarrativeResynthesis {
                 plausibility: isDegraded
                   ? ""
                   : nextInsights.plausibility || previousInsights.plausibility || "",
+                /*
+                 * Same reason as `plausibility`: the route `delete`s `model` on a degraded response
+                 * instead of sending null, so the wholesale spread above would restore the previous
+                 * pass's model beside `source: "rule_based"` — a payload that names a model that did
+                 * not write this text.
+                 *
+                 * Deliberately NOT `?? previousInsights.model`. The engine has early-return paths that
+                 * produce insights without a `model` at all (`insights: null` from the JSON-parse and
+                 * schema-validation failures), and on those the route never stamps one either — so a
+                 * fallback to the previous pass would name whichever model answered *last* time, which
+                 * the health-based model picker and its cooldowns make a genuinely different model.
+                 * The pipeline path clears it in exactly this case; the two must agree, and "Not
+                 * recorded" is the honest answer when the response does not name its author.
+                 */
+                model: isDegraded ? undefined : nextInsights.model,
               }
             : result.insights,
         };

@@ -22,7 +22,13 @@ export function MetricExplanationModal({
       <div 
         className="w-full max-w-md rounded-2xl border shadow-2xl p-6 relative flex flex-col gap-4 animate-slide-in"
         style={{ 
-          background: isDark ? "#1C1A17" : "#FAF9F6", 
+          /*
+           * The token, not a hand-copied pair. This read `isDark ? "#1C1A17" : "#FAF9F6"`, and
+           * `#1C1A17` was never a token at all (dark `--cs-surface-2` is `#201E1B`) while `#FAF9F6` was
+           * the light value the neutral ramp replaced — so the modal's card was a different surface
+           * from every other nested panel, in both themes, and no print rule could flatten the pair.
+           */
+          background: "var(--cs-surface-2)", 
           borderColor: "var(--cs-border)",
           color: "var(--cs-text-primary)"
         }}

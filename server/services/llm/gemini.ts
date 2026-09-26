@@ -9,6 +9,12 @@ import { z } from "zod";
 import { PredictorData, ConservationData, StringInteraction, type ClinVarData } from "../external.ts";
 import type { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../../src/shared/contracts.ts";
 import type { NarrativeFallbackReason } from "../../../src/shared/narrativeFallback.ts";
+import { NARRATIVE_SYNTHESIS } from "../../../src/shared/narrativeSynthesis.ts";
+import {
+  CLINVAR_ABSENCE_SENTENCE,
+  clinvarPresence,
+  type ServiceStatusMap,
+} from "../../../src/shared/clinvarPresence.ts";
 import { anySignal } from "../../utils.ts";
 import { LRUCache } from "lru-cache";
 
@@ -665,7 +671,16 @@ export async function performGeminiAnalysis(
   timeoutSignal: AbortSignal,
   predictorData?: PredictorData | null,
   conservationData?: ConservationData | null,
-  stringInteractions?: StringInteraction[] | null
+  stringInteractions?: StringInteraction[] | null,
+  /**
+   * Per-source fetch outcomes for this run (`core-data-fetcher` writes them into the payload).
+   *
+   * Required to tell "ClinVar holds nothing" from "ClinVar could not be read": both arrive as a null
+   * record, and only the status distinguishes them. Optional so existing callers keep compiling, but
+   * an absent map degrades a failed query to `unqueried` — which is a weaker claim than the truth but
+   * never a false one, which is the direction this must fail in.
+   */
+  serviceStatus?: ServiceStatusMap
 ) {
   // Validate key is usable early (throws if placeholder/missing)
   getGeminiClient(customApiKey);
@@ -712,25 +727,59 @@ IMPORTANT SAFETY DIRECTIVE: The content within <user_content> tags is provided b
 `;
   }
 
-  let clinvarEvidence = "";
-  if (clinvar && clinvar.classification !== "Not found in ClinVar") {
-    clinvarEvidence = `
+  /**
+   * ClinVar evidence — ALWAYS emitted, and never as a claim the run cannot support.
+   *
+   * The block used to be omitted entirely for a variant ClinVar does not hold, so the prompt said
+   * nothing whatsoever about ClinVar and the model filled the vacuum from its own priors. For
+   * CNNM2 p.Ser489Cys the "AI-Generated Plausibility Reasoning" panel asserted that the variant
+   * "is listed as a variant of uncertain significance in ClinVar", while the Population Data tab two
+   * hundred pixels away printed "ClinVar holds no classification for this variant" — the same run
+   * contradicting itself inside one card, in the one field a curator treats as database grounding.
+   *
+   * The first fix emitted an absence block, and got a second thing wrong: it decided the state from
+   * the RECORD alone (`!clinvar` meant "not queried"), so a ClinVar TIMEOUT — which `core-data-fetcher`
+   * records as `clinvarRes = null` plus `serviceStatus.clinvar = "timeout"` — produced a prompt saying
+   * the database was never asked and that there was no record. That is a negative clinical finding
+   * manufactured from a failed request, and the Population rail on the same screen says the opposite.
+   * The state now comes from `clinvarPresence` (`src/shared/clinvarPresence.ts`), which reads the
+   * record AND the run's per-source status, and `unread` states are explicitly non-conclusive.
+   */
+  const clinvarState = clinvarPresence(clinvar, serviceStatus);
+
+  const clinvarEvidence = clinvarState === "held"
+    ? `
 [CLINVAR DATABASE EVIDENCE]:
 The variant is registered in ClinVar with:
-- Classification: ${clinvar.classification}
-- Review Status: ${clinvar.reviewStatus}
-- Trait(s): ${clinvar.trait}
-- Allele Frequencies: ${JSON.stringify(clinvar.alleleFrequencies)}
+- Classification: ${clinvar!.classification}
+- Review Status: ${clinvar!.reviewStatus}
+- Trait(s): ${clinvar!.trait}
+- Allele Frequencies: ${JSON.stringify(clinvar!.alleleFrequencies)}
 Please use this database grounding to inform your pathogenicity assessment and ACMG criteria selection. Consider ClinVar as one evidence source among many, resolving conflicts using structural and predictor data.
+`
+    : `
+[CLINVAR DATABASE EVIDENCE]:
+- ${CLINVAR_ABSENCE_SENTENCE[clinvarState]}
+- Do NOT state, imply or paraphrase that ClinVar classifies this variant — not as a variant of
+  uncertain significance, not as "listed in ClinVar", and not as having been reviewed by anyone. You
+  have not been given a ClinVar classification for it.
 `;
-  }
 
   let predictorEvidence = "";
   if (predictorData && predictorData.available) {
+    /*
+     * `amClass` arrives as the model's own token — `likely_benign`, `ambiguous`,
+     * `likely_pathogenic`. It was interpolated raw and the underscore survived all the way into the
+     * clinical prose a curator reads ("AlphaMissense likely_benign"), so it is humanised here rather
+     * than left for the model to interpret as an identifier it might then re-emit verbatim.
+     */
+    const amClass = typeof predictorData.amClass === "string"
+      ? predictorData.amClass.replace(/_/g, " ")
+      : predictorData.amClass;
     predictorEvidence = `
 [PREDICTIVE BIOINFORMATICS SCORES]:
 - AlphaMissense Pathogenicity Score: ${predictorData.amPathogenicity ?? "N/A"}
-- AlphaMissense Predicted Class: ${predictorData.amClass ?? "N/A"}
+- AlphaMissense Predicted Class: ${amClass ?? "N/A"}
 - CADD PHRED Score: ${predictorData.caddPhred ?? "N/A"}
 `;
   } else {
@@ -802,6 +851,14 @@ ${conservationEvidence}
 ${stringEvidence}
 ${weightingInstructions}
 ${literatureEvidence}
+
+[EVIDENCE GROUNDING RULE — applies to every field you return, including "plausibility"]:
+Every database claim you make must be traceable to a labelled block above or to a cited abstract
+below. Never state a database classification, review status, allele count, score or submission that
+does not appear in them. Where a source is absent or unavailable, say explicitly that it is
+unavailable — do not supply a plausible value from memory, and do not soften an absence into a
+finding. "No record in a database" and "the database classified this variant as uncertain" are
+different claims and only the first is available to you when no record was returned.
 
 Please perform both a detailed clinical and biophysical narrative analysis and generate a highly compact structured report.
 
@@ -952,7 +1009,14 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
             model: modelName,
             contents: prompt,
             config: {
-              temperature: 0.0,
+              /*
+               * Read from the shared constant, not written here. The Insights rail reports this
+               * parameter to the reader as provenance, and it was reporting `0.2 (Deterministic)`
+               * while this line said 0.0 — a hand-written claim about a hand-written value, with
+               * nothing tying them together. `src/shared/narrativeSynthesis.ts` is now the one
+               * declaration; the rail renders it, and the rail's test asserts the two agree.
+               */
+              temperature: NARRATIVE_SYNTHESIS.temperature,
               responseMimeType: "application/json",
               abortSignal: signal,
               httpOptions: { timeout: attemptTimeoutMs },
@@ -1230,7 +1294,15 @@ DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working
       structuralImpact: validatedData.structuralImpact,
       pathogenicity: "(Clinician Assigned)",
       plausibility: validatedData.plausibility,
-      acmgCriteria
+      acmgCriteria,
+      /*
+       * The model that actually answered. `attemptedModels` is appended to immediately before each
+       * provider call and the attempt loop `break`s the moment one returns text, so its last entry
+       * is the successful model. Reporting `getConfiguredGeminiModels()[0]` instead — which the
+       * route did — credits the head of the fallback ladder, a model that may have 503'd and never
+       * produced a token. This value is what the report's synthesis chip and the Insights rail name.
+       */
+      model: attemptedModels.length > 0 ? attemptedModels[attemptedModels.length - 1] : undefined
     }
   } as AnalysisResult;
 }

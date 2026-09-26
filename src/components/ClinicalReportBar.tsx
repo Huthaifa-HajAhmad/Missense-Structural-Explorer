@@ -12,6 +12,7 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import type { ReportSectionKey } from "../stores/slices/uiSlice";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
 import { variantNumberingView } from "../shared/numbering";
+import { acmgCriteriaView } from "../shared/acmgCriteriaView";
 import {
   AcmgEvidenceList,
   EvidenceInventory,
@@ -132,13 +133,22 @@ function ClinicalReportBar({
   const narrative     = result?.analysis ?? "";
   const isFallback    = isFallbackNarrative(narrative, result?.isFallback, result?.fallbackReason);
 
-  // ACMG criteria carry their reasons and provenance
-  const acmgCriteria = useMemo(() => {
-    const items = result?.insights?.acmgCriteria?.length
-      ? result.insights.acmgCriteria
-      : result?.ruleBasedInsights?.acmgCriteria ?? [];
-    return items as Array<{ code: string; reason?: string; source?: string }>;
-  }, [result]);
+  /**
+   * ACMG criteria carry their reasons and provenance.
+   *
+   * Through the shared view, not re-derived here. This memo and the one in `ReportInspector` were the
+   * last two of five criteria render sites still building their own list: they preferred
+   * `insights.acmgCriteria` but fell back to the RAW `ruleBasedInsights.acmgCriteria`, which carries
+   * no `source`. In the normal pre-narrative state (`insights` is null until the narrative stage runs)
+   * that produced one viewport in which the rails — now migrated — labelled every rule-engine code
+   * DATABASE-VERIFIED while `ReportBlocks` rendered this list with no label at all, and in which the
+   * two "Copy Report" buttons emitted different documents for the same run. Single-sourcing the merge
+   * is what makes "one fact, one label" true by construction rather than by review.
+   */
+  const acmgCriteria = useMemo(
+    () => acmgCriteriaView(result?.insights?.acmgCriteria, result?.ruleBasedInsights?.acmgCriteria),
+    [result]
+  );
 
   // `ruleBasedInsights.acmgVerdict` is the deterministic verdict; prefer it for the headline.
   const ruleVerdict = result?.ruleBasedInsights?.acmgVerdict;
@@ -294,9 +304,16 @@ function ClinicalReportBar({
       </div>
 
       {/* Sticky Table of Contents (TOC) Toolbar */}
+      {/*
+        * The sticky table of contents is separated from the prose it floats over by the
+        * translucent fill, the hairline border and `backdrop-blur-md` — not by a shadow. The
+        * `shadow-sm` that used to sit here was the only shadow in the whole report body, so the
+        * TOC read as a different kind of object from the sections it indexes. See the elevation
+        * note in `ClinicalInsightsCard.tsx` and the neutral-ramp note in `styles/variables.css`.
+        */}
       <nav
         aria-label="Report Table of Contents"
-        className="report-screen-only sticky top-0 z-10 flex items-center justify-between gap-3 px-3 py-2 rounded-xl border backdrop-blur-md shadow-sm"
+        className="report-screen-only sticky top-0 z-10 flex items-center justify-between gap-3 px-3 py-2 rounded-xl border backdrop-blur-md"
         style={{
           background: "color-mix(in srgb, var(--cs-surface) 92%, transparent)",
           borderColor: "var(--cs-border-subtle)",

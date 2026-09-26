@@ -39,6 +39,8 @@ import {
   type NarrativeFallbackReason,
   describeFallbackReason,
 } from "../../../src/shared/narrativeFallback.ts";
+import { NARRATIVE_PROMPT_SCHEMA_VERSION } from "../../../src/shared/narrativeSynthesis.ts";
+import { CLINVAR_ABSENCE_SENTENCE, clinvarPresence } from "../../../src/shared/clinvarPresence.ts";
 import {
   getFromCache,
   writeToCache,
@@ -167,7 +169,15 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
       const model = getConfiguredGeminiModels()[0];
       const evidenceHash = crypto.createHash("sha256").update(JSON.stringify(evidencePayload)).digest("hex");
-      const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}_${evidenceHash}_key:${keyHash}_model:${model}_schema:v2`;
+      /*
+       * The `_schema:` segment is the prompt version, read from the shared constant rather than
+       * written here. It is the ONLY part of this key that changes when the prompt changes; every
+       * other segment is a pure function of the request, so without a version bump a re-run of the
+       * same variant with the same evidence hits the same key and is served a narrative the previous
+       * prompt wrote — for the cache's full 24h TTL. See `NARRATIVE_PROMPT_SCHEMA_VERSION` for why
+       * that mattered here specifically.
+       */
+      const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}_${evidenceHash}_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`;
       const cached = getFromCache(cacheKey);
 
       if (cached) {
@@ -213,7 +223,14 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           combinedSignal,
           predictorData,
           conservationData,
-          stringInteractions
+          stringInteractions,
+          /*
+           * The run's per-source outcomes, so the prompt can tell "ClinVar holds nothing" from "ClinVar
+           * could not be read". Both arrive as a null record; only this distinguishes them. Without it
+           * a timed-out query was described to the model as "ClinVar was not queried for this run" —
+           * a false statement about the run, contradicted by the Population rail on the same screen.
+           */
+          serviceStatus ?? null
         );
         writeToCache(cacheKey, analysisResult);
       } catch (err: any) {
@@ -266,9 +283,25 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           sequence
         });
 
-        const clinvarText = clinvar
-          ? `Listed as **${clinvar.classification || "Unclassified"}** (Review status: *${clinvar.reviewStatus || "unknown"}*).`
-          : "Not listed in ClinVar (rare or novel variant).";
+        /**
+         * The ClinVar sentence, from the shared presence predicate.
+         *
+         * This was two branches over a three-state input: `clinvar ? "Listed as …" : "Not listed in
+         * ClinVar (rare or novel variant)."`. `clinvar` is null both when ClinVar was never queried and
+         * when the query timed out, so an OUTAGE printed "Not listed in ClinVar (rare or novel
+         * variant)" — a negative clinical finding and a novelty claim, manufactured from a failed
+         * request — while the frequency sentence three lines below was carefully refusing to do exactly
+         * that (see its comment). The sentinel branch had its own version: a record whose
+         * `classification` is `"Not found in ClinVar"` printed "Listed as **Not found in ClinVar**",
+         * which reads as a classification.
+         *
+         * `serviceStatus` is in scope here; `clinvarPresence` reads it and the record together, so this
+         * is now the same state the prompt, the Population rail and report inventory are given.
+         */
+        const clinvarState = clinvarPresence(clinvar, serviceStatus ?? null);
+        const clinvarText = clinvarState === "held"
+          ? `Listed as **${clinvar?.classification || "Unclassified"}** (Review status: *${clinvar?.reviewStatus || "unknown"}*).`
+          : CLINVAR_ABSENCE_SENTENCE[clinvarState];
 
         /**
          * The frequency sentence, from the same module the Population Frequencies screen renders.

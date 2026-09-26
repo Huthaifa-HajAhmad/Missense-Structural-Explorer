@@ -881,7 +881,14 @@ export function FunctionTab({
                             width={w}
                             height={TRACK.bandHeight}
                             rx="6"
-                            className="fill-[#FAF9F6] dark:fill-[#1C1A17]"
+                            /*
+                             * The surface token, not a literal. This was `fill-[#FAF9F6]
+                             * dark:fill-[#1C1A17]` — a hand-copied pair that was correct only while the
+                             * token happened to hold the same hex, so re-deriving the neutral ramp left
+                             * this band 3.3 lightness points off every other nested panel. `dark:fill-`
+                             * also cannot be flattened by the print pass, which reaches tokens only.
+                             */
+                            className="fill-[var(--cs-surface-2)]"
                           />
                           {/*
                             2. Domain band. Every block carries the SAME stroke in every state: the

@@ -10,6 +10,7 @@ import type { ReportSectionKey } from "../../stores/slices/uiSlice";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { generateProvenanceManifest } from "../../shared/provenance";
 import { variantNumberingView } from "../../shared/numbering";
+import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import {
   buildEvidenceInventory,
   computeReportFingerprint,
@@ -127,12 +128,19 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
     [variant, uniprotId, analysisResult]
   );
 
-  const acmgCriteria = useMemo(() => {
-    const items = analysisResult?.insights?.acmgCriteria?.length
-      ? analysisResult.insights.acmgCriteria
-      : analysisResult?.ruleBasedInsights?.acmgCriteria ?? [];
-    return items as Array<{ code: string; reason?: string; source?: string }>;
-  }, [analysisResult]);
+  /**
+   * Through the shared view — see the note on the same memo in `ClinicalReportBar`. This list also
+   * feeds `handleCopyReport` below, so leaving it untagged made the report rail's "Copy Report
+   * (EHR / Text)" emit a different document from the Insights view's button of the same name.
+   */
+  const acmgCriteria = useMemo(
+    () =>
+      acmgCriteriaView(
+        analysisResult?.insights?.acmgCriteria,
+        analysisResult?.ruleBasedInsights?.acmgCriteria
+      ),
+    [analysisResult]
+  );
 
   const ruleVerdict = analysisResult?.ruleBasedInsights?.acmgVerdict;
   const headlineVerdict = ruleVerdict || analysisResult?.insights?.acmgVerdict || analysisResult?.clinvar?.classification || "";
@@ -296,7 +304,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
                 type="button"
                 onClick={handleSynthesize}
                 disabled={isNarrativeBusy}
-                className="report-press flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-white font-semibold text-[11px] cursor-pointer shadow-sm hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
+                className="report-press flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-white font-semibold text-[11px] cursor-pointer hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
                 style={{ background: "var(--cs-accent-clay)" }}
               >
                 {isNarrativeBusy ? (

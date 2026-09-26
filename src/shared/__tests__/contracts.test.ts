@@ -148,6 +148,61 @@ describe("Shared Zod API Contracts", () => {
     expect(parsed.insights?.biochemicalShift).toBe("Charge swap: Positive (Arg) to Neutral (Trp)");
   });
 
+  /**
+   * The inference provenance the report's "AI synthesis · <model>" chip and the Insights rail both read.
+   *
+   * Declared `.optional()` and otherwise unasserted, which is the shape this file's own `metadata` note
+   * warns about: a shape nothing round-trips is a shape that can be deleted again without a failure.
+   * The narrative route happens to validate its response with `insights: z.any()` in
+   * `src/api/clinicalApi.ts`, so nothing strips these in production today — the test exists so the
+   * declaration stays true and so a future move to schema validation cannot silently drop them.
+   */
+  it("round-trips the narrative's model and source through analyzeVariantResponseSchema", () => {
+    // `metadata` is required by this schema, so the payload has to be a realistic one.
+    const metadata = {
+      gene: "CNNM2",
+      variant: "p.Ser489Cys",
+      uniprotId: "Q9H4Z3",
+      residueIndex: 489,
+      wildType: "S",
+      mutant: "C"
+    };
+
+    const payload = {
+      analysis: "Test narrative",
+      metadata,
+      insights: {
+        biochemicalShift: "shift",
+        structuralImpact: "impact",
+        acmgCriteria: [],
+        model: "gemini-3.7-flash",
+        source: "ai_inference" as const
+      }
+    };
+
+    const parsed = analyzeVariantResponseSchema.parse(payload);
+    expect(parsed.insights?.model).toBe("gemini-3.7-flash");
+    expect(parsed.insights?.source).toBe("ai_inference");
+
+    // A degraded run names no model, and the enum is closed — an invented source must be rejected
+    // rather than travelling as a provenance claim.
+    const degraded = analyzeVariantResponseSchema.parse({
+      analysis: "Rule-based report",
+      metadata,
+      insights: { biochemicalShift: "s", structuralImpact: "i", acmgCriteria: [], source: "rule_based" }
+    });
+    expect(degraded.insights?.model).toBeUndefined();
+    expect(degraded.insights?.source).toBe("rule_based");
+
+    expect(() =>
+      analyzeVariantResponseSchema.parse({
+        analysis: "x",
+        metadata,
+        insights: { biochemicalShift: "s", structuralImpact: "i", acmgCriteria: [], source: "invented" }
+      })
+    ).toThrow();
+  });
+
   it("should normalize flat biophysical response into insights object", () => {
     const flatPayload = {
       biochemicalShift: "Polar to Nonpolar",

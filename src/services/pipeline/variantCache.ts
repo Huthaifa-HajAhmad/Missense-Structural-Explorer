@@ -35,8 +35,17 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * badge beside a "30.0% · BOUNDARY" measure for up to 24 h. The panel now detects that
  * contradiction and says so, but the honest bundle is the one that was never written under the
  * old definition (external review §cache).
+ *
+ * v4.0: discards bundles carrying a narrative written by the previous prompt. That prompt omitted
+ * ClinVar entirely for a variant ClinVar does not hold, so the model supplied a classification from
+ * its own priors — for CNNM2 p.Ser489Cys the plausibility paragraph asserted a ClinVar VUS while the
+ * Population panel printed "ClinVar holds no classification for this variant". The prompt and its
+ * cache key were both fixed (`NARRATIVE_PROMPT_SCHEMA_VERSION`), but THIS cache is the one that
+ * short-circuits the server, so a variant viewed before the change would have replayed the invented
+ * classification for up to a day without the fixed prompt ever running. The server-side bump cannot
+ * reach here: this is sessionStorage on the client, and `workflowOrchestrator` replays it verbatim.
  */
-export const CACHE_VERSION = "v3.9";
+export const CACHE_VERSION = "v4.0";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

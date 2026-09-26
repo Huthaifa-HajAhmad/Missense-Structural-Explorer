@@ -194,5 +194,70 @@ describe("Architectural Boundary Rules & Layer Isolation", () => {
 
       expect(violations).toHaveLength(0);
     });
+
+    /**
+     * Rule 5 (store → component) has two halves and both need a case, for the reason the scripts/ rule
+     * above records: it was added to close a gap the previous four rules could not see, so the gap must
+     * be shown to be closed rather than asserted to be.
+     */
+    it("detects a store importing a component that is not a pure module (rule 5's positive self-test)", () => {
+      const mockFiles = new Map<string, string>();
+      mockFiles.set(
+        path.join(rootDir, "src", "stores", "slices", "rogue.ts"),
+        'import { ReportSection } from "../../components/report/ReportBlocks.tsx";'
+      );
+
+      const violations = checkBoundaries(rootDir, mockFiles);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe("STORES_CANNOT_IMPORT_COMPONENTS");
+      expect(violations[0].importPath).toBe("../../components/report/ReportBlocks.tsx");
+    });
+
+    it("allows a store to import an allowlisted pure component module", () => {
+      // The real edge in this change: `searchSlice` calls the report builder so both "Copy Report"
+      // buttons emit one document. Legal, and it must stay legal or the duplication comes back.
+      const mockFiles = new Map<string, string>();
+      mockFiles.set(
+        path.join(rootDir, "src", "stores", "slices", "searchSlice.ts"),
+        'import { generateStructuredEhrReport } from "../../components/report/reportStatus";'
+      );
+      mockFiles.set(
+        path.join(rootDir, "src", "components", "report", "reportStatus.ts"),
+        'import { buildFrequencyEvidence } from "../../shared/frequencyEvidence";'
+      );
+
+      const violations = checkBoundaries(rootDir, mockFiles);
+
+      expect(violations).toHaveLength(0);
+    });
+
+    it("voids that exemption as soon as the allowlisted module stops being pure (rule 5's second half)", () => {
+      /**
+       * The exemption is conditional on the module importing no React and no sibling component. If it
+       * acquires one, the condition that justified the exemption is gone — so the exemption is reported
+       * rather than silently honoured. Without this, "it is pure today" would be an unchecked promise
+       * and the check would keep reporting 0 violations while component code entered the store graph.
+       */
+      const mockFiles = new Map<string, string>();
+      mockFiles.set(
+        path.join(rootDir, "src", "stores", "slices", "searchSlice.ts"),
+        'import { generateStructuredEhrReport } from "../../components/report/reportStatus";'
+      );
+      mockFiles.set(
+        path.join(rootDir, "src", "components", "report", "reportStatus.ts"),
+        [
+          ["import", ' React from "react";'].join(""),
+          'import { ReportSection } from "./ReportBlocks";'
+        ].join("\n")
+      );
+
+      const violations = checkBoundaries(rootDir, mockFiles);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].rule).toBe("STORES_CANNOT_IMPORT_COMPONENTS");
+      // The message must name the offending dependency, so the fix is obvious.
+      expect(violations[0].message).toContain("react");
+    });
   });
 });

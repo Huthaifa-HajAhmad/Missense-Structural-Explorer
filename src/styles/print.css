@@ -75,13 +75,23 @@
     background-color: #FFFFFF !important;
     color: #111827 !important;
 
-    /* Flatten dark palette tokens to crisp medical document values */
-    --cs-bg: #FFFFFF !important;
-    --cs-bg-subtle: #F9FAFB !important;
+    /*
+     * Flatten the palette to crisp medical document values.
+     *
+     * A ramp again, and for the same reason as the on-screen one (`variables.css`): the printed report
+     * is border-driven, so a divider that matches the fill it borders erases the panel. Two pairs were
+     * broken — `--cs-border-subtle` and `--cs-surface-2` were the IDENTICAL hex `#F3F4F6` (a 0.00-point
+     * step, 1.00:1), so every `background: var(--cs-surface-2); border: 1px solid
+     * var(--cs-border-subtle)` panel in the report lost its outline on paper; and `--cs-bg-subtle`
+     * sat ABOVE `--cs-surface-2`, inverting the ramp. Every adjacent step below now clears 2.5 points,
+     * which `src/styles/__tests__/surfaceRamp.test.ts` also asserts for this block.
+     */
+    --cs-bg: #F7F8FA !important;
+    --cs-bg-subtle: #E7EAEE !important;
     --cs-surface: #FFFFFF !important;
-    --cs-surface-2: #F3F4F6 !important;
-    --cs-border: #E5E7EB !important;
-    --cs-border-subtle: #F3F4F6 !important;
+    --cs-surface-2: #EFF1F4 !important;
+    --cs-border: #C8CDD6 !important;
+    --cs-border-subtle: #DBDFE5 !important;
     --cs-text-primary: #111827 !important;
     --cs-text-secondary: #374151 !important;
     --cs-text-muted: #6B7280 !important;

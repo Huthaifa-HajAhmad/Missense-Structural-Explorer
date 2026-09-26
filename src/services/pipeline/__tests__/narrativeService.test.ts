@@ -15,7 +15,16 @@ describe("narrativeService", () => {
           biochemicalShift: "Positive to hydrophobic",
           structuralImpact: "Steric clash in core",
           acmgCriteria: [{ code: "PS3", category: "pathogenic" }],
-          acmgVerdict: "Likely Pathogenic"
+          acmgVerdict: "Likely Pathogenic",
+          /*
+           * The two inference-provenance fields. This reducer names every field it keeps, so anything
+           * not named was dropped — and `model`/`source` were both, which made the report's
+           * "AI synthesis · <model>" chip fall back to its generic label on this path while the retry
+           * path (`useNarrativeResynthesis`, a wholesale spread) kept them. Same synthesis, two
+           * renderings, decided by which control the user pressed.
+           */
+          model: "gemini-3.7-flash",
+          source: "ai_inference"
         }
       })
     };
@@ -73,7 +82,57 @@ describe("narrativeService", () => {
     expect(setIsNarrativeLoading).toHaveBeenLastCalledWith(false);
     expect(state.result.analysis).toBe("Detailed clinical narrative explaining Arg408Trp disruption.");
     expect(state.result.insights.acmgVerdict).toBe("Likely Pathogenic");
+    // The inference provenance survives the merge, so the report chip can name the model that
+    // answered. Before the spread this reducer kept eight named fields and dropped these two.
+    expect(state.result.insights.model).toBe("gemini-3.7-flash");
+    expect(state.result.insights.source).toBe("ai_inference");
     expect(finishTraceRun).toHaveBeenCalledWith("t-nar", "completed");
+  });
+
+  it("clears the previous model when a re-synthesis degrades, rather than naming the old one", async () => {
+    /*
+     * The route `delete`s `model` on a degraded response instead of sending null, so a merge that
+     * starts from the previous insights would restore the PREVIOUS pass's model beside
+     * `source: "rule_based"` — a payload naming a model that did not write this text.
+     */
+    const mockApiClient = {
+      getNarrative: vi.fn().mockResolvedValue({
+        analysis: "### Clinical Narrative Unavailable\n\nRule-based evidence only.",
+        isFallback: true,
+        fallbackReason: "PROVIDER_OVERLOADED",
+        insights: { biochemicalShift: "Not synthesized", structuralImpact: "Not synthesized", acmgCriteria: [], source: "rule_based" }
+      })
+    };
+
+    let state: any = {
+      result: {
+        analysis: "An earlier AI narrative.",
+        insights: { biochemicalShift: "s", structuralImpact: "i", acmgCriteria: [], model: "gemini-3.7-flash", source: "ai_inference" }
+      }
+    };
+    const setAnalysisState = vi.fn((updater) => {
+      state = typeof updater === "function" ? updater(state) : updater;
+    });
+
+    await generateClinicalNarrative(
+      { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", settings: { acmgWeighting: {} }, bpResult: {} },
+      mockApiClient,
+      { addToHistory: vi.fn(), setSelectedResidueIndex: vi.fn() },
+      {
+        setAnalysisState,
+        setLoadingStep: vi.fn(),
+        setIsBiophysicalLoading: vi.fn(),
+        setIsStructuralLoading: vi.fn(),
+        setIsClinicalLoading: vi.fn(),
+        setIsNarrativeLoading: vi.fn()
+      },
+      new AbortController().signal,
+      1,
+      () => 1
+    );
+
+    expect(state.result.insights.source).toBe("rule_based");
+    expect(state.result.insights.model, "the old model must not be inherited").toBeUndefined();
   });
 
   it("degrades to a clean clinical summary without leaking the transport error into prose", async () => {

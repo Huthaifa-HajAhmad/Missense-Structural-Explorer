@@ -17,9 +17,33 @@ export interface BoundaryViolation {
   file: string;
   line: number;
   importPath: string;
-  rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT" | "CLIENT_CANNOT_IMPORT_SERVER" | "SHARED_CANNOT_IMPORT_OUTSIDE" | "SERVER_CANNOT_IMPORT_SCRIPTS";
+  rule: "SERVER_CANNOT_IMPORT_NON_SHARED_CLIENT" | "CLIENT_CANNOT_IMPORT_SERVER" | "SHARED_CANNOT_IMPORT_OUTSIDE" | "SERVER_CANNOT_IMPORT_SCRIPTS" | "STORES_CANNOT_IMPORT_COMPONENTS";
   message: string;
 }
+
+/**
+ * Component modules the store is allowed to import, because they are pure.
+ *
+ * WHY THIS LIST EXISTS
+ * --------------------
+ * Rule 5 forbids `src/stores/**` from reaching into `src/components/**`. That direction was previously
+ * unchecked — the four rules above model server/client/shared and say nothing about store→component —
+ * so `searchSlice` importing `components/report/reportStatus` was invisible to this checker. It is
+ * benign today (the reviewer who found this proved `reportStatus.ts` is React-free and closes no
+ * cycle), but "benign today and unguarded" is how component code ends up in the store's module graph
+ * the next time someone adds an import to that file.
+ *
+ * The exception is not a waiver. Each entry is validated at check time: the module must import no
+ * `react` and no other `src/components` file. If it stops being pure, the exception is reported as a
+ * violation rather than silently honoured — so the list cannot outlive the property that justified it.
+ *
+ * The alternative fix — relocating the module into `src/shared/` — is the better end state and is
+ * recorded as O3/O11 in `doc/INSPECTOR_UI_UX_AUDIT.md`; moving it would touch five import sites and a
+ * shared test, which is why the guard is here first.
+ */
+const PURE_COMPONENT_MODULES_ALLOWED_TO_STORES = new Set([
+  "src/components/report/reportStatus.ts",
+]);
 
 const IGNORED_DIRS = new Set(["node_modules", "dist", "scratch", "temp_jobs", ".git", ".gemini"]);
 
@@ -113,6 +137,9 @@ export function checkBoundaries(rootDir: string = REPO_ROOT, customFiles?: Map<s
   const sharedDir = path.resolve(rootDir, "src", "shared");
   const rootServerFile = path.resolve(rootDir, "server.ts");
   const scriptsDir = path.resolve(rootDir, "scripts");
+  /** Rule 5's two directories. Declared here, NOT inline in the loop — see the note on rule 5. */
+  const storesDir = path.resolve(rootDir, "src", "stores");
+  const componentsDir = path.resolve(rootDir, "src", "components");
   /** A TEST file: not in the server bundle, so its imports are not a runtime dependency. */
   const isTestFile = (p: string) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) || /[\\/](__tests__|tests?)[\\/]/.test(p);
 
@@ -207,6 +234,61 @@ export function checkBoundaries(rootDir: string = REPO_ROOT, customFiles?: Map<s
           rule: "SHARED_CANNOT_IMPORT_OUTSIDE",
           message: `Shared module imports outside src/shared: "${specifier}". Shared modules must be pure and self-contained.`
         });
+      }
+
+      /**
+       * Rule 5: the store may not reach into the component tree, except through a module this file
+       * has verified is React-free. See `PURE_COMPONENT_MODULES_ALLOWED_TO_STORES`.
+       *
+       * Only the FIRST direction is new: a component importing the store is normal and stays legal.
+       */
+      if (isInsideDir(filePath, storesDir) && isInsideDir(resolved, componentsDir)) {
+        /*
+         * `resolveImportTarget` resolves a specifier to a path WITHOUT its extension, because imports in
+         * this repo may be written either way (`"../../components/report/reportStatus"` and
+         * `".../reportStatus.ts"` both occur). The allowlist names real files, so try the extensions
+         * this repo uses before deciding the module is not exempt.
+         */
+        const candidates = [resolved, `${resolved}.ts`, `${resolved}.tsx`];
+        const exemptIndex = candidates.findIndex(candidate =>
+          PURE_COMPONENT_MODULES_ALLOWED_TO_STORES.has(path.relative(rootDir, candidate).replace(/\\/g, "/")),
+        );
+        const exempt = exemptIndex !== -1;
+        const relativeTarget = path.relative(rootDir, candidates[exemptIndex === -1 ? 0 : exemptIndex]).replace(/\\/g, "/");
+        const relativeFrom = path.relative(rootDir, filePath).replace(/\\/g, "/");
+
+        if (!exempt) {
+          violations.push({
+            file: relativeFrom,
+            line,
+            importPath: specifier,
+            rule: "STORES_CANNOT_IMPORT_COMPONENTS",
+            message: `Store module imports from src/components: "${specifier}". Move the shared logic into src/shared/ (or add the module to PURE_COMPONENT_MODULES_ALLOWED_TO_STORES only if it is genuinely React-free).`
+          });
+        } else {
+          /*
+           * The exception is validated, not trusted. A module that has acquired a `react` or
+           * `src/components` import of its own no longer satisfies the condition it was exempted
+           * under, so the exemption is reported as a violation instead of being honoured.
+           */
+          const targetPath = candidates[exemptIndex];
+          const targetContent = customFiles?.get(targetPath) ?? (fs.existsSync(targetPath) ? fs.readFileSync(targetPath, "utf-8") : "");
+          const impure = extractModuleSpecifiers(targetPath, targetContent).find(({ specifier: dep }) => {
+            if (dep === "react" || dep.startsWith("react/") || dep.startsWith("react-dom")) return true;
+            const depResolved = resolveImportTarget(dep, targetPath, rootDir);
+            return depResolved ? isInsideDir(depResolved, componentsDir) : false;
+          });
+
+          if (impure) {
+            violations.push({
+              file: relativeFrom,
+              line,
+              importPath: specifier,
+              rule: "STORES_CANNOT_IMPORT_COMPONENTS",
+              message: `"${relativeTarget}" is exempted from rule 5 as a pure module, but it now imports "${impure.specifier}". The exemption is void: either make it pure again or move the shared logic into src/shared/.`
+            });
+          }
+        }
       }
     }
   }

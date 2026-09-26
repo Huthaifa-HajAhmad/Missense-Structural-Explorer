@@ -33,8 +33,12 @@ export interface FeatureKind {
   noun: string;
   /**
    * Light-mode colour, used for the SVG pin and for the legend swatch. Every value clears the 3:1
-   * non-text bar against the track surface (#FAF9F6) — measured, not assumed, by the geometry
-   * harness, which reports the ratios.
+   * non-text bar against the track surface, which is `--cs-surface-2` — measured, not assumed, by the
+   * geometry harness, which reports the ratios.
+   *
+   * This note used to name the literal `#FAF9F6`, the value `--cs-surface-2` carried before the neutral
+   * ramp was re-derived. The harness measures against whatever the token resolves to, so its ratios
+   * cannot go stale — but this sentence could, and did.
    */
   color: string;
   /** Active / inactive filter-chip classes, kept beside the colour they express. */

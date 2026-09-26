@@ -21,7 +21,7 @@ import {
 import { type RuleBasedInsights, type ACMGItem } from "../services/acmg.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../src/shared/aminoAcids.ts";
 import { AuditLogger } from "../utils.ts";
-import { GeminiError, getConfiguredGeminiModels } from "../services/gemini.ts";
+import { GeminiError } from "../services/gemini.ts";
 import { narrativeCache } from "../services/cache.ts";
 
 // ---------------------------------------------------------------------------
@@ -155,8 +155,21 @@ export function handleNarrativeResponse(
   sequence?: string | null
 ) {
   if (analysisResult.insights) {
-    (analysisResult.insights as any).source = "ai_inference";
-    (analysisResult.insights as any).model = getConfiguredGeminiModels()[0];
+    /**
+     * Provenance is a fact about this run, so it is stamped by the route rather than by the model.
+     *
+     * This used to write `source = "ai_inference"` and `model = getConfiguredGeminiModels()[0]`
+     * unconditionally, INCLUDING for the degraded rule-based report the route itself assembles when
+     * synthesis fails. A fallback therefore travelled to the client claiming AI inference by a model
+     * that never answered — and it named the HEAD of the fallback ladder, not the model that
+     * answered on a healthy run either. `model` now comes from the engine (`performGeminiAnalysis`
+     * reports the attempt that returned text) and is absent for a fallback, where nothing did.
+     */
+    const isFallback = Boolean(analysisResult.isFallback);
+    (analysisResult.insights as any).source = isFallback ? "rule_based" : "ai_inference";
+    if (isFallback) {
+      delete (analysisResult.insights as any).model;
+    }
   }
 
   // ACMG-1: Reconciliation layer — merge AI-suggested ACMG criteria with rule-based criteria.

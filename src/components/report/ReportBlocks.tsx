@@ -18,6 +18,7 @@ import {
 import { useApiClient } from "../../apiClient";
 import type { EvidenceSource } from "./reportStatus";
 import type { EnergeticsData } from "../../shared/contracts";
+import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
 
 // ---------------------------------------------------------------------------
 // Section shell
@@ -114,9 +115,16 @@ interface AcmgEvidenceListProps {
   criteria: Array<{ code: string; reason?: string; source?: string }>;
 }
 
+/**
+ * Provenance tags for a criterion, on the one vocabulary every surface uses.
+ *
+ * These read "database" / "AI" while the Insights rail read "Rule Engine" / "AI Inferred" and the
+ * card between them read "DATABASE-VERIFIED" — one fact in three words, which is part of why the
+ * rail's mislabelling survived review. See `shared/acmgCriteriaView.ts`.
+ */
 const SOURCE_LABEL: Record<string, { label: string; tone: string }> = {
-  database_verified: { label: "database", tone: "var(--cs-good)" },
-  ai_suggested: { label: "AI", tone: "var(--cs-accent-clay)" },
+  database_verified: { label: ACMG_SOURCE_LABEL.database_verified, tone: "var(--cs-good)" },
+  ai_suggested: { label: ACMG_SOURCE_LABEL.ai_suggested, tone: "var(--cs-accent-clay)" },
 };
 
 /**

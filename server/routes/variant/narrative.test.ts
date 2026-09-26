@@ -98,7 +98,11 @@ describe("Variant narrative route wiring", () => {
         expect.any(AbortSignal),
         undefined,
         undefined,
-        undefined
+        undefined,
+        // The run's per-source outcomes. The prompt needs them to tell "ClinVar holds nothing" from
+        // "the ClinVar query failed" — both arrive as a null record. No `serviceStatus` in this
+        // request body, so the route forwards null rather than omitting the argument.
+        null
       );
       expect(responseBody().analysis).toBe("Resolved narrative output");
     } finally {

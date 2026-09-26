@@ -2,6 +2,15 @@ import { StateCreator } from "zustand";
 import { VariantPreset, SearchHistoryItem } from "../../types";
 import { getCachedVariant } from "../../services/pipeline/variantCache";
 import { normalizeUniprotAccession } from "../../shared/uniprotAccession";
+import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
+import { variantNumberingView } from "../../shared/numbering";
+// The one report builder. Pure — it imports only `src/shared` — so a store slice may call it, and
+// both "Copy Report" buttons emit the same document because of it.
+import {
+  buildEvidenceInventory,
+  generateStructuredEhrReport,
+  summarizeEvidence,
+} from "../../components/report/reportStatus";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
 
 export interface SearchState {
@@ -266,9 +275,93 @@ export const createSearchSlice: StateCreator<
 
   handleCopyReport: async (result) => {
     if (!result) return;
-    const classification = result?.clinvar?.classification ?? result?.ruleBasedInsights?.acmgVerdict ?? "";
-    const narrative = result?.analysis ?? "";
-    const acmgCriteria = (result?.insights?.acmgCriteria ?? result?.ruleBasedInsights?.acmgCriteria ?? []).map((c: any) => c.code);
+
+    /*
+     * ONE report builder, shared with the Report inspector's own "Copy Report (EHR / Text)".
+     *
+     * This handler used to assemble its own three-line text:
+     *
+     *     `${clinvar.classification ?? ruleBasedInsights.acmgVerdict}\n\n${analysis}\n\nACMG: ${codes}`
+     *
+     * Two things were wrong with that, and only one of them was cosmetic:
+     *
+     *   - The verdict. `??` falls through on null/undefined only, and `clinvar.classification` is a
+     *     real string ("Not found in ClinVar") for an unheld variant — so pasting the report from the
+     *     INSIGHTS view began with "Not found in ClinVar" where a classification belongs, while the
+     *     button with the same label in the REPORT view began with the rule engine's verdict
+     *     ("Variant of Uncertain Significance (VUS)"). One label, two headline truths; the wrong one
+     *     read as a clinical finding because that is the position a classification occupies.
+     *   - Everything else. No plausibility, no ACMG reasons, no energetics, no provenance manifest,
+     *     no evidence completeness, no numbering basis, and no respect for the report's own section
+     *     toggles — five omissions in a text a clinician pastes into a record.
+     *
+     * `generateStructuredEhrReport` is pure (it imports only `src/shared`), so a store slice can call
+     * it without inverting the layering. Both entry points now emit the same document, and the only
+     * thing that differs between them is that this one reports the store's live energetics.
+     */
+    const state = get();
+    const energetics = state.primaryBiophysics?.foldingEnergetics ?? state.foldingEnergetics ?? null;
+    const foldingDdG = state.primaryBiophysics?.foldingDdG ?? state.foldingDdG ?? null;
+
+    const resolvedGene = state.gene || result?.metadata?.gene || "";
+    const resolvedVariant = state.variant || result?.metadata?.variant || "";
+    const resolvedUniprot = state.uniprotId || result?.metadata?.uniprotId || "";
+
+    const numbering = variantNumberingView({
+      variant: resolvedVariant,
+      uniprotId: resolvedUniprot || null,
+      numberingRemap: (result as any)?.numberingRemap ?? (result?.metadata as any)?.numberingRemap ?? null,
+    });
+
+    /*
+     * Verdict precedence is the Report view's, deliberately: the deterministic rule engine first,
+     * then the reconciled insights, and ClinVar's classification only as a last resort. Reversing it
+     * is what put a database status in the verdict slot.
+     */
+    const headlineVerdict =
+      result?.ruleBasedInsights?.acmgVerdict
+      || result?.insights?.acmgVerdict
+      || result?.clinvar?.classification
+      || "";
+
+    const acmgCriteria = acmgCriteriaView(
+      result?.insights?.acmgCriteria,
+      result?.ruleBasedInsights?.acmgCriteria
+    );
+
+    const reportText = generateStructuredEhrReport({
+      gene: resolvedGene,
+      variant: resolvedVariant,
+      reportedVariant: numbering.reported
+        ? `${numbering.reported}${numbering.reportedBasisId ? ` (${numbering.reportedBasisId})` : ""}`
+        : numbering.display,
+      modelledVariant: numbering.modelled,
+      uniprotId: resolvedUniprot,
+      /*
+       * NO "MANE Select" fallback. A filed report asserted `Transcript: MANE Select` whenever no
+       * transcript resolved — a specific reference-sequence designation invented from a literal, in the
+       * one header block a reader uses to check that the right transcript was analysed. The builder
+       * omits the line when this is null, which is the honest rendering of "not resolved".
+       *
+       * (`ClinicalReportBar` still prints "MANE Select" as a display default in its masthead; that is a
+       * screen surface, and it is recorded as an open item rather than fixed here.)
+       */
+      reportedTranscriptId:
+        numbering.reportedTranscriptId
+        || numbering.reportedRefSeqId
+        || (result?.metadata as any)?.transcriptId
+        || null,
+      basisNote: numbering.basisNote,
+      headlineVerdict,
+      plausibility: result?.insights?.plausibility || result?.ruleBasedInsights?.plausibility || "",
+      acmgCriteria,
+      energetics,
+      foldingDdG,
+      result,
+      narrative: result?.analysis ?? "",
+      evidenceSummary: summarizeEvidence(buildEvidenceInventory(result, energetics, foldingDdG)),
+      sections: state.reportSections,
+    });
 
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       console.warn("[Copy Report] Clipboard API unavailable in this environment.");
@@ -276,9 +369,7 @@ export const createSearchSlice: StateCreator<
     }
 
     try {
-      await navigator.clipboard.writeText(
-        `${classification}\n\n${narrative}\n\nACMG Evidence: ${acmgCriteria.join(", ")}`
-      );
+      await navigator.clipboard.writeText(reportText);
       set({ copied: true });
       setTimeout(() => set({ copied: false }), 2000);
     } catch (err) {

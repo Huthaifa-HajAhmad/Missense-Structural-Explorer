@@ -855,6 +855,23 @@ export const analyzeVariantResponseSchema = z.object({
       z.array(acmgCriteriaItemSchema)
     ),
     acmgVerdict: z.string().optional(),
+    /**
+     * Inference provenance carried beside the prose.
+     *
+     * Declared so the schema matches what the route returns and `AnalyzeVariantResponse` — which is
+     * inferred from this schema — does not disagree with the server about the payload's shape. That
+     * drift is the reason the `metadata` block below carries its own note; here it is the smaller
+     * half of the story.
+     *
+     * It is NOT the half that was losing the values. This route's response is validated at runtime by
+     * `src/api/clinicalApi.ts` with `insights: z.any()`, so zod was never stripping these fields on
+     * this path — the client reducer in `src/services/pipeline/narrativeService.ts` was, by naming
+     * every field it kept. Recorded here because the first version of this comment blamed zod, and a
+     * comment that names the wrong cause is worse than none: the next reader would have hardened the
+     * schema and left the reducer alone.
+     */
+    model: z.string().optional(),
+    source: z.enum(["ai_inference", "rule_based"]).optional(),
     partialEvidence: z.object({
       available: z.array(z.string()),
       unavailable: z.array(z.string())
@@ -1156,6 +1173,23 @@ export interface ClinicalInsight {
   plausibility?: string;
   acmgVerdict?: AcmgVerdict;
   partialEvidence?: { available: string[]; unavailable: string[] };
+  /**
+   * The model that produced this narrative.
+   *
+   * Set by `performGeminiAnalysis` from the attempt that actually returned text, NOT from the head
+   * of the configured ladder — the ladder is a fallback chain, so naming its first entry would
+   * credit a model that may have 503'd. Absent on a rule-based fallback, where no model answered.
+   * Surfaces that report inference provenance read this; "Not recorded" is the honest fallback.
+   */
+  model?: string;
+  /**
+   * Who authored the prose. Set by the route (`handleNarrativeResponse`), never by the model.
+   *
+   * `rule_based` marks a degraded run whose narrative was assembled from the rule engine and the
+   * retrieved database evidence. Without this the payload could not distinguish the two, and a
+   * fallback was labelled `ai_inference` alongside a model name it never reached.
+   */
+  source?: "ai_inference" | "rule_based";
 }
 
 export interface RuleBasedInsights {
