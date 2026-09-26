@@ -121,7 +121,7 @@ const NAV_ZONES: NavZone[] = [
 export const MASTER_VIEW_ITEMS: NavItem[] = NAV_ZONES.flatMap((zone) => zone.items);
 
 export const EVIDENCE_SUB_ITEMS = [
-  { id: "clinical",     label: "Population Frequencies" },
+  { id: "clinical",     label: "Population Data" },
   { id: "predictors",   label: "In-Silico Predictors"   },
   { id: "alphagenome",  label: "AlphaGenome Atlas"      },
   { id: "splicing",     label: "RNA Splicing"            },

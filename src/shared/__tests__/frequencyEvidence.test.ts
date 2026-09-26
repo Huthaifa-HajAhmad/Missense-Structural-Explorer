@@ -1,5 +1,5 @@
 /**
- * frequencyEvidence.test.ts — the Population Frequencies tab's claim-making rules.
+ * frequencyEvidence.test.ts — the Population Data tab's claim-making rules.
  *
  * The invariants here are the ones the tab used to violate silently, so each one is asserted from
  * the module the surfaces actually render from rather than from a copy of its logic.
@@ -8,10 +8,13 @@ import { describe, it, expect } from "vitest";
 import {
   buildFrequencyEvidence,
   classifyAcmgFrequency,
+  formatAlleleCounts,
   formatAlleleFrequency,
   formatCount,
+  frequencySourceLabel,
   gnomadReleaseLabel,
   observationAbsence,
+  populationReading,
   readAppliedCriterion,
   type FrequencyEvidenceInput,
 } from "../frequencyEvidence.ts";
@@ -579,5 +582,129 @@ describe("frequencyEvidence — display formatting", () => {
     expect(gnomadReleaseLabel(null)).toBe("release not reported");
     // An unrecognised identifier is passed through rather than guessed at.
     expect(gnomadReleaseLabel("something_else")).toBe("something_else");
+  });
+});
+
+describe("populationReading — the counts and the rule's input are never one number", () => {
+  /** CNNM2 p.Ser489Cys: two cohorts' counts, and a grouped maximum that belongs to neither. */
+  const CNNM2 = {
+    maxAF: 1.97e-5,
+    groupMaxAF: 0.00031,
+    genomeAF: 1.97e-5,
+    exomeAF: 1.16e-5,
+    genomeAC: 3,
+    exomeAC: 17,
+    genomeAN: 152196,
+    exomeAN: 1461892,
+    nHomozygous: null,
+    dataset: "gnomad_r4",
+  };
+
+  it("keeps the busiest cohort's counts separate from the frequency the rule read", () => {
+    const reading = populationReading(buildFrequencyEvidence(input({ gnomadFrequency: CNNM2 })));
+    expect(reading.mostCopies?.counts).toBe("AC 17 · AN 1,461,892");
+    expect(reading.mostCopies?.label).toBe("Exomes");
+    expect(reading.ruleAf).toBe(0.00031);
+    expect(reading.governs).toBe(false);
+    /*
+     * The defect this pins: printing the exome counts directly above the grouped maximum implies the
+     * second divides out of the first. It does not — 17/1,461,892 is 1.2e-5 against a stated 0.031%,
+     * a gap wide enough to move a variant between PM2 and no criterion at all. A surface may stack
+     * these two ONLY with each line labelled, so the pair must stay unequal here.
+     */
+    expect(reading.mostCopies?.af).not.toBe(reading.ruleAf);
+  });
+
+  it("reports when the cohort it surfaced IS the reading the rule used", () => {
+    // GZF1: `groupMaxAF` equals the exome AF, so the headline counts and the rule's frequency are one
+    // reading, and a surface is allowed to say so.
+    const reading = populationReading(buildFrequencyEvidence(input()));
+    expect(reading.governs).toBe(true);
+    expect(reading.mostCopies?.counts).toBe("AC 8 · AN 1,459,156");
+  });
+
+  it("refuses to headline a count with no denominator", () => {
+    // A count nobody can compare is not a measurement of rarity. The row still shows it, with the
+    // reason its frequency is missing — but it must not become the screen's figure.
+    const reading = populationReading(
+      buildFrequencyEvidence(input({
+        gnomadFrequency: null,
+        aouFrequency: { aouAC: 12, aouAN: null, aouHet: 12, aouHom: 0 },
+      })),
+    );
+    expect(reading.mostCopies).toBeNull();
+  });
+
+  it("refuses to headline the local ingest's combined zeros", () => {
+    // `gnomad_r4_local` reports AC/AN of 0 for cohorts it never measured separately.
+    const reading = populationReading(
+      buildFrequencyEvidence(input({
+        gnomadFrequency: {
+          maxAF: 0, groupMaxAF: 0, genomeAF: 0, exomeAF: 0, genomeAC: 0, exomeAC: 0,
+          genomeAN: 0, exomeAN: 0, nHomozygous: null, dataset: "gnomad_r4_local",
+        },
+      })),
+    );
+    expect(reading.mostCopies).toBeNull();
+    // The rule still read a value, and that value is still reported.
+    expect(reading.ruleAf).toBe(0);
+  });
+
+  it("keeps real counts on screen when the rule withheld its criterion", () => {
+    /*
+     * A timeout withholds the CLASSIFICATION, not the readings: the observations still carry what the
+     * source returned, so the counts stay and `ruleAf` goes null. This pins that a withheld run
+     * produces no phantom frequency rather than no data at all.
+     */
+    const reading = populationReading(
+      buildFrequencyEvidence(input({
+        gnomadFrequency: CNNM2,
+        serviceStatus: { gnomadFrequency: "timeout" },
+      })),
+    );
+    expect(reading.ruleAf).toBeNull();
+    expect(reading.governs).toBe(false);
+    expect(reading.mostCopies?.counts).toBe("AC 17 · AN 1,461,892");
+    // With nothing to classify, the source label says so rather than naming a dataset.
+    expect(reading.ruleSource).toBe("No source");
+  });
+
+  it("breaks a count tie toward the larger denominator, which is the rarer-looking one", () => {
+    const reading = populationReading(
+      buildFrequencyEvidence(input({
+        gnomadFrequency: {
+          ...CNNM2, exomeAC: 17, exomeAN: 1461892, genomeAC: 17, genomeAN: 152196,
+        },
+      })),
+    );
+    expect(reading.mostCopies?.label).toBe("Exomes");
+  });
+
+  it("names the source the frequency came from, in one wording every surface must share", () => {
+    const grouped = buildFrequencyEvidence(input({ gnomadFrequency: CNNM2 }));
+    expect(frequencySourceLabel(grouped)).toBe("gnomAD ancestry-grouped maximum");
+    const global = buildFrequencyEvidence(input({ gnomadFrequency: { ...CNNM2, groupMaxAF: null } }));
+    expect(frequencySourceLabel(global)).toBe("gnomAD global maximum");
+    /*
+     * Only a gnomAD reading that is simply ABSENT lets a ClinVar submission become the governing
+     * source: a `not_found` status is the server's determination of a zero, and branch order puts it
+     * ahead of the submissions (`classifyAcmgFrequency` §4 before §5).
+     */
+    const clinvar = buildFrequencyEvidence(input({
+      gnomadFrequency: null,
+      clinvar: { alleleFrequencies: [{ source: "ExAC", value: 0.0003 }] },
+    }));
+    expect(frequencySourceLabel(clinvar)).toBe("ClinVar-submitted frequency");
+  });
+});
+
+describe("formatAlleleCounts", () => {
+  it("prints whichever half the source reported, and nothing when it reported neither", () => {
+    expect(formatAlleleCounts({ ac: 17, an: 1461892 })).toBe("AC 17 · AN 1,461,892");
+    expect(formatAlleleCounts({ ac: 12, an: null })).toBe("AC 12");
+    expect(formatAlleleCounts({ ac: null, an: 1461892 })).toBe("AN 1,461,892");
+    expect(formatAlleleCounts({ ac: null, an: null })).toBeNull();
+    // A measured zero is a value, not an absence.
+    expect(formatAlleleCounts({ ac: 0, an: 0 })).toBe("AC 0 · AN 0");
   });
 });

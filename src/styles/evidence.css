@@ -494,6 +494,29 @@
   background: var(--cs-bg-danger);
   border-color: color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
 }
+/* Brand-clay tier: the transcript tier the variant header paints clay, reused
+   here so ONE fact about ONE variant is not two colours in one viewport. */
+.ev-tier[data-tone="accent"] {
+  color: var(--cs-text-accent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 12%, transparent);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 30%, transparent);
+}
+/* Coverage/absence: lighter than `neutral`, which carries a reading. */
+.ev-tier[data-tone="muted"] {
+  color: var(--cs-text-muted);
+  background: color-mix(in srgb, var(--cs-text-muted) 10%, transparent);
+  border-color: color-mix(in srgb, var(--cs-text-muted) 24%, transparent);
+}
+
+/* A verdict rather than a status: the ClinVar classification is the card's
+   answer, so it takes the prose size and is allowed to wrap —
+   "Conflicting interpretations of pathogenicity" at `nowrap` in a third-width
+   card overflows the panel. */
+.ev-tier--lg {
+  font-size: var(--cs-font-size-prose);
+  white-space: normal;
+  line-height: 1.35;
+}
 
 /* ── Data table ───────────────────────────────────────────────────────────── */
 

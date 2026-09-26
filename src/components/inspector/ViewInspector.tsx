@@ -104,7 +104,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
  * between the ten evidence tabs; naming the active surface does.
  */
 const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
-  clinical: "Population Frequencies & Clinical DBs",
+  clinical: "Population Data & Clinical DBs",
   predictors: "In-Silico Ensemble Calibration",
   alphagenome: "AlphaGenome Atlas Tracks",
   splicing: "RNA Splicing Calibration",

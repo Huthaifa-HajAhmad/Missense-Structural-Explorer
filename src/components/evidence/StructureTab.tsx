@@ -181,11 +181,11 @@ export function StructureTab({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="metric-card">
                 <span className="metric-card-label">Pocket Distance</span>
-                <span className={`metric-card-value ${
+                <span className="metric-card-value" style={
                   pocketNarrative.proximity.band === "lining" || pocketNarrative.proximity.band === "proximal"
-                    ? "text-[var(--cs-text-danger)]"
-                    : ""
-                }`}>
+                    ? { color: "var(--cs-text-danger)" }
+                    : undefined
+                }>
                   {computedPocket.pocketDistance !== null && computedPocket.pocketDistance !== undefined 
                     ? `${computedPocket.pocketDistance.toFixed(2)} Å` 
                     : "N/A"}

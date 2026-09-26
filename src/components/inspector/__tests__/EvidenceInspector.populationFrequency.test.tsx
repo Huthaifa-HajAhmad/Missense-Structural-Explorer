@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * EvidenceInspector.populationFrequency.test.tsx — the Population Frequencies tab's right rail.
+ * EvidenceInspector.populationFrequency.test.tsx — the Population Data tab's right rail.
  *
  * A separate file from `EvidenceInspector.test.tsx` on purpose: that suite covers the Thresholds
  * pane, this one covers the clinical pane, and neither reads the other's fixtures.
@@ -85,15 +85,32 @@ describe("EvidenceInspector — clinical pane", () => {
     expect(screen.queryByText("v4")).toBeNull();
   });
 
-  it("states this run's own frequency reading", () => {
+  it("states where this run's reading came from", () => {
     renderRail({ ruleBasedInsights: { acmgCriteria: [{ code: "PM2", reason: "rare" }] } });
-    expect(screen.getByText("This run's frequency reading")).toBeTruthy();
-    expect(screen.getByText("5.50e-6")).toBeTruthy();
+    const card = screen.getByText("This run's reading").closest("div")!;
+    /*
+     * The counts carry their cohort. An unattributed `AC 8 · AN 1,459,156` sitting above
+     * "From: gnomAD ancestry-grouped maximum" reads as though the grouped maximum produced them, and
+     * nothing in the payload reports counts for that group — so the cohort name is part of the claim,
+     * not decoration.
+     */
+    expect(within(card).getByText(/AC 8 · AN 1,459,156 · Exomes/)).toBeTruthy();
+    expect(within(card).getByText("AF the rule read")).toBeTruthy();
+    expect(within(card).getByText("5.50e-6")).toBeTruthy();
+    expect(within(card).getByText(/gnomAD ancestry-grouped maximum · v4/)).toBeTruthy();
     // Scoped to this card: the ACMG Frequency Criteria card below it also renders the code "PM2" as
     // a reference row, so a page-wide query would find two and prove nothing about this one.
-    // `closest("div")` is the card itself — going one level further up would include that card.
-    const card = screen.getByText("This run's frequency reading").closest("div")!;
     expect(within(card).getByText("PM2")).toBeTruthy();
+  });
+
+  it("states the weighting that decided whether the criterion was applied", () => {
+    renderRail({
+      metadata: { variant: "p.Arg591Trp", uniprotId: "Q9H116", acmgWeighting: "strict-structural" },
+      ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
+    });
+    const card = screen.getByText("This run's reading").closest("div")!;
+    // Exact: the suppression note below carries the same words inside a sentence.
+    expect(within(card).getByText("strict-structural", { exact: true })).toBeTruthy();
   });
 
   it("marks the criterion unconfirmed when the payload carries no engine criteria", () => {

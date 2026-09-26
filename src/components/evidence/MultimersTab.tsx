@@ -207,7 +207,7 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
 
               <div className="metric-card">
                 <span className="metric-card-label">Interface pTM (ipTM)</span>
-                <span className={`metric-card-value ${Number.isFinite(multimerData.ipTm) ? "text-emerald-500" : "text-cs-text-muted"}`}>
+                <span className="metric-card-value" style={{ color: Number.isFinite(multimerData.ipTm) ? "var(--cs-text-good-on-soft)" : "var(--cs-text-muted)" }}>
                   {Number.isFinite(multimerData.ipTm) ? multimerData.ipTm!.toFixed(2) : "Unavailable"}
                 </span>
                 <span className="metric-card-desc">Complex interface confidence</span>
@@ -215,7 +215,7 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
 
               <div className="metric-card">
                 <span className="metric-card-label">Overall pTM</span>
-                <span className={`metric-card-value ${Number.isFinite(multimerData.pTm) ? "text-emerald-500" : "text-cs-text-muted"}`}>
+                <span className="metric-card-value" style={{ color: Number.isFinite(multimerData.pTm) ? "var(--cs-text-good-on-soft)" : "var(--cs-text-muted)" }}>
                   {Number.isFinite(multimerData.pTm) ? multimerData.pTm!.toFixed(2) : "Unavailable"}
                 </span>
                 <span className="metric-card-desc">Whole-complex prediction score</span>

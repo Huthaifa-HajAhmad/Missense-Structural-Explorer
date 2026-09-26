@@ -89,6 +89,15 @@
   
   --cs-font-size-caption:       12px;
   --cs-font-weight-caption:     400;
+
+  /**
+   * Sentences. The same size as `numeric` and `section-label`, and named separately because it is a
+   * different job: those two are 13px because a table cell or a nav row is 13px, this is 13px because
+   * body copy at the 12px caption size sat one pixel below the 12px card titles it explained, so a
+   * sentence and its own label looked like the same kind of text. One rank per JOB, not one per size.
+   */
+  --cs-font-size-prose:         13px;
+  --cs-font-weight-prose:       400;
   
   --cs-font-size-badge:         11px;
   --cs-font-weight-badge:       500;
@@ -100,6 +109,13 @@
   --cs-font-weight-regular:     400;
   --cs-font-weight-medium:      500;
   --cs-font-weight-semibold:    600;
+  /**
+   * The one place a weight above `semibold` is legitimate: a 10px mono uppercase section eyebrow,
+   * which is light-on-cream fine print and needs the extra mass to stay legible. Every other rank
+   * on the scale stops at 600 — this exists so the eyebrow says 700 with a token rather than with
+   * a bare `font-bold` that a reviewer then reads as an off-scale weight.
+   */
+  --cs-font-weight-eyebrow:     700;
 
   /* === LAYOUT DIMENSIONS === */
   --cs-chrome-height:           56px;

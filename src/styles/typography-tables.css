@@ -187,6 +187,152 @@
   color: var(--cs-text-muted);
 }
 
+/* ============================================================
+   EVIDENCE WORKSPACE TYPE RANKS
+   The main column and the Evidence Lineage rail share one viewport, so the
+   ranks below are declared once here and used by both panes — a card title
+   cannot be 12/400 in one pane and 12/500 in the other when both read from
+   the same rule.
+
+   THE RAMP, and why the steps are where they are:
+
+     22  figure-headline   mono 600    the screen's one governing figure
+     18  screen-title      sans 500    (layout.css) the screen's name
+     14  readout           mono 600    a per-source read-out
+     13  detail-prose      sans 400    sentences
+     12  card-title        sans 500 ↑  a card's header · rail-row   sans 400 labels
+     11  ev-tier           sans 600    chips (evidence.css)  · readout-note mono 400
+     10  eyebrow           mono 700 ↑  a section's label
+
+   The three ranks a reader scans for an answer are at least 4px apart, so they
+   cannot be confused at a glance. The four quiet ranks sit inside 3px of each
+   other and are separated by FAMILY and CASE instead — a 1px size step is not a
+   distinction the eye makes, which is what made the previous ramp (11/12/13 all
+   doing "text") read as one undifferentiated voice.
+
+   These classes carry TYPE ONLY (family, size, weight, tracking, leading).
+   Colour stays on the call site: this file is unlayered, so a `color` here
+   would beat every `text-cs-*` utility on the same element and the tone
+   would silently never apply.
+   ============================================================ */
+
+/* A card's own header. Distinct from `.metric-card-label`, which labels a
+   FIELD inside a card and sits one step quieter (400, muted). */
+.card-title {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* What a row is about ("Exomes", "All of Us"). Deliberately one size below
+   the read-out it labels and in the prose family: the row's answer is the
+   figure, and a subject set in ink at 13px competed with it. */
+.row-subject {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-medium);
+  line-height: 1.35;
+}
+
+/* The screen's one answer. Mono for the same reason as every other figure
+   here — the digits align — and two steps above the read-outs below it. */
+.figure-headline {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-display);
+  font-weight: var(--cs-font-weight-stat-value);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+/* A measured value reported by a source: the allele counts, or the frequency
+   for a source that reports no counts at all. Mono so stacked rows align the
+   digits and so a reading can never tie with the `.figure-headline`. */
+.readout {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-body);
+  font-weight: var(--cs-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+/* Fine print under a figure: the allele frequency a row also holds, a date, a
+   release. Mono because it is a measurement, one step under the read-out. */
+.readout-note {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-badge);
+  font-weight: var(--cs-font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+/* The value half of a label · value detail row, and the rail's rows. One step
+   under `.readout` because it shares its line with a label. */
+.readout-inline {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+/* Sentences. */
+.detail-prose {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-prose);
+  font-weight: var(--cs-font-weight-prose);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* A qualifier riding on a figure — the attribution beside the headline value.
+   The 11px tier in the prose family, for words rather than measurements. */
+.prose-meta {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-badge);
+  font-weight: var(--cs-font-weight-regular);
+  line-height: 1.4;
+}
+
+/* A label · value row in the inspector rail. The rail's boxes are 280px wide,
+   so its rows are a rank below the column's prose: a 13px label sitting on a
+   12px value inverts the emphasis and wraps the value mid-token. */
+.rail-row {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-regular);
+  line-height: 1.4;
+}
+
+/* The Evidence workspace's section label: 10px mono, uppercase, muted, with a
+   clay icon carried by the same rule. Declared here because BOTH panes use it
+   and the two spellings had already drifted apart in tracking. */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: var(--cs-font-weight-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cs-text-muted);
+}
+.eyebrow > svg {
+  flex: none;
+  color: var(--cs-accent-clay);
+}
+
+/* Chips are `.ev-tier` everywhere; this puts a chip whose content is an ACMG
+   code (PM2/BS1/BA1) or a transcript tier in the identifier family. Scoped to
+   `.ev-tier` rather than standing alone so it wins on specificity and not on
+   file order — both rules set `font-weight`, and a tie between two unlayered
+   single-class selectors is settled by whichever line happens to come later. */
+.ev-tier.chip-code {
+  font-family: var(--cs-font-mono);
+}
+
 /* EMPTY STATE BOXES */
 .empty-state-box {
   border: 1px dashed var(--cs-border);

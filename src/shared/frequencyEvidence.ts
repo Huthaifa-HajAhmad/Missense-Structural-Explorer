@@ -271,7 +271,93 @@ export function formatCount(value: number | null | undefined): string {
   return count.toLocaleString("en-US");
 }
 
-/** The dataset identifier of the local dbNSFP ingest, which merges the two gnomAD cohorts. */
+/**
+ * The reading a rare-disease reviewer acts on, and the reading the rule acted on — kept as two
+ * named things because they are frequently NOT the same number.
+ *
+ * `mostCopies` answers "how many people carry this, in the cohort that saw the most". `ruleAf`
+ * answers "what did PM2/BS1/BA1 actually threshold on", which is gnomAD's ancestry-grouped maximum
+ * far more often than it is any dataset's global figure — and the payload carries NO allele count
+ * for that group (`GnomadFrequencyData` holds `groupMaxAF` and nothing else about the group).
+ *
+ * The reason both are exposed rather than one: printing the busiest cohort's `AC · AN` directly
+ * above the grouped maximum's frequency implies the second divides out of the first. For CNNM2
+ * p.Ser489Cys that implied quotient is 1.2e-5 against a stated 0.031% — a 26× gap that alone moves
+ * the variant between PM2 and "between the cut-points". A surface must therefore label each line
+ * with what it is, and `governs` tells it when the two really are one reading.
+ */
+export interface PopulationReading {
+  /** The cohort reporting the most copies, or `null` when none reported interpretable counts. */
+  mostCopies: { label: string; counts: string; af: number | null } | null;
+  /** True when `mostCopies` is the very reading the rule classified on. */
+  governs: boolean;
+  /** The frequency the rule classified on, or `null` when it had nothing to classify. */
+  ruleAf: number | null;
+  /** Where `ruleAf` came from, in the words every surface sharing this module must use. */
+  ruleSource: string;
+}
+
+/**
+ * The counts a row leads with: `null` unless the source reports BOTH an allele count and a usable
+ * allele number. A count with no denominator is not a measurement of anything comparable, and an
+ * uninterpretable one must never become a screen's headline figure — the row still shows it, with
+ * the reason its frequency is missing.
+ */
+export function formatAlleleCounts(observation: Pick<FrequencyObservation, "ac" | "an">): string | null {
+  const parts: string[] = [];
+  if (observation.ac !== null) parts.push(`AC ${formatCount(observation.ac)}`);
+  if (observation.an !== null) parts.push(`AN ${formatCount(observation.an)}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Where the rule's frequency came from, named so the number can be traced to a dataset. */
+export function frequencySourceLabel(evidence: FrequencyEvidence): string {
+  const { sourceId, usedGroupMax, fallback } = evidence.criterion;
+  if (sourceId === "gnomad-group") {
+    const base = usedGroupMax ? "gnomAD ancestry-grouped maximum" : "gnomAD global maximum";
+    return fallback ? `${base} (fell back to the global maximum)` : base;
+  }
+  if (sourceId === "clinvar-submissions") return "ClinVar-submitted frequency";
+  return "No source";
+}
+
+/**
+ * The full reading pair. See {@link PopulationReading} for why the two halves are never merged.
+ *
+ * Only a source whose own availability is `available` competes: a faulted or pending fetch can leave
+ * stale counts on an observation, and those are a fact about the run, not about the variant. The
+ * local dbNSFP ingest reports `AC 0 · AN 0` for a combined cohort it did not measure, so a zero
+ * denominator is excluded with it. Ties on the count break toward the LARGER denominator, which is
+ * the conservative direction — the rarer-looking reading loses.
+ */
+export function populationReading(evidence: FrequencyEvidence): PopulationReading {
+  const ruleAf = evidence.criterion.af;
+  const pool = evidence.observations.filter(
+    o => o.ac !== null && o.an !== null && o.an > 0 && o.availability.state === "available",
+  );
+  const top = pool.reduce<FrequencyObservation | null>(
+    (best, o) =>
+      best === null ? o
+      : (o.ac ?? 0) > (best.ac ?? 0) ? o
+      : (o.ac ?? 0) === (best.ac ?? 0) && (o.an ?? 0) > (best.an ?? 0) ? o
+      : best,
+    null,
+  );
+  const counts = top === null ? null : formatAlleleCounts(top);
+  const mostCopies = top !== null && counts !== null
+    ? { label: top.label, counts, af: top.af }
+    : null;
+  return {
+    mostCopies,
+    governs: Boolean(mostCopies && mostCopies.af !== null && mostCopies.af === ruleAf),
+    ruleAf,
+    ruleSource: frequencySourceLabel(evidence),
+  };
+}
+
+/**
+ * The dataset identifier of the local dbNSFP ingest, which merges the two gnomAD cohorts.
+ */
 export const LOCAL_GNOMAD_DATASET = "gnomad_r4_local";
 
 /**

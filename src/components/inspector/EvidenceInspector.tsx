@@ -24,6 +24,7 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import {
   buildFrequencyEvidence,
   formatAlleleFrequency,
+  populationReading,
 } from "../../shared/frequencyEvidence";
 import { variantNumberingView } from "../../shared/numbering";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
@@ -144,6 +145,47 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   });
   const gnomadRelease = frequencyEvidence.observations.find(o => o.id.startsWith("gnomad"))?.dataset ?? "release not reported";
 
+  /**
+   * The rail's reading rows, as DATA.
+   *
+   * Built beside the object it reads rather than inside the JSX, so every row — including `From`, the
+   * one that makes this card provenance instead of a second headline — is addressable by a test.
+   *
+   * `mostCopies` carries its cohort name for the same reason the column's does: the counts and the
+   * frequency the rule read usually come from different populations, and an unattributed `AC 8 · AN
+   * 1,459,156` directly above "From: gnomAD grouped maximum" states that the grouped maximum produced
+   * those counts. It did not — nothing in the payload reports counts for that group.
+   */
+  const reading = populationReading(frequencyEvidence);
+  const ruleFrom = reading.ruleSource.startsWith("gnomAD")
+    ? `${reading.ruleSource} · ${gnomadRelease}`
+    : reading.ruleSource;
+  const readingRows: ReadonlyArray<{ label: string; value: string; rank: string }> = [
+    {
+      label: "Alleles observed",
+      value: reading.mostCopies ? `${reading.mostCopies.counts} · ${reading.mostCopies.label}` : "None reported",
+      rank: "readout-inline text-cs-text-primary",
+    },
+    ...(reading.ruleAf !== null
+      ? [{
+          label: "AF the rule read",
+          value: formatAlleleFrequency(reading.ruleAf),
+          rank: "readout-note text-cs-text-muted",
+        }]
+      : []),
+    { label: "From", value: ruleFrom, rank: "prose-meta text-cs-text-muted" },
+    {
+      label: "Engine criterion",
+      value: frequencyEvidence.applied.known
+        ? frequencyEvidence.applied.code ?? "None recorded"
+        : `unconfirmed (supports ${frequencyEvidence.criterion.code})`,
+      rank: "readout-inline text-cs-text-primary",
+    },
+    ...(frequencyEvidence.applied.weighting
+      ? [{ label: "ACMG weighting", value: frequencyEvidence.applied.weighting, rank: "prose-meta text-cs-text-muted" }]
+      : []),
+  ];
+
   const clinvarUid = clinvar?.uid != null ? String(clinvar.uid) : null;
   const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
 
@@ -176,7 +218,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {/* ── 1. Dynamic Tab-Aware Contextual Intelligence ── */}
       {tab === "interactions" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          <span className="eyebrow">
             <Zap className="w-3.5 h-3.5 text-cs-accent-clay" />
             PPI &amp; Interface Methodology
           </span>
@@ -252,7 +294,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "multimers" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          <span className="eyebrow">
             <Box className="w-3.5 h-3.5 text-cs-accent-clay" />
             Quaternary Structure Methodology
           </span>
@@ -298,7 +340,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "function" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          <span className="eyebrow">
             <Layers className="w-3.5 h-3.5 text-cs-accent-clay" />
             Domain &amp; Feature Architecture
           </span>
@@ -337,18 +379,18 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
         <div className="flex flex-col gap-3">
           {/* Static Genomic Lineage & ACMG Baseline first at top on first tab only */}
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+            <span className="eyebrow">
               <Dna className="w-3.5 h-3.5 text-cs-accent-clay" />
               Genomic Lineage &amp; ACMG Baseline
             </span>
             <div id="genomic-lineage-drawer" className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
               {/* Assembly & Transcript — 12px and weight 600, matching the main column's rows. */}
-              <div className="space-y-2 text-[12px]">
+              <div className="space-y-2 rail-row">
                 {numbering.remapped && (
                   <>
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Reported notation:</span>
-                      <span className="font-mono font-semibold text-cs-text-primary" data-testid="reported-notation">
+                      <span className="readout-inline text-cs-text-primary" data-testid="reported-notation">
                         {numbering.reported}
                       </span>
                     </div>
@@ -363,42 +405,47 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 )}
                 <div className="flex justify-between items-center">
                   <span className="text-cs-text-secondary">Genome Assembly:</span>
-                  <span className="font-mono font-semibold text-cs-text-primary">
+                  <span className="readout-inline text-cs-text-primary">
                     {genomicAssembly ? ASSEMBLY_LABELS[genomicAssembly] : "Build not reported"}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center">
                   <span className="text-cs-text-secondary">Transcript ID:</span>
-                  <span className="font-mono font-semibold text-cs-text-primary">{transcriptId || "Not resolved"}</span>
+                  <span className="readout-inline text-cs-text-primary">{transcriptId || "Not resolved"}</span>
                 </div>
 
                 {maneRefSeqId && (
                   <div className="flex justify-between items-center">
                     <span className="text-cs-text-secondary">RefSeq Accession:</span>
-                    <span className="font-mono text-cs-text-secondary">{maneRefSeqId}</span>
+                    <span className="readout-note text-cs-text-secondary">{maneRefSeqId}</span>
                   </div>
                 )}
 
                 <div className="flex justify-between items-center pt-1 border-t border-cs-border-subtle">
                   <span className="text-cs-text-secondary">Transcript Tier:</span>
-                  <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-semibold uppercase ${
-                    isManeSelect
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                      : isManePlusClinical
-                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
-                      : isCanonical
-                      ? "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
-                      : transcriptId
-                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                      : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20"
-                  }`}>
+                  {/*
+                    * `.ev-tier` with the SAME tone map the variant header uses for this fact
+                    * (`VariantHeader.tsx` transcriptTier: MANE Select good, MANE Plus Clinical clay,
+                    * Ensembl Canonical warning, everything else muted). This chip used to carry raw
+                    * Tailwind hues — emerald here, clay in the header, for one transcript — and the
+                    * `dark:` pairs it needed could not be flattened for print, which `.ev-tier` can.
+                    */}
+                  <span
+                    className="ev-tier chip-code uppercase"
+                    data-tone={
+                      isManeSelect ? "good"
+                      : isManePlusClinical ? "accent"
+                      : isCanonical ? "warning"
+                      : "muted"
+                    }
+                  >
                     {isManeSelect ? "MANE Select" : isManePlusClinical ? "MANE Plus Clinical" : isCanonical ? "Ensembl Canonical" : transcriptId ? "Non-canonical" : "Unassigned"}
                   </span>
                 </div>
 
                 {transcriptWarning && (
-                  <div className="text-[10px] text-amber-600 dark:text-amber-400 pt-1 leading-snug">
+                  <div className="prose-meta pt-1" style={{ color: "var(--cs-text-warning-on-soft)" }}>
                     ⚠️ {transcriptWarning}
                   </div>
                 )}
@@ -416,25 +463,25 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 const benCount = uniqueCriteria.filter((c: any) => c.category === "benign" || (typeof c.code === "string" && c.code.toUpperCase().startsWith("B"))).length;
 
                 return (
-                  <div className="pt-2 border-t border-cs-border-subtle space-y-1 text-[11px]">
+                  <div className="pt-2 border-t border-cs-border-subtle space-y-1 rail-row">
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Pathogenic Rules:</span>
                       {/* Theme tokens, not the raw Tailwind palette: the criteria-code rows below
                           used the same rose/emerald, which put the same two codes in two different
                           reds and two different greens inside one card. */}
-                      <span className="font-mono font-semibold" style={{ color: "var(--cs-text-danger-on-soft)" }}>
+                      <span className="readout-inline" style={{ color: "var(--cs-text-danger-on-soft)" }}>
                         {pathCount > 0 ? `${pathCount} active` : "0 triggered"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-cs-text-secondary">Benign Rules:</span>
-                      <span className="font-mono font-semibold" style={{ color: "var(--cs-text-good-on-soft)" }}>
+                      <span className="readout-inline" style={{ color: "var(--cs-text-good-on-soft)" }}>
                         {benCount > 0 ? `${benCount} active` : "0 triggered"}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-[10px] text-cs-text-muted pt-0.5">
+                    <div className="flex justify-between items-center prose-meta text-cs-text-muted pt-0.5">
                       <span>Framework:</span>
-                      <span className="font-mono">Richards et al. 2015 / ClinGen</span>
+                      <span className="prose-meta">Richards et al. 2015 / ClinGen</span>
                     </div>
                   </div>
                 );
@@ -442,7 +489,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             </div>
           </div>
 
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5 pt-1 border-t border-cs-border-subtle">
+          <span className="eyebrow pt-1 border-t border-cs-border-subtle">
             <Database className="w-3.5 h-3.5 text-cs-accent-clay" />
             Clinical Evidence &amp; Frequencies
           </span>
@@ -450,7 +497,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
           {/* ClinVar Provenance */}
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
             <div className="flex justify-between items-center">
-              <span className="text-[12px] font-medium uppercase tracking-[0.05em] text-cs-text-secondary flex items-center gap-1">
+              <span className="card-title text-cs-text-secondary flex items-center gap-1">
                 NCBI ClinVar Review
               </span>
               {/*
@@ -461,7 +508,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 * of it is worse than none.
                 */}
             </div>
-            <div className="flex justify-between items-center text-[11px]">
+            <div className="flex justify-between items-center rail-row">
               <span className="text-cs-text-secondary">VCV Accession:</span>
               {clinvarVcv ? (
                 <a
@@ -480,15 +527,15 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                  * says which absence it means instead of naming the one that reads as a negative
                  * result.
                  */
-                <span className="font-mono text-[11px] text-cs-text-muted italic text-right">
+                <span className="readout-note text-cs-text-muted italic text-right">
                   {frequencyEvidence.clinvar.availability.hasValue ? "Unindexed in ClinVar" : "No ClinVar record read"}
                 </span>
               )}
             </div>
             {clinvar?.lastEvaluated && !isNaN(Date.parse(clinvar.lastEvaluated)) && (
-              <div className="flex justify-between items-center text-[11px] text-cs-text-muted pt-1 border-t border-cs-border-subtle">
+              <div className="flex justify-between items-center rail-row text-cs-text-muted pt-1 border-t border-cs-border-subtle">
                 <span>Last Evaluated:</span>
-                <span className="font-mono">{new Date(clinvar.lastEvaluated).toLocaleDateString()}</span>
+                <span className="readout-note">{new Date(clinvar.lastEvaluated).toLocaleDateString()}</span>
               </div>
             )}
           </div>
@@ -498,40 +545,27 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
             * what THIS run did with the frequency — the same object the main column renders, so the
             * two panes cannot report different frequencies or different criteria for one variant.
             */}
+          {/*
+            * The rail does not re-present the column's headline — it states WHERE that reading came
+            * from: the counts and their cohort, the frequency the rule thresholds on as its own
+            * labelled line, the source field, and the weighting that decided whether it was applied.
+            * The card used to lead with the governing frequency and the criterion, which is the
+            * figure and the chip the column already prints two hundred pixels to the left of it.
+            */}
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-            {/*
-              * Card titles in this pane take the main column's rank (12px / 500 / uppercase /
-              * secondary). They were 10px mono bold, the same treatment as the section eyebrows above
-              * them, so a card and its own eyebrow read as the same thing.
-              */}
-            <span className="text-[12px] font-medium uppercase tracking-[0.05em] text-cs-text-secondary block">
-              This run's frequency reading
+            <span className="card-title text-cs-text-secondary block">
+              This run's reading
             </span>
-            {/*
-              * 12px rather than 11px, and 600 rather than 700. The rail's rows were all 11px — labels
-              * and values the same size — so the pane read as one flat block of text; and `font-bold`
-              * is off this design system's weight scale, whose heaviest declared weight is
-              * `--cs-font-weight-semibold: 600`, which is what the main column uses for the same
-              * values. Weight, not size, is what separates a label from its value here.
-              */}
-            <div className="space-y-2 text-[12px]">
-              <div className="flex justify-between items-baseline gap-3">
-                <span className="text-cs-text-secondary shrink-0">Governing frequency</span>
-                <span className="font-mono font-semibold text-cs-text-primary text-right tabular-nums">
-                  {formatAlleleFrequency(frequencyEvidence.criterion.af)}
-                </span>
-              </div>
-              <div className="flex justify-between items-baseline gap-3">
-                <span className="text-cs-text-secondary shrink-0">Engine criterion</span>
-                <span className="font-mono font-semibold text-cs-text-primary text-right">
-                  {frequencyEvidence.applied.known
-                    ? frequencyEvidence.applied.code ?? "None recorded"
-                    : `unconfirmed (supports ${frequencyEvidence.criterion.code})`}
-                </span>
-              </div>
+            <div className="space-y-2 rail-row">
+              {readingRows.map(({ label, value, rank }) => (
+                <div key={label} className="flex justify-between items-baseline gap-3">
+                  <span className="text-cs-text-secondary shrink-0">{label}</span>
+                  <span className={`${rank} text-right`}>{value}</span>
+                </div>
+              ))}
             </div>
             {frequencyEvidence.applied.suppressed && (
-              <p className="text-[12px] m-0 leading-relaxed" style={{ color: "var(--cs-text-warning-on-soft)" }}>
+              <p className="detail-prose" style={{ color: "var(--cs-text-warning-on-soft)" }}>
                 The frequency meets {frequencyEvidence.criterion.code}, but the engine recorded no frequency
                 criterion for this run
                 {frequencyEvidence.applied.withheldByWeighting && frequencyEvidence.applied.weighting
@@ -543,7 +577,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
           {/* ACMG Population Frequency Criteria */}
           <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
-            <span className="text-[12px] font-medium uppercase tracking-[0.05em] text-cs-text-secondary block">
+            <span className="card-title text-cs-text-secondary block">
               ACMG Frequency Criteria
             </span>
             {/*
@@ -556,8 +590,8 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               */}
             {FREQUENCY_CRITERIA.map(({ code, tone, describe }) => (
               <div key={code} className="flex flex-col gap-1">
-                <span className={`font-mono font-semibold text-[12px] ${tone}`}>{code}</span>
-                <span className="text-[12px] text-cs-text-secondary leading-relaxed">{describe(THRESHOLDS.populationFrequency)}</span>
+                <span className={`readout-inline ${tone}`}>{code}</span>
+                <span className="detail-prose text-cs-text-secondary">{describe(THRESHOLDS.populationFrequency)}</span>
               </div>
             ))}
           </div>
@@ -586,7 +620,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "predictors" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          <span className="eyebrow">
             <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
             In-Silico Ensemble Calibration
           </span>
@@ -655,7 +689,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
         return (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          <span className="eyebrow">
             <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" />
             Concordance &amp; Calibration Guide
           </span>
@@ -712,7 +746,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
                 if (items.length === 0) return null;
                 return (
                   <div key={key} className="space-y-0.5">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted block">
+                    <span className="eyebrow block">
                       {label} · {items.length}
                     </span>
                     {items.map(row => {
@@ -906,7 +940,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {/* Baseline fallback for tabs under subsequent evaluation */}
       {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "thresholds" && tab !== "guidelines" && (
         <div className="flex flex-col gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
+          <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
             Evidence Subtab Telemetry
           </span>

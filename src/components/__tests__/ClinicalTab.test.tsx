@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ClinicalTab.test.tsx — what the Population Frequencies screen is allowed to claim.
+ * ClinicalTab.test.tsx — what the Population Data screen is allowed to claim.
  *
  * Every assertion here pins a claim the screen previously got wrong:
  *
@@ -141,18 +141,27 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
   });
 });
 
-describe("ClinicalTab — the frequency the engine read is on the screen", () => {
-  it("shows the governing frequency, its source and the counts behind it", () => {
-    renderTab(gzf1Result());
+describe("ClinicalTab — the governing reading is on the screen, counts first", () => {
+  it("shows the counts, their source, and the frequency the rule read beneath them", () => {
+    const { container } = renderTab(gzf1Result());
 
-    // The row subject and its two figures: the frequency (the screen's answer) and the AC/AN line
-    // (the sanity check). Figures carry no visible field labels any more — the words live in
-    // title/sr-only — so the assertion is on the subject and the values, not on labels.
+    // The row subject and its two figures: the counts (the screen's answer) and the frequency it
+    // divides into (the rule's input, one rank down). Figures carry no visible field labels — the
+    // words live in title/sr-only — so the assertion is on the subject and the values.
     expect(screen.getByText("Exomes")).toBeTruthy();
-    expect(screen.getByText(/AC 8 · AN 1,459,156/)).toBeTruthy();
-    // The value renders as the headline figure AND as the exome row's figure AND as the grouped
-    // maximum row's figure (this payload's groupMaxAF equals its exome AF by coincidence).
-    expect(screen.getAllByText("5.50e-6").length).toBeGreaterThanOrEqual(2);
+    /*
+     * The figure is asserted AS the figure, not as a string that appears somewhere: a headline that
+     * stopped rolling the busiest cohort up — or started showing the grouped maximum's frequency
+     * again — has to fail here rather than find the text in a row below it.
+     */
+    const figure = container.querySelector(".figure-headline") as HTMLElement;
+    expect(figure.textContent).toBe("AC 8 · AN 1,459,156");
+    expect(screen.getByText(/Exomes · most copies in any one cohort/)).toBeTruthy();
+    // The rule's own input, labelled as its own line inside the same card.
+    const headlineCard = screen.getByText("ACMG population-frequency evidence")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(within(headlineCard).getByText("AF the rule read")).toBeTruthy();
+    expect(within(headlineCard).getByText("5.50e-6")).toBeTruthy();
     expect(screen.getByText(/gnomAD ancestry-grouped maximum/)).toBeTruthy();
     // Unconfirmed criterion: the chip shows the code behind a dashed border, not a "PM2?" plus a
     // paragraph explaining the "?".
@@ -213,8 +222,14 @@ describe("ClinicalTab — the frequency the engine read is on the screen", () =>
         aouFrequency: { aouAC: 12, aouAN: null, aouHet: 12, aouHom: 0 },
       }),
     );
-    expect(screen.getByText(/AC 12/)).toBeTruthy();
-    expect(screen.getByText(/no usable allele number/)).toBeTruthy();
+    // Scoped to the All of Us card: a page-wide query would pass on the headline alone, which is the
+    // exact weakness the previous revision of this assertion had.
+    const aouCard = screen.getByText("All of Us").closest("div.rounded-xl") as HTMLElement;
+    expect(within(aouCard).getByText("AC 12")).toBeTruthy();
+    expect(within(aouCard).getByText(/no usable allele number/)).toBeTruthy();
+    // The chip must not contradict the figure beneath it: "No result" above "AC 12" said the source
+    // returned nothing when it returned a count and no denominator.
+    expect(within(aouCard).getByText("No frequency")).toBeTruthy();
     // The genotype breakdown the old card dropped must survive too.
     expect(screen.getByText("12 · 0")).toBeTruthy();
   });
