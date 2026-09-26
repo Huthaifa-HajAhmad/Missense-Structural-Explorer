@@ -106,7 +106,7 @@ export default function AboutView() {
       className="w-full flex flex-col items-center justify-start px-4 sm:px-6 py-8 overflow-y-auto"
       style={{ background: "var(--cs-bg)", minHeight: "calc(100vh - var(--cs-chrome-height))" }}
     >
-      <div className="w-full" style={{ maxWidth: 720 }}>
+      <div className="w-full" style={{ maxWidth: 1040 }}>
         {/* ── Brand block ── */}
         <div className="flex items-center gap-4" style={{ marginBottom: 28 }}>
           <div
@@ -142,103 +142,127 @@ export default function AboutView() {
           </div>
         </div>
 
-        {/* ── What this is ── */}
-        <p
-          style={{
-            fontSize: 14,
-            lineHeight: 1.65,
-            color: "var(--cs-text-secondary)",
-            maxWidth: "65ch",
-            margin: "0 0 8px",
-          }}
-        >
-          Missense &amp; Fold is a structural exploration workspace for human missense
-          variants. Give it a gene and an HGVS protein notation, and it resolves the
-          variant's protein context — structure, energetics, splicing, conservation —
-          then assembles the clinical evidence into an interpretation you can trace
-          back to its sources.
-        </p>
-        <p
-          style={{
-            fontSize: 14,
-            lineHeight: 1.65,
-            color: "var(--cs-text-secondary)",
-            maxWidth: "65ch",
-            margin: "0 0 32px",
-          }}
-        >
-          Every result carries its provenance: the data-source releases, the pinned
-          foundation-model revisions and the service states behind each verdict are
-          recorded in a manifest that ships with exported reports.
-        </p>
+        <div className="about-layout">
+          {/* ── Left column: the guide ── */}
+          <div className="min-w-0">
+            <p
+              style={{
+                fontSize: 14,
+                lineHeight: 1.65,
+                color: "var(--cs-text-secondary)",
+                maxWidth: "65ch",
+                margin: "0 0 8px",
+              }}
+            >
+              Missense &amp; Fold is a structural exploration workspace for human missense
+              variants. Give it a gene and an HGVS protein notation, and it resolves the
+              variant's protein context — structure, energetics, splicing, conservation —
+              then assembles the clinical evidence into an interpretation you can trace
+              back to its sources.
+            </p>
+            <p
+              style={{
+                fontSize: 14,
+                lineHeight: 1.65,
+                color: "var(--cs-text-secondary)",
+                maxWidth: "65ch",
+                margin: "0 0 32px",
+              }}
+            >
+              Every result carries its provenance: the data-source releases, the pinned
+              foundation-model revisions and the service states behind each verdict are
+              recorded in a manifest that ships with exported reports.
+            </p>
 
-        {/* ── How the workspace is organized ── */}
-        <section aria-labelledby="about-workflow" style={{ marginBottom: 32 }}>
-          <SectionHeading id="about-workflow">How the workspace is organized</SectionHeading>
-          <div className="flex flex-col" style={{ marginTop: 8 }}>
-            {WORKFLOW_ZONES.map((zone, i) => (
-              <div
-                key={zone.name}
-                className="flex flex-col"
-                style={{ borderTop: i === 0 ? "none" : "1px solid var(--cs-border-subtle)" }}
-              >
-                <div className="py-2.5">
-                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--cs-text-primary)" }}>
-                    {zone.name}
-                  </div>
+            {/* ── How the workspace is organized ── */}
+            <section aria-labelledby="about-workflow">
+              <SectionHeading id="about-workflow">How the workspace is organized</SectionHeading>
+              <div className="flex flex-col" style={{ marginTop: 8 }}>
+                {WORKFLOW_ZONES.map((zone, i) => (
                   <div
-                    style={{
-                      fontSize: 13,
-                      lineHeight: 1.55,
-                      color: "var(--cs-text-muted)",
-                      marginTop: 2,
-                      maxWidth: "65ch",
-                    }}
+                    key={zone.name}
+                    className="flex flex-col"
+                    style={{ borderTop: i === 0 ? "none" : "1px solid var(--cs-border-subtle)" }}
                   >
-                    {zone.desc}
+                    <div className="py-2.5">
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--cs-text-primary)" }}>
+                        {zone.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          lineHeight: 1.55,
+                          color: "var(--cs-text-muted)",
+                          marginTop: 2,
+                          maxWidth: "65ch",
+                        }}
+                      >
+                        {zone.desc}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
+            </section>
           </div>
-        </section>
 
-        {/* ── Pinned model revisions ── */}
-        <section aria-labelledby="about-models" style={{ marginBottom: 32 }}>
-          <SectionHeading id="about-models">Pinned model revisions</SectionHeading>
-          <p
-            style={{
-              fontSize: 12,
-              lineHeight: 1.55,
-              color: "var(--cs-text-muted)",
-              margin: "4px 0 8px",
-            }}
-          >
-            Foundation-model weights are pinned to these revisions so a result can be
-            re-derived later.
-          </p>
-          <KeyValueRows
-            rows={MODEL_REVISIONS.map(([id, rev]) => [
-              rev.model,
-              rev.commitSha ? `@${rev.commitSha.slice(0, 10)}` : rev.weights || id,
-            ])}
-          />
-        </section>
+          {/* ── Right column: the provenance rail (sticky on wide screens) ── */}
+          <aside className="about-rail" aria-label="Version and provenance">
+            <section aria-labelledby="about-models">
+              <SectionHeading id="about-models">Pinned models</SectionHeading>
+              <p
+                style={{
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                  color: "var(--cs-text-muted)",
+                  margin: "4px 0 4px",
+                }}
+              >
+                Weights are pinned so a result can be re-derived later.
+              </p>
+              <KeyValueRows
+                rows={MODEL_REVISIONS.map(([id, rev]) => [
+                  rev.model,
+                  rev.commitSha ? `@${rev.commitSha.slice(0, 10)}` : rev.weights || id,
+                ])}
+              />
+            </section>
 
-        {/* ── Data sources ── */}
-        <section aria-labelledby="about-sources" style={{ marginBottom: 32 }}>
-          <SectionHeading id="about-sources">Data sources</SectionHeading>
-          <div style={{ height: 8 }} />
-          <KeyValueRows
-            rows={DATA_SOURCES.map(([id, release]) => [
-              DATA_SOURCE_LABELS[id] || id,
-              release,
-            ])}
-          />
-        </section>
+            <section aria-labelledby="about-sources">
+              <SectionHeading id="about-sources">Data sources</SectionHeading>
+              <div style={{ height: 8 }} />
+              <KeyValueRows
+                rows={DATA_SOURCES.map(([id, release]) => [
+                  DATA_SOURCE_LABELS[id] || id,
+                  release,
+                ])}
+              />
+            </section>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <a
+                href={APP_REPOSITORY}
+                target="_blank"
+                rel="noreferrer"
+                className="cs-btn-ghost"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Repository
+              </a>
+              <button
+                type="button"
+                className="cs-btn-ghost"
+                onClick={() => openSettingsTab("about")}
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+                Manage data &amp; caches
+              </button>
+            </div>
+          </aside>
+        </div>
 
         {/* ── Research-use disclaimer ── */}
-        <section aria-labelledby="about-disclaimer" style={{ marginBottom: 32 }}>
+        <section aria-labelledby="about-disclaimer" style={{ marginTop: 32, marginBottom: 8 }}>
           <div
             className="rounded-xl"
             style={{
@@ -274,27 +298,6 @@ export default function AboutView() {
             </p>
           </div>
         </section>
-
-        {/* ── Footer actions ── */}
-        <div className="flex flex-wrap items-center gap-2.5" style={{ paddingBottom: 24 }}>
-          <a
-            href={APP_REPOSITORY}
-            target="_blank"
-            rel="noreferrer"
-            className="cs-btn-ghost"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            Repository
-          </a>
-          <button
-            type="button"
-            className="cs-btn-ghost"
-            onClick={() => openSettingsTab("about")}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            Manage data &amp; caches
-          </button>
-        </div>
       </div>
     </div>
   );

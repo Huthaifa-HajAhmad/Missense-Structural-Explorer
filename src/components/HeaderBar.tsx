@@ -1,6 +1,6 @@
 import React from "react";
 import { MasterView } from "./MasterSidebar";
-import { Search, AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon } from "lucide-react";
+import { Search, AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon, PanelLeft } from "lucide-react";
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 
 interface HeaderBarProps {
@@ -9,6 +9,10 @@ interface HeaderBarProps {
   isOffline: boolean;
   isSearchOpen: boolean;
   setIsSearchOpen: (open: boolean) => void;
+  /** Narrow-viewport drawer trigger (App gates it via matchMedia). */
+  showNavToggle?: boolean;
+  onToggleNavDrawer?: () => void;
+  onOpenPalette?: () => void;
   error?: string | null;
   onDismissError?: () => void;
   /** Optional overrides — when omitted the bar reads SettingsContext directly. */
@@ -23,6 +27,9 @@ export function HeaderBar({
   isOffline,
   isSearchOpen,
   setIsSearchOpen,
+  showNavToggle = false,
+  onToggleNavDrawer,
+  onOpenPalette,
   error,
   onDismissError,
   isDark: isDarkProp,
@@ -73,8 +80,26 @@ export function HeaderBar({
 
   const breadcrumbTitle = getBreadcrumbTitle(masterView);
 
+  const paletteHint = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent)
+    ? "⌘K"
+    : "Ctrl K";
+
   return (
     <header className="app-header flex items-center px-4 py-2 border-b border-cs-border bg-cs-surface gap-3 min-h-[44px]" id="main-header">
+      {/* Drawer toggle — rendered only when App reports a narrow viewport */}
+      {showNavToggle && (
+        <button
+          type="button"
+          onClick={onToggleNavDrawer}
+          className="p-1.5 rounded-lg border border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer flex items-center justify-center active:scale-[0.96]"
+          title="Open navigation"
+          aria-label="Open navigation"
+          aria-expanded={showNavToggle}
+        >
+          <PanelLeft className="w-3.5 h-3.5" />
+        </button>
+      )}
+
       {/* Breadcrumb label — muted, hidden on search */}
       {masterView !== "search" && breadcrumbTitle && (
         <span
@@ -107,6 +132,17 @@ export function HeaderBar({
           <Search className="w-3.5 h-3.5" />
         </button>
       )}
+
+      {/* Command palette trigger — keyboard-first navigation, discoverable as a chip */}
+      <button
+        type="button"
+        onClick={onOpenPalette}
+        className="ms-kbd-chip"
+        title={`Open command palette (${paletteHint})`}
+        aria-label={`Open command palette (${paletteHint})`}
+      >
+        {paletteHint}
+      </button>
 
       {/* Center / Inline Status Notices — Integrated smoothly without overlays */}
       <div className="flex items-center gap-2 min-w-0">

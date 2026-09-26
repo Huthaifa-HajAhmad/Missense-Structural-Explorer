@@ -1,4 +1,6 @@
-import React, { useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { motion } from "motion/react";
 import {
   Dna, BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
@@ -65,6 +67,10 @@ interface MasterSidebarProps {
   isLoadingSearch?: boolean;
   loadingStep?: string;
   unreadConsoleCount?: number;
+  /** Narrow-viewport drawer mode: the rail overlays the workspace instead of flex-sharing width. */
+  isDrawerMode?: boolean;
+  isDrawerOpen?: boolean;
+  onCloseDrawer?: () => void;
 }
 
 interface NavItem {
@@ -111,7 +117,10 @@ const NAV_ZONES: NavZone[] = [
   },
 ];
 
-const EVIDENCE_SUB_ITEMS = [
+/** Flat registry of the primary views — shared with the command palette so the two never drift. */
+export const MASTER_VIEW_ITEMS: NavItem[] = NAV_ZONES.flatMap((zone) => zone.items);
+
+export const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population Frequencies" },
   { id: "predictors",   label: "In-Silico Predictors"   },
   { id: "alphagenome",  label: "AlphaGenome Atlas"      },
@@ -124,7 +133,7 @@ const EVIDENCE_SUB_ITEMS = [
   { id: "guidelines",   label: "Scores Thresholds"       },
 ];
 
-const STRUCTURE_SUB_ITEMS = [
+export const STRUCTURE_SUB_ITEMS = [
   { id: "structure_alphafold", label: "AlphaFold2" },
   { id: "structure_esmfold",   label: "ESMFold-2 Model"   },
 ];
@@ -261,11 +270,32 @@ function MasterSidebar({
   isLoadingSearch = false,
   loadingStep = "",
   unreadConsoleCount = 0,
+  isDrawerMode = false,
+  isDrawerOpen = false,
+  onCloseDrawer,
 }: MasterSidebarProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettings();
   const defaultStructureView: MasterView =
     settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
+
+  /* The drawer always shows the expanded rail — collapsing into a 56px overlay
+     would be a third state nobody asked for. */
+  const collapsed = isDrawerMode ? false : isCollapsed;
+  const currentWidth = isDrawerMode
+    ? Math.min(Math.max(sidebarWidth, 240), 320)
+    : collapsed
+      ? SIDEBAR_WIDTH_COLLAPSED
+      : sidebarWidth;
+
+  useEffect(() => {
+    if (!isDrawerMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseDrawer?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isDrawerMode, onCloseDrawer]);
 
   /**
    * Set + persist a width in one place. Pointer drags commit once on mouseup (the
@@ -284,7 +314,7 @@ function MasterSidebar({
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      if (isCollapsed) return;
+      if (collapsed || isDrawerMode) return;
       const startX = e.clientX;
       const startWidth = sidebarWidth;
       let lastWidth = startWidth;
@@ -306,7 +336,7 @@ function MasterSidebar({
          `select-none` only covers the sidebar's own subtree. */
       document.body.style.userSelect = "none";
     },
-    [sidebarWidth, isCollapsed, setSidebarWidth]
+    [sidebarWidth, collapsed, isDrawerMode, setSidebarWidth]
   );
 
   /**
@@ -334,333 +364,389 @@ function MasterSidebar({
     localStorage.setItem("cs-sidebar-collapsed", String(next));
   };
 
-  const currentWidth = isCollapsed ? SIDEBAR_WIDTH_COLLAPSED : sidebarWidth;
+  /**
+   * One navigation exit for every sidebar route: primary rows, sub-tabs and the
+   * About footer all funnel here so the narrow-viewport drawer dismisses itself
+   * after any selection.
+   */
+  const navigate = useCallback(
+    (view: MasterView) => {
+      onViewChange(view);
+      if (isDrawerMode) onCloseDrawer?.();
+    },
+    [onViewChange, isDrawerMode, onCloseDrawer]
+  );
+
+  /* The active rail is a single shared element: `layoutId` makes it glide from row
+     to row (and between the nav and the pinned footer) instead of teleporting.
+     MotionConfig's reducedMotion setting neutralizes it app-wide. */
+  const activeRail = (
+    <motion.span
+      layoutId="ms-active-rail"
+      className="ms-active-rail"
+      transition={{ type: "spring", duration: 0.45, bounce: 0.15 }}
+      aria-hidden="true"
+    />
+  );
 
   return (
-    <aside
-      className="relative flex flex-col h-full flex-shrink-0 overflow-hidden transition-[width] duration-300 select-none"
-      style={{
-        width: currentWidth,
-        minWidth: currentWidth,
-        background: "var(--cs-surface)",
-        borderRight: "1px solid var(--cs-border)",
-      }}
-      aria-label="Main navigation"
-    >
-      {/* ── Brand logo + wordmark + collapse toggle ── */}
-      <div
-        className="flex items-center gap-2 flex-shrink-0 overflow-hidden"
+    <>
+      {/* ── Drawer backdrop (narrow viewports only; CSS keeps it inert on desktop) ── */}
+      {isDrawerMode && isDrawerOpen &&
+        createPortal(
+          <div className="ms-drawer-backdrop" onClick={onCloseDrawer} aria-hidden="true" />,
+          document.body
+        )}
+
+      <aside
+        className="ms-root relative flex flex-col h-full flex-shrink-0 overflow-hidden select-none"
+        data-drawer={isDrawerMode ? (isDrawerOpen ? "open" : "closed") : undefined}
+        inert={isDrawerMode && !isDrawerOpen ? true : undefined}
         style={{
-          padding: isCollapsed ? "14px 10px" : "14px 16px",
-          borderBottom: "1px solid var(--cs-border)",
-          height: "var(--cs-chrome-height)",
-          minHeight: "var(--cs-chrome-height)",
-          justifyContent: isCollapsed ? "center" : "space-between",
+          width: currentWidth,
+          minWidth: currentWidth,
+          background: "var(--cs-surface)",
+          borderRight: "1px solid var(--cs-border)",
         }}
+        aria-label="Main navigation"
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          {/*
-            * When collapsed, this is the ONLY route back out — so it has to be a real button. It was
-            * a `<div>` with an `onClick` and a `title`: no role, no tabIndex, no keyboard handler.
-            * A keyboard user who collapsed the sidebar had no focusable control left to expand it
-            * (the genuine toggle below renders only when `!isCollapsed`), which is a dead end, not a
-            * preference.
-            */}
-          {isCollapsed ? (
+        {/* ── Brand logo + wordmark + collapse toggle ── */}
+        <div
+          className="flex items-center flex-shrink-0 overflow-hidden"
+          style={{
+            padding: isCollapsed ? "14px 10px" : "14px 16px",
+            borderBottom: "1px solid var(--cs-border)",
+            height: "var(--cs-chrome-height)",
+            minHeight: "var(--cs-chrome-height)",
+            justifyContent: isCollapsed ? "center" : "space-between",
+          }}
+        >
+          <div className="flex items-center min-w-0">
+            {/*
+              * When collapsed, this is the ONLY route back out — so it has to be a real button. It was
+              * a `<div>` with an `onClick` and a `title`: no role, no tabIndex, no keyboard handler.
+              * A keyboard user who collapsed the sidebar had no focusable control left to expand it
+              * (the genuine toggle below renders only when `!isCollapsed`), which is a dead end, not a
+              * preference.
+              */}
+            {isCollapsed ? (
+              <button
+                type="button"
+                onClick={toggleCollapse}
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+                className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer active:scale-[0.96] transition-transform"
+                style={{ background: "var(--cs-accent-clay)" }}
+              >
+                <Dna className="w-4 h-4 text-white stroke-[2.2]" />
+              </button>
+            ) : (
+              <div
+                className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: "var(--cs-accent-clay)" }}
+                title="Missense & Fold"
+              >
+                <Dna className="w-4 h-4 text-white stroke-[2.2]" />
+              </div>
+            )}
+            {/* The wordmark stays mounted and compresses (see .ms-brand-wordmark):
+                the logo re-centers as the width eases instead of the text blinking out. */}
+            <span className="ms-brand-wordmark" data-collapsed={collapsed}>
+              <span
+                className="text-[13px] font-semibold tracking-tight whitespace-nowrap"
+                style={{ color: "var(--cs-text-primary)" }}
+              >
+                Missense{" "}
+                <span style={{ color: "var(--cs-accent-clay)" }}>&amp; Fold</span>
+              </span>
+            </span>
+          </div>
+
+          {!collapsed && (
             <button
               type="button"
               onClick={toggleCollapse}
-              aria-label="Expand sidebar"
-              title="Expand sidebar"
-              className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer active:scale-[0.96] transition-transform"
-              style={{ background: "var(--cs-accent-clay)" }}
+              className="p-1 rounded cursor-pointer active:scale-95 transition-all hover:text-[var(--cs-text-primary)]"
+              style={{ color: "var(--cs-text-muted)" }}
+              title="Collapse sidebar"
+              aria-label="Collapse sidebar"
             >
-              <Dna className="w-4 h-4 text-white stroke-[2.2]" />
+              <PanelLeftClose className="w-4 h-4" />
             </button>
-          ) : (
-            <div
-              className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: "var(--cs-accent-clay)" }}
-              title="Missense & Fold"
-            >
-              <Dna className="w-4 h-4 text-white stroke-[2.2]" />
-            </div>
-          )}
-          {!isCollapsed && (
-            <span
-              className="text-[13px] font-semibold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis"
-              style={{ color: "var(--cs-text-primary)" }}
-            >
-              Missense{" "}
-              <span style={{ color: "var(--cs-accent-clay)" }}>&amp; Fold</span>
-            </span>
           )}
         </div>
 
-        {!isCollapsed && (
-          <button
-            type="button"
-            onClick={toggleCollapse}
-            className="p-1 rounded cursor-pointer active:scale-95 transition-all hover:text-[var(--cs-text-primary)]"
-            style={{ color: "var(--cs-text-muted)" }}
-            title="Collapse sidebar"
-            aria-label="Collapse sidebar"
-          >
-            <PanelLeftClose className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+        {/* ── Primary navigation (zone-grouped) ── */}
+        <nav
+          className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden ms-nav-scroll"
+          style={{ padding: collapsed ? "8px 6px" : "4px 6px" }}
+          aria-label="Primary navigation"
+        >
+          {NAV_ZONES.map((zone, zoneIdx) => (
+            <div key={zone.zoneLabel}>
+              {/* Zone label — 11px uppercase, muted. Spacing comes from the inline
+                  style below: it is the single source of truth for the 8/20 rhythm
+                  (first zone vs. rest), so no :first-child margin rule is needed. */}
+              {!collapsed && (
+                <span
+                  className="sidebar-zone-label"
+                  style={{ marginTop: zoneIdx === 0 ? 8 : 20 }}
+                >
+                  {zone.zoneLabel}
+                </span>
+              )}
 
-      {/* ── Primary navigation (zone-grouped) ── */}
-      <nav
-        className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden"
-        style={{ padding: isCollapsed ? "8px 6px" : "4px 6px" }}
-        aria-label="Primary navigation"
-      >
-        {NAV_ZONES.map((zone, zoneIdx) => (
-          <div key={zone.zoneLabel}>
-            {/* Zone label — 11px uppercase, muted. Spacing comes from the inline
-                style below: it is the single source of truth for the 8/20 rhythm
-                (first zone vs. rest), so no :first-child margin rule is needed. */}
-            {!isCollapsed && (
-              <span
-                className="sidebar-zone-label"
-                style={{ marginTop: zoneIdx === 0 ? 8 : 20 }}
-              >
-                {zone.zoneLabel}
-              </span>
-            )}
+              {zone.items.map(({ id, label, sublabel, Icon }) => {
+                const isActive =
+                  activeView === id ||
+                  (id === "structure" && (activeView === "structure_alphafold" || activeView === "structure_esmfold"));
+                const { status, desc } = getWorkflowStageStatus({
+                  view: id,
+                  result: analysisResult,
+                  isFolding,
+                  isBiophysicalLoading,
+                  isClinicalLoading,
+                  isLoadingSearch,
+                  loadingStep,
+                  isPocketLoading,
+                  dynamut2Status,
+                  ddmutStatus,
+                  isNarrativeLoading
+                });
+                /* While a stage is actively running (or degraded/failed), the static
+                   descriptor is replaced by the pipeline's own live sentence — the
+                   `desc` field getWorkflowStageStatus always computed and the sidebar
+                   used to throw away. */
+                const isLive = status === "progress" || status === "degraded" || status === "error";
+                const stageLabel = isLive && desc ? desc : sublabel;
 
-            {zone.items.map(({ id, label, sublabel, Icon }) => {
-              const isActive =
-                activeView === id ||
-                (id === "structure" && (activeView === "structure_alphafold" || activeView === "structure_esmfold"));
-              const { status } = getWorkflowStageStatus({
-                view: id,
-                result: analysisResult,
-                isFolding,
-                isBiophysicalLoading,
-                isClinicalLoading,
-                isLoadingSearch,
-                loadingStep,
-                isPocketLoading,
-                dynamut2Status,
-                ddmutStatus,
-                isNarrativeLoading
-              });
-
-              return (
-                <div key={id} className="flex flex-col">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (id === "structure") {
-                        onViewChange(defaultStructureView);
-                      } else {
-                        onViewChange(id);
-                      }
-                    }}
-                    className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left transition-colors duration-150 active:scale-[0.98] group"
-                    data-active={isActive}
-                    style={{
-                      padding: isCollapsed ? "9px 0" : "8px 10px",
-                      justifyContent: isCollapsed ? "center" : "flex-start",
-                      position: "relative",
-                    }}
-                    aria-label={label}
-                    title={isCollapsed ? `${label}${sublabel ? ` — ${sublabel}` : ""}` : undefined}
-                    aria-current={isActive ? "page" : undefined}
-                  >
-                    {/* 2px left accent rail on active */}
-                    {isActive && <span className="ms-active-rail" aria-hidden="true" />}
-
-                    {/* Nav icon */}
-                    <span
-                      style={{
-                        color: isActive
-                          ? "var(--cs-accent-clay)"
-                          : "var(--cs-text-secondary)",
-                        display: "flex",
-                        flexShrink: 0,
+                return (
+                  <div key={id} className="flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (id === "structure") {
+                          navigate(defaultStructureView);
+                        } else {
+                          navigate(id);
+                        }
                       }}
+                      className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left active:scale-[0.98] group"
+                      data-active={isActive}
+                      style={{
+                        padding: collapsed ? "9px 14px" : "8px 14px",
+                        justifyContent: "flex-start",
+                        position: "relative",
+                      }}
+                      aria-label={label}
+                      title={collapsed ? `${label}${sublabel ? ` — ${sublabel}` : ""}` : undefined}
+                      aria-current={isActive ? "page" : undefined}
                     >
-                      <Icon className="w-4 h-4" />
-                    </span>
+                      {/* Shared sliding rail */}
+                      {isActive && activeRail}
 
-                    {/* Primary label + descriptor (expanded only) */}
-                    {!isCollapsed && (
-                      <span className="flex flex-col min-w-0 flex-1">
-                        {/* Primary label: 14px / 500 */}
-                        <span
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 500,
-                            lineHeight: "1.3",
-                            color: isActive
-                              ? "var(--cs-accent-clay)"
-                              : "var(--cs-text-primary)",
-                          }}
-                        >
-                          {label}
-                        </span>
-                        {/* Descriptor: 12px / 400, muted */}
-                        {sublabel && (
+                      {/* Nav icon */}
+                      <span
+                        style={{
+                          color: isActive
+                            ? "var(--cs-accent-clay)"
+                            : "var(--cs-text-secondary)",
+                          display: "flex",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </span>
+
+                      {/* Primary label + descriptor (expanded only) */}
+                      {!collapsed && (
+                        <span className="flex flex-col min-w-0 flex-1">
+                          {/* Primary label: 14px / 500 */}
                           <span
                             style={{
-                              fontSize: 12,
-                              fontWeight: 400,
+                              fontSize: 14,
+                              fontWeight: 500,
                               lineHeight: "1.3",
-                              color: "var(--cs-text-muted)",
+                              color: isActive
+                                ? "var(--cs-accent-clay)"
+                                : "var(--cs-text-primary)",
                             }}
-                            className="truncate"
                           >
-                            {sublabel}
+                            {label}
                           </span>
-                        )}
-                      </span>
-                    )}
+                          {/* Descriptor: 12px / 400 — the live pipeline sentence wins over the static one */}
+                          {stageLabel && (
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 400,
+                                lineHeight: "1.3",
+                                color:
+                                  status === "error"
+                                    ? "var(--cs-text-danger)"
+                                    : status === "degraded"
+                                      ? "var(--cs-text-warning)"
+                                      : "var(--cs-text-muted)",
+                              }}
+                              className="truncate"
+                            >
+                              {stageLabel}
+                            </span>
+                          )}
+                        </span>
+                      )}
 
-                    {/* Completion indicator or Console badge (right edge) */}
-                    {!isCollapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
-                      <span className="ml-auto flex-shrink-0 dev-console-badge">
-                        {(unreadConsoleCount ?? 0) > 99 ? "99+" : unreadConsoleCount}
-                      </span>
-                    )}
+                      {/* Completion indicator or Console badge (right edge) */}
+                      {!collapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
+                        <span className="ml-auto flex-shrink-0 dev-console-badge">
+                          {(unreadConsoleCount ?? 0) > 99 ? "99+" : unreadConsoleCount}
+                        </span>
+                      )}
 
-                    {!isCollapsed && id !== "console" && (
-                      <span className="ml-auto flex-shrink-0">
-                        <StepIcon status={status} />
-                      </span>
-                    )}
+                      {!collapsed && id !== "console" && (
+                        <span className="ml-auto flex-shrink-0">
+                          <StepIcon status={status} />
+                        </span>
+                      )}
 
-                    {isCollapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
-                      <span
-                        className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"
-                        title={`${unreadConsoleCount} unread console entries`}
-                      />
-                    )}
-                  </button>
-
-                  {/* ── Evidence sub-items ── */}
-                  {id === "evidence" && !isCollapsed && (
-                    <div className="ms-sub-list">
-                      {EVIDENCE_SUB_ITEMS.map((sub) => (
-                        <SubNavItem
-                          key={sub.id}
-                          label={sub.label}
-                          isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
-                          isStreaming={isEvidenceSubStreaming(sub.id, isBiophysicalLoading, analysisResult)}
-                          onClick={() => {
-                            onViewChange("evidence");
-                            onEvidenceTabChange(sub.id);
-                          }}
+                      {collapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
+                        <span
+                          className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"
+                          title={`${unreadConsoleCount} unread console entries`}
                         />
-                      ))}
-                    </div>
-                  )}
+                      )}
+                    </button>
 
-                  {/* ── 3D Structure sub-items ── */}
-                  {id === "structure" && !isCollapsed && (
-                    <div className="ms-sub-list">
-                      {STRUCTURE_SUB_ITEMS.map((sub) => (
-                        <SubNavItem
-                          key={sub.id}
-                          label={sub.label}
-                          isActive={activeView === sub.id}
-                          onClick={() => onViewChange(sub.id as MasterView)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
+                    {/* ── Evidence sub-items: always mounted; the grid disclosure
+                          morphs them with the width animation instead of popping ── */}
+                    {id === "evidence" && (
+                      <div className="ms-sub-list" data-open={!collapsed}>
+                        <div className="ms-sub-list-inner">
+                          <div>
+                            {EVIDENCE_SUB_ITEMS.map((sub) => (
+                              <SubNavItem
+                                key={sub.id}
+                                label={sub.label}
+                                isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
+                                isStreaming={isEvidenceSubStreaming(sub.id, isBiophysicalLoading, analysisResult)}
+                                onClick={() => {
+                                  navigate("evidence");
+                                  onEvidenceTabChange(sub.id);
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-      {/* ── Pinned footer: About — outside the scroll area, so it is always
-            reachable no matter how far the nav is scrolled ── */}
-      <div
-        className="flex-shrink-0"
-        style={{
-          borderTop: "1px solid var(--cs-border)",
-          padding: "6px 6px",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => onViewChange("about")}
-          className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left transition-colors duration-150 active:scale-[0.98]"
-          data-active={activeView === "about"}
-          style={{
-            padding: isCollapsed ? "9px 0" : "8px 10px",
-            justifyContent: isCollapsed ? "center" : "flex-start",
-            position: "relative",
-          }}
-          aria-label="About"
-          aria-current={activeView === "about" ? "page" : undefined}
-          title={isCollapsed ? "About — Workspace guide & data sources" : undefined}
-        >
-          {activeView === "about" && <span className="ms-active-rail" aria-hidden="true" />}
-          <span
-            style={{
-              color: activeView === "about"
-                ? "var(--cs-accent-clay)"
-                : "var(--cs-text-secondary)",
-              display: "flex",
-              flexShrink: 0,
-            }}
-          >
-            <Info className="w-4 h-4" />
-          </span>
-          {!isCollapsed && (
-            <span className="flex flex-col min-w-0 flex-1">
-              <span
-                style={{
-                  fontSize: 14,
-                  fontWeight: 500,
-                  lineHeight: "1.3",
-                  color: activeView === "about"
-                    ? "var(--cs-accent-clay)"
-                    : "var(--cs-text-primary)",
-                }}
-              >
-                About
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 400,
-                  lineHeight: "1.3",
-                  color: "var(--cs-text-muted)",
-                }}
-                className="truncate"
-              >
-                Workspace guide & data sources
-              </span>
-            </span>
-          )}
-        </button>
-      </div>
+                    {/* ── 3D Structure sub-items ── */}
+                    {id === "structure" && (
+                      <div className="ms-sub-list" data-open={!collapsed}>
+                        <div className="ms-sub-list-inner">
+                          <div>
+                            {STRUCTURE_SUB_ITEMS.map((sub) => (
+                              <SubNavItem
+                                key={sub.id}
+                                label={sub.label}
+                                isActive={activeView === sub.id}
+                                onClick={() => navigate(sub.id as MasterView)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
 
-      {/* ── Resize drag handle — pointer + keyboard, 12px hit area with a
-            4px visible strip (see .ms-resize-handle) ── */}
-      {!isCollapsed && (
+        {/* ── Pinned footer: About — outside the scroll area, so it is always
+              reachable no matter how far the nav is scrolled ── */}
         <div
-          ref={resizeRef}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Sidebar width. Press ArrowLeft or ArrowRight to resize, Home or End for the limits."
-          title="Drag to resize · double-click to reset"
-          tabIndex={0}
-          onMouseDown={handleMouseDown}
-          onKeyDown={handleResizeKeyDown}
-          onDoubleClick={() => commitWidth(SIDEBAR_WIDTH_DEFAULT)}
-          className="ms-resize-handle"
-        />
-      )}
-    </aside>
+          className="flex-shrink-0"
+          style={{
+            borderTop: "1px solid var(--cs-border)",
+            padding: "6px 6px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => navigate("about")}
+            className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left active:scale-[0.98]"
+            data-active={activeView === "about"}
+            style={{
+              padding: collapsed ? "9px 14px" : "8px 14px",
+              justifyContent: "flex-start",
+              position: "relative",
+            }}
+            aria-label="About"
+            aria-current={activeView === "about" ? "page" : undefined}
+            title={collapsed ? "About — Workspace guide & data sources" : undefined}
+          >
+            {activeView === "about" && activeRail}
+            <span
+              style={{
+                color: activeView === "about"
+                  ? "var(--cs-accent-clay)"
+                  : "var(--cs-text-secondary)",
+                display: "flex",
+                flexShrink: 0,
+              }}
+            >
+              <Info className="w-4 h-4" />
+            </span>
+            {!collapsed && (
+              <span className="flex flex-col min-w-0 flex-1">
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 500,
+                    lineHeight: "1.3",
+                    color: activeView === "about"
+                      ? "var(--cs-accent-clay)"
+                      : "var(--cs-text-primary)",
+                  }}
+                >
+                  About
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 400,
+                    lineHeight: "1.3",
+                    color: "var(--cs-text-muted)",
+                  }}
+                  className="truncate"
+                >
+                  Workspace guide & data sources
+                </span>
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ── Resize drag handle — pointer + keyboard, 12px hit area with a
+              4px visible strip (see .ms-resize-handle) ── */}
+        {!collapsed && !isDrawerMode && (
+          <div
+            ref={resizeRef}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Sidebar width. Press ArrowLeft or ArrowRight to resize, Home or End for the limits."
+            title="Drag to resize · double-click to reset"
+            tabIndex={0}
+            onMouseDown={handleMouseDown}
+            onKeyDown={handleResizeKeyDown}
+            onDoubleClick={() => commitWidth(SIDEBAR_WIDTH_DEFAULT)}
+            className="ms-resize-handle"
+          />
+        )}
+      </aside>
+    </>
   );
 }
 

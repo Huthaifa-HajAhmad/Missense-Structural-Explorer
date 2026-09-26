@@ -1,15 +1,16 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { MotionConfig } from "motion/react";
 import { ShieldAlert } from "lucide-react";
 import useVariantAnalysis from "./useVariantAnalysis";
 import { useApiClient } from "./apiClient";
 import { useSettings } from "./context/SettingsContext";
-import MasterSidebar, { MasterView, SIDEBAR_WIDTH_DEFAULT, clampSidebarWidth } from "./components/MasterSidebar";
+import MasterSidebar, { MasterView, clampSidebarWidth } from "./components/MasterSidebar";
 import HeaderBar from "./components/HeaderBar";
 import VariantHeader from "./components/VariantHeader";
 import AppViews from "./components/AppViews";
 import { QueryStrip } from "./components/QueryStrip";
 import SettingsDrawer from "./components/settings/SettingsDrawer";
+import CommandPalette from "./components/CommandPalette";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import StructuralLegendModal from "./components/modals/StructuralLegendModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
@@ -67,6 +68,31 @@ export default function App() {
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+
+  /* Narrow-viewport drawer mode: below 900px the fixed-width rail + inspector +
+     content cannot coexist, so the rail overlays as a drawer (MasterSidebar reads
+     isDrawerMode to force the expanded layout and hide the resize handle). */
+  const [isNavDrawerOpen, setIsNavDrawerOpen] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(
+    () => window.matchMedia("(max-width: 899px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 899px)");
+    const onChange = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  /* Every sidebar-or-app navigation funnels here so the drawer dismisses itself
+     after a selection — on desktop the state flip is a harmless no-op. */
+  const navigate = useCallback(
+    (view: MasterView) => {
+      setMasterView(view);
+      setIsNavDrawerOpen(false);
+    },
+    []
+  );
 
   // Application side-effects hook
   useAppEffects({
@@ -96,11 +122,14 @@ export default function App() {
         {/* ── Resizable and Collapsible Master Sidebar ── */}
         <MasterSidebar
           activeView={masterView}
-          onViewChange={setMasterView}
+          onViewChange={navigate}
           sidebarWidth={sidebarWidth}
           setSidebarWidth={setSidebarWidth}
           isCollapsed={isSidebarCollapsed}
           setIsCollapsed={setIsSidebarCollapsed}
+          isDrawerMode={isNarrowViewport}
+          isDrawerOpen={isNavDrawerOpen}
+          onCloseDrawer={() => setIsNavDrawerOpen(false)}
           activeEvidenceTab={activeEvidenceTab}
           onEvidenceTabChange={setActiveEvidenceTab}
           analysisResult={analysisState.result}
@@ -126,6 +155,9 @@ export default function App() {
             isOffline={isOffline}
             isSearchOpen={isSearchOpen}
             setIsSearchOpen={setIsSearchOpen}
+            showNavToggle={isNarrowViewport}
+            onToggleNavDrawer={() => setIsNavDrawerOpen((open) => !open)}
+            onOpenPalette={() => setIsPaletteOpen(true)}
             error={analysisState.error}
             onDismissError={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
             isDark={isDark}
@@ -158,7 +190,7 @@ export default function App() {
           {/* ── Primary Viewport Screen Router ── */}
           <AppViews
             masterView={masterView}
-            setMasterView={setMasterView}
+            setMasterView={navigate}
             actions={actions}
             pushErrorEntry={pushErrorEntry}
             setIsSettingsOpen={setIsSettingsOpen}
@@ -178,6 +210,18 @@ export default function App() {
 
           {/* Settings Drawer Slide-over */}
           <SettingsDrawer />
+
+          {/* Command Palette (Ctrl+K) — navigation, tabs, recents, system actions */}
+          <CommandPalette
+            open={isPaletteOpen}
+            onOpenChange={setIsPaletteOpen}
+            onViewChange={navigate}
+            onEvidenceTabChange={(tab) => {
+              setActiveEvidenceTab(tab);
+              navigate("evidence");
+            }}
+            onSelectHistory={actions.handleSelectHistoryItem}
+          />
 
           {/* How to Inspect Modal Popup */}
           <HowToInspectModal

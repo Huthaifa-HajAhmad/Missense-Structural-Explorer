@@ -19,8 +19,13 @@
 
 .ms-nav-btn {
   border: 1px solid transparent;
+  /* Padding also transitions: the collapse choreography animates the aside's
+     width while the row's horizontal padding moves toward the centered icon,
+     so no part of the button snaps mid-morph. */
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1),
-              border-color 150ms cubic-bezier(0.2, 0, 0, 1);
+              border-color 150ms cubic-bezier(0.2, 0, 0, 1),
+              padding 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              transform 120ms cubic-bezier(0.2, 0, 0, 1);
 }
 .ms-nav-btn:hover {
   background: var(--cs-bg-subtle);
@@ -44,16 +49,75 @@
   background: var(--cs-accent-clay);
 }
 
-/* Sub-navigation (Evidence tabs, structure models) */
+/* ── Collapse choreography ──
+   The aside animates width; content must choreograph with that geometry, not
+   snap. The brand wordmark stays mounted and compresses (max-width -> 0) while
+   fading, so the logo truly re-centers. Nav labels keep their conditional mount
+   — the aside's overflow-hidden clips them progressively, which is the reveal —
+   and the sub-lists morph via the house 0fr -> 1fr disclosure pattern. */
+.ms-brand-wordmark {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 200px;
+  margin-left: 10px;
+  opacity: 1;
+  transition: max-width 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
+              margin-left 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              visibility 0s linear 250ms;
+}
+.ms-brand-wordmark[data-collapsed="true"] {
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: max-width 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              opacity 120ms cubic-bezier(0.4, 0, 1, 1),
+              margin-left 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              visibility 0s linear 250ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ms-brand-wordmark,
+  .ms-brand-wordmark[data-collapsed="true"] {
+    transition: opacity 0s, visibility 0s;
+  }
+}
+
+/* Sub-navigation (Evidence tabs, structure models) — a grid disclosure, not a
+   conditional mount: `0fr -> 1fr` (the house pattern from .report-disclosure)
+   lets the ten Evidence rows morph with the width animation instead of popping.
+   Visibility swaps at the END of the collapse so hidden rows leave the a11y
+   tree and tab order only after they are actually gone. */
 .ms-sub-list {
-  display: flex;
-  flex-direction: column;
-  margin-left: 14px;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
+              visibility 0s linear 250ms;
+}
+.ms-sub-list[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows 250ms cubic-bezier(0.23, 1, 0.32, 1),
+              opacity 180ms cubic-bezier(0.23, 1, 0.32, 1) 60ms,
+              visibility 0s;
+}
+.ms-sub-list-inner {
+  overflow: hidden;
+  min-height: 0;
+  margin: 0 0 0 14px;
   padding-left: 12px;
   border-left: 1px solid var(--cs-border-subtle);
+}
+.ms-sub-list-inner > div {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
-  margin-top: 3px;
-  margin-bottom: 4px;
+  padding: 3px 0 4px;
 }
 .ms-sub-btn {
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
@@ -118,6 +182,166 @@
 }
 .ms-resize-handle:active::before {
   background: rgba(196, 104, 73, 0.5);
+}
+
+/* ── Nav scroll-edge masks ──
+   Fades the first/last ~20px of the scroll area so a clipped row (e.g. Report
+   meeting the pinned footer) reads as "more below" rather than as a rendering
+   bug. Requires the nav to be the mask container — mask-composite keeps both
+   gradients inside one mask-image list. */
+.ms-nav-scroll {
+  --ms-fade: 20px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black var(--ms-fade-top, 0px), black calc(100% - var(--ms-fade-bottom, 0px)), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, black var(--ms-fade-top, 0px), black calc(100% - var(--ms-fade-bottom, 0px)), transparent 100%);
+}
+
+/* ── Narrow-viewport drawer mode (below 900px) ──
+   The workspace keeps its full width and the rail slides over it. Rendered by
+   JS state (App owns the toggle via matchMedia), so the CSS only supplies the
+   geometry and the two transform states — no media query fighting inline
+   widths. The drawer curve is the iOS drawer ease. Exit is faster than enter
+   per the asymmetric-timing rule. */
+.ms-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  background: rgba(25, 24, 22, 0.35);
+  animation: ms-fade-in 200ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.dark .ms-drawer-backdrop {
+  background: rgba(8, 7, 6, 0.5);
+}
+@media (max-width: 899px) {
+  /* Leave the flex row entirely: the workspace content takes the full width
+     and the rail overlays it from the left edge. */
+  .ms-root {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 45; /* above the header (z-20) and drawer backdrop (z-44); below the palette (z-60) */
+    box-shadow: 12px 0 40px rgba(25, 24, 22, 0.18);
+  }
+  .ms-root[data-drawer="closed"] {
+    transform: translateX(-102%);
+  }
+  .ms-root {
+    transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
+/* ── Command palette (Ctrl+K) ──
+   cmdk surfaces; no open/close animation — a keyboard-initiated, high-frequency
+   surface animates never (Raycast rule). Entry styling only. */
+@keyframes ms-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cs-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* above the settings drawer (z-50) */
+  background: rgba(25, 24, 22, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 14vh 16px 16px;
+}
+.cs-palette {
+  width: min(560px, 100%);
+  max-height: min(420px, 70dvh);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--cs-radius-panel);
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface);
+  box-shadow: 0 8px 32px rgba(25, 24, 22, 0.16), 0 1px 4px rgba(25, 24, 22, 0.08);
+  overflow: hidden;
+}
+/* cmdk renders the input inside a wrapper div carrying its own search icon —
+   the underline and focus indicator belong to the wrapper, so icon + input
+   read as one field. */
+.cs-palette [cmdk-input-wrapper] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+  color: var(--cs-text-muted);
+  flex-shrink: 0;
+}
+.cs-palette [cmdk-input-wrapper]:focus-within {
+  border-bottom-color: rgba(196, 104, 73, 0.55);
+  color: var(--cs-accent-clay);
+}
+.cs-palette [cmdk-input] {
+  all: unset;
+  flex: 1;
+  font-family: var(--cs-font-sans);
+  font-size: 14px;
+  color: var(--cs-text-primary);
+  min-width: 0;
+}
+.cs-palette [cmdk-input]::placeholder {
+  color: var(--cs-text-muted);
+}
+.cs-palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+.cs-palette [cmdk-group-heading] {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+  padding: 8px 10px 4px;
+}
+.cs-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--cs-radius-input);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cs-text-primary);
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.cs-palette-item-icon {
+  color: var(--cs-text-muted);
+  display: flex;
+  flex-shrink: 0;
+}
+.cs-palette-item-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-family: var(--cs-font-mono);
+  color: var(--cs-text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.cs-palette [data-selected="true"],
+.cs-palette [data-selected=""],
+.cs-palette [aria-selected="true"] {
+  background: var(--cs-bg-subtle);
+}
+.cs-palette [data-selected="true"] .cs-palette-item-icon,
+.cs-palette [data-selected=""] .cs-palette-item-icon,
+.cs-palette [aria-selected="true"] .cs-palette-item-icon {
+  color: var(--cs-accent-clay);
+}
+.cs-palette-empty {
+  padding: 18px 14px;
+  font-size: 12.5px;
+  color: var(--cs-text-muted);
+}
+.cs-palette-item-mark {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--cs-text-muted);
 }
 
 /* Main content area (right of master sidebar) */
@@ -270,13 +494,18 @@
 }
 
 /* SIDEBAR ZONE LABEL — vertical rhythm (8px first zone / 20px rest) is set by the
-   inline style in MasterSidebar, which is the single source of truth; the old
-   `margin-top` + `:first-child` overrides here were dead because inline always won. */
+   inline style in MasterSidebar, which is the single source of truth. Sticky so a
+   scrolled nav never loses the zone a row belongs to. Set on a container that
+   clips (the scrolling nav), which is what makes sticky-with-background work. */
 .sidebar-zone-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   font-family: var(--cs-font-sans);
   font-size: 11px;
   font-weight: 500;
   color: var(--cs-text-muted);
+  background: var(--cs-surface);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0 10px 4px;
@@ -762,6 +991,77 @@
  * components/inspector/ViewInspector.tsx (which styles the panel with utilities and an
  * inline width). Removing them so there is one source of truth for the panel geometry.
  */
+
+/* ── About view: two-column reading layout ──
+   The single 720px reading column left half of a wide viewport empty. The guide
+   prose keeps its ~65ch measure on the left; version, pinned model revisions,
+   data sources and actions move into a sticky provenance rail on the right,
+   which stacks below the prose under 1024px. */
+.about-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+.about-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+@media (min-width: 1024px) {
+  .about-layout {
+    grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr);
+    gap: 48px;
+  }
+  .about-rail {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+/* ── Command palette footer hints ── */
+.cs-palette-footer {
+  border-top: 1px solid var(--cs-border-subtle);
+  padding: 7px 14px;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  color: var(--cs-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+/* ── Header palette chip (Ctrl K) ──
+   Same hairline treatment as the VariantHeader's identifier entries so the chip
+   reads as chrome, not as a call-to-action. */
+.ms-kbd-chip {
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--cs-text-muted);
+  background: transparent;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-badge);
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.ms-kbd-chip:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+.ms-kbd-chip:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 2px;
+}
+.ms-kbd-chip:active {
+  transform: scale(0.97);
+}
 
 /* DATA-SCREEN TWO-ZONE LAYOUT */
 .data-screen-layout {
