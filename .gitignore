@@ -84,5 +84,7 @@ graphify-out/
 /rotabase.txt
 pnpm-lock.yaml
 pnpm-workspace.yaml
+impeccable-detect.*
 
 tools/graft/
+

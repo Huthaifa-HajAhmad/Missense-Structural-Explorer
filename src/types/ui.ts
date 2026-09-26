@@ -29,7 +29,7 @@ export interface AnalysisState {
 
 export interface UserSettings {
   residueColor: string; // e.g., "#F97316"
-  primaryAccent: "indigo" | "purple" | "rose" | "emerald" | "amber" | "blue";
+  primaryAccent: "clay" | "indigo" | "purple" | "rose" | "emerald" | "amber" | "blue";
   geminiApiKey?: string;
   geminiSessionId?: string;
   geminiSessionExpiresAt?: number;

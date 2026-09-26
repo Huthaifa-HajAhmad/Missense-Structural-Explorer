@@ -26,21 +26,6 @@
   to   { transform: rotate(360deg); }
 }
 
-/* Keyframes for QueryStrip expand down transition */
-@keyframes slide-down {
-  from {
-    transform: translateY(-15px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-.animate-slide-down {
-  animation: slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
 /* SPINNER — loading glyph */
 @keyframes cs-spin-slow {
   0%   { transform: rotate(0deg); }

@@ -164,10 +164,9 @@ export const MolstarInfoOverlay: React.FC<MolstarInfoOverlayProps> = ({
             transform: `translate(${alertPosition.x}px, ${alertPosition.y}px)`,
             cursor: isDragging ? 'grabbing' : 'grab',
             background: "var(--cs-surface)",
-            borderColor: "var(--cs-border)",
             color: "var(--cs-text-primary)"
           }}
-          className="absolute top-3 right-12 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border border-l-4 border-l-rose-500 z-20 shadow-xl transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none"
+          className="absolute top-3 right-12 max-w-[280px] backdrop-blur-md p-3.5 rounded-xl border border-rose-500/30 z-20 shadow-xl transition-shadow flex flex-col gap-1.5 animate-slide-in pointer-events-auto select-none"
         >
           <div className="flex items-center justify-between gap-4 border-b pb-1.5" style={{ borderColor: "var(--cs-border-subtle)" }}>
             <div className="flex items-center gap-2">

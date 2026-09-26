@@ -58,7 +58,7 @@ export function ConnectionsSection() {
     <div className="space-y-6">
       <SettingsSection
         title="Gemini session"
-        hint="Your key is exchanged for a short-lived server token and never written to disk."
+        hint="Optional. Unlocks generative AI clinical synthesis and PubMed narrative mining. Core biophysics and 3D folding operate without a key."
       >
         <div className="py-3 space-y-3">
           <div

@@ -28,8 +28,8 @@ export function ColorSwatches({ colors, value, onChange, ariaLabel }: ColorSwatc
             aria-label={`${color.name}${selected ? " (selected)" : ""}`}
             aria-pressed={selected}
             onClick={() => onChange(color.hex)}
-            className={`w-6 h-6 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
-              selected ? "ring-2 ring-offset-1" : "hover:scale-110 border-transparent"
+            className={`w-6.5 h-6.5 rounded-full border flex items-center justify-center transition-all duration-150 cursor-pointer active:scale-90 ${
+              selected ? "ring-2 ring-offset-1.5 shadow-sm scale-105" : "hover:scale-110 border-transparent opacity-85 hover:opacity-100"
             }`}
             style={{
               backgroundColor: color.hex,

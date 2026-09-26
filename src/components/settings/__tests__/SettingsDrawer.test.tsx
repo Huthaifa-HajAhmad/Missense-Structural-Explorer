@@ -139,4 +139,43 @@ describe("SettingsDrawer (settings revamp)", () => {
     expect(screen.getByRole("tab", { name: /connections/i })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/application \/ lab api token/i)).toBeInTheDocument();
   });
+
+  it("deep-links legacy 'about' callers onto the Data & storage section", async () => {
+    function AboutOpener() {
+      const { openSettingsTab } = useSettings();
+      return (
+        <>
+          <button onClick={() => openSettingsTab("about")}>open-about</button>
+          <SettingsDrawer />
+        </>
+      );
+    }
+    render(
+      <SettingsProvider>
+        <AboutOpener />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByText("open-about"));
+    await act(async () => {});
+
+    expect(screen.getByRole("tab", { name: /data & storage/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText(/settings backup/i)).toBeInTheDocument();
+    expect(screen.getByText(/local storage & privacy/i)).toBeInTheDocument();
+  });
+
+  it("filters settings in real time via search input and allows configuration", async () => {
+    renderDrawer();
+    fireEvent.click(screen.getByText("open-settings"));
+    await act(async () => {});
+
+    const searchInput = screen.getByPlaceholderText(/search settings/i);
+    fireEvent.change(searchInput, { target: { value: "polar" } });
+
+    expect(screen.getByText(/polar contacts & hydrogen bonds/i)).toBeInTheDocument();
+    const configBtn = screen.getByRole("button", { name: /configure/i });
+    fireEvent.click(configBtn);
+
+    expect(screen.getByRole("tab", { name: /viewport/i })).toHaveAttribute("aria-selected", "true");
+  });
 });

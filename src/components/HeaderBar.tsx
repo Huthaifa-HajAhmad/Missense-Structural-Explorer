@@ -1,17 +1,17 @@
 import React from "react";
 import { MasterView } from "./MasterSidebar";
-import { Search, AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon, PanelLeft } from "lucide-react";
+import { AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon, PanelLeft } from "lucide-react";
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
+import { commandPaletteHint } from "../shared/platform";
 
 interface HeaderBarProps {
   masterView: MasterView;
   isBiophysicalLoading: boolean;
   isOffline: boolean;
-  isSearchOpen: boolean;
-  setIsSearchOpen: (open: boolean) => void;
   /** Narrow-viewport drawer trigger (App gates it via matchMedia). */
   showNavToggle?: boolean;
   onToggleNavDrawer?: () => void;
+  /** Opens the command palette, which owns the query line and every jump. */
   onOpenPalette?: () => void;
   error?: string | null;
   onDismissError?: () => void;
@@ -25,8 +25,6 @@ export function HeaderBar({
   masterView,
   isBiophysicalLoading,
   isOffline,
-  isSearchOpen,
-  setIsSearchOpen,
   showNavToggle = false,
   onToggleNavDrawer,
   onOpenPalette,
@@ -80,9 +78,8 @@ export function HeaderBar({
 
   const breadcrumbTitle = getBreadcrumbTitle(masterView);
 
-  const paletteHint = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent)
-    ? "⌘K"
-    : "Ctrl K";
+  /* One source for the chord label — the palette footer prints the same string. */
+  const paletteHint = commandPaletteHint();
 
   return (
     <header className="app-header flex items-center px-4 py-2 border-b border-cs-border bg-cs-surface gap-3 min-h-[44px]" id="main-header">
@@ -115,25 +112,9 @@ export function HeaderBar({
         <div style={{ width: 1, height: 16, background: "var(--cs-border)", flexShrink: 0 }} />
       )}
 
-      {/* Quick Search Button in Header */}
-      {masterView !== "search" && (
-        <button
-          id="header-search-trigger"
-          type="button"
-          onClick={() => setIsSearchOpen(!isSearchOpen)}
-          className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
-            isSearchOpen
-              ? "bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)] border-[var(--cs-accent-clay)]"
-              : "border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)]"
-          }`}
-          title="Toggle quick search panel"
-          aria-label="Toggle quick search"
-        >
-          <Search className="w-3.5 h-3.5" />
-        </button>
-      )}
-
-      {/* Command palette trigger — keyboard-first navigation, discoverable as a chip */}
+      {/* Command palette trigger — the header's way into every quick action, including
+          the variant query line. The keyboard chord is the primary path; this chip exists so
+          the hotkey is discoverable. */}
       <button
         type="button"
         onClick={onOpenPalette}

@@ -8,7 +8,6 @@ import MasterSidebar, { MasterView, clampSidebarWidth } from "./components/Maste
 import HeaderBar from "./components/HeaderBar";
 import VariantHeader from "./components/VariantHeader";
 import AppViews from "./components/AppViews";
-import { QueryStrip } from "./components/QueryStrip";
 import SettingsDrawer from "./components/settings/SettingsDrawer";
 import CommandPalette from "./components/CommandPalette";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
@@ -67,7 +66,6 @@ export default function App() {
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
   /* Narrow-viewport drawer mode: below 900px the fixed-width rail + inspector +
@@ -153,8 +151,6 @@ export default function App() {
             masterView={masterView}
             isBiophysicalLoading={isBiophysicalLoading}
             isOffline={isOffline}
-            isSearchOpen={isSearchOpen}
-            setIsSearchOpen={setIsSearchOpen}
             showNavToggle={isNarrowViewport}
             onToggleNavDrawer={() => setIsNavDrawerOpen((open) => !open)}
             onOpenPalette={() => setIsPaletteOpen(true)}
@@ -163,16 +159,6 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => setIsSettingsOpen(true)}
-          />
-
-          {/* ── Quick Search Dropdown ── */}
-          <QueryStrip
-            isDark={isDark}
-            isOpen={isSearchOpen}
-            onClose={() => setIsSearchOpen(false)}
-            handleSearchSubmit={actions.handleSearchSubmit}
-            clearHistory={actions.clearHistory}
-            handleSelectHistoryItem={actions.handleSelectHistoryItem}
           />
 
           {/* ── Global Variant Header — hidden on the Search workspace and the
@@ -209,13 +195,20 @@ export default function App() {
           />
 
           {/* Settings Drawer Slide-over */}
-          <SettingsDrawer />
+          <SettingsDrawer
+            onNavigateAbout={() => {
+              setIsSettingsOpen(false);
+              navigate("about");
+            }}
+          />
 
-          {/* Command Palette (Ctrl+K) — navigation, tabs, recents, system actions */}
+          {/* Command palette (Ctrl+K) — views, tabs, recents, system actions, variant runs */}
           <CommandPalette
             open={isPaletteOpen}
             onOpenChange={setIsPaletteOpen}
             onViewChange={navigate}
+            activeView={masterView}
+            activeEvidenceTab={activeEvidenceTab}
             onEvidenceTabChange={(tab) => {
               setActiveEvidenceTab(tab);
               navigate("evidence");

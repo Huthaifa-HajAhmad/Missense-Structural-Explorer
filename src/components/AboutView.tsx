@@ -594,8 +594,8 @@ export default function AboutView() {
               </a>
               <button
                 type="button"
-                className="cs-btn-ghost"
-                onClick={() => openSettingsTab("about")}
+                className="cs-btn-ghost active:scale-[0.97] transition-transform duration-150"
+                onClick={() => openSettingsTab("data")}
               >
                 <Settings2 className="w-3.5 h-3.5" aria-hidden="true" />
                 Manage data &amp; caches

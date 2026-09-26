@@ -13,6 +13,18 @@
   --accent-705:  #7D2F15;
 }
 
+:root[data-accent="clay"] {
+  --accent-50:   #FBF0EB;
+  --accent-100:  #F5DDD3;
+  --accent-400:  #D4836A;
+  --accent-500:  #C46849;
+  --accent-550:  #B55C3E;
+  --accent-600:  #A84F33;
+  --accent-605:  #9C4429;
+  --accent-700:  #8F3A1F;
+  --accent-705:  #7D2F15;
+}
+
 :root[data-accent="indigo"] {
   --accent-50:   #e0e7ff;
   --accent-100:  #c7d2fe;

@@ -5,6 +5,7 @@ import { SettingsRow, SettingsSection } from "../ui/Section";
 import { ColorSwatches } from "../ui/ColorSwatches";
 
 const ACCENT_SWATCHES = [
+  { id: "clay", name: "Clay (Signature)", hex: "#C46849" },
   { id: "indigo", name: "Indigo", hex: "#6366F1" },
   { id: "purple", name: "Purple", hex: "#A855F7" },
   { id: "rose", name: "Rose", hex: "#F43F5E" },

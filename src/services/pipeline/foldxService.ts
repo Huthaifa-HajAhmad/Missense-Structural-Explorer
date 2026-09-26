@@ -201,19 +201,23 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     // Helper to update energetics with structure provenance
     const applyEnergetics = (energeticsData: any, prov: any) => {
       if (!energeticsData) return;
+      const rawSource = prov?.source ?? prov?.structureSource;
+      const rawPdbId = prov?.pdbId ?? prov?.structurePdbId;
       const structureProvenance: StructureProvenance | undefined = prov
         ? {
-            source: prov.structureSource ?? "alphafold",
-            pdbId: prov.structurePdbId ?? undefined,
-            chainId: prov.structureChainId ?? undefined,
-            resolution: prov.structureResolution ?? undefined,
-            method: prov.structureMethod ?? undefined,
-            identity: prov.structureIdentity ?? undefined,
+            source: rawSource ?? (rawPdbId ? "experimental" : "alphafold"),
+            pdbId: rawPdbId ?? undefined,
+            chainId: prov.chainId ?? prov.structureChainId ?? undefined,
+            resolution: prov.resolution ?? prov.structureResolution ?? undefined,
+            method: prov.method ?? prov.structureMethod ?? undefined,
+            identity: prov.identity ?? prov.structureIdentity ?? undefined,
+            afdbVersion: prov.afdbVersion,
             foldxVersion: prov.foldxVersion,
             foldxRuns: prov.foldxRuns,
             seed: prov.seed,
             raspDatasetSnapshot: prov.raspDatasetSnapshot,
             vesmModel: prov.vesmModel,
+            modelSha: prov.modelSha,
             timestamp: prov.timestamp
           }
         : undefined;

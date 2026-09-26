@@ -14,17 +14,18 @@ export const SETTINGS_SECTIONS = [
   "analysis",
   "workspace",
   "connections",
-  "about"
+  "data"
 ] as const;
 
 export type SettingsTabId = (typeof SETTINGS_SECTIONS)[number];
 
 /** Tab ids used by call sites before the settings drawer redesign. */
-export type LegacySettingsTabId = "api" | "biophysics";
+export type LegacySettingsTabId = "api" | "biophysics" | "about";
 
 const LEGACY_TAB_MAP: Partial<Record<LegacySettingsTabId, SettingsTabId>> = {
   api: "connections",
-  biophysics: "analysis"
+  biophysics: "analysis",
+  about: "data"
 };
 
 export type ThemeMode = "light" | "dark" | "system";
