@@ -992,17 +992,477 @@
  * inline width). Removing them so there is one source of truth for the panel geometry.
  */
 
-/* ── About view: two-column reading layout ──
-   The single 720px reading column left half of a wide viewport empty. The guide
-   prose keeps its ~65ch measure on the left; version, pinned model revisions,
-   data sources and actions move into a sticky provenance rail on the right,
-   which stacks below the prose under 1024px. */
+/* ── About view ──
+   Two columns: the reading column keeps a ~68ch measure, while a sticky rail carries the
+   on-page contents, the pinned manifest and the actions. The page is deliberately long —
+   it is a credit roll — so the contents rail, the per-group counts and the "not pinned by
+   this workspace" state do the work that a logo wall would do with imagery.
+
+   Every rule here names the properties it transitions, and the card radii are concentric:
+   the outer boxes use --cs-radius-panel (16px) and nothing is nested inside them, so no
+   inner radius has to be derived. */
+
+.about-view {
+  width: 100%;
+  min-height: calc(100vh - var(--cs-chrome-height));
+  overflow-y: auto;
+  background: var(--cs-bg);
+  padding: 32px 16px 64px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+@media (min-width: 640px) {
+  .about-view { padding: 40px 24px 80px; }
+}
+.about-shell {
+  width: 100%;
+  max-width: 1160px;
+  min-width: 0;
+}
+
+/* ── Brand block ── */
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.about-mark {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--cs-radius-card);
+  background: var(--cs-accent-clay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.about-title {
+  margin: 0;
+  font-family: var(--cs-font-serif);
+  font-size: var(--cs-font-size-display);
+  font-weight: var(--cs-font-weight-display);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--cs-text-primary);
+}
+.about-version {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-size: var(--cs-font-size-caption);
+  color: var(--cs-text-muted);
+}
+.about-version-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--cs-border);
+}
+
+/* ── Section heads ── */
+.about-section {
+  margin-bottom: 48px;
+  /* An anchor target must clear the sticky app chrome, or clicking a contents link
+     hides the heading it just navigated to. */
+  scroll-margin-top: 24px;
+}
+.about-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--cs-font-serif);
+  font-size: var(--cs-font-size-section-label);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--cs-text-primary);
+}
+.about-section-count {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: var(--cs-font-weight-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-pill);
+  padding: 1px 7px;
+}
+.about-section-blurb {
+  margin: 6px 0 0;
+  max-width: 68ch;
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.6;
+  color: var(--cs-text-muted);
+}
+.about-lede {
+  margin: 12px 0 0;
+  max-width: 68ch;
+  font-size: var(--cs-font-size-body);
+  line-height: 1.65;
+  color: var(--cs-text-secondary);
+}
+.about-lede-tight { margin-top: 16px; }
+
+/* ── Workflow zones ── */
+.about-zones {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.about-zone {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.about-zone:first-child { border-top: none; }
+.about-zone-index {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-accent-clay);
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+.about-zone-name {
+  margin: 0;
+  font-size: var(--cs-font-size-badge);
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.about-zone-desc {
+  margin: 2px 0 0;
+  max-width: 64ch;
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.55;
+  color: var(--cs-text-muted);
+}
+
+/* ── Credit groups and rows ──
+   A credit is a card with no inner boxes: the rows are hairline-separated, which keeps the
+   16px outer radius unambiguous (nothing nested means nothing to reconcile) and lets a
+   44-entry roll stay readable. */
+.about-group {
+  margin-top: 40px;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-panel);
+  padding: 18px 20px 4px;
+  scroll-margin-top: 24px;
+}
+.about-group-blurb {
+  margin: 6px 0 0;
+  max-width: 72ch;
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.6;
+  color: var(--cs-text-muted);
+}
+.about-credits {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+.about-credit {
+  padding: 14px 0;
+  border-top: 1px solid var(--cs-border-subtle);
+  /* The row is the hit area for the link inside it, so the padding is part of the target
+     rather than whitespace between targets. */
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-credit:hover {
+  background-color: var(--cs-bg-subtle);
+}
+.about-credit-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.about-credit-name {
+  margin: 0;
+  font-size: var(--cs-font-size-badge);
+  font-weight: 600;
+  min-width: 0;
+}
+.about-credit-link {
+  color: var(--cs-text-primary);
+  text-decoration: none;
+  border-radius: var(--cs-radius-badge);
+  transition: color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-credit-link:hover { color: var(--cs-text-accent); }
+.about-credit-link:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 2px;
+}
+/* The arrow is a cue, so it moves on hover but never animates opacity alone. */
+.about-credit-arrow {
+  width: 13px;
+  height: 13px;
+  margin-left: 5px;
+  display: inline-block;
+  vertical-align: -1px;
+  color: var(--cs-text-muted);
+  transform: translate(0, 0);
+  transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-credit:hover .about-credit-arrow {
+  transform: translate(2px, -2px);
+  color: var(--cs-accent-clay);
+}
+.about-kind {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: var(--cs-font-weight-micro);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--cs-radius-badge);
+  border: 1px solid var(--cs-border-subtle);
+  background: var(--cs-surface-2);
+  color: var(--cs-text-muted);
+  flex-shrink: 0;
+}
+/* The clay chip's soft tint has to change in dark mode, or a near-white chip sits on a dark
+   surface at 6% opacity's worth of contrast. Indigo and success already ship paired
+   tokens, which is why only this one rule needs an override. */
+.about-kind-dataset { color: #166534; border-color: rgba(22, 163, 74, 0.2); background: var(--cs-bg-success); }
+.about-kind-model { color: var(--cs-text-accent); border-color: rgba(196, 104, 73, 0.2); background: #FBF0EB; }
+.about-kind-service { color: var(--cs-text-indigo-on-soft); border-color: rgba(99, 102, 241, 0.2); background: var(--cs-bg-indigo); }
+.dark .about-kind-dataset { color: #4ADE80; border-color: rgba(74, 222, 128, 0.25); }
+.dark .about-kind-model { color: #E08B66; border-color: rgba(224, 139, 102, 0.25); background: rgba(196, 104, 73, 0.14); }
+.dark .about-kind-service { color: #A5B4FC; border-color: rgba(165, 180, 252, 0.25); }
+.about-credit-host {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  color: var(--cs-text-muted);
+  margin-left: auto;
+  padding-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46%;
+}
+.about-credit-role {
+  margin: 6px 0 0;
+  max-width: 74ch;
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
+}
+.about-credit-meta,
+.about-credit-note,
+.about-credit-cite,
+.about-credit-used,
+.about-note-inline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 8px 0 0;
+  max-width: 78ch;
+  font-size: var(--cs-text-micro);
+  line-height: 1.6;
+  color: var(--cs-text-muted);
+}
+/* The icon is decorative; the label beside it carries the meaning, so the row still reads
+   correctly with the SVG removed. */
+.about-credit-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--cs-text-muted);
+  opacity: 0.75;
+}
+.about-meta-label {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: var(--cs-font-weight-micro);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+  opacity: 0.8;
+}
+.about-meta-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--cs-border);
+  align-self: center;
+}
+.about-meta-value { color: var(--cs-text-secondary); }
+/* The unpinned state is information, not an apology: it says the code establishes no
+   version, which is a different fact from "we forgot to record it". */
+.about-meta-unpinned {
+  font-style: italic;
+  color: var(--cs-text-muted);
+}
+.about-credit-note {
+  padding: 7px 10px;
+  border-left: 2px solid var(--cs-accent-clay);
+  background: var(--cs-surface-2);
+  border-radius: 0 var(--cs-radius-badge) var(--cs-radius-badge) 0;
+  color: var(--cs-text-secondary);
+  font-size: var(--cs-text-micro);
+}
+.about-credit-note .about-credit-icon { color: var(--cs-accent-clay); opacity: 1; }
+.about-credit-cite { color: var(--cs-text-muted); }
+.about-credit-cite-empty { font-style: italic; }
+.about-credit-used code {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  color: var(--cs-text-secondary);
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-badge);
+  padding: 1px 5px;
+  /* A path must never be the thing that widens a row and pushes the layout. */
+  overflow-wrap: anywhere;
+}
+
+/* ── Query transmission ── */
+.about-hosts {
+  margin: 10px 0 0;
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.about-host {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--cs-border-subtle);
+}
+@media (min-width: 700px) {
+  .about-host { grid-template-columns: minmax(200px, 34%) minmax(0, 1fr); gap: 16px; }
+}
+.about-host-name {
+  margin: 0;
+  font-size: var(--cs-text-micro);
+  color: var(--cs-text-primary);
+  overflow-wrap: anywhere;
+}
+.about-host-body { margin: 0; min-width: 0; }
+.about-host-sent {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  font-size: var(--cs-text-micro);
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
+}
+.about-host-note {
+  margin: 2px 0 0;
+  font-size: var(--cs-text-micro);
+  line-height: 1.6;
+  color: var(--cs-text-muted);
+}
+.about-note-inline { margin-top: 14px; }
+
+/* ── Citation block ──
+   Two flat boxes rather than a card with a nested pre: an 8px radius inside 16px padding
+   would not be concentric, and the BibTeX is copy-paste material that should read as
+   preformatted on its own. The measure is set once on the block rather than per child. */
+.about-cite-block { max-width: 72ch; }
+.about-cite-plain {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--cs-accent-clay);
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.65;
+  color: var(--cs-text-secondary);
+}
+.about-cite-bibtex {
+  margin: 14px 0 0;
+  padding: 14px 16px;
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  line-height: 1.7;
+  color: var(--cs-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.about-cite-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.about-copy-btn {
+  transition: background-color 120ms ease, color 120ms ease, transform 100ms ease;
+}
+.about-copy-btn:active { transform: scale(0.96); }
+/* Both glyphs stay mounted and one is absolutely placed, so the swap is a cross-fade that
+   can be interrupted mid-flight rather than a conditional mount. */
+.about-copy-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.about-copy-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.about-copy-glyph-live { color: var(--cs-text-success); }
+.about-copy-status {
+  font-size: var(--cs-text-micro);
+  color: var(--cs-text-muted);
+}
+
+/* ── Research-use disclaimer ── */
+.about-disclaimer {
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-panel);
+  padding: 16px 18px;
+  max-width: 68ch;
+}
+.about-disclaimer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--cs-text-warning);
+}
+.about-disclaimer-title {
+  margin: 0;
+  font-size: var(--cs-font-size-badge);
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.about-disclaimer-body {
+  margin: 0 0 8px;
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.65;
+  color: var(--cs-text-secondary);
+}
+.about-disclaimer-body:last-child { margin-bottom: 0; }
+
+/* ── Layout and rail ──
+   The rail is sticky on wide screens only: below 1024px it stacks under the reading column,
+   where a sticky contents list would cover the prose it points at. */
 .about-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 36px;
+  gap: 40px;
   align-items: start;
 }
+.about-prose { min-width: 0; }
 .about-rail {
   display: flex;
   flex-direction: column;
@@ -1011,14 +1471,103 @@
 }
 @media (min-width: 1024px) {
   .about-layout {
-    grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr);
-    gap: 48px;
+    grid-template-columns: minmax(0, 1fr) 272px;
+    gap: 56px;
   }
   .about-rail {
     position: sticky;
     top: 24px;
+    /* A rail taller than the viewport must be scrollable, or the last group — the actions —
+       is unreachable on a short window. */
+    max-height: calc(100vh - var(--cs-chrome-height) - 48px);
+    overflow-y: auto;
   }
 }
+.about-rail-title {
+  margin: 0 0 8px;
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+}
+.about-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--cs-border-subtle);
+}
+.about-toc-link {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: -1px;
+  padding: 4px 0 4px 12px;
+  border-left: 2px solid transparent;
+  font-size: var(--cs-text-micro);
+  line-height: 1.45;
+  color: var(--cs-text-muted);
+  text-decoration: none;
+  transition: color 150ms cubic-bezier(0.2, 0, 0, 1), border-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-toc-link:hover { color: var(--cs-text-primary); }
+.about-toc-link:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 1px;
+}
+/* The current entry is marked by weight AND colour AND the rule, so the cue survives a
+   monochrome render and a screen reader (aria-current, set on the anchor). */
+.about-toc-link[aria-current="true"] {
+  color: var(--cs-text-primary);
+  font-weight: 600;
+  border-left-color: var(--cs-accent-clay);
+}
+.about-toc-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  flex-shrink: 0;
+  align-self: center;
+  transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-toc-link[aria-current="true"] .about-toc-dot { opacity: 1; }
+.about-toc-label { min-width: 0; }
+.about-rail-section { min-width: 0; }
+.about-rail-section .about-section-title { font-size: var(--cs-font-size-badge); }
+.about-rail-hint {
+  margin: 6px 0 6px;
+  font-size: var(--cs-text-micro);
+  line-height: 1.55;
+  color: var(--cs-text-muted);
+}
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--cs-border-subtle);
+}
+
+/* Motion is a confirmation here, never the only cue: every animated state on this page
+   also changes colour, weight, text or a rule. */
+@media (prefers-reduced-motion: reduce) {
+  .about-credit,
+  .about-credit-link,
+  .about-credit-arrow,
+  .about-toc-link,
+  .about-toc-dot,
+  .about-copy-btn {
+    transition-duration: 1ms;
+  }
+  .about-copy-btn:active { transform: none; }
+  .about-credit:hover .about-credit-arrow { transform: none; }
+}
+
+
+
 
 /* ── Command palette footer hints ── */
 .cs-palette-footer {
