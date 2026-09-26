@@ -1,7 +1,12 @@
 # Inspector UI/UX audit — findings, fixes, and what is still open
 
 Revision `7ac04cf`, working tree dirty and **edited concurrently by another writer** for the whole
-session (see §9). Bound to that revision and dirty state; re-verify before quoting anything here.
+session (see §10, caveat 6). The review was made against that revision and dirty state. The change
+LANDED as commit `c608708` (`fix(clinical): stop the surfaces asserting provenance the payload does not
+contain`), parent `ab19554`, which carries the review's fixes including §0.1's duplicate declaration.
+
+One defect landed after it: CI caught the palette contrast the ramp change broke (§0.5), fixed in the
+commit immediately following. Re-verify the file list before quoting anything here.
 
 This document covers two things:
 
@@ -88,7 +93,7 @@ replaces it, and why the failure states are the ones that matter.
 
 - **The author's own edit broke the boundary checker.** Adding rule 5 referenced `storesDir` /
   `componentsDir` without declaring them: `ReferenceError`, exit 1, and three `tsc` errors — and the
-  change's audit table claimed "0 violations". Fixed, and §10's verification is now recorded from a run
+  change's audit table claimed "0 violations". Fixed, and §9's verification is now recorded from a run
   against the finished tree rather than from an earlier one.
 - **Writing a *new* false claim in a comment.** `contracts.ts` blamed zod for stripping
   `insights.model`; the narrative route validates with `insights: z.any()`, so zod never touched it —
@@ -100,6 +105,42 @@ replaces it, and why the failure states are the ones that matter.
 - Two regexes written in this change were wrong in the direction of *under*-reporting: the elevation
   pattern let `shadow-none` match as bare `shadow`, and the pipe-stripping rule treated a sentence
   containing `|ΔΔG|` as a table row. Both were caught by their own new tests.
+
+### 0.5 What CI caught that the review could not (HIGH — and it shipped first)
+
+The five reviewers could not run the geometry harnesses: they need Vite and a browser, and under the
+file sandbox `esbuild` dies at `spawn EPERM`. Every reviewer said so. **So the review's verification
+stopped one layer short of the gate that actually blocks deployment**, and the gap is where the next
+defect was:
+
+```
+FAIL  legend: every swatch clears 3:1 against the legend's own panel — disulfide 2.85:1 (< 3:1)
+function-track-check: 1 of 246 assertions failed.
+```
+
+The feature palette paints both the sequence track and the legend. Its disulfide colour, amber-600
+`#D97706`, measured **3.03:1** against the track surface — and that surface is `--cs-surface-2`, which
+this change darkened. Darkening it removed the 0.03 of headroom: the swatch fell to 2.85:1 and broke the
+3:1 non-text bar. The file's own comment had recorded the fragility all along ("the tightest of the
+palette at 3.03:1"), and §1 had already touched that comment to point at the token instead of the
+retired literal — without re-measuring it. **The palette was not adjacent to the surface defect; it was
+compliant only because of it.**
+
+Fixed by moving disulfide to amber-700 `#b45309`, which measures **4.49:1** on the new panel and
+4.77:1 on the old, so it holds under either surface rather than sitting on the bar. The other seven
+colours clear it on both (3.29–6.77:1). The geometry harness now reports
+`disulfide 4.49:1 … all 246 assertions passed`, with the swatch still matching the colour the track
+paints (`rgb(180, 83, 9)`) and distinctness unchanged (closest pair `region/other at ΔE 21.2`).
+
+Two things this changes about the verification story:
+
+1. **The local suite is not the CI suite.** `npx vitest run` was green, `tsc` was green, the boundary
+   and focus guards were green — and `main` still went red, on a step none of them covers. §9 now lists
+   both geometry harnesses as first-class rows.
+2. **A token change is a global change.** The ramp edit was four lines in one file and it moved the
+   contrast of a colour defined in a different module, against a bar asserted by a third. The
+   review had checked text contrast on the new fills and had not checked the *non-text* bar for the
+   palette painted on them. Both harnesses are now run before pushing.
 
 ---
 
@@ -411,6 +452,8 @@ Severity is impact on a reader acting on the screen.
 | O12 | **LOW** | `src/stores/slices/searchSlice.ts:9-13` | **A pure module still lives under `src/components/`.** Rule 5 now guards the edge and validates the exemption, but the module belongs in `src/shared/` where rule 3 would cover it. Moving it touches five import sites and a shared test. |
 | O13 | **LOW** | `acmgCriteriaView.ts` | **Two structurally identical positional parameters**, so a swapped call compiles and silently relabels every rule-engine code. All four call sites are correct; an options object would make it unrepresentable. |
 | O14 | **LOW** | review loop | **Nothing in the UI says which build is running.** Screenshot 2's sidebar read "Population Frequencies", which `7ac04cf` renamed to "Population Data"; the built bundle contains the new label, so the reviewed artefact predated HEAD. See O4. |
+| O15 | **MEDIUM** | `featurePalette.ts` chip classes | **The disulfide filter chip sets white on `bg-amber-500`, which is 2.15:1** — below AA for the 10.5px label it carries. Pre-existing and not asserted by either harness (which measure the track and legend, not the chips), so it was found only while fixing §0.5 and left alone as a separate design decision. The same pattern is worth checking on the other seven `onClass` values. |
+| O16 | **MEDIUM** | `tools/*-geometry` | **The two geometry harnesses are not part of `npm test`.** They gate CI and therefore deployment (`cd.yml` requires CI success), yet a green local suite says nothing about them, and they cannot run in every environment. Adding them behind a single `npm run verify` that a contributor is told to run before pushing would have caught §0.5 before it reached `main`. |
 
 ---
 
@@ -423,13 +466,26 @@ Recorded from a run against the finished tree.
 | Types (whole repo) | `npx tsc --noEmit` | **0 errors** |
 | Boundaries | `node scripts/check-boundaries.ts` | **0 violations** (rule 5 active) |
 | Focus indicators | `node scripts/check-focus-indicators.mjs` | **pass** — 10 suppressions, all with replacements |
+| Header geometry harness | `npm run test:geometry` | **61 assertions passed** |
+| Functional Domains harness | `npm run test:geometry:function-track` | **246 assertions passed** (was 1 failing, §0.5) |
 | Ramp, real CSS engine | `node scratch/resolve-ramp.mjs` (`lightningcss`) | fixed value present, **`#FAF9F6` absent**, min step 2.94 |
 | Ramp duplicate, negative control | duplicate reintroduced inside `:root` | **4 assertions fail**, naming both line numbers |
+| Palette non-text contrast | `node scratch/palette-contrast.mjs` | all eight clear 3:1 on both surfaces (3.29–6.77:1) |
 | Encoding | BOM + mojibake scan over all 41 changed files | **clean** |
 | Suite, before this change | `npx vitest run` | 171 files / 2027 passed, 5 skipped (173 / 2032) |
 | Suite, after | `npx vitest run` | **184 files / 2176 passed, 5 skipped (186 / 2181), exit 0** |
 | New/changed tests | 12 new files + 4 modified | **all pass** |
 | Boundary rule 5 | `server/tests/architectural-boundaries.test.ts` | 14 cases, including 3 new for the rule and its exemption |
+
+The two geometry harnesses run under a redirected `TEMP` (`scratch/tmp`). They need Vite and a browser,
+and under the file sandbox `esbuild` cannot spawn (EPERM) while its temp-file writes outside the
+workspace are denied; redirecting `TEMP` into the workspace is the workaround this repository already
+documents for `npm_config_cache`.
+
+**CI is the last row that matters and the one no local command covers.** The pushed commit went red on
+the Functional Domains harness — see §0.5 — which is why both harnesses were run by hand before the
+follow-up push, and why the palette arithmetic is now in the verification table rather than only in a
+reviewer's report.
 
 The delta is +13 files / +149 tests. This change added **12 test files** (`surfaceRamp`,
 `clinicalElevation`, `gemini.evidenceGrounding`, `narrativeCacheKey`, `narrativeResponseProvenance`,
@@ -456,10 +512,13 @@ above is green.
 
 ## 10. Caveats
 
-1. **No browser verification.** No visual, hover, focus, zoom, dark-mode or print-preview check was
-   possible in this environment. The ramp is justified by lightness arithmetic, AA contrast and the real
-   CSS engine's output — not by a screenshot. `--cs-surface-2` is referenced 332 times across 59 files, so
-   the visual delta is broad even though the token change is four lines.
+1. **No browser verification for the application screens.** No visual, hover, focus, zoom, dark-mode or
+   print-preview check was possible in this environment, and the five reviewers could not run the
+   geometry harnesses at all. Those two harnesses *do* render and measure the Functional Domains track
+   and the header, and both pass (§9) — but they were run by hand after CI caught §0.5, not as part of
+   the review. Everything else here rests on lightness arithmetic, contrast arithmetic and the real CSS
+   engine's output. `--cs-surface-2` is referenced 332 times across 59 files, so the visual delta is
+   broad even though the token change is four lines.
 2. **The 2.5-point floor is a chosen threshold**, informed by the defect (0.19) and the smallest
    pre-existing step (2.55) but not by a perceptual study. It is a named constant in the guard and one
    edit to move. It is *not* "derived" from the defect — any positive threshold would have caught a

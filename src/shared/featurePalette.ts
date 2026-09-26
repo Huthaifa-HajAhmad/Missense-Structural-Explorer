@@ -108,9 +108,22 @@ const NAMED_KINDS: FeatureKind[] = [
     singular: "Disulfide",
     plural: "Disulfides",
     noun: "disulfide bond",
-    color: "#d97706", // amber-600 — the tightest of the palette at 3.03:1
-    onClass: "bg-amber-500 text-white border-amber-600",
-    offClass: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20",
+    /*
+     * amber-700, not amber-600. This was `#d97706` (amber-600) and was the tightest colour in the
+     * palette at 3.03:1 against the track surface -- a margin of 0.03 over the 3:1 non-text bar.
+     *
+     * That surface is `--cs-surface-2`, which the neutral-ramp change re-derived from `#FAF9F6` to
+     * `#F5F2EA` because the two were the same colour as the page. A darker panel removes the margin:
+     * amber-600 measures 2.85:1 against it, which the geometry harness caught as
+     * "every swatch clears 3:1 against the legend's own panel -- disulfide 2.85:1".
+     *
+     * So the palette was not merely adjacent to the surface defect, it was compliant only because of
+     * it. `#b45309` measures 4.49:1 on the new panel and 4.77:1 on the old, so it holds under either
+     * surface and does not sit on the bar. The other seven colours clear it on both (3.29-6.77:1).
+     */
+    color: "#b45309",
+    onClass: "bg-amber-500 text-white border-amber-700",
+    offClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20",
     matches: (t) => lower(t).includes("disulfide") || lower(t).includes("cysteine"),
   },
   {
