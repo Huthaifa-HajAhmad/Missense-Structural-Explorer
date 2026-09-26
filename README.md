@@ -20,6 +20,7 @@ By unifying GPU-accelerated **3D structural visualization (Molstar)**, **determi
 *   **Clinical Database Grounding**: Automatically search the NCBI ClinVar API to fetch curated significance classifications, review statuses, traits, and population allele frequencies (sourced from gnomAD).
 *   **VEP Translation Gateway**: Translate genomic VCF or transcript cDNA notations to HGVSp and UniProt accessions via the Ensembl VEP REST API.
 *   **Generative AI Diagnostic Narrative**: Produce structured clinical narratives and candidate ACMG pathogenicity criteria using structured, type-safe schema outputs.
+*   **Interactive Guided Onboarding**: A 5-step interactive workspace tour orienting users across the 4 primary analysis zones, sovereign zero-key biophysical capabilities vs. key-enhanced features, and safe API credential setup. Launchable at any time from the header compass icon (`🧭`), the Command Palette (`Ctrl/⌘+K` → `"tour"`), or the Search empty state.
 
 ---
 

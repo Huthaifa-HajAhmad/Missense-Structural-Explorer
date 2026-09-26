@@ -12,6 +12,7 @@ import SettingsDrawer from "./components/settings/SettingsDrawer";
 import CommandPalette from "./components/CommandPalette";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import StructuralLegendModal from "./components/modals/StructuralLegendModal";
+import OnboardingModal, { OnboardingPreset } from "./components/modals/OnboardingModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
 import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/VariantAnalysisContext";
 import { useDevConsole } from "./context/DevConsoleContext";
@@ -26,6 +27,7 @@ export default function App() {
     isDark,
     toggleTheme,
     setIsSettingsOpen,
+    openSettingsTab,
     showPolarContacts,
     setShowPolarContacts
   } = useSettings();
@@ -67,6 +69,18 @@ export default function App() {
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+
+  // Auto-launch onboarding on first visit with a brief delay for hydration stability
+  useEffect(() => {
+    try {
+      const hasCompleted = localStorage.getItem("cs-onboarding-completed-v1");
+      if (hasCompleted !== "true") {
+        const timer = window.setTimeout(() => setIsOnboardingOpen(true), 450);
+        return () => window.clearTimeout(timer);
+      }
+    } catch {}
+  }, []);
 
   /* Narrow-viewport drawer mode: below 900px the fixed-width rail + inspector +
      content cannot coexist, so the rail overlays as a drawer (MasterSidebar reads
@@ -90,6 +104,21 @@ export default function App() {
       setIsNavDrawerOpen(false);
     },
     []
+  );
+
+  const handleSelectOnboardingPreset = useCallback(
+    (preset: OnboardingPreset) => {
+      actions.setGene(preset.gene);
+      actions.setVariant(preset.variant);
+      actions.setUniprotId(preset.uniprotId);
+      actions.setCustomGene(preset.gene);
+      actions.setCustomVariant(preset.variant);
+      actions.setCustomUniprot(preset.uniprotId);
+      actions.setCustomGenomic("");
+      navigate("search");
+      actions.handleSearchSubmit({ preventDefault: () => {} } as React.FormEvent);
+    },
+    [actions, navigate]
   );
 
   // Application side-effects hook
@@ -159,6 +188,7 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenOnboarding={() => setIsOnboardingOpen(true)}
           />
 
           {/* ── Global Variant Header — hidden on the Search workspace and the
@@ -180,6 +210,7 @@ export default function App() {
             actions={actions}
             pushErrorEntry={pushErrorEntry}
             setIsSettingsOpen={setIsSettingsOpen}
+            onOpenOnboarding={() => setIsOnboardingOpen(true)}
             activeEvidenceTab={activeEvidenceTab}
             setActiveEvidenceTab={setActiveEvidenceTab}
             metricMode={metricMode}
@@ -215,6 +246,21 @@ export default function App() {
             }}
             onSelectHistory={actions.handleSelectHistoryItem}
             onRunQuery={actions.handleSearchSubmit}
+            onOpenOnboarding={() => setIsOnboardingOpen(true)}
+          />
+
+          {/* Workspace Onboarding & API Keys Guide Modal */}
+          <OnboardingModal
+            isOpen={isOnboardingOpen}
+            onClose={() => setIsOnboardingOpen(false)}
+            onSelectPreset={handleSelectOnboardingPreset}
+            onOpenSettings={(tab) => {
+              if (tab) {
+                openSettingsTab(tab as any);
+              } else {
+                setIsSettingsOpen(true);
+              }
+            }}
           />
 
           {/* How to Inspect Modal Popup */}

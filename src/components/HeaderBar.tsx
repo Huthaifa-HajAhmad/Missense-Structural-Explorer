@@ -1,6 +1,6 @@
 import React from "react";
 import { MasterView } from "./MasterSidebar";
-import { AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon, PanelLeft } from "lucide-react";
+import { AlertTriangle, KeyRound, X, ChevronRight, Settings, Sun, Moon, PanelLeft, Compass } from "lucide-react";
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 import { commandPaletteHint } from "../shared/platform";
 
@@ -19,6 +19,8 @@ interface HeaderBarProps {
   isDark?: boolean;
   onToggleTheme?: () => void;
   onOpenSettings?: () => void;
+  /** Opens the high-level onboarding walkthrough and API keys guide */
+  onOpenOnboarding?: () => void;
 }
 
 export function HeaderBar({
@@ -32,7 +34,8 @@ export function HeaderBar({
   onDismissError,
   isDark: isDarkProp,
   onToggleTheme,
-  onOpenSettings
+  onOpenSettings,
+  onOpenOnboarding
 }: HeaderBarProps) {
   let hasConfiguredGeminiKey = true;
   let openSettingsTab = (_tab?: SettingsTabId | LegacySettingsTabId) => {};
@@ -191,6 +194,17 @@ export function HeaderBar({
         )}
         {/* Divider before chrome actions */}
         <div style={{ width: 1, height: 16, background: "var(--cs-border)", flexShrink: 0 }} />
+        {onOpenOnboarding && (
+          <button
+            type="button"
+            onClick={onOpenOnboarding}
+            className="p-1.5 rounded-lg border border-transparent text-[var(--cs-accent-clay)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer flex items-center justify-center active:scale-[0.96]"
+            title="Workspace guide & API keys tour"
+            aria-label="Open workspace guide & tour"
+          >
+            <Compass className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={toggleTheme}

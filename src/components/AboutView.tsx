@@ -9,7 +9,8 @@ import {
   GitBranch,
   Info,
   Settings2,
-  ShieldAlert
+  ShieldAlert,
+  Compass
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useSettings } from "../context/SettingsContext";
@@ -364,7 +365,11 @@ function CitationBlock() {
  * from `shared/attributions.ts`, so a provider, a release or a citation is corrected in one
  * place and the recorded call sites stay beside the claim.
  */
-export default function AboutView() {
+interface AboutViewProps {
+  onOpenOnboarding?: () => void;
+}
+
+export default function AboutView({ onOpenOnboarding }: AboutViewProps = {}) {
   const { version } = useDiagnostics();
   const { openSettingsTab } = useSettings();
   const sectionIds = useMemo(() => CONTENTS.map((entry) => entry.id), []);
@@ -583,6 +588,16 @@ export default function AboutView() {
             </section>
 
             <div className="about-actions">
+              {onOpenOnboarding && (
+                <button
+                  type="button"
+                  className="cs-btn-ghost active:scale-[0.97] transition-transform duration-150"
+                  onClick={onOpenOnboarding}
+                >
+                  <Compass className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" aria-hidden="true" />
+                  Launch Workspace Tour
+                </button>
+              )}
               <a
                 href={APP_REPOSITORY}
                 target="_blank"

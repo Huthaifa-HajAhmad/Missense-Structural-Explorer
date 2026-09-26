@@ -76,6 +76,15 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(onOpenPalette).toHaveBeenCalledTimes(1);
   });
 
+  it("should render onboarding tour button and trigger onOpenOnboarding when clicked", () => {
+    const onOpenOnboarding = vi.fn();
+    render(<HeaderBar {...base} onOpenOnboarding={onOpenOnboarding} />);
+    const tourBtn = screen.getByRole("button", { name: /open workspace guide & tour/i });
+    expect(tourBtn).toBeInTheDocument();
+    fireEvent.click(tourBtn);
+    expect(onOpenOnboarding).toHaveBeenCalledTimes(1);
+  });
+
   /* Removed with the QueryStrip dropdown: the header must not resurrect a second,
      off-theme way to enter a variant. */
   it("should not render a quick-search dropdown trigger", () => {

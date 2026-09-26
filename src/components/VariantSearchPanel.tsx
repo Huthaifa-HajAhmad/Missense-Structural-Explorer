@@ -21,7 +21,8 @@ import {
   BookOpen,
   FileText,
   AlertTriangle,
-  KeyRound
+  KeyRound,
+  Compass
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
@@ -70,6 +71,7 @@ interface VariantSearchPanelProps {
   clearHistory?: () => void;
   handleSelectHistoryItem?: (item: SearchHistoryItem) => void;
   onViewChange?: (view: MasterView) => void;
+  onOpenOnboarding?: () => void;
 }
 
 /**
@@ -308,6 +310,7 @@ function VariantSearchPanel({
   clearHistory: propsClearHistory,
   handleSelectHistoryItem: propsHandleSelectHistoryItem,
   onViewChange,
+  onOpenOnboarding,
 }: VariantSearchPanelProps) {
   // Directly subscribe to Zustand store slices to guarantee instant re-renders on keystroke and paste
   const storeCustomGene = useVariantAnalysisStore(s => s.customGene ?? "");
@@ -970,6 +973,16 @@ function VariantSearchPanel({
                     <div className="pt-0.5 flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
                       <span>💡 Paste HGVS, cDNA, or genomic coordinates to start</span>
                     </div>
+                    {onOpenOnboarding && (
+                      <button
+                        type="button"
+                        onClick={onOpenOnboarding}
+                        className="mt-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-[var(--cs-surface)] border border-[var(--cs-border)] hover:border-[var(--cs-accent-clay)] text-[var(--cs-accent-clay)] shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-[0.96]"
+                      >
+                        <Compass className="w-3.5 h-3.5" />
+                        <span>Take the 2-minute tour &amp; API keys guide</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

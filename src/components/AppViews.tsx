@@ -42,6 +42,7 @@ interface AppViewsProps {
   handleSelectHistoryItem?: (item: any) => void;
   handleCopyReport?: () => Promise<void>;
   formatEnergyString?: (text: string | null | undefined) => string;
+  onOpenOnboarding?: () => void;
 }
 
 export function AppViews({
@@ -51,6 +52,7 @@ export function AppViews({
   actions,
   pushErrorEntry,
   setIsSettingsOpen,
+  onOpenOnboarding,
   activeEvidenceTab,
   setActiveEvidenceTab,
   metricMode,
@@ -412,6 +414,7 @@ export function AppViews({
                     clearHistory={clearHistory}
                     handleSelectHistoryItem={handleSelectHistoryItemMemo}
                     onViewChange={setMasterView}
+                    onOpenOnboarding={onOpenOnboarding}
                   />
                 </div>
               </div>
@@ -545,7 +548,13 @@ export function AppViews({
               />
             </div>
 
-            {/* INSIGHTS VIEW */}
+            {/*
+              INSIGHTS VIEW.
+
+              `onNavigateToView` lets the card's condensed clinical summary send the reader to the
+              Report, which owns the full narrative; without it the summary would have to either
+              duplicate the narrative or cite a document the reader cannot reach from here.
+            */}
             {masterView === "insights" && (
               <ErrorBoundary
                 name="Variant Insights"
@@ -576,6 +585,7 @@ export function AppViews({
                   isNarrativeLoading={isNarrativeLoading}
                   foldingEnergetics={foldingEnergetics}
                   disruptionPredictor={disruptionPredictor}
+                  onNavigateToView={setMasterView}
                 />
               </ErrorBoundary>
             )}
@@ -631,7 +641,7 @@ export function AppViews({
                 name="About View"
                 onError={createErrorHandler("About View")}
               >
-                <AboutView />
+                <AboutView onOpenOnboarding={onOpenOnboarding} />
               </ErrorBoundary>
             )}
           </div>
