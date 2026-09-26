@@ -289,6 +289,11 @@
 .cs-palette-list {
   overflow-y: auto;
   padding: 6px;
+  /* A flex item defaults to `min-height: auto`, which refuses to shrink below its content —
+     so a long list pushed past the panel's `max-height` instead of scrolling inside it. The
+     list has to be allowed to be shorter than its content for `overflow-y` to mean anything. */
+  min-height: 0;
+  flex: 1 1 auto;
 }
 .cs-palette [cmdk-group-heading] {
   font-size: 10px;
