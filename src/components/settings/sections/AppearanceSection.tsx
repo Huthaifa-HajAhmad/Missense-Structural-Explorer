@@ -1,11 +1,11 @@
 import { useSettings } from "../../../context/SettingsContext";
-import { SegmentedControl } from "../ui/SegmentedControl";
 import { Switch } from "../ui/Switch";
-import { SettingsRow, SettingsSection } from "../ui/Section";
+import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 import { ColorSwatches } from "../ui/ColorSwatches";
+import { ThemePicker } from "../ui/ThemePicker";
 
 const ACCENT_SWATCHES = [
-  { id: "clay", name: "Clay (Signature)", hex: "#C46849" },
+  { id: "clay", name: "Clay", hex: "#C46849" },
   { id: "indigo", name: "Indigo", hex: "#6366F1" },
   { id: "purple", name: "Purple", hex: "#A855F7" },
   { id: "rose", name: "Rose", hex: "#F43F5E" },
@@ -18,31 +18,29 @@ export function AppearanceSection() {
   const { theme, setTheme, settings, updateSetting } = useSettings();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <SettingsSection title="Theme" hint="Applies instantly across the workspace.">
-        <SettingsRow
-          label="Color scheme"
-          description="System follows your operating system preference."
-        >
-          <SegmentedControl
-            ariaLabel="Color scheme"
-            value={theme}
-            onChange={(value) => setTheme(value)}
-            options={[
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-              { value: "system", label: "System" }
-            ]}
-          />
-        </SettingsRow>
+        <SettingsBlock title="Color scheme">
+          <div className="mb-3">
+            <span className="block text-[13px] font-medium text-cs-text-primary">Color scheme</span>
+            <p className="mt-0.5 text-[12px] leading-snug text-cs-text-muted">
+              System follows your operating system preference.
+            </p>
+          </div>
+          <ThemePicker value={theme} onChange={(value) => setTheme(value)} />
+        </SettingsBlock>
         <SettingsRow
           label="Workspace accent"
           description="Tints selection highlights and interactive accents app-wide."
         >
           <ColorSwatches
             ariaLabel="Workspace accent color"
+            showSelectedName
             colors={[...ACCENT_SWATCHES]}
-            value={ACCENT_SWATCHES.find((a) => a.id === (settings.primaryAccent || "indigo"))?.hex || ACCENT_SWATCHES[0].hex}
+            value={
+              ACCENT_SWATCHES.find((a) => a.id === (settings.primaryAccent || "indigo"))?.hex ||
+              ACCENT_SWATCHES[0].hex
+            }
             onChange={(hex) => {
               const match = ACCENT_SWATCHES.find((a) => a.hex === hex);
               if (match) updateSetting("primaryAccent", match.id);

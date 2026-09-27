@@ -12,40 +12,41 @@ interface ColorSwatchesProps {
   value: string;
   onChange: (hex: string) => void;
   ariaLabel: string;
+  /** Show the selected colour's name beside the swatches. */
+  showSelectedName?: boolean;
 }
 
-/** Compact circular swatch grid; selected swatch gets a clay ring + check. */
-export function ColorSwatches({ colors, value, onChange, ariaLabel }: ColorSwatchesProps) {
+/** Circular swatch row; the selected swatch gets an offset ring + check. */
+export function ColorSwatches({ colors, value, onChange, ariaLabel, showSelectedName = false }: ColorSwatchesProps) {
+  const selectedColor = colors.find((c) => c.hex.toLowerCase() === value?.toLowerCase());
   return (
-    <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-2">
-      {colors.map((color) => {
-        const selected = value?.toLowerCase() === color.hex.toLowerCase();
-        return (
-          <button
-            key={color.hex}
-            type="button"
-            title={color.name}
-            aria-label={`${color.name}${selected ? " (selected)" : ""}`}
-            aria-pressed={selected}
-            onClick={() => onChange(color.hex)}
-            className={`relative w-6.5 h-6.5 rounded-full border flex items-center justify-center transition-all duration-150 cursor-pointer active:scale-90 after:absolute after:-inset-2 after:content-[''] ${
-              selected ? "ring-2 ring-offset-1.5 shadow-sm scale-105" : "hover:scale-110 border-transparent opacity-85 hover:opacity-100"
-            }`}
-            style={{
-              backgroundColor: color.hex,
-              ...(selected
-                ? {
-                    borderColor: color.hex,
-                    "--tw-ring-color": "var(--cs-accent-clay)",
-                    "--tw-ring-offset-color": "var(--cs-surface)"
-                  }
-                : {})
-            }}
-          >
-            {selected && <Check className="w-3.5 h-3.5 text-white drop-shadow-sm" strokeWidth={3} />}
-          </button>
-        );
-      })}
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-2">
+        {colors.map((color) => {
+          const selected = selectedColor?.hex === color.hex;
+          return (
+            <button
+              key={color.hex}
+              type="button"
+              title={color.name}
+              aria-label={`${color.name}${selected ? " (selected)" : ""}`}
+              aria-pressed={selected}
+              onClick={() => onChange(color.hex)}
+              className={`settings-swatch relative grid place-items-center w-7 h-7 rounded-full cursor-pointer transition-[transform,box-shadow] duration-150 active:scale-90 focus-visible:outline-none ${
+                selected ? "is-selected" : "hover:scale-110"
+              }`}
+              style={{ backgroundColor: color.hex, ["--swatch" as string]: color.hex }}
+            >
+              {selected && <Check className="w-3.5 h-3.5 text-white drop-shadow" strokeWidth={3} />}
+            </button>
+          );
+        })}
+      </div>
+      {showSelectedName && selectedColor && (
+        <span className="text-[12px] font-medium text-cs-text-secondary whitespace-nowrap" aria-hidden>
+          {selectedColor.name}
+        </span>
+      )}
     </div>
   );
 }

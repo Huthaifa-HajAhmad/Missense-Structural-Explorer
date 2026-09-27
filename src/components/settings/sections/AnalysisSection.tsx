@@ -1,39 +1,26 @@
-import { RotateCcw, Zap } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
 import { SegmentedControl } from "../ui/SegmentedControl";
-import { SettingsRow, SettingsSection } from "../ui/Section";
+import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 
 const CONDITION_FIELDS = [
-  {
-    key: "ph" as const,
-    label: "pH",
-    step: 0.1,
-    min: 0,
-    max: 14,
-    defaultVal: 7.4
-  },
-  {
-    key: "temperature" as const,
-    label: "Temp (°C)",
-    step: 1,
-    min: 0,
-    max: 100,
-    defaultVal: 25
-  },
-  {
-    key: "ionicStrength" as const,
-    label: "Ionic (mM)",
-    step: 10,
-    min: 0,
-    max: 2000,
-    defaultVal: 150
-  }
+  { key: "ph" as const, label: "pH", unit: "", step: 0.1, min: 0, max: 14 },
+  { key: "temperature" as const, label: "Temperature", unit: "°C", step: 1, min: 0, max: 100 },
+  { key: "ionicStrength" as const, label: "Ionic strength", unit: "mM", step: 10, min: 0, max: 2000 }
 ];
+
+const PHYSIOLOGICAL = { ph: 7.4, temperature: 25, ionicStrength: 150 };
 
 const ACMG_DESCRIPTIONS: Record<string, string> = {
   standard: "Standard ACMG/AMP rules balancing population, computational, and functional evidence.",
   conservative: "Downgrades speculative in-silico predictions to avoid false-positive pathogenicity calls.",
   "strict-structural": "Heavily weights PM1 structural hotspots and PS3 functional assays."
+};
+
+const SAPROT_DESCRIPTIONS: Record<string, string> = {
+  "saprot-650m": "Local 650M on CPU — most accurate, ~3.5 s per variant.",
+  "saprot-35m": "Local 35M — ~200 ms per variant with a low memory footprint.",
+  "remote-hf": "Hugging Face inference — requires an HF token under Connections."
 };
 
 export function AnalysisSection() {
@@ -47,27 +34,23 @@ export function AnalysisSection() {
     });
   };
 
-  const resetToPhysiological = () => {
-    updateSetting("biophysicsConditions", {
-      ph: 7.4,
-      temperature: 25,
-      ionicStrength: 150
-    });
-  };
-
   const isPhysiological =
-    settings.biophysicsConditions.ph === 7.4 &&
-    settings.biophysicsConditions.temperature === 25 &&
-    settings.biophysicsConditions.ionicStrength === 150;
+    settings.biophysicsConditions.ph === PHYSIOLOGICAL.ph &&
+    settings.biophysicsConditions.temperature === PHYSIOLOGICAL.temperature &&
+    settings.biophysicsConditions.ionicStrength === PHYSIOLOGICAL.ionicStrength;
+
+  const saprotEngine = settings.saprotEngine || "saprot-650m";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <SettingsSection title="Clinical evidence weighting">
         <SettingsRow
+          stacked
           label="ACMG weighting model"
           description={ACMG_DESCRIPTIONS[settings.acmgWeighting] || ACMG_DESCRIPTIONS.standard}
         >
           <SegmentedControl
+            fullWidth
             ariaLabel="ACMG weighting model"
             value={settings.acmgWeighting}
             onChange={(value) => updateSetting("acmgWeighting", value)}
@@ -78,10 +61,7 @@ export function AnalysisSection() {
             ]}
           />
         </SettingsRow>
-        <SettingsRow
-          label="ΔΔG energy unit"
-          description="Unit of measurement displayed for protein stability calculations."
-        >
+        <SettingsRow label="ΔΔG energy unit" description="Unit displayed for protein stability calculations.">
           <SegmentedControl
             ariaLabel="Stability energy unit"
             value={settings.energyUnit}
@@ -94,7 +74,7 @@ export function AnalysisSection() {
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection title="Default models" hint="Initial models pre-selected when starting a new analysis.">
+      <SettingsSection title="Default models" hint="Pre-selected when starting a new analysis.">
         <SettingsRow label="Structure source" description="Primary coordinate source for 3D viewing and repacking.">
           <SegmentedControl
             ariaLabel="Default structure model"
@@ -106,7 +86,7 @@ export function AnalysisSection() {
             ]}
           />
         </SettingsRow>
-        <SettingsRow label="Perturbation model" description="Foundation protein language model for variant effect embedding.">
+        <SettingsRow label="Perturbation model" description="Protein language model used for variant-effect embeddings.">
           <SegmentedControl
             ariaLabel="Default perturbation model"
             value={settings.defaultPerturbationModel}
@@ -118,18 +98,16 @@ export function AnalysisSection() {
             ]}
           />
         </SettingsRow>
-        <SettingsRow
-          label="SaProt execution tier"
-          description="Local 650M CPU takes ~3.5s; 35M runs in ~200ms with low memory footprint."
-        >
+        <SettingsRow stacked label="SaProt execution tier" description={SAPROT_DESCRIPTIONS[saprotEngine]}>
           <SegmentedControl
+            fullWidth
             ariaLabel="SaProt execution tier"
-            value={settings.saprotEngine || "saprot-650m"}
+            value={saprotEngine}
             onChange={(value) => updateSetting("saprotEngine", value)}
             options={[
-              { value: "saprot-650m", label: "650M (Accurate)" },
-              { value: "saprot-35m", label: "35M (Fast)" },
-              { value: "remote-hf", label: "Cloud (HF)" }
+              { value: "saprot-650m", label: "650M · Accurate" },
+              { value: "saprot-35m", label: "35M · Fast" },
+              { value: "remote-hf", label: "Cloud · HF" }
             ]}
           />
         </SettingsRow>
@@ -137,45 +115,48 @@ export function AnalysisSection() {
 
       <SettingsSection
         title="Simulation conditions"
-        hint="Environmental parameters for FoldX force field repacking and biophysical solvers."
+        hint="Environment for FoldX force-field repacking and biophysical solvers."
+        action={
+          <button
+            type="button"
+            onClick={() => updateSetting("biophysicsConditions", { ...PHYSIOLOGICAL })}
+            disabled={isPhysiological}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-cs-text-accent hover:bg-cs-bg-subtle disabled:text-cs-text-muted disabled:hover:bg-transparent disabled:cursor-default cursor-pointer transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            {isPhysiological ? "Physiological" : "Reset to physiological"}
+          </button>
+        }
       >
-        <div className="py-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] text-cs-text-secondary">Physical parameters</span>
-            <button
-              type="button"
-              onClick={resetToPhysiological}
-              disabled={isPhysiological}
-              className={`text-[11px] font-mono px-2 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer active:scale-[0.97] ${
-                isPhysiological
-                  ? "border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted opacity-60 cursor-default"
-                  : "border-cs-accent-clay/30 bg-cs-accent-clay/10 text-cs-accent-clay hover:bg-cs-accent-clay/20"
-              }`}
-            >
-              <Zap className="w-3 h-3" />
-              Reset to Physiological (7.4 · 25°C · 150mM)
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-3.5">
+        <SettingsBlock title="Simulation conditions">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {CONDITION_FIELDS.map((field) => (
               <label key={field.key} className="block">
-                <span className="block font-mono text-[10px] font-bold uppercase tracking-wider text-cs-text-muted mb-1.5">
-                  {field.label}
+                <span className="block text-[12px] font-medium text-cs-text-secondary mb-1.5">{field.label}</span>
+                <span className="relative block">
+                  <input
+                    type="number"
+                    className={`cs-input w-full h-9 font-mono !text-[13px] [font-variant-numeric:tabular-nums] ${field.unit ? "pr-11" : ""}`}
+                    value={settings.biophysicsConditions[field.key]}
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                    onChange={(e) => updateCondition(field.key, parseFloat(e.target.value))}
+                  />
+                  {field.unit && (
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-mono text-cs-text-muted">
+                      {field.unit}
+                    </span>
+                  )}
                 </span>
-                <input
-                  type="number"
-                  className="cs-input w-24 font-mono !text-xs [font-variant-numeric:tabular-nums]"
-                  value={settings.biophysicsConditions[field.key]}
-                  min={field.min}
-                  max={field.max}
-                  step={field.step}
-                  onChange={(e) => updateCondition(field.key, parseFloat(e.target.value))}
-                />
+                <span className="mt-1 block text-[11px] text-cs-text-muted [font-variant-numeric:tabular-nums]">
+                  Physiological {PHYSIOLOGICAL[field.key]}
+                  {field.unit ? ` ${field.unit}` : ""}
+                </span>
               </label>
             ))}
           </div>
-        </div>
+        </SettingsBlock>
       </SettingsSection>
     </div>
   );

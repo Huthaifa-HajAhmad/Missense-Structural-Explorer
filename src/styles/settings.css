@@ -1,0 +1,201 @@
+/* ============================================================
+   SETTINGS DIALOG
+   Surface ramp: sidebar (tinted) · canvas (page) · cards (raised)
+   ============================================================ */
+
+.settings-backdrop {
+  background: color-mix(in srgb, #0c0a09 42%, transparent);
+  backdrop-filter: blur(3px) saturate(0.9);
+  -webkit-backdrop-filter: blur(3px) saturate(0.9);
+}
+.dark .settings-backdrop {
+  background: color-mix(in srgb, #000 58%, transparent);
+}
+
+.settings-dialog {
+  --st-sidebar: var(--cs-surface-2);
+  --st-canvas: var(--cs-bg);
+  --st-card: var(--cs-surface);
+  --st-chrome: var(--cs-surface);
+  background: var(--st-chrome);
+  color: var(--cs-text-primary);
+  font-family: var(--cs-font-sans);
+}
+@media (min-width: 768px) {
+  .settings-dialog {
+    border: 1px solid var(--cs-border);
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, #fff 60%, transparent) inset,
+      0 32px 80px -16px rgba(25, 20, 15, 0.28),
+      0 12px 24px -12px rgba(25, 20, 15, 0.18);
+  }
+}
+.dark .settings-dialog {
+  --st-sidebar: #1E1C19;
+  --st-canvas: #191816;
+  --st-card: var(--cs-surface);
+  --st-chrome: #22201D;
+}
+@media (min-width: 768px) {
+  .dark .settings-dialog {
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+      0 32px 80px -16px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.settings-sidebar { background: var(--st-sidebar); }
+.settings-main-header,
+.settings-main-footer { background: var(--st-chrome); }
+.settings-canvas {
+  background: var(--st-canvas);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cs-border) transparent;
+}
+
+/* Search field sits on the tinted sidebar, so it gets its own raised surface. */
+.settings-search input {
+  background: var(--st-card);
+  border: 1px solid var(--cs-border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.settings-search input:focus {
+  border-color: var(--cs-accent-clay);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-accent-clay) 16%, transparent);
+}
+
+/* Nav: sliding selection pill + horizontal scroller on small screens */
+.settings-nav { scrollbar-width: none; }
+.settings-nav::-webkit-scrollbar { display: none; }
+.settings-nav-pill {
+  background: var(--st-card);
+  border: 1px solid var(--cs-border-subtle);
+  box-shadow: 0 1px 2px rgba(25, 20, 15, 0.06);
+}
+.dark .settings-nav-pill {
+  background: var(--cs-surface);
+  border-color: var(--cs-border);
+  box-shadow: none;
+}
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: -2px;
+}
+
+/* Grouped list card */
+.settings-card {
+  background: var(--st-card);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.dark .settings-card { border-color: var(--cs-border); }
+
+/* Segmented controls read a touch larger in settings rows */
+.settings-seg { padding: 3px; border-radius: 9px; }
+.settings-seg .cs-seg-btn { padding: 5px 12px; font-size: 12.5px; border-radius: 6px; white-space: nowrap; }
+.settings-seg .cs-seg-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.settings-seg--full { display: flex; width: 100%; }
+.settings-seg--full .cs-seg-btn { flex: 1 1 0; }
+.dark .settings-seg .cs-seg-btn.active { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
+
+/* Colour swatches: offset ring in the swatch's own colour */
+.settings-swatch {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.settings-swatch.is-selected {
+  box-shadow:
+    0 0 0 2px var(--st-card, var(--cs-surface)),
+    0 0 0 4px var(--swatch);
+}
+.settings-swatch:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--st-card, var(--cs-surface)),
+    0 0 0 4px var(--cs-accent-clay);
+}
+
+/* Residue highlight preview stage */
+.settings-residue-stage {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 120%, rgba(0, 0, 0, 0.18), transparent 60%),
+    linear-gradient(160deg, #2b2825, #141311);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* Theme picker cards */
+.settings-theme-option:focus-visible { outline: none; }
+.settings-theme-frame {
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--cs-border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.settings-theme-option:hover .settings-theme-frame { border-color: var(--cs-text-muted); }
+.settings-theme-option.is-selected .settings-theme-frame {
+  border-color: var(--cs-accent-clay);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-accent-clay) 22%, transparent);
+}
+.settings-theme-option:focus-visible .settings-theme-frame {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-accent-clay) 40%, transparent);
+}
+
+.settings-theme-preview {
+  --p-bg: #F9F8F6; --p-rail: #F0ECE3; --p-card: #FFFFFF; --p-line: #DCD6CA; --p-ink: #CFC8BB;
+  display: flex;
+  height: 100%;
+  background: var(--p-bg);
+}
+.settings-theme-preview--dark {
+  --p-bg: #191816; --p-rail: #201E1B; --p-card: #2A2724; --p-line: #3C3934; --p-ink: #4A4640;
+}
+.stp-rail { width: 22%; background: var(--p-rail); border-right: 1px solid var(--p-line); }
+.stp-main { flex: 1; padding: 10% 9%; display: flex; flex-direction: column; gap: 9%; }
+.stp-card {
+  flex: 1;
+  background: var(--p-card);
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  padding: 9%;
+  display: flex;
+  flex-direction: column;
+  gap: 12%;
+  position: relative;
+}
+.stp-bar { height: 5px; border-radius: 3px; background: var(--p-ink); width: 72%; }
+.stp-bar--title { width: 46%; height: 6px; }
+.stp-bar--short { width: 44%; }
+.stp-dot {
+  position: absolute; right: 10%; bottom: 14%;
+  width: 18%; aspect-ratio: 1; border-radius: 999px;
+  background: var(--cs-accent-clay);
+  opacity: 0.9;
+}
+
+/* Search "jump to" highlight */
+@keyframes settings-flash {
+  0%, 35% { background-color: color-mix(in srgb, var(--cs-accent-clay) 14%, transparent); }
+  100% { background-color: transparent; }
+}
+.settings-flash {
+  animation: settings-flash 1.8s ease-out;
+  border-radius: 10px;
+}
+.settings-card .settings-flash { border-radius: 0; }
+
+/* Switch track needs more contrast against white cards when off */
+.settings-dialog .cs-switch:not([data-checked="true"]) {
+  background: color-mix(in srgb, var(--cs-text-muted) 22%, var(--st-card));
+  border-color: transparent;
+}
+.settings-dialog .cs-switch:not([data-checked="true"]):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cs-text-muted) 32%, var(--st-card));
+}
+.settings-dialog .cs-switch-thumb { background: #fff; }

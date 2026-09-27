@@ -6,6 +6,9 @@
 @import "./theme-accents.css";
 @import "./primitives.css";
 @import "./layout.css";
+@import "./sidebar.css";
+@import "./command-palette.css";
+@import "./settings.css";
 @import "./evidence.css";
 @import "./typography-tables.css";
 @import "./dev-console.css";

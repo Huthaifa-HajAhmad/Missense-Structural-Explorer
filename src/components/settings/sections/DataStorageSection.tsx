@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
 import { useDiagnostics } from "../../../hooks/useDiagnostics";
-import { SettingsRow, SettingsSection } from "../ui/Section";
+import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 import { DEFAULT_USER_SETTINGS, TRANSIENT_SETTING_KEYS } from "../defaults";
 import { clearClientVariantCache } from "../../../services/pipeline/variantCache";
 import type { UserSettings } from "../../../types";
@@ -39,7 +39,7 @@ function ActionButton({
     <button
       type="button"
       onClick={onClick}
-      className={`cs-btn-ghost active:scale-[0.97] transition-all duration-150 ${
+      className={`cs-btn-ghost h-8 active:scale-[0.97] transition-all duration-150 ${
         danger ? "!text-rose-600 dark:!text-rose-400 hover:!bg-rose-500/10" : ""
       }`}
     >
@@ -194,82 +194,52 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
     ? Object.values(diagnostics.cacheDiagnostics).reduce((sum, cache) => sum + cache.size, 0)
     : null;
 
-  return (
-    <div className="space-y-6">
-      {/* ── Scientific Provenance Bridge Callout ── */}
-      <div className="p-3.5 rounded-xl border border-cs-border-subtle bg-cs-surface-2 flex items-start gap-3">
-        <div
-          className="p-2 rounded-lg shrink-0 mt-0.5"
-          style={{ background: "rgba(196, 104, 73, 0.12)" }}
-        >
-          <HardDrive className="w-4 h-4 text-cs-accent-clay" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="text-[12px] font-semibold text-cs-text-primary">
-              Scientific Provenance &amp; Attribution
-            </h4>
-            {onNavigateAbout && (
-              <button
-                type="button"
-                onClick={onNavigateAbout}
-                className="text-[11px] font-medium text-cs-accent-clay hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
-              >
-                Open About Guide
-                <ArrowUpRight className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-          <p className="text-[11px] text-cs-text-muted mt-1 leading-relaxed">
-            Foundation model commit hashes, database versions (dbNSFP, ClinVar, gnomAD, FoldX), and BibTeX citations are centralized in the master <strong>About</strong> view.
-          </p>
-        </div>
-      </div>
+  const dangerBtn = (confirming: boolean) =>
+    `cs-btn-ghost h-8 active:scale-[0.97] transition-all duration-150 !text-rose-600 dark:!text-rose-400 ${
+      confirming ? "!border-rose-500/50 !bg-rose-500/10" : "hover:!bg-rose-500/10"
+    }`;
 
-      {/* ── Backup & Synchronization ── */}
+  return (
+    <div className="space-y-7">
+      {/* ── Backup ── */}
       <SettingsSection
         title="Settings backup"
-        hint="Export customized thresholds, view preferences, and model configs. Credentials are never exported."
+        hint="Export thresholds, view preferences, and model choices. Credentials are never exported."
       >
-        <div className="py-3 flex flex-wrap items-center gap-2.5">
-          <ActionButton onClick={exportSettings} icon={<Download className="w-3.5 h-3.5" />}>
-            Export settings JSON
-          </ActionButton>
-          <ActionButton onClick={() => fileInputRef.current?.click()} icon={<Upload className="w-3.5 h-3.5" />}>
-            Import settings JSON
-          </ActionButton>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) importSettings(file);
-              e.target.value = "";
-            }}
-          />
-        </div>
+        <SettingsRow label="Preferences file" description="A portable JSON snapshot of this browser's settings.">
+          <div className="flex flex-wrap items-center gap-2">
+            <ActionButton onClick={exportSettings} icon={<Download className="w-3.5 h-3.5" />}>
+              Export
+            </ActionButton>
+            <ActionButton onClick={() => fileInputRef.current?.click()} icon={<Upload className="w-3.5 h-3.5" />}>
+              Import
+            </ActionButton>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              aria-label="Import settings JSON file"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importSettings(file);
+                e.target.value = "";
+              }}
+            />
+          </div>
+        </SettingsRow>
       </SettingsSection>
 
-      {/* ── Local Browser Storage & Privacy ── */}
+      {/* ── Local browser storage ── */}
       <SettingsSection
         title="Local storage & privacy"
-        hint="Manage cached queries and session data stored in this browser."
+        hint="Cached queries and session data kept in this browser."
       >
         <SettingsRow
           label="Search query history"
-          description={`Locally stored queries: ${historyStats.count} item${historyStats.count === 1 ? "" : "s"} (${historyStats.bytes} KB).`}
+          description={`${historyStats.count} item${historyStats.count === 1 ? "" : "s"} stored locally · ${historyStats.bytes} KB`}
         >
-          <button
-            type="button"
-            onClick={handleClearSearchHistory}
-            className={`cs-btn-ghost active:scale-[0.97] transition-all duration-150 ${
-              confirmHistoryClear
-                ? "!text-rose-600 dark:!text-rose-400 !border-rose-500/40 !bg-rose-500/10"
-                : "!text-rose-600 dark:!text-rose-400 hover:!bg-rose-500/10"
-            }`}
-          >
+          <button type="button" onClick={handleClearSearchHistory} className={dangerBtn(confirmHistoryClear)}>
             {confirmHistoryClear ? <Check className="w-3.5 h-3.5" /> : <Eraser className="w-3.5 h-3.5" />}
             {confirmHistoryClear ? "Confirm clear" : "Clear history"}
           </button>
@@ -285,7 +255,7 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
         </SettingsRow>
       </SettingsSection>
 
-      {/* ── Server Pipeline & Model Caches ── */}
+      {/* ── Server caches ── */}
       <SettingsSection
         title="Lab server cache"
         hint="In-memory, FoldX repacking, and persistent SQLite lookup caches on the compute server."
@@ -294,39 +264,68 @@ export function DataStorageSection({ onNavigateAbout }: { onNavigateAbout?: () =
           label="Pipeline registries"
           description={
             totalCached !== null
-              ? `${diagnostics?.cacheDiagnostics ? Object.keys(diagnostics.cacheDiagnostics).length : 0} cache registries holding ${totalCached} entries.`
+              ? `${diagnostics?.cacheDiagnostics ? Object.keys(diagnostics.cacheDiagnostics).length : 0} registries · ${totalCached} cached entries`
               : "Clear in-memory and disk caches on the lab server."
           }
         >
-          <button
-            type="button"
-            onClick={purgeServerCaches}
-            className={`cs-btn-ghost active:scale-[0.97] transition-all duration-150 ${
-              confirmServerPurge
-                ? "!text-rose-600 dark:!text-rose-400 !border-rose-500/40 !bg-rose-500/10"
-                : "!text-rose-600 dark:!text-rose-400 hover:!bg-rose-500/10"
-            }`}
-          >
+          <button type="button" onClick={purgeServerCaches} className={dangerBtn(confirmServerPurge)}>
             {confirmServerPurge ? <Check className="w-3.5 h-3.5" /> : <Database className="w-3.5 h-3.5" />}
             {confirmServerPurge ? "Confirm purge" : "Purge server caches"}
           </button>
         </SettingsRow>
+      </SettingsSection>
 
-        <div className="py-2.5 flex items-center justify-between text-[11px] text-cs-text-muted border-t border-cs-border-subtle">
-          <div className="flex items-center gap-2">
-            <Server className="w-3.5 h-3.5 text-cs-text-muted" />
-            <span>Missense Structural Explorer</span>
+      {dataStatus && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-lg border border-cs-border-subtle bg-cs-surface px-3 py-2 text-[12px] text-cs-text-secondary"
+        >
+          <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+          {dataStatus}
+        </p>
+      )}
+
+      {/* ── About / provenance ── */}
+      <SettingsSection title="About">
+        <SettingsBlock>
+          <div className="flex items-start gap-3">
+            <div className="grid place-items-center w-9 h-9 rounded-lg shrink-0 bg-cs-accent-clay/12 text-cs-accent-clay">
+              <HardDrive className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <h4 className="text-[13px] font-medium text-cs-text-primary">Scientific provenance &amp; attribution</h4>
+                {onNavigateAbout && (
+                  <button
+                    type="button"
+                    onClick={onNavigateAbout}
+                    className="inline-flex items-center gap-1 text-[12px] font-medium text-cs-text-accent hover:underline underline-offset-2 cursor-pointer"
+                  >
+                    Open About guide
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <p className="mt-0.5 text-[12px] leading-snug text-cs-text-muted max-w-[62ch]">
+                Model commit hashes, database versions (dbNSFP, ClinVar, gnomAD, FoldX), and BibTeX citations live in
+                the About view.
+              </p>
+            </div>
           </div>
-          <span className="font-mono text-[10px] [font-variant-numeric:tabular-nums]">
-            v{version?.version || "1.0.0"}{version?.env ? ` · ${version.env}` : ""}
-          </span>
-        </div>
-
-        {dataStatus && (
-          <p role="status" aria-live="polite" className="text-[11px] text-cs-text-secondary py-2">
-            {dataStatus}
-          </p>
-        )}
+        </SettingsBlock>
+        <SettingsBlock className="!py-2.5">
+          <div className="flex items-center justify-between gap-3 text-[12px] text-cs-text-muted">
+            <span className="flex items-center gap-2">
+              <Server className="w-3.5 h-3.5" />
+              Missense Structural Explorer
+            </span>
+            <span className="font-mono text-[11px] [font-variant-numeric:tabular-nums]">
+              v{version?.version || "1.0.0"}
+              {version?.env ? ` · ${version.env}` : ""}
+            </span>
+          </div>
+        </SettingsBlock>
       </SettingsSection>
     </div>
   );

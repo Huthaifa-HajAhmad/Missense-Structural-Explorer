@@ -3,7 +3,7 @@ import { useSettings } from "../../../context/SettingsContext";
 import { ColorSwatches } from "../ui/ColorSwatches";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { Switch } from "../ui/Switch";
-import { SettingsRow, SettingsSection } from "../ui/Section";
+import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 
 const VIBRANT_SWATCHES = [
   { name: "Sunset Orange", hex: "#F97316" },
@@ -30,17 +30,50 @@ export function ViewportSection() {
   );
 
   const activeColorName =
-    [...VIBRANT_SWATCHES, ...MUTED_SWATCHES].find((s) => s.hex.toLowerCase() === settings.residueColor.toLowerCase())?.name ||
-    "Custom";
+    [...VIBRANT_SWATCHES, ...MUTED_SWATCHES].find(
+      (s) => s.hex.toLowerCase() === settings.residueColor.toLowerCase()
+    )?.name || "Custom";
 
   return (
-    <div className="space-y-6">
-      <SettingsSection
-        title="Target residue highlight"
-        hint="Color used to mark the queried missense residue in the 3D viewport."
-      >
-        <div className="py-3 space-y-3">
-          <div className="flex items-center justify-between gap-3">
+    <div className="space-y-7">
+      <SettingsSection title="Target residue">
+        <SettingsBlock title="Target residue highlight">
+          <div className="flex items-center gap-4">
+            {/* Live specular preview of the highlighted residue */}
+            <div
+              className="settings-residue-stage shrink-0"
+              title={`Active highlight: ${activeColorName} (${settings.residueColor})`}
+              aria-hidden
+            >
+              <span
+                className="block w-9 h-9 rounded-full"
+                style={{
+                  background: `radial-gradient(circle at 32% 30%, #ffffff 0%, ${settings.residueColor} 42%, #111111 100%)`,
+                  boxShadow: `0 6px 16px -4px ${settings.residueColor}99`
+                }}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-cs-text-primary">Highlight color</span>
+              <p className="mt-0.5 text-[12px] leading-snug text-cs-text-muted">
+                Marks the queried missense residue in the 3D viewport.
+              </p>
+              <p className="mt-1 text-[12px] text-cs-text-secondary">
+                {activeColorName}
+                <span className="ml-1.5 font-mono text-[11px] text-cs-text-muted [font-variant-numeric:tabular-nums]">
+                  {settings.residueColor.toUpperCase()}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-cs-surface-2 px-3 py-2.5">
+            <ColorSwatches
+              ariaLabel="Target residue color"
+              colors={paletteMode === "vibrant" ? VIBRANT_SWATCHES : MUTED_SWATCHES}
+              value={settings.residueColor}
+              onChange={(hex) => updateSetting("residueColor", hex)}
+            />
             <SegmentedControl
               ariaLabel="Residue palette mode"
               value={paletteMode}
@@ -50,31 +83,8 @@ export function ViewportSection() {
                 { value: "muted", label: "Muted" }
               ]}
             />
-
-            {/* Live 3D Specular Preview Sphere */}
-            <div
-              className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-cs-border-subtle bg-cs-surface-2"
-              title={`Active highlight: ${activeColorName} (${settings.residueColor})`}
-            >
-              <span
-                className="w-4.5 h-4.5 rounded-full shadow-sm shrink-0 border border-black/10 dark:border-white/10"
-                style={{
-                  background: `radial-gradient(circle at 30% 30%, #ffffff 0%, ${settings.residueColor} 45%, #111111 100%)`
-                }}
-              />
-              <span className="font-mono text-[11px] font-medium text-cs-text-primary [font-variant-numeric:tabular-nums]">
-                {settings.residueColor}
-              </span>
-            </div>
           </div>
-
-          <ColorSwatches
-            ariaLabel="Target residue color"
-            colors={paletteMode === "vibrant" ? VIBRANT_SWATCHES : MUTED_SWATCHES}
-            value={settings.residueColor}
-            onChange={(hex) => updateSetting("residueColor", hex)}
-          />
-        </div>
+        </SettingsBlock>
       </SettingsSection>
 
       <SettingsSection title="Camera">
