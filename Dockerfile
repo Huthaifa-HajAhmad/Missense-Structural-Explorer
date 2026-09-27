@@ -2,7 +2,7 @@
 FROM node:22-bookworm-slim AS node-builder
 WORKDIR /app
 
-# Install Python, uv, git, and OpenMP runtime for running tests in the builder stage
+# Install Python, uv, git, and OpenMP runtime. `uv` builds the venv the runner stage copies in.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -24,9 +24,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY . .
 
-# Run verification gates
-RUN npm run lint
-RUN npm test
+# Pre-flight gate: the type-check, and nothing that needs the repository's own metadata.
+#
+# This used to be `npm run lint` plus `npm test`. Both read `.github/workflows/` — `lint` through
+# `scripts/check-verify-parity.ts` (which fails closed without it) and the suite through
+# `server/tests/verify-parity.test.ts`, which exercises the real repository — while `COPY . .` applies
+# `.dockerignore`, which excludes `.github/`. Either one therefore fails a build context, which is a
+# property of the context and not of the code. `verify:image` keeps the part that IS about the
+# artifact: that the tree this image copied still compiles. `check-verify-parity.ts` enforces the
+# rule, so a future edit that puts the gate set back here fails `npm run lint` instead of the deploy.
+RUN npm run verify:image
 
 # Build the RaSP SQLite database if the raw CSV is present.
 #
@@ -35,8 +42,9 @@ RUN npm test
 # `../data:/app/data` bind mount instead. It stays because it becomes live the moment the CSV is part of
 # the build context, and deleting it would break that case silently.
 #
-# CI never builds this image, so the gates below (`npm run lint`, `npm test`) run only on a local or
-# deploy-time build — a Dockerfile-only break surfaces at deploy rather than in CI.
+# CI never builds this image, so a Dockerfile-only break surfaces on a local build rather than in CI.
+# That is the argument for keeping the pre-flight gate above context-safe and cheap, not for dropping it:
+# the check it replaced could not pass here at all, so it was reporting the context, not the code.
 RUN if [ -f data/df_rasp_gnomad_clinvar.csv ]; then npm run migrate:rasp; fi
 
 RUN npm run build

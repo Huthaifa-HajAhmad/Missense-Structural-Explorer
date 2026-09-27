@@ -24,6 +24,7 @@
     "test:geometry:function-track": "node tools/function-track-geometry/check.mjs",
     "verify:geometry": "npm run test:geometry && npm run test:geometry:function-track",
     "verify": "npm run lint && npm run test:coverage && npm run verify:geometry && npm run build",
+    "verify:image": "tsc --noEmit",
     "benchmark:proteingym": "tsx tools/run_proteingym_benchmark.ts",
     "review": "tsx scripts/review.ts review",
     "review:preview": "tsx scripts/review.ts review --preview",

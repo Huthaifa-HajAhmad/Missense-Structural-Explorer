@@ -2,10 +2,15 @@ import { describe, it, expect } from "vitest";
 import path from "path";
 import fs from "fs";
 import {
+  checkDockerfileGateSafety,
   checkVerifyParity,
   expandScripts,
   extractWorkflowScripts,
+  imageUnsafeCulprit,
+  IMAGE_SAFE_ENTRY,
+  IMAGE_UNSAFE_GATES,
   NETWORK_DEPENDENT_GATES,
+  readDockerfiles,
   REPO_ROOT,
   VERIFY_ENTRY,
 } from "../../scripts/check-verify-parity.ts";
@@ -230,5 +235,185 @@ describe("checkVerifyParity — fail-closed", () => {
 
     expect(violations).toHaveLength(2);
     expect(violations.every(v => v.rule === "NOT_IN_VERIFY")).toBe(true);
+  });
+});
+
+/*
+ * The rule below was added because a green CI run was followed by a red deployment.
+ *
+ * `deploy/Dockerfile.oci` ran `npm run lint` as its pre-flight gate. `lint` grew a step that reads
+ * `.github/workflows/`, a Docker build context is the tree with `.dockerignore` applied, and that file
+ * excludes `.github/` — so the gate failed closed inside the image build. CD run 36330245416 spent
+ * four minutes on an ARM build to report, in the words of the guard itself, that its own context
+ * "has no .github/workflows". Nothing was wrong with the revision; CI had already passed that exact
+ * check against that exact commit.
+ *
+ * So these are the same shape as the tests above: mostly negative, each one breaking the build in a
+ * specific way and asserting the guard notices.
+ */
+
+function dockerfile(text: string) {
+  return new Map([[path.join(REPO_ROOT, "deploy", "Dockerfile.oci"), text]]);
+}
+
+describe("checkDockerfileGateSafety — the real repository", () => {
+  it("passes: no Dockerfile runs a gate its build stage cannot satisfy", () => {
+    expect(checkDockerfileGateSafety()).toEqual([]);
+  });
+
+  it("actually finds Dockerfiles and gates in them, so the case above is not a scan of nothing", () => {
+    const usages = [...readDockerfiles(REPO_ROOT).values()].flatMap(extractWorkflowScripts);
+    expect([...readDockerfiles(REPO_ROOT).keys()].length).toBeGreaterThanOrEqual(2);
+    expect(usages.map(u => u.script)).toContain(IMAGE_SAFE_ENTRY);
+  });
+
+  it("keeps the deploy build off `npm run lint`, which is the failure CD run 36330245416 hit", () => {
+    /*
+     * Pinned against the file that actually deploys, because that is where the cost landed. The
+     * `verify:image` half is the assertion that the line is still doing a type-check rather than
+     * having been deleted outright.
+     */
+    const oci = fs.readFileSync(path.join(REPO_ROOT, "deploy", "Dockerfile.oci"), "utf-8");
+    const scripts = extractWorkflowScripts(oci).map(u => u.script);
+    expect(scripts).toContain(IMAGE_SAFE_ENTRY);
+    expect(scripts).not.toContain("lint");
+    expect(scripts).not.toContain("test");
+  });
+
+  it("keeps the gate set runnable outside an image, so the rule is not a way to disable it", () => {
+    // `lint` must still be a real script that `verify` reaches: the Dockerfile rule is about WHERE the
+    // gates run, and a fix that removed them from the local/CI path would be a different bug.
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8"));
+    expect(expandScripts(pkg.scripts, VERIFY_ENTRY).has("lint")).toBe(true);
+    expect(IMAGE_UNSAFE_GATES.has("lint")).toBe(true);
+  });
+});
+
+describe("checkDockerfileGateSafety — negative controls", () => {
+  const safeScripts = { "verify:image": "tsc --noEmit", build: "vite build" };
+
+  it("catches a Dockerfile putting `npm run lint` back", () => {
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: {
+        ...safeScripts,
+        lint: "tsx scripts/check-verify-parity.ts && tsc --noEmit",
+      },
+      customDockerfiles: dockerfile("RUN npm run verify:image\nRUN npm run lint"),
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].rule).toBe("NOT_IMAGE_SAFE");
+    expect(violations[0].script).toBe("lint");
+    expect(violations[0].line).toBe(2);
+    expect(violations[0].message).toContain(".github");
+    expect(violations[0].message).toContain(IMAGE_SAFE_ENTRY);
+  });
+
+  it("catches `npm test` even though nothing in its script body mentions .github", () => {
+    /*
+     * The dependency is one level down and invisible to a text scan: `test` is `vitest run`, and it is
+     * `server/tests/verify-parity.test.ts` that calls this check against `REPO_ROOT`. A rule inferred
+     * from script bodies alone would let this through, which is why the list is declared with reasons.
+     */
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: { ...safeScripts, test: "vitest run" },
+      customDockerfiles: dockerfile("RUN npm test"),
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].script).toBe("test");
+    expect(violations[0].rule).toBe("NOT_IMAGE_SAFE");
+  });
+
+  it("follows an alias, so `verify:image` cannot be redefined into the full gate set", () => {
+    // Otherwise "call the safe alias" would be a way to hide a gate from this check — the same evasion
+    // the `NOT_IN_VERIFY` rule closes for workflows by expanding script chains.
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: { lint: "tsx scripts/check-verify-parity.ts", "verify:image": "npm run lint" },
+      customDockerfiles: dockerfile("RUN npm run verify:image"),
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].script).toBe(IMAGE_SAFE_ENTRY);
+    expect(violations[0].message).toContain("reaches");
+    expect(violations[0].message).toContain("has to stay the artifact-level type-check");
+  });
+
+  it("catches a Dockerfile gating on a script that does not exist", () => {
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: safeScripts,
+      customDockerfiles: dockerfile("RUN npm run verify:imag"),
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].rule).toBe("MISSING_SCRIPT");
+    expect(violations[0].message).toContain("image build");
+  });
+
+  it("refuses the browser harnesses, which no build stage can satisfy", () => {
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: { ...safeScripts, test: "vitest run", "test:geometry": "node tools/header-geometry/check.mjs" },
+      customDockerfiles: dockerfile("RUN npm run test:geometry"),
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].script).toBe("test:geometry");
+    expect(violations[0].message).toContain("Chromium");
+  });
+
+  it("lets a context-safe gate through", () => {
+    // The pair to every case above: these two are exactly what the Dockerfiles run today, and they must
+    // stay accepted or the fix would be indistinguishable from turning the rule off.
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: safeScripts,
+      customDockerfiles: dockerfile("RUN npm run verify:image\nRUN npm run build"),
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it("ignores the gate history in a Dockerfile comment", () => {
+    // Both Dockerfiles now explain what they used to run, naming `npm run lint` and `npm test` in prose.
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: { ...safeScripts, lint: "tsx scripts/check-verify-parity.ts", test: "vitest run" },
+      customDockerfiles: dockerfile("# This used to be `npm run lint` plus `npm test`\nRUN npm run verify:image"),
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it("scans every Dockerfile it finds, not just the deploy one", () => {
+    const violations = checkDockerfileGateSafety({
+      rootDir: REPO_ROOT,
+      customScripts: { ...safeScripts, lint: "tsx scripts/check-verify-parity.ts" },
+      customDockerfiles: new Map([
+        [path.join(REPO_ROOT, "deploy", "Dockerfile.oci"), "RUN npm run verify:image"],
+        [path.join(REPO_ROOT, "Dockerfile"), "RUN npm run lint"],
+      ]),
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].file).toBe("Dockerfile");
+  });
+});
+
+describe("imageUnsafeCulprit", () => {
+  it("returns null for a script that is safe and reaches nothing unsafe", () => {
+    expect(imageUnsafeCulprit({ "verify:image": "tsc --noEmit" }, "verify:image")).toBeNull();
+  });
+
+  it("does not report a script for reaching itself", () => {
+    // `expandScripts` includes the entry, so a naive overlap test would flag `lint` with the vaguer
+    // "reaches `lint`" message instead of the direct reason.
+    const reason = imageUnsafeCulprit({ lint: "tsc --noEmit" }, "lint");
+    expect(reason).toContain("check-verify-parity.ts");
+    expect(reason).not.toContain("reaches");
   });
 });

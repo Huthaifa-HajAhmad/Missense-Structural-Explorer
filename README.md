@@ -113,6 +113,8 @@ npm test          # the suite alone
 npm run lint      # static gates alone
 ```
 
+**Image builds run one gate, not the gate set:** `npm run verify:image` — the type-check alone. A Docker build context is the tree with `.dockerignore` applied, and that file excludes `.github/`, so `npm run lint` cannot pass inside one: its third step (`scripts/check-verify-parity.ts`) reads `.github/workflows/` and fails closed without it. `deploy/Dockerfile.oci` gated on `npm run lint` and failed CD run 36330245416 four minutes into an ARM build, on a revision whose CI had already passed that exact check. The rule is enforced for every Dockerfile in the tree — including the script chain behind an alias, so `verify:image` cannot be redefined into the gate set.
+
 **Deliberately not in `verify`:** `npm run audit`. It resolves against a live advisory database, so its verdict depends on when it runs rather than on the tree, and no code change can fix a newly-published advisory. It stays in CI, where the answer is recorded against the commit; it is allow-listed in `scripts/check-verify-parity.ts` with that reason.
 
 > Do not skip a CI gate because it passed locally. A local run attests to your working tree; CI attests to the commit — that everything needed was staged, that it builds from a clean `npm ci`, and that it passes on a platform you are not developing on. Deployment is gated on CI success (`cd.yml`), so bypassing it deploys unverified code.

@@ -59,8 +59,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy source tree
 COPY . .
 
-# Run quick verification gates (TypeScript type-check)
-RUN npm run lint
+# The only gate that may run here is the artifact-level type-check.
+#
+# This line used to be `npm run lint`, which was the type-check when it was written. `lint` has since
+# grown to four gates, and its third one — `tsx scripts/check-verify-parity.ts` — reads
+# `.github/workflows/` and fails CLOSED when it cannot find it. `COPY . .` applies `.dockerignore`,
+# which excludes `.github/`, so the deploy build died on f96d6a3 with "has no .github/workflows"
+# (CD run 36330245416) on a revision whose CI had already passed that same check.
+#
+# `verify:image` is the type-check alone, because that is the only thing an image build can attest to:
+# that the tree it copied still compiles. The full gate set runs in CI, against the commit rather than
+# the build context, and `cd.yml` deploys only a commit whose CI run succeeded.
+RUN npm run verify:image
 
 # Compile React frontend (Vite) and Node.js backend (esbuild)
 RUN npm run build

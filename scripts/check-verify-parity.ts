@@ -24,10 +24,24 @@ import { fileURLToPath } from "url";
  * So the relationship is checked instead of promised: every npm script a workflow invokes as a gate
  * must be reachable from `verify`, or be on the short list below with a reason.
  *
+ * THE OTHER DIRECTION: GATES THAT MUST NOT RUN IN AN IMAGE BUILD
+ * --------------------------------------------------------------
+ * The same reasoning applies one layer out, and it cost a deployment. `deploy/Dockerfile.oci` ran
+ * `npm run lint` as a pre-flight gate, and `lint` grew a step (`this file`) that reads `.github/workflows/`.
+ * A Docker build context is the tree with `.dockerignore` applied, and that file excludes `.github/`, so
+ * the gate failed CLOSED inside the image build — CD run 36330245416 died with "has no .github/workflows"
+ * on a commit whose CI had already passed the identical check. The build was reporting the shape of its
+ * own context, not a defect in the revision.
+ *
+ * So a Dockerfile may only run gates whose requirements its build stage actually satisfies, and the
+ * `verify:image` entry is the one that does. That rule is enforced here too, because the failure it
+ * prevents is exactly the kind that only shows up at deploy time.
+ *
  * WHAT COUNTS AS A GATE
  * ---------------------
- * An `npm run <script>` inside a workflow `run:` step. Setup invocations are not gates and are ignored
- * by construction: `npm ci` is not `npm run`, and `actions/*` steps are not shell at all.
+ * An `npm run <script>` inside a workflow `run:` step, or inside a Dockerfile's `RUN`. Setup invocations
+ * are not gates and are ignored by construction: `npm ci` is not `npm run`, and `actions/*` steps are not
+ * shell at all.
  *
  * The exclusion list is deliberately tiny and each entry has to justify itself. A convenience alias
  * does not qualify — aliases are exactly what this check exists to prevent, so an entry means "this
@@ -40,7 +54,7 @@ export interface VerifyParityViolation {
   file: string;
   line: number;
   script: string;
-  rule: "MISSING_SCRIPT" | "NOT_IN_VERIFY";
+  rule: "MISSING_SCRIPT" | "NOT_IN_VERIFY" | "NOT_IMAGE_SAFE";
   message: string;
 }
 
@@ -58,6 +72,29 @@ export const NETWORK_DEPENDENT_GATES = new Set(["audit"]);
 export const VERIFY_ENTRY = "verify";
 
 /**
+ * The one gate an image build may run: the type-check, which depends on nothing but the copied tree.
+ *
+ * It is a subset of `lint` and therefore of `verify`, so it needs no entry there — that list governs
+ * what runs as a CI gate, and this one exists so a Dockerfile has something context-safe to call by name.
+ */
+export const IMAGE_SAFE_ENTRY = "verify:image";
+
+/**
+ * Gates that must never run inside a Docker image build, each with the reason it cannot.
+ *
+ * Two distinct reasons, one rule: a build stage has no browser, and a build context has no repository
+ * metadata. Both produce a failure that describes the build environment rather than the change, which
+ * is how a deploy-time "verification" comes to cost four minutes and say nothing about the revision.
+ */
+export const IMAGE_UNSAFE_GATES = new Map<string, string>([
+  ["lint", "it runs `scripts/check-verify-parity.ts`, which reads `.github/workflows/` and fails closed without it"],
+  ["test", "it runs `server/tests/verify-parity.test.ts`, which exercises the real repository through `REPO_ROOT`"],
+  ["test:coverage", "it runs the same suite as `test`"],
+  ["test:geometry", "it renders in headless Chromium, which no build stage installs"],
+  ["test:geometry:function-track", "it renders in headless Chromium, which no build stage installs"],
+]);
+
+/**
  * `npm run <name>` and bare `npm test` in a shell line.
  *
  * `npm test` is npm's own shorthand for `npm run test`, and a workflow is free to use either.
@@ -71,11 +108,12 @@ function isComment(line: string): boolean {
 }
 
 /**
- * Every npm script a workflow invokes, with its line number.
+ * Every npm script a workflow shell step or a Dockerfile `RUN` invokes, with its line number.
  *
- * Comments are skipped: the workflow files explain their own gate history in prose that names scripts
- * (this repository's `ci.yml` documents a removed Python setup step and a measured cost profile), and a
- * guard that fired on its own documentation would be deleted rather than obeyed.
+ * Comments are skipped: the workflow files and the Dockerfiles explain their own gate history in prose
+ * that names scripts (this repository's `ci.yml` documents a removed Python setup step and a measured
+ * cost profile; `Dockerfile` names the two gates it used to run and why it cannot), and a guard that
+ * fired on its own documentation would be deleted rather than obeyed.
  */
 export function extractWorkflowScripts(content: string): Array<{ script: string; line: number }> {
   const found: Array<{ script: string; line: number }> = [];
@@ -221,12 +259,152 @@ export function checkVerifyParity(options: CheckVerifyParityOptions = {}): Verif
   return violations;
 }
 
+/**
+ * Directories never worth walking for a Dockerfile: build output, dependencies, and the local
+ * agent/analysis leftovers this repository keeps out of git (see `.dockerignore` for the sizes).
+ */
+const DOCKERFILE_WALK_SKIP = new Set([
+  ".git",
+  ".antigravity",
+  ".kilo",
+  ".zvec-grep",
+  "coverage",
+  "data",
+  "dist",
+  "graphify-out",
+  "logs",
+  "node_modules",
+  "scratch",
+]);
+
+/**
+ * Every Dockerfile in the tree, including `Dockerfile.<variant>` and `*.dockerfile`.
+ *
+ * Walked rather than listed, because the whole point is to catch the file someone adds next — a rule
+ * that only checked the two paths that exist today would be a rule about those two paths.
+ */
+export function readDockerfiles(rootDir: string, custom?: Map<string, string>): Map<string, string> {
+  if (custom) return custom;
+
+  const found = new Map<string, string>();
+
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!DOCKERFILE_WALK_SKIP.has(entry.name)) walk(full);
+      } else if (/^Dockerfile(\..+)?$/i.test(entry.name) || /\.dockerfile$/i.test(entry.name)) {
+        found.set(full, fs.readFileSync(full, "utf-8"));
+      }
+    }
+  };
+
+  walk(rootDir);
+  return found;
+}
+
+/**
+ * Why `script` cannot run in an image build, or `null` if it can.
+ *
+ * Follows the script chain, so redefining `verify:image` as `npm run lint` is caught by the same rule
+ * that catches calling `lint` directly — otherwise "call the safe alias" would be a way to hide a gate
+ * from this check, which is the shape of evasion the parity rule exists to close for workflows.
+ */
+export function imageUnsafeCulprit(scripts: Record<string, string>, script: string): string | null {
+  const direct = IMAGE_UNSAFE_GATES.get(script);
+  if (direct) return direct;
+
+  for (const reached of expandScripts(scripts, script)) {
+    if (reached === script) continue;
+    const reason = IMAGE_UNSAFE_GATES.get(reached);
+    if (reason) return `\`npm run ${script}\` reaches \`${reached}\`, which cannot: ${reason}`;
+  }
+
+  return null;
+}
+
+export interface CheckDockerfileGatesOptions {
+  rootDir?: string;
+  /** Injected Dockerfile contents (path -> text). Used by tests to build synthetic trees. */
+  customDockerfiles?: Map<string, string>;
+  /** Injected package.json scripts. Used by tests. */
+  customScripts?: Record<string, string>;
+}
+
+/**
+ * Every gate a Dockerfile runs that its build stage cannot satisfy.
+ *
+ * Not fail-closed on an empty Dockerfile set, unlike the workflow scan: this is a constraint on files
+ * that happen to exist, and a repository with no image is not a repository whose check is unread. The
+ * positive case is guarded instead, by a test asserting the real tree yields Dockerfiles to scan.
+ */
+export function checkDockerfileGateSafety(options: CheckDockerfileGatesOptions = {}): VerifyParityViolation[] {
+  const rootDir = options.rootDir ?? REPO_ROOT;
+  const scripts = readScripts(rootDir, options.customScripts);
+  const dockerfiles = readDockerfiles(rootDir, options.customDockerfiles);
+  const violations: VerifyParityViolation[] = [];
+
+  for (const [file, content] of dockerfiles) {
+    const relative = path.relative(rootDir, file).replace(/\\/g, "/") || file;
+
+    for (const { script, line } of extractWorkflowScripts(content)) {
+      if (!(script in scripts)) {
+        violations.push({
+          file: relative,
+          line,
+          script,
+          rule: "MISSING_SCRIPT",
+          message:
+            `The Dockerfile runs \`npm run ${script}\`, which package.json does not define. The image ` +
+            `build fails with "Missing script" rather than running a gate.`,
+        });
+        continue;
+      }
+
+      const reason = imageUnsafeCulprit(scripts, script);
+      if (reason) {
+        const suggestion =
+          script === IMAGE_SAFE_ENTRY
+            ? `\`${IMAGE_SAFE_ENTRY}\` has to stay the artifact-level type-check (\`tsc --noEmit\`) rather ` +
+              `than an alias for the gate set`
+            : IMAGE_SAFE_ENTRY in scripts
+              ? `Use \`npm run ${IMAGE_SAFE_ENTRY}\` here`
+              : `Add \`${IMAGE_SAFE_ENTRY}\` to package.json — the artifact-level type-check — and use it here`;
+        violations.push({
+          file: relative,
+          line,
+          script,
+          rule: "NOT_IMAGE_SAFE",
+          message:
+            `The image build gates on \`npm run ${script}\`, which cannot run in a build context: ` +
+            `${reason}. \`.dockerignore\` excludes \`.github/\` from the context it copies, so this ` +
+            `fails the deploy describing the context instead of the change — it is what failed CD run ` +
+            `36330245416. ${suggestion}; the gate set itself already ran in CI against this exact ` +
+            `revision, which is what \`cd.yml\` gates on.`,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
 // CLI runner
 const currentFilePath = fileURLToPath(import.meta.url);
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFilePath)) {
-  const violations = checkVerifyParity();
+  const violations = [...checkVerifyParity(), ...checkDockerfileGateSafety()];
   if (violations.length === 0) {
-    console.log("\x1b[32m✔ Verify parity check passed: every gate CI runs is reachable from `npm run verify`.\x1b[0m");
+    console.log(
+      "\x1b[32m✔ Verify parity check passed: every gate CI runs is reachable from `npm run verify`, and " +
+        "no Dockerfile runs a gate its build stage cannot satisfy.\x1b[0m",
+    );
     process.exit(0);
   } else {
     console.error(`\x1b[31m✖ Verify parity check failed: ${violations.length} violation(s) found:\x1b[0m\n`);
