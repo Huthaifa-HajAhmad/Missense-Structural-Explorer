@@ -21,9 +21,11 @@ import {
   FileText,
   Sliders,
   HelpCircle,
-  Dna
+  Dna,
+  BarChart2
 } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
+import { useVariantAnalysisActions } from "../../context/VariantAnalysisContext";
 
 export interface OnboardingPreset {
   gene: string;
@@ -33,34 +35,96 @@ export interface OnboardingPreset {
   description: string;
 }
 
+/**
+ * Curated Rare Disease Missense Controls.
+ * Strictly aligned with monogenic rare disease genomics & deep biophysical phenotypes.
+ */
 export const ONBOARDING_BENCHMARK_PRESETS: OnboardingPreset[] = [
   {
-    gene: "BRAF",
-    variant: "p.Val600Glu",
-    uniprotId: "P15056",
-    tag: "Oncology Hotspot",
-    description: "V600E activation loop destabilization and constitutively active MAPK signaling."
+    gene: "PAH",
+    variant: "p.Arg408Trp",
+    uniprotId: "P00439",
+    tag: "Inborn Error of Metabolism",
+    description: "Phenylketonuria (PKU): Catalytic domain substitution abolishing salt bridges with Asp315/Asp320, disrupting tetramer stability."
   },
   {
-    gene: "TP53",
-    variant: "p.Arg175His",
-    uniprotId: "P04637",
-    tag: "Structural Clash",
-    description: "R175H zinc-coordinating domain breakdown and DNA-binding scaffold distortion."
+    gene: "FGFR3",
+    variant: "p.Gly380Arg",
+    uniprotId: "P22607",
+    tag: "Skeletal Dysplasia",
+    description: "Achondroplasia: Transmembrane domain mutation stabilizing ligand-independent helix dimerization and constitutive kinase arrest."
   },
   {
-    gene: "PTEN",
-    variant: "p.Cys124Ser",
-    uniprotId: "P60484",
-    tag: "Active Site Pocket",
-    description: "C124S catalytic phosphatase pocket disruption and loss-of-function."
+    gene: "GBA1",
+    variant: "p.Leu483Pro",
+    uniprotId: "P04062",
+    tag: "Lysosomal Storage Disorder",
+    description: "Gaucher Disease: Beta-sheet breaker in the Ig-like domain triggering structural folding collapse and glucocerebrosidase deficiency."
   },
   {
     gene: "CNNM2",
     variant: "p.Glu357Lys",
     uniprotId: "Q9H8M5",
-    tag: "Charge Inversion",
-    description: "E357K cyclic nucleotide binding homology domain salt-bridge disruption."
+    tag: "Ion Channelopathy",
+    description: "Familial Hypomagnesemia: Bateman domain cyclic nucleotide-binding homology salt-bridge loss, impairing renal Mg²⁺ reabsorption."
+  }
+];
+
+export interface TourStep {
+  id: string;
+  label: string;
+  badge: string;
+  title: string;
+  subtitle: string;
+  targetSelector: string;
+  placement: "bottom" | "top" | "left" | "right" | "center";
+}
+
+export const TOUR_STEPS: TourStep[] = [
+  {
+    id: "variant-input",
+    label: "Query Input",
+    badge: "Zone 1 · Input",
+    title: "Variant Query & Genomic Coordinates",
+    subtitle: "Submit target gene symbols, protein HGVS, transcript cDNA, or genomic VCF coordinates.",
+    targetSelector: '[data-tour="variant-input"]',
+    placement: "bottom"
+  },
+  {
+    id: "navigation-zones",
+    label: "Workspace Zones",
+    badge: "Zones 2–4 · Architecture",
+    title: "Multimodal Analysis Rail & 4 Zones",
+    subtitle: "Navigate seamlessly between Deterministic Evidence, 3D Molstar, Energetics, and Clinical Reports.",
+    targetSelector: '[data-tour="navigation-zones"]',
+    placement: "right"
+  },
+  {
+    id: "workflow-rail",
+    label: "Sovereign Core",
+    badge: "100% Free & Keyless",
+    title: "Zero-Key Sovereign Biophysical Core",
+    subtitle: "Local FoldX, RaSP SQLite, WebGL 3D, and JapanFold sovereign fallback run with zero credentials.",
+    targetSelector: '[data-tour="workflow-rail"]',
+    placement: "left"
+  },
+  {
+    id: "settings-trigger",
+    label: "API Gateway",
+    badge: "Key-Enhanced Features",
+    title: "API Keys & Diagnostic AI Gateway",
+    subtitle: "Enable Google Gemini 2.5 Flash for ACMG synthesis & AlphaGenome for regulatory variant scoring.",
+    targetSelector: '[data-tour="settings-trigger"]',
+    placement: "bottom"
+  },
+  {
+    id: "curated-presets",
+    label: "Rare Disease Controls",
+    badge: "Quick Start · Controls",
+    title: "Curated Landmark Controls & Instant Launch",
+    subtitle: "1-click launch canonical rare disease missense benchmarks to inspect live structural and clinical pipelines.",
+    targetSelector: '[data-tour="curated-presets"]',
+    placement: "top"
   }
 ];
 
@@ -71,649 +135,571 @@ interface OnboardingModalProps {
   onOpenSettings?: (tab?: string) => void;
 }
 
-const STEPS = [
-  {
-    id: "welcome",
-    label: "Welcome",
-    title: "Welcome to Missense & Fold",
-    subtitle: "High-precision biophysical stability modeling & clinical variant interpretation"
-  },
-  {
-    id: "zones",
-    label: "Workspace Zones",
-    title: "How the Workspace is Organised",
-    subtitle: "Four integrated pipelines from single-letter mutations to clinical reports"
-  },
-  {
-    id: "sovereign",
-    label: "Biophysics Core",
-    title: "Zero-Key Sovereign Core vs. AI Pipelines",
-    subtitle: "Deep biophysical modeling runs locally and keyless out-of-the-box"
-  },
-  {
-    id: "keys",
-    label: "API Keys Guide",
-    title: "API Keys Setup & Guidance",
-    subtitle: "Unlock generative AI synthesis, DeepMind AlphaGenome & cloud accelerators"
-  },
-  {
-    id: "quickstart",
-    label: "Quick Start",
-    title: "Ready to Explore",
-    subtitle: "Launch a benchmark variant or configure your custom workspace preferences"
-  }
-] as const;
-
 export function OnboardingModal({
   isOpen,
   onClose,
   onSelectPreset,
   onOpenSettings
 }: OnboardingModalProps) {
-  const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady } = useSettings();
+  const { openSettingsTab, hasConfiguredGeminiKey } = useSettings();
+  const actions = useVariantAnalysisActions();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [copiedKeyCommand, setCopiedKeyCommand] = useState(false);
+  const [sampleLoaded, setSampleLoaded] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
-  const modalRef = useRef<HTMLDivElement>(null);
 
-  // Reset wizard to Step 1 and sync preference with localStorage whenever modal opens
+  // Spotlight geometry state
+  const [highlightRect, setHighlightRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    borderRadius: number;
+  } | null>(null);
+
+  const [popoverPos, setPopoverPos] = useState<{
+    top: number;
+    left: number;
+    placement: string;
+  } | null>(null);
+
+  // Measure and compute spotlight geometry
+  const updatePosition = useCallback(() => {
+    if (!isOpen) return;
+    const step = TOUR_STEPS[currentStepIndex];
+    if (!step) return;
+
+    const targetEl = document.querySelector(step.targetSelector);
+    if (!targetEl) {
+      setHighlightRect(null);
+      setPopoverPos(null);
+      return;
+    }
+
+    const rect = targetEl.getBoundingClientRect();
+    const PADDING = 8;
+    const top = Math.max(0, rect.top - PADDING);
+    const left = Math.max(0, rect.left - PADDING);
+    const width = rect.width + PADDING * 2;
+    const height = rect.height + PADDING * 2;
+
+    setHighlightRect({
+      top,
+      left,
+      width,
+      height,
+      borderRadius: 12
+    });
+
+    // Compute Popover Position
+    const cardWidth = Math.min(460, window.innerWidth - 32);
+    const cardHeight = 360;
+    const margin = 12;
+    const screenPad = 16;
+
+    let computedTop = top + height + margin;
+    let computedLeft = left + width / 2 - cardWidth / 2;
+    let finalPlacement = step.placement;
+
+    if (step.placement === "right") {
+      computedLeft = left + width + margin;
+      computedTop = Math.max(screenPad, top + Math.min(30, height / 4));
+      if (computedLeft + cardWidth > window.innerWidth - screenPad) {
+        if (left - cardWidth - margin >= screenPad) {
+          computedLeft = left - cardWidth - margin;
+          finalPlacement = "left";
+        } else {
+          computedLeft = Math.max(screenPad, (window.innerWidth - cardWidth) / 2);
+          computedTop = top + height + margin;
+          finalPlacement = "bottom";
+        }
+      }
+    } else if (step.placement === "left") {
+      computedLeft = left - cardWidth - margin;
+      computedTop = Math.max(screenPad, top + Math.min(30, height / 4));
+      if (computedLeft < screenPad) {
+        computedLeft = Math.max(screenPad, (window.innerWidth - cardWidth) / 2);
+        computedTop = top + height + margin;
+        finalPlacement = "bottom";
+      }
+    } else if (step.placement === "top") {
+      computedTop = top - cardHeight - margin;
+      if (computedTop < screenPad) {
+        computedTop = top + height + margin;
+        finalPlacement = "bottom";
+      }
+    } else {
+      // Bottom placement
+      if (computedTop + cardHeight > window.innerHeight - screenPad) {
+        if (top - cardHeight - margin >= screenPad) {
+          computedTop = top - cardHeight - margin;
+          finalPlacement = "top";
+        }
+      }
+    }
+
+    // Clamp within screen boundaries
+    computedLeft = Math.max(screenPad, Math.min(window.innerWidth - cardWidth - screenPad, computedLeft));
+    computedTop = Math.max(screenPad, Math.min(window.innerHeight - cardHeight - screenPad, computedTop));
+
+    setPopoverPos({
+      top: computedTop,
+      left: computedLeft,
+      placement: finalPlacement
+    });
+  }, [isOpen, currentStepIndex]);
+
+  // Reset to Step 0 and sync preference on open
   useEffect(() => {
     if (isOpen) {
       setCurrentStepIndex(0);
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("cs-onboarding-completed-v1");
-        setDontShowAgain(saved === "true");
-      }
+      setSampleLoaded(false);
+      try {
+        const hasCompleted = localStorage.getItem("cs-onboarding-completed-v1");
+        setDontShowAgain(hasCompleted === "true");
+      } catch {}
     }
   }, [isOpen]);
 
-  const handleDismiss = useCallback(() => {
-    if (typeof window !== "undefined" && dontShowAgain) {
-      localStorage.setItem("cs-onboarding-completed-v1", "true");
-    }
-    onClose();
-  }, [dontShowAgain, onClose]);
-
-  const handleComplete = useCallback(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cs-onboarding-completed-v1", "true");
-    }
-    onClose();
-  }, [onClose]);
-
-  const handleToggleDontShowAgain = (checked: boolean) => {
-    setDontShowAgain(checked);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cs-onboarding-completed-v1", checked ? "true" : "false");
-    }
-  };
-
-  // Keyboard navigation: Escape closes, ArrowLeft/ArrowRight step through
+  // Auto-scroll target into view and update position
   useEffect(() => {
     if (!isOpen) return;
+    const step = TOUR_STEPS[currentStepIndex];
+    if (!step) return;
 
+    const targetEl = document.querySelector(step.targetSelector);
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    }
+
+    const timer = setTimeout(updatePosition, 100);
+    return () => clearTimeout(timer);
+  }, [isOpen, currentStepIndex, updatePosition]);
+
+  // Window resize & scroll listeners
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, updatePosition]);
+
+  const persistCompletion = useCallback((completed: boolean) => {
+    try {
+      if (completed) {
+        localStorage.setItem("cs-onboarding-completed-v1", "true");
+      } else {
+        localStorage.removeItem("cs-onboarding-completed-v1");
+      }
+    } catch {}
+  }, []);
+
+  const handleClose = useCallback(() => {
+    persistCompletion(true);
+    onClose();
+  }, [onClose, persistCompletion]);
+
+  const handleNext = useCallback(() => {
+    if (currentStepIndex < TOUR_STEPS.length - 1) {
+      setCurrentStepIndex(prev => prev + 1);
+    } else {
+      handleClose();
+    }
+  }, [currentStepIndex, handleClose]);
+
+  const handlePrev = useCallback(() => {
+    if (currentStepIndex > 0) {
+      setCurrentStepIndex(prev => prev - 1);
+    }
+  }, [currentStepIndex]);
+
+  const handleSelectPreset = useCallback((preset: OnboardingPreset) => {
+    persistCompletion(true);
+    onSelectPreset?.(preset);
+    onClose();
+  }, [onClose, onSelectPreset, persistCompletion]);
+
+  // Interactive Live Sample: Load PAH p.Arg408Trp directly into store
+  const handleLoadSample = useCallback(() => {
+    actions.setCustomGene("PAH");
+    actions.setCustomVariant("p.Arg408Trp");
+    actions.setCustomUniprot("P00439");
+    actions.setCustomGenomic("");
+    setSampleLoaded(true);
+  }, [actions]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
       if (e.key === "Escape") {
         e.preventDefault();
-        handleDismiss();
-      } else if (!isInput && window.getSelection()?.type !== "Range") {
-        if (e.key === "ArrowRight" && currentStepIndex < STEPS.length - 1) {
-          e.preventDefault();
-          setCurrentStepIndex(i => i + 1);
-        } else if (e.key === "ArrowLeft" && currentStepIndex > 0) {
-          e.preventDefault();
-          setCurrentStepIndex(i => i - 1);
-        }
+        handleClose();
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
+      if (isInput) return;
+
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNext();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        handlePrev();
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, currentStepIndex, handleDismiss]);
+  }, [isOpen, handleNext, handlePrev, handleClose]);
 
-  const copyBashCommand = async () => {
+  const copyBashSnippet = () => {
     const cmd = `printf "Enter GEMINI_API_KEY (typing hidden): " && read -s val && echo && echo "GEMINI_API_KEY=$val" >> ".env" && echo "Saved to .env"`;
-    try {
-      await navigator.clipboard.writeText(cmd);
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(cmd);
       setCopiedKeyCommand(true);
-      window.setTimeout(() => setCopiedKeyCommand(false), 2200);
-    } catch {
-      // Fallback
+      setTimeout(() => setCopiedKeyCommand(false), 2500);
     }
   };
 
-  const handleLaunchPreset = (preset: OnboardingPreset) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cs-onboarding-completed-v1", "true");
-    }
-    onClose();
-    onSelectPreset?.(preset);
-  };
+  const currentStep = TOUR_STEPS[currentStepIndex];
 
-  const handleOpenSettingsTab = (tab: string) => {
-    onClose();
-    if (onOpenSettings) {
-      onOpenSettings(tab);
-    } else {
-      openSettingsTab(tab as any);
-    }
-  };
-
-  const currentStep = STEPS[currentStepIndex];
-
-  const content = (
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="onboarding-modal-title"
-        >
-        {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
-          onClick={handleDismiss}
-        />
+        <div className="cs-tour-root fixed inset-0 z-[60] overflow-hidden" role="dialog" aria-modal="true" aria-label="Interactive Workspace Tour">
+          {/* ── Spotlight SVG Mask Overlay ── */}
+          <svg
+            className="fixed inset-0 w-full h-full pointer-events-none z-[60]"
+            aria-hidden="true"
+            data-testid="tour-spotlight-svg"
+          >
+            <defs>
+              <mask id="tour-spotlight-mask">
+                <rect x="0" y="0" width="100%" height="100%" fill="white" />
+                {highlightRect && (
+                  <rect
+                    x={highlightRect.left}
+                    y={highlightRect.top}
+                    width={highlightRect.width}
+                    height={highlightRect.height}
+                    rx={highlightRect.borderRadius}
+                    ry={highlightRect.borderRadius}
+                    fill="black"
+                  />
+                )}
+              </mask>
+            </defs>
+            <rect
+              x="0"
+              y="0"
+              width="100%"
+              height="100%"
+              fill="currentColor"
+              className="text-black/55 dark:text-black/75 pointer-events-auto transition-colors duration-200"
+              mask="url(#tour-spotlight-mask)"
+              onClick={handleClose}
+            />
+          </svg>
 
-        {/* Modal Window Container */}
-        <motion.div
-          ref={modalRef}
-          initial={{ opacity: 0, scale: 0.96, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 8 }}
-          transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-          className="relative max-w-2xl w-full rounded-2xl border shadow-2xl overflow-hidden flex flex-col z-10 my-auto bg-[var(--cs-surface)] border-[var(--cs-border)] text-[var(--cs-text-primary)]"
-          style={{ maxHeight: "calc(100vh - 2rem)" }}
-        >
-          {/* Header Chrome */}
-          <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)]">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-[var(--cs-accent-clay)]/10 border border-[var(--cs-accent-clay)]/25 flex items-center justify-center text-[var(--cs-accent-clay)] shrink-0">
-                <Compass className="w-4 h-4" />
+          {/* ── Animated Target Focus Ring ── */}
+          {highlightRect && (
+            <motion.div
+              layoutId="tour-focus-ring"
+              initial={false}
+              animate={{
+                top: highlightRect.top,
+                left: highlightRect.left,
+                width: highlightRect.width,
+                height: highlightRect.height
+              }}
+              transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+              className="fixed pointer-events-none z-[61] rounded-xl border-2 border-[var(--cs-accent-clay)] shadow-[0_0_24px_rgba(196,104,73,0.35)]"
+            >
+              <div className="absolute -inset-1 rounded-2xl border border-[var(--cs-accent-clay)]/35 animate-pulse pointer-events-none" />
+            </motion.div>
+          )}
+
+          {/* ── Floating Contextual Tour Card ── */}
+          <motion.div
+            key={currentStep.id}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ type: "spring", duration: 0.28, bounce: 0 }}
+            className={`fixed z-[62] w-[92vw] max-w-[460px] bg-[var(--cs-surface)] border border-[var(--cs-border)] rounded-2xl shadow-xl flex flex-col transition-[top,left] duration-200 ease-out ${
+              !popoverPos ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" : ""
+            }`}
+            style={
+              popoverPos
+                ? {
+                    top: popoverPos.top,
+                    left: popoverPos.left
+                  }
+                : undefined
+            }
+          >
+            {/* ── Card Header ── */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-2.5 border-b border-[var(--cs-border-subtle)]">
+              <div className="flex items-center gap-2">
+                <span className="p-1 rounded-md bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)]">
+                  <Compass className="w-4 h-4" />
+                </span>
+                <span className="text-[12px] font-semibold tracking-tight text-[var(--cs-text-primary)]">
+                  Workspace Orientation
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-[var(--cs-surface-2)] border border-[var(--cs-border)] text-[var(--cs-text-muted)]">
+                  {currentStepIndex + 1} / {TOUR_STEPS.length}
+                </span>
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 id="onboarding-modal-title" className="text-sm font-bold tracking-tight truncate">
-                    Workspace Guide &amp; Orientation
-                  </h2>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)] border border-[var(--cs-accent-clay)]/20 font-semibold shrink-0">
-                    Step {currentStepIndex + 1} of {STEPS.length}
-                  </span>
-                </div>
-                <p className="text-[11px] text-[var(--cs-text-muted)] truncate">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="p-1 rounded-lg text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer active:scale-[0.96]"
+                title="Skip tour (Esc)"
+                aria-label="Close tour"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* ── Progress Track ── */}
+            <div className="flex gap-1 px-5 pt-2">
+              {TOUR_STEPS.map((step, idx) => (
+                <div
+                  key={step.id}
+                  className={`h-1 flex-1 rounded-full transition-all duration-200 ${
+                    idx === currentStepIndex
+                      ? "bg-[var(--cs-accent-clay)]"
+                      : idx < currentStepIndex
+                      ? "bg-[var(--cs-accent-clay)]/40"
+                      : "bg-[var(--cs-border-subtle)]"
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* ── Step Body ── */}
+            <div className="p-5 flex flex-col gap-3">
+              <div>
+                <span className="inline-block px-2 py-0.5 mb-1 rounded-md text-[10.5px] font-semibold uppercase tracking-wider bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)]">
+                  {currentStep.badge}
+                </span>
+                <h3 className="text-[15px] font-semibold text-[var(--cs-text-primary)] tracking-tight">
+                  {currentStep.title}
+                </h3>
+                <p className="text-[12px] text-[var(--cs-text-secondary)] leading-relaxed mt-0.5">
                   {currentStep.subtitle}
                 </p>
               </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={handleDismiss}
-              className="p-1.5 rounded-lg text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-[color,background-color,transform] duration-150 active:scale-[0.96] cursor-pointer"
-              title="Close guide (Esc)"
-              aria-label="Close guide"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Stepper Progress Bar */}
-          <div className="flex items-center gap-1 px-5 sm:px-6 py-2 border-b border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] overflow-x-auto no-scrollbar">
-            {STEPS.map((step, idx) => {
-              const isPast = idx < currentStepIndex;
-              const isCurrent = idx === currentStepIndex;
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  onClick={() => setCurrentStepIndex(idx)}
-                  className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition-[background-color,color,border-color] duration-150 text-center truncate border ${
-                    isCurrent
-                      ? "bg-[var(--cs-accent-mag-soft)] border-[var(--cs-accent-clay)] text-[var(--cs-accent-clay)] font-semibold shadow-xs"
-                      : isPast
-                      ? "bg-[var(--cs-surface-2)] border-transparent text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)]"
-                      : "bg-transparent border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-secondary)]"
-                  }`}
-                >
-                  <span className="font-mono text-[9px] mr-1">{idx + 1}.</span>{" "}
-                  {step.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Body Content Slider */}
-          <div className="p-5 sm:p-6 overflow-y-auto min-h-[320px] max-h-[58vh] space-y-4">
-            {/* Step 1: Welcome */}
-            {currentStep.id === "welcome" && (
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] flex items-start gap-3.5">
-                  <div className="w-9 h-9 rounded-lg bg-[var(--cs-accent-clay)] text-white flex items-center justify-center shrink-0 shadow-xs">
-                    <Dna className="w-5 h-5" />
+              {/* ── In-Situ Interactive Feature Widgets ── */}
+              {currentStep.id === "variant-input" && (
+                <div className="p-3 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-[11px] text-[var(--cs-text-muted)]">
+                    <span className="font-mono">Flagship Control</span>
+                    <span className="text-[var(--cs-accent-clay)] font-medium">Rare Disease Monogenic</span>
                   </div>
-                  <div className="space-y-1">
-                    <h3 className="text-[13.5px] font-bold text-[var(--cs-text-primary)]">
-                      Explore the Structural Impact of Human Missense Variants
-                    </h3>
-                    <p className="text-[12px] leading-relaxed text-[var(--cs-text-secondary)]">
-                      Missense &amp; Fold is an end-to-end biophysical exploration and clinical decision-support platform.
-                      Given a gene symbol or HGVS genomic coordinates, it coordinates 3D folding models, atomic stability force fields,
-                      evolutionary constraint metrics, and generative AI synthesis into an audit-ready clinical report.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] space-y-1.5">
-                    <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--cs-text-primary)]">
-                      <Zap className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-                      Multi-Modal Resolution
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[12.5px] font-semibold text-[var(--cs-text-primary)]">
+                        PAH · p.Arg408Trp
+                      </div>
+                      <div className="text-[10.5px] text-[var(--cs-text-secondary)]">
+                        Phenylketonuria (PKU) · P00439
+                      </div>
                     </div>
-                    <p className="text-[11px] leading-relaxed text-[var(--cs-text-muted)]">
-                      Instant translation of protein notations (e.g. <code className="font-mono text-[10px] text-[var(--cs-accent-clay)]">p.Val600Glu</code>),
-                      transcript cDNA, or genomic coordinates via Ensembl VEP and UniProt.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] space-y-1.5">
-                    <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--cs-text-primary)]">
-                      <Layers className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-                      Interactive 3D Structures
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-[var(--cs-text-muted)]">
-                      AlphaFold2 and ESMFold structures rendered live in Molstar with wild-type vs. mutant overlays and steric clash analysis.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] space-y-1.5">
-                    <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--cs-text-primary)]">
-                      <Activity className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-                      Calibrated ΔΔG Stability
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-[var(--cs-text-muted)]">
-                      FoldX, RaSP, ThermoMPNN, and StabilityOracle consensus calculations with rigorous conformal prediction intervals.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] space-y-1.5">
-                    <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--cs-text-primary)]">
-                      <FileText className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-                      ACMG &amp; Provenance
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-[var(--cs-text-muted)]">
-                      Automated ACMG/AMP rules classification, PubMed mining, and pinned provenance manifests for clinical reproducibility.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Workspace Zones */}
-            {currentStep.id === "zones" && (
-              <div className="space-y-3">
-                <p className="text-[12px] text-[var(--cs-text-secondary)] leading-relaxed">
-                  The master sidebar divides the workspace into 4 logical zones. Navigate across them as your analysis progresses:
-                </p>
-
-                <div className="space-y-2.5">
-                  <div className="p-3 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] flex items-start gap-3">
-                    <span className="w-6 h-6 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] font-mono text-[11px] font-bold flex items-center justify-center text-[var(--cs-accent-clay)] shrink-0">
-                      1
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-bold text-[var(--cs-text-primary)]">
-                        Input &amp; Search (Variant Query)
-                      </p>
-                      <p className="text-[11px] text-[var(--cs-text-muted)] leading-relaxed mt-0.5">
-                        Type a gene and notation or paste directly from clipboard. Accepts protein HGVS (<code className="font-mono text-[10px]">p.Gly380Arg</code>),
-                        cDNA (<code className="font-mono text-[10px]">c.1799T&gt;A</code>), or genomic coordinates (<code className="font-mono text-[10px]">7-140753336-A-T</code>).
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] flex items-start gap-3">
-                    <span className="w-6 h-6 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] font-mono text-[11px] font-bold flex items-center justify-center text-[var(--cs-accent-clay)] shrink-0">
-                      2
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-bold text-[var(--cs-text-primary)]">
-                        Evidence &amp; Modeling (Multi-Modal Predictors)
-                      </p>
-                      <p className="text-[11px] text-[var(--cs-text-muted)] leading-relaxed mt-0.5">
-                        Examine 10+ predictors (REVEL, AlphaMissense, ClinVar, gnomAD, CADD), Google DeepMind AlphaGenome Atlas AVI scores,
-                        RNA splicing shifts, and residue contact networks.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] flex items-start gap-3">
-                    <span className="w-6 h-6 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] font-mono text-[11px] font-bold flex items-center justify-center text-[var(--cs-accent-clay)] shrink-0">
-                      3
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-bold text-[var(--cs-text-primary)]">
-                        3D Structure &amp; Energetics (Molstar &amp; ΔΔG)
-                      </p>
-                      <p className="text-[11px] text-[var(--cs-text-muted)] leading-relaxed mt-0.5">
-                        Inspect rendered AlphaFold2 or ESMFold structures. Highlight substitution sites, measure polar contacts,
-                        and inspect multi-engine thermodynamic stability (FoldX, RaSP, ThermoMPNN).
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] flex items-start gap-3">
-                    <span className="w-6 h-6 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border)] font-mono text-[11px] font-bold flex items-center justify-center text-[var(--cs-accent-clay)] shrink-0">
-                      4
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-bold text-[var(--cs-text-primary)]">
-                        Synthesis, Literature &amp; Clinical Reports
-                      </p>
-                      <p className="text-[11px] text-[var(--cs-text-muted)] leading-relaxed mt-0.5">
-                        Automated ACMG classification rules (PVS1, PM1, PM2, PP3), live PubMed citation mining,
-                        and clinician-tailored narrative synthesis generated via Gemini AI.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Sovereign Core vs Key-Enhanced */}
-            {currentStep.id === "sovereign" && (
-              <div className="space-y-3.5">
-                <div className="p-3.5 rounded-xl border border-emerald-500/25 bg-emerald-500/5 space-y-1">
-                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold text-[12.5px]">
-                    <ShieldCheck className="w-4 h-4 shrink-0" />
-                    Zero-Key Sovereign Core operates out of the box
-                  </div>
-                  <p className="text-[11.5px] leading-relaxed text-[var(--cs-text-secondary)]">
-                    You do <strong>not</strong> need external API keys to start using this workspace.
-                    Local biophysics engines and public biological databases run immediately with zero cloud cost.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Left: Zero Key */}
-                  <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] space-y-2">
-                    <div className="flex items-center justify-between pb-1 border-b border-[var(--cs-border-subtle)]">
-                      <span className="text-[11.5px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
-                        Works With No Keys (Free)
-                      </span>
-                      <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        Active
-                      </span>
-                    </div>
-                    <ul className="space-y-1.5 text-[11px] text-[var(--cs-text-secondary)]">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span><strong>Molstar 3D:</strong> AlphaFold2 &amp; ESMFold viewer</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span><strong>FoldX:</strong> Local force-field repacking &amp; ΔΔG</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span><strong>RaSP:</strong> Indexed Zenodo SQLite biophysics DB</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span><strong>Databases:</strong> ClinVar, gnomAD, dbNSFP, Ensembl</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span><strong>JapanFold:</strong> Keyless sovereign fallback model</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  {/* Right: Key Enhanced */}
-                  <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] space-y-2">
-                    <div className="flex items-center justify-between pb-1 border-b border-[var(--cs-border-subtle)]">
-                      <span className="text-[11.5px] font-bold text-[var(--cs-accent-clay)] uppercase tracking-wider">
-                        Enhanced With Keys
-                      </span>
-                      <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)]">
-                        Optional
-                      </span>
-                    </div>
-                    <ul className="space-y-1.5 text-[11px] text-[var(--cs-text-secondary)]">
-                      <li className="flex items-center gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
-                        <span><strong>Gemini AI:</strong> Clinical report narrative &amp; PubMed mining</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
-                        <span><strong>AlphaGenome:</strong> DeepMind AVI &amp; 18-modality tracks</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
-                        <span><strong>ESM3 Forge:</strong> Generative structural refinement</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
-                        <span><strong>Hugging Face:</strong> SaProt &amp; GPN-Star phylogeny LM</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)] shrink-0" />
-                        <span><strong>Tamarind Bio:</strong> Cloud ThermoMPNN stability fallback</span>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: API Keys Guide */}
-            {currentStep.id === "keys" && (
-              <div className="space-y-3.5">
-                <p className="text-[12px] text-[var(--cs-text-secondary)] leading-relaxed">
-                  Configure keys in your local <code className="font-mono text-[11px] text-[var(--cs-accent-clay)]">.env</code> file
-                  or directly in the browser via <strong>Settings &gt; Connections</strong> (stored securely for your session):
-                </p>
-
-                {/* Gemini Key Focus Card */}
-                <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <KeyRound className="w-4 h-4 text-amber-500" />
-                      <span className="text-[12.5px] font-bold text-[var(--cs-text-primary)]">
-                        Google Gemini API Key (Recommended)
-                      </span>
-                    </div>
-                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                      hasConfiguredGeminiKey || serverGeminiReady
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                    }`}>
-                      {hasConfiguredGeminiKey || serverGeminiReady ? "Ready & Linked" : "Unconfigured"}
-                    </span>
-                  </div>
-
-                  <p className="text-[11.5px] text-[var(--cs-text-secondary)] leading-relaxed">
-                    Unlocks AI clinical synthesis, PubMed paper mining, and structured ACMG summaries.
-                    You can obtain a free key from Google AI Studio in about 30 seconds.
-                  </p>
-
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold bg-[var(--cs-accent-clay)] text-white hover:brightness-105 active:scale-[0.96] transition-all flex items-center gap-1.5 shadow-xs"
-                    >
-                      <span>Get Free Key at AI Studio</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-
                     <button
                       type="button"
-                      onClick={() => handleOpenSettingsTab("connections")}
-                      className="px-3 py-1.5 rounded-lg text-[11.5px] font-medium border border-[var(--cs-border)] bg-[var(--cs-surface)] hover:bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] active:scale-[0.96] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      onClick={handleLoadSample}
+                      className="px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold bg-[var(--cs-accent-clay)] text-white hover:brightness-105 transition-all shadow-xs active:scale-[0.96] flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <Sliders className="w-3.5 h-3.5 text-[var(--cs-text-muted)]" />
-                      <span>Link in Settings</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Safe Terminal Setup Command (Protocol Compliant) */}
-                <div className="p-3.5 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-[var(--cs-text-secondary)] flex items-center gap-1.5">
-                      <span>Safe Terminal Injection (Typing Hidden)</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={copyBashCommand}
-                      className="flex items-center gap-1 text-[10.5px] font-medium text-[var(--cs-accent-clay)] hover:underline cursor-pointer"
-                    >
-                      {copiedKeyCommand ? (
+                      {sampleLoaded ? (
                         <>
-                          <Check className="w-3 h-3 text-emerald-500" />
-                          <span>Copied!</span>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Loaded!</span>
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3 h-3" />
-                          <span>Copy Bash Command</span>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Load Sample</span>
                         </>
                       )}
                     </button>
                   </div>
-                  <pre className="p-2.5 rounded-lg bg-[var(--cs-surface-2)] border border-[var(--cs-border-subtle)] text-[10.5px] font-mono text-[var(--cs-text-secondary)] overflow-x-auto whitespace-pre-wrap select-all">
-                    printf &quot;Enter GEMINI_API_KEY (typing hidden): &quot; &amp;&amp; read -s val &amp;&amp; echo &amp;&amp; echo &quot;GEMINI_API_KEY=$val&quot; &gt;&gt; &quot;.env&quot; &amp;&amp; echo &quot;Saved to .env&quot;
-                  </pre>
-                  <p className="text-[10px] text-[var(--cs-text-muted)] leading-normal">
-                    This command adheres to the secure credential protocol, hiding your keystrokes from terminal history.
+                  <p className="text-[10.5px] text-[var(--cs-text-muted)]">
+                    Tip: Coordinates also accept cDNA (<code className="font-mono text-[10px]">c.1222C&gt;T</code>) or genomic VCF (<code className="font-mono text-[10px]">12-102844883-C-T</code>).
                   </p>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Step 5: Quick Start Presets */}
-            {currentStep.id === "quickstart" && (
-              <div className="space-y-3.5">
-                <p className="text-[12px] text-[var(--cs-text-secondary)] leading-relaxed">
-                  Start by launching one of our validated benchmark controls to explore 3D folding, energetics, and clinical evidence:
-                </p>
+              {currentStep.id === "navigation-zones" && (
+                <div className="grid grid-cols-2 gap-2 text-[11.5px]">
+                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
+                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
+                      <BarChart2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      Zone 2: Evidence
+                    </span>
+                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">ClinVar, gnomAD, AlphaMissense</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
+                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                      Zone 3: 3D Molstar
+                    </span>
+                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">AlphaFold, FoldX &amp; RaSP ΔΔG</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
+                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      Zone 4: Synthesis
+                    </span>
+                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">ACMG diagnostic criteria &amp; reports</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
+                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
+                      <Sliders className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      Zone 5: Console
+                    </span>
+                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">Telemetry &amp; real-time execution logs</span>
+                  </div>
+                </div>
+              )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {currentStep.id === "workflow-rail" && (
+                <div className="p-3 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold text-[11.5px]">
+                    <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>Sovereignty: 0 Tokens &amp; 0 Billing Required</span>
+                  </div>
+                  <ul className="text-[11px] text-[var(--cs-text-secondary)] space-y-1 list-disc list-inside">
+                    <li><strong className="text-[var(--cs-text-primary)]">FoldX Mechanics</strong>: Runs locally (Windows EXE or Linux ARM64 Box64).</li>
+                    <li><strong className="text-[var(--cs-text-primary)]">RaSP SQLite</strong>: Instant pre-indexed ΔΔG lookup database.</li>
+                    <li><strong className="text-[var(--cs-text-primary)]">JapanFold Fallback</strong>: Remote sovereign protein folding without keys.</li>
+                  </ul>
+                </div>
+              )}
+
+              {currentStep.id === "settings-trigger" && (
+                <div className="p-3 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--cs-text-primary)]">
+                      <KeyRound className="w-4 h-4 text-amber-500" />
+                      <span>Google Gemini 2.5 Flash</span>
+                    </div>
+                    <a
+                      href="https://aistudio.google.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-[var(--cs-accent-clay)] hover:underline flex items-center gap-1 font-medium"
+                    >
+                      <span>Free Key</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSettings ? onOpenSettings("api") : openSettingsTab("api");
+                      }}
+                      className="flex-1 py-1.5 rounded-lg text-[11.5px] font-semibold bg-[var(--cs-surface)] border border-[var(--cs-border)] hover:border-[var(--cs-accent-clay)] text-[var(--cs-text-primary)] transition-all active:scale-[0.96] flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
+                      <span>Open Settings API Tab</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={copyBashSnippet}
+                      className="py-1.5 px-2.5 rounded-lg text-[11.5px] font-medium bg-[var(--cs-surface)] border border-[var(--cs-border)] hover:border-[var(--cs-accent-clay)] text-[var(--cs-text-secondary)] transition-all active:scale-[0.96] flex items-center gap-1 cursor-pointer"
+                      title="Copy safe terminal command"
+                    >
+                      {copiedKeyCommand ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedKeyCommand ? "Copied" : "Bash CLI"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {currentStep.id === "curated-presets" && (
+                <div className="flex flex-col gap-1.5 max-h-[170px] overflow-y-auto no-scrollbar">
                   {ONBOARDING_BENCHMARK_PRESETS.map((preset) => (
                     <button
-                      key={`${preset.gene}-${preset.variant}`}
+                      key={preset.gene + preset.variant}
                       type="button"
-                      onClick={() => handleLaunchPreset(preset)}
-                      className="p-3 rounded-xl border border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-surface)] transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] text-left cursor-pointer flex flex-col justify-between group shadow-xs"
+                      onClick={() => handleSelectPreset(preset)}
+                      className="w-full p-2 rounded-xl text-left border border-[var(--cs-border)] bg-[var(--cs-surface-2)] hover:bg-[var(--cs-surface)] hover:border-[var(--cs-accent-clay)]/50 transition-all cursor-pointer flex items-center justify-between group active:scale-[0.96]"
                     >
-                      <div className="flex items-center justify-between mb-1.5">
+                      <div className="min-w-0 pr-2">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-[13px] text-[var(--cs-text-primary)]">
+                          <span className="font-semibold text-[12px] text-[var(--cs-text-primary)]">
                             {preset.gene}
                           </span>
-                          <span className="font-mono text-[11.5px] text-[var(--cs-accent-clay)] font-semibold">
+                          <span className="font-mono text-[11px] text-[var(--cs-accent-clay)]">
                             {preset.variant}
                           </span>
+                          <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-[var(--cs-border-subtle)] text-[var(--cs-text-muted)] font-medium">
+                            {preset.tag}
+                          </span>
                         </div>
-                        <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
-                          {preset.tag}
-                        </span>
+                        <p className="text-[10px] text-[var(--cs-text-secondary)] truncate mt-0.5">
+                          {preset.description}
+                        </p>
                       </div>
-                      <p className="text-[10.5px] text-[var(--cs-text-secondary)] line-clamp-2 leading-relaxed">
-                        {preset.description}
-                      </p>
-                      <div className="flex items-center gap-1 text-[10px] font-semibold text-[var(--cs-accent-clay)] pt-2 group-hover:translate-x-0.5 transition-transform">
-                        <span>Load Variant &amp; Analyze</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 text-[var(--cs-text-muted)] group-hover:text-[var(--cs-accent-clay)] group-hover:translate-x-0.5 transition-all shrink-0" />
                     </button>
                   ))}
                 </div>
-
-                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-[var(--cs-border-subtle)]">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenSettingsTab("connections")}
-                    className="w-full sm:w-auto px-3.5 py-2 rounded-xl text-[12px] font-medium border border-[var(--cs-border)] bg-[var(--cs-surface)] hover:bg-[var(--cs-surface-2)] text-[var(--cs-text-primary)] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-[0.96]"
-                  >
-                    <KeyRound className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Configure API Keys &amp; Telemetry</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleComplete}
-                    className="w-full sm:w-auto px-4 py-2 rounded-xl text-[12px] font-semibold bg-[var(--cs-accent-clay)] text-white hover:brightness-105 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-[0.96]"
-                  >
-                    <span>Start Blank Query</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Footer Controls */}
-          <div className="px-5 sm:px-6 py-3.5 border-t border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)] flex items-center justify-between gap-3">
-            {/* Don't show again checkbox */}
-            <label className="flex items-center gap-2 text-[11px] text-[var(--cs-text-muted)] cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={dontShowAgain}
-                onChange={(e) => handleToggleDontShowAgain(e.target.checked)}
-                className="rounded border-[var(--cs-border)] text-[var(--cs-accent-clay)] focus:ring-[var(--cs-accent-clay)] cursor-pointer"
-              />
-              <span>Don't show on startup</span>
-            </label>
-
-            {/* Stepper Actions */}
-            <div className="flex items-center gap-2">
-              {currentStepIndex > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentStepIndex(i => i - 1)}
-                  className="px-3 py-1.5 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface)] text-[12px] font-medium text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-surface-2)] transition-all cursor-pointer flex items-center gap-1 active:scale-[0.96]"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>Back</span>
-                </button>
-              )}
-
-              {currentStepIndex < STEPS.length - 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setCurrentStepIndex(i => i + 1)}
-                  className="px-4 py-1.5 rounded-lg bg-[var(--cs-accent-clay)] text-white text-[12px] font-semibold hover:brightness-105 transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-[0.96]"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleComplete}
-                  className="px-4 py-1.5 rounded-lg bg-[var(--cs-accent-clay)] text-white text-[12px] font-semibold hover:brightness-105 transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-[0.96]"
-                >
-                  <span>Get Started</span>
-                  <Check className="w-3.5 h-3.5" />
-                </button>
               )}
             </div>
-          </div>
-        </motion.div>
-      </div>
-    )}
-  </AnimatePresence>
-  );
 
-  return typeof document !== "undefined" ? createPortal(content, document.body) : null;
+            {/* ── Card Footer ── */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-t border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)]/40">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="text-[11.5px] font-medium text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] transition-colors cursor-pointer"
+              >
+                Skip Tour
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentStepIndex === 0}
+                  onClick={handlePrev}
+                  className="p-1.5 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface)] text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:border-[var(--cs-border-subtle)] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.96] cursor-pointer"
+                  title="Previous step (ArrowLeft)"
+                  aria-label="Previous step"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-[var(--cs-accent-clay)] text-white hover:brightness-105 transition-all shadow-xs active:scale-[0.96] flex items-center gap-1.5 cursor-pointer"
+                  title="Next step (ArrowRight)"
+                >
+                  <span>{currentStepIndex === TOUR_STEPS.length - 1 ? "Finish Tour" : "Next"}</span>
+                  {currentStepIndex === TOUR_STEPS.length - 1 ? (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body
+  );
 }
 
-export default OnboardingModal;
+export default React.memo(OnboardingModal);

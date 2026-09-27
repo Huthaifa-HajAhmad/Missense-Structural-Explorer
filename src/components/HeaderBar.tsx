@@ -134,6 +134,7 @@ export function HeaderBar({
           <button
             type="button"
             onClick={() => openSettingsTab("api")}
+            data-tour="api-key-badge"
             title="API key not configured — Click to configure in Settings"
             className="px-2.5 py-0.5 rounded-full text-[10.5px] font-medium bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 flex items-center gap-1.5 transition-all cursor-pointer select-none shrink-0"
           >
@@ -220,6 +221,8 @@ export function HeaderBar({
           className="p-1.5 rounded-lg border border-transparent text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer flex items-center justify-center active:scale-[0.96]"
           title="Settings"
           aria-label="Open settings"
+          id="header-settings-btn"
+          data-tour="settings-trigger"
         >
           <Settings className="w-3.5 h-3.5" />
         </button>

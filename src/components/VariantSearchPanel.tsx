@@ -602,7 +602,7 @@ function VariantSearchPanel({
       >
         <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--cs-border-subtle)]">
           {/* ── LEFT COLUMN: Search Variant Form (col-span-7) ── */}
-          <div className="lg:col-span-7 p-6 lg:p-7 flex flex-col">
+          <div className="lg:col-span-7 p-6 lg:p-7 flex flex-col" data-tour="variant-input" id="variant-input-card">
             <div>
               <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-[var(--cs-border-subtle)]">
                 <h2 className="text-[14px] font-semibold flex items-center gap-2" style={{ color: "var(--cs-text-primary)" }}>
@@ -867,7 +867,7 @@ function VariantSearchPanel({
                 in meaning — the Variant field accepts both protein and cDNA — and grouping
                 the examples by destination field is what makes that split self-evident.
               */}
-              <div className="cs-nested-panel mt-4">
+              <div className="cs-nested-panel mt-4" data-tour="curated-presets" id="workspace-accepted-inputs">
                 <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-[var(--cs-border-subtle)]">
                   <span className="flex items-center gap-2 text-[11.5px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
                     <HelpCircle className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
@@ -999,7 +999,7 @@ function VariantSearchPanel({
               floor behind `lg:` the rail went back to sizing its own row, so switching tabs
               still resized the card (by ~100px, more than the 14px this fixed). A floor at every
               width keeps the stacked track stable too. */}
-          <div className="lg:col-span-5 lg:relative min-h-[690px] bg-[var(--cs-surface-2)]">
+          <div className="lg:col-span-5 lg:relative min-h-[690px] bg-[var(--cs-surface-2)]" data-tour="workflow-rail" id="workspace-stage-rail">
             <div className="flex flex-col gap-4 p-6 lg:p-7 lg:absolute lg:inset-0">
               {/* `flex-wrap` + `min-w-0`: two unshrinkable children need ~404px and the 5/12
                   track only affords ~350px at the breakpoint, so without wrapping the status

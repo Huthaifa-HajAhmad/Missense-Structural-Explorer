@@ -481,6 +481,8 @@ function MasterSidebar({
           className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden ms-nav-scroll"
           style={{ padding: collapsed ? "8px 6px" : "4px 6px" }}
           aria-label="Primary navigation"
+          id="master-sidebar-nav"
+          data-tour="navigation-zones"
         >
           {NAV_ZONES.map((zone, zoneIdx) => (
             <div key={zone.zoneLabel}>
