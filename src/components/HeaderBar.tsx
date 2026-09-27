@@ -182,16 +182,19 @@ export function HeaderBar({
           </div>
         )}
 
+        {/* An invitation, not a warning: analyses run without a key and the interpretation falls
+            back to rule-based criteria, so this is neutral chrome rather than amber alarm. */}
         {!hasConfiguredGeminiKey && !errorIsKey && (
           <button
             type="button"
-            onClick={() => openSettingsTab("api")}
+            onClick={() => openSettingsTab("connections")}
             data-tour="api-key-badge"
-            title="API key not configured — open Settings"
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[var(--cs-radius-input)] text-[12px] font-medium bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)] hover:brightness-95 cursor-pointer shrink-0 transition-[filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+            title="No Gemini key: interpretations are rule-based. Add one in Settings for the written narrative."
+            aria-label="Add a Gemini key"
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer shrink-0 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
           >
-            <KeyRound className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden lg:inline">API key required</span>
+            <KeyRound className="w-3.5 h-3.5 shrink-0 text-cs-text-muted" />
+            <span className="hidden lg:inline">Add Gemini key</span>
             <span className="lg:hidden">Key</span>
           </button>
         )}
@@ -249,8 +252,8 @@ export function HeaderBar({
             type="button"
             onClick={onOpenOnboarding}
             className={CHROME_ICON_BUTTON}
-            title="Guide & tour"
-            aria-label="Open workspace guide & tour"
+            title="Take the tour"
+            aria-label="Take the tour"
           >
             <CircleHelp className="w-4 h-4" />
           </button>

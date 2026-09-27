@@ -1,0 +1,445 @@
+/* ============================================================
+   ONBOARDING TOUR
+   One floating card and one spotlight. The spotlight is a single element
+   whose enormous box-shadow IS the scrim, so moving it between targets is a
+   plain top/left/width/height transition and the dimmed area always has a
+   clean rounded hole. Same grammar as the palette and sidebar: clay tints
+   from color-mix, clay-as-text via --cs-text-accent, sentence case,
+   hairline borders, one elevated surface.
+   ============================================================ */
+
+.tour-root {
+  --tour-scrim: rgba(25, 24, 22, 0.5);
+  --tour-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --tour-move: 320ms;
+
+  position: fixed;
+  inset: 0;
+  z-index: 65; /* above the palette (60) and the settings drawer (50) */
+  animation: tour-fade 180ms ease-out both;
+}
+.dark .tour-root {
+  --tour-scrim: rgba(6, 5, 4, 0.74);
+}
+
+/* Transparent click-catcher: the page behind is inert while the tour runs. */
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+}
+
+.tour-spotlight {
+  position: fixed;
+  pointer-events: none;
+  border-radius: 14px;
+  box-shadow: 0 0 0 200vmax var(--tour-scrim);
+  transition:
+    top var(--tour-move) var(--tour-ease),
+    left var(--tour-move) var(--tour-ease),
+    width var(--tour-move) var(--tour-ease),
+    height var(--tour-move) var(--tour-ease);
+}
+/* The ring is drawn only when there is something to ring. */
+.tour-spotlight[data-active]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 2px var(--cs-accent-clay),
+    0 0 0 6px color-mix(in srgb, var(--cs-accent-clay) 18%, transparent);
+  animation: tour-fade 240ms ease-out both;
+}
+
+/* ── Card ── */
+.tour-card {
+  position: fixed;
+  width: min(380px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--cs-radius-panel);
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface);
+  color: var(--cs-text-primary);
+  box-shadow:
+    0 24px 60px -12px rgba(25, 24, 22, 0.3),
+    0 2px 8px rgba(25, 24, 22, 0.08);
+  transition:
+    top var(--tour-move) var(--tour-ease),
+    left var(--tour-move) var(--tour-ease);
+  animation: tour-rise 260ms var(--tour-ease) both;
+}
+.dark .tour-card {
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+.tour-card:focus {
+  outline: none;
+}
+.tour-card[data-mode="sheet"] {
+  top: auto;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+  max-height: 70dvh;
+}
+
+/* Content cross-fades on every step; the card itself only moves. */
+.tour-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px 16px;
+  animation: tour-fade 200ms ease-out both;
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-right: -8px;
+}
+.tour-eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cs-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.tour-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--cs-radius-input);
+  color: var(--cs-text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.tour-icon-btn:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+
+.tour-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.tour-card[data-mode="centre"] .tour-title {
+  font-size: 19px;
+}
+/* The sheet docks to the bottom edge; it has no top/left to animate. */
+.tour-card[data-mode="sheet"] {
+  transition: none;
+}
+.tour-body {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--cs-text-secondary);
+  text-wrap: pretty;
+}
+
+/* ── Welcome: the three zones, as a numbered flow ── */
+.tour-flow {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tour-flow-step {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 7px 0;
+}
+/* Connector between the numbered nodes. */
+.tour-flow-step + .tour-flow-step::before {
+  content: "";
+  position: absolute;
+  left: 10.5px;
+  top: -9px;
+  height: 16px;
+  width: 1px;
+  background: var(--cs-border);
+}
+.tour-flow-index {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 35%, transparent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 10%, var(--cs-surface));
+  color: var(--cs-text-accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tour-flow-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.tour-flow-detail {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--cs-text-muted);
+}
+
+/* ── Query: accepted notations ── */
+.tour-list {
+  margin: 4px 0 0;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface-2);
+  overflow: hidden;
+}
+.tour-list-row {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+}
+.tour-list-row + .tour-list-row {
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.tour-list-key {
+  font-size: 12px;
+  color: var(--cs-text-muted);
+}
+.tour-list-value {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cs-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Navigate: shortcuts ── */
+.tour-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--cs-text-muted);
+}
+.tour-shortcuts-sep {
+  margin: 0 2px;
+}
+
+/* ── Connections: live key status ── */
+.tour-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface-2);
+}
+.tour-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  /* Neutral, not amber: no key is a supported state, not a fault. */
+  background: var(--cs-text-muted);
+}
+.tour-status-dot[data-on] {
+  background: var(--cs-text-success);
+}
+.tour-status-text {
+  font-size: 12.5px;
+  color: var(--cs-text-primary);
+}
+
+/* ── Benchmarks ── */
+.tour-presets {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+  overflow: hidden;
+}
+.tour-presets li + li {
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.tour-preset {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) 14px;
+  align-items: baseline;
+  column-gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  background: var(--cs-surface);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.tour-preset:hover {
+  background: var(--cs-bg-subtle);
+}
+.tour-preset:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: -2px;
+}
+.tour-preset-gene {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.tour-preset-variant {
+  font-size: 12px;
+  color: var(--cs-text-accent);
+}
+.tour-preset-tag {
+  justify-self: end;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--cs-text-muted);
+}
+.tour-preset-go {
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  color: var(--cs-text-muted);
+  transition: transform 120ms ease, color 120ms ease;
+}
+.tour-preset:hover .tour-preset-go {
+  color: var(--cs-accent-clay);
+  transform: translateX(2px);
+}
+
+/* ── Footer ── */
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 12px 18px;
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.tour-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.tour-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cs-border);
+  transition: width 240ms var(--tour-ease), background-color 240ms ease;
+}
+.tour-dot[data-state="done"] {
+  background: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border));
+}
+.tour-dot[data-state="current"] {
+  width: 18px;
+  background: var(--cs-accent-clay);
+}
+
+.tour-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--cs-radius-input);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, filter 120ms ease;
+}
+.tour-btn:focus-visible,
+.tour-icon-btn:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+}
+.tour-btn-primary {
+  min-width: 76px;
+  background: var(--cs-accent-clay);
+  color: #fff;
+}
+.tour-btn-primary:hover {
+  filter: brightness(1.06);
+}
+.tour-btn-primary:active {
+  filter: brightness(0.95);
+}
+.tour-btn-ghost {
+  color: var(--cs-text-secondary);
+}
+.tour-btn-ghost:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+.tour-btn-quiet {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface);
+  font-size: 12.5px;
+  color: var(--cs-text-primary);
+}
+.tour-btn-quiet:hover {
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 50%, var(--cs-border));
+}
+
+@keyframes tour-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes tour-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Motion is decoration here; position still updates, it just snaps. primitives.css already
+   zeroes durations under both the OS setting and the app's "Reduce motion" switch — this covers
+   the long 200vmax shadow sweep, which reads as a flash when merely shortened. */
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight,
+  .tour-card,
+  .tour-dot {
+    transition: none;
+  }
+}
+html.reduce-motion .tour-spotlight,
+html.reduce-motion .tour-card {
+  transition: none;
+}

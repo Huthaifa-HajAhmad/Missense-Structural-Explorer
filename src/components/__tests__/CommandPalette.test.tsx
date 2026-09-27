@@ -429,14 +429,14 @@ describe("CommandPalette — Run group", () => {
     expect(onViewChange).toHaveBeenCalled();
   });
 
-  it("routes to the API key tab when no key is configured", () => {
+  it("runs a typed variant without a Gemini key — keys only add the written narrative", () => {
     mocks.settings.hasConfiguredGeminiKey = false;
     const onRunQuery = vi.fn();
     render(<CommandPalette {...setup({ onRunQuery })} />);
     typeLine("BRCA1 R175H");
-    fireEvent.click(screen.getByText(/API key required/));
-    expect(onRunQuery).not.toHaveBeenCalled();
-    expect(mocks.settings.openSettingsTab).toHaveBeenCalledWith("api");
+    expect(screen.queryByText(/API key required/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("BRCA1 · R175H"));
+    expect(onRunQuery).toHaveBeenCalled();
   });
 
   it("hides the Run group for text that is not a query", () => {
@@ -493,7 +493,7 @@ describe("CommandPalette — system actions", () => {
     const onOpenOnboarding = vi.fn();
     render(<CommandPalette {...setup({ onOpenOnboarding })} />);
     typeLine("tour");
-    fireEvent.click(screen.getByText("Workspace guide & API keys tour"));
+    fireEvent.click(screen.getByText("Take the tour"));
     expect(onOpenOnboarding).toHaveBeenCalledTimes(1);
   });
 });

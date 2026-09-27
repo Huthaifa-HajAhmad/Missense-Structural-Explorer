@@ -595,7 +595,7 @@ export default function AboutView({ onOpenOnboarding }: AboutViewProps = {}) {
                   onClick={onOpenOnboarding}
                 >
                   <Compass className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" aria-hidden="true" />
-                  Launch Workspace Tour
+                  Take the tour
                 </button>
               )}
               <a

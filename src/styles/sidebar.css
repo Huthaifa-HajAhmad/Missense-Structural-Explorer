@@ -151,12 +151,13 @@
 .ms-nav-btn {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
   min-height: var(--ms-row-h);
   padding: 7px var(--ms-row-pad-x);
   border-radius: var(--cs-radius-input);
+
   text-align: left;
   color: var(--cs-text-secondary);
   cursor: pointer;
@@ -226,34 +227,39 @@
   font-weight: 600;
 }
 
-/* Live pipeline line — discloses under the label only while a stage is
-   running, degraded or failed (0fr → 1fr, the house disclosure pattern), so
-   rows don't jump as the pipeline advances. */
-.ms-nav-live {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition: grid-template-rows 220ms var(--ms-ease), opacity 160ms ease;
-}
-.ms-nav-live[data-open="true"] {
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-.ms-nav-live-inner {
-  min-height: 0;
-  overflow: hidden;
-}
-.ms-nav-live-text {
+/* Second line: what the view is for — or, while its stage is running, degraded or failed, the
+   live pipeline sentence in its place. Swapping text in one line (rather than disclosing an extra
+   line) keeps every row the same height, so the rail never jumps as the pipeline advances. */
+.ms-nav-desc {
   display: block;
+  margin-top: 1px;
   font-size: 11.5px;
   line-height: 16px;
+  font-weight: 400;
   color: var(--cs-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  animation: ms-desc-in 180ms ease-out both;
 }
-.ms-nav-live[data-status="degraded"] .ms-nav-live-text { color: var(--cs-text-warning); }
-.ms-nav-live[data-status="error"] .ms-nav-live-text { color: var(--cs-text-danger); }
+.ms-nav-btn[data-active="true"] .ms-nav-desc:not([data-live]) {
+  color: var(--cs-text-secondary);
+}
+.ms-nav-desc[data-live] { color: var(--cs-text-accent); }
+.ms-nav-desc[data-status="degraded"] { color: var(--cs-text-warning-on-soft, var(--cs-text-warning)); }
+.ms-nav-desc[data-status="error"] { color: var(--cs-text-danger-on-soft, var(--cs-text-danger)); }
+@keyframes ms-desc-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Rows with a description are two lines: the icon, stage marker and count ride on the label's
+   20px line instead of floating between the two. */
+.ms-nav-btn > .ms-nav-icon { margin-top: 2px; }
+.ms-nav-btn > .ms-step { margin-top: 6px; }
+.ms-nav-btn > .ms-step[data-status="complete"] { margin-top: 7px; }
+.ms-nav-btn > .ms-step[data-status="progress"] { margin-top: 5px; }
+.ms-nav-btn > .ms-count-badge { margin-top: 1px; }
 
 /* Active rail — 3px, inset from the row's rounded corners. */
 .ms-active-rail {
@@ -506,8 +512,10 @@
   .ms-brand-wordmark,
   .ms-brand-wordmark[data-collapsed="true"],
   .ms-sub-list,
-  .ms-sub-list[data-open="true"],
-  .ms-nav-live {
+  .ms-sub-list[data-open="true"] {
     transition-duration: 0s;
+  }
+  .ms-nav-desc {
+    animation: none;
   }
 }

@@ -216,7 +216,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
     // Verify Workflow Pipeline view is now active
     expect(screen.getByRole("tabpanel", { name: /Pipeline/i })).toBeInTheDocument();
-    expect(screen.getByText("3D Structure")).toBeInTheDocument();
+    expect(screen.getByText("3D structure")).toBeInTheDocument();
 
     // Click back to Service Telemetry
     const telemetryTabBtn = screen.getByRole("tab", { name: /Services/i });
@@ -687,5 +687,21 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       const bar = screen.getByRole("progressbar", { name: /Pipeline progress/i });
       expect(bar.getAttribute("aria-valuemax")).toBe(String(WORKFLOW_STAGES.length));
     });
+  });
+});
+
+describe("VariantSearchPanel keyless-first", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it("keeps Analyse available without a Gemini key and says what the key adds", () => {
+    renderPanel();
+    const analyse = screen.getByRole("button", { name: /^analyse variant$/i });
+    expect(analyse).toHaveAttribute("type", "submit");
+    expect(screen.queryByText(/add api key to analyse/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/interpretation will be rule-based/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
   });
 });

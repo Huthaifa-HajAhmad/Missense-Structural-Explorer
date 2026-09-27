@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { MotionConfig } from "motion/react";
 import { ShieldAlert } from "lucide-react";
 import useVariantAnalysis from "./useVariantAnalysis";
 import { useApiClient } from "./apiClient";
-import { useSettings } from "./context/SettingsContext";
+import { useSettings, type SettingsTabId } from "./context/SettingsContext";
 import MasterSidebar, { MasterView, clampSidebarWidth } from "./components/MasterSidebar";
 import HeaderBar from "./components/HeaderBar";
 import VariantHeader from "./components/VariantHeader";
@@ -12,7 +12,7 @@ import SettingsDrawer from "./components/settings/SettingsDrawer";
 import CommandPalette from "./components/CommandPalette";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import StructuralLegendModal from "./components/modals/StructuralLegendModal";
-import OnboardingModal, { OnboardingPreset } from "./components/modals/OnboardingModal";
+import OnboardingModal, { hasCompletedOnboarding, type OnboardingPreset } from "./components/modals/OnboardingModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
 import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/VariantAnalysisContext";
 import { useDevConsole } from "./context/DevConsoleContext";
@@ -44,6 +44,7 @@ export default function App() {
   const isNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
   const isFolding = useVariantAnalysisStore(s => s.isFolding);
+  const foldingPhase = useVariantAnalysisStore(s => s.foldingProgress?.phase ?? null);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus);
   const foldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
@@ -80,15 +81,16 @@ export default function App() {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
-  // Auto-launch onboarding on first visit with a brief delay for hydration stability
+  /* First visit: offer the tour once the shell has settled. Only on Search — a shared link that
+     opens straight into a result view should show that result, not be pulled away from it. */
+  const masterViewRef = useRef(masterView);
+  masterViewRef.current = masterView;
   useEffect(() => {
-    try {
-      const hasCompleted = localStorage.getItem("cs-onboarding-completed-v1");
-      if (hasCompleted !== "true") {
-        const timer = window.setTimeout(() => setIsOnboardingOpen(true), 450);
-        return () => window.clearTimeout(timer);
-      }
-    } catch {}
+    if (hasCompletedOnboarding()) return;
+    const timer = window.setTimeout(() => {
+      if (masterViewRef.current === "search") setIsOnboardingOpen(true);
+    }, 450);
+    return () => window.clearTimeout(timer);
   }, []);
 
   /* Narrow-viewport drawer mode: below 900px the fixed-width rail + inspector +
@@ -114,6 +116,13 @@ export default function App() {
     },
     []
   );
+
+  /* The tour's stops all live on the Search page, so every entry point (header, palette, About,
+     the Search page itself) lands there first. */
+  const openTour = useCallback(() => {
+    navigate("search");
+    setIsOnboardingOpen(true);
+  }, [navigate]);
 
   const handleSelectOnboardingPreset = useCallback(
     (preset: OnboardingPreset) => {
@@ -205,6 +214,7 @@ export default function App() {
           onEvidenceTabChange={setActiveEvidenceTab}
           analysisResult={analysisState.result}
           isFolding={isFolding}
+          foldingPhase={foldingPhase}
           isBiophysicalLoading={isBiophysicalLoading}
           isClinicalLoading={isClinicalLoading}
           isNarrativeLoading={isNarrativeLoading}
@@ -232,7 +242,7 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenOnboarding={() => setIsOnboardingOpen(true)}
+            onOpenOnboarding={openTour}
           />
 
           {/* ── Global Variant Header — hidden on the Search workspace and the
@@ -254,7 +264,7 @@ export default function App() {
             actions={actions}
             pushErrorEntry={pushErrorEntry}
             setIsSettingsOpen={setIsSettingsOpen}
-            onOpenOnboarding={() => setIsOnboardingOpen(true)}
+            onOpenOnboarding={openTour}
             activeEvidenceTab={activeEvidenceTab}
             setActiveEvidenceTab={setActiveEvidenceTab}
             metricMode={metricMode}
@@ -290,7 +300,7 @@ export default function App() {
             }}
             onSelectHistory={actions.handleSelectHistoryItem}
             onRunQuery={actions.handleSearchSubmit}
-            onOpenOnboarding={() => setIsOnboardingOpen(true)}
+            onOpenOnboarding={openTour}
             onToggleSidebar={toggleSidebar}
           />
 
@@ -299,13 +309,7 @@ export default function App() {
             isOpen={isOnboardingOpen}
             onClose={() => setIsOnboardingOpen(false)}
             onSelectPreset={handleSelectOnboardingPreset}
-            onOpenSettings={(tab) => {
-              if (tab) {
-                openSettingsTab(tab as any);
-              } else {
-                setIsSettingsOpen(true);
-              }
-            }}
+            onOpenSettings={(tab) => openSettingsTab((tab ?? "connections") as SettingsTabId)}
           />
 
           {/* How to Inspect Modal Popup */}

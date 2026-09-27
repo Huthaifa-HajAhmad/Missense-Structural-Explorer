@@ -15,7 +15,6 @@ import {
   BookOpen,
   FileText,
   AlertTriangle,
-  KeyRound,
   Compass,
   CornerDownLeft,
 } from "lucide-react";
@@ -94,7 +93,7 @@ interface VariantSearchPanelProps {
  */
 export const WORKFLOW_STAGES = [
   { key: "evidence", title: "Evidence", Icon: BarChart2, targetView: "evidence" as MasterView },
-  { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
+  { key: "structure", title: "3D structure", Icon: Layers, targetView: "structure" as MasterView },
   { key: "energetics", title: "Energetics", Icon: Activity, targetView: "energetics" as MasterView },
   { key: "landscape", title: "Landscape", Icon: Map, targetView: "landscape" as MasterView },
   { key: "insights", title: "Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
@@ -786,7 +785,7 @@ function VariantSearchPanel({
               </fieldset>
 
               {/* Variant — two alternative routes, shown side by side with an explicit "or" */}
-              <fieldset className="flex flex-col" data-tour="curated-presets" id="workspace-accepted-inputs">
+              <fieldset className="flex flex-col" id="workspace-accepted-inputs">
                 <legend className="w-full flex items-baseline justify-between gap-2 mb-3">
                   <span className="text-[13px] font-semibold text-cs-text-primary">Variant</span>
                   <span className="text-[11px] text-cs-text-muted">Use one or the other</span>
@@ -918,7 +917,11 @@ function VariantSearchPanel({
 
             {/* ── Form footer: hint left, primary action right ── */}
             <div className="mt-auto flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-t border-cs-border-subtle bg-cs-surface-2/60">
-              <p className="text-[11px] text-cs-text-muted flex items-center gap-1.5">
+              {/* Keyless-first: every stage runs without a key, and the narrative stage returns its
+                  designed "AI not configured" report (rule-based ACMG from database metrics). The key
+                  only adds the written interpretation, so it is a note here, never a gate — a gate
+                  here was also bypassed by the history chips and the benchmarks, which always ran. */}
+              <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-1.5 gap-y-1">
                 {hasConfiguredGeminiKey ? (
                   <>
                     <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
@@ -928,40 +931,37 @@ function VariantSearchPanel({
                     runs from any field
                   </>
                 ) : (
-                  "An API key is needed for the clinical narrative stage."
+                  <>
+                    <span>No Gemini key, so the interpretation will be rule-based.</span>
+                    <button
+                      type="button"
+                      onClick={() => openSettingsTab("connections")}
+                      className="font-medium text-cs-text-accent underline-offset-2 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                    >
+                      Add a key
+                    </button>
+                  </>
                 )}
               </p>
 
-              {!hasConfiguredGeminiKey ? (
-                <button
-                  type="button"
-                  onClick={() => openSettingsTab("api")}
-                  aria-label="API Key Required — Open Settings"
-                  className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-[var(--cs-radius-input)] text-[14px] font-medium bg-cs-surface border border-cs-border text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                >
-                  <KeyRound className="w-4 h-4 text-[var(--cs-text-warning)]" />
-                  Add API key to analyse
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={isPipelineActive}
-                  aria-label="Analyse variant"
-                  className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
-                >
-                  {isPipelineActive ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Analysing…
-                    </>
-                  ) : (
-                    <>
-                      Analyse variant
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              )}
+              <button
+                type="submit"
+                disabled={isPipelineActive}
+                aria-label="Analyse variant"
+                className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
+              >
+                {isPipelineActive ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analysing…
+                  </>
+                ) : (
+                  <>
+                    Analyse variant
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
             </div>
           </form>
         </section>
@@ -971,7 +971,7 @@ function VariantSearchPanel({
               row reads as a third structural element instead of loose chips under
               the panel — the workspace then closes with the same two-surface rhythm
               it opens with. */}
-        <section aria-labelledby="recent-title" className="cs-panel p-4 flex flex-col gap-3">
+        <section aria-labelledby="recent-title" className="cs-panel p-4 flex flex-col gap-3" data-tour="recent-benchmarks">
           {history.length > 0 ? (
             <>
               <div className="flex items-center justify-between gap-2">
@@ -1030,7 +1030,7 @@ function VariantSearchPanel({
                     className="self-start sm:self-auto inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[var(--cs-radius-input)] text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
                   >
                     <Compass className="w-3.5 h-3.5" />
-                    Take the 2-minute tour
+                    Take the tour
                   </button>
                 )}
               </div>

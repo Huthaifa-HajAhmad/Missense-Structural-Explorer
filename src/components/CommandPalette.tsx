@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import {
-  BarChart2, Settings, Sun, Moon, History, Sparkles, Trash2, ArrowUpRight, KeyRound, Compass,
+  BarChart2, Settings, Sun, Moon, History, Sparkles, Trash2, ArrowUpRight, Compass,
   Search, Layers, PanelLeft, SearchX,
 } from "lucide-react";
 import {
@@ -165,8 +165,6 @@ export default function CommandPalette({
     isDark,
     toggleTheme,
     setIsSettingsOpen,
-    hasConfiguredGeminiKey,
-    openSettingsTab,
   } = useSettings();
   const actions = useVariantAnalysisActions();
   const history = useVariantAnalysisStore((s) => s.history);
@@ -195,7 +193,8 @@ export default function CommandPalette({
   const isBrowsing = query.trim().length === 0;
   const parsed = useMemo(() => parseVariantQuery(query), [query]);
   const hint = commandPaletteHint();
-  const canRun = parsed.recognised && parsed.runnable && hasConfiguredGeminiKey;
+  // Keyless-first: a run never needs a key (the narrative degrades to rule-based criteria).
+  const canRun = parsed.recognised && parsed.runnable;
 
   /* Global toggle, mounted for the life of the shell rather than the life of the panel, so the
      advertised chord can OPEN the palette as well as close it. `openRef` keeps one listener
@@ -364,15 +363,7 @@ export default function CommandPalette({
               {/* ── Run: one typed line becomes a pipeline run ── */}
               {parsed.recognised && (
                 <Command.Group heading="Run">
-                  {!hasConfiguredGeminiKey ? (
-                    <PaletteItem
-                      value={`api key configure run ${query}`}
-                      label="API key required · configure to analyse"
-                      icon={<KeyRound className={iconCls} />}
-                      meta="Settings"
-                      onSelect={() => runAndClose(() => openSettingsTab("api"))}
-                    />
-                  ) : parsed.runnable ? (
+                  {parsed.runnable ? (
                     <PaletteItem
                       mono
                       primary={!isPipelineActive}
@@ -491,7 +482,7 @@ export default function CommandPalette({
                   {onOpenOnboarding && (
                     <PaletteItem
                       value="workspace tour onboarding guide help start keys orientation"
-                      label="Workspace guide & API keys tour"
+                      label="Take the tour"
                       icon={<Compass className={iconCls} />}
                       onSelect={() => runAndClose(() => onOpenOnboarding())}
                     />

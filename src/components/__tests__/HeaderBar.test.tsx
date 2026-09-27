@@ -84,7 +84,7 @@ describe("HeaderBar Component Tests (C-7)", () => {
   it("should render onboarding tour button and trigger onOpenOnboarding when clicked", () => {
     const onOpenOnboarding = vi.fn();
     render(<HeaderBar {...base} onOpenOnboarding={onOpenOnboarding} />);
-    const tourBtn = screen.getByRole("button", { name: /open workspace guide & tour/i });
+    const tourBtn = screen.getByRole("button", { name: /take the tour/i });
     expect(tourBtn).toBeInTheDocument();
     fireEvent.click(tourBtn);
     expect(onOpenOnboarding).toHaveBeenCalledTimes(1);
@@ -127,7 +127,7 @@ describe("HeaderBar Component Tests (C-7)", () => {
 
   it("gives every icon action the same control geometry", () => {
     render(<HeaderBar {...base} onOpenOnboarding={() => {}} />);
-    const names = [/open workspace guide/i, /switch to (light|dark) mode/i, /open settings/i];
+    const names = [/take the tour/i, /switch to (light|dark) mode/i, /open settings/i];
     const classes = names.map(n => screen.getByRole("button", { name: n }).className.split(" ").filter(c => /^(w-|h-|rounded)/.test(c)).sort().join(" "));
     expect(new Set(classes).size).toBe(1);
   });

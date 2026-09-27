@@ -9,6 +9,7 @@ import {
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
+import type { FoldxPhase } from "../shared/foldxPhase";
 import { useSettings } from "../context/SettingsContext";
 import { isApplePlatform } from "../shared/platform";
 
@@ -73,6 +74,8 @@ interface MasterSidebarProps {
   // Completion state props
   analysisResult?: AnalysisResult | null;
   isFolding?: boolean;
+  /** Server-reported FoldX phase; absent means "no report", never "guess a stage". */
+  foldingPhase?: FoldxPhase | null;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
   isPocketLoading?: boolean;
@@ -96,7 +99,7 @@ export interface NavItem {
   Icon: React.ComponentType<{ className?: string }>;
 }
 
-interface NavZone {
+export interface NavZone {
   /** `null` renders no heading — Search is the front door and needs no label above it. */
   zoneLabel: string | null;
   items: NavItem[];
@@ -106,7 +109,7 @@ interface NavZone {
  * The scrolling nav. Labels are sentence case to match every other heading in the app, and the
  * descriptors say what the view is FOR rather than listing the tools behind it.
  */
-const NAV_ZONES: NavZone[] = [
+export const NAV_ZONES: NavZone[] = [
   {
     zoneLabel: null,
     items: [
@@ -250,8 +253,10 @@ interface NavRowProps {
   isActive: boolean;
   collapsed: boolean;
   onClick: () => void;
-  /** The live pipeline sentence; shown as a second line only while it says something. */
+  /** The live pipeline sentence; replaces the description line while a stage says something. */
   liveText?: string;
+  /** Show the one-line description under the label. Off for the compact pinned footer. */
+  showDescription?: boolean;
   status?: WorkflowStatusType;
   showStatus?: boolean;
   badgeCount?: number;
@@ -260,8 +265,9 @@ interface NavRowProps {
 }
 
 /**
- * The one nav-row anatomy: icon · label · marker, with an optional live line that discloses
- * under the label. Primary rows and pinned footer rows are the same component — the footer
+ * The one nav-row anatomy: icon · label · marker, with a description line under the label that
+ * the live pipeline sentence takes over while a stage is running, degraded or failed — one line
+ * swapping text, so rows never change height as the pipeline advances. Primary rows and pinned footer rows are the same component — the footer
  * used to be a 60-line hand copy of the row that had already drifted.
  */
 function NavRow({
@@ -270,6 +276,7 @@ function NavRow({
   collapsed,
   onClick,
   liveText,
+  showDescription = true,
   status = "pending",
   showStatus = false,
   badgeCount = 0,
@@ -314,11 +321,11 @@ function NavRow({
       {!collapsed && (
         <span className="ms-nav-text">
           <span className="ms-nav-label">{label}</span>
-          <span className="ms-nav-live" data-open={isLive} data-status={status}>
-            <span className="ms-nav-live-inner">
-              <span className="ms-nav-live-text">{liveText}</span>
+          {(isLive || (showDescription && sublabel)) && (
+            <span key={isLive ? "live" : "desc"} className="ms-nav-desc" data-live={isLive || undefined} data-status={status}>
+              {isLive ? liveText : sublabel}
             </span>
-          </span>
+          )}
         </span>
       )}
 
@@ -364,6 +371,7 @@ function MasterSidebar({
   onEvidenceTabChange,
   analysisResult,
   isFolding = false,
+  foldingPhase = null,
   isBiophysicalLoading = false,
   isClinicalLoading = false,
   isPocketLoading = false,
@@ -506,6 +514,7 @@ function MasterSidebar({
       view: id,
       result: analysisResult,
       isFolding,
+      foldingPhase: foldingPhase ?? null,
       isBiophysicalLoading,
       isClinicalLoading,
       isLoadingSearch,
@@ -693,6 +702,7 @@ function MasterSidebar({
                 buttonRef={isActive ? activeRowRef : undefined}
                 onClick={() => navigate(item.id)}
                 badgeCount={item.id === "console" ? unreadConsoleCount ?? 0 : 0}
+                showDescription={false}
                 rail={activeRail}
               />
             );

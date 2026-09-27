@@ -1,98 +1,300 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "motion/react";
-import {
-  Compass,
-  X,
-  Search,
-  Layers,
-  Activity,
-  Sparkles,
-  KeyRound,
-  ShieldCheck,
-  CheckCircle2,
-  ExternalLink,
-  ChevronRight,
-  ChevronLeft,
-  Copy,
-  Check,
-  Zap,
-  ArrowRight,
-  FileText,
-  Sliders,
-  HelpCircle,
-  Dna,
-  BarChart2
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { useSettings } from "../../context/SettingsContext";
-import { useVariantAnalysisActions } from "../../context/VariantAnalysisContext";
+import { NAV_ZONES, sidebarToggleHint } from "../MasterSidebar";
+import { commandPaletteHint } from "../../shared/platform";
+import { ACCEPTED_NOTATION_EXAMPLES } from "../../shared/variantNotation";
 
 /*
- * The benchmark presets moved to `shared/benchmarkPresets.ts` so the Search workspace can offer the
- * same one-click controls the tour advertises without importing this modal (and its motion runtime).
+ * The benchmark presets live in `shared/benchmarkPresets.ts` so the Search workspace can offer the
+ * same one-click controls the tour advertises without importing this modal.
  * Re-exported here so existing imports keep working.
  */
 export { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../../shared/benchmarkPresets";
 import type { OnboardingPreset } from "../../shared/benchmarkPresets";
 import { ONBOARDING_BENCHMARK_PRESETS } from "../../shared/benchmarkPresets";
 
-export interface TourStep {
-  id: string;
-  label: string;
-  badge: string;
-  title: string;
-  subtitle: string;
-  targetSelector: string;
-  placement: "bottom" | "top" | "left" | "right" | "center";
+/** One key for "the tour has been seen", shared with App's first-visit auto-launch. */
+export const ONBOARDING_STORAGE_KEY = "cs-onboarding-completed-v1";
+
+export function hasCompletedOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
+function persistCompletion() {
+  try {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
+  } catch {
+    /* private window / full storage — the tour simply shows again next visit */
+  }
+}
+
+export type TourPlacement = "top" | "bottom" | "left" | "right";
+
+export interface TourStep {
+  id: string;
+  title: string;
+  body: string;
+  /** Element to spotlight. `null` = a centred card with no spotlight (the welcome). */
+  target: string | null;
+  /** Preferred side for the card; the layout falls back to whichever side has room. */
+  placement: TourPlacement;
+}
+
+/**
+ * The tour is deliberately high level: one welcome, then five stops that each answer "where is
+ * X and why would I use it". Copy is sentence case, says what the thing does for the reader, and
+ * names no version numbers or vendors that will go stale.
+ */
 export const TOUR_STEPS: TourStep[] = [
   {
-    id: "variant-input",
-    label: "Query Input",
-    badge: "Zone 1 · Input",
-    title: "Variant Query & Genomic Coordinates",
-    subtitle: "Submit target gene symbols, protein HGVS, transcript cDNA, or genomic VCF coordinates.",
-    targetSelector: '[data-tour="variant-input"]',
-    placement: "bottom"
+    id: "welcome",
+    title: "Welcome to Missense & Fold",
+    body:
+      "Give it one missense variant. It gathers clinical evidence, 3D structure, stability and " +
+      "literature in parallel, then helps you weigh them against ACMG/AMP criteria.",
+    target: null,
+    placement: "bottom",
   },
   {
-    id: "navigation-zones",
-    label: "Workspace Zones",
-    badge: "Zones 2–4 · Architecture",
-    title: "Multimodal Analysis Rail & 4 Zones",
-    subtitle: "Navigate seamlessly between Deterministic Evidence, 3D Molstar, Energetics, and Clinical Reports.",
-    targetSelector: '[data-tour="navigation-zones"]',
-    placement: "right"
+    id: "query",
+    title: "Start with a variant",
+    body:
+      "Enter a gene and a protein change, or paste genomic coordinates. The gene and UniProt " +
+      "accession are filled in for you when the notation already implies them.",
+    target: '[data-tour="variant-input"]',
+    placement: "right",
   },
   {
-    id: "workflow-rail",
-    label: "Sovereign Core",
-    badge: "100% Free & Keyless",
-    title: "Zero-Key Sovereign Biophysical Core",
-    subtitle: "Local FoldX, RaSP SQLite, WebGL 3D, and JapanFold sovereign fallback run with zero credentials.",
-    targetSelector: '[data-tour="workflow-rail"]',
-    placement: "left"
+    id: "pipeline",
+    title: "Watch it run",
+    body:
+      "Services shows which data sources and engines are reachable right now. Pipeline tracks " +
+      "each stage of a run as it lands. Select a finished stage to open it.",
+    target: '[data-tour="workflow-rail"]',
+    placement: "left",
   },
   {
-    id: "settings-trigger",
-    label: "API Gateway",
-    badge: "Key-Enhanced Features",
-    title: "API Keys & Diagnostic AI Gateway",
-    subtitle: "Enable Google Gemini 2.5 Flash for ACMG synthesis & AlphaGenome for regulatory variant scoring.",
-    targetSelector: '[data-tour="settings-trigger"]',
-    placement: "bottom"
+    id: "navigate",
+    title: "Move between results",
+    body:
+      "Views are grouped in reading order: evidence and modelling first, then synthesis. Each " +
+      "row says what it is for, and a marker shows its stage once a run starts.",
+    target: '[data-tour="navigation-zones"]',
+    placement: "right",
   },
   {
-    id: "curated-presets",
-    label: "Rare Disease Controls",
-    badge: "Quick Start · Controls",
-    title: "Curated Landmark Controls & Instant Launch",
-    subtitle: "1-click launch canonical rare disease missense benchmarks to inspect live structural and clinical pipelines.",
-    targetSelector: '[data-tour="curated-presets"]',
-    placement: "top"
-  }
+    id: "connections",
+    title: "Keys are optional",
+    body:
+      "Every stage runs without an account. Without a Gemini key the interpretation is built from " +
+      "rule-based ACMG criteria; add one for the written narrative. Other keys unlock specialist models.",
+    target: '[data-tour="settings-trigger"]',
+    placement: "bottom",
+  },
+  {
+    id: "benchmarks",
+    title: "Try a benchmark",
+    body:
+      "Four curated disease controls. Run one to watch every stage fill in. Your own analyses " +
+      "collect here afterwards.",
+    target: '[data-tour="recent-benchmarks"]',
+    placement: "right",
+  },
 ];
+
+/** Stops counted in "Step n of m" — the welcome is a preface, not a stop. */
+const STOP_COUNT = TOUR_STEPS.length - 1;
+
+/* ───────────────────────────── Geometry ───────────────────────────── */
+
+export interface Box {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+const SPOT_PAD = 6; // breathing room between the target and the spotlight edge
+const GAP = 14; // between the spotlight and the card
+const EDGE = 12; // minimum distance from the viewport edge
+const SHEET_BREAKPOINT = 640; // below this the card docks to the bottom as a sheet
+
+/**
+ * Where the spotlight goes: the target plus padding, clipped to the viewport so a panel taller
+ * than the screen still gets a visible outline. `null` when the target is absent or off screen
+ * (e.g. the sidebar while it is an off-canvas drawer) — the card then centres itself.
+ */
+export function spotlightFor(rect: DOMRect | Box | null, vw: number, vh: number): Box | null {
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  const right = rect.left + rect.width;
+  const bottom = rect.top + rect.height;
+  if (right <= 0 || bottom <= 0 || rect.left >= vw || rect.top >= vh) return null;
+
+  const top = Math.max(4, rect.top - SPOT_PAD);
+  const left = Math.max(4, rect.left - SPOT_PAD);
+  return {
+    top,
+    left,
+    width: Math.min(vw - 4, right + SPOT_PAD) - left,
+    height: Math.min(vh - 4, bottom + SPOT_PAD) - top,
+  };
+}
+
+export type CardLayout =
+  | { mode: "centre"; top: number; left: number }
+  | { mode: "sheet" }
+  | { mode: "anchored"; top: number; left: number; side: TourPlacement };
+
+const FALLBACK_ORDER: Record<TourPlacement, TourPlacement[]> = {
+  right: ["right", "left", "bottom", "top"],
+  left: ["left", "right", "bottom", "top"],
+  bottom: ["bottom", "top", "right", "left"],
+  top: ["top", "bottom", "right", "left"],
+};
+
+/**
+ * Picks the first side (preferred first) where the whole card fits beside the spotlight without
+ * covering it. If no side fits — a target that fills the screen, or a phone — the card docks to the
+ * bottom as a sheet rather than being clamped on top of the thing it describes.
+ */
+export function layoutCard(
+  spot: Box | null,
+  card: { width: number; height: number },
+  vw: number,
+  vh: number,
+  preferred: TourPlacement
+): CardLayout {
+  // Centred is expressed in pixels, not a CSS transform, so moving from the welcome to the first
+  // stop is one continuous top/left transition instead of a jump when the transform drops away.
+  const centre: CardLayout = {
+    mode: "centre",
+    top: Math.max(EDGE, Math.round((vh - card.height) / 2)),
+    left: Math.max(EDGE, Math.round((vw - card.width) / 2)),
+  };
+  if (vw < SHEET_BREAKPOINT) return spot ? { mode: "sheet" } : centre;
+  if (!spot) return centre;
+
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+  const alignV = clamp(spot.top, EDGE, vh - card.height - EDGE);
+  const alignH = clamp(spot.left + spot.width / 2 - card.width / 2, EDGE, vw - card.width - EDGE);
+
+  for (const side of FALLBACK_ORDER[preferred]) {
+    if (side === "right" && spot.left + spot.width + GAP + card.width <= vw - EDGE) {
+      return { mode: "anchored", side, top: alignV, left: spot.left + spot.width + GAP };
+    }
+    if (side === "left" && spot.left - GAP - card.width >= EDGE) {
+      return { mode: "anchored", side, top: alignV, left: spot.left - GAP - card.width };
+    }
+    if (side === "bottom" && spot.top + spot.height + GAP + card.height <= vh - EDGE) {
+      return { mode: "anchored", side, top: spot.top + spot.height + GAP, left: alignH };
+    }
+    if (side === "top" && spot.top - GAP - card.height >= EDGE) {
+      return { mode: "anchored", side, top: spot.top - GAP - card.height, left: alignH };
+    }
+  }
+  return { mode: "sheet" };
+}
+
+/* ───────────────────────────── Step content ───────────────────────────── */
+
+function FlowPreview() {
+  // The three sidebar zones, in order — the welcome previews the shape of the app, not a sales pitch.
+  const stages = [
+    { label: "Query", detail: "Gene + variant" },
+    ...NAV_ZONES.filter((z) => z.zoneLabel).map((z) => ({
+      label: z.zoneLabel as string,
+      detail: z.items.map((i) => i.label).join(" · "),
+    })),
+  ];
+  return (
+    <ol className="tour-flow" aria-label="How an analysis flows">
+      {stages.map((s, i) => (
+        <li key={s.label} className="tour-flow-step">
+          <span className="tour-flow-index" aria-hidden="true">{i + 1}</span>
+          <span className="min-w-0">
+            <span className="tour-flow-label">{s.label}</span>
+            <span className="tour-flow-detail">{s.detail}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function NotationList() {
+  const rows = [
+    { kind: "Protein", value: ACCEPTED_NOTATION_EXAMPLES.protein },
+    { kind: "cDNA", value: ACCEPTED_NOTATION_EXAMPLES.cdna },
+    { kind: "Genomic", value: ACCEPTED_NOTATION_EXAMPLES.genomicHgvs },
+  ];
+  return (
+    <dl className="tour-list">
+      {rows.map((r) => (
+        <div key={r.kind} className="tour-list-row">
+          <dt className="tour-list-key">{r.kind}</dt>
+          <dd className="tour-list-value font-mono">{r.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Shortcuts() {
+  // The spotlit sidebar already shows every view; the card adds only what the rail can't: the keys.
+  return (
+    <p className="tour-shortcuts">
+      <kbd className="cs-kbd">{commandPaletteHint()}</kbd> jump anywhere
+      <span aria-hidden="true" className="tour-shortcuts-sep">·</span>
+      <kbd className="cs-kbd">{sidebarToggleHint()}</kbd> collapse the sidebar
+    </p>
+  );
+}
+
+function ConnectionStatus({ onOpen }: { onOpen: () => void }) {
+  const { hasConfiguredGeminiKey } = useSettings();
+  return (
+    <div className="tour-status">
+      <span className="tour-status-dot" data-on={hasConfiguredGeminiKey || undefined} aria-hidden="true" />
+      <span className="tour-status-text">
+        {hasConfiguredGeminiKey ? "Gemini key linked" : "No Gemini key · rule-based interpretation"}
+      </span>
+      <button type="button" className="tour-btn tour-btn-quiet ml-auto" onClick={onOpen}>
+        {hasConfiguredGeminiKey ? "Manage keys" : "Add a key"}
+      </button>
+    </div>
+  );
+}
+
+function PresetList({ onSelect }: { onSelect: (preset: OnboardingPreset) => void }) {
+  return (
+    <ul className="tour-presets">
+      {ONBOARDING_BENCHMARK_PRESETS.map((preset) => (
+        <li key={preset.gene + preset.variant}>
+          <button
+            type="button"
+            className="tour-preset"
+            onClick={() => onSelect(preset)}
+            aria-label={`Run ${preset.gene} ${preset.variant}`}
+            title={preset.description}
+          >
+            <span className="tour-preset-gene">{preset.gene}</span>
+            <span className="tour-preset-variant font-mono">{preset.variant}</span>
+            <span className="tour-preset-tag">{preset.tag}</span>
+            <ArrowRight className="tour-preset-go" aria-hidden="true" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* ───────────────────────────── Component ───────────────────────────── */
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -101,569 +303,244 @@ interface OnboardingModalProps {
   onOpenSettings?: (tab?: string) => void;
 }
 
-export function OnboardingModal({
-  isOpen,
-  onClose,
-  onSelectPreset,
-  onOpenSettings
-}: OnboardingModalProps) {
-  const { openSettingsTab, hasConfiguredGeminiKey } = useSettings();
-  const actions = useVariantAnalysisActions();
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [copiedKeyCommand, setCopiedKeyCommand] = useState(false);
-  const [sampleLoaded, setSampleLoaded] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
+const FOCUSABLE = 'button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-  // Spotlight geometry state
-  const [highlightRect, setHighlightRect] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-    borderRadius: number;
-  } | null>(null);
+export function OnboardingModal({ isOpen, onClose, onSelectPreset, onOpenSettings }: OnboardingModalProps) {
+  const { openSettingsTab } = useSettings();
+  const [index, setIndex] = useState(0);
+  const [spot, setSpot] = useState<Box | null>(null);
+  const [layout, setLayout] = useState<CardLayout>({ mode: "centre", top: 0, left: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const rafRef = useRef(0);
+  const titleId = useId();
+  const bodyId = useId();
 
-  const [popoverPos, setPopoverPos] = useState<{
-    top: number;
-    left: number;
-    placement: string;
-  } | null>(null);
+  const step = TOUR_STEPS[index];
+  const isWelcome = index === 0;
+  const isLast = index === TOUR_STEPS.length - 1;
 
-  // Measure and compute spotlight geometry
-  const updatePosition = useCallback(() => {
-    if (!isOpen) return;
-    const step = TOUR_STEPS[currentStepIndex];
-    if (!step) return;
+  /* Measure the target and place the card. Runs on step change, resize and any scroll. */
+  const measure = useCallback((): boolean => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const el = step.target ? document.querySelector(step.target) : null;
+    const nextSpot = spotlightFor(el ? el.getBoundingClientRect() : null, vw, vh);
+    const card = cardRef.current;
+    const size = { width: card?.offsetWidth ?? 380, height: card?.offsetHeight ?? 280 };
+    setSpot(nextSpot);
+    setLayout(layoutCard(nextSpot, size, vw, vh, step.placement));
+    return Boolean(nextSpot) || !step.target;
+  }, [step]);
 
-    const targetEl = document.querySelector(step.targetSelector);
-    if (!targetEl) {
-      setHighlightRect(null);
-      setPopoverPos(null);
-      return;
-    }
-
-    const rect = targetEl.getBoundingClientRect();
-    const PADDING = 8;
-    const top = Math.max(0, rect.top - PADDING);
-    const left = Math.max(0, rect.left - PADDING);
-    const width = rect.width + PADDING * 2;
-    const height = rect.height + PADDING * 2;
-
-    setHighlightRect({
-      top,
-      left,
-      width,
-      height,
-      borderRadius: 12
+  const scheduleMeasure = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      measure();
     });
+  }, [measure]);
 
-    // Compute Popover Position
-    const cardWidth = Math.min(460, window.innerWidth - 32);
-    const cardHeight = 360;
-    const margin = 12;
-    const screenPad = 16;
-
-    let computedTop = top + height + margin;
-    let computedLeft = left + width / 2 - cardWidth / 2;
-    let finalPlacement = step.placement;
-
-    if (step.placement === "right") {
-      computedLeft = left + width + margin;
-      computedTop = Math.max(screenPad, top + Math.min(30, height / 4));
-      if (computedLeft + cardWidth > window.innerWidth - screenPad) {
-        if (left - cardWidth - margin >= screenPad) {
-          computedLeft = left - cardWidth - margin;
-          finalPlacement = "left";
-        } else {
-          computedLeft = Math.max(screenPad, (window.innerWidth - cardWidth) / 2);
-          computedTop = top + height + margin;
-          finalPlacement = "bottom";
-        }
-      }
-    } else if (step.placement === "left") {
-      computedLeft = left - cardWidth - margin;
-      computedTop = Math.max(screenPad, top + Math.min(30, height / 4));
-      if (computedLeft < screenPad) {
-        computedLeft = Math.max(screenPad, (window.innerWidth - cardWidth) / 2);
-        computedTop = top + height + margin;
-        finalPlacement = "bottom";
-      }
-    } else if (step.placement === "top") {
-      computedTop = top - cardHeight - margin;
-      if (computedTop < screenPad) {
-        computedTop = top + height + margin;
-        finalPlacement = "bottom";
-      }
-    } else {
-      // Bottom placement
-      if (computedTop + cardHeight > window.innerHeight - screenPad) {
-        if (top - cardHeight - margin >= screenPad) {
-          computedTop = top - cardHeight - margin;
-          finalPlacement = "top";
-        }
-      }
-    }
-
-    // Clamp within screen boundaries
-    computedLeft = Math.max(screenPad, Math.min(window.innerWidth - cardWidth - screenPad, computedLeft));
-    computedTop = Math.max(screenPad, Math.min(window.innerHeight - cardHeight - screenPad, computedTop));
-
-    setPopoverPos({
-      top: computedTop,
-      left: computedLeft,
-      placement: finalPlacement
-    });
-  }, [isOpen, currentStepIndex]);
-
-  // Reset to Step 0 and sync preference on open
+  // Open: remember focus, restart at the welcome. Close: hand focus back.
   useEffect(() => {
-    if (isOpen) {
-      setCurrentStepIndex(0);
-      setSampleLoaded(false);
-      try {
-        const hasCompleted = localStorage.getItem("cs-onboarding-completed-v1");
-        setDontShowAgain(hasCompleted === "true");
-      } catch {}
-    }
+    if (!isOpen) return;
+    returnFocusRef.current = document.activeElement as HTMLElement | null;
+    setIndex(0);
+    return () => {
+      const back = returnFocusRef.current;
+      if (back && document.contains(back)) back.focus({ preventScroll: true });
+    };
   }, [isOpen]);
 
-  // Auto-scroll target into view and update position
+  // Step change: bring the target into view, then measure. The target may mount a beat late
+  // (the tour opens the Search view first), so retry briefly before falling back to centred.
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const el = step.target ? document.querySelector(step.target) : null;
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (measure()) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      if (measure() || tries >= 12) window.clearInterval(timer);
+    }, 60);
+    return () => window.clearInterval(timer);
+  }, [isOpen, step, measure]);
+
+  // Card content changes height between steps — re-place when it does.
+  useEffect(() => {
+    if (!isOpen || !cardRef.current || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(scheduleMeasure);
+    ro.observe(cardRef.current);
+    return () => ro.disconnect();
+  }, [isOpen, scheduleMeasure]);
+
   useEffect(() => {
     if (!isOpen) return;
-    const step = TOUR_STEPS[currentStepIndex];
-    if (!step) return;
-
-    const targetEl = document.querySelector(step.targetSelector);
-    if (targetEl) {
-      targetEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-    }
-
-    const timer = setTimeout(updatePosition, 100);
-    return () => clearTimeout(timer);
-  }, [isOpen, currentStepIndex, updatePosition]);
-
-  // Window resize & scroll listeners
-  useEffect(() => {
-    if (!isOpen) return;
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("scroll", scheduleMeasure, true);
     return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("scroll", scheduleMeasure, true);
+      cancelAnimationFrame(rafRef.current);
     };
-  }, [isOpen, updatePosition]);
+  }, [isOpen, scheduleMeasure]);
 
-  const persistCompletion = useCallback((completed: boolean) => {
-    try {
-      if (completed) {
-        localStorage.setItem("cs-onboarding-completed-v1", "true");
-      } else {
-        localStorage.removeItem("cs-onboarding-completed-v1");
-      }
-    } catch {}
-  }, []);
+  // Each step lands focus on its primary action, so Enter always means "continue".
+  useEffect(() => {
+    if (isOpen) primaryRef.current?.focus({ preventScroll: true });
+  }, [isOpen, index]);
 
-  const handleClose = useCallback(() => {
-    persistCompletion(true);
+  const finish = useCallback(() => {
+    persistCompletion();
     onClose();
-  }, [onClose, persistCompletion]);
+  }, [onClose]);
 
-  const handleNext = useCallback(() => {
-    if (currentStepIndex < TOUR_STEPS.length - 1) {
-      setCurrentStepIndex(prev => prev + 1);
-    } else {
-      handleClose();
-    }
-  }, [currentStepIndex, handleClose]);
+  const next = useCallback(() => {
+    if (index < TOUR_STEPS.length - 1) setIndex(index + 1);
+    else finish();
+  }, [index, finish]);
 
-  const handlePrev = useCallback(() => {
-    if (currentStepIndex > 0) {
-      setCurrentStepIndex(prev => prev - 1);
-    }
-  }, [currentStepIndex]);
+  const back = useCallback(() => {
+    if (index > 0) setIndex(index - 1);
+  }, [index]);
 
-  const handleSelectPreset = useCallback((preset: OnboardingPreset) => {
-    persistCompletion(true);
-    onSelectPreset?.(preset);
+  const runPreset = useCallback(
+    (preset: OnboardingPreset) => {
+      persistCompletion();
+      onSelectPreset?.(preset);
+      onClose();
+    },
+    [onClose, onSelectPreset]
+  );
+
+  const openConnections = useCallback(() => {
+    persistCompletion();
     onClose();
-  }, [onClose, onSelectPreset, persistCompletion]);
+    if (onOpenSettings) onOpenSettings("connections");
+    else openSettingsTab("connections");
+  }, [onClose, onOpenSettings, openSettingsTab]);
 
-  // Interactive Live Sample: Load PAH p.Arg408Trp directly into store
-  const handleLoadSample = useCallback(() => {
-    actions.setCustomGene("PAH");
-    actions.setCustomVariant("p.Arg408Trp");
-    actions.setCustomUniprot("P00439");
-    actions.setCustomGenomic("");
-    setSampleLoaded(true);
-  }, [actions]);
-
-  // Keyboard navigation
+  // Keyboard: Esc ends, ←/→ move, Tab stays inside the card.
   useEffect(() => {
     if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        handleClose();
+        e.stopPropagation();
+        finish();
         return;
       }
-      const target = e.target as HTMLElement | null;
-      const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
-      if (isInput) return;
-
+      const t = e.target as HTMLElement | null;
+      const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      if (typing) return;
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        handleNext();
+        next();
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        handlePrev();
+        back();
+      } else if (e.key === "Tab" && cardRef.current) {
+        const items = Array.from(cardRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        const inside = cardRef.current.contains(document.activeElement);
+        if (e.shiftKey && (document.activeElement === first || !inside)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, handleNext, handlePrev, handleClose]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isOpen, next, back, finish]);
 
-  const copyBashSnippet = () => {
-    const cmd = `printf "Enter GEMINI_API_KEY (typing hidden): " && read -s val && echo && echo "GEMINI_API_KEY=$val" >> ".env" && echo "Saved to .env"`;
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(cmd);
-      setCopiedKeyCommand(true);
-      setTimeout(() => setCopiedKeyCommand(false), 2500);
-    }
-  };
+  if (!isOpen) return null;
 
-  const currentStep = TOUR_STEPS[currentStepIndex];
+  const cardStyle: React.CSSProperties | undefined =
+    layout.mode === "sheet" ? undefined : { top: layout.top, left: layout.left };
+
+  // With no target the spotlight shrinks to the centre, so the scrim reads as one continuous dim.
+  const spotStyle: React.CSSProperties = spot
+    ? { top: spot.top, left: spot.left, width: spot.width, height: spot.height }
+    : { top: "50%", left: "50%", width: 0, height: 0 };
 
   return createPortal(
-    <AnimatePresence>
-      {isOpen && (
-        <div className="cs-tour-root fixed inset-0 z-[60] overflow-hidden" role="dialog" aria-modal="true" aria-label="Interactive Workspace Tour">
-          {/* ── Spotlight SVG Mask Overlay ── */}
-          <svg
-            className="fixed inset-0 w-full h-full pointer-events-none z-[60]"
-            aria-hidden="true"
-            data-testid="tour-spotlight-svg"
-          >
-            <defs>
-              <mask id="tour-spotlight-mask">
-                <rect x="0" y="0" width="100%" height="100%" fill="white" />
-                {highlightRect && (
-                  <rect
-                    x={highlightRect.left}
-                    y={highlightRect.top}
-                    width={highlightRect.width}
-                    height={highlightRect.height}
-                    rx={highlightRect.borderRadius}
-                    ry={highlightRect.borderRadius}
-                    fill="black"
-                  />
-                )}
-              </mask>
-            </defs>
-            <rect
-              x="0"
-              y="0"
-              width="100%"
-              height="100%"
-              fill="currentColor"
-              className="text-black/55 dark:text-black/75 pointer-events-auto transition-colors duration-200"
-              mask="url(#tour-spotlight-mask)"
-              onClick={handleClose}
-            />
-          </svg>
+    <div className="tour-root" data-testid="onboarding-tour">
+      {/* Swallows clicks on the page behind: the tour ends only through its own controls or Esc,
+          so a stray click on a first visit does not throw it away. */}
+      <div className="tour-scrim" aria-hidden="true" />
+      <div
+        className="tour-spotlight"
+        data-active={spot ? true : undefined}
+        style={spotStyle}
+        aria-hidden="true"
+        data-testid="tour-spotlight"
+      />
 
-          {/* ── Animated Target Focus Ring ── */}
-          {highlightRect && (
-            <motion.div
-              layoutId="tour-focus-ring"
-              initial={false}
-              animate={{
-                top: highlightRect.top,
-                left: highlightRect.left,
-                width: highlightRect.width,
-                height: highlightRect.height
-              }}
-              transition={{ type: "spring", duration: 0.35, bounce: 0 }}
-              className="fixed pointer-events-none z-[61] rounded-xl border-2 border-[var(--cs-accent-clay)] shadow-[0_0_24px_rgba(196,104,73,0.35)]"
-            >
-              <div className="absolute -inset-1 rounded-2xl border border-[var(--cs-accent-clay)]/35 animate-pulse pointer-events-none" />
-            </motion.div>
-          )}
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+        className="tour-card"
+        data-mode={layout.mode}
+        data-side={layout.mode === "anchored" ? layout.side : undefined}
+        style={cardStyle}
+      >
+        <div key={step.id} className="tour-card-inner">
+          <header className="tour-head">
+            <span className="tour-eyebrow" aria-live="polite">
+              {isWelcome ? "Quick tour · about a minute" : `Step ${index} of ${STOP_COUNT}`}
+            </span>
+            <button type="button" className="tour-icon-btn" onClick={finish} aria-label="Close tour" title="Close (Esc)">
+              <X className="w-4 h-4" />
+            </button>
+          </header>
 
-          {/* ── Floating Contextual Tour Card ── */}
-          <motion.div
-            key={currentStep.id}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ type: "spring", duration: 0.28, bounce: 0 }}
-            className={`fixed z-[62] w-[92vw] max-w-[460px] bg-[var(--cs-surface)] border border-[var(--cs-border)] rounded-2xl shadow-xl flex flex-col transition-[top,left] duration-200 ease-out ${
-              !popoverPos ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" : ""
-            }`}
-            style={
-              popoverPos
-                ? {
-                    top: popoverPos.top,
-                    left: popoverPos.left
-                  }
-                : undefined
-            }
-          >
-            {/* ── Card Header ── */}
-            <div className="flex items-center justify-between px-5 pt-4 pb-2.5 border-b border-[var(--cs-border-subtle)]">
-              <div className="flex items-center gap-2">
-                <span className="p-1 rounded-md bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)]">
-                  <Compass className="w-4 h-4" />
-                </span>
-                <span className="text-[12px] font-semibold tracking-tight text-[var(--cs-text-primary)]">
-                  Workspace Orientation
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-[var(--cs-surface-2)] border border-[var(--cs-border)] text-[var(--cs-text-muted)]">
-                  {currentStepIndex + 1} / {TOUR_STEPS.length}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="p-1 rounded-lg text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-bg-subtle)] transition-all cursor-pointer active:scale-[0.96]"
-                title="Skip tour (Esc)"
-                aria-label="Close tour"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <h2 id={titleId} className="tour-title">{step.title}</h2>
+          <p id={bodyId} className="tour-body">{step.body}</p>
 
-            {/* ── Progress Track ── */}
-            <div className="flex gap-1 px-5 pt-2">
-              {TOUR_STEPS.map((step, idx) => (
-                <div
-                  key={step.id}
-                  className={`h-1 flex-1 rounded-full transition-all duration-200 ${
-                    idx === currentStepIndex
-                      ? "bg-[var(--cs-accent-clay)]"
-                      : idx < currentStepIndex
-                      ? "bg-[var(--cs-accent-clay)]/40"
-                      : "bg-[var(--cs-border-subtle)]"
-                  }`}
-                />
+          {step.id === "welcome" && <FlowPreview />}
+          {step.id === "query" && <NotationList />}
+          {step.id === "navigate" && <Shortcuts />}
+          {step.id === "connections" && <ConnectionStatus onOpen={openConnections} />}
+          {step.id === "benchmarks" && <PresetList onSelect={runPreset} />}
+        </div>
+
+        <footer className="tour-foot">
+          {isWelcome ? (
+            <button type="button" className="tour-btn tour-btn-ghost" onClick={finish}>
+              Skip tour
+            </button>
+          ) : (
+            <div className="tour-dots" role="progressbar" aria-label="Tour progress" aria-valuemin={1} aria-valuemax={STOP_COUNT} aria-valuenow={index}>
+              {TOUR_STEPS.slice(1).map((s, i) => (
+                <span key={s.id} className="tour-dot" data-state={i + 1 === index ? "current" : i + 1 < index ? "done" : undefined} />
               ))}
             </div>
+          )}
 
-            {/* ── Step Body ── */}
-            <div className="p-5 flex flex-col gap-3">
-              <div>
-                <span className="inline-block px-2 py-0.5 mb-1 rounded-md text-[10.5px] font-semibold uppercase tracking-wider bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)]">
-                  {currentStep.badge}
-                </span>
-                <h3 className="text-[15px] font-semibold text-[var(--cs-text-primary)] tracking-tight">
-                  {currentStep.title}
-                </h3>
-                <p className="text-[12px] text-[var(--cs-text-secondary)] leading-relaxed mt-0.5">
-                  {currentStep.subtitle}
-                </p>
-              </div>
-
-              {/* ── In-Situ Interactive Feature Widgets ── */}
-              {currentStep.id === "variant-input" && (
-                <div className="p-3 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-2">
-                  <div className="flex items-center justify-between text-[11px] text-[var(--cs-text-muted)]">
-                    <span className="font-mono">Flagship Control</span>
-                    <span className="text-[var(--cs-accent-clay)] font-medium">Rare Disease Monogenic</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-[12.5px] font-semibold text-[var(--cs-text-primary)]">
-                        PAH · p.Arg408Trp
-                      </div>
-                      <div className="text-[10.5px] text-[var(--cs-text-secondary)]">
-                        Phenylketonuria (PKU) · P00439
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleLoadSample}
-                      className="px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold bg-[var(--cs-accent-clay)] text-white hover:brightness-105 transition-all shadow-xs active:scale-[0.96] flex items-center gap-1 cursor-pointer shrink-0"
-                    >
-                      {sampleLoaded ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Loaded!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Load Sample</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-[10.5px] text-[var(--cs-text-muted)]">
-                    Tip: Coordinates also accept cDNA (<code className="font-mono text-[10px]">c.1222C&gt;T</code>) or genomic VCF (<code className="font-mono text-[10px]">12-102844883-C-T</code>).
-                  </p>
-                </div>
-              )}
-
-              {currentStep.id === "navigation-zones" && (
-                <div className="grid grid-cols-2 gap-2 text-[11.5px]">
-                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
-                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
-                      <BarChart2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      Zone 2: Evidence
-                    </span>
-                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">ClinVar, gnomAD, AlphaMissense</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
-                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                      Zone 3: 3D Molstar
-                    </span>
-                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">AlphaFold, FoldX &amp; RaSP ΔΔG</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
-                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
-                      <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      Zone 4: Synthesis
-                    </span>
-                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">ACMG diagnostic criteria &amp; reports</span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-0.5">
-                    <span className="font-semibold text-[var(--cs-text-primary)] flex items-center gap-1">
-                      <Sliders className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                      Zone 5: Console
-                    </span>
-                    <span className="text-[10.5px] text-[var(--cs-text-secondary)]">Telemetry &amp; real-time execution logs</span>
-                  </div>
-                </div>
-              )}
-
-              {currentStep.id === "workflow-rail" && (
-                <div className="p-3 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold text-[11.5px]">
-                    <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>Sovereignty: 0 Tokens &amp; 0 Billing Required</span>
-                  </div>
-                  <ul className="text-[11px] text-[var(--cs-text-secondary)] space-y-1 list-disc list-inside">
-                    <li><strong className="text-[var(--cs-text-primary)]">FoldX Mechanics</strong>: Runs locally (Windows EXE or Linux ARM64 Box64).</li>
-                    <li><strong className="text-[var(--cs-text-primary)]">RaSP SQLite</strong>: Instant pre-indexed ΔΔG lookup database.</li>
-                    <li><strong className="text-[var(--cs-text-primary)]">JapanFold Fallback</strong>: Remote sovereign protein folding without keys.</li>
-                  </ul>
-                </div>
-              )}
-
-              {currentStep.id === "settings-trigger" && (
-                <div className="p-3 rounded-xl bg-[var(--cs-surface-2)] border border-[var(--cs-border)] flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--cs-text-primary)]">
-                      <KeyRound className="w-4 h-4 text-amber-500" />
-                      <span>Google Gemini 2.5 Flash</span>
-                    </div>
-                    <a
-                      href="https://aistudio.google.com/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-[var(--cs-accent-clay)] hover:underline flex items-center gap-1 font-medium"
-                    >
-                      <span>Free Key</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        onOpenSettings ? onOpenSettings("api") : openSettingsTab("api");
-                      }}
-                      className="flex-1 py-1.5 rounded-lg text-[11.5px] font-semibold bg-[var(--cs-surface)] border border-[var(--cs-border)] hover:border-[var(--cs-accent-clay)] text-[var(--cs-text-primary)] transition-all active:scale-[0.96] flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      <Sliders className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
-                      <span>Open Settings API Tab</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={copyBashSnippet}
-                      className="py-1.5 px-2.5 rounded-lg text-[11.5px] font-medium bg-[var(--cs-surface)] border border-[var(--cs-border)] hover:border-[var(--cs-accent-clay)] text-[var(--cs-text-secondary)] transition-all active:scale-[0.96] flex items-center gap-1 cursor-pointer"
-                      title="Copy safe terminal command"
-                    >
-                      {copiedKeyCommand ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedKeyCommand ? "Copied" : "Bash CLI"}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {currentStep.id === "curated-presets" && (
-                <div className="flex flex-col gap-1.5 max-h-[170px] overflow-y-auto no-scrollbar">
-                  {ONBOARDING_BENCHMARK_PRESETS.map((preset) => (
-                    <button
-                      key={preset.gene + preset.variant}
-                      type="button"
-                      onClick={() => handleSelectPreset(preset)}
-                      className="w-full p-2 rounded-xl text-left border border-[var(--cs-border)] bg-[var(--cs-surface-2)] hover:bg-[var(--cs-surface)] hover:border-[var(--cs-accent-clay)]/50 transition-all cursor-pointer flex items-center justify-between group active:scale-[0.96]"
-                    >
-                      <div className="min-w-0 pr-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-[12px] text-[var(--cs-text-primary)]">
-                            {preset.gene}
-                          </span>
-                          <span className="font-mono text-[11px] text-[var(--cs-accent-clay)]">
-                            {preset.variant}
-                          </span>
-                          <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-[var(--cs-border-subtle)] text-[var(--cs-text-muted)] font-medium">
-                            {preset.tag}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-[var(--cs-text-secondary)] truncate mt-0.5">
-                          {preset.description}
-                        </p>
-                      </div>
-                      <ArrowRight className="w-3.5 h-3.5 text-[var(--cs-text-muted)] group-hover:text-[var(--cs-accent-clay)] group-hover:translate-x-0.5 transition-all shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* ── Card Footer ── */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-t border-[var(--cs-border-subtle)] bg-[var(--cs-surface-2)]/40">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="text-[11.5px] font-medium text-[var(--cs-text-muted)] hover:text-[var(--cs-text-primary)] transition-colors cursor-pointer"
-              >
-                Skip Tour
+          <div className="tour-foot-actions">
+            {!isWelcome && (
+              <button type="button" className="tour-btn tour-btn-ghost" onClick={back}>
+                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                Back
               </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={currentStepIndex === 0}
-                  onClick={handlePrev}
-                  className="p-1.5 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface)] text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:border-[var(--cs-border-subtle)] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.96] cursor-pointer"
-                  title="Previous step (ArrowLeft)"
-                  aria-label="Previous step"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-[var(--cs-accent-clay)] text-white hover:brightness-105 transition-all shadow-xs active:scale-[0.96] flex items-center gap-1.5 cursor-pointer"
-                  title="Next step (ArrowRight)"
-                >
-                  <span>{currentStepIndex === TOUR_STEPS.length - 1 ? "Finish Tour" : "Next"}</span>
-                  {currentStepIndex === TOUR_STEPS.length - 1 ? (
-                    <Sparkles className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>,
+            )}
+            <button ref={primaryRef} type="button" className="tour-btn tour-btn-primary" onClick={next}>
+              {isWelcome ? "Show me around" : isLast ? "Done" : "Next"}
+              {!isLast && <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />}
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>,
     document.body
   );
 }
