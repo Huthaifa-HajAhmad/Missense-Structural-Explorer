@@ -178,4 +178,52 @@ describe("SettingsDrawer (settings revamp)", () => {
 
     expect(screen.getByRole("tab", { name: /viewport/i })).toHaveAttribute("aria-selected", "true");
   });
+
+  it("focuses search with '/' and clears it with the first Escape before closing", async () => {
+    renderDrawer();
+    fireEvent.click(screen.getByText("open-settings"));
+    await act(async () => {});
+
+    const searchInput = screen.getByPlaceholderText(/search settings/i);
+    fireEvent.keyDown(window, { key: "/" });
+    expect(searchInput).toHaveFocus();
+
+    fireEvent.change(searchInput, { target: { value: "cache" } });
+    expect(screen.getByText(/purge client & server caches/i)).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(searchInput).toHaveValue("");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  it("offers the color scheme as a radio group", async () => {
+    renderDrawer();
+    fireEvent.click(screen.getByText("open-settings"));
+    await act(async () => {});
+
+    const group = screen.getByRole("radiogroup", { name: /color scheme/i });
+    expect(group).toBeInTheDocument();
+    const light = screen.getByRole("radio", { name: /light/i });
+    fireEvent.click(light);
+    expect(light).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /dark/i })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("jumps from a search result to the matching row and highlights it", async () => {
+    renderDrawer();
+    fireEvent.click(screen.getByText("open-settings"));
+    await act(async () => {});
+
+    fireEvent.change(screen.getByPlaceholderText(/search settings/i), { target: { value: "hugging" } });
+    fireEvent.click(screen.getByRole("button", { name: /configure hugging face access token/i }));
+
+    expect(screen.getByRole("tab", { name: /connections/i })).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => {
+      const row = document.querySelector('[data-setting-title="Hugging Face access token"]');
+      expect(row).toHaveClass("settings-flash");
+    });
+  });
 });

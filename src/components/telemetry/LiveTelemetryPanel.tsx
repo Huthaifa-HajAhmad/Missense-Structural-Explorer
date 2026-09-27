@@ -1,9 +1,8 @@
 import React from "react";
 import {
-  Activity,
   RefreshCw,
   Settings,
-  Clock
+  ChevronRight
 } from "lucide-react";
 import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
@@ -43,25 +42,33 @@ interface ServiceStatusCard {
  * (a missing key); `isDegraded` and `isUnknown` deliberately do not, because neither needs
  * action — and a permanently pulsing dot beside a steady state competes with the one pulse
  * that means something.
+ *
+ * Colours come from the semantic tokens in `variables.css` rather than raw Tailwind hues, so
+ * they follow the theme (and print flattening) instead of running a second palette beside it.
+ * The neutral is `--cs-text-muted`, a WARM grey: the Tailwind `slate` it replaces was a cool
+ * blue-grey that clashed with the cream ramp.
  */
 function statusDotClass(svc: ServiceStatusCard): string {
-  if (svc.isDown) return "bg-rose-500";
-  if (svc.isWarning) return "bg-amber-500 animate-pulse";
-  if (svc.isDegraded) return "bg-amber-500";
-  if (svc.isUnknown) return "bg-slate-400";
-  if (svc.isReady) return "bg-emerald-500";
-  return "bg-slate-400";
+  if (svc.isDown) return "bg-[var(--cs-text-danger)]";
+  if (svc.isWarning) return "bg-[var(--cs-text-warning)] animate-pulse";
+  if (svc.isDegraded) return "bg-[var(--cs-text-warning)]";
+  if (svc.isUnknown) return "bg-cs-text-muted";
+  if (svc.isReady) return "bg-[var(--cs-text-success)]";
+  return "bg-cs-border";
 }
 
+/** Tinted chip for the states that need attention. Nominal states never reach this. */
 function statusPillClass(svc: ServiceStatusCard): string {
-  if (svc.isDown) return "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30";
+  if (svc.isDown) return "bg-[var(--cs-bg-danger)] text-[var(--cs-text-danger-on-soft)]";
   if (svc.isWarning || svc.isDegraded) {
-    return "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30";
+    return "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]";
   }
-  if (svc.isReady) {
-    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20";
-  }
-  return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
+  return "bg-cs-surface-2 text-cs-text-secondary";
+}
+
+/** Ready with nothing to flag: rendered as quiet text rather than a coloured chip. */
+function isNominal(svc: ServiceStatusCard): boolean {
+  return svc.isReady && !svc.isWarning && !svc.isDegraded && !svc.isDown && !svc.isUnknown;
 }
 
 export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
@@ -285,7 +292,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       isUnknown: ensemblCoverageUnknown,
       latency: formatLatency(ensemblLatency),
       detail: ensemblCoverageTitle,
-      actionIcon: ensemblReady ? undefined : <RefreshCw className="w-3 h-3" />,
+      actionIcon: ensemblReady ? undefined : <RefreshCw className="w-3.5 h-3.5" />,
       // Only when the primary has failed: re-probing re-runs the whole ladder, including
       // the conditional fallback check, so the pill can flip back to REST Live.
       actionLabel: "Re-check Ensembl VEP and its fallback",
@@ -397,69 +404,73 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
    */
   const coveredCount = services.filter(s => s.isDegraded).length;
   const counterLabel = coveredCount > 0
-    ? `${onlineCount}/${totalCount} Online · ${coveredCount} on fallback`
-    : `${onlineCount}/${totalCount} Online`;
+    ? `${onlineCount}/${totalCount} online · ${coveredCount} on fallback`
+    : `${onlineCount}/${totalCount} online`;
+
+  /**
+   * One tone for the summary, derived in one place.
+   *
+   * The previous header sent `onlineCount === totalCount` to AMBER, so the only fully healthy
+   * state on the page wore the warning colour and green was reachable only when something was
+   * NOT online — the tone was inverted for the case the reader sees most. Order matters: an
+   * uncovered outage outranks everything, then any partial state, then all-clear.
+   */
+  const isChecking = !isLoaded && loading;
+  const summaryTone: "checking" | "danger" | "warn" | "ok" = isChecking
+    ? "checking"
+    : uncoveredServices.length > 0
+    ? "danger"
+    : coveredCount > 0 || unknownServices.length > 0 || onlineCount < totalCount
+    ? "warn"
+    : "ok";
+  const summaryLabel = isChecking
+    ? "Checking services…"
+    : summaryTone === "ok"
+    ? `All ${totalCount} services online`
+    : counterLabel;
+
+  const groups: Array<{ id: string; label: string; items: ServiceStatusCard[] }> = [
+    { id: "data", label: "Data sources", items: services.filter(s => s.category !== "compute") },
+    { id: "compute", label: "Models & engines", items: services.filter(s => s.category === "compute") },
+  ];
 
   return (
-    <div className={`flex flex-col h-full justify-between gap-3 text-cs-text-primary ${className}`}>
-      {/* ── Top Bar: Title, Count, Ping & Configure Actions ── */}
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-          <h2 className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--cs-text-primary)" }}>
-            Service & Engine Telemetry
-          </h2>
-        </div>
-
-        <div className="flex items-center gap-1.5">
+    <div className={`flex flex-col h-full gap-3 text-cs-text-primary ${className}`}>
+      {/* ── Summary: one sentence, one tone, and the two actions ── */}
+      <div className="flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="sr-only">Service status</h2>
           <span
-            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-[var(--cs-radius-badge)] border flex items-center gap-1.5 ${
-              !isLoaded && loading
-                ? "bg-cs-surface-2 text-cs-text-muted border-cs-border-subtle"
-                : uncoveredServices.length > 0
-                ? "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
-                : onlineCount === totalCount || coveredCount > 0 || unknownServices.length > 0
-                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
-                : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
-            }`}
+            className={`inline-flex items-center gap-2 text-[12px] font-medium min-w-0 ${SUMMARY_TEXT[summaryTone]}`}
             title={
-              !isLoaded && loading
+              isChecking
                 ? "Checking service reachability and engines…"
                 : coverageNote
                 ? `${onlineCount} of ${totalCount} services online — ${coverageNote}`
                 : `${onlineCount} of ${totalCount} services online and responsive`
             }
           >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                !isLoaded && loading
-                  ? "bg-cs-accent-clay animate-pulse"
-                  : uncoveredServices.length > 0
-                  ? "bg-rose-500"
-                  : onlineCount === totalCount || coveredCount > 0 || unknownServices.length > 0
-                  ? "bg-amber-500"
-                  : "bg-emerald-500"
-              }`}
-            />
-            {!isLoaded && loading ? "Checking…" : counterLabel}
+            <span className={`w-2 h-2 rounded-full shrink-0 ${SUMMARY_DOT[summaryTone]}`} aria-hidden="true" />
+            <span className="truncate">{summaryLabel}</span>
           </span>
+        </div>
 
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onClick={() => refresh()}
             disabled={loading}
-            title="Ping all services & refresh telemetry"
-            className="min-w-6 min-h-6 p-1 inline-flex items-center justify-center rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+            title="Re-check all services"
+            className={ICON_BUTTON}
             aria-label="Ping all services"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-cs-accent-clay" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
-
           <button
             type="button"
             onClick={() => handleConfigure("connections")}
-            title="Open Connection Settings"
-            className="min-w-6 min-h-6 p-1 inline-flex items-center justify-center rounded-md text-cs-text-muted hover:text-cs-accent-clay hover:bg-cs-bg-subtle transition-[color,background-color,scale] duration-150 ease-out cursor-pointer active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+            title="Connection settings"
+            className={ICON_BUTTON}
             aria-label="Configure connection settings"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -467,90 +478,121 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
         </div>
       </div>
 
-      {/* ── Services Grid / List ── */}
-      <div className="flex-1 overflow-y-auto no-scrollbar space-y-1.5 pr-0.5">
-        {services.map(svc => {
-          const isClickable = Boolean(svc.onAction);
-          return (
-            <div
-              key={svc.id}
-              data-service-id={svc.id}
-              onClick={svc.onAction}
-              role={isClickable ? "button" : undefined}
-              tabIndex={isClickable ? 0 : undefined}
-              aria-label={isClickable ? (svc.actionLabel ?? `Configure ${svc.name} settings`) : svc.name}
-              onKeyDown={e => {
-                if (isClickable && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  svc.onAction?.();
-                }
-              }}
-              className={`min-h-[46px] px-3 py-2 rounded-[var(--cs-radius-input)] border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
-                svc.isDown
-                  ? "border-rose-500/30 bg-rose-500/5 dark:bg-rose-950/10"
-                  : svc.isDegraded
-                  ? "border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10"
-                  : "border-[var(--cs-border-subtle)]"
-              } ${
-                isClickable
-                  ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                  : "hover:border-[var(--cs-border)]"
-              }`}
-            >
-              {/* Left: Indicator Dot + Name + Subtitle */}
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass(svc)}`}
-                  aria-hidden="true"
-                />
-                <div className="flex flex-col min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11.5px] font-semibold text-cs-text-primary truncate">
-                      {svc.name}
-                    </span>
-                    {svc.tag && (
-                      <span className="text-[9px] font-mono px-1 py-0.5 rounded-[var(--cs-radius-badge)] bg-cs-surface-2 text-cs-text-muted border border-cs-border-subtle">
-                        {svc.tag}
-                      </span>
-                    )}
-                  </div>
-                  <span
-                    className="text-[9.5px] text-cs-text-secondary truncate font-sans leading-tight"
-                    title={svc.detail ?? svc.description}
+      {/* ── Grouped service list ── */}
+      {/* Scrolls inside the rail only where the rail is height-locked (lg+); stacked on small screens
+          the list simply flows, since a nested scroller in a scrolling page is a trap. The bottom
+          fade is the scroll cue that `no-scrollbar` used to remove. */}
+      <div className="relative flex-1 min-h-0">
+      <div className="flex flex-col gap-4 lg:absolute lg:inset-0 lg:overflow-y-auto lg:pb-6 [scrollbar-width:thin] lg:[mask-image:linear-gradient(to_bottom,black_calc(100%-24px),transparent)]">
+        {groups.map(group => (
+          <section key={group.id} aria-label={group.label} className="flex flex-col gap-1.5">
+            <h3 className="px-1 text-[11px] font-medium text-cs-text-muted">{group.label}</h3>
+            <div className="rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface divide-y divide-cs-border-subtle overflow-hidden">
+              {group.items.map(svc => {
+                const isClickable = Boolean(svc.onAction);
+                const nominal = isNominal(svc);
+                const slow = typeof svc.latency === "string" && parseInt(svc.latency, 10) >= 1000;
+                return (
+                  <div
+                    key={svc.id}
+                    data-service-id={svc.id}
+                    onClick={svc.onAction}
+                    role={isClickable ? "button" : undefined}
+                    tabIndex={isClickable ? 0 : undefined}
+                    aria-label={isClickable ? (svc.actionLabel ?? `Configure ${svc.name} settings`) : svc.name}
+                    onKeyDown={e => {
+                      if (isClickable && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        svc.onAction?.();
+                      }
+                    }}
+                    className={`group flex items-center gap-2.5 px-3 py-1.5 min-h-[42px] select-none transition-colors duration-150 ${
+                      svc.isDown
+                        ? "bg-[var(--cs-bg-danger)]"
+                        : svc.isDegraded
+                        ? "bg-[var(--cs-bg-warning)]"
+                        : ""
+                    } ${
+                      isClickable
+                        ? "cursor-pointer hover:bg-cs-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cs-accent-clay)]"
+                        : ""
+                    }`}
                   >
-                    {svc.description}
-                  </span>
-                </div>
-              </div>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDotClass(svc)}`} aria-hidden="true" />
 
-              {/* Right: Latency & Status Pill */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                {svc.latency && (
-                  <span className="text-[9px] font-mono text-cs-text-muted px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-cs-surface-2 border border-cs-border-subtle flex items-center gap-1">
-                    <Clock className="w-2.5 h-2.5 opacity-60" />
-                    {svc.latency}
-                  </span>
-                )}
-                <span
-                  className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] border ${statusPillClass(svc)}`}
-                >
-                  {svc.statusText}
-                </span>
-                {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
-                    only cue was its aria-label, so sighted users could not tell a re-check from
-                    the "opens Settings" behaviour every other clickable row has. */}
-                {svc.actionIcon && (
-                  <span className="p-0.5 rounded text-cs-text-muted" aria-hidden="true">
-                    {svc.actionIcon}
-                  </span>
-                )}
-              </div>
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[12.5px] font-medium text-cs-text-primary truncate">{svc.name}</span>
+                        {svc.tag && (
+                          <span className="text-[10.5px] font-mono text-cs-text-muted shrink-0">{svc.tag}</span>
+                        )}
+                      </div>
+                      <span
+                        className="text-[11px] text-cs-text-muted truncate leading-snug"
+                        title={svc.detail ?? svc.description}
+                      >
+                        {svc.description}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {svc.latency && (
+                        <span
+                          className={`text-[11px] tabular-nums ${slow ? "text-[var(--cs-text-warning-on-soft)]" : "text-cs-text-muted"}`}
+                          title={slow ? "Responding slowly" : "Last round-trip"}
+                        >
+                          {svc.latency}
+                        </span>
+                      )}
+                      {/* Nominal states are quiet text; only a state that needs a reader's eye gets a
+                          tinted chip. Ten identical green chips said one thing ten times. */}
+                      <span
+                        className={
+                          nominal
+                            ? "text-[11px] text-cs-text-secondary whitespace-nowrap"
+                            : `text-[11px] font-medium px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] whitespace-nowrap ${statusPillClass(svc)}`
+                        }
+                      >
+                        {svc.statusText}
+                      </span>
+                      {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
+                          only cue was its aria-label, and the settings rows had no cue at all. */}
+                      {isClickable && (
+                        <span
+                          className="text-cs-text-muted group-hover:text-cs-text-primary transition-colors duration-150"
+                          aria-hidden="true"
+                        >
+                          {svc.actionIcon ?? <ChevronRight className="w-3.5 h-3.5" />}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </section>
+        ))}
+      </div>
       </div>
     </div>
   );
 };
+
+const ICON_BUTTON =
+  "w-7 h-7 inline-flex items-center justify-center rounded-[var(--cs-radius-input)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]";
+
+const SUMMARY_TEXT = {
+  checking: "text-cs-text-muted",
+  danger: "text-[var(--cs-text-danger-on-soft)]",
+  warn: "text-[var(--cs-text-warning-on-soft)]",
+  ok: "text-cs-text-primary",
+} as const;
+
+const SUMMARY_DOT = {
+  checking: "bg-cs-text-muted animate-pulse",
+  danger: "bg-[var(--cs-text-danger)]",
+  warn: "bg-[var(--cs-text-warning)]",
+  ok: "bg-[var(--cs-text-success)]",
+} as const;
 
 export default React.memo(LiveTelemetryPanel);

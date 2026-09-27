@@ -27,48 +27,14 @@ import {
 import { useSettings } from "../../context/SettingsContext";
 import { useVariantAnalysisActions } from "../../context/VariantAnalysisContext";
 
-export interface OnboardingPreset {
-  gene: string;
-  variant: string;
-  uniprotId: string;
-  tag: string;
-  description: string;
-}
-
-/**
- * Curated Rare Disease Missense Controls.
- * Strictly aligned with monogenic rare disease genomics & deep biophysical phenotypes.
+/*
+ * The benchmark presets moved to `shared/benchmarkPresets.ts` so the Search workspace can offer the
+ * same one-click controls the tour advertises without importing this modal (and its motion runtime).
+ * Re-exported here so existing imports keep working.
  */
-export const ONBOARDING_BENCHMARK_PRESETS: OnboardingPreset[] = [
-  {
-    gene: "PAH",
-    variant: "p.Arg408Trp",
-    uniprotId: "P00439",
-    tag: "Inborn Error of Metabolism",
-    description: "Phenylketonuria (PKU): Catalytic domain substitution abolishing salt bridges with Asp315/Asp320, disrupting tetramer stability."
-  },
-  {
-    gene: "FGFR3",
-    variant: "p.Gly380Arg",
-    uniprotId: "P22607",
-    tag: "Skeletal Dysplasia",
-    description: "Achondroplasia: Transmembrane domain mutation stabilizing ligand-independent helix dimerization and constitutive kinase arrest."
-  },
-  {
-    gene: "GBA1",
-    variant: "p.Leu483Pro",
-    uniprotId: "P04062",
-    tag: "Lysosomal Storage Disorder",
-    description: "Gaucher Disease: Beta-sheet breaker in the Ig-like domain triggering structural folding collapse and glucocerebrosidase deficiency."
-  },
-  {
-    gene: "CNNM2",
-    variant: "p.Glu357Lys",
-    uniprotId: "Q9H8M5",
-    tag: "Ion Channelopathy",
-    description: "Familial Hypomagnesemia: Bateman domain cyclic nucleotide-binding homology salt-bridge loss, impairing renal Mg²⁺ reabsorption."
-  }
-];
+export { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../../shared/benchmarkPresets";
+import type { OnboardingPreset } from "../../shared/benchmarkPresets";
+import { ONBOARDING_BENCHMARK_PRESETS } from "../../shared/benchmarkPresets";
 
 export interface TourStep {
   id: string;
