@@ -358,6 +358,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search settings…"
                       aria-label="Filter settings"
+                      // focus-guard-allow: this ring lives in CSS — `.settings-search input:focus` in src/styles/settings.css draws a clay border plus a 3px box-shadow.
                       className="w-full h-9 text-[13px] rounded-lg pl-8.5 pr-9 text-cs-text-primary placeholder:text-cs-text-muted focus:outline-none [&::-webkit-search-cancel-button]:hidden"
                     />
                     {searchQuery ? (
@@ -483,6 +484,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                   aria-labelledby={filteredSettings ? undefined : `settings-tab-${settingsTab}`}
                   aria-label={filteredSettings ? "Search results" : undefined}
                   tabIndex={-1}
+                  // focus-guard-allow: programmatic focus target (tabIndex={-1} on the panel) — a ring here would mark a surface the user never tabbed to.
                   className="settings-canvas flex-1 min-h-0 overflow-y-auto overscroll-contain focus:outline-none"
                 >
                   <div className="px-4 md:pl-8 md:pr-6 py-5 md:py-7 max-w-[760px]">
