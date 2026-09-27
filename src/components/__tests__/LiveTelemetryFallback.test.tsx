@@ -228,3 +228,49 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     expect(h.refresh).not.toHaveBeenCalled();
   });
 });
+
+describe("LiveTelemetryPanel — summary tone", () => {
+  beforeEach(() => {
+    h.state.current = null;
+  });
+
+  it("reads all-clear in the success tone when every service is online", () => {
+    // The header used to send `onlineCount === totalCount` to AMBER, so the one fully healthy
+    // state on the page wore the warning colour.
+    sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({ geminiApiKey: "k", alphagenomeApiKey: "a" }));
+    h.state.current = {
+      status: "ok",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      foldxReady: true,
+      geminiReady: false,
+      modelServerReady: true,
+      p2rankReady: true,
+      serviceHealth: {
+        ensembl: svc(), clinvar: svc(), myvariant: svc(), uniprot: svc(), europepmc: svc(), alphagenome: svc()
+      }
+    };
+    renderPanel();
+
+    const summary = screen.getByTitle(/services online/i);
+    expect(summary.textContent).toMatch(/All 10 services online/);
+    expect(summary.className).not.toMatch(/warning|danger/);
+    sessionStorage.removeItem("missenseTransientCredentials");
+  });
+
+  it("renders a nominal status as quiet text, not a tinted chip", () => {
+    setDiagnostics(svc());
+    renderPanel();
+
+    const pill = ensemblRowWithin().getByText("REST Live");
+    expect(pill.className).not.toMatch(/bg-\[var\(--cs-bg-/);
+  });
+
+  it("gives every clickable row a visible action cue", () => {
+    setDiagnostics(svc());
+    renderPanel();
+
+    for (const row of Array.from(document.querySelectorAll('[data-service-id][role="button"]'))) {
+      expect(row.querySelector("svg"), `${row.getAttribute("data-service-id")} needs a visible cue`).not.toBeNull();
+    }
+  });
+});

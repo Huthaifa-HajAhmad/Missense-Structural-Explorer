@@ -1,17 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { 
-  Search, 
-  Dna, 
-  Sparkles, 
-  History, 
-  Trash2, 
-  ChevronDown, 
-  Loader2, 
-  Clipboard, 
+import {
+  Trash2,
+  ChevronDown,
+  Loader2,
+  Clipboard,
   ShieldAlert,
   CheckCircle2,
-  Zap,
-  HelpCircle,
   ArrowRight,
   Layers,
   Activity,
@@ -22,7 +16,8 @@ import {
   FileText,
   AlertTriangle,
   KeyRound,
-  Compass
+  Compass,
+  CornerDownLeft,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
@@ -30,9 +25,27 @@ import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/V
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
 import { needsNotationResolution, classifyNotation, ACCEPTED_NOTATION_EXAMPLES, type NotationKind } from "../shared/variantNotation.ts";
+import { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../shared/benchmarkPresets";
 import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import type { NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────────
+   DESIGN NOTES — Search workspace
+
+   Colour. Clay is reserved for "act here": the primary button, focus rings, the running spinner
+   and hover on fill-in affordances. Headings and section icons are neutral. Status colour comes
+   from the semantic tokens (`--cs-text-success`, `--cs-bg-warning`, …) and appears only where a
+   state needs attention — a nominal state is quiet text.
+
+   Type. Five sizes on this screen: 20 (page title), 14 (card title, button), 13 (inputs, body),
+   12 (labels, rows), 11 (meta: badges, hints, latency). Weights 400/500/600 only.
+
+   Radius. 16 panel · 12 grouped container · 8 control · 6 chip.
+
+   Motion. Colour/background transitions at 150ms. No scale-on-press for anything wider than a
+   chip: 4% of a 640px button is a 25px jolt. Progress bar width eases over 300ms.
+   ────────────────────────────────────────────────────────────────────────────────────────────── */
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
   <button
@@ -41,7 +54,7 @@ const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
     title="Paste from clipboard"
     aria-label="Paste from clipboard"
     onClick={() => pasteFromClipboard(setter)}
-    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded transition-[color,scale] duration-150 ease-out cursor-pointer text-cs-text-muted hover:text-cs-accent-clay active:scale-[0.96] z-10"
+    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 inline-flex items-center justify-center rounded-md cursor-pointer text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 z-10"
   >
     <Clipboard className="w-3.5 h-3.5" />
   </button>
@@ -75,17 +88,18 @@ interface VariantSearchPanelProps {
 }
 
 /**
- * The pipeline stages, in order. Exported so the rail's stage count is derived from this list
+ * The pipeline stages, in order. Titles match the sidebar's view names exactly, so a stage and the
+ * view it opens are called the same thing. Exported so the rail's stage count is derived from this list
  * instead of a literal, and so a test can assert the rendered list against it.
  */
 export const WORKFLOW_STAGES = [
-  { key: "evidence", title: "Evidence Pipeline", Icon: BarChart2, targetView: "evidence" as MasterView },
+  { key: "evidence", title: "Evidence", Icon: BarChart2, targetView: "evidence" as MasterView },
   { key: "structure", title: "3D Structure", Icon: Layers, targetView: "structure" as MasterView },
-  { key: "energetics", title: "Energetics Engine", Icon: Activity, targetView: "energetics" as MasterView },
-  { key: "landscape", title: "Landscape Minimap", Icon: Map, targetView: "landscape" as MasterView },
-  { key: "insights", title: "Variant Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
-  { key: "literature", title: "Literature Mining", Icon: BookOpen, targetView: "literature" as MasterView },
-  { key: "report", title: "Clinical Report", Icon: FileText, targetView: "report" as MasterView },
+  { key: "energetics", title: "Energetics", Icon: Activity, targetView: "energetics" as MasterView },
+  { key: "landscape", title: "Landscape", Icon: Map, targetView: "landscape" as MasterView },
+  { key: "insights", title: "Insights", Icon: FlaskConical, targetView: "insights" as MasterView },
+  { key: "literature", title: "Literature", Icon: BookOpen, targetView: "literature" as MasterView },
+  { key: "report", title: "Report", Icon: FileText, targetView: "report" as MasterView },
 ] as const;
 
 type RailTabId = "telemetry" | "pipeline";
@@ -93,23 +107,23 @@ const RAIL_TAB_ORDER: RailTabId[] = ["telemetry", "pipeline"];
 
 type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
 
+/**
+ * Field-state chips, on the semantic tokens. `neutral` is deliberately NOT a chip: "Optional" is
+ * a fact about the field, not a state, and boxing it gave it the same visual weight as a warning.
+ */
 const FIELD_BADGE_TONES: Record<FieldBadgeTone, string> = {
-  neutral: "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)]",
-  // -700 rather than -600: this text is 9.5px bold, where AA needs 4.5:1, and the -600 shades
-  // measure 3.0-3.7:1 on the light surfaces. See the contrast note in styles/variables.css.
-  ok: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25",
-  warn: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
-  clay: "bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)] border-[var(--cs-accent-clay)]/30",
+  neutral: "text-cs-text-muted",
+  ok: "px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-bg-success)] text-[var(--cs-text-good-on-soft)] font-medium",
+  warn: "px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)] font-medium",
+  clay: "px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-cs-accent-clay/10 text-cs-text-accent font-medium",
 };
 
 /**
  * Micro-badge occupying the right-hand slot of a field label.
  *
- * Every label used that slot differently before: one carried a red asterisk, two spelled
- * "(Optional)" into the label text itself, and the rest left it empty — so the two columns
- * never lined up and "is this field required?" had to be read three different ways. Shared
- * geometry also keeps the label row's height stable, since `leading-none` + a 3px pad stays
- * under the 12px label's own line box.
+ * Every label uses the slot the same way, so "is this field required, and what did the parser
+ * make of it?" is always read from the same place. Height is pinned so a badge appearing on a
+ * keystroke never nudges the input beneath it.
  */
 const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; children: React.ReactNode }> = ({
   tone = "neutral",
@@ -118,7 +132,7 @@ const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; children: Re
 }) => (
   <span
     title={title}
-    className={`text-[9.5px] font-mono font-bold uppercase leading-none px-1.5 py-[3px] rounded-[var(--cs-radius-badge)] border shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
+    className={`text-[11px] leading-4 shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
   >
     {children}
   </span>
@@ -190,7 +204,11 @@ const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTon
  */
 const UNIPROT_ACCESSION_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/i;
 
-/** The examples are grouped by the field they belong in, which is also the fix for the two notation fields overlapping. */
+/**
+ * Examples, grouped by the field they belong in — and now rendered directly UNDER that field, so
+ * the either/or split between the two notation inputs is shown by position rather than explained
+ * in a separate box below the submit button.
+ */
 const NOTATION_EXAMPLE_GROUPS: Array<{
   target: "variant" | "genomic";
   label: string;
@@ -221,35 +239,32 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
 ];
 
 /**
- * Shared geometry for the outcome badge on the far right of the rail header.
+ * Display-only HGVS tidy-up for history chips: `p.ser489cys` → `p.Ser489Cys`.
  *
- * Both tabs use it so the header never changes colour system on switch — including weight, since
- * a `font-bold` on one variant and not the other changed the badge's measured width and broke
- * the "never changes box size" guarantee. `min-w-0` plus an allowed shrink lets the badge yield
- * space instead of overflowing: it is `shrink-0 whitespace-nowrap`, and measured against the
- * shipped font the header needs ~404px, so below ~1440px in a two-column layout the badge was
- * pushed past the card's `overflow-hidden` edge — entirely hidden at 1024px. `flex-wrap` on the
- * header means the badge drops to its own line rather than being clipped.
+ * History stores whatever was typed, so the tray mixed lower-case entries with properly cased
+ * catalogue examples. Only the three-letter protein form is touched; one-letter (`p.V600E`),
+ * cDNA and genomic strings are returned unchanged, and the stored value is never rewritten.
  */
-const RAIL_BADGE_BASE =
-  "flex items-center gap-1.5 text-[10.5px] font-semibold px-2 py-0.5 rounded-[var(--cs-radius-badge)] border shrink-0 whitespace-nowrap";
+export function formatVariantForDisplay(variant: string): string {
+  const m = /^p\.([a-z]{3})(\d+)([a-z]{3}|ter|\*)$/i.exec(variant.trim());
+  if (!m) return variant;
+  const cap = (x: string) => (x === "*" ? x : x.charAt(0).toUpperCase() + x.slice(1).toLowerCase());
+  return `p.${cap(m[1])}${m[2]}${cap(m[3])}`;
+}
 
 /**
- * One segment of the rail switcher. Both segments are rendered from this so the
- * two states can never drift apart in padding, radius or motion.
- *
- * The label may wrap and the segment may shrink: `whitespace-nowrap` here was the other half of
- * the header overflow, because two unshrinkable children cannot fit a ~350px track.
+ * One segment of the rail switcher. Both segments are rendered from this so the two states can
+ * never drift apart in padding, radius or motion. Segments split the track equally, so the
+ * control never overflows the rail at the narrowest two-column width.
  */
 const RailTab: React.FC<{
   id: RailTabId;
   active: boolean;
-  icon: React.ReactNode;
   label: string;
   badge?: React.ReactNode;
   tabIndex: number;
   onSelect: () => void;
-}> = ({ id, active, icon, label, badge, tabIndex, onSelect }) => (
+}> = ({ id, active, label, badge, tabIndex, onSelect }) => (
   <button
     type="button"
     role="tab"
@@ -260,17 +275,13 @@ const RailTab: React.FC<{
     aria-controls={active ? `panel-${id}` : undefined}
     tabIndex={tabIndex}
     onClick={onSelect}
-    className={`px-3 py-1.5 rounded-[var(--cs-radius-input)] text-[12px] flex items-center gap-1.5 cursor-pointer border active:scale-[0.96] transition-[background-color,border-color,color,box-shadow,scale] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
+    className={`flex-1 min-w-0 h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
       active
-        ? "bg-[var(--cs-surface)] text-[var(--cs-accent-clay)] font-semibold border-[var(--cs-accent-clay)]/40 shadow-xs ring-1 ring-[var(--cs-accent-clay)]/20"
-        : "text-[var(--cs-text-secondary)] hover:text-[var(--cs-text-primary)] hover:bg-[var(--cs-surface)]/60 font-medium border-transparent"
+        ? "bg-cs-surface text-cs-text-primary shadow-[0_0_0_1px_var(--cs-border)]"
+        : "text-cs-text-secondary hover:text-cs-text-primary"
     }`}
   >
-    {icon}
-    {/* Allowed to wrap rather than being pinned to one line: at the narrowest two-column
-        width the tablist still needed ~32px more than the track affords, and a nowrap label
-        pushed that overflow past the card's clipping edge. */}
-    <span className="text-left">{label}</span>
+    <span className="truncate">{label}</span>
     {badge}
   </button>
 );
@@ -288,6 +299,48 @@ async function pasteFromClipboard(setter: (val: string) => void) {
     console.warn("[Paste] Clipboard readText failed or permission denied:", err);
   }
 }
+
+/** Field label row: label on the left, state badge on the right, fixed height. */
+const FieldLabel: React.FC<{ htmlFor: string; required?: boolean; children: React.ReactNode; badge?: React.ReactNode }> = ({
+  htmlFor,
+  required,
+  children,
+  badge,
+}) => (
+  <label htmlFor={htmlFor} className="h-5 flex items-center justify-between gap-2 text-[12px] font-medium text-cs-text-secondary">
+    <span>
+      {children}
+      {required && (
+        <span className="text-cs-text-accent ml-0.5" aria-hidden="true">
+          *
+        </span>
+      )}
+    </span>
+    {badge}
+  </label>
+);
+
+/** Example chips shown beneath a notation field. */
+const ExampleRow: React.FC<{
+  group: (typeof NOTATION_EXAMPLE_GROUPS)[number];
+  onPick: (target: "variant" | "genomic", value: string) => void;
+}> = ({ group, onPick }) => (
+  <div className="flex flex-wrap items-center gap-1 pt-0.5">
+    <span className="text-[11px] text-cs-text-muted mr-0.5">Try</span>
+    {group.values.map(value => (
+      <button
+        key={value}
+        type="button"
+        onClick={() => onPick(group.target, value)}
+        title={`${group.hint} Fills "${value}" and clears the other notation field.`}
+        aria-label={`Use example ${value} in the ${group.label} field`}
+        className="px-1.5 h-5 rounded-[var(--cs-radius-badge)] font-mono text-[11px] leading-5 text-cs-text-secondary bg-cs-surface-2 hover:bg-cs-accent-clay/10 hover:text-cs-text-accent cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] max-w-full truncate"
+      >
+        {value}
+      </button>
+    ))}
+  </div>
+);
 
 function VariantSearchPanel({
   isDark,
@@ -320,7 +373,6 @@ function VariantSearchPanel({
   const storeAnalysisState = useVariantAnalysisStore(s => s.analysisState);
   const storeGene = useVariantAnalysisStore(s => s.gene ?? "");
   const storeVariant = useVariantAnalysisStore(s => s.variant ?? "");
-  const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId ?? "");
   const storeHistory = useVariantAnalysisStore(s => s.history ?? []);
 
   const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
@@ -377,7 +429,7 @@ function VariantSearchPanel({
     isPocketLoading
   );
 
-  const [activeRightTab, setActiveRightTab] = useState<"pipeline" | "telemetry">(result ? "pipeline" : "telemetry");
+  const [activeRightTab, setActiveRightTab] = useState<RailTabId>(result ? "pipeline" : "telemetry");
 
   /**
    * Set once the reader picks a tab themselves, and cleared when a run finishes.
@@ -388,7 +440,7 @@ function VariantSearchPanel({
    * tab they had deliberately chosen. An explicit choice now wins for the rest of that run.
    */
   const userChoseTabRef = useRef(false);
-  const selectRailTab = useCallback((tab: "pipeline" | "telemetry") => {
+  const selectRailTab = useCallback((tab: RailTabId) => {
     userChoseTabRef.current = true;
     setActiveRightTab(tab);
   }, []);
@@ -473,18 +525,13 @@ function VariantSearchPanel({
         genomicNotation.kind === "non-substitution")
   );
   /**
-   * Routing, gated on the parsed kind rather than on "the field is non-empty".
-   *
-   * `!!customGenomic.trim()` meant ANY text in this field counted as a coordinate: junk relaxed
-   * the Variant field to optional and marked the Gene "Derived", so a form could be submitted
-   * with no usable notation at all and fail server-side instead of at the field.
-   */
-  /**
    * Does the app resolve the notation itself before modelling?
    *
    * True for coordinate/cDNA input AND for accession-qualified protein notation
    * (`NP_001032248.1:p.Lys281Asn`), which carries its own protein and is mapped onto canonical
    * numbering by the server. Both cases derive the gene, so the Gene field is not required.
+   * Gated on the parsed kind rather than "the field is non-empty": junk text must not relax the
+   * required-field rules.
    */
   const notationResolvesItself =
     (!!customVariant && needsNotationResolution(customVariant)) || genomicIsCoordinate;
@@ -517,13 +564,29 @@ function VariantSearchPanel({
     }
   };
 
+  /**
+   * Loads a complete benchmark query. Unlike a notation example it sets the gene and accession
+   * too, so the form is immediately submittable — the notation examples alone never were, because
+   * a bare `p.Arg408Trp` still needs a gene.
+   */
+  const applyPreset = (preset: OnboardingPreset) => {
+    setCustomGene(preset.gene);
+    setCustomVariant(preset.variant);
+    setCustomUniprot(preset.uniprotId);
+    setCustomGenomic("");
+  };
+
   // Solid clay, not clay/25: an alpha ring composites to ~1.35:1 on white, far under the 3:1
   // WCAG 2.2 SC 1.4.11 requires of a focus indicator, and `outline-none` removes the native
   // one, so this ring is the only cue. Solid clay measures 3.87:1 on white.
-  const inputBase = `w-full h-10 rounded-lg px-3 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out font-medium select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)] ${classInput}`;
+  //
+  // Placeholders are reset to normal case: the gene/genomic/UniProt inputs upper-case their VALUE,
+  // and `uppercase` also applied to the placeholder, so "E.G. Q9H8M5 (AUTO-RESOLVED IF OMITTED)"
+  // shouted beside a lower-case "e.g. p.Gly380Arg".
+  const inputBase = `w-full h-10 rounded-[var(--cs-radius-input)] pl-3 pr-10 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)] placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-cs-text-muted ${classInput}`;
 
   // Derive stage status & metrics for live workflow rail
-  const getStageInfo = (stage: "evidence" | "structure" | "energetics" | "landscape" | "insights" | "literature" | "report") => {
+  const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
     const raw = getWorkflowStageStatus({
       view: stage,
       result,
@@ -542,9 +605,7 @@ function VariantSearchPanel({
      * `LEGACY_ENGINE_LABELS` (`engineStatus.ts`), which bans it precisely because it implies waiting
      * forever, and a stalled stage rendered with it looked identical to a working one.
      *
-     * The rest of this component used to branch on these LABELS (`info.status === "In Progress"`),
-     * which made the display string load-bearing as an identifier — so renaming one silently broke a
-     * status check. `rawStatus` is returned alongside so callers branch on the state, never the word.
+     * Callers branch on `rawStatus`, never on the display word.
      */
     const statusMap: Record<string, string> = {
       complete: "Complete",
@@ -560,555 +621,522 @@ function VariantSearchPanel({
     };
   };
 
+  const stageInfos = WORKFLOW_STAGES.map(stage => ({ stage, info: getStageInfo(stage.key) }));
+  const settledCount = stageInfos.filter(
+    ({ info }) => info.rawStatus === "complete" || info.rawStatus === "degraded" || info.rawStatus === "error"
+  ).length;
+  const hasRun = Boolean(result) || isPipelineActive;
+  const progressPct = Math.round((settledCount / WORKFLOW_STAGES.length) * 100);
+
+  const pipelineStatusLabel = isPipelineActive
+    ? "Running"
+    : result
+    ? "Result loaded"
+    : "Pipeline ready";
+
   return (
-    <div className="w-full flex flex-col gap-6 cs-fade-in no-scrollbar" id="variant-search-workspace">
-      {/* ── Screen Header & Context Banner ── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--cs-border-subtle)]">
-        <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <span className="p-1.5 rounded-lg bg-[var(--cs-accent-mag-soft)] text-[var(--cs-accent-clay)]">
-              <Dna className="w-4 h-4" />
-            </span>
-            <h1 
-              className="text-[20px] font-medium tracking-tight"
-              style={{ color: "var(--cs-text-primary)" }}
-            >
-              Variant Analysis Workspace
-            </h1>
-          </div>
-          <p className="text-[13px] max-w-3xl leading-relaxed" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
-            Enter target gene symbol, HGVS variant notation, and optional UniProt accession to run real-time structural, energetic, and clinical evidence pipelines.
+    <div className="w-full flex flex-col gap-6 cs-fade-in" id="variant-search-workspace">
+      {/* ── Page header ─────────────────────────────────────────────────────────────────────── */}
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
+          <p className="mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
+            Give a gene and protein change, or genomic coordinates. Evidence, structure, stability and
+            literature are gathered in parallel.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
-          {!hasConfiguredGeminiKey && (
-            <button
-              type="button"
-              onClick={() => openSettingsTab("api")}
-              title="API key is not configured — click to open Settings"
-              className="badge-data-source text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-[background-color,color,scale] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 shadow-xs"
-            >
-              <AlertTriangle className="w-3 h-3 text-amber-500" />
-              API Key Required
-            </button>
-          )}
-        </div>
-      </div>
+        {/* The API-key notice lives in the app header only — this page used to repeat it here AND
+            in the header, two warnings for one fact. The form footer still names the consequence. */}
+      </header>
 
-      {/* ── Main Workspace Card (outer panel — 16px, matches Accepted Inputs) ── */}
-      <div
-        className="cs-panel"
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--cs-border-subtle)]">
-          {/* ── LEFT COLUMN: Search Variant Form (col-span-7) ── */}
-          <div className="lg:col-span-7 p-6 lg:p-7 flex flex-col" data-tour="variant-input" id="variant-input-card">
-            <div>
-              <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-[var(--cs-border-subtle)]">
-                <h2 className="text-[14px] font-semibold flex items-center gap-2" style={{ color: "var(--cs-text-primary)" }}>
-                  <Search className="w-4 h-4 text-[var(--cs-accent-clay)]" />
-                  Search Variant
-                </h2>
-              </div>
+      {/* ── Main grid: form (8) + rail (4) ──────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 items-stretch">
+        {/* ── Left column: query form, then recent analyses ── */}
+        <div className="lg:col-span-8 flex flex-col gap-6 min-w-0">
+        <section
+          className="cs-panel flex flex-col"
+          data-tour="variant-input"
+          id="variant-input-card"
+          aria-labelledby="variant-form-title"
+        >
+          <h2 id="variant-form-title" className="sr-only">Variant query</h2>
 
-              <form onSubmit={onFormSubmit} className="flex flex-col gap-4">
-                {result?.numberingChoices &&
-                /**
-                 * Two readings minimum: a single "choice" is not a decision, and the refusal message
-                 * already names it. Plus: only while the inputs still match the run that produced the
-                 * refusal — `numberingChoices` lives on the last result and the fields are store-bound,
-                 * so without this a reader could edit the notation and then answer a question about the
-                 * previous one.
-                 */
-                result.numberingChoices.length >= 2 &&
-                (result.numberingNotation ?? "") === customVariant.trim() &&
-                (result.metadata?.gene ?? "") === customGene.trim() &&
-                (result.metadata?.uniprotId ?? "") === customUniprot.trim() ? (
-                  <NumberingChoicePrompt
-                    notation={result.numberingNotation ?? customVariant}
-                    choices={result.numberingChoices}
-                    onChoose={chooseNumbering}
-                  />
-                ) : null}
-                {/* Row 1: Gene + Variant */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <form onSubmit={onFormSubmit} className="flex flex-col flex-1">
+            <div className="p-6 flex flex-col gap-6">
+              {result?.numberingChoices &&
+              /**
+               * Two readings minimum: a single "choice" is not a decision, and the refusal message
+               * already names it. Plus: only while the inputs still match the run that produced the
+               * refusal — `numberingChoices` lives on the last result and the fields are store-bound,
+               * so without this a reader could edit the notation and then answer a question about the
+               * previous one.
+               */
+              result.numberingChoices.length >= 2 &&
+              (result.numberingNotation ?? "") === customVariant.trim() &&
+              (result.metadata?.gene ?? "") === customGene.trim() &&
+              (result.metadata?.uniprotId ?? "") === customUniprot.trim() ? (
+                <NumberingChoicePrompt
+                  notation={result.numberingNotation ?? customVariant}
+                  choices={result.numberingChoices}
+                  onChoose={chooseNumbering}
+                />
+              ) : null}
+
+              {/* Protein identity */}
+              <fieldset className="flex flex-col gap-3">
+                <legend className="text-[13px] font-semibold text-cs-text-primary mb-3">Protein</legend>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1.5">
-                    <label 
+                    <FieldLabel
                       htmlFor="input-gene-symbol"
-                      className="text-[12px] font-medium flex justify-between items-center gap-2"
-                      style={{ color: "var(--cs-text-secondary)" }}
+                      required={isGeneRequired}
+                      badge={
+                        !isGeneRequired ? (
+                          <FieldBadge tone="clay" title="Your coordinate notation resolves the gene, so this field is not required.">
+                            Derived
+                          </FieldBadge>
+                        ) : null
+                      }
                     >
-                      <span>Gene Symbol {isGeneRequired && <span className="text-rose-500">*</span>}</span>
-                      {!isGeneRequired && (
-                        <FieldBadge tone="clay" title="Your coordinate notation resolves the gene, so this field is not required.">
-                          Derived
-                        </FieldBadge>
-                      )}
-                    </label>
+                      Gene symbol
+                    </FieldLabel>
                     <div className="relative">
                       <input
                         id="input-gene-symbol"
                         type="text"
                         required={isGeneRequired}
                         placeholder="e.g. CNNM2"
+                        autoComplete="off"
+                        spellCheck={false}
                         value={customGene}
                         onChange={(e) => setCustomGene(e.target.value)}
-                        className={inputBase + " pr-9 font-semibold tracking-wide uppercase"}
-                        style={{ fontFamily: "var(--cs-font-mono)" }}
+                        className={inputBase + " font-mono font-medium uppercase tracking-wide"}
                       />
                       <PasteBtn setter={setCustomGene} />
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label 
-                      htmlFor="input-variant-notation"
-                      className="text-[12px] font-medium flex justify-between items-center gap-2"
-                      style={{ color: "var(--cs-text-secondary)" }}
+                    <FieldLabel
+                      htmlFor="input-uniprot-acc"
+                      badge={
+                        <FieldBadge
+                          tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
+                          title={
+                            uniprotLooksValid
+                              ? "Optional: the accession is auto-resolved from the gene when omitted."
+                              : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                          }
+                        >
+                          {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                        </FieldBadge>
+                      }
                     >
-                      <span>Variant Notation {isVariantRequired && <span className="text-rose-500">*</span>}</span>
-                      {variantNotation ? (
-                        <FieldBadge tone={NOTATION_BADGES[variantNotation.kind].tone} title={NOTATION_BADGES[variantNotation.kind].title}>
-                          {NOTATION_BADGES[variantNotation.kind].label}
-                        </FieldBadge>
-                      ) : !isVariantRequired ? (
-                        <FieldBadge title="Your genomic coordinates define the variant, so this field is not required.">
-                          Optional
-                        </FieldBadge>
-                      ) : null}
-                    </label>
+                      UniProt accession
+                    </FieldLabel>
+                    <div className="relative">
+                      <input
+                        id="input-uniprot-acc"
+                        type="text"
+                        placeholder="e.g. Q9H8M5"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={customUniprot}
+                        onChange={(e) => setCustomUniprot(e.target.value)}
+                        aria-invalid={!uniprotLooksValid || undefined}
+                        className={inputBase + " font-mono uppercase"}
+                      />
+                      <PasteBtn setter={setCustomUniprot} />
+                    </div>
+                  </div>
+                </div>
+              </fieldset>
+
+              {/* Variant — two alternative routes, shown side by side with an explicit "or" */}
+              <fieldset className="flex flex-col" data-tour="curated-presets" id="workspace-accepted-inputs">
+                <legend className="w-full flex items-baseline justify-between gap-2 mb-3">
+                  <span className="text-[13px] font-semibold text-cs-text-primary">Variant</span>
+                  <span className="text-[11px] text-cs-text-muted">Use one or the other</span>
+                </legend>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-x-3 gap-y-4 items-start">
+                  <div className="flex flex-col gap-1.5 min-w-0">
+                    <FieldLabel
+                      htmlFor="input-variant-notation"
+                      required={isVariantRequired}
+                      badge={
+                        variantNotation ? (
+                          <FieldBadge tone={NOTATION_BADGES[variantNotation.kind].tone} title={NOTATION_BADGES[variantNotation.kind].title}>
+                            {NOTATION_BADGES[variantNotation.kind].label}
+                          </FieldBadge>
+                        ) : !isVariantRequired ? (
+                          <FieldBadge title="Your genomic coordinates define the variant, so this field is not required.">
+                            Optional
+                          </FieldBadge>
+                        ) : null
+                      }
+                    >
+                      Protein or cDNA notation
+                    </FieldLabel>
                     <div className="relative">
                       <input
                         id="input-variant-notation"
                         type="text"
                         required={isVariantRequired}
                         placeholder="e.g. p.Gly380Arg"
+                        autoComplete="off"
+                        spellCheck={false}
                         value={customVariant}
                         onChange={(e) => setCustomVariant(e.target.value)}
-                        className={inputBase + " pr-9 font-semibold tracking-wide"}
-                        style={{ fontFamily: "var(--cs-font-mono)" }}
+                        className={inputBase + " font-mono font-medium"}
                       />
                       <PasteBtn setter={setCustomVariant} />
                     </div>
+                    <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
                   </div>
-                </div>
 
-                {/* Row 2: Genomic Coordinates */}
-                <div className="flex flex-col gap-1.5">
-                  <label 
-                    htmlFor="input-genomic-coords"
-                    className="text-[12px] font-medium flex justify-between items-center gap-2"
-                    style={{ color: "var(--cs-text-secondary)" }}
-                  >
-                    <span>Genomic Coordinates</span>
-                    {genomicNotation && !genomicIsCoordinate ? (
-                      <FieldBadge
-                        tone={NOTATION_BADGES[genomicNotation.kind].tone}
-                        title={`${NOTATION_BADGES[genomicNotation.kind].title} This field only accepts genomic coordinates.`}
-                      >
-                        {NOTATION_BADGES[genomicNotation.kind].label}
-                      </FieldBadge>
-                    ) : (
-                      <FieldBadge title={genomicAssemblyLabel ? "Genome build this coordinate will be resolved against." : "Optional: protein-level notation alone is enough to run the analysis."}>
-                        {genomicAssemblyLabel ?? "Optional"}
-                      </FieldBadge>
-                    )}
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="input-genomic-coords"
-                      type="text"
-                      placeholder="e.g. 20-23365054-G-A"
-                      value={customGenomic}
-                      onChange={(e) => setCustomGenomic(e.target.value)}
-                      className={inputBase + " pr-9 uppercase"}
-                      style={{ fontFamily: "var(--cs-font-mono)" }}
-                    />
-                    <PasteBtn setter={setCustomGenomic} />
+                  <div className="hidden md:flex flex-col items-center self-stretch pt-5" aria-hidden="true">
+                    <span className="h-10 flex items-center text-[11px] font-medium text-cs-text-muted">or</span>
                   </div>
-                </div>
 
-                {/* Row 3: UniProt Accession */}
-                <div className="flex flex-col gap-1.5">
-                  <label 
-                    htmlFor="input-uniprot-acc"
-                    className="text-[12px] font-medium flex justify-between items-center gap-2"
-                    style={{ color: "var(--cs-text-secondary)" }}
-                  >
-                    <span>UniProt Accession</span>
-                    <FieldBadge
-                      tone={uniprotLooksValid ? "neutral" : "warn"}
-                      title={
-                        uniprotLooksValid
-                          ? "Optional: the accession is auto-resolved from the gene when omitted."
-                          : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                  <div className="flex flex-col gap-1.5 min-w-0">
+                    <FieldLabel
+                      htmlFor="input-genomic-coords"
+                      badge={
+                        genomicNotation && !genomicIsCoordinate ? (
+                          <FieldBadge
+                            tone={NOTATION_BADGES[genomicNotation.kind].tone}
+                            title={`${NOTATION_BADGES[genomicNotation.kind].title} This field only accepts genomic coordinates.`}
+                          >
+                            {NOTATION_BADGES[genomicNotation.kind].label}
+                          </FieldBadge>
+                        ) : (
+                          <FieldBadge
+                            tone={genomicAssemblyLabel ? "clay" : "neutral"}
+                            title={genomicAssemblyLabel ? "Genome build this coordinate will be resolved against." : "Optional: protein-level notation alone is enough to run the analysis."}
+                          >
+                            {genomicAssemblyLabel ?? "Optional"}
+                          </FieldBadge>
+                        )
                       }
                     >
-                      {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                    </FieldBadge>
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="input-uniprot-acc"
-                      type="text"
-                      placeholder="e.g. Q9H8M5 (Auto-resolved if omitted)"
-                      value={customUniprot}
-                      onChange={(e) => setCustomUniprot(e.target.value)}
-                      className={inputBase + " pr-9 uppercase"}
-                      style={{ fontFamily: "var(--cs-font-mono)" }}
-                    />
-                    <PasteBtn setter={setCustomUniprot} />
-                  </div>
-                </div>
-
-                {/* AI Focus Area / Custom Instructions (Collapsible — nested panel, 16px like Accepted Inputs) */}
-                <div className="cs-nested-panel transition-[border-color]">
-                  <details className="group">
-                    <summary className="flex justify-between items-center gap-2 px-3.5 py-2.5 text-xs font-medium select-none cursor-pointer transition-colors hover:bg-[var(--cs-bg-subtle)]" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
-                      <span className="flex items-center gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
-                        AI Focus Area & Custom Analysis Instructions
-                      </span>
-                      <span className="flex items-center gap-2 shrink-0">
-                        {/* Collapsed content used to be silent: instructions could be set and then
-                            invisible, with nothing on the closed row to say so. */}
-                        {hasDirections && (
-                          <FieldBadge tone="clay" title="Custom analysis instructions are set and will direct the AI narrative.">
-                            {userDirections.trim().length} chars
-                          </FieldBadge>
-                        )}
-                        <span className="transition-transform group-open:rotate-180 text-[var(--cs-text-muted)]">
-                          <ChevronDown className="w-4 h-4" />
-                        </span>
-                      </span>
-                    </summary>
-                    <div className="p-3.5 border-t border-[var(--cs-border-subtle)] space-y-2.5">
-                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] leading-relaxed flex gap-2">
-                        <ShieldAlert className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                        <span style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
-                          <strong>Privacy Notice:</strong> Filtered workspace. Do not submit patient PII (names, MRNs, dates of birth).
-                        </span>
-                      </div>
-                      <textarea
-                        id="textarea-user-directions"
-                        aria-label="AI Focus Area & Custom Analysis Instructions"
-                        placeholder="e.g. Focus on structural disruption of cofactor binding loop, evaluate ACMG PM2/PS3 rules, or analyze active site residue proximity..."
-                        value={userDirections}
-                        onChange={(e) => {
-                          const text = e.target.value.slice(0, 2000);
-                          setUserDirections(text);
-                        }}
-                        maxLength={2000}
-                        className="w-full h-20 rounded-lg border p-2.5 text-xs outline-none bg-[var(--cs-surface)] resize-none border-[var(--cs-border)] select-text transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
-                        style={{ color: "var(--cs-text-primary)" }}
+                      Genomic coordinates
+                    </FieldLabel>
+                    <div className="relative">
+                      <input
+                        id="input-genomic-coords"
+                        type="text"
+                        placeholder="e.g. 20-23365054-G-A"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={customGenomic}
+                        onChange={(e) => setCustomGenomic(e.target.value)}
+                        className={inputBase + " font-mono"}
                       />
-                      <div className="flex justify-between items-center text-[10px]" style={{ color: "var(--cs-text-muted)" }}>
-                        <span>Directs downstream AI narrative synthesis</span>
-                        <span>{userDirections.length}/2000 chars</span>
-                      </div>
+                      <PasteBtn setter={setCustomGenomic} />
                     </div>
-                  </details>
-                </div>
-
-                {/* Submit Action Button — Greyed out with direct CTA if API keys are unconfigured */}
-                {!hasConfiguredGeminiKey ? (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openSettingsTab("api")}
-                      aria-label="API Key Required — Open Settings"
-                      className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13.5px] font-semibold transition-[background-color,scale] duration-150 ease-out cursor-pointer shadow-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
-                    >
-                      <KeyRound className="w-4 h-4 text-amber-500" />
-                      <span>API Key Required · Configure to Analyze</span>
-                      <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
-                    </button>
-                    <p className="text-[11px] text-center text-cs-text-muted">
-                      Pipeline execution requires a configured API key. Click above to configure.
-                    </p>
+                    <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                   </div>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={isPipelineActive}
-                    aria-label="Analyze Variant"
-                    className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[14px] font-semibold text-white transition-[background-color,filter,scale] duration-150 ease-out cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-none hover:brightness-105 disabled:hover:brightness-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)]"
-                    style={{ background: "var(--cs-accent-clay)" }}
-                  >
-                    {isPipelineActive ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Executing Pipeline Analysis…
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4" />
-                        Analyze Variant
-                        <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
-                      </>
+                </div>
+              </fieldset>
+
+              {/* AI focus (optional) */}
+              <details className="group rounded-[var(--cs-radius-card)] border border-cs-border-subtle">
+                <summary className="flex justify-between items-center gap-2 px-3.5 h-10 text-[12px] font-medium text-cs-text-secondary select-none cursor-pointer list-none [&::-webkit-details-marker]:hidden rounded-[var(--cs-radius-card)] hover:bg-cs-surface-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]">
+                  <span>
+                    AI focus &amp; custom instructions
+                    <span className="ml-1.5 font-normal text-cs-text-muted">Optional</span>
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    {/* Collapsed content used to be silent: instructions could be set and then
+                        invisible, with nothing on the closed row to say so. */}
+                    {hasDirections && (
+                      <FieldBadge tone="clay" title="Custom analysis instructions are set and will direct the AI narrative.">
+                        {userDirections.trim().length} chars
+                      </FieldBadge>
                     )}
+                    <ChevronDown className="w-4 h-4 text-cs-text-muted transition-transform duration-150 group-open:rotate-180" />
+                  </span>
+                </summary>
+                <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-2">
+                  <textarea
+                    id="textarea-user-directions"
+                    aria-label="AI Focus Area & Custom Analysis Instructions"
+                    aria-describedby="user-directions-privacy"
+                    placeholder="e.g. Focus on disruption of the cofactor-binding loop, or weigh ACMG PM2/PS3."
+                    value={userDirections}
+                    onChange={(e) => {
+                      const text = e.target.value.slice(0, 2000);
+                      setUserDirections(text);
+                    }}
+                    maxLength={2000}
+                    rows={3}
+                    className="w-full rounded-[var(--cs-radius-input)] border border-cs-border bg-cs-surface p-2.5 text-[13px] leading-relaxed text-cs-text-primary outline-none resize-y min-h-[76px] select-text placeholder:text-cs-text-muted transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
+                  />
+                  <div className="flex justify-between items-start gap-3 text-[11px] text-cs-text-muted">
+                    <span id="user-directions-privacy" className="flex items-start gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--cs-text-warning)]" />
+                      Do not include patient identifiers (names, MRNs, dates of birth).
+                    </span>
+                    <span className="tabular-nums shrink-0">{userDirections.length}/2000</span>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            {/* ── Form footer: hint left, primary action right ── */}
+            <div className="mt-auto flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-t border-cs-border-subtle bg-cs-surface-2/60">
+              <p className="text-[11px] text-cs-text-muted flex items-center gap-1.5">
+                {hasConfiguredGeminiKey ? (
+                  <>
+                    <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
+                      <CornerDownLeft className="w-3 h-3" />
+                      Enter
+                    </kbd>
+                    runs from any field
+                  </>
+                ) : (
+                  "An API key is needed for the clinical narrative stage."
+                )}
+              </p>
+
+              {!hasConfiguredGeminiKey ? (
+                <button
+                  type="button"
+                  onClick={() => openSettingsTab("api")}
+                  aria-label="API Key Required — Open Settings"
+                  className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-[var(--cs-radius-input)] text-[14px] font-medium bg-cs-surface border border-cs-border text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                >
+                  <KeyRound className="w-4 h-4 text-[var(--cs-text-warning)]" />
+                  Add API key to analyse
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isPipelineActive}
+                  aria-label="Analyse variant"
+                  className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
+                >
+                  {isPipelineActive ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Analysing…
+                    </>
+                  ) : (
+                    <>
+                      Analyse variant
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
+          {/* ── Recent analyses / first-run benchmarks ── */}
+        <section aria-labelledby="recent-title" className="flex flex-col gap-3">
+          {history.length > 0 ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">
+                  Recent analyses <span className="ml-1 font-normal text-cs-text-muted tabular-nums">{history.length}</span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={clearHistory}
+                  className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[var(--cs-radius-input)] text-[12px] text-cs-text-muted hover:text-[var(--cs-text-danger-on-soft)] hover:bg-[var(--cs-bg-danger)] cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                  title="Clear search history"
+                  aria-label="Clear search history"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {history.slice(0, 8).map((item, idx) => {
+                  const isActive = gene === item.gene && variant === item.variant;
+                  return (
+                    <button
+                      key={`${item.gene}_${item.variant}_${idx}`}
+                      type="button"
+                      onClick={() => handleSelectHistoryItem(item)}
+                      aria-pressed={isActive}
+                      className={`inline-flex items-center gap-2 h-8 px-3 rounded-[var(--cs-radius-input)] border text-[12px] cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
+                        isActive
+                          ? "border-cs-accent-clay bg-cs-accent-clay/10"
+                          : "border-cs-border-subtle bg-cs-surface hover:border-cs-border hover:bg-cs-surface-2"
+                      }`}
+                      title={`Reload ${item.gene} ${item.variant}`}
+                      aria-label={`Select recent search ${item.gene} ${item.variant}`}
+                    >
+                      <span className="font-semibold text-cs-text-primary">{item.gene}</span>
+                      <span className="font-mono text-[11.5px] text-cs-text-secondary">{formatVariantForDisplay(item.variant)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                <div>
+                  <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
+                  <p className="text-[12px] text-cs-text-muted mt-0.5">
+                    Variants you analyse in this session will appear here. To start, load a benchmark control:
+                  </p>
+                </div>
+                {onOpenOnboarding && (
+                  <button
+                    type="button"
+                    onClick={onOpenOnboarding}
+                    className="self-start sm:self-auto inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[var(--cs-radius-input)] text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    Take the 2-minute tour
                   </button>
                 )}
-              </form>
-
-              {/* Format Help Box (Preserves layout card height balance with clean, modern badge chips) */}
-              {/*
-                Accepted-inputs reference, rebuilt on two rules.
-
-                CONTENT: every example is read from `ACCEPTED_NOTATION_EXAMPLES`, the same
-                catalogue the server's 400 response is generated from, so the panel can no
-                longer advertise a grammar the parser rejects. The previous hand-written copy
-                had already drifted — it listed a ClinVar Variation ID as an input format,
-                but the analysis route only ever branches on genomic/cDNA vs protein, so a
-                bare VCV id fails in the pipeline (the ClinVar reader accepts one, but that
-                is an internal call, not a notation for these fields).
-
-                AFFORDANCE: each example fills its own field. The two notation fields overlap
-                in meaning — the Variant field accepts both protein and cDNA — and grouping
-                the examples by destination field is what makes that split self-evident.
-              */}
-              <div className="cs-nested-panel mt-4" data-tour="curated-presets" id="workspace-accepted-inputs">
-                <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-[var(--cs-border-subtle)]">
-                  <span className="flex items-center gap-2 text-[11.5px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-                    <HelpCircle className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
-                    Accepted Inputs
-                  </span>
-                  <FieldBadge tone="neutral" title="Selecting an example fills the matching field and clears the other.">
-                    Click to fill
-                  </FieldBadge>
-                </div>
-
-                <div className="px-3 py-2.5 space-y-2">
-                  {NOTATION_EXAMPLE_GROUPS.map(group => (
-                    <div key={group.target} className="flex items-start gap-2.5">
-                      <span
-                        className="w-[86px] shrink-0 pt-[5px] text-right text-[10px] font-medium leading-tight"
-                        style={{ color: "var(--cs-text-muted)" }}
-                      >
-                        {group.label}
-                      </span>
-                      <div className="flex flex-wrap gap-1 min-w-0">
-                        {group.values.map(value => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => applyNotationExample(group.target, value)}
-                            title={`${group.hint} Fills "${value}" and clears the other notation field.`}
-                            aria-label={`Use example ${value} in the ${group.label} field`}
-                            className="px-1.5 py-[3px] rounded-[var(--cs-radius-badge)] border border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] font-mono text-[10px] transition-[background-color,border-color,scale] duration-150 ease-out hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-accent-mag-soft)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]"
-                            style={{ color: "var(--cs-text-secondary)" }}
-                          >
-                            {value}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
-
-              {/* ── Recent Analyses / Zero-History Placeholder Tray ── */}
-              <div className="mt-4 pt-3 border-t border-[var(--cs-border-subtle)]">
-                {history.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
-                        <History className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />
-                        <span>Recent Analyses ({history.length})</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={clearHistory}
-                        className="text-[10.5px] font-medium flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors cursor-pointer hover:bg-rose-500/10 text-[var(--cs-text-muted)] hover:text-rose-500"
-                        title="Clear search history"
-                        aria-label="Clear search history"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        Clear
-                      </button>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      {history.slice(0, 8).map((item, idx) => {
-                        const isActive = gene === item.gene && variant === item.variant;
-                        return (
-                          <button
-                            key={`${item.gene}_${item.variant}_${idx}`}
-                            type="button"
-                            onClick={() => handleSelectHistoryItem(item)}
-                            aria-pressed={isActive}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] cursor-pointer flex items-center gap-1.5 border shadow-xs transition-[background-color,border-color,scale] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)] ${
-                              isActive
-                                ? "border-[var(--cs-accent-clay)] bg-[var(--cs-accent-mag-soft)]"
-                                : "border-[var(--cs-border-subtle)] bg-[var(--cs-surface)] hover:border-[var(--cs-accent-clay)]/50 hover:bg-[var(--cs-surface-2)]"
-                            }`}
-                            title={`Reload ${item.gene} ${item.variant}`}
-                            aria-label={`Select recent search ${item.gene} ${item.variant}`}
-                          >
-                            <span className="font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-                              {item.gene}
-                            </span>
-                            <span className="font-mono text-[10.5px]" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
-                              {item.variant}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  /* Zero-History Empty State Placeholder */
-                  <div className="cs-nested-panel border-dashed p-4 flex flex-col items-center justify-center text-center gap-2 select-none" style={{ background: "color-mix(in srgb, var(--cs-surface-2) 40%, transparent)" }}>
-                    <div className="w-8 h-8 rounded-full bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] flex items-center justify-center text-[var(--cs-accent-clay)] shadow-xs">
-                      <History className="w-4 h-4" />
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-[12px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-                        No Recent Variant Analyses
-                      </p>
-                      <p className="text-[11px] max-w-sm leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-                        Analyzed variants in this session will appear here for instant 1-click re-querying and review.
-                      </p>
-                    </div>
-                    <div className="pt-0.5 flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-lg bg-[var(--cs-surface)] border border-[var(--cs-border-subtle)] text-[var(--cs-text-muted)]">
-                      <span>💡 Paste HGVS, cDNA, or genomic coordinates to start</span>
-                    </div>
-                    {onOpenOnboarding && (
-                      <button
-                        type="button"
-                        onClick={onOpenOnboarding}
-                        className="mt-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-[var(--cs-surface)] border border-[var(--cs-border)] hover:border-[var(--cs-accent-clay)] text-[var(--cs-accent-clay)] shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-[0.96]"
-                      >
-                        <Compass className="w-3.5 h-3.5" />
-                        <span>Take the 2-minute tour &amp; API keys guide</span>
-                      </button>
-                    )}
-                  </div>
-                )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
+                  <button
+                    key={preset.gene + preset.variant}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    aria-label={`Load benchmark ${preset.gene} ${preset.variant}`}
+                    title={preset.description}
+                    className="group text-left flex flex-col gap-0.5 px-3 py-2.5 rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface hover:border-cs-border hover:bg-cs-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                  >
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-[12.5px] font-semibold text-cs-text-primary">{preset.gene}</span>
+                      <span className="font-mono text-[11.5px] text-cs-text-secondary">{preset.variant}</span>
+                    </span>
+                    <span className="text-[11px] text-cs-text-muted">{preset.tag}</span>
+                  </button>
+                ))}
               </div>
+            </>
+          )}
+        </section>
+        </div>
+
+        {/* ── Rail: services / pipeline ──
+            From `lg` up the rail's content is taken out of flow (absolute fill) over a fixed floor, so
+            neither tab can resize the row and switching tabs never moves the page; the services list
+            scrolls inside it with a fade as the cue. Below `lg` the columns stack and the list flows
+            instead — a nested scroller inside a scrolling page is a trap on touch. */}
+        <aside
+          className="cs-panel lg:col-span-4 lg:relative min-h-[480px] lg:min-h-[672px] flex flex-col"
+          data-tour="workflow-rail"
+          id="workspace-stage-rail"
+          aria-label="Services and pipeline"
+        >
+          <div className="flex flex-col gap-4 p-4 flex-1 min-h-0 lg:absolute lg:inset-0">
+            <div
+              ref={railTabListRef}
+              role="tablist"
+              aria-label="Analysis sidebar view switcher"
+              onKeyDown={handleRailKeyDown}
+              className="flex items-center gap-1 p-1 rounded-[var(--cs-radius-input)] bg-cs-surface-2 shrink-0"
+            >
+              <RailTab
+                id="telemetry"
+                active={activeRightTab === "telemetry"}
+                tabIndex={activeRightTab === "telemetry" ? 0 : -1}
+                onSelect={() => selectRailTab("telemetry")}
+                label="Services"
+              />
+              <RailTab
+                id="pipeline"
+                active={activeRightTab === "pipeline"}
+                tabIndex={activeRightTab === "pipeline" ? 0 : -1}
+                onSelect={() => selectRailTab("pipeline")}
+                label="Pipeline"
+                badge={
+                  isPipelineActive ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay animate-pulse shrink-0" aria-label="running" />
+                  ) : result ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-text-success)] shrink-0" aria-label="complete" />
+                  ) : null
+                }
+              />
             </div>
-          </div>
 
-          {/* ── RIGHT COLUMN: Segmented Workflow Pipeline & Telemetry Rail (col-span-5) ──
-              Height-locked to the left column. From `lg` up the rail's inner layout is taken out
-              of flow (absolute fill) so neither tab's content can contribute to the grid row
-              height: the card is sized by the form column plus a floor, and both panels
-              distribute/scroll inside a fixed track instead of resizing it.
-
-              The floor is NOT breakpoint-qualified. Below `lg` the columns stack, and with the
-              floor behind `lg:` the rail went back to sizing its own row, so switching tabs
-              still resized the card (by ~100px, more than the 14px this fixed). A floor at every
-              width keeps the stacked track stable too. */}
-          <div className="lg:col-span-5 lg:relative min-h-[690px] bg-[var(--cs-surface-2)]" data-tour="workflow-rail" id="workspace-stage-rail">
-            <div className="flex flex-col gap-4 p-6 lg:p-7 lg:absolute lg:inset-0">
-              {/* `flex-wrap` + `min-w-0`: two unshrinkable children need ~404px and the 5/12
-                  track only affords ~350px at the breakpoint, so without wrapping the status
-                  badge was pushed past the card's overflow-hidden edge — fully hidden at
-                  1024px and still clipped at 1280px. */}
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pb-2.5 border-b border-[var(--cs-border-subtle)] shrink-0">
-                {/* Segmented Switcher */}
-                <div
-                  ref={railTabListRef}
-                  role="tablist"
-                  aria-label="Analysis sidebar view switcher"
-                  onKeyDown={handleRailKeyDown}
-                  className="flex items-center gap-1 p-1 rounded-xl bg-[var(--cs-bg-subtle)] border border-[var(--cs-border)] shadow-xs min-w-0"
-                >
-                  <RailTab
-                    id="telemetry"
-                    active={activeRightTab === "telemetry"}
-                    tabIndex={activeRightTab === "telemetry" ? 0 : -1}
-                    onSelect={() => selectRailTab("telemetry")}
-                    icon={<Activity className={`w-3.5 h-3.5 ${activeRightTab === "telemetry" ? "text-[var(--cs-accent-clay)]" : "text-[var(--cs-text-muted)]"}`} />}
-                    label="Service Telemetry"
-                  />
-
-                  <RailTab
-                    id="pipeline"
-                    active={activeRightTab === "pipeline"}
-                    tabIndex={activeRightTab === "pipeline" ? 0 : -1}
-                    onSelect={() => selectRailTab("pipeline")}
-                    icon={<Layers className={`w-3.5 h-3.5 ${activeRightTab === "pipeline" ? "text-[var(--cs-accent-clay)]" : "text-[var(--cs-text-muted)]"}`} />}
-                    label="Workflow Pipeline"
-                    badge={
-                      isPipelineActive ? (
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
-                      ) : result ? (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                      ) : null
-                    }
-                  />
-                </div>
-
-                {/* Outcome badge.
-                    The telemetry tab used to carry an unconditional emerald "Pre-flight Ready"
-                    chip. It read no diagnostics state at all, so it asserted readiness while the
-                    panel directly beneath it rendered "Checking…", "0/10 Online" in rose, or
-                    "9/10 Online" in amber — a claim contradicted 20px below itself, and redundant
-                    with that panel's own counter. It is gone rather than re-derived, because a
-                    second status indicator for the same fact is the thing that drifted.
-                    The pipeline chip IS derived, from real run state. */}
-                {activeRightTab === "pipeline" && (
-                  <span className={`${RAIL_BADGE_BASE} ${
-                    isPipelineActive
-                      ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
-                      : result
-                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25"
-                      : "bg-[var(--cs-surface)] text-[var(--cs-text-secondary)] border-[var(--cs-border)]"
-                  }`}>
-                    {isPipelineActive ? (
-                      <Activity className="w-3 h-3 text-amber-500 animate-pulse shrink-0" />
-                    ) : result ? (
-                      <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    )}
-                    {isPipelineActive ? "Live Execution" : result ? "Result Loaded" : "Pipeline Ready"}
-                  </span>
-                )}
+            {activeRightTab === "telemetry" ? (
+              <div key="telemetry" id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex-1 min-h-0 flex flex-col cs-tab-transition">
+                <LiveTelemetryPanel className="flex-1 min-h-0" />
               </div>
-
-              {activeRightTab === "telemetry" ? (
-                <div key="telemetry" id="panel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex-1 min-h-0 flex flex-col cs-tab-transition">
-                  <LiveTelemetryPanel className="flex-1 min-h-0" />
-                </div>
-              ) : (
-                <div key="pipeline" id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 min-h-0 flex flex-col justify-between gap-2.5 cs-tab-transition">
-                  {/* Matching Subheader */}
-                  <div className="flex items-center justify-between px-1 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-semibold text-cs-text-primary">
-                        Workflow Pipeline Execution
-                      </span>
-                      <span className="text-[10px] font-mono text-[var(--cs-text-muted)] px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-surface-2)] border border-[var(--cs-border-subtle)]">
-                        {/* Derived from the list, never a literal: an eighth stage previously
-                            still read "7/7 Complete" on a pipeline that ran eight. */}
-                        {isPipelineActive
-                          ? "Running"
-                          : result
-                          ? `${WORKFLOW_STAGES.length}/${WORKFLOW_STAGES.length} Complete`
-                          : `${WORKFLOW_STAGES.length} Stages`}
-                      </span>
-                    </div>
+            ) : (
+              <div key="pipeline" id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 min-h-0 flex flex-col gap-3 cs-tab-transition">
+                {/* Status line + progress. The count is derived from the list, never a literal. */}
+                <div className="flex flex-col gap-2 shrink-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-medium text-cs-text-primary inline-flex items-center gap-2">
+                      {isPipelineActive ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-cs-accent-clay" />
+                      ) : result ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[var(--cs-text-success)]" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-cs-border" aria-hidden="true" />
+                      )}
+                      {pipelineStatusLabel}
+                    </span>
+                    <span className="text-[11px] tabular-nums text-cs-text-muted">
+                      {hasRun
+                        ? `${settledCount} of ${WORKFLOW_STAGES.length} done`
+                        : `${WORKFLOW_STAGES.length} stages`}
+                    </span>
                   </div>
+                  {hasRun && (
+                    <div
+                      className="h-1 rounded-full bg-cs-surface-2 overflow-hidden"
+                      role="progressbar"
+                      aria-label="Pipeline progress"
+                      aria-valuemin={0}
+                      aria-valuemax={WORKFLOW_STAGES.length}
+                      aria-valuenow={settledCount}
+                    >
+                      <div
+                        className={`h-full rounded-full transition-[width] duration-300 ease-out ${isPipelineActive ? "bg-cs-accent-clay" : "bg-[var(--cs-text-success)]"}`}
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                  )}
+                  {isPipelineActive && loadingStep && (
+                    <p className="text-[11px] text-cs-text-muted truncate" aria-live="polite">{loadingStep}</p>
+                  )}
+                </div>
 
-                  {/* Workflow Live Stages List — same row rhythm as the telemetry rail,
-                      with surplus height distributed INTO the rows rather than the gaps:
-                      each bar is `flex-1` so the seven stages share the track equally and
-                      fill it edge to edge, instead of pooling dead space between bars. */}
-                  <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col gap-2 my-0.5">
-                    {WORKFLOW_STAGES.map(({ key, title, Icon, targetView }) => {
-                      const info = getStageInfo(key as any);
-                      const isClickable = !!result && !!onViewChange;
-                      /* Branch on the state, not the rendered word: `info.status` is a display label. */
-                      const isRunning = info.rawStatus === "progress";
-                      const isDone = info.rawStatus === "complete";
-                      const isDegraded = info.rawStatus === "degraded";
-                      const isErr = info.rawStatus === "error";
+                {/* Stepper */}
+                <ol className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col">
+                  {stageInfos.map(({ stage: { key, title, Icon, targetView }, info }, i) => {
+                    const isClickable = !!result && !!onViewChange;
+                    /* Branch on the state, not the rendered word: `info.status` is a display label. */
+                    const isRunning = info.rawStatus === "progress";
+                    const isDone = info.rawStatus === "complete";
+                    const isDegraded = info.rawStatus === "degraded";
+                    const isErr = info.rawStatus === "error";
+                    const isLast = i === WORKFLOW_STAGES.length - 1;
 
-                      return (
+                    const node = isRunning
+                      ? "border-cs-accent-clay text-cs-accent-clay bg-cs-surface"
+                      : isDone
+                      ? "border-transparent bg-[var(--cs-bg-success)] text-[var(--cs-text-good-on-soft)]"
+                      : isDegraded || isErr
+                      ? "border-transparent bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]"
+                      : "border-cs-border-subtle bg-cs-surface text-cs-text-muted";
+
+                    return (
+                      <li key={key} className="relative flex">
+                        {/* connector */}
+                        {!isLast && (
+                          <span
+                            className={`absolute left-[19px] top-[34px] bottom-[-2px] w-px ${isDone ? "bg-[var(--cs-text-success)]/40" : "bg-cs-border-subtle"}`}
+                            aria-hidden="true"
+                          />
+                        )}
                         <div
-                          key={key}
                           onClick={() => isClickable && onViewChange?.(targetView)}
                           role={isClickable ? "button" : undefined}
                           tabIndex={isClickable ? 0 : undefined}
@@ -1119,86 +1147,69 @@ function VariantSearchPanel({
                               onViewChange?.(targetView);
                             }
                           }}
-                          className={`flex-1 min-h-[46px] px-3 py-2 rounded-[var(--cs-radius-input)] border transition-[border-color,background-color,scale] duration-150 ease-out flex items-center justify-between gap-2.5 select-none bg-[var(--cs-surface)] ${
-                            isClickable ? "cursor-pointer hover:border-[var(--cs-accent-clay)]/70 hover:bg-[var(--cs-surface-2)] shadow-xs active:scale-[0.99] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--cs-accent-clay)]" : ""
-                          } ${
-                            isDone
-                              ? "border-[var(--cs-border)]"
-                              : isRunning
-                              ? "border-[var(--cs-accent-clay)]/50"
-                              : isDegraded || isErr
-                              ? "border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/10"
-                              : "border-[var(--cs-border-subtle)]"
+                          className={`group flex-1 min-w-0 flex items-start gap-3 px-1.5 py-1.5 rounded-[var(--cs-radius-input)] select-none transition-colors duration-150 ${
+                            isClickable
+                              ? "cursor-pointer hover:bg-cs-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                              : ""
                           }`}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            {/* One icon slot: it carries the stage's identity while the stage
-                                is idle, and switches to the state glyph once there is a state
-                                worth reporting. The status pill below always states it in text. */}
+                          {/* One icon slot: the stage's identity while idle, the state glyph once
+                              there is a state worth reporting. */}
+                          <span className={`relative z-[1] w-[26px] h-[26px] shrink-0 rounded-full border flex items-center justify-center ${node}`}>
                             {isRunning ? (
-                              <Loader2 className="w-4 h-4 animate-spin text-[var(--cs-accent-clay)] shrink-0" />
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : isDone ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                              <CheckCircle2 className="w-3.5 h-3.5" />
                             ) : isDegraded || isErr ? (
-                              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                              <AlertTriangle className="w-3.5 h-3.5" />
                             ) : (
-                              <Icon className="w-4 h-4 text-[var(--cs-text-muted)] shrink-0" />
+                              <Icon className="w-3.5 h-3.5" />
                             )}
+                          </span>
 
-                            <div className="flex flex-col min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[12px] font-semibold text-cs-text-primary truncate">
-                                  {title}
+                          <div className="flex flex-col min-w-0 flex-1 pt-[3px] pb-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[12.5px] font-medium text-cs-text-primary truncate">{title}</span>
+                              {/* Pending before any run says nothing; the state word appears once it does. */}
+                              {hasRun && !(info.rawStatus === "pending") ? (
+                                <span
+                                  className={`text-[11px] shrink-0 ${
+                                    isRunning
+                                      ? "text-cs-text-accent"
+                                      : isDone
+                                      ? "text-[var(--cs-text-good-on-soft)]"
+                                      : isDegraded || isErr
+                                      ? "text-[var(--cs-text-warning-on-soft)]"
+                                      : "text-cs-text-muted"
+                                  }`}
+                                >
+                                  {info.status}
                                 </span>
-                              </div>
-                              <span className="text-[10px] text-cs-text-secondary truncate font-sans leading-tight">
-                                {info.desc}
-                              </span>
+                              ) : hasRun ? (
+                                <span className="text-[11px] text-cs-text-muted shrink-0">{info.status}</span>
+                              ) : null}
                             </div>
+                            <span className="text-[11px] leading-snug text-cs-text-muted line-clamp-2">{info.desc}</span>
                           </div>
 
-                          {/* Right Action / Status Badge */}
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`text-[9.5px] font-mono font-bold uppercase px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] border ${
-                              isDone
-                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                                : isRunning
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                : isDegraded || isErr
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                                : "bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20"
-                            }`}>
-                              {info.status}
-                            </span>
-
-                            {isClickable && (
-                              <span className="p-0.5 rounded text-cs-text-muted hover:text-cs-accent-clay transition-colors">
-                                <ArrowRight className="w-3.5 h-3.5" />
-                              </span>
-                            )}
-                          </div>
+                          {isClickable && (
+                            <ArrowRight className="w-3.5 h-3.5 mt-1.5 shrink-0 text-cs-text-muted opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150" aria-hidden="true" />
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </li>
+                    );
+                  })}
+                </ol>
 
-                  {/* ── Right-column status footer — same 8px radius as the stage bars above it */}
-                  <div className="cs-nested-panel p-3 px-3.5 text-[11.5px] leading-relaxed flex items-center gap-2.5 shadow-xs shrink-0" style={{ color: "var(--cs-text-secondary)", borderRadius: "var(--cs-radius-input)" }}>
-                    <Zap className="w-4 h-4 text-[var(--cs-accent-clay)] shrink-0" />
-                    <span className="truncate">
-                      {isPipelineActive
-                        ? loadingStep || "Processing pipeline analysis…"
-                        : result
-                          ? "Analysis complete! Click on any pipeline stage card to navigate and explore."
-                          : "Parallel biophysical computation engine ready"}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
+                {result && !isPipelineActive && onViewChange && (
+                  <p className="text-[11px] text-cs-text-muted shrink-0">Select a stage to open it.</p>
+                )}
+              </div>
+            )}
           </div>
-        </div>
+        </aside>
       </div>
+
     </div>
   );
 }

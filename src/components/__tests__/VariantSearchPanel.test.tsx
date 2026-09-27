@@ -2,7 +2,8 @@
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import VariantSearchPanel, { WORKFLOW_STAGES } from "../VariantSearchPanel";
+import VariantSearchPanel, { WORKFLOW_STAGES, formatVariantForDisplay } from "../VariantSearchPanel";
+import { ONBOARDING_BENCHMARK_PRESETS } from "../../shared/benchmarkPresets";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { SettingsProvider } from "../../context/SettingsContext";
 import { ACCEPTED_NOTATION_EXAMPLES, classifyNotation } from "../../shared/variantNotation";
@@ -143,7 +144,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     const geneInput = screen.getByPlaceholderText("e.g. CNNM2") as HTMLInputElement;
     const variantInput = screen.getByPlaceholderText("e.g. p.Gly380Arg") as HTMLInputElement;
     const genomicInput = screen.getByPlaceholderText("e.g. 20-23365054-G-A") as HTMLInputElement;
-    const uniprotInput = screen.getByPlaceholderText("e.g. Q9H8M5 (Auto-resolved if omitted)") as HTMLInputElement;
+    const uniprotInput = screen.getByPlaceholderText("e.g. Q9H8M5") as HTMLInputElement;
 
     // Type into Gene field
     fireEvent.change(geneInput, { target: { value: "MECP2" } });
@@ -202,34 +203,34 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     renderPanel();
 
     // Verify Telemetry is active by default
-    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
     expect(screen.getByText("Ensembl VEP")).toBeInTheDocument();
     expect(screen.getByText("FoldX Engine")).toBeInTheDocument();
     expect(screen.getByText("P2Rank Pocket Engine")).toBeInTheDocument();
 
     // Click on Workflow Pipeline tab
-    const pipelineTabBtn = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const pipelineTabBtn = screen.getByRole("tab", { name: /Pipeline/i });
     await act(async () => {
       fireEvent.click(pipelineTabBtn);
     });
 
     // Verify Workflow Pipeline view is now active
-    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: /Pipeline/i })).toBeInTheDocument();
     expect(screen.getByText("3D Structure")).toBeInTheDocument();
 
     // Click back to Service Telemetry
-    const telemetryTabBtn = screen.getByRole("tab", { name: /Service Telemetry/i });
+    const telemetryTabBtn = screen.getByRole("tab", { name: /Services/i });
     await act(async () => {
       fireEvent.click(telemetryTabBtn);
     });
-    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
   });
 
   it("auto-switches to Workflow Pipeline tab when isPipelineActive becomes true", async () => {
     renderPanel();
 
     // Starts in Telemetry
-    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
 
     // Trigger pipeline active state in store
     await act(async () => {
@@ -237,14 +238,14 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     });
 
     // Verify it automatically switched to Workflow Pipeline
-    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: /Pipeline/i })).toBeInTheDocument();
   });
 
   it("auto-switches to Workflow Pipeline tab when search form is submitted", async () => {
     renderPanel();
 
     // Starts in Telemetry
-    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
 
     const geneInput = screen.getByPlaceholderText("e.g. CNNM2");
     const form = geneInput.closest("form");
@@ -255,14 +256,14 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     });
 
     // Verify submit triggers switch to Workflow Pipeline
-    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: /Pipeline/i })).toBeInTheDocument();
   });
 
   it("renders zero-history placeholder when search history is empty", () => {
     renderPanel();
 
-    expect(screen.getByText("No Recent Variant Analyses")).toBeInTheDocument();
-    expect(screen.getByText(/Analyzed variants in this session will appear here/i)).toBeInTheDocument();
+    expect(screen.getByText("No recent analyses")).toBeInTheDocument();
+    expect(screen.getByText(/Variants you analyse in this session will appear here/i)).toBeInTheDocument();
   });
 
   it("renders recent search pills when history is populated and selects item on click", async () => {
@@ -278,7 +279,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     renderPanel();
 
     // Verify recent analyses tray rendered
-    expect(screen.getByText("Recent Analyses (1)")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Recent analyses\s*1/i })).toBeInTheDocument();
     expect(screen.getByText("BRAF")).toBeInTheDocument();
     expect(screen.getByText("p.V600E")).toBeInTheDocument();
 
@@ -302,7 +303,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     });
 
     // Verify history cleared and placeholder appears
-    expect(screen.getByText("No Recent Variant Analyses")).toBeInTheDocument();
+    expect(screen.getByText("No recent analyses")).toBeInTheDocument();
   });
 
   it("applies cs-tab-transition animation to tab panels", async () => {
@@ -311,7 +312,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     const telemetryPanel = screen.getByRole("tabpanel");
     expect(telemetryPanel.className).toContain("cs-tab-transition");
 
-    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
     await act(async () => {
       fireEvent.click(pipelineTab);
     });
@@ -333,7 +334,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     );
 
     // Switch to Workflow Pipeline tab
-    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
     await act(async () => {
       fireEvent.click(pipelineTab);
     });
@@ -361,11 +362,11 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     expect(screen.queryByText("v1.0.0-dev")).not.toBeInTheDocument();
 
     // The pipeline badge IS derived from real run state, so it survives.
-    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
     await act(async () => {
       fireEvent.click(pipelineTab);
     });
-    expect(screen.getByText("Pipeline Ready")).toBeInTheDocument();
+    expect(screen.getByText("Pipeline ready")).toBeInTheDocument();
 
     // Verify service cards do not render redundant inline settings pills
     expect(screen.queryByTitle(/Configure FoldX Engine settings/i)).not.toBeInTheDocument();
@@ -376,8 +377,8 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   it("supports roving focus and arrow-key navigation across the rail switcher", async () => {
     renderPanel();
 
-    const telemetryTab = screen.getByRole("tab", { name: /Service Telemetry/i });
-    const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const telemetryTab = screen.getByRole("tab", { name: /Services/i });
+    const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
     const tablist = screen.getByRole("tablist", { name: /rail switcher|sidebar view switcher/i });
 
     // One tab stop, not two: the inactive segment is removed from the tab order.
@@ -387,32 +388,32 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     await act(async () => {
       fireEvent.keyDown(tablist, { key: "ArrowRight" });
     });
-    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /Workflow Pipeline/i }).getAttribute("tabindex")).toBe("0");
-    expect(screen.getByRole("tab", { name: /Service Telemetry/i }).getAttribute("tabindex")).toBe("-1");
+    expect(screen.getByRole("tabpanel", { name: /Pipeline/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Pipeline/i }).getAttribute("tabindex")).toBe("0");
+    expect(screen.getByRole("tab", { name: /Services/i }).getAttribute("tabindex")).toBe("-1");
 
     await act(async () => {
       fireEvent.keyDown(tablist, { key: "Home" });
     });
-    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.keyDown(tablist, { key: "End" });
     });
-    expect(screen.getByText("Evidence Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: /Pipeline/i })).toBeInTheDocument();
 
     // Arrow keys wrap rather than dead-ending at the edge.
     await act(async () => {
       fireEvent.keyDown(tablist, { key: "ArrowRight" });
     });
-    expect(screen.getByText("Service & Engine Telemetry")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
   });
 
   it("keeps the active tab's aria-controls resolvable and never points at an unmounted panel", async () => {
     renderPanel();
 
-    const active = screen.getByRole("tab", { name: /Service Telemetry/i });
-    const inactive = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+    const active = screen.getByRole("tab", { name: /Services/i });
+    const inactive = screen.getByRole("tab", { name: /Pipeline/i });
 
     expect(active.getAttribute("aria-controls")).toBe("panel-telemetry");
     expect(document.getElementById("panel-telemetry")).not.toBeNull();
@@ -489,7 +490,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     ])("validates the UniProt accession boundary %s -> %s", async (value, valid) => {
       renderPanel();
 
-      const uniprotInput = screen.getByPlaceholderText("e.g. Q9H8M5 (Auto-resolved if omitted)") as HTMLInputElement;
+      const uniprotInput = screen.getByPlaceholderText("e.g. Q9H8M5") as HTMLInputElement;
       await act(async () => {
         fireEvent.change(uniprotInput, { target: { value } });
       });
@@ -600,7 +601,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
   describe("workflow pipeline stage list", () => {
     const openPipeline = async () => {
-      const pipelineTab = screen.getByRole("tab", { name: /Workflow Pipeline/i });
+      const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
       await act(async () => {
         fireEvent.click(pipelineTab);
       });
@@ -613,7 +614,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       // Derived, not a literal: "7/7 Complete" was hardcoded against a 7-element array, so an
       // eighth stage would still have reported seven of seven as complete.
       const expectedCount = WORKFLOW_STAGES.length;
-      expect(screen.getByText(`${expectedCount} Stages`)).toBeInTheDocument();
+      expect(screen.getByText(`${expectedCount} stages`)).toBeInTheDocument();
 
       for (const stage of WORKFLOW_STAGES) {
         expect(screen.getByText(stage.title)).toBeInTheDocument();
@@ -629,5 +630,62 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(icons.length).toBeGreaterThan(0);
     });
   });
-});
 
+  describe("first-run benchmarks", () => {
+    it("loads a complete, submittable query — gene, notation and accession — and clears coordinates", async () => {
+      await act(async () => {
+        useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A" });
+      });
+      renderPanel();
+
+      const preset = ONBOARDING_BENCHMARK_PRESETS[0];
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: new RegExp(`Load benchmark ${preset.gene}`) }));
+      });
+
+      const state = useVariantAnalysisStore.getState();
+      expect(state.customGene).toBe(preset.gene);
+      expect(state.customVariant).toBe(preset.variant);
+      expect(state.customUniprot).toBe(preset.uniprotId);
+      expect(state.customGenomic).toBe("");
+    });
+
+    it("is replaced by the recent-analyses tray once there is history", async () => {
+      await act(async () => {
+        useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
+      });
+      renderPanel();
+      expect(screen.queryByRole("button", { name: /Load benchmark/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("history display", () => {
+    it.each([
+      ["p.ser489cys", "p.Ser489Cys"],
+      ["p.ARG408TRP", "p.Arg408Trp"],
+      ["p.Arg408Ter", "p.Arg408Ter"],
+      ["p.V600E", "p.V600E"],
+      ["c.1799T>A", "c.1799T>A"],
+      ["20-23365054-G-A", "20-23365054-G-A"],
+    ])("formats %s as %s without touching other notations", (input, expected) => {
+      expect(formatVariantForDisplay(input)).toBe(expected);
+    });
+  });
+
+  describe("pipeline progress", () => {
+    it("shows a progress bar only once a run exists", async () => {
+      renderPanel();
+      const pipelineTab = screen.getByRole("tab", { name: /Pipeline/i });
+      await act(async () => {
+        fireEvent.click(pipelineTab);
+      });
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+      await act(async () => {
+        useVariantAnalysisStore.setState({ isBiophysicalLoading: true });
+      });
+      const bar = screen.getByRole("progressbar", { name: /Pipeline progress/i });
+      expect(bar.getAttribute("aria-valuemax")).toBe(String(WORKFLOW_STAGES.length));
+    });
+  });
+});
