@@ -380,19 +380,22 @@
 
 /* Reduced-motion mode (set on <html> by SettingsContext)
    Suppress decorative/layout motion, but exempt essential loading indicators
-   so users maintain visual feedback for in-flight async operations. */
-html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion]),
-html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::before,
-html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::after {
+   so users maintain visual feedback for in-flight async operations. The
+   sidebar's `.ms-step[data-status="progress"]` ring is one of those: without
+   the exemption it froze on its initial rotation (gap at top) and read as a
+   static glyph while the pipeline spinners beside it kept turning. */
+html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not(.ms-step[data-status="progress"]):not([aria-busy="true"]):not([data-allow-motion]),
+html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not(.ms-step[data-status="progress"]):not([aria-busy="true"]):not([data-allow-motion])::before,
+html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not(.ms-step[data-status="progress"]):not([aria-busy="true"]):not([data-allow-motion])::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion]),
-  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::before,
-  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"]):not([data-allow-motion])::after {
+  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not(.ms-step[data-status="progress"]):not([aria-busy="true"]):not([data-allow-motion]),
+  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not(.ms-step[data-status="progress"]):not([aria-busy="true"]):not([data-allow-motion])::before,
+  html:not(.reduce-motion-optout) *:not(.animate-spin):not(.cs-spinner):not(.ms-step[data-status="progress"]):not([aria-busy="true"]):not([data-allow-motion])::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -403,7 +406,9 @@ html.reduce-motion *:not(.animate-spin):not(.cs-spinner):not([aria-busy="true"])
 /* Explicit rule ensuring spinners retain continuous iteration */
 html.reduce-motion .animate-spin,
 html.reduce-motion .cs-spinner,
+html.reduce-motion .ms-step[data-status="progress"],
 html:not(.reduce-motion-optout) .animate-spin,
-html:not(.reduce-motion-optout) .cs-spinner {
+html:not(.reduce-motion-optout) .cs-spinner,
+html:not(.reduce-motion-optout) .ms-step[data-status="progress"] {
   animation-iteration-count: infinite !important;
 }
