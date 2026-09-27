@@ -88,15 +88,34 @@ Rather than relying on static, hardcoded variants, the application dynamically p
 ---
 
 ## 🧪 Verification & Testing
-The repository contains a robust Vitest test suite checking server-side input validation and regular expression safety:
-*   **Run Unit Tests**:
-    ```bash
-    npm test
-    ```
-*   **Run TypeScript Linter**:
-    ```bash
-    npm run lint
-    ```
+
+**Run this before you push:**
+
+```bash
+npm run verify
+```
+
+`verify` is exactly the gate set CI runs, in one command — there is one definition of which gates exist, and CI executes the same npm scripts on a clean clone, on another OS, against the commit rather than your working tree. `scripts/check-verify-parity.ts` enforces that as part of `npm run lint`: it fails if a workflow gates on a script `verify` does not reach, so the two cannot drift apart silently.
+
+| Gate | What it covers |
+| --- | --- |
+| `npm run lint` | architectural boundaries · focus indicators · verify-parity · `tsc --noEmit` |
+| `npm run test:coverage` | the Vitest suite, with coverage thresholds enforced |
+| `npm run verify:geometry` | the variant header and Functional Domains layout harnesses, rendered in headless Chromium |
+| `npm run build` | client, server, workers and proto assets |
+
+The geometry harnesses need a Chromium-based browser. They search the usual locations per platform and honour `GEOMETRY_BROWSER` / `CHROME_PATH` as an override, failing with that instruction rather than a stack trace. Everything they assert — `getBBox`, computed styles, `:focus-visible`, the rendered effect of a filter — is geometry `jsdom` cannot see, which is why a green `vitest` run says nothing about them.
+
+**Inner loop, while working:**
+
+```bash
+npm test          # the suite alone
+npm run lint      # static gates alone
+```
+
+**Deliberately not in `verify`:** `npm run audit`. It resolves against a live advisory database, so its verdict depends on when it runs rather than on the tree, and no code change can fix a newly-published advisory. It stays in CI, where the answer is recorded against the commit; it is allow-listed in `scripts/check-verify-parity.ts` with that reason.
+
+> Do not skip a CI gate because it passed locally. A local run attests to your working tree; CI attests to the commit — that everything needed was staged, that it builds from a clean `npm ci`, and that it passes on a platform you are not developing on. Deployment is gated on CI success (`cd.yml`), so bypassing it deploys unverified code.
 
 ---
 

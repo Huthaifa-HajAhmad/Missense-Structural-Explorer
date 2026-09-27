@@ -17,6 +17,18 @@ concurrency:
 # The build was pure added latency behind the tests, so it now runs alongside them, and so does the
 # measured-layout job: the wall-clock is the slowest job rather than the sum.
 #
+# RUN THE SAME SCRIPTS LOCALLY. `npm run verify` is this workflow's gate set in one command:
+# lint + test:coverage + verify:geometry + build. The point is not to run the gates twice — it is that
+# there is ONE definition of which gates exist. CI is not a slower re-run of an unknown set; it is the
+# same set, executed on a clean clone, on another OS, against the commit rather than the working tree.
+#
+# `scripts/check-verify-parity.ts` enforces that, as part of `npm run lint`: it fails if a workflow
+# gates on a script `verify` does not reach. It exists because the drift is silent and one-directional —
+# someone adds a gate here, CI starts catching a defect class, and `verify` keeps saying OK. See
+# doc/INSPECTOR_UI_UX_AUDIT.md §0.5 for what it cost: a neutral-ramp change pushed the disulfide swatch
+# to 2.85:1, no local command covered the harness that measures it, and a green local run of 2176 tests
+# said nothing about the step that failed.
+#
 # The Python/uv setup is GONE (36s: Set up Python, Install uv, Cache uv, uv sync). Every gate here —
 # check-boundaries, tsc, vitest, vite/esbuild — is Node-only, and `tools/` is a runtime dependency of
 # the deployed VM, not of this workflow. It was also a failure mode: run 35455821450 died there.
@@ -52,9 +64,13 @@ jobs:
         run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Run security audit
-        run: npm audit --audit-level=critical
+        # NOT part of `npm run verify`: it resolves against a live advisory database, so its verdict
+        # depends on when it runs rather than on the tree, and a developer cannot fix a newly-published
+        # advisory by editing code. Allow-listed in `scripts/check-verify-parity.ts` with that reason.
+        run: npm run audit
 
       - name: Run linter
+        # boundaries + focus indicators + verify-parity + tsc --noEmit
         run: npm run lint
 
       - name: Run tests and collect coverage
@@ -73,6 +89,13 @@ jobs:
   # headless Chromium and assert geometry jsdom cannot see: getBBox, computed styles, :focus-visible,
   # and the rendered effect of a filter. They exist because two layout regressions in the variant
   # header and four in the Functional Domains track were previously verified only by eye.
+  #
+  # One step, one script (`verify:geometry`), which is also what `npm run verify` calls. A failing
+  # step already skips the rest of its job, so splitting them bought no extra reporting.
+  #
+  # A Chromium-based browser is required. The harnesses search the usual locations per platform and
+  # take `GEOMETRY_BROWSER` / `CHROME_PATH` as an override, failing with that instruction rather
+  # than a stack trace. `ubuntu-latest` ships Chrome at /usr/bin/google-chrome.
   #
   # `ubuntu-latest` ships Chrome, which the runners discover at /usr/bin/google-chrome. Deployment
   # gates on this workflow's overall conclusion, so a geometry failure stops a deploy.
@@ -93,13 +116,11 @@ jobs:
       - name: Install Node dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
 
-      - name: Variant header geometry
-        run: npm run test:geometry
-
-      - name: Functional Domains sequence-track geometry
+      - name: Variant header and Functional Domains geometry
         env:
+          # Makes the harness save the render it measured, for the artifact step below.
           TRACK_SHOT: "1"
-        run: npm run test:geometry:function-track
+        run: npm run verify:geometry
 
       # A geometry failure is only actionable next to the render that produced it, and each
       # harness's dist/ is a self-contained page.
