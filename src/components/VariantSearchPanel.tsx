@@ -105,6 +105,38 @@ export const WORKFLOW_STAGES = [
 type RailTabId = "telemetry" | "pipeline";
 const RAIL_TAB_ORDER: RailTabId[] = ["telemetry", "pipeline"];
 
+/**
+ * Running marker for a pipeline stage: a dual-tone ring that spins on the node's own radius.
+ *
+ * The previous marker floated a loader arc in the middle of the 26px node. Geometrically centred,
+ * but a 270° arc's mass is asymmetric and swings around as it turns, so with ~6px of air on every
+ * side the eye never found a centre — the spinner read as perpetually off-centre in its circle.
+ * Riding the arc on the ring radius (a quiet track plus a clay arc on the same circle) is
+ * concentric by construction, and the track doubles as the node ring so the stage dot never
+ * disappears. `.animate-spin` is on the exemption list of the reduced-motion suppressors, so this
+ * keeps turning under `reduce-motion` like every other loading indicator.
+ */
+function StageSpinner() {
+  const radius = 11;
+  const circumference = 2 * Math.PI * radius;
+  const arc = circumference * 0.75;
+  return (
+    <svg viewBox="0 0 26 26" className="w-[26px] h-[26px] text-cs-accent-clay animate-spin" aria-hidden="true">
+      <circle cx="13" cy="13" r={radius} fill="none" stroke="var(--cs-border-subtle)" strokeWidth="2" />
+      <circle
+        cx="13"
+        cy="13"
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={`${arc} ${circumference - arc}`}
+      />
+    </svg>
+  );
+}
+
 type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
 
 /**
@@ -934,8 +966,12 @@ function VariantSearchPanel({
           </form>
         </section>
 
-          {/* ── Recent analyses / first-run benchmarks ── */}
-        <section aria-labelledby="recent-title" className="flex flex-col gap-3">
+          {/* ── Recent analyses / first-run benchmarks ──
+              Boxed on the same panel surface as the form and the rail, so the lower
+              row reads as a third structural element instead of loose chips under
+              the panel — the workspace then closes with the same two-surface rhythm
+              it opens with. */}
+        <section aria-labelledby="recent-title" className="cs-panel p-4 flex flex-col gap-3">
           {history.length > 0 ? (
             <>
               <div className="flex items-center justify-between gap-2">
@@ -1119,9 +1155,7 @@ function VariantSearchPanel({
                     const isErr = info.rawStatus === "error";
                     const isLast = i === WORKFLOW_STAGES.length - 1;
 
-                    const node = isRunning
-                      ? "border-cs-accent-clay text-cs-accent-clay bg-cs-surface"
-                      : isDone
+                    const node = isDone
                       ? "border-transparent bg-[var(--cs-bg-success)] text-[var(--cs-text-good-on-soft)]"
                       : isDegraded || isErr
                       ? "border-transparent bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]"
@@ -1154,18 +1188,21 @@ function VariantSearchPanel({
                           }`}
                         >
                           {/* One icon slot: the stage's identity while idle, the state glyph once
-                              there is a state worth reporting. */}
-                          <span className={`relative z-[1] w-[26px] h-[26px] shrink-0 rounded-full border flex items-center justify-center ${node}`}>
-                            {isRunning ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : isDone ? (
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                            ) : isDegraded || isErr ? (
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                            ) : (
-                              <Icon className="w-3.5 h-3.5" />
-                            )}
-                          </span>
+                              there is a state worth reporting. While running the node ring itself
+                              becomes the spinner — an arc floating mid-circle read as off-centre. */}
+                          {isRunning ? (
+                            <StageSpinner />
+                          ) : (
+                            <span className={`relative z-[1] w-[26px] h-[26px] shrink-0 rounded-full border flex items-center justify-center ${node}`}>
+                              {isDone ? (
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              ) : isDegraded || isErr ? (
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                              ) : (
+                                <Icon className="w-3.5 h-3.5" />
+                              )}
+                            </span>
+                          )}
 
                           <div className="flex flex-col min-w-0 flex-1 pt-[3px] pb-2">
                             <div className="flex items-center justify-between gap-2">

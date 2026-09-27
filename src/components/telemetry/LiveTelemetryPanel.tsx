@@ -480,10 +480,12 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
       {/* ── Grouped service list ── */}
       {/* Scrolls inside the rail only where the rail is height-locked (lg+); stacked on small screens
-          the list simply flows, since a nested scroller in a scrolling page is a trap. The bottom
-          fade is the scroll cue that `no-scrollbar` used to remove. */}
+          the list simply flows, since a nested scroller in a scrolling page is a trap. Paddings are
+          kept to what the full list needs — a taller phantom bottom padding used to push the content
+          a few pixels past the rail floor, so a scrollbar appeared (and a row was clipped) even with
+          visible space left in the panel. The fade stays paired with that padding as the scroll cue. */}
       <div className="relative flex-1 min-h-0">
-      <div className="flex flex-col gap-4 lg:absolute lg:inset-0 lg:overflow-y-auto lg:pb-6 [scrollbar-width:thin] lg:[mask-image:linear-gradient(to_bottom,black_calc(100%-24px),transparent)]">
+      <div className="flex flex-col gap-3 lg:absolute lg:inset-0 lg:overflow-y-auto lg:pb-3 [scrollbar-width:thin] lg:[mask-image:linear-gradient(to_bottom,black_calc(100%-12px),transparent)]">
         {groups.map(group => (
           <section key={group.id} aria-label={group.label} className="flex flex-col gap-1.5">
             <h3 className="px-1 text-[11px] font-medium text-cs-text-muted">{group.label}</h3>
@@ -506,7 +508,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                         svc.onAction?.();
                       }
                     }}
-                    className={`group flex items-center gap-2.5 px-3 py-1.5 min-h-[42px] select-none transition-colors duration-150 ${
+                    className={`group flex items-center gap-2.5 px-3 py-1 min-h-[42px] select-none transition-colors duration-150 ${
                       svc.isDown
                         ? "bg-[var(--cs-bg-danger)]"
                         : svc.isDegraded
