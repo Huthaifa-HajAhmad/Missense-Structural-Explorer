@@ -79,3 +79,36 @@ export const CLIENT_FOLDX_POLL_REQUEST_MS = 30_000; // 30 s
  * it, so this timer IS the backpressure — do not set it to zero.
  */
 export const BIOPHYSICS_RETRY_COOLDOWN_MS = 15 * 60 * 1000; // 15 min
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PROGRESSIVE-STREAM LIVENESS — two numbers that must stay related
+ * ─────────────────────────────────────────────────────────────────────────────
+ * `/analyze-variant/stream` is NDJSON: the server writes a chunk the moment a source settles, and
+ * the client renders each one. Between two *data* chunks there used to be nothing at all, and the
+ * client treated silence as death.
+ *
+ * The numbers were wrong in relation to each other. The server budgets one stage at
+ * `CONFIG.timeouts.coreAnalysisMs` (45 s), while the client aborted the body after 30 s of
+ * silence — so the client hung up on a server that was inside its own budget, and the user was
+ * shown "Streaming connection stalled" for a run that was still working. (Recorded as M4 in
+ * `doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md`; that audit narrowed one contributor to the gap instead
+ * of reconciling the two clocks.)
+ *
+ * The fix is a heartbeat, not a bigger number. The server now writes
+ * `{"type":"heartbeat"}` every {@link STREAM_HEARTBEAT_MS}, which keeps a HEALTHY-but-slow run
+ * alive and leaves the silence bound to detect a genuinely dead transport — which is the only
+ * thing it was ever good for. `server/tests/stream-heartbeat-budget.test.ts` fails if the two
+ * ever drift back into each other's range.
+ */
+export const STREAM_HEARTBEAT_MS = 5_000; // 5 s
+
+/**
+ * How long the client tolerates a completely silent stream before giving up.
+ *
+ * MUST exceed {@link STREAM_HEARTBEAT_MS} several times over: one missed heartbeat is a scheduling
+ * hiccup, three in a row is a dead connection. Deliberately NOT named `…WATCHDOG…` — the FoldX
+ * budget test asserts that no absolute watchdog exists in this module, because a timer armed
+ * before a two-phase job cannot tell `queued` from `running` (see the FoldX section above).
+ */
+export const CLIENT_STREAM_IDLE_BUDGET_MS = 30_000; // 30 s

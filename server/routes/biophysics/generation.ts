@@ -363,6 +363,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
 
         let queueJobId: string | null = null;
         isExistingActiveJob = false;
+        /**
+         * The joined job's real state, when this request joined one instead of creating it.
+         *
+         * Without this the response described a RUNNING job as "queued" with a queue position
+         * computed from other waiting jobs — a constant presented as an observation, corrected only
+         * by the first poll. `existingJobData` is read below, inside the join branch.
+         */
+        let joinedJobStatus: "queued" | "running" | null = null;
+        let joinedJobPhase: string | null = null;
+        let joinedJobStartedAt: number | null = null;
 
         if (!cachedFoldx) {
           const queue = BiophysicalJobQueue.getInstance();
@@ -372,7 +382,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             if (statusInfo && (statusInfo.status === "queued" || statusInfo.status === "running")) {
               queueJobId = existingJobId;
               isExistingActiveJob = true;
+              joinedJobStatus = statusInfo.status;
+              joinedJobStartedAt = statusInfo.startedAt ?? null;
               const existingJobData = await queue.getJobData(existingJobId);
+              joinedJobPhase = typeof existingJobData?.phase === "string" ? existingJobData.phase : null;
               if (existingJobData && existingJobData.remoteJobs) {
                 dynamut2JobId = existingJobData.remoteJobs.dynamut2JobId;
                 dynamut2Status = existingJobData.remoteJobs.dynamut2Status;
@@ -436,14 +449,23 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           if (!queueJobId || isExistingActiveJob) return;
           try {
             const queue = BiophysicalJobQueue.getInstance();
-            const jobData = await queue.getJobData(queueJobId);
-            if (jobData && jobData.remoteJobs) {
-              jobData.remoteJobs = {
-                ...jobData.remoteJobs,
-                ...updates
+            /**
+             * Through `mutateJobData`, not get-then-update.
+             *
+             * The previous read-modify-write straddled awaits, so a phase written by the FoldX
+             * worker inside that window was overwritten by this writer's stale copy of the blob.
+             * Both writers now share one serialised chain per job.
+             */
+            await queue.mutateJobData(queueJobId, jobData => {
+              if (!jobData) return jobData;
+              return {
+                ...jobData,
+                remoteJobs: {
+                  ...(jobData.remoteJobs || {}),
+                  ...updates
+                }
               };
-              await queue.updateJobData(queueJobId, jobData);
-            }
+            });
           } catch (err: any) {
             console.warn("[updateQueueJobRemoteData Warning] Failed to update queue job:", err.message);
           }
@@ -708,6 +730,23 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         res.json({
           status: "queued",
           foldxJobId: queueJobId,
+          /**
+           * The job's first honest progress report.
+           *
+           * A NEW job is queued by definition. A JOINED job is reported as it actually is: a
+           * response that echoed `phase:"queued"` at a job already repairing its template made the
+           * banner say "Waiting for a free force-field worker" — with a queue position belonging to
+           * no wait — for up to one poll interval.
+           */
+          phase: joinedJobStatus === "running" ? joinedJobPhase : "queued",
+          startedAt: joinedJobStartedAt,
+          // Measured here, in this host's clock, for the same reason the poll route does it.
+          elapsedMs: joinedJobStatus === "running" && joinedJobStartedAt
+            ? Math.max(0, Date.now() - joinedJobStartedAt)
+            : null,
+          queuedAhead: joinedJobStatus === "running"
+            ? 0
+            : (queueJobId ? await BiophysicalJobQueue.getInstance().getQueuePosition(queueJobId) : null),
           dynamut2JobId,
           dynamut2Status,
           ddmutJobId,

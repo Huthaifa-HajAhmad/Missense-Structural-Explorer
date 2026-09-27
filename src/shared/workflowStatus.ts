@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "./contracts.ts";
 import { toCanonicalDdg, formatDdg, type EnergyEngineId } from "./engineStatus.ts";
+import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
 
@@ -29,6 +30,13 @@ export interface WorkflowStageStatusParams {
   view: string;
   result?: AnalysisResult | null;
   isFolding?: boolean;
+  /**
+   * The FoldX phase the worker reported, when there is one.
+   *
+   * Optional, and `null` is meaningful: the rail then uses the legacy wording rather than guessing
+   * a stage. See `foldxPhase.ts` for why no surface may invent one.
+   */
+  foldingPhase?: FoldxPhase | null;
   isBiophysicalLoading?: boolean;
   isClinicalLoading?: boolean;
   isLoadingSearch?: boolean;
@@ -91,6 +99,7 @@ export function getWorkflowStageStatus(
     view,
     result,
     isFolding = false,
+    foldingPhase = null,
     isBiophysicalLoading = false,
     isClinicalLoading = false,
     isLoadingSearch = false,
@@ -99,6 +108,20 @@ export function getWorkflowStageStatus(
     isNarrativeLoading = false,
     hasStructureCoordinates = false
   } = p;
+
+  /**
+   * What the structure stage says while FoldX runs.
+   *
+   * The reported phase wins when there is one. When there is not — before the submit request has
+   * answered, or against a server that does not report phases — the copy is a statement about the
+   * RUN, not about a stage: "Repacking mutant side-chains…" named a step the app cannot establish
+   * (the job may still be queued), which is the same invented-status defect this module's vocabulary
+   * exists to prevent, and it contradicted the Energetics banner's honest "not reported" in the very
+   * same frame.
+   */
+  const foldxActivityDesc =
+    describeFoldxPhase(foldingPhase)?.detail ??
+    "FoldX force-field run in progress — stage not reported by the compute server yet.";
 
   // Define default descriptions for stages
   const defaultDescs: Record<string, string> = {
@@ -180,7 +203,7 @@ export function getWorkflowStageStatus(
       if (isFolding || !!isPocketLoading) {
         return {
           status: "progress",
-          desc: isFolding ? "Repacking mutant side-chains..." : "Running binding pocket solver..."
+          desc: isFolding ? foldxActivityDesc : "Running binding pocket solver..."
         };
       }
       // PDB coordinates are available when:

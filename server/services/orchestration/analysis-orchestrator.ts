@@ -18,6 +18,7 @@ import { fetchCoreVariantData } from "../external-api/core-data-fetcher.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
 import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
 import { CANONICAL_ASSEMBLY } from "../../../src/shared/assembly.ts";
+import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { CONFIG } from "../../config.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData, StructuralAnalysisData };
@@ -41,6 +42,24 @@ export {
  * automatic recovery within one window after it ends.
  */
 const REFUSAL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Removes server-internal routing metadata from a payload before it goes on the wire.
+ *
+ * `assembleCoreResponsePayload` carries `_internal.pdbMapping` for the STRUCTURAL route, which reads
+ * it back from the persisted record, and `/analyze-variant` destructures it away before responding.
+ * The stream route did not, so the final frame (and the cached-record frame) shipped internal
+ * mapping fields — pdbId, chainId, unpStart, structStart, resolution, method, identity — to the
+ * browser, where the client's `.passthrough()` schema then kept them in the result and in exports.
+ * Nothing in `src/` reads them.
+ *
+ * Persistence still receives the unmodified payload: the structural route depends on it.
+ */
+function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T, "_internal"> {
+  if (!payload || typeof payload !== "object") return payload;
+  const { _internal, ...clientPayload } = payload;
+  return clientPayload;
+}
 
 function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
@@ -113,13 +132,65 @@ export async function runCoreAnalysis(context: ParsedVariantContext): Promise<an
 
 /**
  * Progressive streaming orchestration for /analyze-variant/stream endpoint.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE CHUNK CONTRACT (read before changing what is written)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Three kinds of frame travel on this NDJSON stream, and a client must be able to tell them apart:
+ *
+ *   `{ chunkIndex, isFinal: false, data }`  progress. `data` carries only what has settled; the
+ *                                           status map is the full running map, so nothing that is
+ *                                           still `pending` can be mistaken for a measured absence.
+ *   `{ chunkIndex, isFinal: true,  data }`  the authoritative full payload. Consumers must treat
+ *                                           this one as the result; earlier frames are previews.
+ *   `{ type: "heartbeat" }`                 liveness ONLY — no data. Written every
+ *                                           `STREAM_HEARTBEAT_MS` even while nothing has settled.
+ *
+ * The heartbeat is what keeps the contract honest about CLOCKS: the client used to abort the body
+ * after 30 s of silence while this function was entitled to 45 s between data chunks, so a healthy
+ * run was reported as a stalled stream. Silence now means a dead transport, which is the only thing
+ * the client's bound can usefully detect.
  */
 export async function streamCoreAnalysis(
   context: ParsedVariantContext,
-  onChunk: (chunk: { chunkIndex: number; isFinal?: boolean; data: any }) => void,
+  onChunk: (chunk: { chunkIndex: number; isFinal?: boolean; data?: any; type?: "heartbeat" }) => void,
   signal?: AbortSignal
 ): Promise<any> {
   if (signal?.aborted) return null;
+
+  /**
+   * Armed BEFORE the first await.
+   *
+   * Chunk 1 cannot be written until ClinVar AND the predictors have answered (that pair is the
+   * fast triage's own barrier), so the first silence of a run is at its very start — precisely when
+   * the client's idle bound would otherwise fire on a healthy request.
+   *
+   * The body is guarded: it is the one write on this stream that runs outside any awaited call and
+   * any `try`, so a throw here (a torn socket) would surface as a timer-context uncaught exception
+   * rather than as a stream error. On a throw the interval retires rather than repeating.
+   */
+  const heartbeats = setInterval(() => {
+    try {
+      if (signal?.aborted) return;
+      onChunk({ chunkIndex: 0, isFinal: false, type: "heartbeat" });
+    } catch (err: any) {
+      console.warn("[Stream Heartbeat] Writer threw; retiring the heartbeat:", err?.message ?? err);
+      clearInterval(heartbeats);
+    }
+  }, STREAM_HEARTBEAT_MS);
+
+  try {
+    return await runStream(context, onChunk, signal);
+  } finally {
+    clearInterval(heartbeats);
+  }
+}
+
+async function runStream(
+  context: ParsedVariantContext,
+  onChunk: (chunk: { chunkIndex: number; isFinal?: boolean; data?: any; type?: "heartbeat" }) => void,
+  signal?: AbortSignal
+): Promise<any> {
 
   const {
     gene,
@@ -141,10 +212,22 @@ export async function streamCoreAnalysis(
     onChunk({
       chunkIndex: 1,
       isFinal: true,
-      data: healed
+      data: stripInternalFields(healed)
     });
     return healed;
   }
+
+  /**
+   * Preview frames are numbered after chunk 1 and before the final frame, so a consumer can order
+   * them (and a test can assert that the final frame is last). Only `isFinal` is load-bearing for
+   * correctness; the index exists so a lagging reader cannot mistake an out-of-order preview for
+   * the payload.
+   */
+  let previewIndex = 1;
+  const writePreview = (preview: { data: Record<string, unknown> }) => {
+    if (signal?.aborted) return;
+    onChunk({ chunkIndex: ++previewIndex, isFinal: false, data: preview.data });
+  };
 
   // Fast triage: fetch ClinVar + Predictors immediately with fine-grained status tracking
   const fastClinvarPromise = (async () => {
@@ -218,32 +301,49 @@ export async function streamCoreAnalysis(
       // route for this sequence, and a chunk that omits it leaves that request incomplete.
       sequence: sequence ?? null,
       mutatedSequence,
-      serviceStatus: {
-        clinvar: clinvarOutcome.status,
-        predictorData: predictorOutcome.status
-      }
+      // The FULL running map, not just the two settled keys. Chunk 1 is the first frame a client
+      // paints, so a map that omits the other eight sources leaves a consumer unable to tell
+      // "still working" from "measured, and empty" for the entire run.
+      serviceStatus: chunk1ServiceStatus
     },
     clinvar: clinvarRes,
     predictorData: predictorRes,
+    serviceStatus: chunk1ServiceStatus,
     ruleBasedInsights: preliminaryVerdict
   };
 
   onChunk({ chunkIndex: 1, isFinal: false, data: chunk1Data });
   if (signal?.aborted) return null;
 
-  // Complete remaining background pipelines concurrently, reusing fast triage promises
-  const fullCoreData = await fetchCoreVariantData(context, CONFIG.timeouts.coreAnalysisMs, {
-    clinvarPromise: fastClinvarPromise.then(r => r.data),
-    predictorPromise: fastPredictorPromise.then(r => r.data)
-  });
+  // Complete remaining background pipelines concurrently, reusing fast triage promises.
+  //
+  // Each source publishes the moment it settles, so the reader sees gnomAD the second gnomAD
+  // answers instead of waiting for the slowest of the eleven. It is also what removes the 30 s
+  // silence the client used to abort on.
+  //
+  // The triage's own STATUS travels with its data: this function caught the provider error, so
+  // `fetchCoreVariantData` cannot see it, and re-deriving the status from a null value reported an
+  // outage as a measured absence.
+  const fullCoreData = await fetchCoreVariantData(
+    context,
+    CONFIG.timeouts.coreAnalysisMs,
+    {
+      clinvarPromise: fastClinvarPromise.then(r => r.data),
+      predictorPromise: fastPredictorPromise.then(r => r.data),
+      clinvarStatus: clinvarOutcome.status,
+      predictorStatus: predictorOutcome.status
+    },
+    writePreview
+  );
   if (signal?.aborted) return null;
 
   const fullPayload = assembleCoreResponsePayload(fullCoreData, context);
 
   onChunk({
-    chunkIndex: 2,
+    // After every preview that was emitted before it, whatever number that reached.
+    chunkIndex: previewIndex + 1,
     isFinal: true,
-    data: fullPayload
+    data: stripInternalFields(fullPayload)
   });
 
   persistVariantAnalysisPayload(context, fullPayload, fullCoreData.ruleBasedInsights?.acmgVerdict || null);

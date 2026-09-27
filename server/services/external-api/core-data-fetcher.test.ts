@@ -193,4 +193,94 @@ describe("Core Data Fetcher Service Unit Tests", () => {
     expect(result.predictorData?.caddPhred).toBe(28.5);
     expect(result.serviceStatus.predictorData).toBe("ok");
   });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * PROGRESSIVE EMISSION — one preview per settled source
+   * ─────────────────────────────────────────────────────────────────────────────
+   * The stream route used to receive nothing from this function until ALL eleven sources had
+   * settled, so the second frame the reader ever saw waited on the slowest source. The listener
+   * below is what makes each source paintable the moment it answers.
+   *
+   * The status invariant is the important half: ONE function derives each status, so the running
+   * map a preview carries and the final map can never describe the same source differently.
+   */
+  describe("progressive emission", () => {
+    /**
+     * The falsifiable half: a preview must exist WHILE a source is still in flight.
+     *
+     * The assertions below are deliberately about ORDER and PRESENCE, because every "one preview per
+     * source" claim is also satisfied by an implementation that buffers all ten and flushes them at
+     * the end — which is the defect (a reader waiting on the slowest source) wearing the fix's shape.
+     * Holding STRING open behind a gate makes the difference observable: no preview can be flushed
+     * for it, so the previews that exist can only come from sources that already settled.
+     */
+    it("announces a source while another is still in flight, with the running map", async () => {
+      const { fetchStringInteractions } = await import("./string.ts");
+      let openStringGate: () => void = () => {};
+      const gate = new Promise<void>(resolve => { openStringGate = resolve; });
+      vi.mocked(fetchStringInteractions).mockImplementationOnce(async () => {
+        await gate;
+        return [{ preferredName: "QDPR", score: 0.95 }] as any;
+      });
+
+      const previews: any[] = [];
+      const pending = fetchCoreVariantData(baseContext, 2000, undefined, (partial) => {
+        previews.push(partial);
+      });
+
+      // Let microtasks drain: everything except the gated source can settle, but nothing may be
+      // flushed for it, and the fetch itself cannot complete.
+      await new Promise(resolve => setTimeout(resolve, 20));
+
+      expect(previews.length, "nothing was announced before the slowest source finished").toBeGreaterThan(0);
+      const beforeGate = previews[previews.length - 1];
+      expect(
+        beforeGate.serviceStatus.stringInteractions,
+        "the running map must keep a pending marker for a source that has not answered"
+      ).toBe("pending");
+      expect(beforeGate.data.stringInteractions).toBeUndefined();
+      // A source that HAS answered is already there, without waiting for the gate.
+      expect(beforeGate.serviceStatus.clinvar).toBe("ok");
+
+      openStringGate();
+      const result = await pending;
+
+      // The final payload is the authority, and the previews never contradicted it.
+      expect(result.serviceStatus.stringInteractions).toBe("ok");
+      expect(previews[previews.length - 1].serviceStatus.stringInteractions).toBe("ok");
+    });
+
+    it("publishes a total status map: every source is pending until it answers", async () => {
+      const previews: any[] = [];
+      const result = await fetchCoreVariantData(baseContext, 2000, undefined, (partial) => {
+        previews.push(partial);
+      });
+
+      const keys = Object.keys(result.serviceStatus);
+      for (const preview of previews) {
+        expect(
+          Object.keys(preview.serviceStatus).sort(),
+          "a preview that omits a source is indistinguishable from one that measured it as empty"
+        ).toEqual([...keys].sort());
+        expect(preview.data.serviceStatus).toEqual(preview.serviceStatus);
+        expect(preview.data.metadata.serviceStatus).toEqual(preview.serviceStatus);
+      }
+
+      // The FIRST preview still accounts for sources that have not answered — nothing is dropped.
+      expect(previews[0].serviceStatus.conservationData).toBe("pending");
+
+      // Each status the final payload reports appeared in a preview first, with the same value.
+      for (const [key, status] of Object.entries(result.serviceStatus)) {
+        const announced = previews.some(p => p.serviceStatus[key] === status);
+        expect(announced, `${key} was decided in the payload but never announced`).toBe(true);
+      }
+    });
+
+    it("works with no listener at all (the non-streaming route)", async () => {
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(result.clinvar?.classification).toBe("Pathogenic");
+      expect(result.serviceStatus.clinvar).toBe("ok");
+    });
+  });
 });

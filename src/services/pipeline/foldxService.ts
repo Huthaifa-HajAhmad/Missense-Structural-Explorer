@@ -1,5 +1,6 @@
 import { BiophysicsConditions, StructureProvenance } from "../../types";
 import { generateMutantResponseSchema } from "../../shared/contracts";
+import { isFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
 import {
   CLIENT_FOLDX_POLL_BUDGET_MS,
   CLIENT_FOLDX_POLL_REQUEST_MS,
@@ -69,9 +70,56 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     return;
   }
 
+  /**
+   * Progress reporting — declared before the first sink write, because the initial report below
+   * has to be able to call it (a `let` used before its initialiser is a TDZ crash).
+   */
+  let lastProgressSignature = "";
+
+  /**
+   * Pushes the server's phase to the store, but only when it CHANGES.
+   *
+   * The poll loop runs every 2-5 s for the length of a run, and a fresh object each time would
+   * re-render every surface that reads progress. The signature is the tuple a reader can see.
+   */
+  const publishProgress = (progress: FoldxProgress | null) => {
+    if (!sink.setFoldingProgress) return;
+    const signature = progress
+      ? `${progress.phase}|${progress.elapsedMs === null ? "null" : Math.round(progress.elapsedMs / 1000)}|${progress.queuePosition}`
+      : "none";
+    if (signature === lastProgressSignature) return;
+    lastProgressSignature = signature;
+    sink.setFoldingProgress(progress);
+  };
+
+  /**
+   * Reads the progress fields off a job payload.
+   *
+   * Every field is validated rather than trusted: a phase the shared vocabulary does not know is
+   * dropped (so a newer server cannot make this client render a stage it cannot name), and a
+   * duration that is not a finite non-negative number is ignored rather than rendered as a
+   * nonsensical age.
+   */
+  const progressFrom = (payload: any): FoldxProgress | null => {
+    if (!payload || typeof payload !== "object") return null;
+    const phase = isFoldxPhase(payload.phase) ? payload.phase : null;
+    const rawElapsed = Number(payload.elapsedMs);
+    const elapsedMs = Number.isFinite(rawElapsed) && rawElapsed >= 0 ? rawElapsed : null;
+    const queuePosition = Number.isFinite(payload.queuedAhead) ? Number(payload.queuedAhead) : null;
+    if (!phase && elapsedMs === null && queuePosition === null) return null;
+    return { phase, elapsedMs, queuePosition, receivedAt: Date.now() };
+  };
+
   sink.setIsFolding(true);
   sink.setFoldingError(null);
   sink.setFoldingStatus(null);
+  /**
+   * No phase yet, and that is the honest report: the submit request is resolving a structure
+   * server-side, so nothing has been queued. The UI renders "Running" with an age and no stage
+   * claim until the server names one — the alternative (a locally guessed stage) is what produced
+   * "Finalizing" for five minutes of structure repair.
+   */
+  publishProgress(null);
 
   /**
    * The latest remote-engine state seen — seeded with what this variant ALREADY had, so the error
@@ -174,6 +222,12 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     const data: GenerateMutantData = parsed.success ? parsed.data : (raw as GenerateMutantData);
 
     if (signal.aborted || getActiveRequestId() !== requestId) return;
+
+    /**
+     * The submit response says whether the job is queued and how many jobs are ahead of it. It is
+     * the first moment the client can describe the wait honestly.
+     */
+    publishProgress(progressFrom(data));
 
     // Propagate remote job IDs and statuses immediately from initial /generate-mutant response
     if (data.dynamut2JobId != null) sink.setDynamut2JobId(data.dynamut2JobId);
@@ -371,10 +425,23 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         consecutiveErrors = 0;
         const pollData = await readJsonWithTimeout(pollRes, CLIENT_FOLDX_POLL_REQUEST_MS);
 
+        /**
+         * Re-checked AFTER the body read, not only before it.
+         *
+         * The guard above runs before `readJsonWithTimeout`, which awaits; a run aborted inside that
+         * window would otherwise publish its own phase into the store after the REPLACEMENT run had
+         * already cleared it — the previous variant's stage displayed beside the new variant's
+         * spinner. The per-run signature dedup cannot catch that: it is local to this invocation.
+         */
+        if (signal.aborted || getActiveRequestId() !== requestId) return;
+
         // The job has left the queue: from here the execution budget applies, not the queue budget.
         if (pollData.status === "running" && executionStart === null) {
           executionStart = Date.now();
         }
+
+        // The worker's own account of what it is doing — rendered verbatim, never guessed at.
+        publishProgress(progressFrom(pollData));
 
         // Update remote job IDs dynamically if newly resolved
         if (pollData.dynamut2JobId != null) sink.setDynamut2JobId(pollData.dynamut2JobId);
@@ -481,6 +548,9 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
           // Release UI folding state immediately
           sink.setIsFolding(false);
+          // The run is over, so there is no phase to report; leaving the last one on screen would
+          // keep "Structure repair" visible over a finished result.
+          publishProgress(null);
 
           if (pollData.status === "failed") {
             throw new Error(pollData.error || "Background FoldX execution failed.");
@@ -510,6 +580,9 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
     sink.setFoldingError(msg || "FoldX simulation failed.");
     sink.setFoldingStatus("failed");
+    // A failed run has no phase; a stale "Structure repair" beside a failure message is a
+    // contradiction the reader should never have to reconcile.
+    publishProgress(null);
   } finally {
     if (!signal.aborted && getActiveRequestId() === requestId) {
       sink.setIsFolding(false);

@@ -2,6 +2,7 @@ import { StateCreator } from "zustand";
 import { VariantBiophysicsState, createInitialBiophysicsState } from "../models";
 import type { PocketResult, EnergeticsData, StructuralDiffResult } from "../../types";
 import type { StructureProvenance } from "../../shared/contracts";
+import type { FoldxProgress } from "../../shared/foldxPhase";
 
 export interface BiophysicalState {
   // Normalized Sub-State Models
@@ -26,6 +27,8 @@ export interface BiophysicalState {
   foldedResidueIndex: number | null;
   /** @deprecated Use primaryBiophysics.isFolding */
   isFolding: boolean;
+  /** @deprecated Use primaryBiophysics.foldingProgress */
+  foldingProgress: FoldxProgress | null;
   /** @deprecated Use primaryBiophysics.foldingError */
   foldingError: string | null;
   /** @deprecated Use primaryBiophysics.foldingStatus */
@@ -105,6 +108,7 @@ export interface BiophysicalActions {
   setMutantPdb: (mutantPdb: string | null) => void;
   setFoldedResidueIndex: (foldedResidueIndex: number | null) => void;
   setIsFolding: (isFolding: boolean) => void;
+  setFoldingProgress: (foldingProgress: FoldxProgress | null) => void;
   setFoldingError: (foldingError: string | null) => void;
   setFoldingStatus: (foldingStatus: string | null) => void;
   setFoldingDdG: (foldingDdG: number | null) => void;
@@ -158,6 +162,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   mutantPdb: null,
   foldedResidueIndex: null,
   isFolding: false,
+  foldingProgress: null,
   foldingError: null,
   foldingStatus: null,
   foldingDdG: null,
@@ -223,6 +228,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
         ...(partial.mutantPdb !== undefined ? { mutantPdb: partial.mutantPdb } : {}),
         ...(partial.foldedResidueIndex !== undefined ? { foldedResidueIndex: partial.foldedResidueIndex } : {}),
         ...(partial.isFolding !== undefined ? { isFolding: partial.isFolding } : {}),
+        ...(partial.foldingProgress !== undefined ? { foldingProgress: partial.foldingProgress } : {}),
         ...(partial.foldingError !== undefined ? { foldingError: partial.foldingError } : {}),
         ...(partial.foldingStatus !== undefined ? { foldingStatus: partial.foldingStatus } : {}),
         ...(partial.foldingDdG !== undefined ? { foldingDdG: partial.foldingDdG } : {}),
@@ -247,6 +253,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
         mutantPdb: null,
         foldedResidueIndex: null,
         isFolding: false,
+        foldingProgress: null,
         foldingError: null,
         foldingStatus: null,
         foldingDdG: null,
@@ -300,6 +307,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
         mutantPdb: null,
         foldedResidueIndex: null,
         isFolding: false,
+        foldingProgress: null,
         foldingError: null,
         foldingStatus: null,
         foldingDdG: null,
@@ -341,7 +349,23 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
   })),
   setIsFolding: (isFolding) => set((state) => ({
     isFolding,
-    primaryBiophysics: { ...state.primaryBiophysics, isFolding }
+    /**
+     * The flag and the progress object move together.
+     *
+     * `isFolding` is the run's lifecycle; `foldingProgress` is its address. Clearing the flag while
+     * the last phase stays on screen is the contradiction this pairing removes: a finished run can
+     * never render "Structure repair" beside a result.
+     */
+    ...(isFolding ? {} : { foldingProgress: null }),
+    primaryBiophysics: {
+      ...state.primaryBiophysics,
+      isFolding,
+      ...(isFolding ? {} : { foldingProgress: null })
+    }
+  })),
+  setFoldingProgress: (foldingProgress) => set((state) => ({
+    foldingProgress,
+    primaryBiophysics: { ...state.primaryBiophysics, foldingProgress }
   })),
   setFoldingError: (foldingError) => set((state) => ({
     foldingError,
@@ -468,6 +492,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     mutantPdb: null,
     foldedResidueIndex: null,
     isFolding: false,
+    foldingProgress: null,
     foldingError: null,
     foldingStatus: null,
     foldingDdG: null,

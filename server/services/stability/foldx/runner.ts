@@ -14,7 +14,10 @@ import { calculateLocalSidechainRmsd } from "../../structure/structural-diff.ts"
 import {
   getMutantFromCache,
   writeMutantToCache,
-  getFoldxCacheKey
+  getFoldxCacheKey,
+  getRepairCacheKey,
+  getRepairedStructureFromCache,
+  writeRepairedStructureToCache
 } from "./cache.ts";
 import {
   getFoldxExecutionTarget,
@@ -95,6 +98,15 @@ export interface FoldxOptions {
   seed?: number;
 }
 
+/**
+ * Reports what the FoldX leg is doing, for the UI to render verbatim.
+ *
+ * The phase vocabulary lives in `src/shared/foldxPhase.ts` so the worker, the job record and the
+ * client all name the same four states. Awaited, so a caller that persists the phase cannot have
+ * its write overtaken by the next phase.
+ */
+export type FoldxPhaseReporter = (phase: "repairing" | "modelling" | "finalizing") => void | Promise<void>;
+
 const inFlightFoldx = new Map<string, Promise<any>>();
 
 export async function generateMutantPdb(
@@ -103,7 +115,12 @@ export async function generateMutantPdb(
   uniprotId: string | undefined,
   jobDir: string,
   signal?: AbortSignal,
-  options?: FoldxOptions
+  options?: FoldxOptions,
+  /**
+   * Progress callback. Optional and additive: every existing caller keeps working, and a caller
+   * that cannot persist a phase (a benchmark, a script) simply omits it.
+   */
+  onPhase?: FoldxPhaseReporter
 ): Promise<{ pdb: string; ddG: number | null; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   if (signal?.aborted) {
     throw new Error("Aborted");
@@ -126,7 +143,7 @@ export async function generateMutantPdb(
     promise = (async () => {
       try {
         const seed = options?.seed !== undefined ? options.seed : 12345;
-        const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, undefined, { ...options, seed });
+        const result = await generateMutantPdbInternal(wtPdb, validatedMutation, uniprotId, jobDir, undefined, { ...options, seed }, onPhase);
         writeMutantToCache(cacheKey, result);
         return result;
       } finally {
@@ -163,7 +180,8 @@ export async function generateMutantPdbInternal(
   uniprotId: string | undefined,
   jobDir: string,
   signal?: AbortSignal,
-  options?: FoldxOptions
+  options?: FoldxOptions,
+  onPhase?: FoldxPhaseReporter
 ): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   // Waiting for a concurrency slot is part of the job's wall-clock cost, so it is budgeted here
   // and counted against the queue's whole-job cap (see CONFIG.timeouts).
@@ -176,6 +194,12 @@ export async function generateMutantPdbInternal(
   await fs.promises.mkdir(jobDir, { recursive: true });
   const cleanedWt = cleanPdbForFoldX(wtPdb);
   await fs.promises.writeFile(fullWtPath, cleanedWt, "utf8");
+
+  /**
+   * Identity of the STRUCTURE, computed from the same normalised text the mutant cache hashes.
+   * Used for the repair cache, which must not depend on the mutation (see `cache.ts`).
+   */
+  const pdbHash = crypto.createHash("sha256").update(cleanedWt).digest("hex");
 
   // 2. Create mutation configuration text file (FoldX format: R A 215 W;)
   const mutMatch = validatedMutation.match(/^([a-zA-Z])([a-zA-Z])(\d+)([a-zA-Z])$/);
@@ -294,6 +318,15 @@ export async function generateMutantPdbInternal(
   let parsedResult: FoldxParsedResult | null = null;
   let foldxRepairFailed = false;
   let foldxRepairSkipped = false;
+  /**
+   * Distinguishes "this structure was repaired just now" from "this structure was repaired once and
+   * the coordinates were reused", and names WHICH heuristic skipped repair when it was skipped.
+   * Both travel into `energetics` so a surface can disclose them: a ΔΔG computed on an
+   * un-repaired template is a weaker claim, and the reason it was not repaired is either a
+   * deliberate cost guard (large structure) or a deliberate pLDDT guard (AlphaFold model).
+   */
+  let foldxRepairSkippedReason: "large-structure" | "alphafold-plddt" | undefined;
+  let foldxRepairCached = false;
   const residueCount = pdbResidues.length;
   // AlphaFold structures use pLDDT as B-factor (0-100 scale), which confuses
   // RepairPDB. Skip repair for AF structures to avoid constant failures.
@@ -319,36 +352,67 @@ export async function generateMutantPdbInternal(
     }
 
     if (shouldRepair) {
-      // 1. Run FoldX RepairPDB first to resolve starting steric clashes and stabilize energy delta
-      console.log(`[Biophysical Modeling] Running FoldX RepairPDB: ${foldxBin}...`);
-      try {
-        await execFileAsync(foldxBin, [
-          "--command=RepairPDB",
-          "--pdb=wt.pdb",
-          ...extraArgs
-        ], {
-          timeout: CONFIG.timeouts.foldxRepairMs,   // counted against the queue's whole-job cap
-          cwd: jobDir,
-          signal
-        });
-        const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
-        if (fs.existsSync(repairedPdbPath)) {
-          console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
-          await fs.promises.rename(repairedPdbPath, fullWtPath);
-        } else {
-          console.warn(`[Biophysical Modeling] RepairPDB warning: wt_Repair.pdb not found. Continuing with un-repaired structure.`);
+      /**
+       * Repair is a function of the STRUCTURE, not of the mutation, so it is cached on its own key
+       * and reused across variants. Without this every new substitution on the same template paid
+       * the full repack again — measured at 205 s of a 208 s run (see `cache.ts`).
+       *
+       * The repaired coordinates are still produced by FoldX RepairPDB; a cache hit only skips
+       * repeating identical work, and the payload says so (`foldxRepairCached`) rather than
+       * pretending a fresh minimisation happened.
+       */
+      const repairCacheKey = getRepairCacheKey(pdbHash, options);
+      const cachedRepair = await getRepairedStructureFromCache(repairCacheKey);
+
+      if (cachedRepair) {
+        console.log(`[Biophysical Modeling] Reusing cached FoldX-repaired template (${cachedRepair.pdb.length} bytes) — skipping RepairPDB.`);
+        await fs.promises.writeFile(fullWtPath, cachedRepair.pdb, "utf8");
+        foldxRepairCached = true;
+      } else {
+        // 1. Run FoldX RepairPDB first to resolve starting steric clashes and stabilize energy delta
+        console.log(`[Biophysical Modeling] Running FoldX RepairPDB: ${foldxBin}...`);
+        await onPhase?.("repairing");
+        try {
+          await execFileAsync(foldxBin, [
+            "--command=RepairPDB",
+            "--pdb=wt.pdb",
+            ...extraArgs
+          ], {
+            timeout: CONFIG.timeouts.foldxRepairMs,   // counted against the queue's whole-job cap
+            cwd: jobDir,
+            signal
+          });
+          const repairedPdbPath = path.join(jobDir, "wt_Repair.pdb");
+          if (fs.existsSync(repairedPdbPath)) {
+            console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
+            const repairedPdbText = await fs.promises.readFile(repairedPdbPath, "utf8");
+            void writeRepairedStructureToCache(repairCacheKey, repairedPdbText);
+            await fs.promises.writeFile(fullWtPath, repairedPdbText, "utf8");
+            /**
+             * The repaired file is REMOVED, exactly as the previous `rename` removed it.
+             *
+             * FoldX derives what it reads and how it names outputs from the file it is handed, and
+             * `wt_Repair.pdb` sitting beside `wt.pdb` is a template this runner never asked it to
+             * use. Leaving it behind would be an unverified change to BuildModel's input naming —
+             * for a run whose output files are looked up by name (`wt_1_0.pdb` / `Dif_wt.fxout`).
+             */
+            await fs.promises.unlink(repairedPdbPath).catch(() => {});
+          } else {
+            console.warn(`[Biophysical Modeling] RepairPDB warning: wt_Repair.pdb not found. Continuing with un-repaired structure.`);
+            foldxRepairFailed = true;
+          }
+        } catch (repairErr: any) {
+          console.warn(`[Biophysical Modeling] RepairPDB warning (failed):`, repairErr.message);
+          if (repairErr.stdout) console.log(`[RepairPDB STDOUT]:`, repairErr.stdout.slice(0, 500));
+          if (repairErr.stderr) console.error(`[RepairPDB STDERR]:`, repairErr.stderr.slice(0, 500));
+          if (repairErr.code) console.error(`[RepairPDB Exit Code]:`, repairErr.code);
           foldxRepairFailed = true;
         }
-      } catch (repairErr: any) {
-        console.warn(`[Biophysical Modeling] RepairPDB warning (failed):`, repairErr.message);
-        if (repairErr.stdout) console.log(`[RepairPDB STDOUT]:`, repairErr.stdout.slice(0, 500));
-        if (repairErr.stderr) console.error(`[RepairPDB STDERR]:`, repairErr.stderr.slice(0, 500));
-        if (repairErr.code) console.error(`[RepairPDB Exit Code]:`, repairErr.code);
-        foldxRepairFailed = true;
       }
     } else {
-      console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for large protein structure (${residueCount} residues) to expedite calculations.`);
       foldxRepairSkipped = true;
+      foldxRepairSkippedReason = isAlphaFoldPdb ? "alphafold-plddt" : "large-structure";
+      console.log(`[Biophysical Modeling] Skipping FoldX RepairPDB for ${isAlphaFoldPdb ? "AlphaFold model (pLDDT B-factors)" : `large protein structure (${residueCount} residues)`} to expedite calculations.`);
     }
 
     if (signal?.aborted) {
@@ -357,6 +421,7 @@ export async function generateMutantPdbInternal(
 
     // 2. Run FoldX BuildModel with 5 stochastic runs for publication-grade statistics (H1)
     console.log(`[Biophysical Modeling] Executing FoldX BuildModel (5 runs): ${foldxBin}...`);
+    await onPhase?.("modelling");
     let stdout = "", stderr = "";
     try {
       const execRes = await execFileAsync(foldxBin, [
@@ -494,6 +559,8 @@ export async function generateMutantPdbInternal(
     // asynchronously in energy-models.ts / biophysics-bridge.ts to keep FoldX decoupled.
     const bFactorMetadata = detectBFactorProvenance(wtPdb);
 
+    await onPhase?.("finalizing");
+
     const energetics = {
       ...(parsedResult ? {
         foldxMean: parsedResult.ddG,
@@ -507,6 +574,11 @@ export async function generateMutantPdbInternal(
       localSidechainRmsd,
       foldxRepairFailed,
       foldxRepairSkipped,
+      // Named only when repair was skipped, so the UI can say WHY rather than only that it was.
+      ...(foldxRepairSkippedReason ? { foldxRepairSkippedReason } : {}),
+      // Disclosed, not hidden: reuse changes nothing about the coordinates, but a reader auditing
+      // "was this template minimised for this run?" deserves the true answer.
+      ...(foldxRepairCached ? { foldxRepairCached: true } : {}),
       bFactorMetadata,
       rasp: null,
       raspReason: undefined,

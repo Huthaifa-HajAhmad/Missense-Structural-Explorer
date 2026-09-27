@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 export * from "./variantAnalysisUtils";
 import { VariantPreset } from "./types";
 import { useSettings } from "./context/SettingsContext";
@@ -53,6 +53,11 @@ export default function useVariantAnalysis() {
     resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState
   });
   const pipeline = useAnalysisPipeline();
+  /**
+   * Request generation for structural RE-evaluations, kept separate from the pipeline's own id.
+   * See `retryStructuralAnalysisWrapper` for why sharing it orphaned an in-flight FoldX run.
+   */
+  const structuralRetryIdRef = useRef(0);
 
   const variantStyles = getVariantStyles(isDark);
 
@@ -105,6 +110,7 @@ export default function useVariantAnalysis() {
           },
           biophysical: {
             setIsFolding: currentStore.setIsFolding,
+            setFoldingProgress: currentStore.setFoldingProgress,
             setFoldingError: currentStore.setFoldingError,
             setFoldingStatus: currentStore.setFoldingStatus,
             setMutantPdb: currentStore.setMutantPdb,
@@ -132,8 +138,20 @@ export default function useVariantAnalysis() {
             setComputedResiduesCache: currentStore.setComputedResiduesCache,
             setDisruptionPredictor: currentStore.setDisruptionPredictor,
             resetViewerState,
+            /**
+             * The four missing poll-clear handlers.
+             *
+             * `normalizePipelineOptions` returns a caller-supplied `sinks` object AS IS, so a member
+             * this adapter omits arrives as `undefined` and every `clearX?.()` inside the pipeline
+             * silently does nothing — the DDMut/ThermoMPNN pollers kept running across a new query
+             * and could write a previous variant's result into the current one.
+             */
             clearDynaMutPoll: biophysical.clearDynaMutPoll,
-            clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll
+            clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll,
+            clearDdmutPoll: (biophysical as any).clearDdmutPoll,
+            clearDdmutComparePoll: (biophysical as any).clearDdmutComparePoll,
+            clearThermoMpnnPoll: (biophysical as any).clearThermoMpnnPoll,
+            clearThermoMpnnComparePoll: (biophysical as any).clearThermoMpnnComparePoll
           }
         }
       });
@@ -284,7 +302,18 @@ export default function useVariantAnalysis() {
 
     const acmgWeighting = settings.acmgWeighting;
     const saprotEngine = overrides?.saprotEngine ?? settings.saprotEngine;
-    const requestId = ++pipeline.activeRequestIdRef.current;
+    /**
+     * A LOCAL request generation, not the pipeline's.
+     *
+     * This used to bump `pipeline.activeRequestIdRef`, which identifies the whole analysis run. An
+     * in-flight FoldX leg compares against that id in every poll and in its `finally`, so bumping it
+     * made the leg's terminal writes (and its "stop folding") all decline to run — the spinner and
+     * its phase stayed on screen with nothing left to clear them, because no new run was started to
+     * do it. A structural re-evaluation is a different request from the run; giving it its own
+     * counter keeps re-evaluations ordered without invalidating work that is still legitimately
+     * owned by the run.
+     */
+    const requestId = ++structuralRetryIdRef.current;
     return await fetchProgressiveStructuralAssessments(
       {
         gene,
@@ -297,11 +326,11 @@ export default function useVariantAnalysis() {
       new AbortController().signal,
       currentStore.setAnalysisState,
       requestId,
-      () => pipeline.activeRequestIdRef.current,
+      () => structuralRetryIdRef.current,
       undefined,
       currentStore.setIsStructuralLoading
     );
-  }, [settings.acmgWeighting, settings.saprotEngine, apiClient, pipeline.activeRequestIdRef]);
+  }, [settings.acmgWeighting, settings.saprotEngine, apiClient]);
 
   // Backward-compatible state proxy that avoids establishing 50+ store subscriptions
   const state = useMemo(() => {

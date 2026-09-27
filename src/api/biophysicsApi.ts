@@ -2,6 +2,7 @@ import {
   biophysicalAnalysisResponseSchema,
   BiophysicalAnalysisResponse
 } from "../shared/contracts";
+import { CLIENT_STREAM_IDLE_BUDGET_MS } from "../shared/timeouts";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 
 export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
@@ -72,7 +73,17 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
       const decoder = new TextDecoder();
       let buffer = "";
       let finalPayload: any = null;
-      const IDLE_WATCHDOG_MS = 30000;
+      /**
+       * How long the stream may be COMPLETELY silent before it is treated as dead.
+       *
+       * Shared with the server, and related to its heartbeat by construction rather than by
+       * careful editing: `server/tests/stream-heartbeat-budget.test.ts` fails if this bound ever
+       * comes within a few heartbeats of the server's emission interval. It previously carried its
+       * own 30 s literal while the server was allowed 45 s of legitimate silence between data
+       * chunks, so a healthy slow run was reported as "Streaming connection stalled" — measured by
+       * feeding the real function one chunk and then 31 s of silence.
+       */
+      const idleBudgetMs = CLIENT_STREAM_IDLE_BUDGET_MS;
 
       try {
         while (true) {
@@ -81,8 +92,8 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
 
           const timeoutPromise = new Promise<never>((_, reject) => {
             timer = setTimeout(() => {
-              reject(new Error(`Streaming connection stalled: no data received for ${IDLE_WATCHDOG_MS / 1000}s.`));
-            }, IDLE_WATCHDOG_MS);
+              reject(new Error(`Streaming connection stalled: no data received for ${idleBudgetMs / 1000}s.`));
+            }, idleBudgetMs);
           });
 
           const abortPromise = new Promise<never>((_, reject) => {
@@ -129,6 +140,16 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
             if (parsed.type === "error") {
               throw new Error(parsed.error || "Stream error");
             }
+            /**
+             * Liveness only — no data, and deliberately nothing to merge.
+             *
+             * Reaching here at all is the point: the read resolved, so the per-chunk stall bound
+             * below is re-armed and the body is proven alive. Forwarding a heartbeat to the chunk
+             * handler would spread `{type:"heartbeat"}` into the analysis result.
+             */
+            if (parsed.type === "heartbeat") {
+              continue;
+            }
             if (parsed.isFinal || parsed.type === "full") {
               finalPayload = parsed.data || parsed.payload;
             }
@@ -155,10 +176,13 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
           if (parsed.type === "error") {
             throw new Error(parsed.error || "Stream error");
           }
-          if (parsed.isFinal || parsed.type === "full") {
-            finalPayload = parsed.data || parsed.payload;
+          // Same liveness rule as the in-loop parse: a trailing heartbeat is not a payload.
+          if (parsed.type !== "heartbeat") {
+            if (parsed.isFinal || parsed.type === "full") {
+              finalPayload = parsed.data || parsed.payload;
+            }
+            onChunk(parsed.data || parsed.payload || parsed);
           }
-          onChunk(parsed.data || parsed.payload || parsed);
         }
       }
 

@@ -1,5 +1,15 @@
 import { z } from "zod";
+import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
 import type { PredictorConcordance } from "./thresholds/concordance";
+
+/**
+ * The FoldX phase vocabulary, as a schema.
+ *
+ * Derived from the constant so the wire contract and the renderer cannot drift: a phase the server
+ * learns to report is accepted here the moment it is added to `FOLDX_PHASES`, instead of failing
+ * validation and silently downgrading the client to the unvalidated raw payload.
+ */
+export const foldxPhaseSchema = z.enum(FOLDX_PHASES as unknown as [FoldxPhase, ...FoldxPhase[]]);
 
 // ============================================================================
 // Numeric Validation Primitives
@@ -99,6 +109,19 @@ export const energeticsDataSchema = z.object({
   localSidechainRmsd: nullableFiniteNumber.optional(),
   foldxRepairFailed: z.boolean().optional(),
   foldxBinaryMissing: z.boolean().optional(),
+  /**
+   * Repair was deliberately not attempted, and why.
+   *
+   * `foldxRepairFailed` already existed for "repair was attempted and failed"; these two describe
+   * the other, quieter case — a template that was never minimised because of its size or because it
+   * is an AlphaFold model whose pLDDT B-factors would be misread as temperature factors. A ΔΔG on
+   * an un-repaired template is a weaker claim, so the reason is part of the payload rather than a
+   * log line.
+   */
+  foldxRepairSkipped: z.boolean().optional(),
+  foldxRepairSkippedReason: z.enum(["large-structure", "alphafold-plddt"]).optional(),
+  /** The repaired template was reused from cache instead of recomputed — same coordinates, disclosed. */
+  foldxRepairCached: z.boolean().optional(),
   foldxError: z.string().nullable().optional(),
   dynamut2: nullableFiniteNumber.optional(),
   ddmut: nullableFiniteNumber.optional(),
@@ -824,6 +847,25 @@ export const generateMutantResponseSchema = z.object({
   error: z.string().nullable().optional(),
   foldedResidueIndex: nullableFiniteNumber.optional(),
   foldxJobId: z.string().nullable().optional(),
+  /**
+   * Progress for a queued/running job, so the client can render the stage the WORKER is in rather
+   * than inferring one from elapsed time. Absent on an immediate (cached) result.
+   *
+   * The enum is built from {@link FOLDX_PHASES} rather than restated: a hardcoded copy meant that
+   * adding a phase to the vocabulary made a newer server's response fail this schema, and the
+   * client's `safeParse` fallback then used the UNVALIDATED raw payload for the whole contract.
+   */
+  phase: foldxPhaseSchema.nullable().optional(),
+  startedAt: nullableFiniteNumber.optional(),
+  /**
+   * Execution time the SERVER measured, in ms, or null while the job is queued.
+   *
+   * A duration rather than a start timestamp so the client never subtracts its own clock from the
+   * compute host's (production computes on a remote instance, where the skew between them would be
+   * added to every displayed age).
+   */
+  elapsedMs: nullableFiniteNumber.optional(),
+  queuedAhead: nullableFiniteNumber.optional(),
   energetics: energeticsDataSchema.optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),

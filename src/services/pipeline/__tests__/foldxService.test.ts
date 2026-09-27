@@ -5,6 +5,7 @@ import { getCachedVariant, clearClientVariantCache } from "../variantCache";
 /** The biophysical sink surface `executeFoldxPipeline` is allowed to write to. */
 const makeSink = () => ({
   setIsFolding: vi.fn(),
+  setFoldingProgress: vi.fn(),
   setFoldingError: vi.fn(),
   setFoldingStatus: vi.fn(),
   setMutantPdb: vi.fn(),
@@ -19,6 +20,128 @@ const makeSink = () => ({
   setThermompnnStatus: vi.fn(),
   setThermompnnError: vi.fn(),
   setStructureProvenance: vi.fn()
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PROGRESS PLUMBING — what the store learns about a running FoldX job
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The banner's stage, age and queue position all come from here, and none of it was tested: the
+ * submit response's phase, the per-poll phase, the drop of an unrecognised phase, and the clear on
+ * the terminal frame. A regression in any of them is invisible — the UI simply says "not reported by
+ * the compute server yet" forever, which is exactly the state this change exists to end.
+ */
+function progressRun(pollPayloads: any[]): any {
+  let pollIndex = 0;
+  return vi.fn(async (url: string) => {
+    if (url.includes("/generate-mutant")) {
+      return {
+        ok: true,
+        json: async () => ({
+          status: "queued",
+          foldxJobId: "job-1",
+          phase: "queued",
+          startedAt: null,
+          elapsedMs: null,
+          queuedAhead: 2
+        })
+      };
+    }
+    const payload = pollPayloads[Math.min(pollIndex++, pollPayloads.length - 1)];
+    return {
+      ok: true,
+      json: async () => payload
+    };
+  });
+}
+
+describe("foldxService progress", () => {
+  it("publishes the submit phase, each poll phase, and clears on the terminal frame", async () => {
+    const sink: any = makeSink();
+    const fetchWithAuth = progressRun([
+      { status: "queued", phase: "queued", elapsedMs: null, queuedAhead: 1 },
+      { status: "running", phase: "repairing", elapsedMs: 12_000, queuedAhead: 0 },
+      {
+        status: "completed",
+        phase: "finalizing",
+        elapsedMs: 212_000,
+        result: { status: "success", pdb: "ATOM", ddG: 1.1, foldedResidueIndex: 408 }
+      }
+    ]);
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    const published = sink.setFoldingProgress.mock.calls.map(([p]: [any]) => p);
+    // The first report is an explicit "nothing known yet", not silence: `null` clears whatever a
+    // previous run left on screen.
+    expect(published[0]).toBeNull();
+    const phases = published.filter(Boolean).map((p: any) => p.phase);
+    // Every stage the worker reported, in the order it reported them. "finalizing" arrives on the
+    // terminal frame and is published before the clear — the stage did happen.
+    expect(phases).toEqual(["queued", "queued", "repairing", "finalizing"]);
+    // The last write clears progress, so a finished run cannot leave a stage on screen.
+    expect(published[published.length - 1]).toBeNull();
+    // Durations are carried as durations, and the age baseline is a local receipt time.
+    const repairing = published.find((p: any) => p?.phase === "repairing");
+    expect(repairing.elapsedMs).toBe(12_000);
+    expect(typeof repairing.receivedAt).toBe("number");
+    // The queue position is reported while queued — from the submit response and from the poll. A
+    // running job's payload carries 0 (there is no queue position to report), and the banner renders
+    // the chip only when the phase IS "queued", which the banner test pins from the other side.
+    const queuedPositions = published.filter((p: any) => p?.phase === "queued").map((p: any) => p.queuePosition);
+    expect(queuedPositions).toEqual([2, 1]);
+    expect(repairing.queuePosition).toBe(0);
+  });
+
+  it("drops a phase it cannot name instead of rendering it", async () => {
+    const sink: any = makeSink();
+    // The submit response carries no phase at all, so the only phase source is the poll — and the
+    // poll names a stage this client's vocabulary does not know.
+    const fetchWithAuth = vi.fn(async (url: string) => {
+      if (url.includes("/generate-mutant")) {
+        return { ok: true, json: async () => ({ status: "queued", foldxJobId: "job-1" }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          status: "completed",
+          phase: "quantum-refolding",
+          elapsedMs: 5_000,
+          result: { status: "success", pdb: "ATOM", ddG: 1.1, foldedResidueIndex: 408 }
+        })
+      };
+    }) as any;
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    const published = sink.setFoldingProgress.mock.calls
+      .map(([progress]: [any]) => progress)
+      .filter(Boolean);
+    // The payload WAS read — the duration travelled — while the stage name was refused.
+    expect(published.some((p: any) => p.elapsedMs === 5_000)).toBe(true);
+    expect(
+      published.every((p: any) => p.phase === null),
+      "a phase the client cannot name must render as unreported, never as a guessed stage"
+    ).toBe(true);
+  });
 });
 
 describe("foldxService", () => {

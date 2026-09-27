@@ -769,6 +769,10 @@ export function enrichBiophysicalResult(
   const evidenceComplete = pendingTools.length === 0;
   const foldxRepairFailed = foldxRawResult?.energetics?.foldxRepairFailed ?? false;
   const foldxBinaryMissing = foldxRawResult?.energetics?.foldxBinaryMissing ?? false;
+  // Repair disclosure, carried without alteration from the runner. See the returned literal.
+  const foldxRepairSkipped = foldxRawResult?.energetics?.foldxRepairSkipped ?? false;
+  const foldxRepairSkippedReason = foldxRawResult?.energetics?.foldxRepairSkippedReason ?? null;
+  const foldxRepairCached = foldxRawResult?.energetics?.foldxRepairCached === true;
   const calResult = computeCalibratedConsensus({
     foldxMean,
     rasp,
@@ -808,13 +812,36 @@ export function enrichBiophysicalResult(
     error: foldxRawResult?.error ?? foldxRawResult?.energetics?.foldxError ?? null,
     energetics: {
       foldx: foldxMean,
+      /**
+       * The ensemble mean and spread.
+       *
+       * `foldxMean` and `foldxSd` were computed above and then dropped by this literal, so the
+       * client's `formatDdgPair` never received the spread it is designed to print — the same
+       * omission class as the repair flags below, and the number the UI's own doctrine protects
+       * ("a missing spread must not be rendered as ± 0.00").
+       */
+      foldxMean,
+      foldxSd,
       vdw,
       electrostatics,
       stericClashWarning,
       localSidechainRmsd,
       rawDdGs: foldxRawDdGs,
+      seed: foldxSeed,
       foldxRepairFailed,
       foldxBinaryMissing: foldxRawResult?.energetics?.foldxBinaryMissing ?? false,
+      /**
+       * Whether the template this ΔΔG rests on was minimised, whether the repaired coordinates were
+       * reused, and — when repair was deliberately not attempted — why.
+       *
+       * This literal is a WHITELIST: a field the runner produces and this object omits does not
+       * exist as far as every client surface is concerned. These three were omitted when they were
+       * introduced, which made the disclosure copy in `EnergeticsView` unreachable in the shipped
+       * flow while the documentation asserted it landed on the row.
+       */
+      foldxRepairSkipped,
+      ...(foldxRepairSkippedReason ? { foldxRepairSkippedReason } : {}),
+      ...(foldxRepairCached ? { foldxRepairCached: true } : {}),
       foldxError: foldxRawResult?.energetics?.foldxError ?? foldxRawResult?.error ?? null,
       dynamut2: dynamut2Val,
       ddmut: ddmutVal,

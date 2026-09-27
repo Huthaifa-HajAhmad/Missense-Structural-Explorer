@@ -17,6 +17,7 @@ import { MasterView } from "../MasterSidebar";
 import { revealInspectorSection, useInspectorFocus } from "../../lib/inspectorFocus";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { useSettings } from "../../context/SettingsContext";
+import type { FoldxProgress } from "../../shared/foldxPhase";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
@@ -35,6 +36,8 @@ export interface ViewInspectorProps {
   onViewChange: (view: MasterView) => void;
   analysisResult: AnalysisResult | null;
   isFolding: boolean;
+  /** Server-reported FoldX phase; `null`/absent must render as "not reported", never as a guess. */
+  foldingProgress?: FoldxProgress | null;
   foldingStatus?: "failed" | "success" | "unavailable" | null;
   foldingError?: string | null;
   foldingDdG?: number | null;
@@ -130,6 +133,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   onViewChange,
   analysisResult,
   isFolding,
+  foldingProgress = null,
   foldingStatus = null,
   foldingError = null,
   foldingDdG = null,
@@ -431,6 +435,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             viewMode={viewMode}
             setViewMode={setViewMode}
             isFolding={isFolding}
+            foldingProgress={foldingProgress}
             foldingStatus={foldingStatus}
             foldingDdG={foldingDdG}
             homologs={homologs}

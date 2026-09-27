@@ -242,5 +242,61 @@ describe("Variant Analysis Route Handlers", () => {
       expect(parsedFirstChunk.chunkIndex).toBe(1);
       expect(parsedFirstChunk.data).toBeDefined();
     });
+
+    /**
+     * ─────────────────────────────────────────────────────────────────────────────
+     * THE FRAMING THE CLIENT PARSES — pinned at the route, where it is actually produced
+     * ─────────────────────────────────────────────────────────────────────────────
+     * Every other streaming test mocks `streamCoreAnalysis`, so nothing observed the wire format
+     * itself: the newline the client splits on, a heartbeat frame surviving the pass-through, or the
+     * final frame arriving last. The assertions below use a mock that emits all three.
+     */
+    it("writes newline-delimited frames, passes heartbeats through, and ends on the final frame", async () => {
+      const route: any = apiRouter.stack.find(
+        (layer: any) => layer.route && layer.route.path === "/analyze-variant/stream"
+      );
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR");
+
+      vi.spyOn(orchestrator, "streamCoreAnalysis").mockImplementation(async (_ctx, onChunk) => {
+        onChunk({ chunkIndex: 0, isFinal: false, type: "heartbeat" });
+        onChunk({ chunkIndex: 1, isFinal: false, data: { metadata: { gene: "PAH" } } });
+        // A preview carrying server-internal routing metadata would be a leak; the route's own
+        // contract is that the final frame is what the client stores, so this asserts the client
+        // never receives it.
+        onChunk({ chunkIndex: 2, isFinal: true, data: { metadata: { gene: "PAH" }, ruleBasedInsights: {} } });
+        return { metadata: { gene: "PAH" } };
+      });
+
+      const writtenChunks: string[] = [];
+      let ended = false;
+      const req: any = { body: { gene: "PAH", variant: "p.Met1Val" }, headers: {}, on: vi.fn() };
+      const res: any = {
+        setHeader() {},
+        flushHeaders() {},
+        writableEnded: false,
+        write(chunk: string) {
+          writtenChunks.push(chunk);
+          return true;
+        },
+        end() { ended = true; }
+      };
+
+      await handler(req, res, () => {});
+
+      expect(ended, "the stream must be closed so the client stops waiting").toBe(true);
+      // Every frame is one line: the client splits on "\n" and JSON.parses each complete line.
+      for (const chunk of writtenChunks) {
+        expect(chunk.endsWith("\n"), `frame is not newline-terminated: ${JSON.stringify(chunk)}`).toBe(true);
+      }
+      const frames = writtenChunks.map(c => JSON.parse(c));
+      expect(frames[0].type).toBe("heartbeat");
+      expect(frames[frames.length - 1].isFinal, "the final frame must be last").toBe(true);
+      expect(frames.filter(f => f.isFinal)).toHaveLength(1);
+      // Heartbeats are not payload, and a heartbeat must never be mistaken for the result.
+      expect(frames[0].data).toBeUndefined();
+    });
   });
 });

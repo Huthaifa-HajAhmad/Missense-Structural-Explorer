@@ -42,6 +42,8 @@ export async function fetchPdbCoordinates(
     return await apiClient.getPdb(targetUniprot, residueIndex, signal);
   };
 
+  // The run's signal identifies the request: the structure warm-up starts within milliseconds of a
+  // re-query, so without it run 2 could await run 1's aborted fetch (see `getDeduplicatedPromise`).
   return getDeduplicatedPromise(pdbKey, () =>
     fetchAction()
       .then((res: any) => {
@@ -81,7 +83,7 @@ export async function fetchPdbCoordinates(
         }
         return null;
       })
-  );
+  , signal);
 }
 
 export async function fetchHomologStructures(

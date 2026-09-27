@@ -24,6 +24,12 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
     setError(null);
     const multimerKey = `multimer_${gene}_${variant}_${uniprotId}`;
     try {
+      // `signal` is passed as the request's IDENTITY, not only to the fetch.
+      //
+      // The pipeline's own multimer pre-fetch shares this key, and without a signal the entry could
+      // not be evicted when either caller aborted: this tab would then be handed a promise the
+      // pipeline's abort had already doomed, swallow the AbortError below, and render an empty
+      // panel with no error and no data.
       const data = await getDeduplicatedPromise(multimerKey, async () => {
         const response = await fetchWithAuth("/api/v1/structure/multimer", {
           method: "POST",
@@ -36,7 +42,7 @@ export function MultimersTab({ analysisState }: TabComponentProps) {
           throw new Error(errorMsg);
         }
         return response.json();
-      });
+      }, signal);
       if (data) {
         setMultimerData(data);
         const currentState = useVariantAnalysisStore.getState().analysisState;

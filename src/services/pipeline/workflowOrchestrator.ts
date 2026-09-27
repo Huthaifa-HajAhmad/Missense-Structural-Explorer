@@ -175,6 +175,33 @@ export async function executeFullAnalysisWorkflow({
     const posMatch = targetVariant.match(/\d+/);
     residueIndex = posMatch ? parseInt(posMatch[0], 10) : undefined;
 
+    /**
+     * Named once, HERE, because two consumers need it before the pipeline's own network calls:
+     * the streamed chunk merge (which must be able to seed a result object the instant the first
+     * chunk lands) and every state factory below.
+     *
+     * `parseMutationResidues` throws on a notation it cannot parse — a genomic coordinate reaches
+     * this line when notation translation was skipped or failed — and letting that escape would
+     * turn "unparseable notation" into an unhandled rejection with no error state. The outer catch
+     * treats unparseable residues as absent for the same reason; this mirrors it.
+     */
+    let parsedResidues: { wt: string; mut: string } | null = null;
+    try {
+      parsedResidues = parseMutationResidues(targetVariant);
+    } catch {
+      parsedResidues = null;
+    }
+
+    const baseParams: PipelineStateBaseParams = {
+      gene: targetGene,
+      variant: targetVariant,
+      uniprotId: targetUniprot,
+      residueIndex: residueIndex ?? null,
+      wildType: parsedResidues?.wt || "",
+      mutant: parsedResidues?.mut || "",
+      transcriptMeta
+    };
+
     // Check high-fidelity client variant snapshot cache
     const cached = getCachedVariant(targetGene, targetVariant);
 
@@ -561,14 +588,30 @@ export async function executeFullAnalysisWorkflow({
       (chunkData: any) => {
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
         analysisSink.setAnalysisState((prev: any) => {
-          if (!prev.result) return prev;
+          /**
+           * Seed a result object on the FIRST chunk that carries data, rather than waiting for the
+           * structure warm-up below.
+           *
+           * This block used to `return prev` whenever `prev.result` was still null — and `result`
+           * was created only by the PDB promise, so every chunk that arrived before the AlphaFold
+           * fetch resolved was merged into nothing and thrown away. The server had already spent
+           * the ClinVar and predictor round trips; the reader saw a spinner. Verified by driving
+           * the workflow with the structure fetch held open: the chunk arrived, `result` stayed
+           * null, and the payload was gone once the placeholder was finally built from `baseParams`.
+           *
+           * Seeding HERE (and not at the top of the workflow) is deliberate: an early, empty shell
+           * would claim the analysis had started producing evidence while the fast triage was still
+           * in flight. The placeholder appears with the first real data and not before.
+           */
+          const seed = prev?.result ? prev : createPlaceholderAnalysisState(baseParams);
+          const base = seed.result;
           return {
-            ...prev,
+            ...seed,
             result: {
-              ...prev.result,
+              ...base,
               ...chunkData,
               metadata: {
-                ...prev.result.metadata,
+                ...(base.metadata || {}),
                 ...(chunkData.metadata || {})
               }
             }
@@ -578,18 +621,12 @@ export async function executeFullAnalysisWorkflow({
       getTraceContext()
     );
 
-    const parsedResidues = parseMutationResidues(targetVariant);
-
-    const baseParams: PipelineStateBaseParams = {
-      gene: targetGene,
-      variant: targetVariant,
-      uniprotId: targetUniprot,
-      residueIndex: residueIndex ?? null,
-      wildType: parsedResidues?.wt || "",
-      mutant: parsedResidues?.mut || "",
-      transcriptMeta
-    };
-
+    /**
+     * The structure warm-up is what paints the 3D viewer, and on the NON-streaming fallback path
+     * (`apiClient.getBiophysicalAnalysis`, no chunks at all) it is still what creates the first
+     * result object. On the streaming path the chunk merge above has usually seeded one already,
+     * and this call is then a no-op by design.
+     */
     pdbWarmupPromise.then((pdb: any) => {
       if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
         const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;

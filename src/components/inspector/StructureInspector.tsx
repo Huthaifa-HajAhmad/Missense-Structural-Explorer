@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { AnalysisResult, PdbHomolog } from "../../types";
 import { PDB_SOURCE_RCSB } from "../../shared/contracts";
+import { describeFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
 
 import type { StructuralMetrics } from "../../types";
 
@@ -22,6 +23,14 @@ interface StructureInspectorProps {
   viewMode: "wildtype" | "mutant" | "superimposed";
   setViewMode?: (mode: "wildtype" | "mutant" | "superimposed") => void;
   isFolding: boolean;
+  /**
+   * The FoldX worker's reported phase.
+   *
+   * Drives the model-switcher label: "Repacking…" was shown for the WHOLE leg, including the
+   * minutes a job spends queued and the phase that is actually a template repair, so a reader could
+   * not tell a waiting job from a working one.
+   */
+  foldingProgress?: FoldxProgress | null;
   foldingStatus: "failed" | "success" | "unavailable" | null;
   foldingDdG: number | null;
   homologs?: PdbHomolog[];
@@ -43,6 +52,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
   viewMode,
   setViewMode,
   isFolding,
+  foldingProgress = null,
   foldingStatus,
   foldingDdG,
   homologs = [],
@@ -65,6 +75,8 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
 
   const isEsmMode = active3dModelTab === "esmfold2" || active3dModelTab === "esm3";
   const hasCompareData = Boolean(comparePdbData || viewMode === "mutant");
+  /** Named once: both the label and its tooltip must describe the same stage or neither is trustworthy. */
+  const foldxPhaseView = describeFoldxPhase(foldingProgress?.phase);
   const [isPhysicsExpanded, setIsPhysicsExpanded] = React.useState(false);
 
   const bestExperimental = React.useMemo(() => {
@@ -169,7 +181,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
               isEsmMode 
                 ? "View de novo predicted mutant coordinates" 
                 : isFolding 
-                  ? "Repacking mutant side-chains via FoldX..." 
+                  ? foldxPhaseView?.detail ?? "FoldX force-field run in progress — stage not reported by the compute server yet." 
                   : foldingStatus !== "success" 
                     ? "FoldX simulation in flight or not computed." 
                     : "View FoldX repacked mutant coordinates"
@@ -181,7 +193,15 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
                   viewMode === "mutant" ? "bg-amber-500 shadow-[0_0_6px_#f59e0b]" : "bg-cs-text-muted"
                 }`} 
               />
-              <span className="truncate">{isFolding ? "Repacking..." : (isEsmMode ? "Mutant (ESMFold-2)" : "Mutant (FoldX)")}</span>
+              {/*
+                * The server's own word for the stage, or the neutral "Running" from the engine-status
+                * vocabulary. "Repacking..." used to cover the entire leg — queue wait, template
+                * repair and the five-run build — so the label could not distinguish waiting from
+                * working, and "Modelling..." would have replaced one invented step with another.
+                */}
+              <span className="truncate">
+                {isFolding ? (foldxPhaseView?.label ?? "Running") + "..." : (isEsmMode ? "Mutant (ESMFold-2)" : "Mutant (FoldX)")}
+              </span>
             </div>
           </button>
 

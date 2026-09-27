@@ -95,6 +95,7 @@ export function AppViews({
   const storePocketError = useVariantAnalysisStore(s => s.pocketError);
   const storeDisruptionPredictor = useVariantAnalysisStore(s => s.disruptionPredictor);
   const storeIsFolding = useVariantAnalysisStore(s => s.isFolding);
+  const storeFoldingProgress = useVariantAnalysisStore(s => s.foldingProgress);
   const storeFoldingError = useVariantAnalysisStore(s => s.foldingError);
   const storeStructuralDiff = useVariantAnalysisStore(s => s.structuralDiff);
   const storeComputedResiduesCache = useVariantAnalysisStore(s => s.computedResiduesCache);
@@ -485,6 +486,7 @@ export function AppViews({
                   thermompnnError={thermompnnError}
                   disruptionPredictor={disruptionPredictor}
                   isFolding={isFolding}
+                  foldingProgress={storeFoldingProgress}
                   foldingError={foldingError}
                 />
               </ErrorBoundary>
@@ -653,6 +655,7 @@ export function AppViews({
               onViewChange={setMasterView}
               analysisResult={analysisState.result}
               isFolding={isFolding}
+              foldingProgress={storeFoldingProgress}
               foldingStatus={foldingStatus as any}
               foldingError={foldingError}
               foldingDdG={foldingDdG}

@@ -81,6 +81,7 @@ describe("useAnalysisPipeline Hook Integration", () => {
       clearDynaMutPoll: vi.fn(),
       clearDynaMutComparePoll: vi.fn(),
       setIsFolding: vi.fn(),
+      setFoldingProgress: vi.fn(),
       setFoldingError: vi.fn(),
       setFoldingStatus: vi.fn(),
       setMutantPdb: vi.fn(),
@@ -140,6 +141,18 @@ describe("useAnalysisPipeline Hook Integration", () => {
       foldRefWrites[0],
       "the fold ref must be cleared too, or the clear turns a permanent Running into a permanent FoldX no-result that re-searching cannot fix"
     ).toBe("");
+
+    /**
+     * ...and the FoldX progress object is cleared with the flag.
+     *
+     * Without it the previous run's stage, age and queue position stay on screen beside the new
+     * run's spinner — the flag says "not folding" while the banner still says "Structure repair".
+     * Also asserted by order: the clear must precede anything the new run writes.
+     */
+    expect(
+      mockOptions.setFoldingProgress.mock.calls[0],
+      "a new run must clear the previous run's FoldX progress before it claims the request"
+    ).toEqual([null]);
   });
 
   it("orchestrates standard variant analysis end-to-end with legacy flat options", async () => {
@@ -179,6 +192,7 @@ describe("useAnalysisPipeline Hook Integration", () => {
     };
     const biophysicalSink = {
       setIsFolding: vi.fn(),
+      setFoldingProgress: vi.fn(),
       setFoldingError: vi.fn(),
       setFoldingStatus: vi.fn(),
       setMutantPdb: vi.fn(),

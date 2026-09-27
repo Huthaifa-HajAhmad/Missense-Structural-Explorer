@@ -132,3 +132,99 @@ export function getFoldxCacheKey(
   const seed = options?.seed !== undefined ? options.seed : 12345;
   return `${pdbHash}_${mutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${FOLDX_CACHE_VERSION}`;
 }
+
+// ---------------------------------------------------------------------------
+// Repaired wild-type structures — the expensive half of a FoldX run
+// ---------------------------------------------------------------------------
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHY A SECOND CACHE EXISTS (read before merging it into the mutant cache)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * `RepairPDB` minimises the WILD-TYPE structure: it is a function of the structure and the FoldX
+ * environment, and it does not depend on the mutation at all. The mutant cache key, however, has
+ * always contained the mutation, so the repair was recomputed for every variant and thrown away
+ * with the job directory (`server.ts` deletes it in the worker's `finally`).
+ *
+ * Measured on this repository's own leftover job dirs, same mutation, same position:
+ *
+ *   structure                  RepairPDB   BuildModel ×5   total
+ *   AlphaFold, 875 residues    skipped     5.1 s           5.1 s
+ *   experimental, 305 residues 205.4 s     2.2 s           208 s
+ *
+ * i.e. ~98% of the wall clock of a FoldX leg was spent re-deriving an artefact that was already
+ * known. A ten-variant sweep of one gene paid it ten times (~34 minutes) for one structure.
+ *
+ * The repaired text is a deterministic transform of its input: the runner already pins the RNG
+ * (`--timeSeedRotabase=false`, `seed` in the key) so the same structure and options always produce
+ * the same coordinates. The TTL is therefore about invalidating a FoldX BINARY change, which the
+ * version peg below covers explicitly, rather than about staleness in the usual sense.
+ */
+export const repairedStructureCache = new LRUCache<string, { pdb: string }>({
+  max: 40,
+  maxSize: 80 * 1024 * 1024,
+  sizeCalculation: (value) => (typeof value?.pdb === "string" ? value.pdb.length : 1000),
+  ttl: 30 * 24 * 60 * 60 * 1000 // 30 days, pegged to REPAIR_CACHE_VERSION
+});
+defaultCacheRegistry.registerCache("repairedStructureCache", repairedStructureCache, { ttlDesc: "30d" });
+
+/** Bump when the FoldX binary or the repair command line changes. */
+const REPAIR_CACHE_VERSION = "v1";
+
+/** Repair depends on the structure and the force-field environment — never on the substitution. */
+export function getRepairCacheKey(pdbHash: string, options?: FoldxCacheKeyOptions): string {
+  const seed = options?.seed !== undefined ? options.seed : 12345;
+  return `repair_${pdbHash}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${REPAIR_CACHE_VERSION}`;
+}
+
+export async function getRepairedStructureFromCache(cacheKey: string): Promise<{ pdb: string } | null> {
+  const memCached = repairedStructureCache.get(cacheKey);
+  if (memCached?.pdb) return memCached;
+
+  try {
+    const raw = await fs.promises.readFile(getCacheFilename(cacheKey), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.pdb !== "string" || parsed.pdb.length === 0) return null;
+
+    const cacheAge = Date.now() - (parsed.cachedAt || 0);
+    if (cacheAge >= 30 * 24 * 60 * 60 * 1000) {
+      fs.promises.unlink(getCacheFilename(cacheKey)).catch(() => {});
+      return null;
+    }
+    const entry = { pdb: parsed.pdb as string };
+    repairedStructureCache.set(cacheKey, entry);
+    return entry;
+  } catch {
+    // A miss, a malformed entry and an unreadable directory all mean the same thing here: repair
+    // the structure. None of them may fail the job.
+    return null;
+  }
+}
+
+/**
+ * Persists repaired coordinates, returning when the atomic write has settled.
+ *
+ * The promise is returned so a caller CAN await it (tests do, rather than sleeping and hoping), while
+ * the FoldX runner deliberately does not: a cache write must never delay or fail the job whose
+ * result it is trying to memoise.
+ */
+export function writeRepairedStructureToCache(cacheKey: string, pdb: string): Promise<void> {
+  if (!pdb || pdb.length === 0) return Promise.resolve();
+  try {
+    repairedStructureCache.set(cacheKey, { pdb });
+    const filename = getCacheFilename(cacheKey);
+    const tmpFilename = `${filename}.tmp.${process.pid}.${crypto.randomUUID()}`;
+    return fs.promises.mkdir(getFoldxCacheDir(), { recursive: true })
+      .then(async () => {
+        await fs.promises.writeFile(tmpFilename, JSON.stringify({ pdb, cachedAt: Date.now() }), "utf-8");
+        await fs.promises.rename(tmpFilename, filename);
+      })
+      .catch(err => {
+        fs.promises.unlink(tmpFilename).catch(() => {});
+        console.error("[FoldX Repair Cache Write Error]", err.message);
+      });
+  } catch (err: any) {
+    console.error("[FoldX Repair Cache Set Error]", err.message);
+    return Promise.resolve();
+  }
+}

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runCoreAnalysis, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
+import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
 vi.mock("../structure/structural-model-fetcher.ts", () => ({
@@ -155,6 +156,103 @@ describe("Analysis Orchestrator Unit Tests", () => {
 
     expect(result).toBeNull();
     expect(chunks.length).toBe(0);
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * THE STREAM CONTRACT — previews, liveness, and a final frame that is last
+   * ─────────────────────────────────────────────────────────────────────────────
+   * The route used to write two frames: "ClinVar + predictors", then everything, the second only
+   * after the SLOWEST of eleven sources settled. A client that gave up after 30 s of silence then
+   * killed runs the server considered healthy (the server's own per-stage budget is 45 s), and no
+   * source could paint before the slowest one had finished.
+   *
+   * These tests pin the three things a consumer relies on: previews arrive per source, heartbeats
+   * arrive even while nothing has settled, and exactly one frame is final and it is the last one.
+   */
+  describe("stream framing", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("emits per-source previews before a single final frame", async () => {
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      // `as any`: the real signature's 4th parameter is the progress listener, and the fixture is a
+      // deliberately partial CoreAnalysisData (the same shape the module-scope mock uses).
+      (vi.mocked(fetchCoreVariantData) as any).mockImplementationOnce(async (_ctx: any, _t: any, _p: any, onPartial: any) => {
+        // Two sources settle at different instants; each must reach the wire immediately.
+        onPartial({
+          data: { conservationData: { revel: 0.9 }, serviceStatus: { conservationData: "ok", stringInteractions: "pending" }, serviceTimings: { conservationData: 12 } },
+          serviceStatus: { conservationData: "ok", stringInteractions: "pending" },
+          serviceTimings: { conservationData: 12 }
+        });
+        onPartial({
+          data: { stringInteractions: [{ preferredName: "QDPR" }], serviceStatus: { conservationData: "ok", stringInteractions: "ok" }, serviceTimings: { conservationData: 12, stringInteractions: 30 } },
+          serviceStatus: { conservationData: "ok", stringInteractions: "ok" },
+          serviceTimings: { conservationData: 12, stringInteractions: 30 }
+        });
+        return mockCoreData;
+      });
+
+      const chunks: any[] = [];
+      const result = await streamCoreAnalysis(baseContext, (chunk) => { chunks.push(chunk); });
+
+      expect(result).toBeDefined();
+      // Chunk 1 is itself a preview (the fast triage frame), so the per-source previews are the
+      // non-final frames after it.
+      const previews = chunks.filter(c => !c.isFinal && c.type !== "heartbeat" && c.chunkIndex !== 1);
+      const finals = chunks.filter(c => c.isFinal);
+
+      expect(previews.length, "one preview per settled source").toBe(2);
+      expect(previews[0].data.conservationData).toEqual({ revel: 0.9 });
+      expect(previews[1].data.stringInteractions).toEqual([{ preferredName: "QDPR" }]);
+      /**
+       * NOTE: the status MAP's content is asserted in `core-data-fetcher.test.ts`, not here.
+       *
+       * This mock IS the emitter, so a `"pending"` literal in it would be the fixture talking to
+       * itself — the map is produced by `fetchCoreVariantData`, and only a test that runs the real
+       * emitter can pin it. What belongs here is the framing: that whatever the emitter publishes
+       * reaches the wire in order, unframed and unaltered.
+       */
+      expect(previews[0].data.serviceStatus).toBeDefined();
+      expect(previews[1].data.serviceStatus).toBeDefined();
+      // Preview indices increase, and the final frame comes after all of them.
+      expect(previews[0].chunkIndex).toBeLessThan(previews[1].chunkIndex);
+      expect(finals.length).toBe(1);
+      expect(chunks[chunks.length - 1]).toBe(finals[0]);
+      expect(finals[0].chunkIndex).toBeGreaterThan(previews[1].chunkIndex);
+      expect(finals[0].data.metadata.gene).toBe("PAH");
+      // Chunk 1 (the fast triage) is still first and still not final.
+      expect(chunks[0].chunkIndex).toBe(1);
+      expect(chunks[0].isFinal).toBe(false);
+    });
+
+    it("heartbeats while a source is still settling, and stops when the run ends", async () => {
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      (vi.mocked(fetchCoreVariantData) as any).mockImplementationOnce(async () => {
+        // Long enough to cross several heartbeat intervals.
+        await new Promise(resolve => setTimeout(resolve, STREAM_HEARTBEAT_MS * 3 + 50));
+        return mockCoreData;
+      });
+
+      vi.useFakeTimers();
+      const chunks: any[] = [];
+      const run = streamCoreAnalysis(baseContext, (chunk) => { chunks.push(chunk); });
+      await vi.advanceTimersByTimeAsync(STREAM_HEARTBEAT_MS * 3 + 200);
+      await run;
+
+      const heartbeats = chunks.filter(c => c.type === "heartbeat");
+      expect(
+        heartbeats.length,
+        "a healthy but silent stream must still prove it is alive"
+      ).toBeGreaterThanOrEqual(2);
+      // A heartbeat carries no data: merging one would change the shape of the analysis result.
+      expect(heartbeats.every(h => h.data === undefined)).toBe(true);
+      // ...and the interval is cleared, or every request leaks a timer for the life of the process.
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it("should execute runStructuralAnalysis and merge deep model evaluations", async () => {

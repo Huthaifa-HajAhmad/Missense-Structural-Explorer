@@ -7,8 +7,30 @@
  *
  * Results from Tier 1 and Tier 2 are LRU-cached by the individual fetchers.
  * Tier 3 uses the pos-aware fetchPdbHomologs which also caches the unfiltered list.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE TIER CHOICE IS REMEMBERED (read before removing the memo below)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The ladder is ordered, but its outcome is decided by the network: a Tier 1 lookup that times out
+ * once falls through to AlphaFold, and the NEXT run — network recovered — picks the experimental
+ * structure instead. Downstream that is not a cosmetic difference:
+ *
+ *   structure                  RepairPDB   BuildModel ×5   total
+ *   experimental, 305 residues 205.4 s     2.2 s           208 s
+ *   AlphaFold, 875 residues    skipped     5.1 s           5.1 s
+ *
+ * (measured on this repository's own leftover job dirs, same mutation and position — the size guard
+ * skips repair past 400 residues, so the flip changes the wall clock by a factor of forty). It also
+ * changes the FoldX cache key, which hashes the PDB TEXT, so each flip was a full cache miss: the
+ * two `logs/foldx_cache` entries left for one mutation are exactly this.
+ *
+ * The CHOICE is therefore memoised — in L1 plus the persistent L2 `external_cache`, so it survives a
+ * restart — for `STRUCTURE_RESOLUTION_TTL_S`. Only a small descriptor record is persisted; the
+ * coordinates still come from the existing cached fetchers, which is also why the memo-hit path
+ * costs at most an L1 `pdbCache` read.
  */
 
+import { LRUCache } from "lru-cache";
 import {
   fetchBestPdbStructure,
   fetchAlphafoldPdb,
@@ -16,6 +38,8 @@ import {
   fetchPdbHomologs,
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
+import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
+import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import type { StructureProvenance } from "../../../src/shared/contracts.ts";
 
 export interface ResolvedStructure {
@@ -23,37 +47,71 @@ export interface ResolvedStructure {
   provenance: StructureProvenance;
 }
 
-/**
- * Resolve the best available structure for a given UniProt accession.
- *
- * @param uniprotId - Validated UniProt accession
- * @param pos       - 1-indexed mutation position (used for coverage gating in Tier 1 & 3)
- * @returns ResolvedStructure or null if all tiers fail
- */
-export async function resolveStructure(
-  uniprotId: string,
-  pos?: number
-): Promise<ResolvedStructure | null> {
+const STRUCTURE_RESOLUTION_TTL_S = 6 * 60 * 60; // 6 h
 
+/**
+ * Which tier answered, in a form small enough to persist.
+ *
+ * Deliberately NOT the PDB text: `pdbCache` already holds coordinates by PDB id, and duplicating
+ * half a megabyte per accession into the L2 table to save a cache read would be a poor trade.
+ */
+type ChosenStructure =
+  | { tier: 1; pdbId: string; chainId: string; unpStart: number | null; structStart: number | null }
+  | { tier: 2; afdbVersion: string }
+  | { tier: 3; pdbId: string; resolution: number | null; method: string | null; identity: number; organism?: string };
+
+interface ProbedStructure {
+  choice: ChosenStructure;
+  pdbText: string;
+  provenance: StructureProvenance;
+}
+
+/**
+ * L1 for the tier choice, with the SAME bound as the persistent tier.
+ *
+ * `ttl` is not decoration: without it `registerCache(..., { ttlDesc: "6h" })` labelled a cache that
+ * never expired, so a choice made during a one-off PDBe outage could keep winning for the life of
+ * the process — the 40× wall-clock difference this memo exists to prevent, pinned by accident.
+ */
+const structureResolutionCache = new LRUCache<string, ChosenStructure>({
+  max: 2_000,
+  ttl: STRUCTURE_RESOLUTION_TTL_S * 1000
+});
+defaultCacheRegistry.registerCache("structureResolution", structureResolutionCache, { ttlDesc: "6h" });
+
+/**
+ * Walks the ladder ONCE and returns the choice together with the coordinates it was made from.
+ *
+ * Returning both is what keeps a memo MISS to a single fetch per tier: the text is handed straight
+ * to the caller instead of being re-requested after the choice is recorded.
+ */
+async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedStructure | null> {
   // ─── Tier 1: PDBe best experimental structure (direct UniProt mapping) ────────
   try {
     const pdbMapping = await fetchBestPdbStructure(uniprotId, pos);
     if (pdbMapping) {
-      const pdbData = await fetchPdbFromRcsb(
+      const pdbText = await fetchPdbFromRcsb(
         pdbMapping.pdbId,
         pdbMapping.chainId,
         pdbMapping.unpStart,
         pdbMapping.structStart
       );
-      if (pdbData) {
+      if (pdbText) {
         console.log(`[resolveStructure] Tier 1 hit: PDB ${pdbMapping.pdbId.toUpperCase()} chain ${pdbMapping.chainId}`);
         return {
-          pdbText: pdbData,
+          choice: {
+            tier: 1,
+            pdbId: pdbMapping.pdbId,
+            chainId: pdbMapping.chainId,
+            unpStart: pdbMapping.unpStart ?? null,
+            structStart: pdbMapping.structStart ?? null
+          },
+          pdbText,
           provenance: {
             source: "experimental",
             pdbId: pdbMapping.pdbId.toUpperCase(),
-            chainId: pdbMapping.chainId,
-          },
+            chainId: pdbMapping.chainId
+          }
         };
       }
     }
@@ -68,11 +126,9 @@ export async function resolveStructure(
       const afdbVersion = getResolvedAlphafoldVersion(uniprotId) || "v4";
       console.log(`[resolveStructure] Tier 2 hit: AlphaFold (${afdbVersion}) for ${uniprotId}`);
       return {
+        choice: { tier: 2, afdbVersion },
         pdbText: afData,
-        provenance: {
-          source: "alphafold",
-          afdbVersion
-        },
+        provenance: { source: "alphafold", afdbVersion }
       };
     }
   } catch (err: any) {
@@ -95,21 +151,29 @@ export async function resolveStructure(
 
     if (ranked.length > 0) {
       const best = ranked[0];
-      const pdbData = await fetchPdbFromRcsb(best.pdbId);
-      if (pdbData) {
+      const pdbText = await fetchPdbFromRcsb(best.pdbId);
+      if (pdbText) {
         console.log(
           `[resolveStructure] Tier 3 hit: homolog ${best.pdbId} ` +
           `(${best.identity}% identity, ${best.resolution ?? "?"}Å, ${best.organism})`
         );
         return {
-          pdbText: pdbData,
+          choice: {
+            tier: 3,
+            pdbId: best.pdbId,
+            resolution: best.resolution ?? null,
+            method: best.method ?? null,
+            identity: best.identity,
+            organism: best.organism
+          },
+          pdbText,
           provenance: {
             source: "homolog",
             pdbId: best.pdbId,
             resolution: best.resolution,
             method: best.method,
-            identity: best.identity,
-          },
+            identity: best.identity
+          }
         };
       }
     }
@@ -117,6 +181,127 @@ export async function resolveStructure(
     console.warn("[resolveStructure] Tier 3 (RCSB homolog) failed:", err.message);
   }
 
-  console.warn(`[resolveStructure] All tiers failed for ${uniprotId} (pos=${pos ?? "unspecified"})`);
   return null;
+}
+
+/** Re-materialises a memoised choice. The coordinates come from the fetchers' own L1 caches. */
+async function materialise(
+  uniprotId: string,
+  choice: ChosenStructure
+): Promise<ResolvedStructure | null> {
+  if (choice.tier === 1) {
+    const pdbText = await fetchPdbFromRcsb(
+      choice.pdbId,
+      choice.chainId,
+      choice.unpStart ?? undefined,
+      choice.structStart ?? undefined
+    );
+    return pdbText
+      ? {
+          pdbText,
+          provenance: { source: "experimental", pdbId: choice.pdbId.toUpperCase(), chainId: choice.chainId }
+        }
+      : null;
+  }
+
+  if (choice.tier === 2) {
+    const pdbText = await fetchAlphafoldPdb(uniprotId);
+    return pdbText
+      ? { pdbText, provenance: { source: "alphafold", afdbVersion: choice.afdbVersion } }
+      : null;
+  }
+
+  const pdbText = await fetchPdbFromRcsb(choice.pdbId);
+  return pdbText
+    ? {
+        pdbText,
+        provenance: {
+          source: "homolog",
+          pdbId: choice.pdbId,
+          resolution: choice.resolution,
+          method: choice.method ?? undefined,
+          identity: choice.identity
+        }
+      }
+    : null;
+}
+
+/**
+ * Resolve the best available structure for a given UniProt accession.
+ *
+ * @param uniprotId - Validated UniProt accession
+ * @param pos       - 1-indexed mutation position (used for coverage gating in Tier 1 & 3)
+ * @returns ResolvedStructure or null if all tiers fail
+ */
+export async function resolveStructure(
+  uniprotId: string,
+  pos?: number
+): Promise<ResolvedStructure | null> {
+  const memoKey = `structure-resolution:${uniprotId}:${pos ?? "na"}`;
+
+  /**
+   * The coordinates the probe just fetched, captured per CALL rather than per module.
+   *
+   * A module-level handoff would be clobbered by any concurrent resolution (two browsers asking for
+   * two genes), which would serve one variant's structure for another's. A closure cannot be.
+   */
+  let freshlyProbed: ProbedStructure | null = null;
+
+  let chosen: ChosenStructure | null = null;
+  try {
+    chosen = await getCachedOrFetch<ChosenStructure | null>({
+      key: memoKey,
+      source: "structure-resolution",
+      l1Cache: structureResolutionCache as any,
+      ttlSeconds: STRUCTURE_RESOLUTION_TTL_S,
+      fetcher: async () => {
+        const probed = await probeStructure(uniprotId, pos);
+        if (!probed) return null;
+        freshlyProbed = probed;
+        return probed.choice;
+      },
+      // A total failure is not a decision: it must be retried, not remembered for six hours.
+      shouldCache: (result) => result !== null
+    });
+  } catch (err: any) {
+    console.warn("[resolveStructure] Tier memoisation failed, resolving directly:", err.message);
+    freshlyProbed = await probeStructure(uniprotId, pos);
+    chosen = freshlyProbed?.choice ?? null;
+  }
+
+  if (!chosen) {
+    console.warn(`[resolveStructure] All tiers failed for ${uniprotId} (pos=${pos ?? "unspecified"})`);
+    return null;
+  }
+
+  // Fast path: this call probed the ladder itself, so the coordinates are already in hand.
+  if (freshlyProbed && freshlyProbed.choice === chosen) {
+    return { pdbText: freshlyProbed.pdbText, provenance: freshlyProbed.provenance };
+  }
+
+  const materialised = await materialise(uniprotId, chosen).catch((err: any) => {
+    console.warn("[resolveStructure] Re-materialising the memoised tier failed:", err.message);
+    return null;
+  });
+  if (materialised) return materialised;
+
+  /**
+   * The memoised tier could not be materialised — its coordinates are genuinely gone (a PDB id that
+   * no longer serves, an AlphaFold entry withdrawn). Re-choose, and record the corrected choice in
+   * BOTH tiers: dropping only the L1 entry left the stale choice in the persistent cache, so every
+   * later L1 miss re-read it, failed to materialise it again, and re-probed the network — correct,
+   * but a wasted round trip on every call until the six-hour row expired.
+   */
+  try {
+    structureResolutionCache.delete(memoKey);
+  } catch {}
+  const reProbed = await probeStructure(uniprotId, pos);
+  if (!reProbed) return null;
+  try {
+    structureResolutionCache.set(memoKey, reProbed.choice);
+    await AnalysisDatabase.getInstance()
+      .saveExternalCacheAsync(memoKey, reProbed.choice, "structure-resolution", STRUCTURE_RESOLUTION_TTL_S)
+      .catch(() => {});
+  } catch {}
+  return { pdbText: reProbed.pdbText, provenance: reProbed.provenance };
 }

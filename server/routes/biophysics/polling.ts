@@ -250,6 +250,33 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return res.json({
         jobId,
         status: jobInfo.status,
+        /**
+         * Progress, carried verbatim from the job record the worker annotates.
+         *
+         * `phase` is `queued` whenever the QUEUE says the job is queued, regardless of what the
+         * record last held. Two reasons, both observed:
+         *
+         *   • A job's queue wait is a stage in its own right, and nothing ever writes it to the
+         *     record — the first poll would otherwise replace the honest "Queued" the submit
+         *     response reported with a blank, for the whole wait.
+         *   • A restart re-queues unfinished jobs, and the record keeps the phase it died in
+         *     ("repairing"), which would then be reported for work that is waiting for a slot. The
+         *     startup pass clears it as well; this is the second, independent guard.
+         *
+         * `startedAt` is when the queue began EXECUTING (null while queued) and `queuedAhead` is
+         * only meaningful while queued, so a wait that is not the reader's fault reads as a queue
+         * position instead of an unqualified spinner.
+         */
+        phase: jobInfo.status === "queued" ? "queued" : (jobData?.phase ?? null),
+        startedAt: jobInfo.startedAt ?? null,
+        /**
+         * Execution time measured HERE, so a client never subtracts its own clock from this host's.
+         * Null while the job is queued — there is no execution to measure yet, and reporting 0 would
+         * read as "just started".
+         */
+        elapsedMs: jobInfo.status === "running" && jobInfo.startedAt ? Math.max(0, Date.now() - jobInfo.startedAt) : null,
+        createdAt: jobInfo.createdAt ?? null,
+        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : 0,
         dynamut2JobId: remoteJobs.dynamut2JobId,
         dynamut2Status: remoteJobs.dynamut2Status,
         ddmutJobId: remoteJobs.ddmutJobId,

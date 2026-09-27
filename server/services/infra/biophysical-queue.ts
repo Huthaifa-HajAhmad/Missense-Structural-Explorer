@@ -14,6 +14,8 @@ export interface QueueJob {
   result?: any;
   error?: string;
   createdAt: number;
+  /** When the queue started EXECUTING this job; null while it is still queued. */
+  startedAt?: number | null;
 }
 
 class SQLiteQueue {
@@ -57,7 +59,26 @@ class SQLiteQueue {
       );
     `);
 
-    // Reset any running jobs from a previous crash/restart back to queued status
+    // Reset any running jobs from a previous crash/restart back to queued status.
+    //
+    // The phase is cleared with it. A job re-queued by a restart has NOT been repaired or modelled,
+    // and leaving the old phase in the record made the poll route report "Structure repair —
+    // repacking side chains" for work that was waiting for a worker slot.
+    try {
+      const requeued = this.db.prepare("SELECT id, data FROM biophysical_jobs WHERE status = 'running'").all() as any[];
+      for (const row of requeued) {
+        try {
+          const data = JSON.parse(row.data);
+          delete data.phase;
+          delete data.phaseAt;
+          this.db.prepare("UPDATE biophysical_jobs SET data = ? WHERE id = ?").run(JSON.stringify(data), row.id);
+        } catch (_) {
+          // A record that cannot be parsed must still be re-queued, not left running forever.
+        }
+      }
+    } catch (err: any) {
+      console.warn("[Queue] Failed to clear stale phases on startup:", err.message);
+    }
     this.db.exec(`
       UPDATE biophysical_jobs
       SET status = 'queued', started_at = NULL
@@ -112,7 +133,8 @@ class SQLiteQueue {
       status: row.status as any,
       result: row.result ? JSON.parse(row.result) : undefined,
       error: row.error || undefined,
-      createdAt: row.created_at
+      createdAt: row.created_at,
+      startedAt: row.started_at ?? null
     };
   }
 
@@ -122,6 +144,54 @@ class SQLiteQueue {
       SET data = ?
       WHERE id = ?
     `).run(JSON.stringify(data), id);
+  }
+
+  /**
+   * Records which stage the running job is in, and when it entered it.
+   *
+   * Read-modify-write on the job's own data column, like every other remote-data update in this
+   * codebase, rather than a schema change: the column is the job record's single extension point
+   * and a new table for one string would have to be migrated on every deployment.
+   */
+  updateJobPhase(id: string, phase: string): void {
+    const row = this.db.prepare("SELECT data FROM biophysical_jobs WHERE id = ?").get(id) as any;
+    if (!row) return;
+    try {
+      const data = JSON.parse(row.data);
+      data.phase = phase;
+      data.phaseAt = Date.now();
+      this.db.prepare("UPDATE biophysical_jobs SET data = ? WHERE id = ?").run(JSON.stringify(data), id);
+    } catch (err: any) {
+      // A job row that cannot be annotated must not fail the job it describes.
+      console.warn(`[Queue] Failed to record phase "${phase}" for ${id}:`, err.message);
+    }
+  }
+
+  /** Jobs ahead of this one in the queue, or `null` when the store cannot answer. */
+  getQueuePosition(id: string): number | null {
+    try {
+      const row = this.db.prepare("SELECT created_at, rowid FROM biophysical_jobs WHERE id = ?").get(id) as any;
+      if (!row) return null;
+      /**
+       * Two properties the previous `status='queued' AND created_at < ?` did not have:
+       *
+       *   • Tie-break by `rowid`. `created_at` is `Date.now()` in milliseconds, so two jobs enqueued
+       *     in the same millisecond both reported "Next in line" — a claim about the queue that was
+       *     simply false. `rowid` is SQLite's insertion order, which is the order the scheduler
+       *     itself consumes (`ORDER BY created_at ASC`).
+       *   • Count RUNNING jobs too. A job already executing was enqueued before this one and is
+       *     genuinely ahead of it, so excluding it under-reported the wait. The row itself is
+       *     excluded by the rowid tie-break, hence the `count - 1` never going below zero.
+       */
+      const ahead = this.db.prepare(`
+        SELECT count(*) AS count FROM biophysical_jobs
+        WHERE status IN ('queued', 'running')
+          AND (created_at < ? OR (created_at = ? AND rowid <= ?))
+      `).get(row.created_at, row.created_at, row.rowid) as any;
+      return ahead ? Math.max(0, ahead.count - 1) : 0;
+    } catch {
+      return null;
+    }
   }
 
   abortJob(id: string) {
@@ -352,6 +422,12 @@ export class BiophysicalJobQueue {
 
   private concurrency: number;
   private maxQueueLength = 50;
+  /**
+   * Per-job write chains, so two read-modify-write writers cannot interleave on one record.
+   * Entries are dropped once nothing is queued behind them, so the map stays bounded by in-flight
+   * jobs rather than by jobs ever seen.
+   */
+  private jobWriteChains = new Map<string, Promise<void>>();
 
   private constructor(
     concurrency = 2,
@@ -481,7 +557,20 @@ export class BiophysicalJobQueue {
     return 0;
   }
 
-  async getJobStatus(id: string): Promise<{ status: "queued" | "running" | "completed" | "failed"; result?: any; error?: string } | null> {
+  async getJobStatus(id: string): Promise<{
+    status: "queued" | "running" | "completed" | "failed";
+    result?: any;
+    error?: string;
+    /**
+     * Timestamps, so a caller can report the job's AGE.
+     *
+     * The client used to derive elapsed time from when its own spinner mounted, which is why a
+     * queued job and a repairing job looked identical for minutes. `createdAt`/`startedAt` make the
+     * number the job's, not the component's.
+     */
+    createdAt?: number | null;
+    startedAt?: number | null;
+  } | null> {
     if (this.bullQueue) {
       const job = await this.bullQueue.getJob(id);
       if (!job) return null;
@@ -497,7 +586,9 @@ export class BiophysicalJobQueue {
       return {
         status,
         result: returnval,
-        error: failedReason
+        error: failedReason,
+        createdAt: typeof job.timestamp === "number" ? job.timestamp : null,
+        startedAt: typeof job.processedOn === "number" ? job.processedOn : null
       };
     }
 
@@ -507,7 +598,9 @@ export class BiophysicalJobQueue {
       return {
         status: job.status,
         result: job.result,
-        error: job.error
+        error: job.error,
+        createdAt: job.createdAt ?? null,
+        startedAt: job.startedAt ?? null
       };
     }
 
@@ -523,6 +616,70 @@ export class BiophysicalJobQueue {
       const job = await this.sqliteQueue.getJob(id);
       return job ? job.data : null;
     }
+    return null;
+  }
+
+  /**
+   * Records the stage a running job is in. Best-effort by design: progress reporting must never be
+   * able to fail the calculation whose progress it describes.
+   */
+  async updateJobPhase(id: string, phase: string): Promise<void> {
+    await this.mutateJobData(id, data => ({ ...(data || {}), phase, phaseAt: Date.now() }));
+  }
+
+  /**
+   * Read-modify-write of one job's `data` blob, serialised per job.
+   *
+   * WHY THIS EXISTS
+   * ---------------
+   * Two writers touch the same JSON blob while a job runs: the FoldX worker records its phase, and
+   * `updateQueueJobRemoteData` records newly-resolved remote job ids. Both are read-modify-write, and
+   * the remote-data writer's read and write straddle `await`s, so a phase written in that window was
+   * silently dropped by the later write (and, on the BullMQ backend, either write could lose the
+   * other). The visible symptom was a run that stopped reporting its stage mid-flight.
+   *
+   * Serialising per job id removes the class rather than the instance: every write for a given job
+   * is queued behind the previous one, so a read always sees the previous write's result.
+   */
+  async mutateJobData(id: string, mutate: (data: any) => any): Promise<any | null> {
+    const previous = this.jobWriteChains.get(id) ?? Promise.resolve();
+    const run = previous.then(
+      () => this.applyJobDataMutation(id, mutate),
+      () => this.applyJobDataMutation(id, mutate)
+    );
+    const settled = run.then(() => undefined, () => undefined);
+    this.jobWriteChains.set(id, settled);
+    settled.then(() => {
+      // Bounded: the chain entry is dropped once no further write is queued behind it.
+      if (this.jobWriteChains.get(id) === settled) this.jobWriteChains.delete(id);
+    });
+    return run;
+  }
+
+  private async applyJobDataMutation(id: string, mutate: (data: any) => any): Promise<any | null> {
+    try {
+      const current = await this.getJobData(id);
+      if (!current) return null;
+      /**
+       * AWAITED, and that is not defensive style.
+       *
+       * A mutator may be async (the test that pins this race uses one), and `mutate(current) ?? current`
+       * treats a returned Promise as truthy — so the row was written as `JSON.stringify(Promise)`, i.e.
+       * `{}`, silently discarding the job's entire data blob. Verified by driving it: the mutator's
+       * resolved value was correct and the stored value was empty.
+       */
+      const next = (await mutate(current)) ?? current;
+      await this.updateJobData(id, next);
+      return next;
+    } catch (err: any) {
+      // Progress bookkeeping must never be able to fail the calculation it describes.
+      console.warn(`[Queue] Job data mutation failed for ${id}:`, err.message);
+      return null;
+    }
+  }
+
+  async getQueuePosition(id: string): Promise<number | null> {
+    if (this.sqliteQueue) return this.sqliteQueue.getQueuePosition(id);
     return null;
   }
 

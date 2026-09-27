@@ -24,6 +24,11 @@ import {
   type EngineTone,
   type ProvenanceSource,
 } from "../shared/engineStatus";
+import {
+  describeFoldxPhase,
+  FOLDX_PHASES,
+  type FoldxProgress,
+} from "../shared/foldxPhase";
 
 const TONE_DOT: Record<EngineTone, string> = {
   good: "var(--cs-text-success)",
@@ -51,6 +56,8 @@ interface EnergeticsViewProps {
   thermompnnError?: string | null;
   disruptionPredictor?: { level: "high" | "low" | "unknown"; reason: string; plddt: number | null } | null;
   isFolding?: boolean;
+  /** Server-reported FoldX phase and age; absent sinks simply render the spinner as before. */
+  foldingProgress?: FoldxProgress | null;
   foldingError?: string | null;
 }
 
@@ -140,35 +147,68 @@ const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
 
 interface SimulationProgressBannerProps {
   onHidePendingEngines: () => void;
+  /** The worker's own account of the run, or `null` when it has not reported one yet. */
+  progress: FoldxProgress | null;
+  /**
+   * Whether hiding the running rows would actually reveal anything.
+   *
+   * The control's purpose is "collapse the still-running rows so the settled results are easier to
+   * read", so it is offered only once at least one row HAS settled. It used to appear on an elapsed
+   * timer — a fabricated gate — and briefly appeared unconditionally, which let a reader hide the
+   * only progress surface at t≈1 s with nothing to reveal and no way back, because the button lives
+   * inside what it hides.
+   */
+  canHidePending: boolean;
 }
 
-const getSimulationStage = (elapsed: number) => {
-  if (elapsed < 12) return { stage: 1, label: "Queued", detail: "Worker scheduled & PDB coordinates validated" };
-  if (elapsed < 40) return { stage: 2, label: "NMA / Graph Embedding", detail: "Computing normal mode elastic network & graph convolutions" };
-  if (elapsed < 75) return { stage: 3, label: "Scoring & Repacking", detail: "Running atomic force field minimization & stability head" };
-  return { stage: 4, label: "Finalizing", detail: "Aggregating calibrated multi-tool consensus" };
-};
+/**
+ * Human-readable age of a run.
+ *
+ * Built from a duration the SERVER measured plus the time since the client received it, so the
+ * number never mixes two clocks: production runs the compute on a remote host, where
+ * `clientNow - serverStartedAt` would fold the clock skew between them into the age.
+ */
+function formatElapsed(elapsedMs: number | null): string | null {
+  if (elapsedMs === null || !Number.isFinite(elapsedMs)) return null;
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
 
 const SimulationProgressBanner = memo(function SimulationProgressBanner({
-  onHidePendingEngines
+  onHidePendingEngines,
+  progress,
+  canHidePending,
 }: SimulationProgressBannerProps) {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
+  /**
+   * A one-second tick, purely so the AGE advances between polls.
+   *
+   * The stage itself is never derived from this clock: it comes from `progress.phase`, which the
+   * worker writes. The previous implementation used elapsed time as the source of truth and
+   * therefore told every run longer than 75 s that it was "Aggregating calibrated multi-tool
+   * consensus" — for a FoldX leg that spends ~98% of its wall clock repacking the template.
+   */
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    const start = Date.now();
-    const interval = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
-    }, 1000);
+    const interval = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const current = getSimulationStage(elapsedSeconds);
-  const stages = [
-    { id: 1, name: "Queued" },
-    { id: 2, name: "NMA / Embedding" },
-    { id: 3, name: "Force Field Repack" },
-    { id: 4, name: "Scoring" }
-  ];
+  const view = describeFoldxPhase(progress?.phase);
+  const elapsed = formatElapsed(
+    progress && progress.elapsedMs !== null
+      ? progress.elapsedMs + Math.max(0, nowMs - progress.receivedAt)
+      : null
+  );
+  const queued = progress?.phase === "queued";
+  const queueNote =
+    queued && progress?.queuePosition !== null && progress.queuePosition !== undefined
+      ? progress.queuePosition === 0
+        ? "Next in line"
+        : `${progress.queuePosition} job${progress.queuePosition === 1 ? "" : "s"} ahead`
+      : null;
 
   return (
     <div className="p-4 rounded-xl border space-y-3 animate-fade-in" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} aria-live="polite">
@@ -178,14 +218,21 @@ const SimulationProgressBanner = memo(function SimulationProgressBanner({
           <span>Biophysical Simulation In Progress</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-accent-clay)" }}>
-            Elapsed: {elapsedSeconds}s
-          </span>
-          {elapsedSeconds >= 45 && (
+          {elapsed && (
+            <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-accent-clay)" }}>
+              Elapsed: {elapsed}
+            </span>
+          )}
+          {queueNote && (
+            <span className="font-mono text-xs px-2 py-0.5 rounded bg-[var(--cs-surface)] border border-[var(--cs-border)]" style={{ color: "var(--cs-text-muted)" }}>
+              {queueNote}
+            </span>
+          )}
+          {canHidePending && (
             <button
               type="button"
               onClick={onHidePendingEngines}
-              title="Collapses the still-running rows so the settled results are easier to read. This does not cancel or skip any calculation."
+              title="Collapses the still-running rows so the settled results are easier to read. This does not cancel or skip any calculation, and cannot be undone without leaving and re-entering this view."
               className="text-[11px] px-2.5 py-1 rounded-md font-semibold border transition-colors cursor-pointer"
               style={{
                 background: "var(--cs-bg-warning)",
@@ -199,15 +246,26 @@ const SimulationProgressBanner = memo(function SimulationProgressBanner({
         </div>
       </div>
 
-      {/* Stage Indicator Stepper */}
+      {/* Stage Indicator Stepper — positions come from the reported phase, never from the clock. */}
       <div className="space-y-1.5 pt-1">
         <div className="grid grid-cols-4 gap-2 text-center">
-          {stages.map((st) => {
-            const isActive = current.stage === st.id;
-            const isPast = current.stage > st.id;
+          {FOLDX_PHASES.map((phase, index) => {
+            const stageNumber = index + 1;
+            const stage = describeFoldxPhase(phase)!;
+            const isActive = view?.stage === stageNumber;
+            const isPast = Boolean(view) && view!.stage > stageNumber;
             return (
               <div
-                key={st.id}
+                key={phase}
+                /**
+                 * The stepper labels are always rendered — they are the legend of what a FoldX run
+                 * consists of — so "which stage is active" is carried as data rather than inferred
+                 * from the text. It is also how a test can assert that NO stage is claimed when the
+                 * server has not reported one.
+                 */
+                data-foldx-stage={stageNumber}
+                data-active={isActive ? "true" : "false"}
+                data-past={isPast ? "true" : "false"}
                 className={`text-[10px] font-mono py-1 px-1 rounded border transition-all ${
                   isActive
                     ? "bg-[var(--cs-accent-clay)] text-white border-[var(--cs-accent-clay)] font-bold animate-pulse"
@@ -216,13 +274,24 @@ const SimulationProgressBanner = memo(function SimulationProgressBanner({
                     : "bg-[var(--cs-surface-2)] text-[var(--cs-text-muted)] border-[var(--cs-border-subtle)] opacity-60"
                 }`}
               >
-                {st.id}. {st.name}
+                {stageNumber}. {stage.label}
               </div>
             );
           })}
         </div>
         <p className="text-[11px] text-slate-400 font-sans italic">
-          Current stage: <span className="font-medium text-[var(--cs-text-primary)]">{current.detail}</span>
+          {view ? (
+            <>
+              Current stage: <span className="font-medium text-[var(--cs-text-primary)]">{view.detail}</span>
+            </>
+          ) : (
+            /*
+             * The honest unknown. A server that does not report a phase (an older deployment, or a
+             * submit request still resolving a structure) gets a plain statement rather than a
+             * guessed stage — no surface may invent a status it cannot establish.
+             */
+            <>Current stage: <span className="font-medium text-[var(--cs-text-primary)]">not reported by the compute server yet.</span></>
+          )}
         </p>
       </div>
     </div>
@@ -247,6 +316,7 @@ const EnergeticsView = memo(function EnergeticsView({
   thermompnnError = null,
   disruptionPredictor,
   isFolding = false,
+  foldingProgress = null,
   foldingError = null
 }: EnergeticsViewProps) {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
@@ -337,6 +407,32 @@ const EnergeticsView = memo(function EnergeticsView({
   const raspReason = (foldingEnergetics as any)?.raspReason;
   const foldxRepairFailed = foldingEnergetics?.foldxRepairFailed ?? false;
   const foldxBinaryMissing = (foldingEnergetics as any)?.foldxBinaryMissing ?? false;
+  const foldxRepairSkipped = foldingEnergetics?.foldxRepairSkipped ?? false;
+  const foldingEnergeticsAny = foldingEnergetics as any;
+  const foldxRepairSkippedReason: "large-structure" | "alphafold-plddt" | null =
+    foldingEnergeticsAny?.foldxRepairSkippedReason === "alphafold-plddt" ? "alphafold-plddt"
+      : foldingEnergeticsAny?.foldxRepairSkippedReason === "large-structure" ? "large-structure"
+      : null;
+  const foldxRepairCached = foldingEnergeticsAny?.foldxRepairCached === true;
+
+  /**
+   * Whether the template this ΔΔG rests on was minimised, and why not when it was not.
+   *
+   * Repair is the difference between a ΔΔG computed on a relaxed structure and one computed on raw
+   * coordinates, so its absence is a property of the NUMBER, not an infrastructure detail — the
+   * user-facing convention here is that a weaker claim says so. Deliberately NOT an exclusion: the
+   * consensus counts these values (a decision this module must not quietly change), so the note
+   * discloses without altering the count.
+   */
+  const foldxRepairNote = foldxRepairSkipped
+    ? foldxRepairSkippedReason === "alphafold-plddt"
+      ? "Template not repaired (pLDDT B-factors)"
+      : foldxRepairSkippedReason === "large-structure"
+        ? "Template not repaired (large structure)"
+        : "Template not repaired"
+    : foldxRepairCached
+      ? "Repair reused from cache"
+      : null;
 
   const energetics = useMemo(() => ({
     foldx: foldxDdG,
@@ -549,7 +645,11 @@ const EnergeticsView = memo(function EnergeticsView({
         {/* ─────────────────────────────────────────────────────────────────── */}
 
         {isFolding && !hidePendingEngines && (
-          <SimulationProgressBanner onHidePendingEngines={handleHidePendingEngines} />
+          <SimulationProgressBanner
+            onHidePendingEngines={handleHidePendingEngines}
+            progress={foldingProgress}
+            canHidePending={coverage.computed > 0}
+          />
         )}
 
         <div className="rounded-xl border border-[var(--cs-border)] overflow-hidden bg-[var(--cs-surface)] shadow-none">
@@ -589,15 +689,26 @@ const EnergeticsView = memo(function EnergeticsView({
                   // Confidence is a separate note rather than a colour override: the old code
                   // restyled "(Speculative)" in amber, making "Highly Destabilizing
                   // (Speculative)" visually identical to "Moderately Destabilizing".
-                  const confidenceNote = isExcluded
-                    ? outcome.reason
+                  /**
+                   * Every caveat that applies, not the first one that does.
+                   *
+                   * These were a ternary chain, so a low-pLDDT template REPLACED the repair
+                   * disclosure — and since `alphafold-plddt` is set for every AlphaFold template
+                   * regardless of its pLDDT, the case most likely to be low-confidence was exactly
+                   * the case where the missing repair went unmentioned.
+                   */
+                  const confidenceNotes = isExcluded
+                    ? [outcome.reason]
                     : isComputed
-                      ? disruptionPredictor?.plddt != null && disruptionPredictor.plddt < 70
-                        ? `Low template confidence (pLDDT ${disruptionPredictor.plddt.toFixed(1)})`
-                        : outcome.id === "foldx" && foldxRepairFailed
-                        ? "Repair phase failed"
-                        : null
-                      : outcome.reason;
+                      ? [
+                          disruptionPredictor?.plddt != null && disruptionPredictor.plddt < 70
+                            ? `Low template confidence (pLDDT ${disruptionPredictor.plddt.toFixed(1)})`
+                            : null,
+                          outcome.id === "foldx" && foldxRepairFailed ? "Repair phase failed" : null,
+                          outcome.id === "foldx" && foldxRepairNote ? foldxRepairNote : null,
+                        ]
+                      : [outcome.reason];
+                  const confidenceNote = confidenceNotes.filter(Boolean).join(" · ") || null;
 
                   const badgeTone: EngineTone = isExcluded
                     ? "muted"

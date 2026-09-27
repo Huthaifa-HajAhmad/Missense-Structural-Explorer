@@ -27,18 +27,83 @@ export {
   translateVariantResponseSchema
 };
 
-// Request deduplication cache for in-flight fetch promises (F-A2)
-const inFlightRequests = new Map<string, Promise<any>>();
+/**
+ * In-flight request deduplication (F-A2).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHY EACH ENTRY CARRIES ITS SIGNAL (read before changing the key)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The key alone is not enough to identify a request. `useAnalysisPipeline.executeAnalysis` aborts
+ * the previous run and then synchronously starts the next one, so for any repeated query — the same
+ * preset clicked twice, Search pressed again on the same notation, a history row re-opened — the
+ * aborted run's entry is still in this table when the new run asks for it. The new run was handed
+ * the OLD promise, which the abort had already doomed, and so it failed instantly with
+ * "Biophysical analysis stream aborted by client." while its own signal was alive and healthy.
+ * Verified by driving the real function twice in a row: run 2 issued ZERO requests.
+ *
+ * A promise created under an aborted signal is therefore not reusable, and the entry is evicted
+ * eagerly on the `abort` event — which is the mechanism that makes the race unwinnable rather than
+ * merely unlikely — plus defensively on lookup, for the case where the entry was created before its
+ * owner's signal aborted and the listener has not run yet.
+ *
+ * An entry created WITHOUT a signal is not evictable by this mechanism, and the lookup treats it as
+ * reusable (nothing is known to be wrong with it). Callers that can abort should therefore pass
+ * their signal; `MultimersTab` shares a key with the pipeline and does exactly that.
+ */
+interface InFlightRequest {
+  promise: Promise<any>;
+  /** The signal the request was created under, when the caller supplied one. */
+  signal?: AbortSignal;
+}
 
-export function getDeduplicatedPromise<T>(key: string, promiseCreator: () => Promise<T>): Promise<T> {
-  let existing = inFlightRequests.get(key);
-  if (!existing) {
-    existing = promiseCreator().finally(() => {
-      inFlightRequests.delete(key);
-    });
-    inFlightRequests.set(key, existing);
+const inFlightRequests = new Map<string, InFlightRequest>();
+
+export function getDeduplicatedPromise<T>(
+  key: string,
+  promiseCreator: () => Promise<T>,
+  /**
+   * The run this request belongs to.
+   *
+   * Optional so existing two-argument callers keep working, but every pipeline call site passes it:
+   * without it, a re-query can still inherit the aborted request it replaced.
+   */
+  signal?: AbortSignal
+): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) {
+    const ownerIsGone = Boolean(existing.signal?.aborted);
+    if (!ownerIsGone) {
+      return existing.promise;
+    }
+    inFlightRequests.delete(key);
   }
-  return existing;
+
+  let promise: Promise<T>;
+  promise = promiseCreator().finally(() => {
+    // Identity-checked: a replacement request may already own this key, and its entry must not be
+    // deleted by the settlement of the request it replaced.
+    if (inFlightRequests.get(key)?.promise === promise) {
+      inFlightRequests.delete(key);
+    }
+  });
+
+  const entry: InFlightRequest = { promise, signal };
+  inFlightRequests.set(key, entry);
+
+  if (signal) {
+    const evictOnAbort = () => {
+      if (inFlightRequests.get(key) === entry) {
+        inFlightRequests.delete(key);
+      }
+    };
+    signal.addEventListener("abort", evictOnAbort, { once: true });
+    // The listener outlives the request otherwise, and a long-lived parent signal (the analysis run
+    // aborts once, at the end of the whole pipeline) would accumulate one listener per request.
+    const detach = () => signal.removeEventListener("abort", evictOnAbort);
+    promise.then(detach, detach);
+  }
+
+  return promise;
 }
 
 export function buildEnergeticsQueryString(energetics: EnergeticsData | null): string {

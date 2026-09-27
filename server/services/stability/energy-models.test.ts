@@ -6,9 +6,86 @@ import {
   closeRaspResources,
   initializeRaspDatabase,
   runRaspLocal,
+  enrichBiophysicalResult,
   RASP_STORE_UNAVAILABLE_REASON,
 } from "./energy-models.ts";
 import { buildRaspSqliteDatabase } from "./build-rasp-sqlite.ts";
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHAT THE CLIENT ACTUALLY RECEIVES FROM THE FOLDX LEG
+ * ─────────────────────────────────────────────────────────────────────────────
+ * `enrichBiophysicalResult` rebuilds `energetics` from a whitelist, and BOTH client paths go through
+ * it (the poll route on completion, the generation route on a cache hit). A field the runner produces
+ * and this builder omits does not exist as far as every surface is concerned — which is exactly what
+ * happened to the repair disclosure and to the ensemble spread: they were written, shipped to the
+ * server, and silently dropped, so the row that explains the ΔΔG's footing could never appear.
+ *
+ * These assertions are about the WIRE, not about the runner: they are the half that makes the
+ * runner's `foldxRepairSkipped`/`foldxRepairCached`/`foldxSd` mean anything to a reader.
+ */
+describe("enrichBiophysicalResult — FoldX disclosure survives the response builder", () => {
+  const baseFoldx = {
+    pdb: "MUTANT_PDB",
+    ddG: 1.2,
+    status: "success" as const,
+    foldedResidueIndex: 489,
+  };
+
+  it("carries the ensemble mean, spread and seed", () => {
+    const out = enrichBiophysicalResult(
+      { ...baseFoldx, energetics: { foldxMean: 1.2, foldxSd: 0.31, seed: 12345 } },
+      null,
+      null,
+      489
+    );
+    expect(out.energetics.foldxMean).toBe(1.2);
+    expect(out.energetics.foldxSd, "the spread the UI prints as ± must reach the UI").toBe(0.31);
+    expect(out.energetics.seed).toBe(12345);
+  });
+
+  it("carries a skipped repair and the reason it was skipped", () => {
+    const out = enrichBiophysicalResult(
+      {
+        ...baseFoldx,
+        energetics: { foldxMean: 1.2, foldxRepairFailed: false, foldxRepairSkipped: true, foldxRepairSkippedReason: "large-structure" },
+      },
+      null,
+      null,
+      489
+    );
+    expect(out.energetics.foldxRepairSkipped).toBe(true);
+    expect(out.energetics.foldxRepairSkippedReason).toBe("large-structure");
+    // A skipped repair is NOT an exclusion: the consensus counts these values, and saying otherwise
+    // on the row would misstate the arithmetic.
+    expect(out.energetics.foldxRepairFailed).toBe(false);
+  });
+
+  it("carries reuse of a cached repair", () => {
+    const out = enrichBiophysicalResult(
+      { ...baseFoldx, energetics: { foldxMean: 1.2, foldxRepairCached: true } },
+      null,
+      null,
+      489
+    );
+    expect(out.energetics.foldxRepairCached).toBe(true);
+    // A reused repair is a repair: it must not be reported as skipped or failed.
+    expect(out.energetics.foldxRepairSkipped).toBe(false);
+    expect(out.energetics.foldxRepairFailed).toBe(false);
+  });
+
+  it("omits the reason and the reuse flag when they do not apply", () => {
+    const out = enrichBiophysicalResult(
+      { ...baseFoldx, energetics: { foldxMean: 1.2 } },
+      null,
+      null,
+      489
+    );
+    expect(out.energetics.foldxRepairSkipped).toBe(false);
+    expect(out.energetics.foldxRepairSkippedReason).toBeUndefined();
+    expect(out.energetics.foldxRepairCached).toBeUndefined();
+  });
+});
 
 describe("RaSP SQLite Database & Lookups Unit Tests", () => {
   // These resolve to the OS temp directory under test (setup.ts sets RASP_CSV_PATH /

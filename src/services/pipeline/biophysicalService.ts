@@ -42,6 +42,11 @@ export async function fetchBiophysicalAnalysis(
     ...(numberingBasis ? { numberingBasis } : {})
   };
 
+  /**
+   * The run's signal is passed as the request's identity, so a re-query of the same variant
+   * cannot be handed the promise the previous run's abort already doomed (see
+   * `getDeduplicatedPromise`).
+   */
   return getDeduplicatedPromise(bpKey, () => {
     const streamOrPromise = apiClient.streamBiophysicalAnalysis
       ? apiClient.streamBiophysicalAnalysis(
@@ -127,7 +132,7 @@ export async function fetchBiophysicalAnalysis(
         }
         throw err;
       });
-  });
+  }, signal);
 }
 
 export function fetchProgressiveLandscape(
@@ -181,6 +186,8 @@ export function fetchProgressiveMultimer(
   if (!gene || !variant || !uniprotId) return Promise.resolve(null);
 
   const multimerKey = `multimer_${gene}_${variant}_${uniprotId}`;
+  // Same identity rule as the analysis stream: an aborted run's request must never be inherited by
+  // the run that replaced it.
   return getDeduplicatedPromise(multimerKey, async () => {
     const response = await fetchWithAuth("/api/v1/structure/multimer", {
       method: "POST",
@@ -192,7 +199,7 @@ export function fetchProgressiveMultimer(
       throw new Error(`Failed to fetch multimer data (${response.status})`);
     }
     return response.json();
-  })
+  }, signal)
     .then((data: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return data;
       if (data) {

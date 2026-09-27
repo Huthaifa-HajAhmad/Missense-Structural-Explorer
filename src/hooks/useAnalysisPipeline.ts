@@ -72,6 +72,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
       },
       biophysical: {
         setIsFolding: flat.setIsFolding || (() => {}),
+        setFoldingProgress: flat.setFoldingProgress,
         setFoldingError: flat.setFoldingError || (() => {}),
         setFoldingStatus: flat.setFoldingStatus || (() => {}),
         setMutantPdb: flat.setMutantPdb || (() => {}),
@@ -280,6 +281,9 @@ export function useAnalysisPipeline() {
      * NEW run's flag.
      */
     normalizedOptions.sinks.biophysical.setIsFolding(false);
+    // ...and the phase goes with it: `setIsFolding` clears progress, but a sink supplied by an
+    // older caller (or a test double) may not implement the pairing.
+    normalizedOptions.sinks.biophysical.setFoldingProgress?.(null);
     /**
      * The companion, and it is not optional.
      *

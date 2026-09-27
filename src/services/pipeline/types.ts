@@ -1,6 +1,7 @@
 import React from "react";
 import { PdbHomolog, NearestResidue, DisruptionPredictorResult } from "../../types";
 import type { NumberingRemapRecord, StructureProvenance } from "../../shared/contracts";
+import type { FoldxProgress } from "../../shared/foldxPhase";
 
 export interface TraceContext {
   activeTraceId: string | null;
@@ -42,6 +43,14 @@ export interface PipelineAnalysisSink {
 
 export interface PipelineBiophysicalSink {
   setIsFolding: (folding: boolean) => void;
+  /**
+   * The FoldX leg's REAL phase and age, as reported by the worker through the job record.
+   *
+   * Optional so every existing sink — and every test double built from one — keeps compiling;
+   * callers guard with `?.`. A sink that does not accept progress simply renders the spinner as it
+   * always did, which is strictly worse than reporting the phase but never wrong.
+   */
+  setFoldingProgress?: (progress: FoldxProgress | null) => void;
   setFoldingError: (err: string | null) => void;
   setFoldingStatus: (status: string | null) => void;
   setMutantPdb: (pdb: string | null) => void;

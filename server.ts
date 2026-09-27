@@ -74,7 +74,23 @@ function initBiophysicalJobQueue(): void {
       if (type === "foldx") {
         let foldxResult: any = null;
         try {
-          foldxResult = await generateMutantPdb(data.wtPdb, data.mutation, data.uniprotId, data.jobDir, signal, data.options);
+          /**
+           * Phase reporting is what replaced the client's fabricated progress stepper.
+           *
+           * FoldX is the one engine measured in minutes (a 489-residue template: 205 s of repair,
+           * 2 s of modelling), and the UI had no way to learn which half it was in — so it invented
+           * a stage from elapsed time and claimed "Finalizing" for most of the wait. The worker
+           * knows the truth; it writes it to the job record the client is already polling.
+           */
+          foldxResult = await generateMutantPdb(
+            data.wtPdb,
+            data.mutation,
+            data.uniprotId,
+            data.jobDir,
+            signal,
+            data.options,
+            phase => BiophysicalJobQueue.getInstance().updateJobPhase(jobId!, phase)
+          );
         } catch (err: any) {
           const isPdbResidueMissing = /not found in the PDB structure|Mutation mismatch|Invalid mutation code/i.test(err.message);
           const isBinaryMissing = !isPdbResidueMissing && /FoldX binary not found|parameter files missing|cannot be executed|ENOENT/i.test(err.message);

@@ -107,8 +107,7 @@ describe("EnergeticsView — the observed single-engine run", () => {
   });
 
   it("never prints one value with two opposite signs", () => {
-    const { container } = renderView();
-    const text = container.textContent ?? "";
+    const { container } = renderView();    const text = container.textContent ?? "";
     // DynaMut2 reported −0.09 natively; the canonical form is +0.09 and MUST be the only form
     // shown. The table used to negate it while the breakdown printed the raw sign.
     expect(text).not.toContain("-0.09");
@@ -489,6 +488,107 @@ describe("EnergeticsView — UI polish & interactive affordances", () => {
       screen.getByText(/Structure repair failed on experimental model 6N7E \(3.5 Å\)/)
     ).toBeInTheDocument();
     expect(screen.getByText(/Shown for reference only — excluded from the consensus\./)).toBeInTheDocument();
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE PROGRESS BANNER — the surface that replaced an elapsed-time fiction
+ * ─────────────────────────────────────────────────────────────────────────────
+ * It used to advance through hardcoded stages at 12 s / 40 s / 75 s and then sit on "Finalizing —
+ * Aggregating calibrated multi-tool consensus" for the rest of the run: five of six minutes, while
+ * the machine was repacking a template. The stage now comes from the worker, the age from a duration
+ * the SERVER measured, and an unreported phase says so instead of guessing.
+ *
+ * Nothing rendered this banner before, so every one of those properties was unguarded.
+ */
+describe("EnergeticsView — FoldX progress banner", () => {
+  it("names the reported stage and the queue position, and shows no age while queued", () => {
+    const { container } = renderView({
+      isFolding: true,
+      foldingProgress: { phase: "queued", elapsedMs: null, queuePosition: 2, receivedAt: Date.now() },
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("1. Queued");
+    expect(text).toContain("2 jobs ahead");
+    expect(text).toContain("Waiting for a free force-field worker");
+    // A queued job has no execution clock: an "Elapsed" here would be measuring the spinner.
+    expect(text).not.toContain("Elapsed:");
+  });
+
+  it("says the stage is unreported rather than guessing one", () => {
+    const { container } = renderView({
+      isFolding: true,
+      foldingProgress: { phase: null, elapsedMs: 4_000, queuePosition: null, receivedAt: Date.now() },
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("not reported by the compute server yet");
+    /**
+     * No stage may be claimed. The stepper LABELS are always on screen — they are the legend of what
+     * a FoldX run consists of — so the assertion is about which cell is active, which the cell
+     * carries as data rather than leaving to be inferred from text.
+     */
+    expect(container.querySelectorAll("[data-foldx-stage]")).toHaveLength(4);
+    expect(container.querySelectorAll('[data-foldx-stage][data-active="true"]')).toHaveLength(0);
+  });
+
+  it("reports the age of the JOB, from the duration the server measured", () => {
+    const { container } = renderView({
+      isFolding: true,
+      foldingProgress: { phase: "repairing", elapsedMs: 65_000, queuePosition: null, receivedAt: Date.now() },
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Structure repair");
+    expect(text).toContain("Repacking side chains");
+    expect(text).toContain("Elapsed: 1m 05s");
+    // ...and exactly one cell is active: the reported one.
+    const active = container.querySelectorAll('[data-foldx-stage][data-active="true"]');
+    expect(active).toHaveLength(1);
+    expect(active[0].getAttribute("data-foldx-stage")).toBe("2");
+  });
+
+  it("offers the hide control only once a row has settled", () => {
+    // Every engine null: hiding the running rows would reveal nothing, and the control lives inside
+    // the banner it hides — so pressing it early left no way back and no progress surface at all.
+    const allNull = {
+      ...MACO1_ENERGETICS,
+      dynamut2: null,
+    };
+    const noResults = renderView({ isFolding: true, foldingEnergetics: allNull, dynamut2Status: "pending" });
+    expect(within(noResults.container).queryByText("Hide pending engines")).toBeNull();
+
+    // With one engine settled there is something to reveal, so the control is offered.
+    const withResults = renderView({
+      isFolding: true,
+      foldingProgress: { phase: "modelling", elapsedMs: 1_000, queuePosition: null, receivedAt: Date.now() },
+    });
+    expect(within(withResults.container).getByText("Hide pending engines")).toBeInTheDocument();
+  });
+
+  it("discloses an un-repaired template, and keeps both caveats when the template is also low-confidence", () => {
+    const { container } = renderView({
+      isFolding: false,
+      disruptionPredictor: { plddt: 60 },
+      foldingEnergetics: {
+        ...MACO1_ENERGETICS,
+        foldx: 1.4,
+        foldxMean: 1.4,
+        // The shared fixture models a FAILED repair; this case is the quieter one — repair never
+        // attempted — and inheriting the failure would short-circuit the disclosure under test.
+        foldxRepairFailed: false,
+        foldxRepairSkipped: true,
+        foldxRepairSkippedReason: "large-structure",
+      },
+    });
+
+    const text = container.textContent ?? "";
+    // Both facts, not the first one: the skip note used to be REPLACED by the pLDDT note, and
+    // AlphaFold templates — the likeliest low-pLDDT case — set exactly that skip reason.
+    expect(text).toContain("Template not repaired (large structure)");
+    expect(text).toContain("Low template confidence (pLDDT 60.0)");
   });
 });
 

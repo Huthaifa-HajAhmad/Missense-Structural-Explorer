@@ -41,7 +41,51 @@ import { CONFIG } from "../../config.ts";
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData };
 
 /**
+ * One progressive emission from the core fetch: whatever has settled so far.
+ *
+ * `data` holds only the fields that are ready. `serviceStatus` is the FULL running status map —
+ * every key present, unsettled ones as `"pending"` — because a map that simply omits a source is
+ * indistinguishable downstream from one that has been measured and found empty. That distinction is
+ * clinical: `frequencyEvidence` renders "still running" for `pending` and "extremely rare / PM2
+ * ceiling" for `not_found`, so an absent key let a gnomAD query still in flight be read as a
+ * confirmed absence.
+ */
+export interface CoreAnalysisPartial {
+  data: Record<string, unknown>;
+  serviceStatus: RunningServiceStatus;
+  serviceTimings: Record<string, number>;
+}
+
+/**
+ * The status map of a RUN in progress: the ten sources of {@link ServiceStatusMap}, with anything
+ * not yet settled marked `"pending"`.
+ *
+ * Deliberately a distinct type rather than `ServiceStatusMap`: `pending` is a statement about the
+ * request, not about the variant, and only the final payload may claim the latter.
+ */
+export type RunningServiceStatus = Record<keyof ServiceStatusMap, ServiceFetchStatus | "pending">;
+
+/** Every source the running map must account for. Order is the payload's own. */
+const SERVICE_STATUS_KEYS: readonly (keyof ServiceStatusMap)[] = [
+  "clinvar",
+  "predictorData",
+  "conservationData",
+  "stringInteractions",
+  "disruptionPredictor",
+  "esm2",
+  "gnomadConstraint",
+  "gnomadFrequency",
+  "uniprotFeatures",
+  "pdbMapping"
+];
+
+export type CoreAnalysisPartialListener = (partial: CoreAnalysisPartial) => void;
+
+/**
  * Executes parallel fetching of external databases and quick predictor pipelines with timeout racing.
+ *
+ * @param onPartial Called once per source, the moment that source settles. Optional: the
+ *   non-streaming `/analyze-variant` route has no use for it.
  */
 export async function fetchCoreVariantData(
   context: ParsedVariantContext,
@@ -49,7 +93,20 @@ export async function fetchCoreVariantData(
   prefetched?: {
     clinvarPromise?: Promise<ClinVarData | null>;
     predictorPromise?: Promise<PredictorData | null>;
-  }
+    /**
+     * The triage's OWN verdict on the two prefetched sources.
+     *
+     * Load-bearing, and the reason it is forwarded rather than re-derived: `streamCoreAnalysis`
+     * catches the provider error and resolves `{data: null, status: "timeout" | "error"}`, so the
+     * failure never reaches this function's own `catch` blocks. Re-deriving the status from a null
+     * value therefore reported an OUTAGE as `not_found` — "ClinVar holds no submission for this
+     * variant" for a query that was never answered — while the non-streaming route reported `error`
+     * for the same event. Two routes, two answers, both about a clinical absence.
+     */
+    clinvarStatus?: ServiceFetchStatus;
+    predictorStatus?: ServiceFetchStatus;
+  },
+  onPartial?: CoreAnalysisPartialListener
 ): Promise<CoreAnalysisData> {
   const {
     gene,
@@ -256,6 +313,203 @@ export async function fetchCoreVariantData(
   const fastLocalFreqsPromise = Promise.race([localFreqsPromise, coreTimeout]);
   const fastPdbMappingPromise = Promise.race([pdbMappingPromise, coreTimeout]);
 
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * PROGRESSIVE EMISSION — one chunk per settled source, not one chunk per stage
+   * ─────────────────────────────────────────────────────────────────────────────
+   * Previously this function returned only when ALL eleven sources had settled, so the streaming
+   * route could not write anything between "ClinVar + predictors" and "everything". The stream the
+   * reader actually waited on was therefore gated by the SLOWEST source (STRONG-cased against a
+   * 45 s race), while the client gave up after 30 s of silence — a healthy run reported as a
+   * stalled stream. Measured: 0 chunks in 31 s of a run the server considered alive.
+   *
+   * The status for each source is derived HERE, once, by the same function the final assembly uses
+   * below, so a partial cannot describe a source differently from the payload that supersedes it.
+   */
+  const statusRules = {
+    /**
+     * A forwarded triage verdict OUTRANKS the local error flags.
+     *
+     * The triage catches the provider's own failure and resolves `{data:null,status}`, so on the
+     * stream path `clinvarHasError` is unreachable and a null value would be derived as `not_found`
+     * — an outage reported as a measured absence, which `clinvarPresence` then narrates as "ClinVar
+     * holds no submission for this variant". The triage already knows the difference; it says so.
+     *
+     * Absent (the non-streaming route), the derivation is unchanged and the local flags apply.
+     */
+    clinvar: (raw: unknown): ServiceFetchStatus =>
+      prefetched?.clinvarStatus ??
+      (raw === TIMEOUT_FLAG ? "timeout"
+        : clinvarHasError ? "error"
+        : !raw || (raw as ClinVarData).classification === "Not found in ClinVar" ? "not_found"
+        : "ok"),
+    predictorData: (raw: unknown): ServiceFetchStatus =>
+      prefetched?.predictorStatus ??
+      (raw === TIMEOUT_FLAG ? "timeout"
+        : predictorHasError ? "error"
+        : !raw || (!(raw as PredictorData).amPathogenicity && !(raw as PredictorData).caddPhred) ? "not_found"
+        : "ok"),
+    conservationData: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout"
+        : conservationHasError ? "error"
+        : !raw || ((raw as ConservationData).revel === null && (raw as ConservationData).gerp === null && (raw as ConservationData).phylop === null) ? "not_found"
+        : "ok",
+    stringInteractions: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout"
+        : stringHasError ? "error"
+        : !raw || (raw as StringInteraction[]).length === 0 ? "not_found"
+        : "ok",
+    disruptionPredictor: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout" : disruptionHasError ? "error" : "ok",
+    esm2: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout" : esm2HasError ? "error" : raw ? "ok" : "not_found",
+    pdbMapping: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout" : pdbHasError ? "error" : raw ? "ok" : "not_found",
+    gnomadConstraint: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout"
+        : gnomadConstraintHasError ? "error"
+        : (raw as GnomadGeneConstraint | null)?.missense_z !== null && raw !== null ? "ok"
+        : "not_found",
+    gnomadFrequency: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout"
+        : gnomadFreqHasError ? "error"
+        : gnomadFreqBuildRefused ? "unsupported-build"
+        : raw ? "ok"
+        : "not_found",
+    uniprotFeatures: (raw: unknown): ServiceFetchStatus =>
+      raw === TIMEOUT_FLAG ? "timeout" : uniprotFeaturesHasError ? "error" : raw ? "ok" : "not_found"
+  } satisfies Record<keyof ServiceStatusMap, (raw: unknown) => ServiceFetchStatus>;
+
+  const partialData: Record<string, unknown> = {};
+  /**
+   * Seeded COMPLETE, not empty.
+   *
+   * An empty map means every source that has not answered is simply ABSENT from the preview, and
+   * absent is indistinguishable from "measured, and empty" at every consumer: a gnomAD lookup still
+   * in flight was rendered as a confirmed rarity (PM2 ceiling) rather than as "still running". The
+   * map therefore starts as ten `pending` markers and each settled source replaces its own.
+   */
+  const partialStatus: RunningServiceStatus = SERVICE_STATUS_KEYS.reduce((acc, key) => {
+    acc[key] = "pending";
+    return acc;
+  }, {} as RunningServiceStatus);
+
+  /**
+   * All-null AoU counts mean "not measured", and the final payload says so by nulling the object.
+   * The preview applies the SAME rule, or the two would disagree about a field the reader sees.
+   */
+  const normalizeAouFrequency = (value: any): any => {
+    if (!value) return null;
+    const allNull = value.aouAC === null && value.aouAN === null && value.aouHet === null && value.aouHom === null;
+    return allNull ? null : value;
+  };
+
+  const emitPartial = () => {
+    if (!onPartial) return;
+    const runningStatus = { ...partialStatus };
+    const runningTimings = { ...serviceTimings };
+    onPartial({
+      data: {
+        ...partialData,
+        // Mirror into `metadata`, which is where several surfaces read status/timings from. The
+        // client merges `metadata` key-by-key, so the placeholder's gene/variant/residue fields
+        // survive a partial.
+        metadata: {
+          ...((partialData.metadata as Record<string, unknown>) || {}),
+          serviceStatus: runningStatus,
+          serviceTimings: runningTimings
+        },
+        serviceStatus: runningStatus,
+        serviceTimings: runningTimings
+      },
+      serviceStatus: runningStatus,
+      serviceTimings: runningTimings
+    });
+  };
+
+  /**
+   * Records settled fields and announces them. Every chain below is attached to a promise that
+   * cannot reject (each producer catches and returns a null/[] fallback), but `.catch(() => {})` is
+   * kept so a future change to a producer cannot turn a progress notification into an unhandled
+   * rejection inside the request that is still trying to answer.
+   */
+  const publish = (
+    fields: Record<string, unknown>,
+    statuses: Partial<Record<keyof ServiceStatusMap, ServiceFetchStatus | "pending">>
+  ) => {
+    Object.assign(partialData, fields);
+    Object.assign(partialStatus, statuses);
+    emitPartial();
+  };
+
+  /** Value of a raced source, or `null` when its budget expired. */
+  const settled = <T>(raw: unknown): T | null => (raw === TIMEOUT_FLAG ? null : (raw as T));
+
+  fastClinvarPromise
+    .then(raw => publish({ clinvar: settled<ClinVarData>(raw) }, { clinvar: statusRules.clinvar(raw) }))
+    .catch(() => {});
+
+  fastPredictorPromise
+    .then(raw => publish({ predictorData: settled<PredictorData>(raw) }, { predictorData: statusRules.predictorData(raw) }))
+    .catch(() => {});
+
+  fastPdbMappingPromise
+    .then(raw => {
+      const map = settled<PdbBestStructureMapping>(raw);
+      publish(
+        {
+          metadata: {
+            pdbId: map?.pdbId ? map.pdbId.toUpperCase() : null,
+            pdbSource: map?.pdbId ? PDB_SOURCE_RCSB : PDB_SOURCE_ALPHAFOLD
+          }
+        },
+        { pdbMapping: statusRules.pdbMapping(raw) }
+      );
+    })
+    .catch(() => {});
+
+  fastStringPromise
+    .then(raw => {
+      const list = settled<StringInteraction[]>(raw);
+      publish({ stringInteractions: list ?? [] }, { stringInteractions: statusRules.stringInteractions(raw) });
+    })
+    .catch(() => {});
+
+  fastEsm2TriagePromise
+    .then(raw => publish({ esm2: settled(raw) }, { esm2: statusRules.esm2(raw) }))
+    .catch(() => {});
+
+  fastConservationPromise
+    .then(raw => publish({ conservationData: settled<ConservationData>(raw) }, { conservationData: statusRules.conservationData(raw) }))
+    .catch(() => {});
+
+  fastDisruptionPromise
+    .then(raw => publish({ disruptionPredictor: settled(raw) }, { disruptionPredictor: statusRules.disruptionPredictor(raw) }))
+    .catch(() => {});
+
+  fastGnomadConstraintPromise
+    .then(raw => publish({ gnomadConstraint: settled<GnomadGeneConstraint>(raw) }, { gnomadConstraint: statusRules.gnomadConstraint(raw) }))
+    .catch(() => {});
+
+  fastGnomadFrequencyPromise
+    .then(raw => publish({ gnomadFrequency: settled<GnomadVariantFrequency>(raw) }, { gnomadFrequency: statusRules.gnomadFrequency(raw) }))
+    .catch(() => {});
+
+  fastUniprotFeaturesPromise
+    .then(raw => publish({ uniprotFeatures: settled<UniprotFeaturesResult>(raw) }, { uniprotFeatures: statusRules.uniprotFeatures(raw) }))
+    .catch(() => {});
+
+  fastLocalFreqsPromise
+    .then(raw => {
+      // Not a status-bearing source: the local dbNSFP frequency feeds `aouFrequency` and the
+      // gnomAD gate above, so only the derived field is published — through the same all-null
+      // guard the final payload applies.
+      const localFreqs = settled<any>(raw);
+      const aou = normalizeAouFrequency(localFreqs?.aou);
+      if (aou) publish({ aouFrequency: aou }, {});
+    })
+    .catch(() => {});
+
   clinvarPromise.catch(() => {});
   predictorPromise.catch(() => {});
   stringPromise.catch(() => {});
@@ -294,106 +548,59 @@ export async function fetchCoreVariantData(
     fastLocalFreqsPromise
   ]);
 
+  /**
+   * Every status below comes from `statusRules` — the SAME functions the progressive emissions
+   * above use. Two independent derivations is exactly how one source ends up described as `pending`
+   * on the wire and `ok` in the payload (or, worse, `not_found` in one place and `unsupported-build`
+   * in the other, which an ACMG criterion reads as a measured absence).
+   */
   const clinvarTimedOut = rawClinvar === TIMEOUT_FLAG;
   const clinvarRes = (clinvarTimedOut ? null : rawClinvar) as ClinVarData | null;
-  const clinvarStatus: ServiceFetchStatus = clinvarTimedOut
-    ? "timeout"
-    : clinvarHasError
-    ? "error"
-    : !clinvarRes || clinvarRes.classification === "Not found in ClinVar"
-    ? "not_found"
-    : "ok";
+  const clinvarStatus: ServiceFetchStatus = statusRules.clinvar(rawClinvar);
 
   const predictorTimedOut = rawPredictor === TIMEOUT_FLAG;
   const predictorRes = (predictorTimedOut ? null : rawPredictor) as PredictorData | null;
-  const predictorStatus: ServiceFetchStatus = predictorTimedOut
-    ? "timeout"
-    : predictorHasError
-    ? "error"
-    : !predictorRes || (!predictorRes.amPathogenicity && !predictorRes.caddPhred)
-    ? "not_found"
-    : "ok";
+  const predictorStatus: ServiceFetchStatus = statusRules.predictorData(rawPredictor);
 
   const conservationTimedOut = rawConservation === TIMEOUT_FLAG;
   const conservationRes = (conservationTimedOut ? null : rawConservation) as ConservationData | null;
-  const conservationStatus: ServiceFetchStatus = conservationTimedOut
-    ? "timeout"
-    : conservationHasError
-    ? "error"
-    : !conservationRes || (conservationRes.revel === null && conservationRes.gerp === null && conservationRes.phylop === null)
-    ? "not_found"
-    : "ok";
+  const conservationStatus: ServiceFetchStatus = statusRules.conservationData(rawConservation);
 
   const stringTimedOut = rawString === TIMEOUT_FLAG;
   const stringRes = (stringTimedOut || !rawString ? [] : rawString) as StringInteraction[];
-  const stringStatus: ServiceFetchStatus = stringTimedOut
-    ? "timeout"
-    : stringHasError
-    ? "error"
-    : stringRes.length === 0
-    ? "not_found"
-    : "ok";
+  const stringStatus: ServiceFetchStatus = statusRules.stringInteractions(rawString);
 
   const disruptionTimedOut = rawDisruption === TIMEOUT_FLAG;
   const disruptionRes = (disruptionTimedOut ? null : rawDisruption) as DisruptionPrediction | null;
-  const disruptionStatus: ServiceFetchStatus = disruptionTimedOut
-    ? "timeout"
-    : disruptionHasError
-    ? "error"
-    : "ok";
+  const disruptionStatus: ServiceFetchStatus = statusRules.disruptionPredictor(rawDisruption);
 
   const esm2TimedOut = rawEsm2 === TIMEOUT_FLAG;
   const esm2Res = (esm2TimedOut ? null : rawEsm2) as { llr: number | null; verdict: string } | null;
-  const esm2Status: ServiceFetchStatus = esm2TimedOut
-    ? "timeout"
-    : esm2HasError
-    ? "error"
-    : esm2Res ? "ok" : "not_found";
+  const esm2Status: ServiceFetchStatus = statusRules.esm2(rawEsm2);
 
   const pdbMapTimedOut = rawPdbMap === TIMEOUT_FLAG;
   const pdbMapRes = (pdbMapTimedOut ? null : rawPdbMap) as PdbBestStructureMapping | null;
-  const pdbMappingStatus: ServiceFetchStatus = pdbMapTimedOut
-    ? "timeout"
-    : pdbHasError
-    ? "error"
-    : pdbMapRes ? "ok" : "not_found";
+  const pdbMappingStatus: ServiceFetchStatus = statusRules.pdbMapping(rawPdbMap);
 
   const gnomadConstraintTimedOut = rawGnomadConstraint === TIMEOUT_FLAG;
   const gnomadConstraintRes = (gnomadConstraintTimedOut ? null : rawGnomadConstraint) as GnomadGeneConstraint | null;
-  const gnomadConstraintStatus: ServiceFetchStatus = gnomadConstraintTimedOut
-    ? "timeout"
-    : gnomadConstraintHasError
-    ? "error"
-    : gnomadConstraintRes?.missense_z !== null && gnomadConstraintRes !== null ? "ok" : "not_found";
+  const gnomadConstraintStatus: ServiceFetchStatus = statusRules.gnomadConstraint(rawGnomadConstraint);
 
   const gnomadFreqTimedOut = rawGnomadFreq === TIMEOUT_FLAG;
   const gnomadFreqRes = (gnomadFreqTimedOut ? null : rawGnomadFreq) as GnomadVariantFrequency | null;
-  const gnomadFreqStatus: ServiceFetchStatus = gnomadFreqTimedOut
-    ? "timeout"
-    : gnomadFreqHasError
-    ? "error"
-    : gnomadFreqBuildRefused
-    ? "unsupported-build"
-    : gnomadFreqRes ? "ok" : "not_found";
+  const gnomadFreqStatus: ServiceFetchStatus = statusRules.gnomadFrequency(rawGnomadFreq);
 
   const uniprotFeaturesTimedOut = rawUniprotFeatures === TIMEOUT_FLAG;
   const uniprotFeaturesRes = (uniprotFeaturesTimedOut ? null : rawUniprotFeatures) as UniprotFeaturesResult | null;
-  const uniprotFeaturesStatus: ServiceFetchStatus = uniprotFeaturesTimedOut
-    ? "timeout"
-    : uniprotFeaturesHasError
-    ? "error"
-    : uniprotFeaturesRes ? "ok" : "not_found";
+  const uniprotFeaturesStatus: ServiceFetchStatus = statusRules.uniprotFeatures(rawUniprotFeatures);
 
   const localFreqsRes = (rawLocalFreqs === TIMEOUT_FLAG ? null : rawLocalFreqs) as any;
 
   let aouFrequency = null;
   if (localFreqsRes && localFreqsRes.aou) {
-    aouFrequency = localFreqsRes.aou;
+    aouFrequency = normalizeAouFrequency(localFreqsRes.aou);
   } else if (conservationRes?.aouFrequency) {
-    aouFrequency = conservationRes.aouFrequency;
-  }
-  if (aouFrequency && aouFrequency.aouAC === null && aouFrequency.aouAN === null && aouFrequency.aouHet === null && aouFrequency.aouHom === null) {
-    aouFrequency = null;
+    aouFrequency = normalizeAouFrequency(conservationRes.aouFrequency);
   }
 
   let resolvedPdbId: string | null = null;
