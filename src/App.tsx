@@ -17,6 +17,7 @@ import NotificationToastContainer from "./components/NotificationToastContainer"
 import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/VariantAnalysisContext";
 import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
+import { useVariantUrlSync } from "./hooks/useVariantUrlSync";
 
 export default function App() {
   const { actions } = useVariantAnalysis();
@@ -60,10 +61,18 @@ export default function App() {
     /* Corrupt `cs-sidebar-width` entries used to parse to NaN and flow straight
        into the aside's inline style. clampSidebarWidth sends NaN (and any value
        outside the drag range) back to a legal width. */
-    return clampSidebarWidth(parseInt(localStorage.getItem("cs-sidebar-width") ?? "", 10));
+    try {
+      return clampSidebarWidth(parseInt(localStorage.getItem("cs-sidebar-width") ?? "", 10));
+    } catch {
+      return clampSidebarWidth(NaN);
+    }
   });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    return localStorage.getItem("cs-sidebar-collapsed") === "true";
+    try {
+      return localStorage.getItem("cs-sidebar-collapsed") === "true";
+    } catch {
+      return false;
+    }
   });
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
@@ -121,6 +130,41 @@ export default function App() {
     [actions, navigate]
   );
 
+  /* One toggle for the sidebar button, the palette action and Ctrl/⌘B. On narrow viewports the
+     rail is a drawer, so the same intent opens or closes the drawer instead of flipping the
+     desktop preference behind the user's back. */
+  const toggleSidebar = useCallback(() => {
+    if (isNarrowViewport) {
+      setIsNavDrawerOpen((open) => !open);
+      return;
+    }
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("cs-sidebar-collapsed", String(next));
+      } catch {
+        /* persistence is best-effort */
+      }
+      return next;
+    });
+  }, [isNarrowViewport]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "b") return;
+      /* A text field's caret owns the keyboard (Ctrl+B is bold in rich-text contexts). */
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+      e.preventDefault();
+      toggleSidebar();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleSidebar]);
+
+  // Address bar mirrors the active variant, so the URL is always a working share link.
+  useVariantUrlSync();
+
   // Application side-effects hook
   useAppEffects({
     actions,
@@ -153,7 +197,7 @@ export default function App() {
           sidebarWidth={sidebarWidth}
           setSidebarWidth={setSidebarWidth}
           isCollapsed={isSidebarCollapsed}
-          setIsCollapsed={setIsSidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
           isDrawerMode={isNarrowViewport}
           isDrawerOpen={isNavDrawerOpen}
           onCloseDrawer={() => setIsNavDrawerOpen(false)}
@@ -247,6 +291,7 @@ export default function App() {
             onSelectHistory={actions.handleSelectHistoryItem}
             onRunQuery={actions.handleSearchSubmit}
             onOpenOnboarding={() => setIsOnboardingOpen(true)}
+            onToggleSidebar={toggleSidebar}
           />
 
           {/* Workspace Onboarding & API Keys Guide Modal */}

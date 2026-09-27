@@ -35,11 +35,11 @@ import {
  */
 const WORKFLOW_ZONES = [
   {
-    name: "Input · Search",
+    name: "Search",
     desc: "Enter a gene symbol and an HGVS missense notation. The workspace resolves the transcript, UniProt accession and genomic coordinates before the pipeline runs."
   },
   {
-    name: "Evidence & modeling",
+    name: "Evidence & modelling",
     desc: "Population frequencies, in-silico predictors, AlphaGenome effects, RNA splicing, 3D structure (AlphaFold2 & ESMFold), ΔΔG energetics and the residue landscape."
   },
   {
@@ -47,8 +47,8 @@ const WORKFLOW_ZONES = [
     desc: "AI interpretation and ACMG rules, literature mining, and a clinical narrative assembled from the run's own evidence."
   },
   {
-    name: "Developer",
-    desc: "Errors, logs and network telemetry for the services behind the pipeline."
+    name: "Console & About",
+    desc: "Pinned at the foot of the sidebar: errors, logs and network telemetry for the services behind the pipeline, and this guide."
   }
 ] as const;
 

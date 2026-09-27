@@ -485,7 +485,7 @@ describe("CommandPalette — system actions", () => {
     const onEvidenceTabChange = vi.fn();
     render(<CommandPalette {...setup({ onEvidenceTabChange })} />);
     typeLine("predictors");
-    fireEvent.click(screen.getByText("In-Silico Predictors"));
+    fireEvent.click(screen.getByText("In-silico predictors"));
     expect(onEvidenceTabChange).toHaveBeenCalled();
   });
 

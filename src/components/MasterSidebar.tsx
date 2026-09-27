@@ -1,14 +1,16 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import {
   Dna, BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
-  PanelLeftClose, BookOpen, Info,
+  PanelLeftClose, PanelLeftOpen, BookOpen, Info, X,
 } from "lucide-react";
+import { CHROME_ICON_BUTTON } from "./ui/chrome";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import { useSettings } from "../context/SettingsContext";
+import { isApplePlatform } from "../shared/platform";
 
 export type MasterView =
   | "search"
@@ -26,24 +28,36 @@ export type MasterView =
 
 /**
  * Sidebar geometry, shared by the pointer drag, the keyboard resize path and App's
- * persisted-value guard — one authority for the bounds instead of three copies of
- * `Math.max(180, Math.min(420, …))` drifting apart.
+ * persisted-value guard — one authority for the bounds.
  */
 export const SIDEBAR_WIDTH_MIN = 180;
 export const SIDEBAR_WIDTH_MAX = 420;
-export const SIDEBAR_WIDTH_DEFAULT = 220;
+export const SIDEBAR_WIDTH_DEFAULT = 232;
 export const SIDEBAR_WIDTH_COLLAPSED = 56;
+const SIDEBAR_WIDTH_STORAGE_KEY = "cs-sidebar-width";
 
 /**
- * Clamps any candidate width into the legal range. Deliberately tolerates NaN —
- * `parseInt` of a corrupt `cs-sidebar-width` localStorage entry produces NaN, and an
- * unguarded read used to flow `width: NaN` straight into the aside's inline style.
- * The ViewInspector clamps its own persisted width the same way.
+ * Clamps any candidate width into the legal range. Tolerates NaN — `parseInt` of a corrupt
+ * `cs-sidebar-width` entry produces NaN, which must never reach the aside's inline style.
  */
 export function clampSidebarWidth(raw: number): number {
   return Number.isFinite(raw)
     ? Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(raw)))
     : SIDEBAR_WIDTH_DEFAULT;
+}
+
+/** localStorage throws in private windows and when storage is full; persistence is best-effort. */
+function persist(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** The sidebar-collapse chord, printed next to the collapse button and the palette action. */
+export function sidebarToggleHint(userAgent?: string): string {
+  return isApplePlatform(userAgent) ? "⌘B" : "Ctrl B";
 }
 
 interface MasterSidebarProps {
@@ -52,7 +66,8 @@ interface MasterSidebarProps {
   sidebarWidth: number;
   setSidebarWidth: (w: number) => void;
   isCollapsed: boolean;
-  setIsCollapsed: (c: boolean) => void;
+  /** Flips the desktop collapse preference. App owns persistence and the Ctrl/⌘B chord. */
+  onToggleCollapse: () => void;
   activeEvidenceTab: string;
   onEvidenceTabChange: (tab: string) => void;
   // Completion state props
@@ -73,76 +88,95 @@ interface MasterSidebarProps {
   onCloseDrawer?: () => void;
 }
 
-interface NavItem {
+export interface NavItem {
   id: MasterView;
   label: string;
+  /** One-line description: the row's tooltip, and the command palette's meta column. */
   sublabel?: string;
   Icon: React.ComponentType<{ className?: string }>;
 }
 
 interface NavZone {
-  zoneLabel: string;
+  /** `null` renders no heading — Search is the front door and needs no label above it. */
+  zoneLabel: string | null;
   items: NavItem[];
 }
 
+/**
+ * The scrolling nav. Labels are sentence case to match every other heading in the app, and the
+ * descriptors say what the view is FOR rather than listing the tools behind it.
+ */
 const NAV_ZONES: NavZone[] = [
   {
-    zoneLabel: "Input",
+    zoneLabel: null,
     items: [
       { id: "search", label: "Search", sublabel: "Variant query & history", Icon: Search },
     ],
   },
   {
-    zoneLabel: "Evidence & modeling",
+    zoneLabel: "Evidence & modelling",
     items: [
-      { id: "evidence",   label: "Evidence",     sublabel: "Multi-modal scores",    Icon: BarChart2    },
-      { id: "structure",  label: "3D Structure",  sublabel: "Molstar viewer",         Icon: Layers       },
-      { id: "energetics", label: "Energetics",   sublabel: "ΔΔG · FoldX · DynaMut", Icon: Activity     },
-      { id: "landscape",  label: "Landscape",    sublabel: "REVEL · AM scatter",    Icon: Map          },
+      { id: "evidence",   label: "Evidence",     sublabel: "Population, predictors & splicing", Icon: BarChart2 },
+      { id: "structure",  label: "3D structure", sublabel: "AlphaFold2 & ESMFold models",       Icon: Layers    },
+      { id: "energetics", label: "Energetics",   sublabel: "ΔΔG stability estimates",           Icon: Activity  },
+      { id: "landscape",  label: "Landscape",    sublabel: "Residue-level mutation map",        Icon: Map       },
     ],
   },
   {
     zoneLabel: "Synthesis",
     items: [
-      { id: "insights", label: "Insights", sublabel: "Variant interpretation", Icon: FlaskConical },
-      { id: "literature", label: "Literature", sublabel: "Citations & PubMed", Icon: BookOpen     },
-      { id: "report",   label: "Report",   sublabel: "Clinical narrative",     Icon: FileText     },
+      { id: "insights",   label: "Insights",   sublabel: "Interpretation & ACMG criteria", Icon: FlaskConical },
+      { id: "literature", label: "Literature", sublabel: "PubMed & Europe PMC",            Icon: BookOpen     },
+      { id: "report",     label: "Report",     sublabel: "Clinical summary & export",      Icon: FileText     },
     ],
   },
-  {
-    zoneLabel: "Developer",
-    items: [
-      { id: "console",  label: "Console",  sublabel: "Errors · Logs · Network", Icon: Terminal     },
-    ],
-  },
-];
-
-/** Flat registry of the primary views — shared with the command palette so the two never drift. */
-export const MASTER_VIEW_ITEMS: NavItem[] = NAV_ZONES.flatMap((zone) => zone.items);
-
-export const EVIDENCE_SUB_ITEMS = [
-  { id: "clinical",     label: "Population Data" },
-  { id: "predictors",   label: "In-Silico Predictors"   },
-  { id: "alphagenome",  label: "AlphaGenome Atlas"      },
-  { id: "splicing",     label: "RNA Splicing"            },
-  { id: "structure",    label: "Residue Shifts & Pockets"},
-  { id: "perturbation", label: "Structural Perturbation" },
-  { id: "multimers",    label: "Multimer Assembly"       },
-  { id: "function",     label: "Functional Domains"      },
-  { id: "interactions", label: "PPI Networks"            },
-  { id: "guidelines",   label: "Scores Thresholds"       },
-];
-
-export const STRUCTURE_SUB_ITEMS = [
-  { id: "structure_alphafold", label: "AlphaFold2" },
-  { id: "structure_esmfold",   label: "ESMFold-2 Model"   },
 ];
 
 /**
- * Which evidence sub-tabs are still waiting on their backing data for the current
- * run. Was a nested-ternary chain inlined per sub-item per render — same logic,
- * but now it reads as the small lookup it is and can be reasoned about once.
+ * Utilities pinned below the scroll area. Console used to be a one-item "Developer" zone in the
+ * middle of the analysis flow; it is a tool, not a step, so it lives with About.
  */
+const FOOTER_ITEMS: NavItem[] = [
+  { id: "console", label: "Console", sublabel: "Errors, logs & network", Icon: Terminal },
+  { id: "about",   label: "About",   sublabel: "Guide & data sources",   Icon: Info     },
+];
+
+/** Flat registry of every primary view — shared with the header and the command palette. */
+export const MASTER_VIEW_ITEMS: NavItem[] = [
+  ...NAV_ZONES.flatMap((zone) => zone.items),
+  ...FOOTER_ITEMS,
+];
+
+export const EVIDENCE_SUB_ITEMS = [
+  { id: "clinical",     label: "Population data"          },
+  { id: "predictors",   label: "In-silico predictors"     },
+  { id: "alphagenome",  label: "AlphaGenome"              },
+  { id: "splicing",     label: "RNA splicing"             },
+  { id: "structure",    label: "Residue shifts & pockets" },
+  { id: "perturbation", label: "Structural perturbation"  },
+  { id: "multimers",    label: "Multimer assembly"        },
+  { id: "function",     label: "Functional domains"       },
+  { id: "interactions", label: "Protein interactions"     },
+  { id: "guidelines",   label: "Score thresholds"         },
+];
+
+export const STRUCTURE_SUB_ITEMS: { id: MasterView; label: string }[] = [
+  { id: "structure_alphafold", label: "AlphaFold2" },
+  { id: "structure_esmfold",   label: "ESMFold"    },
+];
+
+/**
+ * Whether a registry row stands for the view on screen. The 3D structure row covers both model
+ * sub-views — the sidebar, the header and the palette all need that merge, so it is written once.
+ */
+export function isViewActive(itemId: MasterView | string, activeView: MasterView | undefined): boolean {
+  if (itemId === "structure") {
+    return activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold";
+  }
+  return itemId === activeView;
+}
+
+/** Which evidence sub-tabs are still waiting on their backing data for the current run. */
 function isEvidenceSubStreaming(
   subId: string,
   isBiophysicalLoading: boolean,
@@ -153,60 +187,36 @@ function isEvidenceSubStreaming(
     case "alphagenome": return !result?.conservationData?.alphagenome;
     case "splicing":    return !result?.conservationData?.spliceai;
     case "predictors":  return !result?.conservationData?.revel;
-    case "structure":    return !result?.insights?.biochemicalShift;
-    default:             return false;
+    case "structure":   return !result?.insights?.biochemicalShift;
+    default:            return false;
   }
 }
 
-/** Render glowing indicator dot for completed steps, ring spinner for in-progress, and hollow ring for pending */
+const STATUS_TEXT: Record<WorkflowStatusType, string> = {
+  complete: "Complete",
+  progress: "In progress",
+  degraded: "Service degraded",
+  error: "Error",
+  pending: "Not started",
+};
+
+/**
+ * Stage marker on the right edge of a row (or the icon corner when collapsed). `role="img"` so
+ * the aria-label is actually announced — on a bare span it was ignored.
+ */
 function StepIcon({ status }: { status: WorkflowStatusType }) {
-  if (status === "complete") {
-    return (
-      <span className="flex h-2.5 w-2.5 items-center justify-center shrink-0" title="Complete" aria-label="Complete">
-        <span className="inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500/90" />
-      </span>
-    );
-  }
-  if (status === "progress") {
-    return (
-      <span
-        className="w-2.5 h-2.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin shrink-0 inline-block"
-        role="status"
-        aria-label="In progress"
-      />
-    );
-  }
-  if (status === "degraded") {
-    return (
-      <span
-        className="w-2 h-2 rounded-full bg-amber-500 shrink-0 inline-block"
-        title="Service degraded"
-        aria-label="Service degraded"
-      />
-    );
-  }
-  if (status === "error") {
-    return (
-      <span
-        className="w-2 h-2 rounded-full bg-rose-500 shrink-0 inline-block"
-        title="Error"
-        aria-label="Error"
-      />
-    );
-  }
   return (
     <span
-      className="w-2 h-2 rounded-full border border-slate-400 dark:border-slate-600 bg-transparent shrink-0 inline-block opacity-50"
-      aria-label="Not started"
+      className="ms-step"
+      data-status={status}
+      role="img"
+      aria-label={STATUS_TEXT[status] ?? STATUS_TEXT.pending}
+      title={STATUS_TEXT[status] ?? STATUS_TEXT.pending}
     />
   );
 }
 
-/**
- * One sub-navigation row, shared by the Evidence tabs and the structure models.
- * The two lists were ~90% copy-pasted blocks that had already drifted (only the
- * evidence copy had a streaming branch); one component keeps them identical.
- */
+/** One sub-navigation row, shared by the Evidence tabs and the structure models. */
 function SubNavItem({
   label,
   isActive,
@@ -222,32 +232,125 @@ function SubNavItem({
     <button
       type="button"
       onClick={onClick}
-      className="ms-sub-btn flex items-center gap-2 py-1.5 px-2 rounded-md w-full text-left cursor-pointer"
+      className="ms-sub-btn"
       data-active={isActive}
       aria-current={isActive ? "page" : undefined}
     >
-      <span className="ms-sub-dot" data-active={isActive} aria-hidden="true" />
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: isActive ? 500 : 400,
-          color: isActive ? "var(--cs-accent-clay)" : "var(--cs-text-muted)",
-        }}
-        className="truncate"
-      >
-        {label}
-      </span>
+      <span className="ms-sub-dot" aria-hidden="true" />
+      <span className="ms-sub-label">{label}</span>
       {isStreaming && (
-        <span
-          /* Same amber progress ring as StepIcon — this used to be the only indigo
-             element in a clay/mag/amber/emerald sidebar. */
-          className="ml-auto w-2 h-2 rounded-full border border-amber-500 border-t-transparent animate-spin shrink-0"
-          title="Streaming in background"
-          aria-label="Streaming in background"
-        />
+        <span className="ms-step ml-auto" data-status="progress" role="img" aria-label="Loading" title="Loading in background" />
       )}
     </button>
   );
+}
+
+interface NavRowProps {
+  item: NavItem;
+  isActive: boolean;
+  collapsed: boolean;
+  onClick: () => void;
+  /** The live pipeline sentence; shown as a second line only while it says something. */
+  liveText?: string;
+  status?: WorkflowStatusType;
+  showStatus?: boolean;
+  badgeCount?: number;
+  rail: React.ReactNode;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+}
+
+/**
+ * The one nav-row anatomy: icon · label · marker, with an optional live line that discloses
+ * under the label. Primary rows and pinned footer rows are the same component — the footer
+ * used to be a 60-line hand copy of the row that had already drifted.
+ */
+function NavRow({
+  item,
+  isActive,
+  collapsed,
+  onClick,
+  liveText,
+  status = "pending",
+  showStatus = false,
+  badgeCount = 0,
+  rail,
+  buttonRef,
+}: NavRowProps) {
+  const { id, label, sublabel, Icon } = item;
+  const hasBadge = badgeCount > 0;
+  const badgeText = badgeCount > 99 ? "99+" : String(badgeCount);
+  const isLive = Boolean(liveText);
+  const statusSuffix = showStatus && status !== "pending" ? ` · ${STATUS_TEXT[status]}` : "";
+  const tooltip = collapsed
+    ? `${label}${sublabel ? ` — ${sublabel}` : ""}${statusSuffix}${hasBadge ? ` · ${badgeText} unread` : ""}`
+    : liveText || sublabel;
+
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={onClick}
+      className="ms-nav-btn"
+      data-active={isActive}
+      data-view={id}
+      data-collapsed={collapsed}
+      aria-current={isActive ? "page" : undefined}
+      /* Collapsed rows have no visible text, so they carry the name. Expanded rows are named by
+         their content, which is what lets the live status line reach a screen reader. */
+      aria-label={collapsed ? `${label}${statusSuffix}${hasBadge ? `, ${badgeText} unread` : ""}` : undefined}
+      title={tooltip}
+    >
+      {isActive && rail}
+      <span className="ms-nav-icon">
+        <Icon className="w-4 h-4" />
+        {collapsed && showStatus && status !== "pending" && (
+          <span className="ms-nav-icon-status">
+            <StepIcon status={status} />
+          </span>
+        )}
+        {collapsed && hasBadge && <span className="ms-nav-icon-dot" aria-hidden="true" />}
+      </span>
+
+      {!collapsed && (
+        <span className="ms-nav-text">
+          <span className="ms-nav-label">{label}</span>
+          <span className="ms-nav-live" data-open={isLive} data-status={status}>
+            <span className="ms-nav-live-inner">
+              <span className="ms-nav-live-text">{liveText}</span>
+            </span>
+          </span>
+        </span>
+      )}
+
+      {!collapsed && hasBadge && <span className="ms-count-badge">{badgeText}</span>}
+      {!collapsed && !hasBadge && showStatus && <StepIcon status={status} />}
+    </button>
+  );
+}
+
+/**
+ * Scroll-edge fades for the nav: sets data attributes the CSS mask reads, so a clipped row reads
+ * as "more below" instead of a rendering bug. (The mask variables used to be declared but never
+ * set by anything, so the fade never rendered.)
+ */
+function useScrollEdges(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      el.dataset.fadeTop = String(el.scrollTop > 1);
+      el.dataset.fadeBottom = String(el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    if (el.firstElementChild) ro?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro?.disconnect();
+    };
+  }, [ref]);
 }
 
 function MasterSidebar({
@@ -256,7 +359,7 @@ function MasterSidebar({
   sidebarWidth,
   setSidebarWidth,
   isCollapsed,
-  setIsCollapsed,
+  onToggleCollapse,
   activeEvidenceTab,
   onEvidenceTabChange,
   analysisResult,
@@ -274,76 +377,94 @@ function MasterSidebar({
   isDrawerOpen = false,
   onCloseDrawer,
 }: MasterSidebarProps) {
-  const resizeRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettings();
   const defaultStructureView: MasterView =
     settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
+  const navRef = useRef<HTMLElement>(null);
+  const activeRowRef = useRef<HTMLButtonElement>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  useScrollEdges(navRef);
 
-  /* The drawer always shows the expanded rail — collapsing into a 56px overlay
-     would be a third state nobody asked for. */
+  /* The drawer always shows the expanded rail. */
   const collapsed = isDrawerMode ? false : isCollapsed;
+
+  /**
+   * Has anything run yet? Before the first analysis the stage markers and sub-links point at empty
+   * views, so they are withheld. A parent's sub-list still opens while that parent is active.
+   */
+  const hasRun = Boolean(
+    analysisResult || isLoadingSearch || isBiophysicalLoading || isClinicalLoading ||
+    isFolding || isPocketLoading || isNarrativeLoading
+  );
   const currentWidth = isDrawerMode
-    ? Math.min(Math.max(sidebarWidth, 240), 320)
+    ? Math.min(Math.max(sidebarWidth, 248), 320)
     : collapsed
       ? SIDEBAR_WIDTH_COLLAPSED
       : sidebarWidth;
 
+  /* Drawer: Escape closes it (only while open), and opening moves focus into it — the current
+     row if there is one — so a keyboard user lands in the thing they just opened. */
   useEffect(() => {
-    if (!isDrawerMode) return;
+    if (!isDrawerMode || !isDrawerOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCloseDrawer?.();
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [isDrawerMode, onCloseDrawer]);
+    const focusTimer = window.setTimeout(() => {
+      (activeRowRef.current ?? navRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
+    }, 0);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.clearTimeout(focusTimer);
+    };
+  }, [isDrawerMode, isDrawerOpen, onCloseDrawer]);
 
-  /**
-   * Set + persist a width in one place. Pointer drags commit once on mouseup (the
-   * drag itself only updates state — writing localStorage on every mousemove was
-   * hundreds of synchronous writes per gesture); keyboard steps commit per press.
-   */
+  /** Set + persist a width in one place (keyboard steps and double-click reset). */
   const commitWidth = useCallback(
     (next: number) => {
       const clamped = clampSidebarWidth(next);
       setSidebarWidth(clamped);
-      localStorage.setItem("cs-sidebar-width", String(clamped));
+      persist(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped));
     },
     [setSidebarWidth]
   );
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  /* Pointer events (not mouse events) so pen and touch can resize too; pointer capture keeps the
+     drag alive when the cursor outruns the 12px handle. Commits to storage once, on release. */
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (collapsed || isDrawerMode || e.button !== 0) return;
       e.preventDefault();
-      if (collapsed || isDrawerMode) return;
+      const handle = e.currentTarget;
+      handle.setPointerCapture?.(e.pointerId);
       const startX = e.clientX;
       const startWidth = sidebarWidth;
       let lastWidth = startWidth;
-      const handleMouseMove = (me: MouseEvent) => {
-        lastWidth = startWidth + me.clientX - startX;
-        setSidebarWidth(clampSidebarWidth(lastWidth));
+      setIsResizing(true);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (me: PointerEvent) => {
+        lastWidth = clampSidebarWidth(startWidth + me.clientX - startX);
+        setSidebarWidth(lastWidth);
       };
-      const handleMouseUp = () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
+      const onUp = () => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        localStorage.setItem("cs-sidebar-width", String(clampSidebarWidth(lastWidth)));
+        setIsResizing(false);
+        persist(SIDEBAR_WIDTH_STORAGE_KEY, String(lastWidth));
       };
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      /* Without this, dragging across the main content selected text mid-gesture —
-         `select-none` only covers the sidebar's own subtree. */
-      document.body.style.userSelect = "none";
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
     },
     [sidebarWidth, collapsed, isDrawerMode, setSidebarWidth]
   );
 
-  /**
-   * Keyboard resize for the separator: ArrowLeft/Right ±16px, Home/End for the
-   * bounds. Before this the handle was a mouse-only div — a keyboard user could
-   * collapse, navigate and toggle everything else, but not resize.
-   */
+  /** Keyboard resize for the separator: Arrow keys ±16px, Home/End for the bounds. */
   const handleResizeKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       switch (e.key) {
@@ -358,17 +479,7 @@ function MasterSidebar({
     [commitWidth, sidebarWidth]
   );
 
-  const toggleCollapse = () => {
-    const next = !isCollapsed;
-    setIsCollapsed(next);
-    localStorage.setItem("cs-sidebar-collapsed", String(next));
-  };
-
-  /**
-   * One navigation exit for every sidebar route: primary rows, sub-tabs and the
-   * About footer all funnel here so the narrow-viewport drawer dismisses itself
-   * after any selection.
-   */
+  /** One exit for every sidebar route, so the narrow-viewport drawer dismisses after a pick. */
   const navigate = useCallback(
     (view: MasterView) => {
       onViewChange(view);
@@ -377,21 +488,36 @@ function MasterSidebar({
     [onViewChange, isDrawerMode, onCloseDrawer]
   );
 
-  /* The active rail is a single shared element: `layoutId` makes it glide from row
-     to row (and between the nav and the pinned footer) instead of teleporting.
-     MotionConfig's reducedMotion setting neutralizes it app-wide. */
+  const toggleHint = sidebarToggleHint();
+
+  /* The active rail is one shared element: `layoutId` glides it between rows (and between the
+     nav and the pinned footer). MotionConfig's reducedMotion neutralises it app-wide. */
   const activeRail = (
     <motion.span
       layoutId="ms-active-rail"
       className="ms-active-rail"
-      transition={{ type: "spring", duration: 0.45, bounce: 0.15 }}
+      transition={{ type: "spring", duration: 0.4, bounce: 0.12 }}
       aria-hidden="true"
     />
   );
 
+  const stageOf = (id: MasterView) =>
+    getWorkflowStageStatus({
+      view: id,
+      result: analysisResult,
+      isFolding,
+      isBiophysicalLoading,
+      isClinicalLoading,
+      isLoadingSearch,
+      loadingStep,
+      isPocketLoading,
+      dynamut2Status,
+      ddmutStatus,
+      isNarrativeLoading,
+    });
+
   return (
     <>
-      {/* ── Drawer backdrop (narrow viewports only; CSS keeps it inert on desktop) ── */}
       {isDrawerMode && isDrawerOpen &&
         createPortal(
           <div className="ms-drawer-backdrop" onClick={onCloseDrawer} aria-hidden="true" />,
@@ -399,349 +525,193 @@ function MasterSidebar({
         )}
 
       <aside
-        className="ms-root relative flex flex-col h-full flex-shrink-0 overflow-hidden select-none"
+        className="ms-root"
+        data-collapsed={collapsed}
+        data-resizing={isResizing || undefined}
         data-drawer={isDrawerMode ? (isDrawerOpen ? "open" : "closed") : undefined}
         inert={isDrawerMode && !isDrawerOpen ? true : undefined}
-        style={{
-          width: currentWidth,
-          minWidth: currentWidth,
-          background: "var(--cs-surface)",
-          borderRight: "1px solid var(--cs-border)",
-        }}
+        style={{ width: currentWidth, minWidth: currentWidth }}
         aria-label="Main navigation"
       >
-        {/* ── Brand logo + wordmark + collapse toggle ── */}
-        <div
-          className="flex items-center flex-shrink-0 overflow-hidden"
-          style={{
-            padding: isCollapsed ? "14px 10px" : "14px 16px",
-            borderBottom: "1px solid var(--cs-border)",
-            height: "var(--cs-chrome-height)",
-            minHeight: "var(--cs-chrome-height)",
-            justifyContent: isCollapsed ? "center" : "space-between",
-          }}
-        >
-          <div className="flex items-center min-w-0">
-            {/*
-              * When collapsed, this is the ONLY route back out — so it has to be a real button. It was
-              * a `<div>` with an `onClick` and a `title`: no role, no tabIndex, no keyboard handler.
-              * A keyboard user who collapsed the sidebar had no focusable control left to expand it
-              * (the genuine toggle below renders only when `!isCollapsed`), which is a dead end, not a
-              * preference.
-              */}
-            {isCollapsed ? (
-              <button
-                type="button"
-                onClick={toggleCollapse}
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-                className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer active:scale-[0.96] transition-transform"
-                style={{ background: "var(--cs-accent-clay)" }}
-              >
-                <Dna className="w-4 h-4 text-white stroke-[2.2]" />
-              </button>
-            ) : (
-              <div
-                className="w-7.5 h-7.5 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: "var(--cs-accent-clay)" }}
-                title="Missense & Fold"
-              >
-                <Dna className="w-4 h-4 text-white stroke-[2.2]" />
-              </div>
-            )}
-            {/* The wordmark stays mounted and compresses (see .ms-brand-wordmark):
-                the logo re-centers as the width eases instead of the text blinking out. */}
-            <span className="ms-brand-wordmark" data-collapsed={collapsed}>
-              <span
-                className="text-[13px] font-semibold tracking-tight whitespace-nowrap"
-                style={{ color: "var(--cs-text-primary)" }}
-              >
-                Missense{" "}
-                <span style={{ color: "var(--cs-accent-clay)" }}>&amp; Fold</span>
-              </span>
-            </span>
-          </div>
-
-          {!collapsed && (
+        {/* ── Brand + collapse / close ── */}
+        <div className="ms-brand" data-collapsed={collapsed}>
+          {collapsed ? (
+            /* Collapsed, the mark is the way back out, so it turns into the expand glyph on
+               hover/focus instead of leaving the affordance to be discovered. */
             <button
               type="button"
-              onClick={toggleCollapse}
-              className="p-1 rounded cursor-pointer active:scale-95 transition-all hover:text-[var(--cs-text-primary)]"
-              style={{ color: "var(--cs-text-muted)" }}
-              title="Collapse sidebar"
-              aria-label="Collapse sidebar"
+              onClick={onToggleCollapse}
+              aria-label={`Expand sidebar (${toggleHint})`}
+              title={`Expand sidebar (${toggleHint})`}
+              className="ms-brand-mark group"
+              data-expander="true"
             >
-              <PanelLeftClose className="w-4 h-4" />
+              <Dna className="w-4 h-4 stroke-[2.2] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+              <PanelLeftOpen className="absolute w-4 h-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => navigate("search")}
+              className="ms-brand-mark"
+              title="Go to Search"
+              aria-label="Missense & Fold — go to Search"
+            >
+              <Dna className="w-4 h-4 stroke-[2.2]" />
+            </button>
+          )}
+
+          <span className="ms-brand-wordmark" data-collapsed={collapsed} aria-hidden={collapsed || undefined}>
+            Missense <span className="text-cs-text-accent">&amp; Fold</span>
+          </span>
+
+          {!collapsed && (
+            isDrawerMode ? (
+              /* In the drawer the old collapse toggle flipped the DESKTOP preference and left the
+                 drawer open — the button did nothing visible. Here it closes the drawer. */
+              <button
+                type="button"
+                onClick={onCloseDrawer}
+                className={`${CHROME_ICON_BUTTON} ml-auto`}
+                title="Close navigation"
+                aria-label="Close navigation"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className={`${CHROME_ICON_BUTTON} ml-auto`}
+                title={`Collapse sidebar (${toggleHint})`}
+                aria-label="Collapse sidebar"
+                aria-keyshortcuts={toggleHint === "⌘B" ? "Meta+B" : "Control+B"}
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            )
           )}
         </div>
 
-        {/* ── Primary navigation (zone-grouped) ── */}
+        {/* ── Primary navigation ── */}
         <nav
-          className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden ms-nav-scroll"
-          style={{ padding: collapsed ? "8px 6px" : "4px 6px" }}
+          ref={navRef}
+          className="ms-nav"
           aria-label="Primary navigation"
           id="master-sidebar-nav"
           data-tour="navigation-zones"
         >
-          {NAV_ZONES.map((zone, zoneIdx) => (
-            <div key={zone.zoneLabel}>
-              {/* Zone label — 11px uppercase, muted. Spacing comes from the inline
-                  style below: it is the single source of truth for the 8/20 rhythm
-                  (first zone vs. rest), so no :first-child margin rule is needed. */}
-              {!collapsed && (
-                <span
-                  className="sidebar-zone-label"
-                  style={{ marginTop: zoneIdx === 0 ? 8 : 20 }}
-                >
-                  {zone.zoneLabel}
-                </span>
-              )}
+          <div className="ms-nav-inner">
+            {NAV_ZONES.map((zone, zoneIdx) => (
+              <div key={zone.zoneLabel ?? `zone-${zoneIdx}`} className="ms-zone" role="group" aria-label={zone.zoneLabel ?? undefined}>
+                {zone.zoneLabel && (
+                  collapsed
+                    ? <span className="ms-zone-divider" aria-hidden="true" />
+                    : <span className="ms-zone-label" aria-hidden="true">{zone.zoneLabel}</span>
+                )}
 
-              {zone.items.map(({ id, label, sublabel, Icon }) => {
-                const isActive =
-                  activeView === id ||
-                  (id === "structure" && (activeView === "structure_alphafold" || activeView === "structure_esmfold"));
-                const { status, desc } = getWorkflowStageStatus({
-                  view: id,
-                  result: analysisResult,
-                  isFolding,
-                  isBiophysicalLoading,
-                  isClinicalLoading,
-                  isLoadingSearch,
-                  loadingStep,
-                  isPocketLoading,
-                  dynamut2Status,
-                  ddmutStatus,
-                  isNarrativeLoading
-                });
-                /* While a stage is actively running (or degraded/failed), the static
-                   descriptor is replaced by the pipeline's own live sentence — the
-                   `desc` field getWorkflowStageStatus always computed and the sidebar
-                   used to throw away. */
-                const isLive = status === "progress" || status === "degraded" || status === "error";
-                const stageLabel = isLive && desc ? desc : sublabel;
+                {zone.items.map((item) => {
+                  const { id } = item;
+                  const isActive = isViewActive(id, activeView);
+                  const { status, desc } = stageOf(id);
+                  /* While a stage is running, degraded or failed, its own live sentence discloses
+                     under the label; otherwise the row stays one line. */
+                  const isLive = status === "progress" || status === "degraded" || status === "error";
+                  const subOpen = !collapsed && (hasRun || isActive);
 
-                return (
-                  <div key={id} className="flex flex-col">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (id === "structure") {
-                          navigate(defaultStructureView);
-                        } else {
-                          navigate(id);
-                        }
-                      }}
-                      className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left active:scale-[0.98] group"
-                      data-active={isActive}
-                      style={{
-                        padding: collapsed ? "9px 14px" : "8px 14px",
-                        justifyContent: "flex-start",
-                        position: "relative",
-                      }}
-                      aria-label={label}
-                      title={collapsed ? `${label}${sublabel ? ` — ${sublabel}` : ""}` : undefined}
-                      aria-current={isActive ? "page" : undefined}
-                    >
-                      {/* Shared sliding rail */}
-                      {isActive && activeRail}
+                  return (
+                    <div key={id} className="ms-row">
+                      <NavRow
+                        item={item}
+                        isActive={isActive}
+                        collapsed={collapsed}
+                        buttonRef={isActive ? activeRowRef : undefined}
+                        onClick={() => navigate(id === "structure" ? defaultStructureView : id)}
+                        liveText={isLive && desc ? desc : undefined}
+                        status={status}
+                        showStatus={hasRun && id !== "search"}
+                        rail={activeRail}
+                      />
 
-                      {/* Nav icon */}
-                      <span
-                        style={{
-                          color: isActive
-                            ? "var(--cs-accent-clay)"
-                            : "var(--cs-text-secondary)",
-                          display: "flex",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </span>
-
-                      {/* Primary label + descriptor (expanded only) */}
-                      {!collapsed && (
-                        <span className="flex flex-col min-w-0 flex-1">
-                          {/* Primary label: 14px / 500 */}
-                          <span
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 500,
-                              lineHeight: "1.3",
-                              color: isActive
-                                ? "var(--cs-accent-clay)"
-                                : "var(--cs-text-primary)",
-                            }}
-                          >
-                            {label}
-                          </span>
-                          {/* Descriptor: 12px / 400 — the live pipeline sentence wins over the static one */}
-                          {stageLabel && (
-                            <span
-                              style={{
-                                fontSize: 12,
-                                fontWeight: 400,
-                                lineHeight: "1.3",
-                                color:
-                                  status === "error"
-                                    ? "var(--cs-text-danger)"
-                                    : status === "degraded"
-                                      ? "var(--cs-text-warning)"
-                                      : "var(--cs-text-muted)",
-                              }}
-                              className="truncate"
-                            >
-                              {stageLabel}
-                            </span>
-                          )}
-                        </span>
-                      )}
-
-                      {/* Completion indicator or Console badge (right edge) */}
-                      {!collapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
-                        <span className="ml-auto flex-shrink-0 dev-console-badge">
-                          {(unreadConsoleCount ?? 0) > 99 ? "99+" : unreadConsoleCount}
-                        </span>
-                      )}
-
-                      {!collapsed && id !== "console" && (
-                        <span className="ml-auto flex-shrink-0">
-                          <StepIcon status={status} />
-                        </span>
-                      )}
-
-                      {collapsed && id === "console" && (unreadConsoleCount ?? 0) > 0 && (
-                        <span
-                          className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500"
-                          title={`${unreadConsoleCount} unread console entries`}
-                        />
-                      )}
-                    </button>
-
-                    {/* ── Evidence sub-items: always mounted; the grid disclosure
-                          morphs them with the width animation instead of popping ── */}
-                    {id === "evidence" && (
-                      <div className="ms-sub-list" data-open={!collapsed}>
-                        <div className="ms-sub-list-inner">
-                          <div>
-                            {EVIDENCE_SUB_ITEMS.map((sub) => (
-                              <SubNavItem
-                                key={sub.id}
-                                label={sub.label}
-                                isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
-                                isStreaming={isEvidenceSubStreaming(sub.id, isBiophysicalLoading, analysisResult)}
-                                onClick={() => {
-                                  navigate("evidence");
-                                  onEvidenceTabChange(sub.id);
-                                }}
-                              />
-                            ))}
+                      {/* Sub-lists stay mounted; the grid disclosure morphs them with the width
+                          animation instead of popping. */}
+                      {id === "evidence" && (
+                        <div className="ms-sub-list" data-open={subOpen}>
+                          <div className="ms-sub-list-inner">
+                            <div className="ms-sub-list-items">
+                              {EVIDENCE_SUB_ITEMS.map((sub) => (
+                                <SubNavItem
+                                  key={sub.id}
+                                  label={sub.label}
+                                  isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
+                                  isStreaming={isEvidenceSubStreaming(sub.id, isBiophysicalLoading, analysisResult)}
+                                  onClick={() => {
+                                    navigate("evidence");
+                                    onEvidenceTabChange(sub.id);
+                                  }}
+                                />
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* ── 3D Structure sub-items ── */}
-                    {id === "structure" && (
-                      <div className="ms-sub-list" data-open={!collapsed}>
-                        <div className="ms-sub-list-inner">
-                          <div>
-                            {STRUCTURE_SUB_ITEMS.map((sub) => (
-                              <SubNavItem
-                                key={sub.id}
-                                label={sub.label}
-                                isActive={activeView === sub.id}
-                                onClick={() => navigate(sub.id as MasterView)}
-                              />
-                            ))}
+                      {id === "structure" && (
+                        <div className="ms-sub-list" data-open={subOpen}>
+                          <div className="ms-sub-list-inner">
+                            <div className="ms-sub-list-items">
+                              {STRUCTURE_SUB_ITEMS.map((sub) => (
+                                <SubNavItem
+                                  key={sub.id}
+                                  label={sub.label}
+                                  isActive={activeView === sub.id}
+                                  onClick={() => navigate(sub.id)}
+                                />
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </nav>
 
-        {/* ── Pinned footer: About — outside the scroll area, so it is always
-              reachable no matter how far the nav is scrolled ── */}
-        <div
-          className="flex-shrink-0"
-          style={{
-            borderTop: "1px solid var(--cs-border)",
-            padding: "6px 6px",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => navigate("about")}
-            className="ms-nav-btn flex items-center gap-2.5 rounded-lg cursor-pointer w-full text-left active:scale-[0.98]"
-            data-active={activeView === "about"}
-            style={{
-              padding: collapsed ? "9px 14px" : "8px 14px",
-              justifyContent: "flex-start",
-              position: "relative",
-            }}
-            aria-label="About"
-            aria-current={activeView === "about" ? "page" : undefined}
-            title={collapsed ? "About — Workspace guide & data sources" : undefined}
-          >
-            {activeView === "about" && activeRail}
-            <span
-              style={{
-                color: activeView === "about"
-                  ? "var(--cs-accent-clay)"
-                  : "var(--cs-text-secondary)",
-                display: "flex",
-                flexShrink: 0,
-              }}
-            >
-              <Info className="w-4 h-4" />
-            </span>
-            {!collapsed && (
-              <span className="flex flex-col min-w-0 flex-1">
-                <span
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 500,
-                    lineHeight: "1.3",
-                    color: activeView === "about"
-                      ? "var(--cs-accent-clay)"
-                      : "var(--cs-text-primary)",
-                  }}
-                >
-                  About
-                </span>
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    lineHeight: "1.3",
-                    color: "var(--cs-text-muted)",
-                  }}
-                  className="truncate"
-                >
-                  Workspace guide & data sources
-                </span>
-              </span>
-            )}
-          </button>
+        {/* ── Pinned utilities: outside the scroll area, always reachable ── */}
+        <div className="ms-footer">
+          {FOOTER_ITEMS.map((item) => {
+            const isActive = activeView === item.id;
+            return (
+              <NavRow
+                key={item.id}
+                item={item}
+                isActive={isActive}
+                collapsed={collapsed}
+                buttonRef={isActive ? activeRowRef : undefined}
+                onClick={() => navigate(item.id)}
+                badgeCount={item.id === "console" ? unreadConsoleCount ?? 0 : 0}
+                rail={activeRail}
+              />
+            );
+          })}
         </div>
 
-        {/* ── Resize drag handle — pointer + keyboard, 12px hit area with a
-              4px visible strip (see .ms-resize-handle) ── */}
+        {/* ── Resize handle — pointer + keyboard; 12px hit area, 2px visible line ── */}
         {!collapsed && !isDrawerMode && (
           <div
-            ref={resizeRef}
             role="separator"
             aria-orientation="vertical"
-            aria-label="Sidebar width. Press ArrowLeft or ArrowRight to resize, Home or End for the limits."
+            aria-label="Resize sidebar"
+            aria-controls="master-sidebar-nav"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_WIDTH_MIN}
+            aria-valuemax={SIDEBAR_WIDTH_MAX}
             title="Drag to resize · double-click to reset"
             tabIndex={0}
-            onMouseDown={handleMouseDown}
+            onPointerDown={handlePointerDown}
             onKeyDown={handleResizeKeyDown}
             onDoubleClick={() => commitWidth(SIDEBAR_WIDTH_DEFAULT)}
             className="ms-resize-handle"

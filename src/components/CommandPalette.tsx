@@ -2,9 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import {
-  BarChart2, Info, Settings, Sun, Moon, History, Dna, Sparkles, Trash2, ArrowUpRight, KeyRound, Compass,
+  BarChart2, Settings, Sun, Moon, History, Sparkles, Trash2, ArrowUpRight, KeyRound, Compass,
+  Search, Layers, PanelLeft, SearchX,
 } from "lucide-react";
-import { MasterView, MASTER_VIEW_ITEMS, EVIDENCE_SUB_ITEMS } from "./MasterSidebar";
+import {
+  MasterView,
+  MASTER_VIEW_ITEMS,
+  EVIDENCE_SUB_ITEMS,
+  STRUCTURE_SUB_ITEMS,
+  isViewActive,
+  sidebarToggleHint,
+} from "./MasterSidebar";
 import { useSettings } from "../context/SettingsContext";
 import {
   useVariantAnalysisActions,
@@ -31,14 +39,8 @@ interface CommandPaletteProps {
   activeEvidenceTab?: string;
   /** Open onboarding and workspace orientation guide */
   onOpenOnboarding?: () => void;
-}
-
-interface PaletteEntry {
-  id: string;
-  label: string;
-  hint?: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  onSelect: () => void;
+  /** Collapse/expand the sidebar (or open the drawer on narrow viewports). */
+  onToggleSidebar?: () => void;
 }
 
 /**
@@ -88,14 +90,17 @@ interface PaletteItemProps {
   icon: React.ReactNode;
   keywords?: string[];
   meta?: string;
-  badge?: string;
+  /** Monospace for identifiers (variants, accessions); descriptive text stays in the UI face. */
   mono?: boolean;
+  metaMono?: boolean;
   /**
    * Marks the row that is already what the palette would navigate to. It renders the `current`
    * badge and is announced as the current item, so a screen reader is told which row is a
    * no-op instead of having to infer it from a word inside the row's name.
    */
   isCurrent?: boolean;
+  /** Emphasised row (the Run action): accent icon tile. */
+  primary?: boolean;
   onSelect: () => void;
 }
 
@@ -106,9 +111,10 @@ function PaletteItem({
   icon,
   keywords,
   meta,
-  badge,
   mono,
+  metaMono,
   isCurrent,
+  primary,
   onSelect,
 }: PaletteItemProps) {
   return (
@@ -116,13 +122,19 @@ function PaletteItem({
       value={value}
       keywords={keywords}
       className="cs-palette-item"
+      data-primary={primary || undefined}
       aria-current={isCurrent ? "true" : undefined}
       onSelect={onSelect}
     >
-      <span className="cs-palette-item-icon">{icon}</span>
-      <span className={mono ? "truncate font-mono text-[12px]" : "truncate"}>{label}</span>
-      {badge && <span className="cs-palette-badge">{badge}</span>}
-      {meta && <span className="cs-palette-item-meta truncate">{meta}</span>}
+      <span className="cs-palette-item-icon" aria-hidden="true">{icon}</span>
+      <span className={mono ? "cs-palette-item-label font-mono" : "cs-palette-item-label"}>{label}</span>
+      {isCurrent && <span className="cs-palette-badge">current</span>}
+      <span className="cs-palette-item-trail">
+        {meta && (
+          <span className={metaMono ? "cs-palette-item-meta font-mono" : "cs-palette-item-meta"}>{meta}</span>
+        )}
+        <kbd className="cs-kbd cs-palette-item-enter" aria-hidden="true">↵</kbd>
+      </span>
     </Command.Item>
   );
 }
@@ -131,11 +143,10 @@ function PaletteItem({
  * The command palette (Ctrl/Cmd + K).
  *
  * It is the app's quick-command surface, not only a menu: it jumps to views and evidence
- * tabs, runs system actions, replays recent analyses, and — the job the removed header
- * dropdown used to do — turns one typed line like `BRCA1 R175H` or `20-23365054-G-A` into a
- * pipeline run. cmdk provides the filtering and roving selection; the styling is the house
- * palette (hairline panel on --cs-surface, no open animation — a keyboard-initiated,
- * high-frequency surface animates never).
+ * tabs, runs system actions, replays recent analyses, and turns one typed line like
+ * `BRCA1 R175H` or `20-23365054-G-A` into a pipeline run. cmdk provides the filtering and
+ * roving selection; the styling is the house palette (hairline panel on --cs-surface). No
+ * open animation — a keyboard-initiated, high-frequency surface animates never.
  */
 export default function CommandPalette({
   open,
@@ -147,6 +158,7 @@ export default function CommandPalette({
   activeView,
   activeEvidenceTab,
   onOpenOnboarding,
+  onToggleSidebar,
 }: CommandPaletteProps) {
   const {
     settings,
@@ -160,11 +172,8 @@ export default function CommandPalette({
   const history = useVariantAnalysisStore((s) => s.history);
 
   /**
-   * Whether an analysis is already in flight — the same six flags the Search form aggregates
-   * for its own disabled submit button (VariantSearchPanel.tsx).
-   *
-   * The palette is a second door into the same pipeline, so it has to honour that guard: the
-   * form refuses a second run, and a run launched from here would instead abort the first one
+   * Whether an analysis is already in flight — the same flags the Search form aggregates for its
+   * own disabled submit button. A run launched from here would otherwise abort the first one
    * mid-flight with nothing on screen to say why the stages went quiet.
    */
   const isPipelineActive = useVariantAnalysisStore(
@@ -186,12 +195,11 @@ export default function CommandPalette({
   const isBrowsing = query.trim().length === 0;
   const parsed = useMemo(() => parseVariantQuery(query), [query]);
   const hint = commandPaletteHint();
+  const canRun = parsed.recognised && parsed.runnable && hasConfiguredGeminiKey;
 
-  /* Global toggle, mounted for the life of the shell rather than the life of the panel.
-     This chord used to be registered inside the `open` branch, so it could only ever CLOSE a
-     palette that was already open — the "Ctrl K" chip in the header advertised a hotkey that
-     had no handler behind it. `openRef` keeps one listener attached while still reading the
-     live state on each keypress. */
+  /* Global toggle, mounted for the life of the shell rather than the life of the panel, so the
+     advertised chord can OPEN the palette as well as close it. `openRef` keeps one listener
+     attached while still reading the live state on each keypress. */
   useEffect(() => {
     openRef.current = open;
   }, [open]);
@@ -199,15 +207,11 @@ export default function CommandPalette({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return;
-      /* AltGr on a European layout reports as ctrl+alt, and Shift is a different chord entirely;
-         neither is this hotkey, and swallowing them would eat the keystroke with nothing to
-         show for it. */
+      /* AltGr reports as ctrl+alt, and Shift is a different chord; neither is this hotkey. */
       if (e.altKey || e.shiftKey) return;
 
-      /* The chord is a launcher, not a takeover: inside a text field the user's caret is the
-         thing that owns the keyboard. The search panel, the settings search box and the dev
-         console all have one, and losing Ctrl+K mid-word was a real complaint. The palette's
-         own input is the exception — the chord still lowers it. */
+      /* Inside a text field the caret owns the keyboard — except the palette's own input,
+         where the chord still lowers it. */
       const target = e.target as HTMLElement | null;
       const typingInField =
         !!target &&
@@ -225,15 +229,9 @@ export default function CommandPalette({
   }, [onOpenChange]);
 
   /**
-   * Put the app behind the palette out of reach — for the keyboard, the pointer, and assistive
-   * technology together, which is what `aria-modal="true"` on the panel promises. Tab is already
-   * trapped and the backdrop swallows clicks, but neither takes the background out of the
-   * accessibility tree, so a screen reader in browse mode could still walk into it.
-   *
-   * `inert` does the whole job in one attribute, and is declared BEFORE the focus effect below
-   * so it runs first: marking an element inert blurs whatever inside it held focus, and the
-   * focus effect then moves focus to the input. On the way out the order reverses, so the shell
-   * is interactive again before focus is restored into it.
+   * Take the app behind the palette out of reach for keyboard, pointer and assistive technology
+   * together — what `aria-modal="true"` promises. Declared BEFORE the focus effect so `inert`
+   * lands first and the focus effect then moves focus to the input; on close the order reverses.
    */
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>(".app-shell");
@@ -248,8 +246,8 @@ export default function CommandPalette({
     };
   }, [open]);
 
-  /* Focus management without Radix Dialog: every visit starts from a clean line, the input
-     takes focus, and the trigger's focus is restored on close. */
+  /* Every visit starts from a clean line, the input takes focus, and the trigger's focus is
+     restored on close. */
   useEffect(() => {
     if (!open) return;
     setQuery("");
@@ -265,19 +263,14 @@ export default function CommandPalette({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        /* This listener sits on `document` in the CAPTURE phase, so it runs ahead of every
-           bubble-phase handler in the app — the settings drawer and the narrow-viewport nav
-           both close on Escape. Without this line one keypress tore down two layers at once.
-           `stopPropagation` (not `stopImmediatePropagation`) is the right tool: it is scoped to
-           this one branch, so cmdk still receives ArrowDown, Home/End and Enter, which it needs
-           to move the selection and run the active row. */
+        /* Capture phase + stopPropagation: one Escape closes one layer, not the palette AND
+           the settings drawer / nav drawer behind it. cmdk still receives its own keys. */
         e.stopPropagation();
         onOpenChange(false);
         return;
       }
       if (e.key === "Tab") {
-        /* Single-input surface: Tab stays put instead of escaping into the muted page behind
-           the veil. */
+        /* Single-input surface: Tab stays put instead of escaping into the page behind. */
         e.preventDefault();
       }
     };
@@ -295,21 +288,17 @@ export default function CommandPalette({
   const structureDefault: MasterView =
     settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
 
-  /* Mirrors the structure-row merge the sidebar and breadcrumb both make, so `current` lands
-     on the 3D Structure row whichever model tab is on screen. */
-  const isCurrentView = (id: string): boolean =>
-    id === "structure"
-      ? activeView === "structure" ||
-        activeView === "structure_alphafold" ||
-        activeView === "structure_esmfold"
-      : id === activeView;
-
-  /** Write the parsed line into the query fields and launch the pipeline. */
-  const analyzeQuery = () => {
+  /** Write every parsed slot (including empty ones) so no stale field from a previous run survives. */
+  const writeParsedFields = () => {
     actions.setCustomGene(parsed.gene ?? "");
     actions.setCustomVariant(parsed.variant ?? "");
     actions.setCustomGenomic(parsed.genomic ?? "");
     actions.setCustomUniprot(parsed.uniprot ?? "");
+  };
+
+  /** Write the parsed line into the query fields and launch the pipeline. */
+  const analyzeQuery = () => {
+    writeParsedFields();
     /* The Search workspace is where the pipeline reports its stages, so a run started from
        any view lands where its progress is legible. */
     runAndClose(() => {
@@ -320,227 +309,229 @@ export default function CommandPalette({
 
   /** Fill the Search fields without running — the cue for a real but incomplete query. */
   const fillSearchFields = () => {
-    /* Every field is written, including the ones this query says nothing about. Writing only
-       the present slots left a previous run's variant sitting in the form, so a row labelled
-       `Open in Search · BRCA1` would fill BRCA1 over the top of a stale `R175H` and run a
-       hybrid of the two. The row's label is a promise about what the form will hold. */
-    actions.setCustomGene(parsed.gene ?? "");
-    actions.setCustomVariant(parsed.variant ?? "");
-    actions.setCustomGenomic(parsed.genomic ?? "");
-    actions.setCustomUniprot(parsed.uniprot ?? "");
+    writeParsedFields();
     runAndClose(() => onViewChange("search"));
   };
 
-  /* Primary views, resolved the same way the sidebar resolves its rows. */
-  const viewEntries: PaletteEntry[] = useMemo(() => {
-    const items: PaletteEntry[] = [];
-    for (const view of MASTER_VIEW_ITEMS) {
-      if (view.id === "structure") {
-        items.push({
-          id: "structure",
-          label: view.label,
-          hint: view.sublabel,
-          Icon: view.Icon,
-          onSelect: () => runAndClose(() => onViewChange(structureDefault)),
-        });
-      } else {
-        items.push({
-          id: view.id,
-          label: view.label,
-          hint: view.sublabel,
-          Icon: view.Icon,
-          onSelect: () => runAndClose(() => onViewChange(view.id)),
-        });
-      }
-    }
-    items.push({
-      id: "about",
-      label: "About",
-      hint: "Workspace guide & data sources",
-      Icon: Info,
-      onSelect: () => runAndClose(() => onViewChange("about")),
-    });
-    return items;
-  }, [structureDefault, onViewChange, onOpenChange]);
+  const iconCls = "w-4 h-4";
 
-  if (!open) return null;
+  return open
+    ? createPortal(
+        <div
+          className="cs-palette-overlay"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) close();
+          }}
+        >
+          <Command
+            label="Command palette"
+            loop
+            className="cs-palette"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
+          >
+            {/* cmdk v1 renders a bare <input>; the field chrome (icon, rule, Esc) is ours. */}
+            <div className="cs-palette-search">
+              <Search className="cs-palette-search-icon" aria-hidden="true" />
+              <Command.Input
+                ref={inputRef}
+                value={query}
+                onValueChange={setQuery}
+                className="cs-palette-input"
+                placeholder="Search views and actions, or type BRCA1 R175H"
+                aria-describedby="cs-palette-hints"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                className="cs-kbd cs-palette-esc"
+                onClick={close}
+                aria-label="Close command palette"
+              >
+                Esc
+              </button>
+            </div>
 
-  return createPortal(
-    <div
-      className="cs-palette-overlay"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-    >
-      <Command
-        label="Command palette"
-        loop
-        className="cs-palette"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Command palette"
-      >
-        <Command.Input
-          ref={inputRef}
-          value={query}
-          onValueChange={setQuery}
-          className="cs-palette-input"
-          placeholder="Search views and actions, or type BRCA1 R175H"
-          aria-describedby="cs-palette-hints"
-        />
-        <Command.List className="cs-palette-list">
-          <Command.Empty className="cs-palette-empty">
-            No match for “{query.trim()}”. Try a view, a tab, or a gene and a substitution.
-          </Command.Empty>
+            <Command.List className="cs-palette-list">
+              <Command.Empty className="cs-palette-empty">
+                <SearchX className="w-5 h-5" aria-hidden="true" />
+                <span className="cs-palette-empty-title">No results for “{query.trim()}”</span>
+                <span>Try a view, an evidence tab, or a variant such as BRCA1 R175H.</span>
+              </Command.Empty>
 
-          {/* ── Run: one typed line becomes a pipeline run — the header dropdown's whole job ── */}
-          {parsed.recognised && (
-            <Command.Group heading="Run">
-              {!hasConfiguredGeminiKey ? (
-                <PaletteItem
-                  value={`api key configure run ${query}`}
-                  label="API key required · Configure to analyze"
-                  icon={<KeyRound className="w-3.5 h-3.5" />}
-                  meta="settings"
-                  onSelect={() => runAndClose(() => openSettingsTab("api"))}
-                />
-              ) : parsed.runnable ? (
-                <PaletteItem
-                  mono
-                  value={`analyze ${parsed.label} ${query}`}
-                  label={isPipelineActive ? `${parsed.label} · analysis already running` : parsed.label}
-                  icon={<Sparkles className="w-3.5 h-3.5" />}
-                  meta={isPipelineActive ? "busy" : parsed.needsResolution ? "VEP resolve" : "analyze"}
-                  onSelect={
-                    isPipelineActive
-                      ? () => runAndClose(() => onViewChange("search"))
-                      : analyzeQuery
-                  }
-                />
-              ) : (
-                <PaletteItem
-                  value={`open search ${query}`}
-                  label={`Open in Search · ${parsed.label}`}
-                  icon={<ArrowUpRight className="w-3.5 h-3.5" />}
-                  meta="fill fields"
-                  onSelect={fillSearchFields}
-                />
+              {/* ── Run: one typed line becomes a pipeline run ── */}
+              {parsed.recognised && (
+                <Command.Group heading="Run">
+                  {!hasConfiguredGeminiKey ? (
+                    <PaletteItem
+                      value={`api key configure run ${query}`}
+                      label="API key required · configure to analyse"
+                      icon={<KeyRound className={iconCls} />}
+                      meta="Settings"
+                      onSelect={() => runAndClose(() => openSettingsTab("api"))}
+                    />
+                  ) : parsed.runnable ? (
+                    <PaletteItem
+                      mono
+                      primary={!isPipelineActive}
+                      value={`analyze ${parsed.label} ${query}`}
+                      label={isPipelineActive ? `${parsed.label} · analysis already running` : parsed.label}
+                      icon={<Sparkles className={iconCls} />}
+                      meta={isPipelineActive ? "Busy" : parsed.needsResolution ? "VEP resolve" : "Analyse"}
+                      onSelect={
+                        isPipelineActive
+                          ? () => runAndClose(() => onViewChange("search"))
+                          : analyzeQuery
+                      }
+                    />
+                  ) : (
+                    <PaletteItem
+                      value={`open search ${query}`}
+                      label={`Open in Search · ${parsed.label}`}
+                      icon={<ArrowUpRight className={iconCls} />}
+                      meta="Fill fields"
+                      onSelect={fillSearchFields}
+                    />
+                  )}
+                </Command.Group>
               )}
-            </Command.Group>
-          )}
 
-          {/* ── Recent analyses: the empty palette's front page ── */}
-          {history.length > 0 && (
-            <Command.Group heading="Recent analyses">
-              {history.slice(0, isBrowsing ? 5 : 8).map((item) => (
-                <PaletteItem
-                  key={`${item.gene}-${item.variant}-${item.uniprotId}`}
-                  mono
-                  value={`${item.gene} ${item.variant} ${item.uniprotId}`}
-                  label={`${item.gene} · ${item.variant}`}
-                  icon={<History className="w-3.5 h-3.5" />}
-                  meta={item.uniprotId || "analysis"}
-                  onSelect={() => runAndClose(() => onSelectHistory(item))}
-                />
-              ))}
-            </Command.Group>
-          )}
-
-          {/* ── Primary views ── */}
-          <Command.Group heading="Views">
-            {viewEntries.map((entry) => (
-              <PaletteItem
-                key={`view-${entry.id}`}
-                value={`${entry.label} ${entry.hint ?? ""}`}
-                label={entry.label}
-                icon={<entry.Icon className="w-3.5 h-3.5" />}
-                badge={isCurrentView(entry.id) ? "current" : undefined}
-                isCurrent={isCurrentView(entry.id)}
-                meta={entry.hint}
-                onSelect={entry.onSelect}
-              />
-            ))}
-          </Command.Group>
-
-          {/* Evidence tabs and system actions stay out of the way until there is something to
-              match against: the empty palette is a short list, not a directory. */}
-          {!isBrowsing && (
-            <Command.Group heading="Evidence tabs">
-              {EVIDENCE_SUB_ITEMS.map((tab) => (
-                <PaletteItem
-                  key={`tab-${tab.id}`}
-                  value={`evidence ${tab.label} ${tab.id}`}
-                  keywords={[tab.id]}
-                  label={tab.label}
-                  icon={<BarChart2 className="w-3.5 h-3.5" />}
-                  badge={tab.id === activeEvidenceTab ? "current" : undefined}
-                  isCurrent={tab.id === activeEvidenceTab}
-                  meta="evidence"
-                  onSelect={() => runAndClose(() => onEvidenceTabChange(tab.id))}
-                />
-              ))}
-            </Command.Group>
-          )}
-
-          {!isBrowsing && (
-            <Command.Group heading="System">
-              {onOpenOnboarding && (
-                <PaletteItem
-                  value="workspace tour onboarding guide help start keys orientation"
-                  label="Workspace guide & API keys tour"
-                  icon={<Compass className="w-3.5 h-3.5 text-[var(--cs-accent-clay)]" />}
-                  meta="guide"
-                  onSelect={() => runAndClose(() => onOpenOnboarding())}
-                />
-              )}
-              <PaletteItem
-                value="open settings preferences"
-                label="Open settings"
-                icon={<Settings className="w-3.5 h-3.5" />}
-                onSelect={() => runAndClose(() => setIsSettingsOpen(true))}
-              />
-              <PaletteItem
-                value="toggle theme dark light mode"
-                label={`Switch to ${isDark ? "light" : "dark"} mode`}
-                icon={isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-                onSelect={() => runAndClose(() => toggleTheme())}
-              />
-              <PaletteItem
-                value="new variant search workspace"
-                label="Start a new variant search"
-                icon={<Dna className="w-3.5 h-3.5" />}
-                onSelect={() => runAndClose(() => onViewChange("search"))}
-              />
+              {/* ── Recent analyses: the empty palette's front page ── */}
               {history.length > 0 && (
-                <PaletteItem
-                  value="clear recent history reset list"
-                  label="Clear recent analyses"
-                  icon={<Trash2 className="w-3.5 h-3.5" />}
-                  meta="history"
-                  onSelect={() => runAndClose(() => actions.clearHistory())}
-                />
+                <Command.Group heading="Recent analyses">
+                  {history.slice(0, isBrowsing ? 5 : 8).map((item) => (
+                    <PaletteItem
+                      key={`${item.gene}-${item.variant}-${item.uniprotId}`}
+                      mono
+                      metaMono
+                      value={`recent ${item.gene} ${item.variant} ${item.uniprotId}`}
+                      label={`${item.gene} · ${item.variant}`}
+                      icon={<History className={iconCls} />}
+                      meta={item.uniprotId || undefined}
+                      onSelect={() => runAndClose(() => onSelectHistory(item))}
+                    />
+                  ))}
+                </Command.Group>
               )}
-            </Command.Group>
-          )}
-        </Command.List>
 
-        {/* Hints — the palette's only affordance row, mono/muted like the console.
+              {/* ── Views: straight from the sidebar registry, so labels and order never drift ── */}
+              <Command.Group heading="Views">
+                {MASTER_VIEW_ITEMS.map((view) => (
+                  <PaletteItem
+                    key={`view-${view.id}`}
+                    value={`view ${view.label} ${view.sublabel ?? ""}`}
+                    label={view.label}
+                    icon={<view.Icon className={iconCls} />}
+                    isCurrent={isViewActive(view.id, activeView)}
+                    meta={view.sublabel}
+                    onSelect={() =>
+                      runAndClose(() => onViewChange(view.id === "structure" ? structureDefault : view.id))
+                    }
+                  />
+                ))}
+                {/* The model sub-views are sidebar rows too; they surface once there is text to match. */}
+                {!isBrowsing &&
+                  STRUCTURE_SUB_ITEMS.map((model) => (
+                    <PaletteItem
+                      key={`model-${model.id}`}
+                      value={`structure model 3d ${model.label}`}
+                      label={`3D structure · ${model.label}`}
+                      icon={<Layers className={iconCls} />}
+                      isCurrent={activeView === model.id}
+                      meta="Model"
+                      onSelect={() => runAndClose(() => onViewChange(model.id))}
+                    />
+                  ))}
+              </Command.Group>
 
-            Not `aria-hidden`: these are the only place the keyboard contract is written down,
-            and the `analyze`/`select` verb changes with the input. Hiding them left a screen
-            reader with a combobox and no way to learn what Enter will do, which is the one
-            thing a keyboard-first surface has to say out loud. The input points here as its
-            description so the contract is announced with the field, not as loose text. */}
-        <div id="cs-palette-hints" className="cs-palette-footer">
-          <span>↑↓ navigate</span>
-          <span>↵ {parsed.runnable && hasConfiguredGeminiKey ? "analyze" : "select"}</span>
-          <span>esc close</span>
-          <span className="ml-auto">{hint}</span>
-        </div>
-      </Command>
-    </div>,
-    document.body
-  );
+              {/* Evidence tabs and system actions stay out of the way until there is something to
+                  match against: the empty palette is a short list, not a directory. */}
+              {!isBrowsing && (
+                <Command.Group heading="Evidence tabs">
+                  {EVIDENCE_SUB_ITEMS.map((tab) => (
+                    <PaletteItem
+                      key={`tab-${tab.id}`}
+                      value={`evidence ${tab.label} ${tab.id}`}
+                      keywords={[tab.id]}
+                      label={tab.label}
+                      icon={<BarChart2 className={iconCls} />}
+                      isCurrent={activeView === "evidence" && tab.id === activeEvidenceTab}
+                      meta="Evidence"
+                      onSelect={() => runAndClose(() => onEvidenceTabChange(tab.id))}
+                    />
+                  ))}
+                </Command.Group>
+              )}
+
+              {!isBrowsing && (
+                <Command.Group heading="System">
+                  <PaletteItem
+                    value="open settings preferences"
+                    label="Open settings"
+                    icon={<Settings className={iconCls} />}
+                    onSelect={() => runAndClose(() => setIsSettingsOpen(true))}
+                  />
+                  <PaletteItem
+                    value="toggle theme dark light mode appearance"
+                    label={`Switch to ${isDark ? "light" : "dark"} mode`}
+                    icon={isDark ? <Sun className={iconCls} /> : <Moon className={iconCls} />}
+                    onSelect={() => runAndClose(() => toggleTheme())}
+                  />
+                  {onToggleSidebar && (
+                    <PaletteItem
+                      value="toggle sidebar collapse expand navigation rail"
+                      label="Toggle sidebar"
+                      icon={<PanelLeft className={iconCls} />}
+                      meta={sidebarToggleHint()}
+                      onSelect={() => runAndClose(() => onToggleSidebar())}
+                    />
+                  )}
+                  {onOpenOnboarding && (
+                    <PaletteItem
+                      value="workspace tour onboarding guide help start keys orientation"
+                      label="Workspace guide & API keys tour"
+                      icon={<Compass className={iconCls} />}
+                      onSelect={() => runAndClose(() => onOpenOnboarding())}
+                    />
+                  )}
+                  {history.length > 0 && (
+                    <PaletteItem
+                      value="clear recent history reset list"
+                      label="Clear recent analyses"
+                      icon={<Trash2 className={iconCls} />}
+                      onSelect={() => runAndClose(() => actions.clearHistory())}
+                    />
+                  )}
+                </Command.Group>
+              )}
+            </Command.List>
+
+            {/* The keyboard contract, written once. Not aria-hidden: the input points here as its
+                description, so a screen reader learns what Enter will do with the field. */}
+            <div id="cs-palette-hints" className="cs-palette-footer">
+              <span className="cs-palette-hint">
+                <kbd className="cs-kbd">↑</kbd>
+                <kbd className="cs-kbd">↓</kbd>
+                navigate
+              </span>
+              <span className="cs-palette-hint">
+                <kbd className="cs-kbd">↵</kbd>
+                {canRun ? "analyse" : "open"}
+              </span>
+              <span className="cs-palette-hint">
+                <kbd className="cs-kbd">Esc</kbd>
+                close
+              </span>
+              <span className="cs-palette-hint ml-auto">
+                <kbd className="cs-kbd">{hint}</kbd>
+                toggle
+              </span>
+            </div>
+          </Command>
+        </div>,
+        document.body
+      )
+    : null;
 }
-

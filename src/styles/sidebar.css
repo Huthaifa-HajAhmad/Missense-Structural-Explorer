@@ -1,0 +1,513 @@
+/* ============================================================
+   MASTER SIDEBAR
+   One row anatomy (icon · label · marker) shared by the scrolling nav and
+   the pinned footer. Geometry is chosen so the icon column lines up with the
+   brand mark in both states: nav padding 8px + row padding 12px puts the 16px
+   icon's centre at 28px, the same as the 32px brand mark at 12px padding —
+   and in the 56px collapsed rail that is exactly the centre line.
+
+   Colour: every tint is derived from --cs-accent-clay with color-mix, so the
+   light/dark values of the token carry through (the old raw rgba(196,104,73)
+   stayed light-mode clay in dark mode). Clay AS TEXT uses --cs-text-accent,
+   which is the AA-safe variant; raw clay is for fills, icons and rails only.
+   ============================================================ */
+
+.ms-root {
+  --ms-row-h: 34px;
+  --ms-pad-x: 8px;
+  --ms-row-pad-x: 12px;
+  --ms-tint: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
+  --ms-tint-strong: color-mix(in srgb, var(--cs-accent-clay) 15%, transparent);
+  --ms-ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+  user-select: none;
+  background: var(--cs-surface);
+  border-right: 1px solid var(--cs-border);
+  transition: width 240ms var(--ms-ease), min-width 240ms var(--ms-ease);
+}
+/* A drag must track the pointer 1:1 — no easing while resizing. */
+.ms-root[data-resizing] {
+  transition: none;
+}
+
+/* ── Brand row ── */
+.ms-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  height: var(--cs-chrome-height);
+  min-height: var(--cs-chrome-height);
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--cs-border);
+  overflow: hidden;
+}
+.ms-brand[data-collapsed="true"] {
+  gap: 0;
+  padding: 0 12px;
+}
+.ms-brand-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-accent-clay);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.ms-brand-mark[data-expander="true"]:hover,
+.ms-brand-mark[data-expander="true"]:focus-visible {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+.ms-brand-mark:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cs-accent-clay) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* The wordmark stays mounted and compresses, so the mark re-centres as the
+   width eases instead of the text blinking out. */
+.ms-brand-wordmark {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 200px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--cs-text-primary);
+  opacity: 1;
+  transition: max-width 240ms var(--ms-ease), opacity 180ms var(--ms-ease), visibility 0s linear 0s;
+}
+.ms-brand-wordmark[data-collapsed="true"] {
+  max-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: max-width 240ms var(--ms-ease), opacity 100ms ease-in, visibility 0s linear 240ms;
+}
+
+/* ── Scrolling nav ── */
+.ms-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cs-border) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ms-fade-top, 0px), #000 calc(100% - var(--ms-fade-bottom, 0px)), transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ms-fade-top, 0px), #000 calc(100% - var(--ms-fade-bottom, 0px)), transparent 100%);
+}
+/* Set by useScrollEdges — the fade exists only on an edge that has more content behind it. */
+.ms-nav[data-fade-top="true"]    { --ms-fade-top: 16px; }
+.ms-nav[data-fade-bottom="true"] { --ms-fade-bottom: 16px; }
+
+.ms-nav-inner {
+  display: flex;
+  flex-direction: column;
+  padding: 8px var(--ms-pad-x) 12px;
+}
+.ms-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ms-zone-label {
+  display: block;
+  padding: 18px var(--ms-row-pad-x) 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Collapsed rail: zones keep their grouping as hairlines instead of vanishing. */
+.ms-zone-divider {
+  display: block;
+  width: 20px;
+  height: 1px;
+  margin: 10px auto;
+  background: var(--cs-border);
+}
+.ms-row {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Row ── */
+.ms-nav-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--ms-row-h);
+  padding: 7px var(--ms-row-pad-x);
+  border-radius: var(--cs-radius-input);
+  text-align: left;
+  color: var(--cs-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ms-nav-btn:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+.ms-nav-btn[data-active="true"] {
+  background: var(--ms-tint);
+  color: var(--cs-text-primary);
+}
+.ms-nav-btn[data-active="true"]:hover {
+  background: var(--ms-tint-strong);
+}
+
+.ms-nav-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cs-text-muted);
+  transition: color 120ms ease;
+}
+.ms-nav-btn:hover .ms-nav-icon {
+  color: var(--cs-text-secondary);
+}
+.ms-nav-btn[data-active="true"] .ms-nav-icon {
+  color: var(--cs-accent-clay);
+}
+/* Collapsed: stage status and unread count ride on the icon's corner. */
+.ms-nav-icon-status {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  display: inline-flex;
+  border-radius: 50%;
+  background: var(--cs-surface);
+  box-shadow: 0 0 0 2px var(--cs-surface);
+}
+.ms-nav-icon-dot {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cs-text-danger);
+  box-shadow: 0 0 0 2px var(--cs-surface);
+}
+
+.ms-nav-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.ms-nav-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ms-nav-btn[data-active="true"] .ms-nav-label {
+  font-weight: 600;
+}
+
+/* Live pipeline line — discloses under the label only while a stage is
+   running, degraded or failed (0fr → 1fr, the house disclosure pattern), so
+   rows don't jump as the pipeline advances. */
+.ms-nav-live {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 220ms var(--ms-ease), opacity 160ms ease;
+}
+.ms-nav-live[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.ms-nav-live-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.ms-nav-live-text {
+  display: block;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--cs-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ms-nav-live[data-status="degraded"] .ms-nav-live-text { color: var(--cs-text-warning); }
+.ms-nav-live[data-status="error"] .ms-nav-live-text { color: var(--cs-text-danger); }
+
+/* Active rail — 3px, inset from the row's rounded corners. */
+.ms-active-rail {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--cs-accent-clay);
+}
+
+/* ── Stage markers ── */
+.ms-step {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--cs-border);
+  background: transparent;
+}
+.ms-step[data-status="complete"] {
+  border-color: transparent;
+  background: var(--cs-text-success);
+  width: 6px;
+  height: 6px;
+  margin: 1px;
+}
+.ms-step[data-status="degraded"] {
+  border-color: transparent;
+  background: var(--cs-text-warning);
+}
+.ms-step[data-status="error"] {
+  border-color: transparent;
+  background: var(--cs-text-danger);
+}
+.ms-step[data-status="progress"] {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--cs-accent-clay);
+  border-top-color: transparent;
+  animation: ms-spin 0.8s linear infinite;
+}
+@keyframes ms-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ms-count-badge {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--cs-radius-pill);
+  font-family: var(--cs-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--cs-bg-danger, color-mix(in srgb, var(--cs-text-danger) 14%, transparent));
+  color: var(--cs-text-danger-on-soft, var(--cs-text-danger));
+}
+
+/* ── Sub-navigation (Evidence tabs, structure models) ──
+   A grid disclosure, not a conditional mount, so the rows morph with the
+   width animation. Visibility swaps at the END of the collapse so hidden rows
+   leave the tab order only once they are actually gone. The tree line sits on
+   the parent icon's centre line (row padding 12px + half the 16px icon). */
+.ms-sub-list {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows 240ms var(--ms-ease),
+              opacity 160ms var(--ms-ease),
+              visibility 0s linear 240ms;
+}
+.ms-sub-list[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows 240ms var(--ms-ease),
+              opacity 160ms var(--ms-ease) 60ms,
+              visibility 0s;
+}
+.ms-sub-list-inner {
+  min-height: 0;
+  overflow: hidden;
+  margin-left: 19.5px;
+  padding-left: 8px;
+  border-left: 1px solid var(--cs-border-subtle);
+}
+.ms-sub-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 6px;
+}
+.ms-sub-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--cs-text-muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ms-sub-btn:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+.ms-sub-btn[data-active="true"] {
+  color: var(--cs-text-accent);
+  background: var(--ms-tint);
+}
+.ms-sub-btn[data-active="true"]:hover {
+  background: var(--ms-tint-strong);
+}
+/* The active child lights its segment of the tree line. */
+.ms-sub-btn[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--cs-accent-clay);
+}
+.ms-sub-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--cs-border);
+  transition: background-color 120ms ease;
+}
+.ms-sub-btn:hover .ms-sub-dot {
+  background: var(--cs-text-muted);
+}
+.ms-sub-btn[data-active="true"] .ms-sub-dot {
+  background: var(--cs-accent-clay);
+}
+.ms-sub-label {
+  font-size: 12.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ms-sub-btn[data-active="true"] .ms-sub-label {
+  font-weight: 500;
+}
+
+/* ── Pinned footer ── */
+.ms-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px var(--ms-pad-x) 8px;
+  border-top: 1px solid var(--cs-border);
+}
+
+/* Keyboard focus — inset, so the scroll container's horizontal clip can't
+   shave the ring off the row's edges. */
+.ms-nav-btn:focus-visible,
+.ms-sub-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cs-accent-clay) 55%, transparent);
+  outline-offset: -2px;
+}
+
+/* ── Resize handle: 12px hit area, 2px line on the border ── */
+.ms-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  touch-action: none;
+}
+.ms-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -1px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 150ms ease 80ms;
+}
+.ms-resize-handle:hover::before,
+.ms-resize-handle:focus-visible::before {
+  background: var(--cs-border);
+}
+.ms-root[data-resizing] .ms-resize-handle::before {
+  background: var(--cs-accent-clay);
+  transition: none;
+}
+.ms-resize-handle:focus-visible {
+  outline: none;
+}
+.ms-resize-handle:focus-visible::before {
+  background: color-mix(in srgb, var(--cs-accent-clay) 70%, transparent);
+}
+
+/* ── Narrow-viewport drawer (below 900px) ──
+   The workspace keeps its full width and the rail slides over it. Exit is
+   faster than enter (asymmetric timing). */
+.ms-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  background: rgba(25, 24, 22, 0.35);
+  animation: ms-fade-in 200ms var(--ms-ease, ease) both;
+}
+.dark .ms-drawer-backdrop {
+  background: rgba(8, 7, 6, 0.55);
+}
+@keyframes ms-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (max-width: 899px) {
+  .ms-root {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 45; /* above the header (z-20) and backdrop (z-44); below the palette (z-60) */
+    box-shadow: 12px 0 40px rgba(25, 24, 22, 0.18);
+    transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .ms-root[data-drawer="closed"] {
+    transform: translateX(-102%);
+    transition-duration: 200ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-root,
+  .ms-brand-wordmark,
+  .ms-brand-wordmark[data-collapsed="true"],
+  .ms-sub-list,
+  .ms-sub-list[data-open="true"],
+  .ms-nav-live {
+    transition-duration: 0s;
+  }
+}
