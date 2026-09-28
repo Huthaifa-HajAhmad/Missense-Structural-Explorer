@@ -58,19 +58,24 @@ describe("buildGuidelinesRows", () => {
   it("reproduces the MACO1 verdicts printed in the guide", () => {
     const byKey = rowMap(buildGuidelinesRows({ result: MACO1_RESULT, foldingDdG: -0.97 }));
 
-    expect(byKey.revel.status).toBe("path");          // 0.527 >= 0.5, < 0.75
-    expect(byKey.revel.matchLabel).toBe("Path. Supp.");
-    expect(byKey.am.status).toBe("path_strong");      // class pathogenic
-    expect(byKey.cadd.status).toBe("path_strong");    // 32 >= 25
-    expect(byKey.bayesdel.status).toBe("vus");        // 0.125 between the cut-points
-    expect(byKey.popeve.status).toBe("path");         // -4.235 <= -2, > -4.617
-    expect(byKey.esm.status).toBe("path");            // -13.54 <= -7.5
+    // In-silico rows read the ClinGen bands (calibration.ts): Pejaver 2022, Bergquist 2025.
+    expect(byKey.revel.status).toBe("vus");           // 0.527: between BP4 ≤ 0.290 and PP3 ≥ 0.644
+    expect(byKey.revel.matchLabel).toBe("Indeterminate");
+    expect(byKey.am.status).toBe("path_strong");      // 0.933 ≥ 0.906 → PP3 Moderate
+    expect(byKey.am.matchLabel).toBe("PP3 Moderate");
+    expect(byKey.cadd.status).toBe("path_strong");    // 32 ≥ 28.1 → PP3 Moderate
+    expect(byKey.bayesdel.status).toBe("vus");        // 0.125 < 0.13
+    expect(byKey.popeve.status).toBe("vus");          // -4.235 > the authors' -4.617
+    expect(byKey.esm.status).toBe("path_strong");     // -13.54 ≤ -12.2 → PP3 Moderate
+    expect(byKey.eigen.matchLabel).toBe("Informational"); // no published cut-point
+    expect(byKey.dann.band).toBeNull();
     expect(byKey.esmc.matchLabel).toBe("Informational");
     expect(byKey.esmc.band).toBeNull();               // no calibrated scale
     expect(byKey.foldx.status).toBe("neutral");       // -0.97 stabilizing
     expect(byKey.foldx.matchLabel).toBe("Stabilizing");
     expect(byKey.misZ.status).toBe("path_strong");    // 3.13 >= 3.09
-    expect(byKey.gerp.status).toBe("path");           // 6.03 >= 2
+    expect(byKey.gerp.status).toBe("vus");            // GERP++ has no PP3 band (Pejaver 2022)
+    expect(byKey.phylop.status).toBe("path");         // 9.57 ≥ 7.367 → PP3 Supporting
   });
 
   it("falls back through the energetics payload the same way the tab did", () => {
@@ -108,7 +113,7 @@ describe("summarizeGuidelinesRows", () => {
     // Every populated score lands in a matched group; the unset ΔΔG engines
     // and LOEUF are awaiting data.
     expect(s.noData.map(r => r.key)).toEqual(["dynamut2", "ddmut", "rasp", "thermompnn", "loeuf"]);
-    expect(s.informational.map(r => r.key)).toEqual(["esmc"]);
+    expect(s.informational.map(r => r.key)).toEqual(["eigen", "dann", "esmc"]);
     expect(s.pathSupporting).toContainEqual(expect.objectContaining({ key: "cadd" }));
     expect(s.benignSupporting).toContainEqual(expect.objectContaining({ key: "foldx" }));
   });

@@ -46,7 +46,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       conservationData: { available: true, revel: 0.1, bayesdel: 0.2 }
     });
     expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
-    expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("BayesDel: 0.2");
+    expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("BayesDel 0.200");
     expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("3/4 predictors agree");
   });
 
@@ -72,7 +72,9 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(res2.acmgCriteria.some(c => c.code === "PP3")).toBe(false);
   });
 
-  it("should assign PP3 when amClass is likely_pathogenic (ACMG-AM regression)", () => {
+  it("does not promote AlphaMissense's likely_pathogenic class to a calibrated call", () => {
+    // 0.65 is "likely_pathogenic" in the authors' classes (> 0.564) but below ClinGen's PP3 band
+    // (≥ 0.792, Bergquist 2025): it is counted as indeterminate, and PP3 rests on CADD and REVEL.
     const res = computeRuleBasedACMG({
       gene: "LDLR",
       variant: "p.Glu101Lys",
@@ -80,8 +82,10 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       predictorData: { available: true, amPathogenicity: 0.65, amClass: "likely_pathogenic", caddPhred: 26 },
       conservationData: { available: true, revel: 0.8 }
     });
-    expect(res.acmgCriteria.some(c => c.code === "PP3")).toBe(true);
-    expect(res.acmgCriteria.find(c => c.code === "PP3")?.reason).toContain("3/3");
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(pp3).toBeDefined();
+    expect(pp3?.reason).toContain("2/3");
+    expect(pp3?.reason).toContain("indeterminate: AlphaMissense 0.650");
   });
 
   it("should output accurate count, never false agreement wording, when only one predictor is available", () => {
@@ -115,10 +119,11 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
         popeve: -3.775,
       }
     });
+    // −3.775 is above popEVE's published −4.617 cut-point, so it is indeterminate, not pathogenic.
     const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
     expect(pp3).toBeDefined();
-    expect(pp3?.reason).toContain("3/4 predictors agree");
-    expect(pp3?.reason).toContain("popEVE: PATHOGENIC");
+    expect(pp3?.reason).toContain("2/4 predictors agree");
+    expect(pp3?.reason).toContain("indeterminate: popEVE -3.775");
   });
 
   it("should respect acmgWeighting parameter (conservative & strict-structural modes)", () => {
@@ -479,8 +484,17 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(res.acmgCriteria.some(c => c.code === "PM4")).toBe(true);
   });
 
-  it("should calibrate PP3_Strong when AlphaGenome Phred >= 35.0 and cite driving modality", () => {
-    const input = {
+  /**
+   * The AlphaGenome AVI used to raise PP3 to Strong (Phred ≥ 35) or Moderate (≥ 25), and BP4 to
+   * Moderate (≤ 5), on its own. It is a rank with no ClinGen calibration and contains AlphaMissense,
+   * so it is now informational: the criterion stays at Supporting strength and the AVI is listed as
+   * not counted.
+   */
+  it.each([
+    { aviPhred: 38.2, topModality: "RNA-seq" },
+    { aviPhred: 27.5, topModality: "CAGE" },
+  ])("never raises PP3 above Supporting from AlphaGenome (AVI $aviPhred)", ({ aviPhred, topModality }) => {
+    const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
       clinvar: null,
@@ -488,54 +502,21 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       conservationData: {
         available: true,
         revel: 0.85,
-        alphagenome: {
-          status: "live" as const,
-          aviPhred: 38.2,
-          acmgStrength: "PP3_Strong" as const,
-          topModality: "RNA-seq"
-        }
+        alphagenome: { status: "live" as const, aviPhred, acmgStrength: "PP3_Strong" as const, topModality }
       },
       gnomadConstraint: null,
       gnomadFrequency: null,
       acmgWeighting: "standard" as const
-    };
-
-    const res = computeRuleBasedACMG(input);
-    const pp3Strong = res.acmgCriteria.find(c => c.code === "PP3_Strong");
-    expect(pp3Strong).toBeDefined();
-    expect(pp3Strong?.reason).toContain("[Strong evidence, AlphaGenome Phred 38.2 (RNA-seq modality)]");
-    expect(pp3Strong?.reason).toContain("AlphaGenome: 38.2 Phred (RNA-seq)");
+    });
+    expect(res.acmgCriteria.some(c => c.code === "PP3_Strong" || c.code === "PP3_Moderate")).toBe(false);
+    const pp3 = res.acmgCriteria.find(c => c.code === "PP3");
+    expect(pp3).toBeDefined();
+    expect(pp3?.reason).toContain("3/3 predictors agree");
+    expect(pp3?.reason).toContain(`Informational, not counted: AlphaGenome ${aviPhred.toFixed(1)} Phred`);
   });
 
-  it("should calibrate PP3_Moderate when AlphaGenome Phred >= 25.0", () => {
-    const input = {
-      gene: "PAH",
-      variant: "p.Arg408Trp",
-      clinvar: null,
-      predictorData: { available: true, amPathogenicity: 0.9, amClass: "pathogenic", caddPhred: 28 },
-      conservationData: {
-        available: true,
-        revel: 0.85,
-        alphagenome: {
-          status: "live" as const,
-          aviPhred: 27.5,
-          acmgStrength: "PP3_Moderate" as const,
-          topModality: "CAGE"
-        }
-      },
-      gnomadConstraint: null,
-      gnomadFrequency: null,
-      acmgWeighting: "standard" as const
-    };
-
-    const res = computeRuleBasedACMG(input);
-    const pp3Mod = res.acmgCriteria.find(c => c.code === "PP3_Moderate");
-    expect(pp3Mod).toBeDefined();
-    expect(pp3Mod?.reason).toContain("[Moderate evidence, AlphaGenome Phred 27.5 (CAGE modality)]");
-  });
-
-  it("should calibrate BP4_Moderate when AlphaGenome Phred <= 5.0 in benign concordance", () => {
-    const input = {
+  it("never raises BP4 above Supporting from AlphaGenome", () => {
+    const res = computeRuleBasedACMG({
       gene: "PAH",
       variant: "p.Arg408Trp",
       clinvar: null,
@@ -543,22 +524,13 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       conservationData: {
         available: true,
         revel: 0.1,
-        alphagenome: {
-          status: "live" as const,
-          aviPhred: 3.5,
-          acmgStrength: "BP4_Moderate" as const,
-          topModality: "DNase"
-        }
+        alphagenome: { status: "live" as const, aviPhred: 3.5, acmgStrength: "BP4_Moderate" as const, topModality: "DNase" }
       },
       gnomadConstraint: null,
       gnomadFrequency: null,
       acmgWeighting: "standard" as const
-    };
-
-    const res = computeRuleBasedACMG(input);
-    const bp4Mod = res.acmgCriteria.find(c => c.code === "BP4_Moderate");
-    expect(bp4Mod).toBeDefined();
-    expect(bp4Mod?.reason).toContain("[Moderate evidence, AlphaGenome Phred 3.5 (DNase modality)]");
-    expect(bp4Mod?.reason).toContain("AlphaGenome: 3.5 Phred (DNase)");
+    });
+    expect(res.acmgCriteria.some(c => c.code === "BP4_Moderate")).toBe(false);
+    expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
   });
 });

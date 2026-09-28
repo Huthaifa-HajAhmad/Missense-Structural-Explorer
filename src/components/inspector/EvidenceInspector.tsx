@@ -21,6 +21,7 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 import { PopulationRail } from "./PopulationRail";
+import { PredictorsRail } from "./PredictorsRail";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -240,50 +241,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "clinical" && <PopulationRail analysisResult={analysisResult} />}
 
-      {tab === "predictors" && (
-        <div className="flex flex-col gap-3">
-          <span className="eyebrow">
-            <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
-            In-Silico Ensemble Calibration
-          </span>
-
-          {/* Bayesian ACMG Calibration */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <span className="text-[11px] font-bold text-cs-text-primary block">
-              ACMG PP3 / BP4 Evidence Weighting
-            </span>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              Per Tavtigian et al. (2018) and ClinGen SVI guidelines, computational scores are calibrated against local odds of pathogenicity.
-            </p>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              Multiple correlated tools are harmonized via consensus voting to prevent circular double-counting of evolutionary signals.
-            </p>
-          </div>
-
-          {/* Predictor Suite Registry */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[11px]">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block pb-1 border-b border-cs-border-subtle">
-              Model Registry &amp; Lineage
-            </span>
-            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-              <span className="font-semibold text-cs-text-primary">AlphaMissense</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">v2023 · Google DeepMind</span>
-            </div>
-            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-              <span className="font-semibold text-cs-text-primary">REVEL</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">v2016 · Ioannidis et al.</span>
-            </div>
-            <div className="flex justify-between items-center pb-1 border-b border-cs-border-subtle">
-              <span className="font-semibold text-cs-text-primary">SpliceAI</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">v1.3.1 · Illumina</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">CADD</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">v1.6 · Rentzsch et al.</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {tab === "predictors" && <PredictorsRail analysisResult={analysisResult} />}
 
       {(tab === "thresholds" || tab === "guidelines") && (() => {
         // Same builder the Threshold Guide table renders from — the inspector
@@ -534,16 +492,16 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
               <dt className="text-cs-text-muted">How it is counted</dt>
               <dd className="text-cs-text-secondary">
                 {/*
-                  * This row previously read "Held out of the missense consensus … a variant is never
-                  * counted twice", and got STRONGER in the move from the panel. It is false:
-                  * `countPredictorConcordance` includes AlphaGenome as a full voting member
-                  * (`isInformationalOnly: false`) scored on the whole AVI — and the AVI's own feature
-                  * 0 is splicing. Nothing anywhere withholds splicing from any vote. What is true is
-                  * narrower and worth stating plainly.
+                  * AlphaGenome used to be a full voting member of the PP3/BP4 concordance, and the
+                  * engine raised PP3 to Moderate/Strong from the AVI alone. The AVI is a rank (tail-
+                  * quantile Phred) with no ClinGen calibration, and AlphaMissense is one of its own
+                  * features, so it re-counted a tool that already votes. It is now informational
+                  * (`concordance.ts`), and this row says so.
                   */}
-                The AVI is one composite member of the in-silico pathogenicity concordance vote — a
-                single scalar, not eighteen separate votes, and nothing is withheld from that count.
-                It is absent from the ΔΔG stability consensus because it is not a ΔΔG engine.
+                Listed on the Predictors tab as informational: it does not vote toward PP3/BP4 and
+                does not set their strength, because the AVI is a rank rather than a calibrated
+                probability and already contains AlphaMissense. It is absent from the ΔΔG stability
+                consensus because it is not a ΔΔG engine.
               </dd>
             </div>
             <div>

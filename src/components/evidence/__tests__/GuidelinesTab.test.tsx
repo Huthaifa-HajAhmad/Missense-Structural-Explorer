@@ -40,28 +40,31 @@ describe("GuidelinesTab", () => {
   it("renders a live verdict roll-up that sums to the full metric count", () => {
     render(<GuidelinesTab {...baseProps} />);
     const strip = screen.getByRole("status", { name: /live threshold match summary/i });
-    // 12 pathogenic-supporting, 3 groups of one (FoldX stabilizing, BayesDel
-    // VUS, ESMC-6B informational), 5 awaiting data.
-    expect(within(strip).getByText("12")).toBeTruthy();
-    expect(within(strip).getAllByText("1")).toHaveLength(3);
+    // Against the ClinGen bands: 7 pathogenic-supporting (AM, CADD, MetaRNN, ClinPred, ESM1b,
+    // phyloP, Missense Z), 1 benign/neutral (FoldX), 4 indeterminate (REVEL, BayesDel, popEVE,
+    // GERP++), 3 informational (Eigen, DANN, ESMC-6B), 5 awaiting data.
+    expect(within(strip).getByText("7")).toBeTruthy();
+    expect(within(strip).getByText("1")).toBeTruthy();
+    expect(within(strip).getByText("4")).toBeTruthy();
+    expect(within(strip).getByText("3")).toBeTruthy();
     expect(within(strip).getByText("5")).toBeTruthy();
     expect(within(strip).getByText(/20 metrics/)).toBeTruthy();
   });
 
   it("tints the match badge by verdict, not one blue for everything", () => {
     render(<GuidelinesTab {...baseProps} />);
-    expect(screen.getByText("Path. Supp.").closest(".gt-badge")?.getAttribute("data-tone")).toBe("path");
+    expect(screen.getAllByText("PP3 Moderate")[0].closest(".gt-badge")?.getAttribute("data-tone")).toBe("path");
     expect(screen.getByText("Stabilizing").closest(".gt-badge")?.getAttribute("data-tone")).toBe("benign");
-    expect(screen.getByText("VUS", { selector: ".gt-badge" }).getAttribute("data-tone")).toBe("vus");
-    expect(screen.getByText("Informational").closest(".gt-badge")?.getAttribute("data-tone")).toBe("info");
+    expect(screen.getAllByText("Indeterminate", { selector: ".gt-badge" })[0].getAttribute("data-tone")).toBe("vus");
+    expect(screen.getAllByText("Informational")[0].closest(".gt-badge")?.getAttribute("data-tone")).toBe("info");
   });
 
   it("draws a calibration micro-track under scored metrics and none without a scale", () => {
     const { container } = render(<GuidelinesTab {...baseProps} />);
-    // 14 rows carry both a score and a band here: ESMC-6B has no calibrated
-    // scale, and the unset ΔΔG engines plus LOEUF have no score to place.
-    expect(container.querySelectorAll(".gt-marker")).toHaveLength(14);
-    expect(container.querySelectorAll(".gt-track")).toHaveLength(14);
+    // 12 rows carry both a score and a band here: ESMC-6B, Eigen and DANN have
+    // no published cut-point, and the unset ΔΔG engines plus LOEUF have no score.
+    expect(container.querySelectorAll(".gt-marker")).toHaveLength(12);
+    expect(container.querySelectorAll(".gt-track")).toHaveLength(12);
   });
 
   it("keeps the table body in a capped scroller with sticky header and category bands", () => {

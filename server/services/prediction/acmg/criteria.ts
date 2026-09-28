@@ -1,6 +1,7 @@
 import {
   THRESHOLDS,
   countPredictorConcordance,
+  insilicoVoteOutcome,
   PredictorConcordance,
 } from "../../../../src/shared/thresholds.ts";
 import type { ClinVarData } from "../../external-api/clinvar.ts";
@@ -152,8 +153,8 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     predictorData?.amClass,
     conservationData?.bayesdel,
     /**
-     * This positional argument is labelled "ESM-1b" and evaluated with ESM-1b's
-     * documented cut-points (-7.5 / -5.0), so it must receive an ESM-1b score. It was
+     * This positional argument is labelled "ESM-1b" and evaluated against ESM1b's ClinGen
+     * bands (Bergquist 2025), so it must receive an ESM-1b score. It was
      * being fed `esmcEval?.llr ?? esm2?.llr`, which made an ESMC ΔLLR of ~-8.4 render as
      * "ESM-1b: pathogenic". ESMC, ESM-2 and SaProt have no published cut-points on their
      * own scales and travel through `extra` below, which is evaluated as informational.
@@ -165,8 +166,11 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       eigenPhred: conservationData?.eigenPhred,
       dann: conservationData?.dann,
       popeve: conservationData?.popeve,
-      esm2Llr: esm2Eval?.llr,
+      esm2Llr: esm2Eval?.llr ?? esm2?.llr ?? null,
+      vesmLlr: esmcEval?.llr ?? null,
+      esmcLabel: typeof esmcEval?.provenance === "string" ? esmcEval.provenance : null,
       saprotLlr: saprotEval?.llr,
+      gpnStar: conservationData?.gpnStar ?? null,
       alphagenome: conservationData?.alphagenome,
       // So a source the build gate declined is named in the consensus coverage line rather than
       // silently omitted (see src/shared/thresholds/concordance.ts).
@@ -174,29 +178,45 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
     }
   );
 
-  const { nPathogenic, nBenign, nVus, available, unavailable, signals } = concordance;
+  const { nPathogenic, nBenign, nVus, available, unavailable } = concordance;
   const nActiveAvailable = nPathogenic + nBenign + nVus;
   const nAvailable = nActiveAvailable > 0 ? nActiveAvailable : available.length;
 
-  const buildPredictorDetail = () =>
-    `CADD: ${predictorData?.caddPhred ?? "N/A"}, ` +
-    `REVEL: ${conservationData?.revel ?? "N/A"}, ` +
-    `AlphaMissense: ${predictorData?.amClass ?? "N/A"}, ` +
-    `popEVE: ${signals.popeve ? signals.popeve.toUpperCase() : "N/A"}, ` +
-    `BayesDel: ${conservationData?.bayesdel ?? "N/A"}, ` +
-    (conservationData?.alphagenome?.aviPhred !== undefined && conservationData?.alphagenome?.aviPhred !== null
-      ? `AlphaGenome: ${conservationData.alphagenome.aviPhred.toFixed(1)} Phred (${conservationData.alphagenome.topModality ?? "Multimodal"}), `
-      : "") +
-    `ESMC LLR: ${esmcEval?.llr !== undefined && esmcEval?.llr !== null ? esmcEval.llr.toFixed(2) : (esm2?.llr !== undefined && esm2?.llr !== null ? esm2.llr.toFixed(2) : "N/A")}, ` +
-    `ESM-2 3B LLR: ${esm2Eval?.llr !== undefined && esm2Eval?.llr !== null ? esm2Eval.llr.toFixed(2) : "N/A"}, ` +
-    `SaProt LLR: ${saprotEval?.llr !== undefined && saprotEval?.llr !== null ? saprotEval.llr.toFixed(2) : "N/A"}` +
-    (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "");
+  /**
+   * The reason text names every tool that voted, with its score, grouped by its call — the previous
+   * text listed CADD, REVEL, AlphaMissense (by class), popEVE and BayesDel only, so MetaRNN and
+   * ClinPred voted without appearing in the justification a curator reads.
+   */
+  const { pathogenicTools, benignTools, vusTools } = concordance;
+  const listTools = (tools: typeof pathogenicTools) => tools.map(t => `${t.name} ${t.scoreLabel}`).join(", ");
+  const voting = (tools: typeof pathogenicTools) => tools.filter(t => !t.isInformationalOnly);
+  const buildPredictorDetail = () => {
+    const parts = [
+      voting(pathogenicTools).length ? `pathogenic: ${listTools(voting(pathogenicTools))}` : null,
+      voting(benignTools).length ? `benign: ${listTools(voting(benignTools))}` : null,
+      voting(vusTools).length ? `indeterminate: ${listTools(voting(vusTools))}` : null,
+    ].filter(Boolean);
+    const informational = [...pathogenicTools, ...benignTools, ...vusTools].filter(t => t.isInformationalOnly);
+    return (
+      `Votes — ${parts.join("; ")}` +
+      (informational.length ? `. Informational, not counted: ${listTools(informational)}` : "") +
+      (unavailable.length > 0 ? `. ⚠ Partial evidence — unavailable: ${unavailable.join(", ")}` : "")
+    );
+  };
 
-  const aviPhred = conservationData?.alphagenome?.aviPhred;
-  const topModality = conservationData?.alphagenome?.topModality;
-  const modalityNote = topModality ? ` (${topModality} modality)` : "";
+  /**
+   * The rule is `insilicoVoteOutcome` — the same function the Predictors tab reads — applied at
+   * Supporting strength.
+   *
+   * This block used to raise PP3 to Moderate (AVI Phred ≥ 25) or Strong (≥ 35), and BP4 to Moderate
+   * (≤ 5), from the AlphaGenome AVI alone. The AVI is a tail-quantile rank with no ClinGen
+   * calibration, and AlphaMissense is one of its own features, so a single uncalibrated composite
+   * decided the strength of a criterion the whole panel had voted on — and no surface said so.
+   * The strength now stays at Supporting, which is what an uncalibrated vote can carry.
+   */
+  const vote = insilicoVoteOutcome(concordance);
 
-  if (nPathogenic > nBenign && !skipPathogenicComp) {
+  if (vote.code === "PP3" && !skipPathogenicComp) {
     const consensusWord =
       nPathogenic >= 2 ? `${nPathogenic}/${nAvailable} predictors agree on pathogenic impact` :
                          `${nPathogenic}/${nAvailable} predictor supports pathogenic impact`;
@@ -205,22 +225,12 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         ? ` ⚠ Conflicting in-silico signals: ${nBenign} predictor(s) support benign.`
         : "";
 
-    let pp3Code = "PP3";
-    let tierNote = "";
-    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= THRESHOLDS.alphagenome.pathogenicStrong) {
-      pp3Code = "PP3_Strong";
-      tierNote = ` [Strong evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
-    } else if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred >= THRESHOLDS.alphagenome.pathogenicModerate) {
-      pp3Code = "PP3_Moderate";
-      tierNote = ` [Moderate evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
-    }
-
     criteria.push({
-      code: pp3Code,
+      code: "PP3",
       reason:
-        `${consensusWord}${tierNote}. (${buildPredictorDetail()})${conflictNote}`,
+        `${consensusWord}. (${buildPredictorDetail()})${conflictNote}`,
     });
-  } else if (nBenign > nPathogenic && !skipBenignComp) {
+  } else if (vote.code === "BP4" && !skipBenignComp) {
     const consensusWord =
       nBenign >= 2 ? `${nBenign}/${nAvailable} predictors agree on benign impact` :
                      `${nBenign}/${nAvailable} predictor supports benign impact`;
@@ -229,16 +239,9 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         ? ` ⚠ Conflicting in-silico signals: ${nPathogenic} predictor(s) support pathogenic.`
         : "";
 
-    let bp4Code = "BP4";
-    let tierNote = "";
-    if (aviPhred !== null && aviPhred !== undefined && !isNaN(aviPhred) && aviPhred <= THRESHOLDS.alphagenome.benignModerate && aviPhred >= 0) {
-      bp4Code = "BP4_Moderate";
-      tierNote = ` [Moderate evidence, AlphaGenome Phred ${aviPhred.toFixed(1)}${modalityNote}]`;
-    }
-
     criteria.push({
-      code: bp4Code,
-      reason: `${consensusWord}${tierNote}. (${buildPredictorDetail()})${conflictNote}`,
+      code: "BP4",
+      reason: `${consensusWord}. (${buildPredictorDetail()})${conflictNote}`,
     });
   }
 

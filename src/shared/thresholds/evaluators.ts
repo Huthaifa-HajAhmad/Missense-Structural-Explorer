@@ -1,4 +1,5 @@
 import { STRING_CONFIDENCE_BANDS, THRESHOLDS, type StringConfidenceBandId } from "./constants.ts";
+import { calibratedCall, type CalibratedCall } from "./calibration.ts";
 
 export type PredictorSignal = "pathogenic" | "benign" | "vus" | "unavailable";
 
@@ -26,6 +27,25 @@ export function stringConfidenceLabel(score: number | null | undefined): string 
   return STRING_CONFIDENCE_BANDS.find((band) => band.id === tier)?.label ?? null;
 }
 
+/** A calibrated call collapsed to the three-way vote signal. */
+function signalFromCall(call: CalibratedCall | null): PredictorSignal {
+  if (call === null) return "unavailable";
+  if (call.direction === "PP3") return "pathogenic";
+  if (call.direction === "BP4") return "benign";
+  return "vus";
+}
+
+/**
+ * AlphaGenome's AVI "Phred" is −10·log10(1 − q), where q is the CDF quantile AlphaGenome reports
+ * for the variant (`alphagenome-client.ts`, `cdfToPhred`). It is a RANK among scored variants, not
+ * a likelihood of pathogenicity, and no ClinGen calibration of it exists. Its feature vector also
+ * contains AlphaMissense and two conservation tracks, so reading it as a separate pathogenic vote
+ * counted AlphaMissense twice.
+ *
+ * It therefore has no pathogenic or benign call here: an available score is informational ("vus"),
+ * and the concordance lists AlphaGenome as informational only. The Phred 15 / 8 cut-points it used
+ * to be tested against were labelled "ClinGen SVI-calibrated" and had no source.
+ */
 export function evaluateAlphaGenomeAvi(
   alphagenome?: {
     aviPhred?: number | null;
@@ -34,112 +54,112 @@ export function evaluateAlphaGenomeAvi(
 ): PredictorSignal {
   if (!alphagenome) return "unavailable";
   const phred = alphagenome.aviPhred;
-  if (phred === null || phred === undefined || isNaN(phred) || phred < 0) return "unavailable";
-  if (phred >= THRESHOLDS.alphagenome.pathogenicSupporting) return "pathogenic";
-  if (phred <= THRESHOLDS.alphagenome.benign) return "benign";
+  if (phred === null || phred === undefined || !Number.isFinite(phred) || phred < 0) return "unavailable";
   return "vus";
 }
 
+/** REVEL against the ClinGen bands (Pejaver 2022): PP3 ≥ 0.644, BP4 ≤ 0.290. */
 export function evaluateRevel(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
-  if (score >= THRESHOLDS.revel.pathogenicStrong) return "pathogenic";
-  if (score <= THRESHOLDS.revel.benign) return "benign";
-  return "vus";
+  return signalFromCall(calibratedCall("revel", score));
 }
 
+/** CADD PHRED against the ClinGen bands (Pejaver 2022): PP3 ≥ 25.3, BP4 ≤ 22.7. */
 export function evaluateCadd(phred: number | null | undefined): PredictorSignal {
-  if (phred === null || phred === undefined) return "unavailable";
-  if (phred >= THRESHOLDS.cadd.pathogenicStrong) return "pathogenic";
-  if (phred <= THRESHOLDS.cadd.benign) return "benign";
-  return "vus";
+  return signalFromCall(calibratedCall("cadd", phred));
 }
 
+/**
+ * AlphaMissense against the ClinGen bands (Bergquist 2025): PP3 ≥ 0.792, BP4 ≤ 0.169.
+ *
+ * The SCORE decides. AlphaMissense's own class labels (likely_pathogenic > 0.564, likely_benign
+ * < 0.34 — Cheng et al. 2023) are the authors' classes, not a calibration, and "likely_pathogenic"
+ * spans 0.564–0.792, where the calibrated evidence is indeterminate. A class with no score is
+ * reported as available but indeterminate rather than promoted to a call it cannot support.
+ */
 export function evaluateAlphaMissense(
   score: number | null | undefined,
   cls: string | null | undefined
 ): PredictorSignal {
   const hasCls = cls !== null && cls !== undefined && cls !== "";
-  const hasScore = score !== null && score !== undefined;
-  if (!hasCls && !hasScore) return "unavailable";
-
-  if (cls) {
-    const lc = cls.toLowerCase();
-    if (lc.includes(THRESHOLDS.alphaMissense.pathogenicClass)) return "pathogenic";
-    if (lc.includes(THRESHOLDS.alphaMissense.benignClass)) return "benign";
-  }
-  if (score !== null && score !== undefined) {
-    if (score >= THRESHOLDS.alphaMissense.pathogenicStrong) return "pathogenic";
-    if (score <= THRESHOLDS.alphaMissense.benign) return "benign";
-  }
-  return "vus";
+  const call = calibratedCall("alphaMissense", score);
+  if (call !== null) return signalFromCall(call);
+  return hasCls ? "vus" : "unavailable";
 }
 
+/** BayesDel (noAF) against the ClinGen bands (Pejaver 2022): PP3 ≥ 0.13, BP4 ≤ −0.18. */
 export function evaluateBayesdel(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
-  if (score >= THRESHOLDS.bayesdel.pathogenic) return "pathogenic";
-  if (score <= THRESHOLDS.bayesdel.benign) return "benign";
-  return "vus";
+  return signalFromCall(calibratedCall("bayesdel", score));
 }
 
 export function evaluateEsm(llr: number | null | undefined): PredictorSignal {
-  // ESM-2 3B, ESM-C, and SaProt 650M do not have peer-reviewed clinical classification thresholds,
-  // so they are treated as purely informational VUS signals.
-  if (llr === null || llr === undefined) return "unavailable";
+  // ESM-2, ESMC / VESM and SaProt have no published clinical cut-points on their own scales,
+  // so they are informational: an available score is "vus", never a call.
+  if (llr === null || llr === undefined || !Number.isFinite(llr)) return "unavailable";
   return "vus";
 }
 
+/**
+ * ESM1b against the ClinGen bands (Bergquist 2025): PP3 ≤ −10.7, BP4 ≥ −6.3.
+ *
+ * These replace −7.5 / −5.0. −7.5 is Brandes et al.'s (2023) own operating point; −5.0 had no
+ * source. ESM1b is still informational in the concordance.
+ */
 export function evaluateEsm1b(llr: number | null | undefined): PredictorSignal {
-  // ESM-1b clinical thresholds sourced from Brandes et al., 2023 (Nature Genetics)
-  if (llr === null || llr === undefined) return "unavailable";
-  if (llr <= THRESHOLDS.esm1b.pathogenic) return "pathogenic";
-  if (llr >= THRESHOLDS.esm1b.benign) return "benign";
-  return "vus";
+  return signalFromCall(calibratedCall("esm1b", llr));
 }
 
+/**
+ * GPN-Star has no published clinical cut-point. The −2.5 / 0.0 pair is local and is labelled as
+ * such wherever it is drawn; the tool is informational in the concordance.
+ */
 export function evaluateGpnStar(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
+  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
   if (score <= THRESHOLDS.gpnStar.pathogenic) return "pathogenic";
   if (score >= THRESHOLDS.gpnStar.benign) return "benign";
   return "vus";
 }
 
+/** MetaRNN — the authors' 0.5 cut (Li et al. 2022). Uncalibrated, and its features include gnomAD AF. */
 export function evaluateMetaRnn(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
+  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
   if (score >= THRESHOLDS.metaRnn.pathogenic) return "pathogenic";
-  if (score < THRESHOLDS.metaRnn.benign) return "benign";
-  return "vus";
+  return "benign";
 }
 
+/** ClinPred — the authors' 0.5 cut (Alirezaie et al. 2018). Uncalibrated, and its features include gnomAD AF. */
 export function evaluateClinPred(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
+  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
   if (score >= THRESHOLDS.clinPred.pathogenic) return "pathogenic";
-  if (score < THRESHOLDS.clinPred.benign) return "benign";
-  return "vus";
+  return "benign";
 }
 
+/**
+ * Eigen and DANN have no published clinical cut-point for missense classification. The 4.0 and
+ * 0.96 / 0.50 cut-points they were tested against had no source, so both are informational:
+ * an available score is "vus", never a vote.
+ */
 export function evaluateEigen(phred: number | null | undefined): PredictorSignal {
-  if (phred === null || phred === undefined) return "unavailable";
-  if (phred >= THRESHOLDS.eigen.pathogenic) return "pathogenic";
-  if (phred < THRESHOLDS.eigen.benign) return "benign";
+  if (phred === null || phred === undefined || !Number.isFinite(phred)) return "unavailable";
   return "vus";
 }
 
 export function evaluateDann(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
-  if (score >= THRESHOLDS.dann.pathogenic) return "pathogenic";
-  if (score <= 0.5) return "benign";
+  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
   return "vus";
 }
 
+/**
+ * popEVE against its authors' published thresholds (Orenbuch et al., Nat Genet 2025): a score
+ * ≤ −4.617 is at least "moderately deleterious" (99% posterior of the deleterious component of a
+ * two-component mixture; ≤ −5.056 is "highly deleterious", 99.99%).
+ *
+ * popEVE publishes no benign threshold, so no popEVE score is a benign call. The −2.0 "supporting"
+ * and −1.0 "benign" cut-points, and a 0–1 "normalised" branch, previously used here had no source
+ * — they turned a −3.9 score, which the authors would not call deleterious, into a pathogenic vote.
+ */
 export function evaluatePopEve(score: number | null | undefined): PredictorSignal {
-  if (score === null || score === undefined) return "unavailable";
-  if (score < 0) {
-    if (score <= THRESHOLDS.popEve.pathogenicSupporting) return "pathogenic";
-    if (score >= THRESHOLDS.popEve.benignLlr) return "benign";
-    return "vus";
-  }
-  if (score >= THRESHOLDS.popEve.pathogenicNormalized) return "pathogenic";
-  if (score <= THRESHOLDS.popEve.benignNormalized) return "benign";
+  if (score === null || score === undefined || !Number.isFinite(score)) return "unavailable";
+  if (score <= THRESHOLDS.popEve.pathogenic) return "pathogenic";
   return "vus";
 }
 

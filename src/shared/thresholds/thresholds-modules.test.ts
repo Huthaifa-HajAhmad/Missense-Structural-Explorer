@@ -21,10 +21,9 @@ describe("Thresholds Modular Sub-Domain Tests", () => {
 
   describe("evaluators.ts", () => {
     it("evaluates AlphaGenome AVI scores", () => {
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 36.0 })).toBe("pathogenic");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 16.0 })).toBe("pathogenic");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 5.0 })).toBe("benign");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 10.0 })).toBe("vus");
+      // A rank with no ClinGen calibration: available scores are informational, never a call.
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 36.0 })).toBe("vus");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 5.0 })).toBe("vus");
       expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
     });
 
@@ -35,7 +34,7 @@ describe("Thresholds Modular Sub-Domain Tests", () => {
 
       expect(evaluateCadd(28)).toBe("pathogenic");
       expect(evaluateCadd(8)).toBe("benign");
-      expect(evaluateCadd(15)).toBe("vus");
+      expect(evaluateCadd(24)).toBe("vus");
     });
   });
 

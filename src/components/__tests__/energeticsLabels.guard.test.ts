@@ -46,7 +46,7 @@ const GUARDED_SURFACES = [
    * a comment, is what stops it.
    */
   "src/components/evidence/AlphaGenomeTab.tsx",
-  "src/components/PredictorSpecialistPanels.tsx",
+  "src/components/evidence/PredictorsTab.tsx",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

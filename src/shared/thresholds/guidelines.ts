@@ -14,6 +14,83 @@
  */
 import type { AnalysisResult, EnergeticsData } from "../contracts.ts";
 import { THRESHOLDS } from "./constants.ts";
+import {
+  CALIBRATION_SOURCES,
+  PP3_BP4_CALIBRATION,
+  calibratedCall,
+  formatEvidenceCode,
+  type CalibratedToolKey,
+} from "./calibration.ts";
+
+const fmtCut = (n: number) => (Math.abs(n) >= 10 ? n.toFixed(1) : Number(n.toFixed(3)).toString());
+
+/**
+ * A row whose status, cut-point text and painted band all come from the published PP3/BP4
+ * calibration — the same table the evaluators and the Predictors tab read. These rows used to carry
+ * their own hand-written numbers (REVEL ≥ 0.75 "strong", AlphaMissense ≥ 0.983, CADD ≥ 25 "strong",
+ * BayesDel ≤ −0.0404), which disagreed with the published bands and with each other.
+ */
+function calibratedRow(
+  key: string,
+  name: string,
+  tool: CalibratedToolKey,
+  value: number | null,
+  display: string,
+  window: { min: number; max: number },
+  category: 1 | 3 = 1,
+): GuidelinesRow {
+  const bands = PP3_BP4_CALIBRATION[tool];
+  const call = calibratedCall(tool, value);
+  const high = bands.orientation === "higher";
+  const pp3Sup = bands.pp3.Supporting;
+  const bp4Sup = bands.bp4.Supporting;
+  const pathOp = high ? "≥" : "≤";
+  const benOp = high ? "≤" : "≥";
+  const strongerPp3 = (["Moderate", "Strong", "VeryStrong"] as const)
+    .filter(s => bands.pp3[s] !== undefined)
+    .map(s => `${s === "VeryStrong" ? "very strong" : s.toLowerCase()} ${pathOp} ${fmtCut(bands.pp3[s] as number)}`);
+  const status: GuidelinesStatus =
+    call === null ? "none"
+    : call.direction === "PP3" ? (call.strength === "Supporting" ? "path" : "path_strong")
+    : call.direction === "BP4" ? "benign"
+    : "vus";
+  const segments: GuidelinesBand["segments"] = [];
+  const clamp = (n: number) => Math.max(window.min, Math.min(window.max, n));
+  if (high) {
+    if (bp4Sup !== undefined) segments.push({ from: window.min, to: clamp(bp4Sup), tone: "benign" });
+    segments.push({ from: clamp(bp4Sup ?? window.min), to: clamp(pp3Sup ?? window.max), tone: "gray" });
+    if (pp3Sup !== undefined) segments.push({ from: clamp(pp3Sup), to: window.max, tone: "path" });
+  } else {
+    if (pp3Sup !== undefined) segments.push({ from: window.min, to: clamp(pp3Sup), tone: "path" });
+    segments.push({ from: clamp(pp3Sup ?? window.min), to: clamp(bp4Sup ?? window.max), tone: "gray" });
+    if (bp4Sup !== undefined) segments.push({ from: clamp(bp4Sup), to: window.max, tone: "benign" });
+  }
+  const ticks = [...Object.values(bands.pp3), ...Object.values(bands.bp4)]
+    .filter((n): n is number => typeof n === "number" && n >= window.min && n <= window.max)
+    .sort((a, b) => a - b);
+  return {
+    key, category, name, value, display,
+    benignText: bp4Sup !== undefined ? `${benOp} ${fmtCut(bp4Sup)}` : "No BP4 band",
+    pathText: pp3Sup !== undefined
+      ? `${pathOp} ${fmtCut(pp3Sup)}${strongerPp3.length ? ` (${strongerPp3.join(", ")})` : ""}`
+      : "No PP3 band",
+    acmgCode: `PP3 / BP4 · ${CALIBRATION_SOURCES[bands.source].short}`,
+    status,
+    matchLabel: call === null ? "No data" : call.direction === null ? "Indeterminate" : formatEvidenceCode(call.code),
+    band: { min: window.min, max: window.max, segments, ticks },
+  };
+}
+
+/** A scored row with no published clinical cut-point: shown, never classified. */
+function informationalRow(key: string, name: string, value: number | null, display: string, note: string): GuidelinesRow {
+  return {
+    key, category: 1, name, value, display,
+    benignText: "No published cut-point", pathText: note, acmgCode: "Info / -",
+    status: "none",
+    matchLabel: value !== null ? "Informational" : "No data",
+    band: null,
+  };
+}
 
 export type GuidelinesStatus = "path_strong" | "path" | "benign" | "neutral" | "vus" | "none";
 
@@ -118,53 +195,10 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
   const rows: GuidelinesRow[] = [];
 
   // ── Category 1: In-silico pathogenicity & machine learning ──
-  const revelStatus = revelVal !== null ? (revelVal >= 0.75 ? "path_strong" : revelVal >= 0.5 ? "path" : revelVal < 0.15 ? "benign" : "vus") : "none";
-  rows.push({
-    key: "revel", category: 1, name: "REVEL",
-    value: revelVal, display: revelVal?.toFixed(3) ?? "—",
-    benignText: "< 0.15", pathText: ">= 0.50 (strong >= 0.75)", acmgCode: "PP3 / BP4",
-    status: revelStatus,
-    matchLabel: revelStatus === "path_strong" ? "Strong Path." : revelStatus === "path" ? "Path. Supp." : revelStatus === "benign" ? "Benign" : "VUS",
-    band: { min: 0, max: 1, segments: [
-      { from: 0, to: 0.15, tone: "benign" }, { from: 0.15, to: 0.5, tone: "gray" }, { from: 0.5, to: 1, tone: "path" }
-    ], ticks: [0.15, 0.5, 0.75] }
-  });
-
-  const amStatus = (amCls?.toLowerCase().includes("pathogenic") || (amVal !== null && amVal >= 0.983)) ? "path_strong" : (amCls?.toLowerCase().includes("benign") || (amVal !== null && amVal <= 0.063)) ? "benign" : "vus";
-  rows.push({
-    key: "am", category: 1, name: "AlphaMissense",
-    value: amVal, display: amVal?.toFixed(3) ?? "—",
-    benignText: "<= 0.063", pathText: ">= 0.983 (supp >= 0.564)", acmgCode: "PP3 / BP4",
-    status: amVal !== null || amCls !== null ? amStatus : "none",
-    matchLabel: amStatus === "path_strong" ? "Pathogenic" : amStatus === "benign" ? "Benign" : "VUS",
-    band: { min: 0, max: 1, segments: [
-      { from: 0, to: 0.063, tone: "benign" }, { from: 0.063, to: 0.983, tone: "gray" }, { from: 0.983, to: 1, tone: "path" }
-    ], ticks: [0.063, 0.564, 0.983] }
-  });
-
-  const caddStatus = caddVal !== null ? (caddVal >= 25 ? "path_strong" : caddVal >= 20 ? "path" : caddVal <= 10 ? "benign" : "vus") : "none";
-  rows.push({
-    key: "cadd", category: 1, name: "CADD PHRED",
-    value: caddVal, display: caddVal?.toFixed(1) ?? "—",
-    benignText: "<= 10.0", pathText: ">= 20.0 (strong >= 25)", acmgCode: "PP3 / BP4",
-    status: caddStatus,
-    matchLabel: caddStatus === "path_strong" ? "Strong Path." : caddStatus === "path" ? "Path. Supp." : caddStatus === "benign" ? "Benign" : "Moderate",
-    band: { min: 0, max: 30, segments: [
-      { from: 0, to: 10, tone: "benign" }, { from: 10, to: 20, tone: "gray" }, { from: 20, to: 30, tone: "path" }
-    ], ticks: [10, 20, 25] }
-  });
-
-  const bayesdelStatus = bayesdelVal !== null ? (bayesdelVal >= 0.133 ? "path" : bayesdelVal <= -0.0404 ? "benign" : "vus") : "none";
-  rows.push({
-    key: "bayesdel", category: 1, name: "BayesDel (noAF)",
-    value: bayesdelVal, display: bayesdelVal?.toFixed(3) ?? "—",
-    benignText: "<= -0.0404", pathText: ">= 0.133", acmgCode: "PP3 / BP4",
-    status: bayesdelStatus,
-    matchLabel: bayesdelStatus === "path" ? "Pathogenic" : bayesdelStatus === "benign" ? "Benign" : "VUS",
-    band: { min: -1, max: 1, segments: [
-      { from: -1, to: -0.0404, tone: "benign" }, { from: -0.0404, to: 0.133, tone: "gray" }, { from: 0.133, to: 1, tone: "path" }
-    ], ticks: [-0.0404, 0.133] }
-  });
+  rows.push(calibratedRow("revel", "REVEL", "revel", revelVal, revelVal?.toFixed(3) ?? "—", { min: 0, max: 1 }));
+  rows.push(calibratedRow("am", "AlphaMissense", "alphaMissense", amVal, amVal?.toFixed(3) ?? (amCls ?? "—"), { min: 0, max: 1 }));
+  rows.push(calibratedRow("cadd", "CADD PHRED", "cadd", caddVal, caddVal?.toFixed(1) ?? "—", { min: 0, max: 40 }));
+  rows.push(calibratedRow("bayesdel", "BayesDel (noAF)", "bayesdel", bayesdelVal, bayesdelVal?.toFixed(3) ?? "—", { min: -1, max: 1 }));
 
   const metarnnStatus = metarnnVal !== null ? (metarnnVal >= 0.5 ? "path" : "benign") : "none";
   rows.push({
@@ -190,54 +224,25 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     ], ticks: [0.5] }
   });
 
-  const eigenStatus = eigenVal !== null ? (eigenVal >= 4.0 ? "path" : "benign") : "none";
-  rows.push({
-    key: "eigen", category: 1, name: "Eigen PHRED",
-    value: eigenVal, display: eigenVal?.toFixed(1) ?? "—",
-    benignText: "< 4.0", pathText: ">= 4.0", acmgCode: "PP3 / BP4",
-    status: eigenStatus,
-    matchLabel: eigenStatus === "path" ? "Pathogenic" : "Benign",
-    band: { min: 0, max: 20, segments: [
-      { from: 0, to: 4, tone: "benign" }, { from: 4, to: 20, tone: "path" }
-    ], ticks: [4] }
-  });
+  rows.push(informationalRow("eigen", "Eigen PHRED", eigenVal, eigenVal?.toFixed(1) ?? "—", "Genome-wide functional score"));
+  rows.push(informationalRow("dann", "DANN", dannVal, dannVal?.toFixed(3) ?? "—", "Genome-wide functional score"));
 
-  const dannStatus = dannVal !== null ? (dannVal >= 0.96 ? "path" : dannVal <= 0.5 ? "benign" : "vus") : "none";
-  rows.push({
-    key: "dann", category: 1, name: "DANN",
-    value: dannVal, display: dannVal?.toFixed(3) ?? "—",
-    benignText: "<= 0.50", pathText: ">= 0.96", acmgCode: "PP3 / BP4",
-    status: dannStatus,
-    matchLabel: dannStatus === "path" ? "Pathogenic" : dannStatus === "benign" ? "Benign" : "Moderate",
-    band: { min: 0, max: 1, segments: [
-      { from: 0, to: 0.5, tone: "benign" }, { from: 0.5, to: 0.96, tone: "gray" }, { from: 0.96, to: 1, tone: "path" }
-    ], ticks: [0.5, 0.96] }
-  });
-
-  const popeveStatus = popeveVal !== null ? (popeveVal < 0 ? (popeveVal <= -4.617 ? "path_strong" : popeveVal <= -2.0 ? "path" : popeveVal >= -1.0 ? "benign" : "vus") : (popeveVal >= 0.75 ? "path_strong" : popeveVal <= 0.25 ? "benign" : "vus")) : "none";
+  // popEVE publishes deleterious cut-points only (Orenbuch 2025): ≤ −4.617 moderate, ≤ −5.056 high.
+  const popeveStatus: GuidelinesStatus = popeveVal !== null
+    ? (popeveVal <= THRESHOLDS.popEve.severePathogenic ? "path_strong" : popeveVal <= THRESHOLDS.popEve.pathogenic ? "path" : "vus")
+    : "none";
   rows.push({
     key: "popeve", category: 1, name: "popEVE",
     value: popeveVal, display: popeveVal?.toFixed(3) ?? "—",
-    benignText: "<= 0.25 (LLR >= -1.0)", pathText: ">= 0.75 (LLR <= -4.617 severe)", acmgCode: "PP3 / BP4",
+    benignText: "No benign cut-point published", pathText: "≤ −4.617 (highly ≤ −5.056)", acmgCode: "PP3 · Orenbuch 2025",
     status: popeveStatus,
-    matchLabel: popeveStatus === "path_strong" ? "Severe Path." : popeveStatus === "path" ? "Pathogenic" : popeveStatus === "benign" ? "Benign" : "VUS",
-    // Two-sided calibration: strongly negative LLR and high positive scores are both pathogenic.
-    band: { min: -6, max: 1, segments: [
-      { from: -6, to: -2, tone: "path" }, { from: -2, to: -1, tone: "gray" }, { from: -1, to: 0.25, tone: "benign" }, { from: 0.25, to: 0.75, tone: "gray" }, { from: 0.75, to: 1, tone: "path" }
-    ], ticks: [-4.617, -2, -1, 0.25, 0.75] }
+    matchLabel: popeveStatus === "path_strong" ? "Highly deleterious" : popeveStatus === "path" ? "Deleterious" : popeveStatus === "vus" ? "Below cut-point" : "No data",
+    band: { min: -8, max: 0, segments: [
+      { from: -8, to: -4.617, tone: "path" }, { from: -4.617, to: 0, tone: "gray" }
+    ], ticks: [-5.056, -4.617] }
   });
 
-  const esmStatus = esmVal !== null ? (esmVal <= THRESHOLDS.esm1b.pathogenic ? "path" : esmVal >= THRESHOLDS.esm1b.benign ? "benign" : "vus") : "none";
-  rows.push({
-    key: "esm", category: 1, name: "ESM-1b",
-    value: esmVal, display: esmVal?.toFixed(2) ?? "—",
-    benignText: ">= -5.0", pathText: "<= -7.5", acmgCode: "Info / -",
-    status: esmStatus,
-    matchLabel: esmStatus === "path" ? "Deleterious" : esmStatus === "benign" ? "Tolerated" : "Neutral",
-    band: { min: -14, max: 0, segments: [
-      { from: -14, to: -7.5, tone: "path" }, { from: -7.5, to: -5, tone: "gray" }, { from: -5, to: 0, tone: "benign" }
-    ], ticks: [-7.5, -5] }
-  });
+  rows.push(calibratedRow("esm", "ESM1b", "esm1b", esmVal, esmVal?.toFixed(2) ?? "—", { min: -25, max: 5 }));
 
   /**
    * This value comes from `esmcEval`, so it is ESMC-6B's masked-marginal ΔLLR —
@@ -318,29 +323,8 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
   });
 
   // ── Category 3: Evolutionary conservation & population intolerance ──
-  const gerpStatus = gerpVal !== null ? (gerpVal >= 2.0 ? "path" : "benign") : "none";
-  rows.push({
-    key: "gerp", category: 3, name: "GERP++ RS",
-    value: gerpVal, display: gerpVal?.toFixed(2) ?? "—",
-    benignText: "< 2.00", pathText: ">= 2.00 (conserved)", acmgCode: "PP3 / BP4",
-    status: gerpStatus,
-    matchLabel: gerpStatus === "path" ? "Conserved" : "Neutral",
-    band: { min: -4, max: 7, segments: [
-      { from: -4, to: 2, tone: "benign" }, { from: 2, to: 7, tone: "path" }
-    ], ticks: [2] }
-  });
-
-  const phylopStatus = phylopVal !== null ? (phylopVal >= 1.5 ? "path" : "benign") : "none";
-  rows.push({
-    key: "phylop", category: 3, name: "phyloP 100-way",
-    value: phylopVal, display: phylopVal?.toFixed(2) ?? "—",
-    benignText: "< 1.50", pathText: ">= 1.50 (conserved)", acmgCode: "PP3 / BP4",
-    status: phylopStatus,
-    matchLabel: phylopStatus === "path" ? "Conserved" : "Variable",
-    band: { min: -2, max: 10, segments: [
-      { from: -2, to: 1.5, tone: "benign" }, { from: 1.5, to: 10, tone: "path" }
-    ], ticks: [1.5] }
-  });
+  rows.push(calibratedRow("gerp", "GERP++ RS", "gerp", gerpVal, gerpVal?.toFixed(2) ?? "—", { min: -12.3, max: 6.2 }, 3));
+  rows.push(calibratedRow("phylop", "phyloP", "phylop", phylopVal, phylopVal?.toFixed(2) ?? "—", { min: -20, max: 10 }, 3));
 
   const misZStatus = misZVal !== null ? (misZVal >= 3.09 ? "path_strong" : misZVal >= 2.0 ? "path" : "benign") : "none";
   rows.push({

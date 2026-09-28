@@ -55,6 +55,8 @@ export function countPredictorConcordance(
     esm2Llr?: number | null;
     saprotLlr?: number | null;
     vesmLlr?: number | null;
+    /** Display name for the `esmcEval` score — the model that actually served it. */
+    esmcLabel?: string | null;
     gpnStar?: number | null;
     alphagenome?: AlphaGenomeAviData | null;
     /**
@@ -84,7 +86,8 @@ export function countPredictorConcordance(
       key: "am",
       name: "AlphaMissense",
       signal: evaluateAlphaMissense(amScore, amClass),
-      scoreLabel: amClass ? amClass : amScore !== null && amScore !== undefined ? `${amScore.toFixed(3)}` : "—",
+      // The score is what is called (Bergquist 2025 bands); the authors' class is only a fallback label.
+      scoreLabel: amScore !== null && amScore !== undefined ? `${amScore.toFixed(3)}` : amClass ? amClass : "—",
     },
     {
       key: "bayesdel",
@@ -109,12 +112,16 @@ export function countPredictorConcordance(
       name: "Eigen",
       signal: evaluateEigen(extra?.eigenPhred),
       scoreLabel: extra?.eigenPhred !== null && extra?.eigenPhred !== undefined ? `${extra.eigenPhred.toFixed(1)}` : "—",
+      // No published clinical cut-point: see evaluateEigen.
+      isInformationalOnly: true,
     },
     {
       key: "dann",
       name: "DANN",
       signal: evaluateDann(extra?.dann),
       scoreLabel: extra?.dann !== null && extra?.dann !== undefined ? `${extra.dann.toFixed(3)}` : "—",
+      // No published clinical cut-point: see evaluateDann.
+      isInformationalOnly: true,
     },
     {
       key: "popeve",
@@ -129,7 +136,12 @@ export function countPredictorConcordance(
       scoreLabel: extra?.alphagenome?.aviPhred !== null && extra?.alphagenome?.aviPhred !== undefined
         ? `${extra.alphagenome.aviPhred.toFixed(1)} Phred`
         : "—",
-      isInformationalOnly: false,
+      /**
+       * Informational. The AVI is a rank (tail-quantile Phred), not a calibrated likelihood, and its
+       * feature vector includes AlphaMissense — which already votes on its own. Voting it as well
+       * counted AlphaMissense twice. See evaluateAlphaGenomeAvi.
+       */
+      isInformationalOnly: true,
     },
     {
       key: "esm",
@@ -140,7 +152,9 @@ export function countPredictorConcordance(
     },
     {
       key: "vesm",
-      name: "VESM-150M",
+      // `esmcEval` is served by ESMC (JapanFold tier 1) or the local VESM sidecar; the payload's
+      // `provenance` says which, and a caller that has it passes it as `esmcLabel`.
+      name: extra?.esmcLabel ?? "ESMC / VESM",
       signal: evaluateEsm(extra?.vesmLlr),
       scoreLabel: extra?.vesmLlr !== null && extra?.vesmLlr !== undefined ? `${extra.vesmLlr.toFixed(2)}` : "—",
       isInformationalOnly: true,
@@ -242,4 +256,38 @@ export function countPredictorConcordance(
     vusTools,
     signals
   };
+}
+
+/**
+ * The engine's PP3/BP4 rule, as one function both the engine and every surface call.
+ *
+ * The rule is a PLURALITY among voting tools: PP3 when pathogenic calls outnumber benign calls, BP4
+ * when benign outnumber pathogenic, nothing on a tie. Indeterminate ("vus") calls and informational
+ * tools do not count on either side. The criterion is applied at Supporting strength.
+ *
+ * The Predictors tab used to compute its own verdict with a different rule (a strict MAJORITY of all
+ * voting tools), so it could print "Conflicting evidence" beside an engine that had applied PP3 —
+ * and the engine then raised PP3 to Moderate or Strong from the AlphaGenome AVI alone, a strength
+ * nothing on the tab reported. One function, one rule.
+ *
+ * The ACMG weighting gates (`strict-structural`, `conservative`) are the engine's, applied after this.
+ */
+export interface InsilicoVoteOutcome {
+  direction: "pathogenic" | "benign" | "tie" | "no-votes";
+  /** "PP3" | "BP4" | null — Supporting strength, as the engine records it. */
+  code: "PP3" | "BP4" | null;
+  nPathogenic: number;
+  nBenign: number;
+  nIndeterminate: number;
+  nVoting: number;
+}
+
+export function insilicoVoteOutcome(concordance: Pick<PredictorConcordance, "nPathogenic" | "nBenign" | "nVus">): InsilicoVoteOutcome {
+  const { nPathogenic, nBenign, nVus } = concordance;
+  const nVoting = nPathogenic + nBenign + nVus;
+  const base = { nPathogenic, nBenign, nIndeterminate: nVus, nVoting };
+  if (nVoting === 0) return { ...base, direction: "no-votes", code: null };
+  if (nPathogenic > nBenign) return { ...base, direction: "pathogenic", code: "PP3" };
+  if (nBenign > nPathogenic) return { ...base, direction: "benign", code: "BP4" };
+  return { ...base, direction: "tie", code: null };
 }

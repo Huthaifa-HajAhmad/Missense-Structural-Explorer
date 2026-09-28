@@ -4,14 +4,14 @@
 export const THRESHOLDS_METADATA = {
   lastReviewed: "2026-07-22",
   citations: {
-    revel: "Ioannidis et al. Am J Hum Genet (2016) & ClinGen SVI Recommendation",
-    alphaMissense: "Cheng et al. Science (2023) & Pejaver et al. Am J Hum Genet (2022)",
-    cadd: "Rentzsch et al. Nucleic Acids Res (2019) & ACMG/AMP SVI Guidance",
+    revel: "Ioannidis et al. Am J Hum Genet (2016); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
+    alphaMissense: "Cheng et al. Science (2023); PP3/BP4 bands: Bergquist et al. Genet Med (2025)",
+    cadd: "Rentzsch et al. Nucleic Acids Res (2019); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005)",
-    popEVE: "Frazer et al. Nature (2021)",
+    popEVE: "Orenbuch et al. Nat Genet (2025)",
     dbscsnv: "Jian et al. Hum Mutat (2014)",
     spliceai: "Jaganathan et al. Cell (2019) & ClinGen SVI Recommendation",
-    alphagenome: "Google DeepMind (2024) & ClinGen SVI Bayesian Recommendation (Pejaver et al. 2022)"
+    alphagenome: "Avsec et al., AlphaGenome (Google DeepMind, 2025). AVI bands are app-defined, not ClinGen-calibrated"
   }
 };
 
@@ -47,21 +47,25 @@ export const THRESHOLDS = {
     /** dbscSNV ADA/RF score ≥ 0.60 → high probability of altering splicing */
     spliceAltering: 0.6,
   },
+  /**
+   * REVEL, CADD and AlphaMissense display bands for the residue landscape heatmaps ONLY.
+   *
+   * These are colour breaks, not ACMG evidence. The PP3/BP4 evaluators read the published bands in
+   * `calibration.ts` (Pejaver 2022, Bergquist 2025). The names below are kept so the heatmaps keep
+   * their colours; their old comments called them "ClinGen SVI" cut-points, which they are not
+   * (ClinGen's REVEL Strong band starts at 0.932, CADD reaches Moderate at most).
+   */
   revel: {
-    /** REVEL ≥ 0.75 → PP3 (Strong) per ClinGen SVI recommendation (Ioannidis et al. 2016) */
+    /** Heatmap colour break (Ioannidis 2016 discussed 0.5 / 0.75 as operating points). */
     pathogenicStrong: 0.75,
-    /** REVEL ≥ 0.50 → PP3 (Supporting) */
     pathogenicSupporting: 0.50,
-    /** REVEL < 0.15 → BP4 */
     benign: 0.15,
   },
 
   cadd: {
-    /** CADD PHRED ≥ 25 → PP3 (Strong) per ACMG/AMP SVI */
+    /** Heatmap colour breaks only — see the note above `revel`. */
     pathogenicStrong: 25,
-    /** CADD PHRED ≥ 20 → PP3 (Supporting) */
     pathogenicSupporting: 20,
-    /** CADD PHRED ≤ 10 → BP4 */
     benign: 10,
     /** UI display moderate band */
     moderate: 15,
@@ -69,8 +73,9 @@ export const THRESHOLDS = {
 
   alphaMissense: {
     /**
-     * ClinGen-calibrated thresholds (Pejaver et al. 2022).
-     * Pathogenic: ≥ 0.983, Supporting: ≥ 0.564, Benign: ≤ 0.063.
+     * Heatmap colour breaks only. 0.34 / 0.564 are AlphaMissense's own class boundaries (Cheng et
+     * al. 2023); 0.983 / 0.063 have no published source. ClinGen's calibrated bands (Bergquist 2025:
+     * PP3 ≥ 0.792, BP4 ≤ 0.169) live in `calibration.ts`.
      */
     pathogenicStrong: 0.983,
     pathogenicSupporting: 0.564,
@@ -139,6 +144,7 @@ export const THRESHOLDS = {
     pathogenic: 0.133,
     benign: -0.0404,
   },
+  /** Retained for legacy readers; no evaluator uses it. ESM-family scores other than ESM1b are uncalibrated. */
   esm: {
     pathogenic: -5.0,
     benign: -2.0,
@@ -159,26 +165,36 @@ export const THRESHOLDS = {
     pathogenic: 0.96,
     benign: 0.96,
   },
+  /** Brandes et al. 2023 operating point (−7.5). The PP3/BP4 evaluator reads Bergquist 2025 in `calibration.ts`. */
   esm1b: {
     pathogenic: -7.5,
     benign: -5.0,
   },
+  /** Local cut-points — GPN-Star publishes none. Informational only. */
   gpnStar: {
     pathogenic: -2.5,
     benign: 0.0,
   },
+  /**
+   * popEVE (Orenbuch et al., Nat Genet 2025). The authors publish two cut-points, both on the
+   * deleterious side: ≤ −5.056 "highly deleterious" (99.99% posterior) and ≤ −4.617 "moderately
+   * deleterious" (99%). There is no published benign cut-point.
+   *
+   * `pathogenicSupporting` (−2.0), `benignLlr`/`benign` (−1.0) and the 0–1 `…Normalized` pair had no
+   * source and are no longer read by any evaluator; they remain only so an old import still compiles.
+   */
   popEve: {
-    /** Severe Pathogenicity Threshold (99.99% likelihood, 15-fold case enrichment): LLR ≤ -5.056 */
     severePathogenic: -5.056,
-    /** Moderate Pathogenicity Threshold (99% likelihood, 5-fold case enrichment): LLR ≤ -4.617 */
     pathogenic: -4.617,
-    /** Supporting Pathogenicity LLR threshold */
+    /** @deprecated unsourced — not read by any evaluator. */
     pathogenicSupporting: -2.0,
-    /** Benign LLR threshold */
+    /** @deprecated unsourced — not read by any evaluator. */
     benignLlr: -1.0,
+    /** @deprecated unsourced — not read by any evaluator. */
     benign: -1.0,
-    /** 0 to 1 normalized scale cutoffs */
+    /** @deprecated unsourced — not read by any evaluator. */
     pathogenicNormalized: 0.75,
+    /** @deprecated unsourced — not read by any evaluator. */
     benignNormalized: 0.25,
   },
   eve: {
@@ -203,7 +219,11 @@ export const THRESHOLDS = {
     moderateRiskProbability: 0.20,
   },
   alphagenome: {
-    /** ClinGen SVI-calibrated AVI Phred cut-points (DeepMind 2024 / Tavtigian 2018) */
+    /**
+     * App-defined bands on the AVI rank-Phred (−10·log10 of the tail quantile). NOT a ClinGen
+     * calibration — none exists for AlphaGenome — and no longer read by the PP3/BP4 vote or the
+     * engine's strength. The AlphaGenome tab still uses them to shade its own track view.
+     */
     pathogenicStrong: 35.0,
     pathogenicModerate: 25.0,
     pathogenicSupporting: 15.0,
@@ -338,22 +358,22 @@ export const STRING_CONFIDENCE_CUTS = [
  */
 export const THRESHOLD_NOTES: Record<string, string> = {
   revel:
-    "REVEL (Ioannidis 2016). PP3 strong ≥ 0.75, supporting ≥ 0.50; BP4 < 0.15. " +
-    "Source: ClinGen SVI Recommendation v1.0 (2018).",
+    "REVEL (Ioannidis 2016). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.644, moderate ≥ 0.773, strong ≥ 0.932; " +
+    "BP4 supporting ≤ 0.290, moderate ≤ 0.183, strong ≤ 0.016, very strong ≤ 0.003.",
   cadd:
-    "CADD (Kircher 2014). PP3 strong PHRED ≥ 25, supporting ≥ 20; BP4 ≤ 10. " +
-    "Source: ACMG/AMP SVI Working Group (2018).",
+    "CADD PHRED (Rentzsch 2019). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 25.3, moderate ≥ 28.1 (no strong band); " +
+    "BP4 supporting ≤ 22.7, moderate ≤ 17.3, strong ≤ 0.15. Genome-wide model: its features include conservation.",
   alphaMissense:
-    "AlphaMissense (Cheng 2023). ClinGen-calibrated thresholds (Pejaver 2022): path ≥ 0.983, benign ≤ 0.063. " +
-    "Class matching: includes('pathogenic') / includes('benign').",
+    "AlphaMissense (Cheng 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≥ 0.792, moderate ≥ 0.906, strong ≥ 0.990; " +
+    "BP4 supporting ≤ 0.169, moderate ≤ 0.099. The authors' own classes (likely benign < 0.34, likely pathogenic > 0.564) are not a calibration.",
   foldxDdG:
     "FoldX BuildModel ΔΔG (Schymkowitz 2005). Destabilizing > 1.5 kcal/mol (strong). " +
     "NOTE: Destabilization ≠ Pathogenicity. GOF/neomorphic/gain-of-interaction variants " +
     "may be pathogenic without destabilization.",
   gerp:
-    "GERP++ RS ≥ 2.0 → conserved position (Cooper 2010).",
+    "GERP++ RS (Davydov 2010). Conservation, not pathogenicity. ClinGen bands (Pejaver 2022): no PP3 band; BP4 supporting ≤ 2.70, moderate ≤ −4.54.",
   phylop:
-    "phyloP 100-way vertebrate ≥ 1.5 → conserved (Pollard 2010).",
+    "phyloP (Pollard 2010). Conservation, not pathogenicity. ClinGen bands (Pejaver 2022): PP3 supporting ≥ 7.367, moderate ≥ 9.741; BP4 supporting ≤ 1.879, moderate ≤ 0.021.",
   dynamut2:
     "DynaMut2 (Rodrigues 2021). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
   ddmut:
@@ -361,29 +381,29 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   thermompnn:
     "ThermoMPNN (Pei 2024 / Tamarind Bio). Destabilizing ΔΔG ≥ +1.0 kcal/mol (ΔΔG = mutant - WT).",
   bayesdel:
-    "BayesDel (noAF, Feng 2021). PP3 supporting ≥ 0.133, BP4 supporting ≤ -0.0404.",
+    "BayesDel without allele frequency (Feng 2017). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.13, moderate ≥ 0.27, strong ≥ 0.50; " +
+    "BP4 supporting ≤ −0.18, moderate ≤ −0.36.",
   vesm:
-    "VESM-150M (Ntranos Lab 2024). Co-distilled lightweight LM compressing ESM-2 and ESM-3 representations, fine-tuned on ProteinGym. Informational only.",
+    "VESM (Ntranos lab, UCSF). A compact protein language model distilled from the ESM family. No published clinical cut-point — informational only.",
   esm:
-    "ESM-1b (Brandes et al. 2023, Nature Genetics; score ≤ -7.5 pathogenic, ≥ -5.0 benign).",
+    "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
   esm1b:
-    "ESM-1b (Brandes et al. 2023, Nature Genetics; score ≤ -7.5 pathogenic, ≥ -5.0 benign).",
+    "ESM1b log-likelihood ratio (Brandes 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≤ −10.7, moderate ≤ −12.2, strong ≤ −24.0; BP4 supporting ≥ −6.3, moderate ≥ −3.1. Informational in the vote.",
   esm2:
     "ESM-2 (Meta FAIR, Lin et al. 2023 Science). Evolutionary scale masked protein language model.",
   gpnStar:
-    "GPN-Star (Song Lab, bioRxiv 2025). Phylogeny-aware zero-shot LLR across 100+ vertebrate alignments. Severe evolutionary constraint LLR < -2.5 (Pathogenic Prior); Tolerated LLR ≥ 0.0.",
+    "GPN-Star (Song lab, bioRxiv 2025). Phylogeny-aware genomic language model LLR over a vertebrate alignment. No published clinical cut-point; the −2.5 / 0.0 marks are local. Informational only.",
   metaRnn:
-    "MetaRNN (dbNSFP, score ≥ 0.5 deleterious).",
+    "MetaRNN (Li 2022). Authors' cut: ≥ 0.5 deleterious. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
   clinPred:
-    "ClinPred (dbNSFP, score ≥ 0.5 deleterious).",
+    "ClinPred (Alirezaie 2018). Authors' cut: ≥ 0.5 pathogenic. Not ClinGen-calibrated; trained on ClinVar and uses gnomAD allele frequency as a feature.",
   eigen:
-    "Eigen (coding Phred score ≥ 4.0 deleterious).",
+    "Eigen (Ionita-Laza 2016). Unsupervised genome-wide functional score. No published clinical cut-point — informational only.",
   dann:
-    "DANN (deep learning score ≥ 0.96 deleterious).",
+    "DANN (Quang 2015). Genome-wide deep-network score trained on the CADD data set. No published clinical cut-point — informational only.",
   popEve:
-    "popEVE (Population-calibrated EVE, Nature 2024). Severe pathogenic LLR ≤ -5.056 (99.99% likelihood), " +
-    "Moderate pathogenic LLR ≤ -4.617 (99% likelihood), Supporting LLR ≤ -2.0; Benign LLR ≥ -1.0. " +
-    "Normalized probability scale: Pathogenic ≥ 0.75, Benign ≤ 0.25.",
+    "popEVE (Orenbuch 2025, Nat Genet). EVE + ESM-1v, placed on one proteome-wide scale with human population data. " +
+    "Authors' cut-points: ≤ −5.056 highly deleterious, ≤ −4.617 moderately deleterious. No benign cut-point is published.",
   misZ:
     "gnomAD Missense Z-score (positive = depletion of missense variants; strong constraint ≥ 3.09, supporting ≥ 2.0).",
   loeuf:
@@ -394,9 +414,8 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   dbscsnv:
     "dbscSNV (Jian 2014). ADA/RF ensemble probability ≥ 0.60 indicates splice altering candidate.",
   alphagenome:
-    "AlphaGenome Variant Impact (Google DeepMind 2024). Whole-genome multimodal foundation model. " +
-    "ClinGen SVI-calibrated cutoffs: PP3 strong Phred ≥ 35.0, moderate ≥ 25.0, supporting ≥ 15.0; " +
-    "BP4 supporting Phred ≤ 8.0, moderate ≤ 5.0.",
+    "AlphaGenome variant impact (Google DeepMind 2025). The AVI Phred is −10·log10 of the variant's tail quantile — a rank, " +
+    "not a calibrated probability. Its features include AlphaMissense and conservation. No ClinGen calibration exists; informational only.",
   stringDb:
     "STRING-db combined association score (Szklarczyk et al. Nucleic Acids Res 2023). " +
     "Confidence bands: highest ≥ 0.900, high ≥ 0.700, medium ≥ 0.400, low ≥ 0.150. " +

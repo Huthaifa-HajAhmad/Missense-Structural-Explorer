@@ -20,41 +20,46 @@ import { getResidueContext, getCalibration } from "./uncertainty";
 
 describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
   describe("Individual Predictors Evaluation", () => {
+    // Calls follow the ClinGen bands in calibration.ts (Pejaver 2022 / Bergquist 2025); the band
+    // edges themselves are pinned in src/shared/__tests__/predictorEvidence.test.ts.
     it("should evaluate REVEL scores correctly", () => {
       expect(evaluateRevel(0.8)).toBe("pathogenic");
       expect(evaluateRevel(0.6)).toBe("vus");
-      expect(evaluateRevel(0.1)).toBe("benign");
+      expect(evaluateRevel(0.25)).toBe("benign");
       expect(evaluateRevel(null)).toBe("unavailable");
     });
 
     it("should evaluate CADD scores correctly", () => {
       expect(evaluateCadd(26)).toBe("pathogenic");
-      expect(evaluateCadd(15)).toBe("vus");
-      expect(evaluateCadd(8)).toBe("benign");
+      expect(evaluateCadd(24)).toBe("vus");
+      expect(evaluateCadd(15)).toBe("benign");
       expect(evaluateCadd(undefined)).toBe("unavailable");
     });
 
     it("should evaluate AlphaMissense scores and classes correctly", () => {
       expect(evaluateAlphaMissense(0.99, "pathogenic")).toBe("pathogenic");
       expect(evaluateAlphaMissense(0.01, "benign")).toBe("benign");
-      expect(evaluateAlphaMissense(0.5, "likely_pathogenic")).toBe("pathogenic");
+      // The authors' "likely_pathogenic" class starts at 0.564; the calibrated PP3 band at 0.792.
+      expect(evaluateAlphaMissense(0.6, "likely_pathogenic")).toBe("vus");
       expect(evaluateAlphaMissense(0.02, "likely_benign")).toBe("benign");
       expect(evaluateAlphaMissense(null, null)).toBe("unavailable");
     });
 
-    it("should evaluate popEVE negative LLR and 0-1 scale scores correctly", () => {
-      expect(evaluatePopEve(-3.775)).toBe("pathogenic");
+    it("should evaluate popEVE against the authors' deleterious cut-points only", () => {
+      expect(evaluatePopEve(-3.775)).toBe("vus");
+      expect(evaluatePopEve(-4.617)).toBe("pathogenic");
       expect(evaluatePopEve(-5.056)).toBe("pathogenic");
-      expect(evaluatePopEve(-0.5)).toBe("benign");
-      expect(evaluatePopEve(0.8)).toBe("pathogenic");
-      expect(evaluatePopEve(0.2)).toBe("benign");
+      // No benign cut-point is published, and there is no 0–1 scale.
+      expect(evaluatePopEve(-0.5)).toBe("vus");
+      expect(evaluatePopEve(0.8)).toBe("vus");
       expect(evaluatePopEve(null)).toBe("unavailable");
     });
 
     it("should evaluate BayesDel scores correctly", () => {
       expect(evaluateBayesdel(0.15)).toBe("pathogenic");
       expect(evaluateBayesdel(0.0)).toBe("vus");
-      expect(evaluateBayesdel(-0.05)).toBe("benign");
+      expect(evaluateBayesdel(-0.05)).toBe("vus");
+      expect(evaluateBayesdel(-0.2)).toBe("benign");
       expect(evaluateBayesdel(null)).toBe("unavailable");
     });
 
@@ -64,9 +69,9 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateEsm(null)).toBe("unavailable");
     });
 
-    it("should evaluate ESM-1b scores correctly using peer-reviewed thresholds", () => {
-      expect(evaluateEsm1b(-8.0)).toBe("pathogenic");
-      expect(evaluateEsm1b(-6.0)).toBe("vus");
+    it("should evaluate ESM-1b scores against the Bergquist 2025 bands", () => {
+      expect(evaluateEsm1b(-11.0)).toBe("pathogenic");
+      expect(evaluateEsm1b(-8.0)).toBe("vus");
       expect(evaluateEsm1b(-4.0)).toBe("benign");
     });
 
@@ -132,13 +137,11 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateSplicePredictor(undefined, undefined)).toBe("unavailable");
     });
 
-    it("should evaluate AlphaGenome AVI scores correctly across ClinGen-calibrated tiers", () => {
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 38.5, acmgStrength: "PP3_Strong" })).toBe("pathogenic");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 26.0, acmgStrength: "PP3_Moderate" })).toBe("pathogenic");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 16.5, acmgStrength: "PP3_Supporting" })).toBe("pathogenic");
+    it("should treat the AlphaGenome AVI as informational: a rank, never a call", () => {
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 38.5, acmgStrength: "PP3_Strong" })).toBe("vus");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 26.0, acmgStrength: "PP3_Moderate" })).toBe("vus");
       expect(evaluateAlphaGenomeAvi({ aviPhred: 12.0, acmgStrength: "indeterminate" })).toBe("vus");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 7.5, acmgStrength: "BP4_Supporting" })).toBe("benign");
-      expect(evaluateAlphaGenomeAvi({ aviPhred: 3.2, acmgStrength: "BP4_Moderate" })).toBe("benign");
+      expect(evaluateAlphaGenomeAvi({ aviPhred: 3.2, acmgStrength: "BP4_Moderate" })).toBe("vus");
       expect(evaluateAlphaGenomeAvi({ aviPhred: -1.0 })).toBe("unavailable");
       expect(evaluateAlphaGenomeAvi(null)).toBe("unavailable");
       expect(evaluateAlphaGenomeAvi(undefined)).toBe("unavailable");
@@ -153,8 +156,8 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         0.8, // REVEL -> pathogenic
         0.99, "pathogenic", // AM -> pathogenic
         0.0, // BayesDel -> vus
-        -8.0, // ESM-1b -> pathogenic (informational, excluded from voting)
-        { popeve: -3.775 } // popEVE -> pathogenic
+        -11.0, // ESM-1b -> pathogenic (informational, excluded from voting)
+        { popeve: -4.9 } // popEVE -> pathogenic (≤ −4.617)
       );
 
       expect(res.nPathogenic).toBe(4);
@@ -191,10 +194,12 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.available).toContain("BAYESDEL");
       expect(res.signals.esm2_3b).toBe("vus");
       expect(res.signals.saprot).toBe("vus");
-      expect(res.signals.dann).toBe("pathogenic");
+      // DANN has no published clinical cut-point: informational, never a call.
+      expect(res.signals.dann).toBe("vus");
+      expect(res.nPathogenic).toBe(2); // BayesDel 0.25 and ClinPred 0.95 vote; DANN and Eigen do not
     });
 
-    it("should include VESM-150M and GPN-Star as informational frontier models without skewing voting counts", () => {
+    it("should include the ESMC/VESM slot and GPN-Star as informational models without skewing voting counts", () => {
       const res = countPredictorConcordance(
         null,
         null,
@@ -208,7 +213,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         }
       );
 
-      expect(res.available).toContain("VESM-150M");
+      expect(res.available).toContain("ESMC / VESM");
       expect(res.available).toContain("GPN-STAR");
       expect(res.signals.vesm).toBe("vus");
       expect(res.signals.gpn_star).toBe("pathogenic");
@@ -218,45 +223,16 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.nVus).toBe(0);
     });
 
-    it("should include AlphaGenome AVI as an active consensus voting predictor", () => {
-      const res = countPredictorConcordance(
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        {
-          alphagenome: {
-            status: "live",
-            aviPhred: 36.2,
-            acmgStrength: "PP3_Strong",
-            topModality: "RNA-seq"
-          }
-        }
-      );
-
-      expect(res.nPathogenic).toBe(1);
-      expect(res.nBenign).toBe(0);
-      expect(res.signals.alphagenome).toBe("pathogenic");
-      expect(res.available).toContain("ALPHAGENOME");
-      expect(res.pathogenicTools.some(t => t.key === "alphagenome" && !t.isInformationalOnly)).toBe(true);
-
-      const resBenign = countPredictorConcordance(
-        null, null, null, null, null, null,
-        {
-          alphagenome: {
-            status: "live",
-            aviPhred: 4.8,
-            acmgStrength: "BP4_Moderate",
-            topModality: "Hi-C"
-          }
-        }
-      );
-
-      expect(resBenign.nBenign).toBe(1);
-      expect(resBenign.signals.alphagenome).toBe("benign");
-      expect(resBenign.benignTools.some(t => t.key === "alphagenome" && !t.isInformationalOnly)).toBe(true);
+    it("should list AlphaGenome AVI as informational, never as a vote", () => {
+      // The AVI is a rank that contains AlphaMissense; voting it counted AlphaMissense twice.
+      for (const aviPhred of [36.2, 4.8]) {
+        const res = countPredictorConcordance(null, null, null, null, null, null, {
+          alphagenome: { status: "live", aviPhred, acmgStrength: "PP3_Strong", topModality: "RNA-seq" } as any,
+        });
+        expect(res.nPathogenic + res.nBenign + res.nVus).toBe(0);
+        expect(res.available).toContain("ALPHAGENOME");
+        expect([...res.pathogenicTools, ...res.benignTools, ...res.vusTools].find(t => t.key === "alphagenome")?.isInformationalOnly).toBe(true);
+      }
     });
   });
 

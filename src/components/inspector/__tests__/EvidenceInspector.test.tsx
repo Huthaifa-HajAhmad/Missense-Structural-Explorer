@@ -44,10 +44,10 @@ describe("EvidenceInspector — thresholds pane", () => {
     expect(scope.getByText("path.")).toBeTruthy();
     expect(scope.getByText("benign")).toBeTruthy();
     expect(scope.getByText("no data")).toBeTruthy();
-    // Matched metrics are listed by name with their scores. REVEL's score also
-    // appears in the concordance card above, so match all occurrences.
-    expect(scope.getByText("REVEL")).toBeTruthy();
-    expect(scope.getAllByText("0.527").length).toBeGreaterThanOrEqual(1);
+    // Matched metrics are listed by name with their scores. REVEL 0.527 is
+    // indeterminate on the ClinGen bands, so CADD (PP3 Moderate) is the pin.
+    expect(scope.getByText("CADD PHRED")).toBeTruthy();
+    expect(scope.getAllByText("32.0").length).toBeGreaterThanOrEqual(1);
   });
 
   it("hosts the relocated ACMG/AMP evidence-code key as a focus target", () => {

@@ -259,7 +259,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     url: "https://data.evemodel.org/",
     release: "popEVE v1.1",
     citation:
-      "Frazer, J., et al. (2021). Disease variant prediction with deep generative models of evolutionary data. Nature 599, 91–99. https://doi.org/10.1038/s41586-021-04043-8",
+      "Orenbuch, R., et al. (2025). Proteome-wide model for human disease genetics. Nature Genetics 57, 3165–3174. https://doi.org/10.1038/s41588-025-02400-1",
     usedBy: ["server/services/prediction/predictors/popeve-resolver.ts", "scripts/setup-popeve.sh"]
   }
 ];
@@ -318,7 +318,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     url: "https://github.com/ntranoslab/vesm",
     release: "ntranoslab/vesm · VESM_150M.pth (see the provenance rail)",
     citation:
-      "Ntranos Lab (2024). VESM: co-distilled variant effect language models for efficient fitness prediction. https://github.com/ntranoslab/vesm",
+      "Dinh, T., et al. (2026). Compressing the collective knowledge of ESM into a single protein language model. Nature Methods. https://doi.org/10.1038/s41592-026-03050-9",
     usedBy: ["tools/model_server.py", "src/shared/perturbationModels.ts"]
   },
   {
@@ -326,7 +326,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     name: "AlphaMissense",
     provider: "Google DeepMind",
     kind: "model",
-    role: "A 0–1 pathogenicity score for the substitution, with ClinGen-calibrated cut-points at 0.564 (supporting) and 0.983 (pathogenic). Read through the PP3/BP4 arms of the ACMG engine.",
+    role: "A 0–1 pathogenicity score for the substitution, voted in the PP3/BP4 rule against ClinGen's calibrated bands (Bergquist et al. 2025: PP3 ≥ 0.792, BP4 ≤ 0.169). The authors' own classes (0.34 / 0.564) are not a calibration.",
     url: "https://github.com/google-deepmind/alphamissense",
     release: "Precomputed genome-wide tracks, read via dbNSFP or the AlphaMissense release",
     citation:
@@ -374,7 +374,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     name: "REVEL",
     provider: "Ioannidis et al. (ensemble of 13 predictors)",
     kind: "model",
-    role: "Ensemble pathogenicity score whose ClinGen cut-points (0.75 strong, 0.15 benign) drive the PP3/BP4 evidence, and one arm of the predictor-concordance vote.",
+    role: "Ensemble pathogenicity score; one arm of the PP3/BP4 vote, called against ClinGen's calibrated bands (Pejaver et al. 2022: PP3 ≥ 0.644, BP4 ≤ 0.290) and shown as the calibrated single-tool reference.",
     url: "https://sites.google.com/site/revelgenomics/",
     release: null,
     citation:

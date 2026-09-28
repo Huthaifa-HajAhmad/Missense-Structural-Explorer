@@ -1,0 +1,228 @@
+/* ============================================================
+   PREDICTORS — tab, vote strip and score rulers
+   Builds on the Population Data primitives (.pop-card, .pop-hero,
+   .pop-facts, .pop-table, .rail-*) so the two evidence screens
+   read as one system. Tokens only: both themes and print come
+   from variables.css.
+   ============================================================ */
+
+.pop-callout[data-tone="neutral"] {
+  background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent);
+  color: var(--cs-text-secondary);
+}
+.pop-callout strong { font-weight: 600; color: inherit; }
+
+/* ── Vote strip ─────────────────────────────────────────────── */
+.prd-vote { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.prd-vote__strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+.prd-vote__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 8px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: default;
+}
+.prd-vote__cell:first-child { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
+.prd-vote__cell:last-child { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
+.prd-vote__name {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prd-vote__score {
+  font-family: var(--cs-font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.prd-vote__cell[data-call="path"] { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); border-color: color-mix(in srgb, var(--cs-text-danger) 22%, transparent); }
+.prd-vote__cell[data-call="benign"] { background: var(--cs-bg-success); color: var(--cs-text-good-on-soft); border-color: color-mix(in srgb, var(--cs-text-success) 22%, transparent); }
+.prd-vote__cell[data-call="vus"] { background: color-mix(in srgb, var(--cs-text-secondary) 9%, transparent); color: var(--cs-text-secondary); border-color: color-mix(in srgb, var(--cs-text-secondary) 18%, transparent); }
+.prd-vote__cell[data-call="none"] {
+  color: var(--cs-text-muted);
+  border: 1px dashed color-mix(in srgb, var(--cs-text-muted) 45%, transparent);
+  background: transparent;
+}
+@container (max-width: 620px) {
+  .prd-vote__strip { grid-auto-flow: row; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .prd-vote__cell { border-radius: 6px !important; }
+}
+
+.prd-vote__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11px;
+  color: var(--cs-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.prd-vote__legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.prd-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.prd-key[data-call="path"] { background: var(--cs-text-danger); opacity: 0.7; }
+.prd-key[data-call="benign"] { background: var(--cs-text-success); opacity: 0.7; }
+.prd-key[data-call="vus"] { background: color-mix(in srgb, var(--cs-text-secondary) 40%, transparent); }
+.prd-key[data-call="none"] { border: 1px dashed var(--cs-text-muted); }
+
+/* ── Readings table ─────────────────────────────────────────── */
+.prd-table { min-width: 680px; }
+.prd-table thead th:nth-child(3) { width: 34%; }
+
+.prd-subject { min-width: 220px; max-width: 360px; }
+.prd-subject__line { display: inline-flex; align-items: center; gap: 2px; }
+.prd-subject .pop-subject__name { color: var(--cs-text-primary); font-weight: 600; margin-right: 2px; }
+.prd-subject__fact { color: var(--cs-text-secondary); font-family: var(--cs-font-mono); font-size: 11px; }
+
+.prd-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--cs-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.prd-info:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent); }
+.prd-info:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+
+.prd-caveats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.prd-caveats .ev-tier { font-size: 10.5px; padding: 1px 6px; cursor: help; }
+
+.prd-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cs-text-accent);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.prd-link:hover { text-decoration: underline; }
+.prd-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+.prd-score { font-size: 13px; }
+.prd-unit {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--cs-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.prd-scale { min-width: 200px; }
+.prd-scale__source {
+  display: block;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--cs-text-muted);
+}
+.prd-call { vertical-align: top; }
+.prd-call__sub { display: block; margin-top: 3px; font-size: 10.5px; color: var(--cs-text-muted); text-align: right; }
+
+/* A narrow column keeps every column, just tighter; the wrap scrolls below that. */
+@container (max-width: 760px) {
+  .prd-table { min-width: 560px; }
+  .prd-subject { min-width: 150px; }
+  .prd-scale { min-width: 130px; }
+}
+
+/* ── Score ruler ────────────────────────────────────────────── */
+.prd-ruler { position: relative; padding-top: 4px; }
+.prd-ruler__track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--cs-text-secondary) 9%, transparent);
+}
+.prd-ruler__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-right: 1px solid var(--cs-surface);
+}
+.prd-ruler__band[data-side="path"] { background: var(--cs-text-danger); }
+.prd-ruler__band[data-side="benign"] { background: var(--cs-text-success); }
+.prd-ruler__band[data-strength="Supporting"] { opacity: 0.2; }
+.prd-ruler__band[data-strength="Moderate"] { opacity: 0.34; }
+.prd-ruler__band[data-strength="Strong"] { opacity: 0.5; }
+.prd-ruler__band[data-strength="VeryStrong"] { opacity: 0.66; }
+.prd-ruler__band[data-active] { opacity: 0.8; box-shadow: inset 0 0 0 1.5px var(--cs-text-primary); }
+/* Bands are clipped to the rounded track; ticks and the marker are not. */
+.prd-ruler__bands { position: absolute; inset: 0; border-radius: 5px; overflow: hidden; }
+
+.prd-ruler__tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 0;
+  margin-left: -1px;
+  border-left: 2px solid var(--cs-text-secondary);
+}
+.prd-ruler__tick[data-side="path"] { border-color: var(--cs-text-danger); }
+.prd-ruler__tick[data-side="benign"] { border-color: var(--cs-text-success); }
+.prd-ruler[data-kind="local"] .prd-ruler__tick { border-left-style: dashed; border-left-width: 1.5px; opacity: 0.8; }
+
+.prd-ruler__marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: var(--cs-text-primary);
+  box-shadow: 0 0 0 2px var(--cs-surface);
+}
+/* A score beyond the drawn window sits on the edge as a hollow mark, never clipped silently. */
+.prd-ruler__marker[data-off-scale] { background: var(--cs-surface); border: 2px solid var(--cs-text-primary); box-sizing: border-box; }
+
+.prd-ruler__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  color: var(--cs-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Table legend ───────────────────────────────────────────── */
+.prd-legend { justify-content: flex-start; flex-wrap: wrap; gap: 6px 18px; font-size: 11.5px; color: var(--cs-text-muted); }
+.prd-legend__item { display: inline-flex; align-items: center; gap: 6px; }
+.prd-legend__item > svg { color: var(--cs-text-muted); }
+.prd-legend__tick { display: inline-block; width: 0; height: 12px; border-left: 2px solid var(--cs-text-danger); }
+.prd-legend__tick[data-local] { border-left: 1.5px dashed var(--cs-text-secondary); }
+.prd-legend__marker { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--cs-text-primary); }
+
+/* ── Rail extras ────────────────────────────────────────────── */
+.rail-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; line-height: 1.45; color: var(--cs-text-secondary); }
+.rail-refs a { color: var(--cs-text-accent); text-decoration: none; font-family: var(--cs-font-mono); font-size: 11px; }
+.rail-refs a:hover { text-decoration: underline; }
+.rail-refs a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 3px; }
+
+@media print {
+  .prd-ruler__band, .prd-vote__cell { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .prd-info, .prd-link { display: none; }
+}
