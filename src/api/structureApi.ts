@@ -16,6 +16,7 @@ import {
 } from "../shared/contracts";
 import type { PdbHomolog } from "../types";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
+import { CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS } from "../shared/timeouts";
 
 export interface StructureFetchResult {
   pdbText: string;
@@ -234,7 +235,13 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
-        timeout: 45000,
+        /**
+         * Was a literal `45000` — SHORTER than the server's own 60 s Tier-1 fold budget, so the client
+         * always aborted first and reported a timeout for work the server was still doing. The number
+         * and its justification now live in `src/shared/timeouts.ts`, and
+         * `server/tests/denovo-fold-timeout-budget.test.ts` fails if the nesting is ever broken.
+         */
+        timeout: CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS,
         signal
       });
       if (!res.ok) {

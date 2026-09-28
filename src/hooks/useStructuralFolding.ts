@@ -1,6 +1,10 @@
 import { useState, useCallback } from "react";
 import { StructuralMetrics } from "../types";
 import { getErrorMessage } from "../variantAnalysisUtils";
+import {
+  JAPANFOLD_ESMFOLD2_MAX_AA,
+  deNovoFoldingLimitExceededMessage,
+} from "../shared/foldingLimits";
 
 interface EsmFoldCacheEntry {
   wtPdb: string;
@@ -95,8 +99,8 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
 
     const seqLen = wtSeq?.length || 0;
     const hasToken = Boolean(apiClient?.settings?.biohubApiToken);
-    if (seqLen > 1024 && !hasToken) {
-      const cleanMessage = `Sequence length (${seqLen} aa) exceeds the de novo folding limits (1,024 aa for Tier-1 JapanFold ESMFold-2, and 400 aa for public ESM Atlas). De novo folding for proteins > 1,024 aa requires an EvolutionaryScale/Biohub API token or local GPU execution.`;
+    if (seqLen > JAPANFOLD_ESMFOLD2_MAX_AA && !hasToken) {
+      const cleanMessage = deNovoFoldingLimitExceededMessage(seqLen);
       console.warn("[ESMFold] De novo folding limit notice:", cleanMessage);
       setEsmFoldingError(cleanMessage);
       sink?.setEsmFoldingError?.(cleanMessage);

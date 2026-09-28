@@ -112,3 +112,29 @@ export const STREAM_HEARTBEAT_MS = 5_000; // 5 s
  * before a two-phase job cannot tell `queued` from `running` (see the FoldX section above).
  */
 export const CLIENT_STREAM_IDLE_BUDGET_MS = 30_000; // 30 s
+
+/**
+ * Whole-call budget for `POST /api/v1/esmfold` — de novo folding, from the client's side.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS THIS LARGE
+ * ----------------------------------------
+ * It replaces a hardcoded 45 s in `src/api/structureApi.ts`, which was SHORTER than the server's own
+ * Tier-1 budget (`CONFIG.timeouts.japanfoldFoldingMs`, 60 s). The client therefore always hung up
+ * first, and the user was told the fold had "timed out due to high GPU cluster load" for a job the
+ * server was still running — the same class of defect the FoldX section above documents twice, in the
+ * same file, with the same fix: the client is the one that gives up, so the client must outlast the
+ * server or it abandons work that is still in progress.
+ *
+ * The route folds the wild-type and the mutant sequence SEQUENTIALLY (see `server/routes/structure.ts`),
+ * and each fold may try three tiers before giving up:
+ *
+ *   Tier-1 JapanFold ESMFold-2   CONFIG.timeouts.japanfoldFoldingMs   (60 s)
+ *   Biohub sidecar, with a token CONFIG.timeouts.esmfoldSidecarMs     (30 s)
+ *   keyless public ESM Atlas     CONFIG.timeouts.esmAtlasMs           (15 s)
+ *
+ * `server/tests/denovo-fold-timeout-budget.test.ts` imports both sides and fails the build if this
+ * budget ever drops below that worst case, so the ordering is asserted rather than estimated. Raising
+ * it does not make a healthy fold slower: it only decides how long the spinner tolerates a provider
+ * that is not answering.
+ */
+export const CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS = 240_000; // 240 s

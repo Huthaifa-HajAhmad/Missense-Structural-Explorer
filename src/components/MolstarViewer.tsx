@@ -9,6 +9,17 @@ import { useMolstarStructure } from "./molstar/useMolstarStructure";
 import { useMolstarPocket } from "./molstar/useMolstarPocket";
 import { MolstarViewerProps } from "./molstar/molstarThemes";
 import { Activity, Layers, Settings, CheckCircle2, Info } from "lucide-react";
+import {
+  ESM_ATLAS_PUBLIC_MAX_AA,
+  JAPANFOLD_ESMFOLD2_MAX_AA,
+  describeDeNovoFoldTimeout,
+  formatResidueCount,
+  isFoldingLengthLimitError,
+  isFoldingTimeoutError,
+  parseReportedSequenceLength,
+  readProteinLength,
+  resolveDeNovoFoldingCapacity,
+} from "../shared/foldingLimits";
 import { Script } from "molstar/lib/mol-script/script";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
@@ -60,6 +71,19 @@ export default function MolstarViewer({
   const esmFoldPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
   const esm3Eval = useVariantAnalysisStore(s => s.analysisState?.result?.esm3Eval);
   const landscapeLength = useVariantAnalysisStore(s => s.analysisState?.result?.landscapeData?.length ?? null);
+  /**
+   * Full-length residue count of the analysed protein — the ONLY number this viewer may label
+   * "Protein Length".
+   *
+   * `landscapeData.length` covers a scan window AROUND the variant, and a previous version fell back
+   * to it under that label: on the run that prompted this audit it printed "Protein Length: 51 aa"
+   * for a 711 aa protein, while the inspector beside it said the sequence exceeded 400 aa. Both
+   * panels read the same run and disagreed by 14x. Selected as a primitive so zustand compares by
+   * value rather than re-rendering on every store write.
+   */
+  const proteinLengthResidues = useVariantAnalysisStore(
+    s => readProteinLength(s.analysisState?.result?.metadata).residues
+  );
 
   const analysisActions = useVariantAnalysisActions();
   const onResidueHover = analysisActions.setHoveredResidueIndex;
@@ -302,12 +326,30 @@ export default function MolstarViewer({
           {/* Structure Load Error Overlay */}
           {(plugin.loadError || ((active3dModelTab === "esmfold2" || active3dModelTab === "esm3") && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (() => {
             const isEsmMode = active3dModelTab === "esmfold2" || active3dModelTab === "esm3";
-            const lengthMatch = esmFoldingError?.match(/Sequence length \((\d+)\s*aa\)/i) || esmFoldingError?.match(/(\d+)\s*aa/i);
-            const parsedLength = lengthMatch ? parseInt(lengthMatch[1], 10) : null;
-            const detectedAaLength = parsedLength || landscapeLength;
-            const isLengthLimit = Boolean(
-              esmFoldingError && /400\s*aa|1024\s*aa|1,024\s*aa|exceeds.*limit|sequence length/i.test(esmFoldingError)
-            );
+            /**
+             * Residue counts, from the only two sources that describe THIS protein.
+             *
+             * `reportedLength` is the count the server said it rejected — the sole authority on what it
+             * actually tried to fold. `proteinLengthResidues` is the full-length translation.
+             *
+             * The previous version parsed any `(\d+)\s*aa` out of the error and, failing that, fell back
+             * to `landscapeData.length` — the width of a scan WINDOW around the variant — then printed
+             * it under the label "Protein Length". The loose pattern is gone
+             * (`parseReportedSequenceLength` accepts only the canonical shapes), and the window is now
+             * reported as a window.
+             */
+            const reportedLength = parseReportedSequenceLength(esmFoldingError);
+            const detectedAaLength = reportedLength ?? proteinLengthResidues;
+            const isLengthLimit = isFoldingLengthLimitError(esmFoldingError);
+            const exceedsTier1 =
+              detectedAaLength !== null &&
+              !resolveDeNovoFoldingCapacity(detectedAaLength).tier1Available;
+            /**
+             * Shown only when it is a genuinely different quantity, so the two numbers can never be
+             * read as two answers to one question.
+             */
+            const scanWindowLength =
+              landscapeLength !== null && landscapeLength !== detectedAaLength ? landscapeLength : null;
 
             return (
               <div
@@ -337,10 +379,12 @@ export default function MolstarViewer({
                           }}
                         >
                           {isLengthLimit
-                            ? (detectedAaLength && detectedAaLength > 1024 ? "ESMFold-2 Limit: 1,024 aa" : "ESM Atlas Limit: 400 aa")
+                            ? (exceedsTier1
+                                ? `ESMFold-2 Limit: ${formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} aa`
+                                : `ESM Atlas Limit: ${ESM_ATLAS_PUBLIC_MAX_AA} aa`)
                             : "ESMFold Service Notice"}
                         </span>
-                        {detectedAaLength && (
+                        {detectedAaLength !== null && (
                           <span
                             className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
                             style={{
@@ -349,7 +393,20 @@ export default function MolstarViewer({
                               color: "var(--cs-text-muted)"
                             }}
                           >
-                            Protein Length: {detectedAaLength} aa
+                            Protein Length: {formatResidueCount(detectedAaLength)} aa
+                          </span>
+                        )}
+                        {scanWindowLength !== null && (
+                          <span
+                            className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
+                            style={{
+                              background: "var(--cs-surface-2)",
+                              borderColor: "var(--cs-border)",
+                              color: "var(--cs-text-muted)"
+                            }}
+                            title="The residue-level landscape covers a window around the variant, not the whole protein."
+                          >
+                            Scan Window: {formatResidueCount(scanWindowLength)} aa
                           </span>
                         )}
                       </div>
@@ -368,20 +425,25 @@ export default function MolstarViewer({
                       {/* Title */}
                       <h4 className="font-semibold text-base mb-2" style={{ color: "var(--cs-text-primary)" }}>
                         {isLengthLimit
-                          ? (detectedAaLength && detectedAaLength > 1024
-                              ? "Sequence Exceeds De Novo ESMFold Limit (1,024 aa)"
-                              : "Sequence Exceeds Public ESMFold Limit (400 aa)")
+                          ? (exceedsTier1
+                              ? `Sequence Exceeds De Novo ESMFold Limit (${formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} aa)`
+                              : `Sequence Exceeds Public ESMFold Limit (${ESM_ATLAS_PUBLIC_MAX_AA} aa)`)
                           : "ESMFold Structure Unavailable"}
                       </h4>
 
                       {/* Message Body */}
                       <p className="text-xs leading-relaxed mb-5" style={{ color: "var(--cs-text-secondary)" }}>
-                        {esmFoldingError && /timed?\s*out|45000/i.test(esmFoldingError)
-                          ? `ESMFold-2 de novo prediction timed out for this ${detectedAaLength ? `${detectedAaLength} aa ` : ""}sequence. High-throughput cloud GPUs are experiencing high queue depth.`
+                        {/*
+                          * The timeout explanation is shared with the inspector's failure card, so the two
+                          * panels cannot tell different stories about one run — and it hedges the cause,
+                          * because a client abort carries no evidence of the provider's load.
+                          */}
+                        {isFoldingTimeoutError(esmFoldingError)
+                          ? describeDeNovoFoldTimeout({ residues: detectedAaLength, verbosity: "detailed" })
                           : (esmFoldingError || (isLengthLimit
-                              ? (detectedAaLength && detectedAaLength > 1024
-                                  ? `Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to 1,024 residues, and public ESM Atlas limits folding to 400 residues. This protein has ${detectedAaLength} residues.`
-                                  : `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ 400 amino acids. This protein has ${detectedAaLength ? `${detectedAaLength} residues` : "more than 400 residues"}.`)
+                              ? (exceedsTier1
+                                  ? `Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to ${formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} residues, and the public ESM Atlas endpoint to ${ESM_ATLAS_PUBLIC_MAX_AA}. This protein has ${formatResidueCount(detectedAaLength!)} residues.`
+                                  : `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ ${ESM_ATLAS_PUBLIC_MAX_AA} amino acids. This protein has ${detectedAaLength !== null ? `${formatResidueCount(detectedAaLength)} residues` : `more than ${ESM_ATLAS_PUBLIC_MAX_AA} residues`}.`)
                               : "The ESMFold-2 de novo structure generation service encountered an error or is offline."))}
                       </p>
 
@@ -429,7 +491,7 @@ export default function MolstarViewer({
                           <span>
                             {isLengthLimit ? (
                               <>
-                                <strong>Public API Restriction:</strong> JapanFold ESMFold-2 limits de novo single-sequence folding to 1,024 residues, while the public ESM Atlas endpoint limits folding to 400 residues. Switch to <strong>AlphaFold</strong> to inspect full-length coordinates, or configure an <strong>EvolutionaryScale / Biohub API key</strong> in Settings for full-length de novo folding.
+                                <strong>Public API Restriction:</strong> Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to {formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} residues, while the public ESM Atlas endpoint limits folding to {ESM_ATLAS_PUBLIC_MAX_AA} residues. Switch to <strong>AlphaFold</strong> to inspect full-length coordinates, or configure an <strong>EvolutionaryScale / Biohub API key</strong> in Settings for full-length de novo folding.
                               </>
                             ) : (
                               <>

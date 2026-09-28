@@ -1,6 +1,10 @@
 import { foldSequence } from "./esmfold.ts";
 import { generateMutantPdb } from "../stability/foldx.ts";
 import { CONFIG } from "../../config.ts";
+import {
+  STABILITY_ESMFOLD_ENGINE_MAX_AA,
+  stabilityEsmFoldEngineLimitMessage,
+} from "../../../src/shared/foldingLimits.ts";
 
 export interface StructureResult {
   pdb: string | null;
@@ -28,8 +32,13 @@ export class ESMFoldEngine implements FoldingEngine {
       if (!sequence) {
         throw new Error("No sequence provided to ESMFoldEngine");
       }
-      if (sequence.length > 768) {
-        throw new Error(`Protein sequence length (${sequence.length}) exceeds the maximum allowed limit of 768 residues for ESMFold.`);
+      /**
+       * Deliberately tighter than the Tier-1 de novo ceiling, and it is NOT the number the structure
+       * inspector may quote: this bounds the stability pipeline's folding step, not the model a reader
+       * is looking at. Conflating the two is how "768 aa" ended up in a sentence about Tier-1.
+       */
+      if (sequence.length > STABILITY_ESMFOLD_ENGINE_MAX_AA) {
+        throw new Error(stabilityEsmFoldEngineLimitMessage(sequence.length));
       }
       const pdb = await foldSequence(sequence, context.biohubToken);
       if (!pdb) {

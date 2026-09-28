@@ -80,6 +80,16 @@ export const CONFIG = {
     gracefulShutdownWatchdogMs: parseInt(process.env.SHUTDOWN_WATCHDOG_MS || "10000", 10),
     japanfoldZeroShotMs: parseInt(process.env.JAPANFOLD_ZEROSHOT_TIMEOUT_MS || "3500", 10),
     japanfoldFoldingMs: parseInt(process.env.JAPANFOLD_FOLDING_TIMEOUT_MS || "60000", 10),
+    /**
+     * Biohub/EvolutionaryScale sidecar fold attempt, per sequence.
+     *
+     * Named rather than left as the literal `30000` it was: `src/shared/timeouts.ts` budgets the
+     * CLIENT side of this call, and `server/tests/denovo-fold-timeout-budget.test.ts` can only assert
+     * that the client outlasts the server if the server's own numbers are readable from here.
+     */
+    esmfoldSidecarMs: parseInt(process.env.ESMFOLD_SIDECAR_TIMEOUT_MS || "30000", 10),
+    /** Keyless public ESM Atlas fold attempt (was a literal `15000` inside `esmfold.ts`). */
+    esmAtlasMs: parseInt(process.env.ESM_ATLAS_TIMEOUT_MS || "15000", 10),
   },
   memory: {
     minFreeBytes: process.env.NODE_ENV === "test"

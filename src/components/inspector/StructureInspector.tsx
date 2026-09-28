@@ -15,6 +15,13 @@ import {
 import { AnalysisResult, PdbHomolog } from "../../types";
 import { PDB_SOURCE_RCSB } from "../../shared/contracts";
 import { describeFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
+import {
+  describeDeNovoCapacityNotice,
+  describeDeNovoFoldTimeout,
+  isFoldingTimeoutError,
+  readProteinLength,
+  resolveDeNovoFoldingCapacity,
+} from "../../shared/foldingLimits";
 
 import type { StructuralMetrics } from "../../types";
 
@@ -241,8 +248,14 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
               <span>ESMFold-2 Generation Failed</span>
             </div>
             <p className="text-[10px] text-cs-text-secondary leading-snug">
-              {esmFoldingError && /timed?\s*out|45000/i.test(esmFoldingError)
-                ? "De novo prediction timed out due to high GPU cluster load. Mutant and superposition coordinates are disabled."
+              {/*
+                * The timeout sentence is built by `describeDeNovoFoldTimeout`, which HEDGES the cause.
+                * This branch used to state "high GPU cluster load" as fact, but the error that reaches
+                * it is a client-side abort or a bare `TimeoutError` — neither carries one bit of
+                * information about the provider's load, so the app was reporting a guess as telemetry.
+                */}
+              {esmFoldingError && isFoldingTimeoutError(esmFoldingError)
+                ? `${describeDeNovoFoldTimeout({ verbosity: "brief" })} Mutant and superposition coordinates are disabled.`
                 : (esmFoldingError || "De novo structure generation could not complete.")}
             </p>
             {onSwitchToAlphaFold && (
@@ -685,20 +698,58 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
         );
       })()}
 
-      {/* ── 6. ESMFold-2 Constraints Warning (Task 2.6) ── */}
-      {analysisResult?.metadata?.mutatedSequence && (
-        <>
-          {analysisResult.metadata.mutatedSequence.length > 768 ? (
-            <div className="text-amber-600 dark:text-amber-400 p-2.5 rounded-lg border bg-cs-surface-2 border-cs-border-subtle text-[10.5px] leading-relaxed">
-              ⚠️ <strong>ESMFold-2 Size Limit:</strong> Protein sequence ({analysisResult.metadata.mutatedSequence.length} aa) exceeds JapanFold / ESM Atlas 768 aa limit. Using AlphaFold2 coordinates.
+      {/* ── 6. De novo folding constraints notice (Task 2.6) ──────────────────────────────
+        *
+        * REWRITTEN. The version this replaces read:
+        *
+        *   "ℹ️ ESMFold-2 Token Notice: Protein exceeds public 400 aa threshold. Sovereign JapanFold
+        *    inference engine configured in Settings is used for de novo folding."
+        *
+        * under a guard of `mutatedSequence.length > 768`, claiming an engine and a Settings entry that
+        * exist nowhere in this repository, from a routing rule the server does not implement — crossing
+        * 400 aa DELETES the keyless fallback rather than selecting a different engine. It also sat
+        * beneath the rose "Generation Failed" card while asserting a working engine, and omitted its
+        * own residue count, so its disagreement with the canvas beside it (which said 51 aa for a
+        * 711 aa protein) could not be seen. All of that is now derived from one module.
+        */}
+      {(() => {
+        /**
+         * Suppressed whenever a generation failure is already on screen.
+         *
+         * This notice describes what the app WILL do with a sequence of this length. The rose card
+         * above reports that it did not happen. Rendering both put a reassuring line directly under
+         * "ESMFold-2 Generation Failed", and the reassuring one was the false one.
+         */
+        if (isEsmMode && (esmFoldingError || foldingStatus === "failed")) return null;
+
+        const reading = readProteinLength(metadata);
+        if (reading.residues === null) return null;
+
+        const notice = describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(reading.residues));
+        if (!notice) return null;
+
+        return (
+          <div
+            data-folding-notice={notice.tone}
+            className={`p-2.5 rounded-lg border bg-cs-surface-2 border-cs-border-subtle text-[10.5px] leading-relaxed ${
+              notice.tone === "warning"
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-cs-text-secondary"
+            }`}
+          >
+            <div className="flex items-start gap-1.5">
+              {notice.tone === "warning" ? (
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+              ) : (
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-cs-text-muted" aria-hidden="true" />
+              )}
+              <span>
+                <strong className="text-cs-text-primary">{notice.title}:</strong> {notice.body}
+              </span>
             </div>
-          ) : analysisResult.metadata.mutatedSequence.length > 400 ? (
-            <div className="text-amber-600 dark:text-amber-400 p-2.5 rounded-lg border bg-cs-surface-2 border-cs-border-subtle text-[10.5px] leading-relaxed">
-              ℹ️ <strong>ESMFold-2 Token Notice:</strong> Protein exceeds public 400 aa threshold. Sovereign JapanFold inference engine configured in Settings is used for de novo folding.
-            </div>
-          ) : null}
-        </>
-      )}
+          </div>
+        );
+      })()}
     </div>
   );
 };
