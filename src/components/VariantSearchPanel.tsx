@@ -115,14 +115,31 @@ const RAIL_TAB_ORDER: RailTabId[] = ["telemetry", "pipeline"];
 type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
 
 /**
+ * The pill a chip wears, WITHOUT its padding, split out because two different controls now wear it.
+ *
+ * The state badges and the genome-build control share one right-hand slot, so they must agree on what
+ * a chip looks like. They did not: the build control was the only element in that row with no
+ * background and with its own trailing padding, so its label sat inset from every sibling chip and read
+ * as misaligned. Deriving both from these constants is what makes that impossible to reintroduce —
+ * there is one definition of the pill, and the padding is the only thing a caller may vary.
+ */
+const FIELD_CHIP_BOX = "rounded-[var(--cs-radius-badge)] font-medium";
+const FIELD_CHIP_SURFACE: Record<FieldBadgeTone, string> = {
+  neutral: "",
+  ok: "bg-[var(--cs-bg-success)] text-[var(--cs-text-good-on-soft)]",
+  warn: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]",
+  clay: "bg-cs-accent-clay/10 text-cs-text-accent",
+};
+
+/**
  * Field-state chips, on the semantic tokens. `neutral` is deliberately NOT a chip: "Optional" is
  * a fact about the field, not a state, and boxing it gave it the same visual weight as a warning.
  */
 const FIELD_BADGE_TONES: Record<FieldBadgeTone, string> = {
   neutral: "text-cs-text-muted",
-  ok: "px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-bg-success)] text-[var(--cs-text-good-on-soft)] font-medium",
-  warn: "px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)] font-medium",
-  clay: "px-1.5 py-0.5 rounded-[var(--cs-radius-badge)] bg-cs-accent-clay/10 text-cs-text-accent font-medium",
+  ok: `px-1.5 py-0.5 ${FIELD_CHIP_BOX} ${FIELD_CHIP_SURFACE.ok}`,
+  warn: `px-1.5 py-0.5 ${FIELD_CHIP_BOX} ${FIELD_CHIP_SURFACE.warn}`,
+  clay: `px-1.5 py-0.5 ${FIELD_CHIP_BOX} ${FIELD_CHIP_SURFACE.clay}`,
 };
 
 /**
@@ -382,9 +399,20 @@ const FieldLabel: React.FC<{
  * notation to state it. There is then nothing that can disagree with the text: no sticky toggle, no
  * conflict banner, and the reader sees exactly what will be sent.
  *
- * Metrics match the badge it replaces (`h-5`, 11px, `--cs-radius-badge`), because the slot it lives
- * in is pinned at 20px; the closed state is what is seen, and the option text carries the full labels
- * from `ASSEMBLY_LABELS` so there is one spelling of every build name.
+ * LOOKS LIKE THE CHIP IT REPLACES, and is built from the same pill the state badges are built from.
+ * It was the only element in that row wearing no background — bare text with 12px of trailing padding
+ * reserved for a caret that `appearance-none` had removed — so its label sat inside where every sibling
+ * chip's text sits and read as misaligned next to them. The slot is a chip slot; a control in it has to
+ * be a chip.
+ *
+ * Metrics match the badge it replaces (`h-5`, 11px, `--cs-radius-badge`, `px-1.5`), because the slot it
+ * lives in is pinned at 20px; the closed state is what is seen, and the option text carries the full
+ * labels from `ASSEMBLY_LABELS` so there is one spelling of every build name.
+ *
+ * A DEFAULTED build wears the quiet surface and a STATED one the clay tint. Both are pills, so the row
+ * is visually consistent either way, while the colour still answers "did the caller say this, or is it
+ * the server's fallback?" — the distinction the whole build policy rests on, which a plain tinted chip
+ * would have hidden.
  */
 const BuildSelect: React.FC<{
   value: GenomeAssembly;
@@ -398,29 +426,41 @@ const BuildSelect: React.FC<{
    */
   subject: "coordinate" | "cDNA";
   onChange: (build: GenomeAssembly) => void;
-}> = ({ value, source, subject, onChange }) => (
-  <select
-    aria-label={`Genome build this ${subject} is expressed in`}
-    title={
-      source === "default"
-        ? `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`
-        : `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${
-            source === "accession" ? "by the RefSeq accession" : "in the notation"
-          })`
-    }
-    value={value}
-    onChange={(event) => onChange(event.target.value as GenomeAssembly)}
-    className={`h-5 shrink-0 cursor-pointer appearance-none rounded-[var(--cs-radius-badge)] bg-transparent pr-3 text-[11px] font-medium leading-5 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-1 ${
-      source === "default" ? "text-cs-text-muted hover:text-cs-text-secondary" : "text-cs-text-accent"
-    }`}
-    // A caret drawn in the text flow: the native arrow is hidden by `appearance-none`, and an inline
-    // glyph keeps the control's metrics identical to the badge it replaced.
-    style={{ backgroundImage: "none" }}
-  >
-    <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
-    <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
-  </select>
-);
+}> = ({ value, source, subject, onChange }) => {
+  const surface =
+    source === "default"
+      ? "bg-cs-surface-2 text-cs-text-muted hover:text-cs-text-secondary"
+      : FIELD_CHIP_SURFACE.clay;
+
+  return (
+    // The wrapper is the chip: it carries the pill and positions the caret, while the `<select>` fills
+    // it edge to edge (no padding of its own to double up), so the ring and the pill have one box.
+    <span className={`relative inline-flex h-5 shrink-0 items-center ${FIELD_CHIP_BOX} ${surface}`}>
+      <select
+        aria-label={`Genome build this ${subject} is expressed in`}
+        title={
+          source === "default"
+            ? `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`
+            : `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${
+                source === "accession" ? "by the RefSeq accession" : "in the notation"
+              })`
+        }
+        value={value}
+        onChange={(event) => onChange(event.target.value as GenomeAssembly)}
+        // `pr-4` is the caret's room, reserved INSIDE the chip so the chip's right edge still lands
+        // flush with the badges beside it — the padding that made this look misaligned was padding
+        // with nothing in it.
+        className="h-5 cursor-pointer appearance-none rounded-[var(--cs-radius-badge)] bg-transparent pl-1.5 pr-4 text-[11px] font-medium leading-4 text-inherit outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+      >
+        <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
+        <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
+      </select>
+      {/* Drawn, because `appearance-none` removes the native arrow — and in the text's own colour, so
+          the control and its caret cannot disagree about which state the build is in. */}
+      <ChevronDown className="pointer-events-none absolute right-1 w-3 h-3" aria-hidden="true" />
+    </span>
+  );
+};
 
 /** Example chips shown beneath a notation field. */
 const ExampleRow: React.FC<{
@@ -1384,7 +1424,7 @@ function VariantSearchPanel({
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[12px] font-medium text-cs-text-primary inline-flex items-center gap-2">
                       {isPipelineActive ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-cs-accent-clay" />
+                        <span className="cs-spinner" aria-hidden="true" />
                       ) : result ? (
                         <CheckCircle2 className="w-3.5 h-3.5 text-[var(--cs-text-success)]" />
                       ) : (
@@ -1464,10 +1504,13 @@ function VariantSearchPanel({
                           }`}
                         >
                           {/* One icon slot: the stage's identity while idle, the state glyph once
-                              there is a state worth reporting. */}
+                              there is a state worth reporting. The running glyph is the house
+                              border-arc (`cs-spinner`), not a scaled SVG: at 14px an SVG stroke
+                              lands on fractional pixels and reads pixelated, while a 1.5px
+                              border rasterises cleanly. Bare variant — no track inside the ring. */}
                           <span className={`relative z-[1] w-[26px] h-[26px] shrink-0 rounded-full border flex items-center justify-center ${node}`}>
                             {isRunning ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span className="cs-spinner cs-spinner-bare" aria-hidden="true" />
                             ) : isDone ? (
                               <CheckCircle2 className="w-3.5 h-3.5" />
                             ) : isDegraded || isErr ? (

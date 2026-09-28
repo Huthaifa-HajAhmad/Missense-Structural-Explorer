@@ -47,6 +47,14 @@
   height: 12px;
   border-width: 1.5px;
 }
+/* Bare variant for a spinner that sits INSIDE another ring (the pipeline stepper's node
+   circle): the default track would read as a second ring inside the ring. Same geometry
+   and motion as `.cs-spinner` — a 1.5px border arc rasterises cleanly at small sizes where
+   a scaled SVG stroke lands on fractional pixels — only the track is dropped. */
+.cs-spinner-bare {
+  border-color: transparent;
+  border-top-color: var(--cs-accent-clay);
+}
 
 /* Tab Panel Transition — opacity only, short enough for a high-frequency interaction.
    Switching rail tabs belongs with list-row hovers and keystrokes, so it gets the subtlest
