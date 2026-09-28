@@ -230,6 +230,34 @@ function calibratedCutpoints(tool: CalibratedToolKey): PredictorReading["cutpoin
 
 const NO_CUTS: PredictorReading["cutpoints"] = { kind: "none", source: null, bands: [], marks: [] };
 
+/**
+ * A reference-base refusal is not a provider fault and re-running cannot fix it.
+ *
+ * AlphaGenome answers `INVALID_ARGUMENT` (gRPC code 3) when the submitted REF allele differs from
+ * the GRCh38 base at that position. The generic resolver files that under "Provider error" with
+ * "Re-run the analysis to ask again", and the raw gRPC string reached the table. The truthful
+ * reading is a coordinate/allele mismatch — worth stating, because it can mean the variant was
+ * submitted on the other strand or on another build.
+ */
+export function aviAvailabilityFor(
+  availability: PredictorReading["availability"],
+  message: string | null,
+): PredictorReading["availability"] {
+  if (availability.state !== "absent" || !message) return availability;
+  const m = /reference base does not match the expected reference base:?\s*([ACGTN])/i.exec(message);
+  if (!m) return availability;
+  const submitted = /:([ACGTN])>[ACGTN]/i.exec(message)?.[1]?.toUpperCase() ?? null;
+  return {
+    state: "absent",
+    label: ENGINE_STATE_LABELS["not-covered"],
+    reason:
+      `AlphaGenome declined this coordinate: the GRCh38 reference base here is ${m[1].toUpperCase()}` +
+      (submitted ? `, but the variant gives ${submitted}` : "") +
+      ". Check the allele's strand and genome build; re-running will not change this.",
+    action: null,
+  };
+}
+
 // ── builder ───────────────────────────────────────────────────────────────────────────────────
 
 export function buildPredictorEvidence({ result, isLoading = false, isModelLoading = false, alphagenomeConfigured }: PredictorEvidenceInput): PredictorEvidence {
@@ -348,6 +376,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   calibratedVoter("bayesdel", "BayesDel", "bayesdel", bayesdel, 3, {
     description: "Naïve-Bayes combination of deleteriousness scores — the build without allele frequency.",
     scale: { min: -1.3, max: 0.8 },
+    knowledgeKey: "bayesdel",
   });
   calibratedVoter("am", "AlphaMissense", "alphaMissense", am, 3, {
     description: "Protein language and structure model, weakly labelled from primate and human population variants.",
@@ -360,6 +389,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     unit: "PHRED",
     scale: { min: 0, max: 50 },
     source: vepSource,
+    knowledgeKey: "cadd",
   });
 
   // ── Voting tools with the authors' own cut-points ──
@@ -403,10 +433,12 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   };
   authorVoter("metarnn", "MetaRNN", metarnn, THRESHOLDS.metaRnn.pathogenic, {
     description: "Recurrent network over 16 scores, 8 conservation measures and gnomAD allele frequency.",
+    knowledgeKey: "metarnn",
     cutpoints: { kind: "authors", source: "Li et al. 2022", bands: [], marks: [{ value: THRESHOLDS.metaRnn.pathogenic, side: "path", label: "≥ 0.5" }] },
   });
   authorVoter("clinpred", "ClinPred", clinpred, THRESHOLDS.clinPred.pathogenic, {
     description: "Random forest and gradient boosting over existing scores and gnomAD allele frequency.",
+    knowledgeKey: "clinpred",
     cutpoints: { kind: "authors", source: "Alirezaie et al. 2018", bands: [], marks: [{ value: THRESHOLDS.clinPred.pathogenic, side: "path", label: "≥ 0.5" }] },
   });
 
@@ -561,7 +593,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
               alphagenome?.topModality ? `largest feature: ${alphagenome.topModality}` : null,
             ].filter(Boolean).join(" · ") || null
           : null,
-      availability: fromAvailability(aviAvail, "configure-alphagenome"),
+      availability: aviAvailabilityFor(fromAvailability(aviAvail, "configure-alphagenome"), alphagenome?.message ?? null),
       source: "Google DeepMind AlphaGenome",
       knowledgeKey: "alphagenome",
       link: { tab: "alphagenome", label: "Open AlphaGenome" },
@@ -629,7 +661,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     note: null,
     availability: avail(eigen),
     source: dbSource,
-    knowledgeKey: null,
+    knowledgeKey: "eigen",
     link: null,
   });
   readings.push({
@@ -652,7 +684,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     note: null,
     availability: avail(dann),
     source: dbSource,
-    knowledgeKey: null,
+    knowledgeKey: "dann",
     link: null,
   });
 

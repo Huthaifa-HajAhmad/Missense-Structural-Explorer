@@ -220,3 +220,21 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(done.readings.find(r => r.key === "esm2_3b")!.availability.state).toBe("absent");
   });
 });
+
+describe("AlphaGenome reference-base refusal", () => {
+  const message =
+    "AlphaGenome gRPC error [code 3]: Variant: chr16:66823281:A>G reference base does not match the expected reference base: T";
+
+  it("is stated as a coordinate mismatch, not a retryable provider error", () => {
+    const e = buildPredictorEvidence({
+      result: gzf1({
+        conservationData: { ...gzf1().conservationData, alphagenome: { status: "error", aviPhred: null, message } },
+      }),
+    });
+    const avi = e.readings.find(r => r.key === "alphagenome")!.availability;
+    expect(avi.state).toBe("absent");
+    expect(avi.action).toBeNull();
+    expect(avi.reason).toMatch(/reference base here is T, but the variant gives A/);
+    expect(avi.reason).not.toMatch(/gRPC/);
+  });
+});

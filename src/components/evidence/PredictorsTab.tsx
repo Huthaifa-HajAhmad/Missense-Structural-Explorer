@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AlertTriangle, ArrowRight, Cpu, Info, ListChecks, Scale } from "lucide-react";
+import { AlertTriangle, ArrowRight, Cpu, Info, ListChecks } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { useSettings } from "../../context/SettingsContext";
@@ -53,7 +53,7 @@ function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
     const tone = !code ? (engine.withheldByWeighting ? "muted" : "neutral") : code.startsWith("PP3") ? "danger" : "good";
     return (
       <span
-        className={`ev-tier pop-verdict shrink-0${code ? " chip-code" : ""}`}
+        className={`ev-tier prd-verdict shrink-0${code ? " chip-code" : ""}`}
         data-tone={tone}
         data-testid="predictor-verdict"
         title={code ? "The in-silico criterion the engine recorded for this run" : "The engine recorded no PP3 or BP4 for this run"}
@@ -65,7 +65,7 @@ function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
   if (vote.code) {
     return (
       <span
-        className="ev-tier pop-verdict chip-code shrink-0"
+        className="ev-tier prd-verdict chip-code shrink-0"
         data-tone="accent"
         data-testid="predictor-verdict"
         style={{ borderStyle: "dashed" }}
@@ -77,21 +77,9 @@ function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
     );
   }
   return (
-    <span className="ev-tier pop-verdict shrink-0" data-tone="neutral" data-testid="predictor-verdict">
+    <span className="ev-tier prd-verdict shrink-0" data-tone="neutral" data-testid="predictor-verdict">
       No PP3 / BP4
     </span>
-  );
-}
-
-function Fact({ label, children, sub }: { label: string; children: React.ReactNode; sub?: React.ReactNode }) {
-  return (
-    <div className="pop-fact">
-      <dt className="pop-fact__label">{label}</dt>
-      <dd className="pop-fact__value">
-        {children}
-        {sub && <span className="pop-fact__sub">{sub}</span>}
-      </dd>
-    </div>
   );
 }
 
@@ -137,11 +125,11 @@ function ReferenceCallout({ evidence }: { evidence: PredictorEvidence }) {
   if (!ref || (ref.relation !== "opposes" && ref.relation !== "indeterminate")) return null;
   const band = ref.call.direction ? `the ${formatEvidenceCode(ref.call.code)} band` : "its indeterminate range";
   return (
-    <p className="pop-callout" data-tone={ref.relation === "opposes" ? "warning" : "neutral"} data-testid="reference-callout">
+    <p className="prd-callout" data-tone={ref.relation === "opposes" ? "warning" : "neutral"} data-testid="reference-callout">
       <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
       <span>
         <strong>{ref.name}</strong>, a calibrated tool ClinGen recommends using on its own, reads{" "}
-        <span className="pop-mono">{ref.score.toFixed(3)}</span> — {band} ({ref.source}).{" "}
+        <span className="prd-mono">{ref.score.toFixed(3)}</span> — {band} ({ref.source}).{" "}
         {ref.relation === "opposes"
           ? `It points the other way from the vote. ClinGen advises one pre-specified calibrated tool over a count of correlated ones.`
           : `On its own it would support neither PP3 nor BP4; the vote's ${evidence.vote.code} rests on uncalibrated or weaker tools.`}
@@ -178,9 +166,9 @@ function ReadingRow({
   const pending = reading.availability.state === "pending";
   return (
     <tr data-testid={`predictor-${reading.key}`} data-votes={reading.votes || undefined}>
-      <th scope="row" className="pop-subject prd-subject">
+      <th scope="row" className="prd-subject">
         <span className="prd-subject__line">
-          <span className="pop-subject__name">{reading.name}</span>
+          <span className="prd-subject__name">{reading.name}</span>
           {reading.knowledgeKey && (
             <button
               type="button"
@@ -193,9 +181,9 @@ function ReadingRow({
             </button>
           )}
         </span>
-        <span className="pop-subject__note">{reading.description}</span>
+        <span className="prd-subject__note">{reading.description}</span>
         <CaveatChips reading={reading} />
-        {reading.note && <span className="pop-subject__note prd-subject__fact">{reading.note}</span>}
+        {reading.note && <span className="prd-subject__note prd-subject__fact">{reading.note}</span>}
         {reading.link && onTabChange && has && (
           <button type="button" className="prd-link" onClick={() => onTabChange(reading.link!.tab)}>
             {reading.link.label}
@@ -203,14 +191,14 @@ function ReadingRow({
           </button>
         )}
       </th>
-      <td className="pop-num prd-score">
+      <td className="prd-num">
         {has ? (
           <>
             {reading.scoreText}
             {reading.unit && <span className="prd-unit">{reading.unit}</span>}
           </>
         ) : (
-          <span className="pop-dim">—</span>
+          <span className="prd-dim">—</span>
         )}
       </td>
       {has ? (
@@ -222,9 +210,9 @@ function ReadingRow({
           </span>
         </td>
       ) : (
-        <td className="pop-reason prd-scale">
+        <td className="prd-reason prd-scale">
           {pending ? (
-            <span className="pop-dim">Still being computed for this variant.</span>
+            <span className="prd-dim">Still being computed for this variant.</span>
           ) : (
             <>
               {reading.availability.reason ?? "No score reached this variant."}
@@ -242,7 +230,7 @@ function ReadingRow({
           )}
         </td>
       )}
-      <td className="pop-status prd-call">
+      <td className="prd-status">
         {has ? (
           <>
             <span
@@ -287,7 +275,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
   };
 
   return (
-    <div className="pop-screen prd-screen @container">
+    <div className="prd-screen @container">
       {knowledgeKey && (
         <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />
       )}
@@ -301,9 +289,9 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       </header>
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
-      <section className="pop-card pop-hero" aria-labelledby="prd-finding-title" data-testid="predictor-finding">
-        <div className="pop-hero__body">
-          <div className="pop-hero__top">
+      <section className="prd-card prd-hero" aria-labelledby="prd-finding-title" data-testid="predictor-finding">
+        <div className="prd-hero__body">
+          <div className="prd-hero__top">
             <span className="eyebrow" id="prd-finding-title">
               <Cpu className="w-3.5 h-3.5" />
               ACMG computational evidence · PP3 / BP4
@@ -311,17 +299,17 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
             <EngineChip evidence={evidence} />
           </div>
 
-          <div className="pop-hero__figure">
-            <span className="figure-headline" title="Pathogenic calls – benign calls among the voting tools">
+          <div className="prd-hero__figure">
+            <span className="prd-figure" title="Pathogenic calls – benign calls among the voting tools">
               {vote.nPathogenic}–{vote.nBenign}
             </span>
-            <span className="pop-hero__figure-label">
+            <span className="prd-hero__figure-label">
               pathogenic–benign calls among {vote.nVoting} voting {vote.nVoting === 1 ? "tool" : "tools"}
               {vote.nIndeterminate > 0 ? ` · ${vote.nIndeterminate} indeterminate` : ""}
             </span>
           </div>
 
-          <p className="detail-prose pop-hero__finding">
+          <p className="prd-hero__finding">
             <strong>{finding.headline}</strong>
             {" — "}
             {finding.predicate}.
@@ -331,7 +319,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           <ReferenceCallout evidence={evidence} />
 
           {engine.withheldByWeighting && (
-            <p className="pop-callout" data-tone="warning">
+            <p className="prd-callout" data-tone="warning">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span>
                 The vote supports {vote.code}, but the engine recorded no in-silico criterion — the{" "}
@@ -339,36 +327,32 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
               </span>
             </p>
           )}
+
+          <dl className="prd-hero__meta">
+            <div>
+              <dt>Calibrated reference</dt>
+              <dd>
+                {reference ? (
+                  <>
+                    {reference.name} <span className="prd-mono">{reference.score.toFixed(3)}</span>
+                    {" → "}
+                    <span className="prd-mono">{reference.call.direction ? formatEvidenceCode(reference.call.code) : "indeterminate"}</span>
+                    <span className="prd-dim"> · {reference.source}</span>
+                  </>
+                ) : (
+                  "REVEL and BayesDel both absent"
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Not counted</dt>
+              <dd>{informational} informational {informational === 1 ? "score" : "scores"}</dd>
+            </div>
+          </dl>
         </div>
 
-        <dl className="pop-facts">
-          <Fact label="Rule" sub="counted once each · Supporting strength">
-            Pathogenic vs benign calls
-          </Fact>
-          <Fact
-            label="Calibrated reference"
-            sub={reference ? reference.source : "REVEL and BayesDel both absent"}
-          >
-            {reference ? (
-              <>
-                {reference.name} <span className="pop-mono">{reference.score.toFixed(3)}</span>
-                {" → "}
-                <span className="pop-mono">{reference.call.direction ? formatEvidenceCode(reference.call.code) : "indeterminate"}</span>
-              </>
-            ) : (
-              "None"
-            )}
-          </Fact>
-          <Fact label="Not counted" sub="language models · genome-wide · conservation">
-            {informational} informational {informational === 1 ? "score" : "scores"}
-          </Fact>
-          <Fact label="Engine record" sub={engine.weighting ? `${engine.weighting} weighting` : undefined}>
-            {engine.known ? (engine.code ?? "No PP3 / BP4") : "Not in payload"}
-          </Fact>
-        </dl>
-
         {evidence.pending && (
-          <div role="status" className="pop-callout pop-callout--banner" data-tone="warning">
+          <div role="status" className="prd-callout prd-callout--banner" data-tone="warning">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span>Some scores are still being computed for this variant; the rows marked below may fill in.</span>
           </div>
@@ -376,27 +360,29 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       </section>
 
       {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
-      <section className="pop-section" aria-labelledby="prd-readings-title">
+      <section className="prd-section" aria-labelledby="prd-readings-title">
         <h2 className="eyebrow" id="prd-readings-title">
           <ListChecks className="w-3.5 h-3.5" />
           Predictor readings
         </h2>
-        <div className="pop-card pop-table-wrap">
-          <table className="pop-table prd-table" data-testid="predictor-readings">
+        <div className="prd-card prd-table-wrap">
+          <table className="prd-table" data-testid="predictor-readings">
             <thead>
               <tr>
                 <th scope="col">Tool</th>
-                <th scope="col" className="pop-num">Score</th>
+                <th scope="col" className="prd-num">Score</th>
                 <th scope="col" title="The score on the tool's own axis, with its cut-points drawn by source">Position on scale</th>
-                <th scope="col" className="pop-status">Call</th>
+                <th scope="col" className="prd-status">Call</th>
               </tr>
             </thead>
             {groupReadings(evidence.readings).map(({ group, rows }) => (
               <tbody key={group} data-group={group}>
-                <tr className="pop-group">
+                <tr className="prd-group">
                   <th colSpan={4} scope="rowgroup">
-                    <span className="pop-group__title">{PREDICTOR_GROUP_LABEL[group]}</span>
-                    <span className="pop-group__meta">{PREDICTOR_GROUP_NOTE[group]}</span>
+                    <span className="prd-group__inner">
+                      <span className="prd-group__title">{PREDICTOR_GROUP_LABEL[group]}</span>
+                      <span className="prd-group__meta">{PREDICTOR_GROUP_NOTE[group]}</span>
+                    </span>
                   </th>
                 </tr>
                 {rows.map(r => (
@@ -411,8 +397,9 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
               </tbody>
             ))}
           </table>
-          <div className="pop-table-foot prd-legend">
-            <span className="prd-legend__item"><Scale className="w-3.5 h-3.5" aria-hidden="true" />Bands: PP3 red, BP4 green, deeper = stronger</span>
+          <div className="prd-table-foot" aria-label="Legend">
+            <span className="prd-legend__item"><span className="prd-legend__swatch" aria-hidden="true"><i /><i /><i /></span>PP3 bands, deeper = stronger</span>
+            <span className="prd-legend__item"><span className="prd-legend__swatch" data-side="benign" aria-hidden="true"><i /><i /><i /></span>BP4 bands</span>
             <span className="prd-legend__item"><i className="prd-legend__tick" />Authors' cut-point</span>
             <span className="prd-legend__item"><i className="prd-legend__tick" data-local />Local mark</span>
             <span className="prd-legend__item"><i className="prd-legend__marker" />This variant</span>

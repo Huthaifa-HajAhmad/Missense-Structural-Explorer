@@ -31,9 +31,13 @@ that asserts an unsourced cut-point is worse than the ugly one it replaced.
    swapped bars, drifted copies — just fix.
 4. **Build one pure model** in `src/shared/<tab>Evidence.ts` that both the tab and the rail render
    from (see "Architecture"). Unit-test it with the variant on the user's screenshots.
-5. **Rebuild the tab** in the three-tier shape, then **the rail** as a trace. Use the shared
-   primitives in `references/design-system.md`; add a `src/styles/<tab>.css` with a short prefix
-   only for what is genuinely new, and `@import` it in `src/styles/components.css`.
+5. **Rebuild the tab** in the three-tier shape, then **the rail** as a trace. **Own your CSS:**
+   every class the tab and rail use lives in `src/styles/<tab>.css` under a short prefix
+   (`prd-`, `ag-`…), `@import`ed in `src/styles/components.css`. Copy the house VALUES from the
+   latest reference tab (see `references/design-system.md`); never reference another tab's
+   `pop-*` / `rail-*` classes. The Predictors tab first reused them, and when Population Data was
+   polished (fact strip removed, rail cut-points re-gridded to a 44px code column) Predictors lost
+   its fact strip and group-row styling and its rail codes overprinted their thresholds.
 6. **Propagate fixes to every copy.** grep for the old literal numbers and labels across `src/` and
    `server/` (Threshold Guide rows in `shared/thresholds/guidelines.ts`, heatmaps, knowledge modal,
    attributions, engine reason strings). A fix in one surface that leaves a second copy is a new bug.
@@ -122,6 +126,9 @@ Design rules in `references/design-system.md`; copy-ready rendering harness in
   `npx vitest run`. `pocket.test.ts` Java auto-discovery fails on machines with no JDK — unrelated.
 - Update existing tests whose expectations encoded the old wrong numbers; rename them to state the
   corrected rule, and comment the source of the new value. Never delete a test to go green.
+- Render inside the real wrapper: the Evidence panel sets `font-mono text-xs` on every tab, so
+  the screen and rail roots must reset to sans. Render with the CURRENT `src/styles/` of the
+  branch you will merge into, not a stale copy — shared styles move under you.
 - Render the tab + rail with the reference payload (harness) in light, dark and ~800px; look at the
   screenshot, fix, re-shoot. Check: no clipped chips, no overflow, bands/markers in the right
   direction, tints match calls, every empty state reads as a sentence.

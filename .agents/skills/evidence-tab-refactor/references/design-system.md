@@ -1,6 +1,6 @@
 # Design system for evidence tabs
 
-Reuse before inventing. Everything below already exists and is theme-safe.
+Reuse the tokens and global type classes; copy layout values into your own prefixed classes.
 
 ## Tokens (src/styles/variables.css)
 - Colour only through `var(--cs-*)`: `--cs-surface`, `--cs-surface-2`, `--cs-bg-subtle`, `--cs-border`,
@@ -33,7 +33,18 @@ informational, not counted · `warning` caveat · `accent` rule input / unconfir
 Verdict chip: solid = engine recorded; dashed accent = supported but unconfirmed. Codes render
 through `formatEvidenceCode` ("PP3 Moderate", "BP4 Very Strong").
 
-## Layout primitives (population.css)
+## House voice (current, from the Population polish)
+- Roots (`.<prefix>-screen`, `.<prefix>-rail`) reset to `--cs-font-sans`, 13px prose, secondary ink.
+- ONE uppercase label style: 11px sans 600, 0.07em tracking, muted — section eyebrows and column
+  heads only. Field names 12px sans muted, sentence case. Data 13px mono 500 tabular, ink.
+- Hero figure in sans semibold at display size; mono only for figures inside tables and codes.
+- Red/green only for ACMG codes and the band a reading sits in; amber for a run fault; clay for
+  "the value the rule used" and links.
+- Rail: sections separated by hairlines, only the rule trace framed; cut-point rows plain, active
+  row marked by weight and "this variant", not a fill. Size the code column for the longest code.
+
+## Layout vocabulary (copy the values into your own prefix — do not reference these classes)
+The names below are Population's and Predictors' own classes; read them as templates.
 - Screen: `pop-screen @container` (flex column, 20px gap).
 - Cards: `pop-card`; hero `pop-hero` → `pop-hero__body`, `__top`, `__figure`, `__figure-label`,
   `__finding`; facts `pop-facts` > `pop-fact` (`__label`, `__value`, `__sub`).

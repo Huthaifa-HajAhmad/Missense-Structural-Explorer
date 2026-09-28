@@ -26,11 +26,11 @@ type StepState = "done" | "warn" | "idle";
 
 function Step({ n, label, state = "done", children }: { n: number; label: string; state?: StepState; children: React.ReactNode }) {
   return (
-    <li className="rail-step" data-state={state}>
-      <span className="rail-step__n" aria-hidden="true">{n}</span>
-      <div className="rail-step__body">
-        <span className="rail-step__label">{label}</span>
-        <div className="rail-step__value">{children}</div>
+    <li className="prd-step" data-state={state}>
+      <span className="prd-step__n" aria-hidden="true">{n}</span>
+      <div className="prd-step__body">
+        <span className="prd-step__label">{label}</span>
+        <div className="prd-step__value">{children}</div>
       </div>
     </li>
   );
@@ -38,7 +38,7 @@ function Step({ n, label, state = "done", children }: { n: number; label: string
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rail-kv__row">
+    <div className="prd-kv__row">
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
@@ -70,25 +70,25 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
   const engineTone = engine.code?.startsWith("PP3") ? "danger" : engine.code?.startsWith("BP4") ? "good" : "neutral";
 
   return (
-    <div className="flex flex-col gap-5" data-testid="predictors-rail">
+    <div className="prd-rail" data-testid="predictors-rail">
       {/* ── 1. How the verdict was reached ── */}
-      <section className="rail-section" aria-labelledby="prd-rail-trace">
+      <section className="prd-rsec" aria-labelledby="prd-rail-trace">
         <h3 className="eyebrow" id="prd-rail-trace">
           <GitBranch className="w-3.5 h-3.5" />
           Rule trace
         </h3>
-        <ol className="rail-steps" data-testid="predictor-rule-trace">
+        <ol className="prd-steps" data-testid="predictor-rule-trace">
           <Step n={1} label="Voting tools scored" state={scored === 0 ? "idle" : "done"}>
-            <span className="pop-mono">{scored} of {totalVoters}</span>
+            <span>{scored} of {totalVoters}</span>
             {voters.missing.length > 0 && (
-              <span className="rail-step__sub">No score: {voters.missing.map(v => v.name).join(", ")}</span>
+              <span className="prd-step__sub">No score: {voters.missing.map(v => v.name).join(", ")}</span>
             )}
           </Step>
           <Step n={2} label="Calls">
-            <span className="pop-mono">
+            <span>
               {vote.nPathogenic} pathogenic · {vote.nBenign} benign · {vote.nIndeterminate} indeterminate
             </span>
-            <span className="rail-step__sub">Informational tools are listed but never counted.</span>
+            <span className="prd-step__sub">Informational tools are listed but never counted.</span>
           </Step>
           <Step n={3} label="Rule" state={vote.code ? "done" : "idle"}>
             <span>
@@ -97,10 +97,10 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
                 : vote.direction === "tie" ? "Tie → no criterion"
                 : "Nothing to count → no criterion"}
             </span>
-            <span className="rail-step__sub">Plurality of calls; applied at Supporting strength.</span>
+            <span className="prd-step__sub">Plurality of calls; applied at Supporting strength.</span>
           </Step>
           <Step n={4} label="Engine record" state={engine.withheldByWeighting || (engine.known && (engine.code ?? null) !== vote.code) ? "warn" : "done"}>
-            <span className="rail-step__verdict">
+            <span className="prd-step__verdict">
               {engine.known ? (
                 engine.code ? <span className="ev-tier chip-code" data-tone={engineTone}>{engine.code}</span> : "No PP3 / BP4 recorded"
               ) : vote.code ? (
@@ -110,13 +110,13 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               )}
             </span>
             {engine.weighting && (
-              <span className="rail-step__sub">ACMG weighting: {engine.weighting}</span>
+              <span className="prd-step__sub">ACMG weighting: {engine.weighting}</span>
             )}
             {engine.withheldByWeighting && (
-              <span className="rail-step__warn">The vote supports {vote.code}; the {engine.weighting} weighting withholds it.</span>
+              <span className="prd-step__warn">The vote supports {vote.code}; the {engine.weighting} weighting withholds it.</span>
             )}
             {engine.known && !engine.withheldByWeighting && engine.code && vote.code && engine.code !== vote.code && (
-              <span className="rail-step__warn">
+              <span className="prd-step__warn">
                 The payload records {engine.code} where the current rule gives {vote.code} — it was classified by an earlier engine. Re-run the analysis to refresh it.
               </span>
             )}
@@ -126,30 +126,30 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
 
       {/* ── 2. The calibrated reference tool ── */}
       {reference && (
-        <section className="rail-section" aria-labelledby="prd-rail-bands">
+        <section className="prd-rsec" aria-labelledby="prd-rail-bands">
           <h3 className="eyebrow" id="prd-rail-bands">
             <Ruler className="w-3.5 h-3.5" />
             {reference.name} bands · {reference.source}
           </h3>
-          <ul className="rail-cuts" data-testid="reference-bands">
+          <ul className="prd-cuts" data-testid="reference-bands">
             {[...reference.bands]
               .sort((a, b) => b.threshold - a.threshold)
               .map(b => {
                 const active = reference.call.code === b.code;
                 const op = b.direction === "PP3" ? "≥" : "≤";
                 return (
-                  <li key={b.code} className="rail-cut" data-active={active || undefined}>
+                  <li key={b.code} className="prd-cut" data-active={active || undefined}>
                     <span className="ev-tier chip-code" data-tone={active ? (b.direction === "PP3" ? "danger" : "good") : "muted"}>
                       {formatEvidenceCode(b.code)}
                     </span>
-                    <span className="rail-cut__rule pop-mono">{op} {fmtCut(b.threshold)}</span>
-                    {active && <span className="rail-cut__here">this variant</span>}
+                    <span className="prd-cut__rule">{op} {fmtCut(b.threshold)}</span>
+                    {active && <span className="prd-cut__here">this variant</span>}
                   </li>
                 );
               })}
           </ul>
-          <p className="rail-step__sub">
-            {reference.name} <span className="pop-mono">{reference.score.toFixed(3)}</span> →{" "}
+          <p className="prd-step__sub">
+            {reference.name} <span className="prd-mono">{reference.score.toFixed(3)}</span> →{" "}
             {reference.call.direction ? formatEvidenceCode(reference.call.code) : "indeterminate (between the bands)"}.
             {" "}ClinGen names REVEL, BayesDel, MutPred2 and VEST4 as tools to use on their own.
           </p>
@@ -157,12 +157,12 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
       )}
 
       {/* ── 3. Method notes ── */}
-      <section className="rail-section" aria-labelledby="prd-rail-notes">
+      <section className="prd-rsec" aria-labelledby="prd-rail-notes">
         <h3 className="eyebrow" id="prd-rail-notes">
           <BookOpen className="w-3.5 h-3.5" />
           Method
         </h3>
-        <details className="rail-notes" open>
+        <details className="prd-notes" open>
           <summary>How to read this vote</summary>
           <ul>
             <li>
@@ -191,19 +191,19 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
       </section>
 
       {/* ── 4. Sources ── */}
-      <section className="rail-section" aria-labelledby="prd-rail-sources">
+      <section className="prd-rsec" aria-labelledby="prd-rail-sources">
         <h3 className="eyebrow" id="prd-rail-sources">
           <Database className="w-3.5 h-3.5" />
           Sources
         </h3>
-        <dl className="rail-kv rail-kv--sources">
+        <dl className="prd-kv">
           {sources.map(([label, value]) => (
             <Row key={label} label={label}>
               <span>{value}</span>
             </Row>
           ))}
         </dl>
-        <ul className="rail-refs">
+        <ul className="prd-refs">
           {Object.values(CALIBRATION_SOURCES).map(src => (
             <li key={src.doi}>
               {src.citation}{" "}
