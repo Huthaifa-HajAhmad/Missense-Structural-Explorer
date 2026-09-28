@@ -12,6 +12,7 @@ import {
   PipelineStage,
   SessionContext
 } from "../types/devConsole";
+import { isConnectionFailureText } from "../shared/fetch-retry";
 
 const ERROR_STORAGE_KEY = "devConsoleErrors";
 const LIVE_STORAGE_KEY = "devConsoleLive";
@@ -444,6 +445,14 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
   if (status === 429 || message.toLowerCase().includes("retry") || message.toLowerCase().includes("rate limit")) {
     return "recoverable";
   }
+  /**
+   * A connection-level failure is retryable, not fatal — and this is the ONLY path that used to
+   * say otherwise. Captured `console.error` output falls through to the last line, which tags
+   * every error `fatal`; the network-capture path already calls the same condition `recoverable`.
+   * That mismatch is how a response severed mid-body by a deploy (2026-09-27 19:24Z, literature
+   * fetch) was reported to the operator as a fatal error when a retry recovers it.
+   */
+  if (isConnectionFailureText(message)) return "recoverable";
   if (status === 500 || level === "error" && (source === "runtime" || source === "component" || message.includes("Variant analysis failed"))) {
     return "fatal";
   }

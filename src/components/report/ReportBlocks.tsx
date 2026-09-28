@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useApiClient } from "../../apiClient";
+import { describeConnectionFailure } from "../../shared/fetch-retry";
 import type { EvidenceSource } from "./reportStatus";
 import type { EnergeticsData } from "../../shared/contracts";
 import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
@@ -532,7 +533,9 @@ export const ReportBibliography: React.FC<ReportBibliographyProps> = ({ gene, va
       })
       .catch((err: any) => {
         if (!active) return;
-        setError(err?.message || "Failed to load literature.");
+        // A severed response reads as "Failed to fetch" in every browser; say what happened
+        // instead. The raw error is untouched and still reaches the Dev Console report.
+        setError(describeConnectionFailure(err, "the bibliography") || err?.message || "Failed to load literature.");
         setState("error");
       });
     return () => {

@@ -161,6 +161,42 @@ describe("ClinicalInsightsCard biochemical narrative", () => {
   });
 });
 
+describe("ClinicalInsightsCard structured-report banner", () => {
+  /**
+   * `insights` is absent for the whole of a synthesis, so the banner's old `!insights` condition
+   * announced "could not be parsed or generated" while the model was still working. Observed
+   * live on a fresh variant (CNOT1 p.Phe876Leu): the banner rendered directly beneath a moving
+   * "ANALYZING BIOPHYSICAL PROPERTIES" bar and beside "Narrative: Synthesizing…", so a reader
+   * was told a run had failed while it was still running.
+   */
+  const withoutInsights = (extra: Record<string, unknown> = {}) =>
+    baseResult({ insights: undefined, analysis: "Clinical summary from the run.", ...extra });
+
+  it("stays silent while the narrative stage is still synthesizing", () => {
+    renderCard(withoutInsights(), { isNarrativeLoading: true });
+    expect(screen.queryByText(/Structured Report Unavailable/)).not.toBeInTheDocument();
+  });
+
+  it("stays silent while the wider run is still streaming evidence", () => {
+    renderCard(withoutInsights(), {
+      analysisState: { result: withoutInsights(), isLoading: true, error: null },
+      isNarrativeLoading: false,
+    });
+    expect(screen.queryByText(/Structured Report Unavailable/)).not.toBeInTheDocument();
+  });
+
+  it("reports the omission once the run has finished, and does not claim a narrative that is absent", () => {
+    renderCard(withoutInsights(), { isNarrativeLoading: false });
+    expect(screen.getByText(/Structured Report Unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/returned the clinical narrative but no structured interpretation/)).toBeInTheDocument();
+
+    // No narrative either: the old copy would have promised "only the raw clinical narrative is
+    // available" while there was none to read.
+    renderCard(withoutInsights({ analysis: "" }), { isNarrativeLoading: false });
+    expect(screen.getByText(/neither a structured interpretation nor a clinical narrative/)).toBeInTheDocument();
+  });
+});
+
 describe("ClinicalInsightsCard export handlers", () => {
   /**
    * F11. The whole export-verdict fix rests on this component CALLING `buildExportVerdictContext`, and

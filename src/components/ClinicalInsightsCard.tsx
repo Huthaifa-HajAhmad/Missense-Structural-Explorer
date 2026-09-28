@@ -281,6 +281,17 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     : isClinicalLoading;
 
   /**
+   * Whether a run that would produce `insights` is still in flight.
+   *
+   * Needed because `insights` is absent for the WHOLE of a synthesis, so "no insights" cannot
+   * distinguish "the model has not answered yet" from "the model answered without a structured
+   * payload". Both stages count: the narrative stage itself, and a run that is still streaming
+   * evidence before that stage begins. Observed on a fresh variant (CNOT1 p.Phe876Leu), where the
+   * unavailable banner sat directly under a moving "ANALYZING BIOPHYSICAL PROPERTIES" bar.
+   */
+  const structuredAnalysisPending = isNarrativeLoading || Boolean(analysisState.isLoading);
+
+  /**
    * The condensed clinical summary this view shows in place of the narrative.
    *
    * `summariseNarrative` selects the narrative's own clinical section and trims on a sentence
@@ -1307,10 +1318,18 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               </div>
             ) : null}
 
-            {!analysisState.result.insights && (
+            {/**
+              * Only a FINISHED run may announce this. The condition used to be `!insights` alone,
+              * which is also true while the model is still working — so every fresh synthesis
+              * declared "could not be parsed or generated" beside its own progress bar, a failure
+              * claim the reader has no way to tell apart from a real one.
+              */}
+            {!analysisState.result.insights && !structuredAnalysisPending && (
               <div className="p-3 rounded-lg border text-xs leading-relaxed" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
                 <span className="font-bold block uppercase text-[10px] mb-1 tracking-wider" style={{ color: "var(--cs-warn)" }}>Structured Report Unavailable</span>
-                The AI-generated structured analysis (biochemical shifts, structural impacts, and ACMG criteria classification) could not be parsed or generated. Only the raw clinical narrative is available.
+                {analysisState.result.analysis
+                  ? "This run returned the clinical narrative but no structured interpretation (biochemical shifts, structural impacts, ACMG criteria), so those sections are omitted. Re-running AI synthesis may return them."
+                  : "This run returned neither a structured interpretation nor a clinical narrative. Re-run the analysis to try again."}
               </div>
             )}
 

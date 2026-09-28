@@ -1,4 +1,4 @@
-﻿/**
+/**
  * fetch-retry.ts â€” Consolidated client-side fetch retry utility.
  *
  * Provides:
@@ -7,6 +7,9 @@
  *   - Non-retryable error detection (e.g. API_KEY_MISSING / isConfigError)
  *   - Proper AbortSignal cascading and timeout cleanup
  *   - `Retry-After` awareness and a caller-deadline guard (see below)
+ *   - `withTransientRetry`: the same backoff/deadline policy for the phase `fetchWithRetry`
+ *     cannot cover — the BODY read, which happens after this module has already returned
+ *     (see "THE POST-HEADERS GAP" below)
  *
  * WHY THE DEADLINE GUARD EXISTS
  * -----------------------------
@@ -31,6 +34,33 @@
  *   3. `timeout` bounds time-to-headers for the initial response; a caller abort still cancels
  *      a stalled body read, because the forwarding listener stays attached for the lifetime of
  *      the returned response.
+ *
+ * THE POST-HEADERS GAP — WHY `withTransientRetry` EXISTS
+ * -----------------------------------------------------
+ * Everything above guards the CONNECTION: the moment `fetch()` resolves with an ok response this
+ * module hands the Response back and stops. The body is read later by the caller (`res.json()`),
+ * so a connection that dies *during that read* is terminal — no retry, and the browser's raw
+ * `TypeError: Failed to fetch` is what the user is shown.
+ *
+ * That is not hypothetical. Production, 2026-09-27T19:24:01Z, revision f194815: the literature
+ * fetch reported `TypeError: Failed to fetch` with a stack of exactly one frame —
+ * `Object.pull` in the client body-stall watchdog (`bindWatchdogToBody`, src/api/authSession.ts).
+ * That frame is only reachable from `reader.read()`, which proves the headers had already
+ * arrived: the response was severed MID-BODY. The running image had been built at 19:06:22Z and
+ * the container was being replaced by that deploy, so Caddy's in-flight upstream response was cut
+ * when the old app container went away. (See `deploy/docker-compose.oci.yml` — no
+ * `stop_grace_period`, so Docker SIGKILLs 10s after SIGTERM.)
+ *
+ * A severed response is a *transient* condition — the retry lands on the replacement container —
+ * and the affected reads here are idempotent GETs, so re-issuing the whole operation (request
+ * AND body) is safe. `withTransientRetry` does that under one budget, and
+ * {@link describeConnectionFailure} turns the leftover browser string into something a
+ * clinician can act on.
+ *
+ * Deliberately NOT retried: `AbortError`/`TimeoutError` (the caller's own watchdog made a
+ * decision — re-issuing would fight the deadline it is enforcing), and `SyntaxError` from a
+ * half-written JSON body (a truncated *chunked* stream always errors the read; a body that ends
+ * cleanly but does not parse is a server bug, and retrying it just hides it).
  */
 
 import { readTextWithTimeout } from "./httpBody.ts";
@@ -296,6 +326,127 @@ export async function fetchWithRetry(
         continue;
       }
       throw err;
+    }
+  }
+}
+
+/**
+ * Browser texts that mean "the connection failed", not "the server answered with a failure".
+ *
+ * Every engine words this differently and none of them is structured — the message is the only
+ * signal there is. Kept as data so the predicate and the presentation helper cannot drift apart.
+ */
+const CONNECTION_FAILURE_TEXTS = [
+  "Failed to fetch",                                  // Chrome, Edge
+  "NetworkError when attempting to fetch resource",    // Firefox
+  "Load failed",                                      // Safari
+  "The network connection was lost",                   // Safari, mid-transfer
+  "The Internet connection appears to be offline",     // Safari / iOS
+  "fetch failed",                                      // Node & undici (tests, SSR)
+];
+
+/**
+ * Is this the browser's connection-level fetch failure?
+ *
+ * Gated on the error NAME as well as its text. Text alone misreads this project's own message
+ * strings — `structureApi` throws `new Error("Failed to fetch sequence (HTTP 500 …)")`, which
+ * contains "Failed to fetch" but is a server-side answer that {@link fetchWithRetry} already
+ * retried; retrying it here would double the work and mislabel a 500 as a lost connection.
+ * A real network failure always arrives as a `TypeError` (all three engines) or a `NetworkError`
+ * DOMException, and both are what this accepts.
+ *
+ * `AbortError` and `TimeoutError` are rejected by name: those are the caller's watchdog or an
+ * explicit cancellation, i.e. a decision, not a fault.
+ */
+export function isTransientNetworkError(err: unknown): boolean {
+  if (err === null || typeof err !== "object") return false;
+  const { name, message } = err as { name?: unknown; message?: unknown };
+  const errName = typeof name === "string" ? name : "";
+  if (errName === "AbortError" || errName === "TimeoutError") return false;
+  if (errName !== "TypeError" && errName !== "NetworkError") return false;
+  return isConnectionFailureText(typeof message === "string" ? message : "");
+}
+
+/**
+ * The text-only half of {@link isTransientNetworkError}, for the callers that only kept the
+ * message — the Dev Console captures `console.error` output, which has already flattened the
+ * error into a string by the time it is classified.
+ */
+export function isConnectionFailureText(text: string): boolean {
+  return CONNECTION_FAILURE_TEXTS.some((fragment) => text.includes(fragment));
+}
+
+/**
+ * Human text for a connection-level failure, or `null` when the error is not one.
+ *
+ * The banner used to read "Sync Error / Failed to fetch", which tells a clinician nothing about
+ * whether to wait, retry, or reconnect. Presentation layers map through here instead of editing
+ * the thrown error: the raw `TypeError` — and the stack that identified this bug — stays intact
+ * in the console report.
+ */
+export function describeConnectionFailure(err: unknown, subject = "this data"): string | null {
+  if (!isTransientNetworkError(err)) return null;
+  return `Connection lost while loading ${subject}. Check your connection and try again.`;
+}
+
+export interface TransientRetryOptions {
+  /** Extra attempts after the first. Two covers a container swap that has already started. */
+  retries?: number;
+  /** First backoff delay; doubles per attempt (with jitter, via the shared backoff helper). */
+  baseDelayMs?: number;
+  /**
+   * Absolute epoch-ms instant the WHOLE operation must fit in — typically the same budget the
+   * caller's watchdog enforces. No attempt is started that cannot finish inside it, so a retry
+   * never extends the window the user's spinner already promised.
+   */
+  deadlineAt?: number;
+  signal?: AbortSignal | null;
+  /** Minimum time a started attempt deserves; below it the error is surfaced instead. */
+  minAttemptMs?: number;
+  onRetry?: (info: { attempt: number; delayMs: number; error: unknown }) => void;
+}
+
+/**
+ * Run an operation that includes reading the response BODY, retrying it on a lost connection.
+ *
+ * Pass the whole request-and-parse as one operation — `fetchWithAuth(...)` plus `res.json()` —
+ * because a retry of only the request would re-read a body that was already consumed. Only
+ * {@link isTransientNetworkError} triggers another attempt; an HTTP error, a schema rejection or
+ * a watchdog timeout propagates on the first try, so a caller cannot be surprised by a delayed
+ * failure it asked for.
+ */
+export async function withTransientRetry<T>(
+  operation: (context: { attempt: number }) => Promise<T>,
+  options: TransientRetryOptions = {}
+): Promise<T> {
+  const retries = options.retries ?? 2;
+  const baseDelayMs = options.baseDelayMs ?? 500;
+  const minAttemptMs = options.minAttemptMs ?? DEFAULT_MIN_ATTEMPT_MS;
+
+  let attempt = 0;
+
+  while (true) {
+    try {
+      return await operation({ attempt });
+    } catch (err) {
+      // Not retryable, cancelled, or out of attempts: surface the original error untouched.
+      if (attempt >= retries || !isTransientNetworkError(err) || options.signal?.aborted) {
+        throw err;
+      }
+
+      attempt++;
+      const delay = backoffDelay(attempt, baseDelayMs, 2);
+
+      if (options.deadlineAt !== undefined && options.deadlineAt - Date.now() - delay <= minAttemptMs) {
+        console.warn(
+          `[Client Retry] Not retrying after "${(err as Error)?.message || err}": a ${delay}ms delay ` +
+            "leaves no meaningful attempt inside the caller's budget — surfacing the error instead."
+        );
+        throw err;
+      }
+
+      options.onRetry?.({ attempt, delayMs: delay, error: err });
+      await abortableDelay(delay, options.signal);
     }
   }
 }

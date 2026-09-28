@@ -11,6 +11,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { useApiClient } from "../apiClient";
+import { describeConnectionFailure } from "../shared/fetch-retry";
 
 interface LiteratureViewProps {
   gene: string;
@@ -81,8 +82,15 @@ export default function LiteratureView({
       setHitCount(typeof data.hitCount === "number" ? data.hitCount : null);
     } catch (err: any) {
       if (seq !== requestSeq.current) return;
+      // Keep the raw error as the console argument: its stack is the only record of WHERE the
+      // response was lost (the body-read frame), and the Dev Console stores that as the entry's
+      // detail. Only the banner text is translated.
       console.error("[Literature Fetch Error]:", err);
-      setError(err.message || "Failed to load literature citations.");
+      setError(
+        describeConnectionFailure(err, "citations") ||
+          err.message ||
+          "Failed to load literature citations."
+      );
     } finally {
       if (seq === requestSeq.current) {
         setIsLoading(false);

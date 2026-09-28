@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   MIN_RETRY_AFTER_MS,
+  describeConnectionFailure,
   fetchWithRetry,
+  isTransientNetworkError,
   parseRetryAfterMs,
+  withTransientRetry,
 } from "../fetch-retry";
 
 describe("parseRetryAfterMs", () => {
@@ -192,5 +195,110 @@ describe("fetchWithRetry", () => {
       expect(res.status).toBe(200);
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+/**
+ * The post-headers gap: `fetchWithRetry` returns as soon as the headers are in, so a connection
+ * that dies while the caller reads the body had no retry at all — the production failure this
+ * covers reported `TypeError: Failed to fetch` from the body-stall watchdog's `pull` frame.
+ */
+describe("withTransientRetry", () => {
+  it("retries a body read severed after the headers arrived, and returns the retry's value", async () => {
+    let calls = 0;
+    const citations = await withTransientRetry(async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("Failed to fetch");
+      return ["PMID:1"];
+    }, { baseDelayMs: 5 });
+
+    expect(citations).toEqual(["PMID:1"]);
+    expect(calls).toBe(2);
+  });
+
+  it("recognises the engines' connection failures and nothing else", () => {
+    // All three engines report a lost connection as a TypeError, each with its own wording.
+    expect(isTransientNetworkError(new TypeError("Failed to fetch"))).toBe(true);              // Chrome / Edge
+    expect(isTransientNetworkError(new TypeError("NetworkError when attempting to fetch resource."))).toBe(true); // Firefox
+    expect(isTransientNetworkError(new TypeError("Load failed"))).toBe(true);                  // Safari
+    expect(isTransientNetworkError(new TypeError("The network connection was lost"))).toBe(true);
+
+    // Our OWN messages contain "Failed to fetch" but are server answers, already retried by
+    // fetchWithRetry — retrying them here would double the work and mislabel a 500.
+    expect(isTransientNetworkError(new Error("Failed to fetch sequence (HTTP 500 Internal Server Error)"))).toBe(false);
+    // A decision, not a fault: the caller's watchdog or an explicit cancellation.
+    expect(isTransientNetworkError(new DOMException("Response body stalled for 45000ms", "TimeoutError"))).toBe(false);
+    expect(isTransientNetworkError(new DOMException("The user aborted a request.", "AbortError"))).toBe(false);
+    // A body that ends cleanly but does not parse is a server bug; retrying hides it.
+    expect(isTransientNetworkError(new SyntaxError("Unexpected end of JSON input"))).toBe(false);
+    expect(isTransientNetworkError("Failed to fetch")).toBe(false);
+    expect(isTransientNetworkError(null)).toBe(false);
+  });
+
+  it("does not retry a watchdog timeout or a rejection the server actually sent", async () => {
+    const timeoutAttempt = vi.fn(async () => {
+      throw new DOMException("Response body stalled for 45000ms", "TimeoutError");
+    });
+    await expect(withTransientRetry(timeoutAttempt, { baseDelayMs: 5 })).rejects.toThrow("stalled");
+    expect(timeoutAttempt).toHaveBeenCalledTimes(1);
+
+    const refusalAttempt = vi.fn(async () => {
+      throw new Error("Gene parameter is required.");
+    });
+    await expect(withTransientRetry(refusalAttempt, { baseDelayMs: 5 })).rejects.toThrow("required");
+    expect(refusalAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the ORIGINAL error once the attempts are exhausted", async () => {
+    const attempt = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const err: any = await withTransientRetry(attempt, { retries: 2, baseDelayMs: 5 }).catch((e) => e);
+
+    // Attempts = 1 + retries, and the raw network error is preserved for the console report.
+    expect(attempt).toHaveBeenCalledTimes(3);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(err.message).toBe("Failed to fetch");
+  });
+
+  it("does not start a retry the caller's budget cannot accommodate", async () => {
+    const attempt = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    const startedAt = Date.now();
+    await expect(
+      withTransientRetry(attempt, { retries: 3, baseDelayMs: 500, deadlineAt: Date.now() + 300 })
+    ).rejects.toThrow("Failed to fetch");
+
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(Date.now() - startedAt).toBeLessThan(300);
+  });
+
+  it("cancels a pending backoff as soon as the caller aborts", async () => {
+    const controller = new AbortController();
+    const attempt = vi.fn(async () => {
+      controller.abort();
+      throw new TypeError("Failed to fetch");
+    });
+
+    const startedAt = Date.now();
+    await expect(
+      withTransientRetry(attempt, { retries: 3, baseDelayMs: 5000, signal: controller.signal })
+    ).rejects.toThrow();
+
+    // A 5s backoff that is never waited out.
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns the leftover browser string into text a clinician can act on", () => {
+    expect(describeConnectionFailure(new TypeError("Failed to fetch"), "citations")).toBe(
+      "Connection lost while loading citations. Check your connection and try again."
+    );
+    // Not a connection failure: the caller keeps the server's own message.
+    expect(describeConnectionFailure(new Error("Gene parameter is required."))).toBeNull();
+    expect(describeConnectionFailure(new DOMException("aborted", "AbortError"))).toBeNull();
   });
 });
