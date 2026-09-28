@@ -11,6 +11,7 @@ import { variantNumberingView } from "../../shared/numbering";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import { clinvarAccessionNote, formatClinicalDate } from "../evidence/population/populationFormat";
+import { buildAssemblyLiftNote } from "./assemblyLiftNote";
 
 /**
  * PopulationRail — the Evidence Lineage inspector for the Population Data tab.
@@ -94,6 +95,15 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   const transcriptWarning = analysisResult.transcriptWarning ?? analysisResult.predictorData?.transcriptWarning ?? null;
   // The build the coordinate is expressed in — never assumed (the GRCh37 fallback exists).
   const genomicAssembly = analysisResult.predictorData?.gnomadVariantAssembly ?? null;
+  /**
+   * The build trail the payload carries beside that build, when it carries one.
+   *
+   * `assembly`/`resolvedAssembly`/`liftedGenomicCoordinates`/`coordinateLift` are declared on
+   * `TranscriptMetadata` (and on the response schema), so no widening is needed: a payload from a
+   * server that predates the trail simply has them `undefined`, which yields `null` here and
+   * renders exactly what this rail rendered before.
+   */
+  const assemblyLiftNote = buildAssemblyLiftNote(analysisResult);
   const numbering = variantNumberingView({
     variant: analysisResult.metadata?.variant ?? "",
     uniprotId: analysisResult.metadata?.uniprotId ?? null,
@@ -263,6 +273,24 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
             </span>
           </Row>
         </dl>
+        {/*
+          * The build TRAIL, directly under the lineage rows it belongs to.
+          *
+          * The Assembly row states the build the models saw. It cannot state what the reader
+          * SUBMITTED, nor whether the two are the same variant — and when a submitted GRCh37
+          * coordinate could not be verified on GRCh38, that refusal is the reason the GRCh38-only
+          * sources declined. Rendered only when the payload carries something to say (`null` when the
+          * builds agree or the trail is absent), because a note that always rendered would be the same
+          * hardcoded build claim this row was fixed for, one line lower.
+          *
+          * A paragraph below the `dl` rather than a row inside it: a note explaining the row above is
+          * not itself a key/value pair, and `dl` admits no child that could hold one.
+          */}
+        {assemblyLiftNote && (
+          <p className="rail-step__sub" role="note" data-testid="assembly-lift-note">
+            {assemblyLiftNote}
+          </p>
+        )}
         {transcriptWarning && (
           <p className="rail-step__warn" role="note">{transcriptWarning}</p>
         )}
