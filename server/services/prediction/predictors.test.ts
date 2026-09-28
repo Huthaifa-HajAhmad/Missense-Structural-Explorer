@@ -1189,5 +1189,59 @@ END
         global.fetch = origFetch;
       }
     }, 25000);
+
+    it("correctly produces forward-strand genomic coordinates for reverse-strand genes (e.g. NAE1 p.Asp116Gly)", async () => {
+      const { fetchPredictorData } = await import("../predictors.ts");
+      const { clearAllCaches } = await import("../infra/cache.ts");
+      clearAllCaches(true);
+      const origFetch = global.fetch;
+
+      const nae1UniprotBody = JSON.stringify({
+        primaryAccession: "Q13564",
+        uniProtkbId: "NAE1_HUMAN",
+        genes: [{ geneName: { value: "NAE1" } }],
+        sequence: { value: "M".repeat(534) },
+        uniProtKBCrossReferences: [
+          { database: "Ensembl", id: "ENST00000290810.8", properties: [{ key: "EnsemblTranscriptId", value: "ENST00000290810.8" }] },
+          { database: "MANE-Select", id: "ENST00000290810.8", isoformId: "Q13564-1", properties: [{ key: "RefSeqNucleotideId", value: "NM_003905.4" }] }
+        ]
+      });
+
+      // VEP returns strand: -1 and transcript-strand allele_string "A/G" at position 66823281
+      const nae1VepPayload = JSON.stringify([{
+        seq_region_name: "16",
+        start: 66823281,
+        strand: -1,
+        allele_string: "A/G",
+        transcript_consequences: [
+          {
+            transcript_id: "ENST00000290810",
+            gene_symbol: "NAE1",
+            mane_select: "NM_003905.4",
+            amino_acids: "D/G",
+            protein_start: 116,
+            alphamissense: { am_pathogenicity: 0.85, am_class: "likely_pathogenic" },
+            cadd_phred: 26.5
+          }
+        ]
+      }]);
+
+      global.fetch = async (input: any) => {
+        const urlStr = String(input);
+        if (urlStr.includes("uniprot.org")) return new Response(nae1UniprotBody, { status: 200, headers: { "Content-Type": "application/json" } });
+        if (urlStr.includes("/vep/human/hgvs/")) return new Response(nae1VepPayload, { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response("{}", { status: 404 });
+      };
+
+      try {
+        const res = await fetchPredictorData("NAE1", "p.Asp116Gly", "Q13564");
+        // Must be converted to forward strand canonical coordinate 16-66823281-T-C (A->T, G->C)
+        expect(res.gnomadVariantId).toBe("16-66823281-T-C");
+        expect(res.gnomadVariantAssembly).toBe("GRCh38");
+        expect(res.amPathogenicity).toBeCloseTo(0.85, 2);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
   });
 });

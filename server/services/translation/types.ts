@@ -90,6 +90,7 @@ export interface ResolvedConsequence {
   seq_region_name?: string;
   start?: number;
   allele_string?: string;
+  strand?: number;
   transcript_consequences: ResolvedTranscriptConsequence[];
   /**
    * Set when the provider's gene symbol for the resolved gene was a RETIRED one that UniProt lists

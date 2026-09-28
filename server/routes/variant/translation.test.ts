@@ -2042,4 +2042,38 @@ describe("POST /translate-variant — reference-allele mismatch", () => {
     expect(outage.statusCode).toBe(503);
     expect(outage.body.error.details.buildHint).toBeUndefined();
   });
+
+  it("correctly complements minus-strand VEP allele_string to forward-strand genomicCoordinates (e.g. NAE1)", async () => {
+    const nae1Consequence = {
+      transcript_id: "ENST00000290810",
+      canonical: 1,
+      hgvsp: "ENSP00000290810.3:p.Asp116Gly",
+      amino_acids: "D/G",
+      uniprot_isoform: ["Q13564-1"],
+      gene_symbol: "NAE1",
+      swissprot: ["Q13564.1"],
+      hgvsc: "ENST00000290810.8:c.347A>G",
+    };
+
+    const nae1Vep = async () =>
+      new Response(
+        JSON.stringify([
+          {
+            seq_region_name: "16",
+            start: 66823281,
+            strand: -1,
+            allele_string: "A/G",
+            assembly_name: "GRCh38",
+            transcript_consequences: [nae1Consequence],
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+
+    const result = await invokeTranslate("ENST00000290810:c.347A>G", nae1Consequence, nae1Vep);
+    expect(result.statusCode).toBe(200);
+    // cDNA input has no genomic locus of its own, so it takes the provider echo.
+    // Forward strand GRCh38 genomic coordinate is 16-66823281-T-C (A->T, G->C).
+    expect(result.body.genomicCoordinates).toBe("16-66823281-T-C");
+  });
 });

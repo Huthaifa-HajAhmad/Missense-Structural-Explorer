@@ -17,6 +17,9 @@ import {
   referenceSequenceOf,
   releaseTokenFor,
   cdnaReferenceProblem,
+  reverseComplementDna,
+  normalizeGenomicAllelesForStrand,
+  buildForwardStrandGenomicId,
   ACCEPTED_NOTATION_SUMMARY,
   MISSENSE_ONLY_NOTE,
 } from "../variantNotation.ts";
@@ -497,6 +500,37 @@ describe("Shared variant notation grammar", () => {
       expect(parseGenomicHgvsNotation("p.Arg408Trp")).toBeNull();
       expect(parseGenomicHgvsNotation("")).toBeNull();
       expect(parseGenomicHgvsNotation(undefined as any)).toBeNull();
+    });
+  });
+
+  describe("reverseComplementDna and strand-aware coordinate building", () => {
+    it("correctly reverse-complements DNA sequences", () => {
+      expect(reverseComplementDna("A")).toBe("T");
+      expect(reverseComplementDna("T")).toBe("A");
+      expect(reverseComplementDna("C")).toBe("G");
+      expect(reverseComplementDna("G")).toBe("C");
+      expect(reverseComplementDna("ATCG")).toBe("CGAT");
+      expect(reverseComplementDna("atcg")).toBe("cgat");
+      expect(reverseComplementDna("")).toBe("");
+    });
+
+    it("complements alleles on negative strand (-1, '-', '-1')", () => {
+      expect(normalizeGenomicAllelesForStrand("A", "G", -1)).toEqual({ ref: "T", alt: "C" });
+      expect(normalizeGenomicAllelesForStrand("A", "G", "-1")).toEqual({ ref: "T", alt: "C" });
+      expect(normalizeGenomicAllelesForStrand("A", "G", "-")).toEqual({ ref: "T", alt: "C" });
+      expect(normalizeGenomicAllelesForStrand("A", "G", 1)).toEqual({ ref: "A", alt: "G" });
+      expect(normalizeGenomicAllelesForStrand("A", "G", "+")).toEqual({ ref: "A", alt: "G" });
+      expect(normalizeGenomicAllelesForStrand("A", "G", undefined)).toEqual({ ref: "A", alt: "G" });
+    });
+
+    it("builds canonical forward strand genomic IDs for negative strand features (e.g. NAE1 p.Asp116Gly)", () => {
+      // NAE1 on chr16 strand -1: VEP reports allele_string "A/G" at pos 66823281
+      // Forward strand canonical coordinate must be 16-66823281-T-C
+      expect(buildForwardStrandGenomicId("16", 66823281, "A", "G", -1)).toBe("16-66823281-T-C");
+      expect(buildForwardStrandGenomicId("chr16", 66823281, "A", "G", -1)).toBe("16-66823281-T-C");
+
+      // Forward strand gene (e.g. BRAF on chr7 strand +1)
+      expect(buildForwardStrandGenomicId("7", 140753336, "A", "T", 1)).toBe("7-140753336-A-T");
     });
   });
 });

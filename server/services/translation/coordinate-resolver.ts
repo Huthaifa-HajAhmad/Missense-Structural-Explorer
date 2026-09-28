@@ -95,6 +95,7 @@ const ensemblResponseSchema = z.array(
     seq_region_name: z.string().optional(),
     start: z.number().optional(),
     allele_string: z.string().optional(),
+    strand: z.union([z.number(), z.string()]).optional(),
     transcript_consequences: z
       .array(
         z
@@ -565,12 +566,21 @@ export async function fetchEnsemblVepConsequence(
     );
   }
 
+  const rawStrand = data[0].strand;
+  const parsedStrand =
+    typeof rawStrand === "number"
+      ? rawStrand
+      : typeof rawStrand === "string"
+      ? parseInt(rawStrand, 10)
+      : undefined;
+
   return {
     consequence: {
       provider: "ensembl-vep",
       seq_region_name: data[0].seq_region_name,
       start: data[0].start,
       allele_string: data[0].allele_string,
+      strand: Number.isFinite(parsedStrand as number) ? (parsedStrand as number) : undefined,
       transcript_consequences:
         data[0].transcript_consequences as ResolvedConsequence["transcript_consequences"],
     },

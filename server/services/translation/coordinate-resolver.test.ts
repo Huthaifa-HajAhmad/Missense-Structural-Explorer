@@ -237,6 +237,37 @@ describe("coordinate-resolver provider ladder", () => {
     expect(outcome.attempts[1].ok).toBe(true);
   });
 
+  it("preserves negative strand from Ensembl VEP response", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async () =>
+      jsonResponse([
+        {
+          seq_region_name: "16",
+          start: 66823281,
+          strand: -1,
+          allele_string: "A/G",
+          transcript_consequences: [
+            {
+              transcript_id: "ENST00000290810",
+              canonical: 1,
+              hgvsp: "ENSP00000290810.3:p.Asp116Gly",
+              amino_acids: "D/G",
+              uniprot_isoform: ["Q13564-1"],
+              gene_symbol: "NAE1",
+              swissprot: ["Q13564.1"],
+            },
+          ],
+        },
+      ])
+    );
+
+    const outcome = await resolveCoordinate("ENST00000290810:c.347A>G", "GRCh38");
+    expect(outcome.consequence.provider).toBe("ensembl-vep");
+    expect(outcome.consequence.strand).toBe(-1);
+    expect(outcome.consequence.seq_region_name).toBe("16");
+    expect(outcome.consequence.start).toBe(66823281);
+    expect(outcome.consequence.allele_string).toBe("A/G");
+  });
+
   it("gives every remaining rung a positive window even on a tiny budget", async () => {
     // Before the split, the primary consumed this entire budget and the fallback was never
     // reached; now each rung gets a share, so both are attempted — and the assertions below

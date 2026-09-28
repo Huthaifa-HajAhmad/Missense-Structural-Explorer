@@ -8,12 +8,17 @@ import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
-import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
+import {
+  type GenomeAssembly,
+  buildForwardStrandGenomicId,
+  reverseComplementDna,
+} from "../../../../src/shared/variantNotation.ts";
 
 export const vepResponseSchema = z.array(z.object({
   seq_region_name: z.string().optional(),
   start: z.number().optional(),
   allele_string: z.string().optional(),
+  strand: z.union([z.number(), z.string()]).optional(),
   transcript_consequences: z.array(z.object({
     transcript_id: z.string().optional(),
     /**
@@ -95,11 +100,12 @@ function buildPredictorFromVep(
   const chr = first.seq_region_name;
   const startPos = first.start;
   const alleleStr = first.allele_string;
+  const strand = first.strand;
   let gnomadVariantId: string | null = null;
   if (chr && startPos && typeof alleleStr === "string") {
     const parts = alleleStr.split("/");
     if (parts.length >= 2) {
-      gnomadVariantId = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
+      gnomadVariantId = buildForwardStrandGenomicId(chr, startPos, parts[0], parts[1], strand);
     }
   }
 
@@ -172,7 +178,10 @@ async function fetchPredictorsViaCoordinate(
     const first = parsed[0];
     const echoChrom = String(first.seq_region_name ?? "").replace(/^chr/i, "").toUpperCase();
     const alleles = typeof first.allele_string === "string" ? first.allele_string.split("/") : [];
-    const echoRef = (alleles[0] ?? "").toUpperCase();
+    const rawRef = (alleles[0] ?? "").toUpperCase();
+    const strand = first.strand;
+    const isNegative = strand === -1 || strand === "-1" || strand === "-";
+    const echoRef = (isNegative ? reverseComplementDna(rawRef) : rawRef).toUpperCase();
     if (echoChrom !== lifted.chrom.toUpperCase() || first.start !== lifted.pos || echoRef !== lifted.ref.toUpperCase()) {
       return null;
     }

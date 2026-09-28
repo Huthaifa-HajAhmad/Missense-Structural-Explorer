@@ -591,6 +591,66 @@ export function parseGenomicHgvsNotation(input: string): ParsedGenomicHgvs | nul
   };
 }
 
+/** Standard DNA nucleotide base complements. */
+const DNA_COMPLEMENT_MAP: Record<string, string> = {
+  A: "T",
+  T: "A",
+  C: "G",
+  G: "C",
+  a: "t",
+  t: "a",
+  c: "g",
+  g: "c",
+};
+
+/**
+ * Returns the reverse-complement of a DNA sequence.
+ * Preserves casing where possible. Unknown characters are preserved as-is.
+ */
+export function reverseComplementDna(sequence: string): string {
+  if (!sequence) return "";
+  return sequence
+    .split("")
+    .reverse()
+    .map((c) => DNA_COMPLEMENT_MAP[c] || c)
+    .join("");
+}
+
+/**
+ * Returns genomic forward (+) strand alleles given REF, ALT and transcript/feature strand.
+ * When strand is negative (-1, "-1", "-"), alleles are reverse-complemented to map to the forward strand.
+ */
+export function normalizeGenomicAllelesForStrand(
+  ref: string,
+  alt: string,
+  strand?: number | string | null
+): { ref: string; alt: string } {
+  const isNegative = strand === -1 || strand === "-1" || strand === "-";
+  if (!isNegative) {
+    return { ref, alt };
+  }
+  return {
+    ref: reverseComplementDna(ref),
+    alt: reverseComplementDna(alt),
+  };
+}
+
+/**
+ * Formats canonical forward (+) strand gnomAD/VCF-style variant ID (`chr-pos-ref-alt`),
+ * ensuring minus-strand feature/transcript alleles are properly complemented.
+ */
+export function buildForwardStrandGenomicId(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  strand?: number | string | null
+): string {
+  const cleanChrom = chrom.replace(/^chr/i, "");
+  const normalized = normalizeGenomicAllelesForStrand(ref, alt, strand);
+  return `${cleanChrom}-${pos}-${normalized.ref}-${normalized.alt}`;
+}
+
 /**
  * Human-facing catalogue of accepted notation families, shared by the server's 400
  * response and the client's input hints so the two can never disagree.

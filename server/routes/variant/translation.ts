@@ -16,6 +16,7 @@ import {
   ACCEPTED_NOTATION_SUMMARY,
   MISSENSE_ONLY_NOTE,
   assemblyAnnotationsOf,
+  buildForwardStrandGenomicId,
   cdnaReferenceProblem,
   classifyNotation,
   detectAssemblyAnnotation,
@@ -721,11 +722,12 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       const chr = consequence.seq_region_name;
       const startPos = consequence.start;
       const alleleStr = consequence.allele_string;
+      const strand = consequence.strand;
       const echoedCoordinates =
         chr && startPos && typeof alleleStr === "string"
           ? (() => {
               const parts = alleleStr.split("/");
-              return parts.length >= 2 ? `${chr}-${startPos}-${parts[0]}-${parts[1]}` : null;
+              return parts.length >= 2 ? buildForwardStrandGenomicId(chr, startPos, parts[0], parts[1], strand) : null;
             })()
           : null;
       /**
